@@ -1,0 +1,48 @@
+# XcodeGen spec. Generate the Xcode project with `xcodegen generate`.
+# APKRunner.xcodeproj and app/Info.plist are generated and not versioned.
+name: APKRunner
+
+options:
+  bundleIdPrefix: io.github.kisame76
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    # Personal Team ID; tools/deploy.sh passes it in, empty is fine for the Simulator.
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+
+targets:
+  APKRunner:
+    type: application
+    platform: iOS
+    sources:
+      - path: app/Sources
+    info:
+      path: app/Info.plist
+      properties:
+        CFBundleDisplayName: APK-Runner
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        # Required for apps built with the iOS 27 SDK.
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.apkrunner
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+    scheme: {}
