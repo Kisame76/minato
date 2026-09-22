@@ -3,6 +3,9 @@
 # Needs: Apple ID in Xcode (Settings > Accounts), the iPhone paired, unlocked
 # and connected, and Developer Mode enabled on the iPhone.
 # Usage: tools/deploy.sh [device name or identifier]
+# Optional environment:
+#   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/APKRunner.entitlements
+#   LAUNCH_ARGS     arguments for the app; its output is then shown here until it exits
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -48,12 +51,22 @@ if [[ "$DEV_MODE" == "disabled" ]]; then
   exit 1
 fi
 
+read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
+read -r -a APP_ARGS <<< "${LAUNCH_ARGS:-}"
+
 tools/gen.sh
+# The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \
-  -allowProvisioningUpdates -allowProvisioningDeviceRegistration -quiet build
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration -quiet build \
+  ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
 APP="$DERIVED/Build/Products/Debug-iphoneos/APKRunner.app"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
-xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID"
-echo "Launched on device $DEVICE_ID (connection: $CONN_STATE)"
+if [[ ${#APP_ARGS[@]} -gt 0 ]]; then
+  xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --console \
+    "$BUNDLE_ID" "${APP_ARGS[@]}"
+else
+  xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing "$BUNDLE_ID"
+  echo "Launched on device $DEVICE_ID (connection: $CONN_STATE)"
+fi

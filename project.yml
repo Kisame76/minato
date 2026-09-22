@@ -1,5 +1,5 @@
 # XcodeGen spec. Generate the Xcode project with `xcodegen generate`.
-# APKRunner.xcodeproj and app/Info.plist are generated and not versioned.
+# APKRunner.xcodeproj, app/Info.plist and app/APKRunner.entitlements are generated and not versioned.
 name: APKRunner
 
 options:
@@ -26,6 +26,10 @@ targets:
     platform: iOS
     sources:
       - path: app/Sources
+      # Feasibility spikes S1–S3 and S1b (docs/STATUS.md), run by Debug builds launched with -runSpikes.
+      - path: app/Spikes
+        excludes:
+          - "TestLibrary/**"
     dependencies:
       - package: APKKit
         product: APKKit
@@ -66,10 +70,27 @@ targets:
                 - apk
               public.mime-type:
                 - application/vnd.android.package-archive
+    # Every build carries increased-memory-limit: about 6 GiB instead of 3.3 GiB
+    # and a 64 GiB address range on iOS 27 (ADR-0012, spike S2).
+    entitlements:
+      path: app/APKRunner.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.apkrunner
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
+        SWIFT_OBJC_BRIDGING_HEADER: app/Spikes/Spikes-Bridging-Header.h
+    postBuildScripts:
+      - name: Build spike test dylibs
+        script: exec "$SRCROOT/tools/build-spike-dylibs.sh"
+        inputFiles:
+          - $(SRCROOT)/app/Spikes/TestLibrary/spike_s1.c
+          - $(SRCROOT)/tools/build-spike-dylibs.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1.dylib
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-adhoc.dylib
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-bundleid.dylib
     scheme: {}

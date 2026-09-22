@@ -2,6 +2,9 @@ import APKKit
 import APKLibrary
 import Foundation
 import Observation
+import os
+
+private let log = Logger(subsystem: "io.github.kisame76.apkrunner", category: "import")
 
 /// One tile in the library grid: an installed entry or a dropped file that is not imported yet.
 struct LibraryItem: Identifiable {
@@ -112,7 +115,9 @@ final class LibraryModel {
                 if hasAccess { url.stopAccessingSecurityScopedResource() }
             }
             do {
+                let start = ContinuousClock.now
                 _ = try await library.adopt(url)
+                log.info("Adopted \(url.lastPathComponent, privacy: .public) in \(ContinuousClock.now - start, privacy: .public)")
             } catch {
                 errorMessage = "“\(url.lastPathComponent)” could not be added: \(error.localizedDescription)"
             }
@@ -135,12 +140,15 @@ final class LibraryModel {
     private func install(_ url: URL, with library: Library) async {
         progress[url] = 0
         do {
-            try await library.importFile(url) { [weak self] value in
+            let start = ContinuousClock.now
+            let entry = try await library.importFile(url) { [weak self] value in
                 Task { @MainActor in
                     guard let self, self.pending.contains(url) else { return }
                     self.progress[url] = value
                 }
             }
+            let megabytes = Double(entry.source.size) / 1_000_000
+            log.info("Imported \(url.lastPathComponent, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB) in \(ContinuousClock.now - start, privacy: .public)")
         } catch {
             errorMessage = "“\(url.lastPathComponent)” could not be imported: \(error.localizedDescription)"
         }

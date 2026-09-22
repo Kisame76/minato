@@ -5,6 +5,12 @@ struct APKRunnerApp: App {
     @State private var library = LibraryModel()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        #if DEBUG
+        SpikeRunner.runIfRequested()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             LibraryView()

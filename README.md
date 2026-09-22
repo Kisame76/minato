@@ -16,7 +16,7 @@ tools/deploy.sh   # auf dem angeschlossenen iPhone bauen, installieren und start
 tools/gen.sh      # nur das Xcode-Projekt erzeugen, z. B. vor dem Öffnen in Xcode
 ```
 
-`APKRunner.xcodeproj` und `app/Info.plist` werden aus [`project.yml`](project.yml) erzeugt und nicht versioniert. Änderungen daher in `project.yml` vornehmen, nicht in Xcode.
+`APKRunner.xcodeproj`, `app/Info.plist` und `app/APKRunner.entitlements` werden aus [`project.yml`](project.yml) erzeugt und nicht versioniert. Änderungen daher in `project.yml` vornehmen, nicht in Xcode.
 
 ## Tests und Werkzeuge
 
@@ -27,3 +27,7 @@ tools/apk-check.py <apk>                                        # Echtheit prüf
 ```
 
 Test-APKs liegen lokal in `apk/` (von Git ignoriert), siehe [`docs/TEST-APKS.md`](docs/TEST-APKS.md).
+
+## Lizenz
+
+Apache-2.0, siehe [`LICENSE`](LICENSE).

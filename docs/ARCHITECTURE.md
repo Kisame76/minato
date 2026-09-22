@@ -1,6 +1,6 @@
 # APK-Runner – Architektur
 
-Stand: M0, 2026-09-21. Entscheidungen stehen in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 bis ADR-0017), Fortschritt in [`STATUS.md`](STATUS.md). Die Rohberichte der Recherche mit allen Quellen liegen in [`research/`](research/).
+Stand: M0, 2026-09-21; Spike-Ergebnisse ergänzt 2026-09-22. Entscheidungen stehen in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 bis ADR-0018), Fortschritt in [`STATUS.md`](STATUS.md). Die Rohberichte der Recherche mit allen Quellen liegen in [`research/`](research/).
 
 Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleitet]** = eigene Schlussfolgerung, **[unbestätigt]** = Sekundärquelle oder Nutzerbericht.
 
@@ -14,7 +14,7 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
   - Die **Gast-Welt** läuft mit Android-ABI: echte AOSP-Bionic, die `.so` der App und unsere Android-Systembibliotheken.
   - Die **Host-Welt** läuft mit Darwin-ABI: Loader, Linux-Syscall-Schicht, ANGLE, MoltenVK, AudioUnit und UIKit.
   - Übergänge gibt es genau zwei: Syscalls und die NDK-System-APIs (ADR-0009, ADR-0011).
-- **Belegt ist:** Signieren mit dem eigenen Zertifikat und `dlopen` funktionieren auf iOS 27 (LiveContainer, JIT-less-Modus).
+- **Belegt ist:** Signieren mit dem eigenen Zertifikat und `dlopen` funktionieren auf iOS 27 (LiveContainer, JIT-less-Modus). Unsere eigenen Tests bestätigen das auch für Dateien im Datencontainer, wenn die Signatur-Kennung die Bundle-ID der App ist (S1b). Mit einer anderen Kennung lehnt iOS die Kopie ab (S1, ADR-0008).
 - **Nicht belegt ist,** dass Android-`.so` auf einem echten iPhone laufen. ARTBox hat das bisher nur auf macOS in CI gezeigt. Deshalb laufen drei kleine Machbarkeitstests (Spikes) noch in M0 (siehe [`STATUS.md`](STATUS.md)).
 - **Größte Risiken:**
   - Thread-Pointer in praktisch jeder `.so`.
@@ -28,8 +28,8 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
 | # | Fakt | Folge für uns | Beleg |
 |---|---|---|---|
 | F1 | iOS führt nur signierten Code aus. `dynamic-codesigning` gibt es nur für Apple. Auf A15+ (TXM, also auch A17 Pro) wird frisch geschriebener Code nur ausführbar, wenn ein angehängter Debugger die Seite beschreibt. | Aller Gast-Code muss vor dem Start als signierte Datei vorliegen. JIT gibt es nur optional über StikDebug. | [belegt] Apple Platform Security; StikJIT `INTEGRATION.md` |
-| F2 | Library Validation: Ein Prozess darf Bibliotheken derselben Team-ID laden. | Konvertierte `.so` werden mit einem Zertifikat derselben (kostenlosen) Team-ID signiert. Ein Bypass ist nicht nötig. | [belegt] Apple „App code signing process"; LiveContainer JIT-less auf iOS 27 |
-| F3 | XNU überschreibt `TPIDR_EL0` bei jedem Kontextwechsel mit CPU- und Cluster-Bits. Der Darwin-Thread-Pointer liegt in `TPIDRRO_EL0`, das für Apps nur lesbar ist. | Android-Code liest den Thread-Pointer über `TPIDR_EL0`: der NDK-Standard-Stack-Protector bei TP+0x28 und ELF-TLS ab minSdk 29. Das funktioniert nicht unverändert, also wird es beim Import umgeschrieben (ADR-0010). | [belegt] xnu-12377.121.6 `osfmk/arm64/pcb.c:401–425`; LLVM `AArch64ISelLowering.cpp:33570`; auf macOS 27 gemessen |
+| F2 | Library Validation: Ein Prozess darf Bibliotheken derselben Team-ID laden. | Konvertierte `.so` werden mit einem Zertifikat derselben (kostenlosen) Team-ID signiert. Ein Bypass ist nicht nötig. | [belegt] Apple „App code signing process"; LiveContainer JIT-less auf iOS 27. Eigene Tests: aus dem Bundle ja; Kopie im Datencontainer nur mit der Bundle-ID als Signatur-Kennung (S1/S1b, ADR-0008) |
+| F3 | XNU überschreibt `TPIDR_EL0` bei jedem Kontextwechsel mit CPU- und Cluster-Bits. Der Darwin-Thread-Pointer liegt in `TPIDRRO_EL0`, das für Apps nur lesbar ist. | Android-Code liest den Thread-Pointer über `TPIDR_EL0`: der NDK-Standard-Stack-Protector bei TP+0x28 und ELF-TLS ab minSdk 29. Das funktioniert nicht unverändert, also wird es beim Import umgeschrieben (ADR-0010). | [belegt] xnu-12377.121.6 `osfmk/arm64/pcb.c:401–425`; LLVM `AArch64ISelLowering.cpp:33570`; auf macOS 27 und mit Spike S3 auf dem iPhone (iOS 27) gemessen |
 | F4 | Der Kernel nullt `x18`, außer mit einem Apple-privaten Entitlement. | Gast-Code darf `x18` nicht nutzen. LLVM reserviert `x18` für Android ohnehin. Nutzer von `x18` sind inkompatibel. | [belegt] xnu `locore.s`, `machine_task.c`; LLVM `AArch64TargetParser.cpp:145` |
 | F5 | Darwin nimmt die Syscall-Nummer aus `x16`, Linux aus `x8`. | Ein unverändertes Linux-`svc #0` löst einen zufälligen Darwin-Syscall aus. Jedes `svc` muss beim Import ersetzt werden. | [belegt] xnu `osfmk/arm64/sleh.c` |
 | F6 | arm64-Programme brauchen eine harte 4-GiB-`__PAGEZERO`. Unter 4 GiB lässt sich nichts mappen. | Gast-Code kommt als Dylib in unseren Prozess. ARTs 32-Bit-Objektreferenzen (Heap unter 4 GiB) brauchen in M4 heap-relative Referenzen. | [belegt] xnu `bsd/kern/mach_loader.c:1087`; ARTBox ADR 0031 |
@@ -38,7 +38,7 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
 | F9 | errno-, Signal- und Flag-Werte unterscheiden sich, bei errno 54 von 87. Auch Strukturen (`stat`, `dirent`, `sigaction`, `ucontext`), pthread-Typgrößen und das `FILE`-Layout weichen ab. | Wir übersetzen an einer schmalen Stelle (Syscall-Schicht) statt in Hunderten libc-Funktionen (ADR-0009). | [belegt] Header-Vergleich Bionic-UAPI gegen iOS-27-SDK |
 | F10 | Darwin-`CLOCK_MONOTONIC` zählt im Ruhezustand weiter, Linux-`CLOCK_MONOTONIC` nicht. | Gast-`CLOCK_MONOTONIC` wird auf Darwin-`CLOCK_UPTIME_RAW` abgebildet, `CLOCK_BOOTTIME` auf Darwin-`CLOCK_MONOTONIC`. | [belegt] `man clock_gettime` (macOS 27) |
 | F11 | iOS kennt keine Subprozesse. App-Extensions sind eigene Prozesse, haben aber ein deutlich kleineres Speicherlimit und kosten App-IDs. | Ein Spiel läuft im Vordergrund-Prozess. Keine Extensions (ADR-0003). | [belegt] Apple Extensibility Guide; SideStore |
-| F12 | Speicher auf dem 15 Pro Max unter iOS 27: etwa 3,25 GB bis Jetsam ohne Entitlement, etwa 6 GB mit `increased-memory-limit`. Nutzbarer Adressraum etwa 7,4 GiB ohne `extended-virtual-addressing`. | Das Gast-Budget liegt bei höchstens 5–6 GB. Allocator-Reservierungen bleiben klein, Spike S2 prüft das (ADR-0012). | [unbestätigt] LiveContainer-Issue #1559; alwaysprocessing.blog 2022 |
+| F12 | Speicher auf dem 15 Pro Max unter iOS 27: 3,29 GiB verfügbar ohne Entitlement, 6,00 GiB mit `increased-memory-limit`. Adressraum: 7,84 GiB ohne (größte Region 6 GiB), 65,80 GiB mit dem Entitlement (größte Region 64 GiB), ohne `extended-virtual-addressing`. | Das Gast-Budget liegt bei höchstens 5–6 GB. Allocator-Reservierungen werden zentral budgetiert (ADR-0012). | [belegt] Spike S2 auf dem iPhone, 2026-09-22 (mit Entitlement 1 Lauf); vorher LiveContainer-Issue #1559 |
 | F13 | Kostenloser Account: Profile gelten 7 Tage, 3 Apps pro Gerät, 10 App-IDs pro 7 Tage. Kein Extended Virtual Addressing. | Eine Bundle-ID, keine Extensions. Die App wird wöchentlich neu signiert (ADR-0015). | [belegt] Apple „Compare memberships", „Supported capabilities" |
 | F14 | ANGLE-Metal unterstützt höchstens OpenGL ES 3.0. Es fehlen `OES_EGL_image_external` und `eglPresentationTimeANDROID`. | Unity 6 (verlangt ES 3.1) und UE5 (ES 3.2) laufen nicht über ANGLE-Metal. Vulkan wird der Hauptpfad (ADR-0013). | [belegt] ANGLE `DisplayMtl.mm`, `mtl_common.h` |
 | F15 | MoltenVK 1.4.2 hat weder Geometry Shader noch Transform Feedback. Swapchains gibt es nur in BGRA8, RGBA16F und 10 Bit, Android erwartet RGBA8. | Der Vulkan-Shim wandelt RGBA8 in BGRA8 um (ein Blit pro Frame). Titel mit Geometry Shadern sind inkompatibel. | [belegt] MoltenVK `MVKDevice.mm`; AOSP `swapchain.cpp` |
@@ -213,7 +213,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
   - **heap-relative 32-Bit-Referenzen** wegen F6 (ARTBox-Ansatz, bisher nur isoliert getestet).
 - **nterp** erzeugt keinen Code zur Laufzeit, sondern ist Teil von `libart` [abgeleitet]. Er fällt also nicht unter das JIT-Verbot, muss aber an die heap-relativen Referenzen angepasst werden.
 - **Framework:** Wir schneiden wie ATL zwischen App und Java-Framework: Das Framework wird auf echtem ART nachgebaut, sauber neu geschrieben ohne ATL-Code. Keine Binder-Prozesse, System-Services sind In-Process-Objekte.
-- **Lizenz:** libcore steht unter GPL-2.0 mit Classpath-Exception. Deshalb braucht es vor M4 eine Entscheidung zur Projektlizenz (ADR-0017).
+- **Lizenz:** Die Projektlizenz ist Apache-2.0 (ADR-0017). libcore steht unter GPL-2.0 mit Classpath-Exception und bleibt deshalb eine eigenständige Komponente.
 - **M6:** Die dex2oat-Ausgabe durchläuft dieselbe Pipeline wie `.so` (konvertieren, signieren, `dlopen`). Der Compiler muss dafür heap-relative Referenzen erzeugen.
 
 ### 4.10 Prozessmodell (ADR-0003)
@@ -255,9 +255,9 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 
 | ID | Risiko | Stufe | Gegenmaßnahme |
 |---|---|---|---|
-| R1 | Thread-Pointer und TLS in allen vorgebauten `.so` (F3) | hoch | Umschreiber (ADR-0010); Spike S3 prüft das XNU-Verhalten auf dem iPhone |
-| R2 | Konvertieren, Signieren und `dlopen` von Android-Code sind auf dem iPhone unbewiesen | hoch | Spike S1 (`dlopen` einer Team-signierten Dylib aus dem Datencontainer), danach M2a und M2b |
-| R3 | Speicher und Adressraum mit kostenlosem Account (F12, F13) | hoch | Spike S2; `increased-memory-limit`; kleine Allocator-Reservierungen (ADR-0012) |
+| R1 | Thread-Pointer und TLS in allen vorgebauten `.so` (F3) | hoch | Umschreiber (ADR-0010); Spike S3 hat das XNU-Verhalten auf dem iPhone bestätigt |
+| R2 | Konvertieren, Signieren und `dlopen` von Android-Code sind auf dem iPhone unbewiesen | hoch; nach S1b mittel | S1b: Eine Mac-signierte Dylib mit der Bundle-ID als Kennung lädt aus dem Datencontainer. M2a lädt aus dem Bundle; offen ist das Signieren auf dem iPhone mit zsign (M2b, ADR-0008) |
+| R3 | Speicher und Adressraum mit kostenlosem Account (F12, F13) | hoch; mit Entitlement mittel | `increased-memory-limit` (S2: 6,00 GiB, 64-GiB-Region); Allocator-Reservierungen zentral budgetiert (ADR-0012) |
 | R4 | ART-Heap über 4 GiB (F6), Interpreter langsam | hoch (M4/M6) | Heap-relative Referenzen; Spiele mit wenig Java (NativeActivity, IL2CPP) zuerst |
 | R5 | GLES ≥ 3.1 nicht über ANGLE-Metal (F14) | hoch | Vulkan als Hauptpfad; Prototyp ANGLE-Vulkan (ADR-0013) |
 | R6 | Kein Android-Referenzgerät, Parity nicht messbar | hoch (M3) | Entscheidung vor M3 (ADR-0014) |
@@ -270,19 +270,18 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | R13 | Performance-Kosten durch Inseln, Syscall-Schicht, Swapchain-Blit und Interpreter-ART | mittel | Messen in M2/M3; Fast-Paths |
 | R14 | Neues Projektformat in Xcode 27.2 (XcodeGen #1651/#1653) | niedrig | Auf Xcode 27.0 bleiben, bis XcodeGen es unterstützt |
 | R15 | Der Simulator täuscht: keine gleiche Signaturprüfung, kein Jetsam, ANGLE fest auf ES 3.0 | niedrig | Simulator nur für die UI; Loader-Tests auf macOS und dem iPhone |
-| R16 | Lizenzen: AGPL/GPL-Referenzen, libcore | niedrig | ADR-0017; Projektlizenz vor dem ersten übernommenen Code |
+| R16 | Lizenzen: AGPL/GPL-Referenzen, libcore | niedrig | ADR-0017: Projektlizenz Apache-2.0 (2026-09-22); AGPL/GPL nur lesen; libcore als eigenständige Komponente |
 
 ## 8. Offene Fragen
 
 **Deine Entscheidung:**
-- GLES-Pfad (ADR-0013, berührt feste Entscheidung #5);
+- GLES-Pfad (ADR-0013, vor M3, berührt feste Entscheidung #5);
 - Referenzgerät (ADR-0014, vor M3);
-- Projektlizenz (ADR-0017);
 - Zeitpunkt, den Account eventuell zu bezahlen (ADR-0015);
 - Bundle-ID.
 
 **Prototypen:**
-- Spikes S1–S3 (M0);
+- Signieren auf dem iPhone mit zsign und dem exportierten Xcode-Zertifikat (M2b; ADR-0008);
 - Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2);
 - Kosten der Inseln;
 - Fast-Path für den Stack-Guard;
