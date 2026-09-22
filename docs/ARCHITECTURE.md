@@ -115,7 +115,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
   - Datenmodell von Anfang an als *App = Base + n Splits + OBBs*.
   - Kompatibilitätsregeln.
   - Tests laufen mit `swift test` auf dem Mac. Als Test-Orakel dienen androguard und apk-info (beide Apache-2.0, nur zum Vergleichen).
-- **Konverter** (C++, CMake):
+- **Konverter** (C++, CMake, `importer/converter/`, auf dem Mac auch als Werkzeug `apk-convert`):
   - Bestandteile: ELF-Scanner, Umschreiber (4.4) und Mach-O-Writer (ADR-0008).
   - Derselbe Code läuft auf dem Mac (M2a, Build-Werkzeug) und auf dem iPhone (M2b).
 - **Signierer** (M2b): zsign (MIT, Upstream zhlynn) mit OpenSSL. Das Zertifikat liegt im iOS-Schlüsselbund.
@@ -262,7 +262,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | R5 | GLES ≥ 3.1 nicht über ANGLE-Metal (F14) | hoch | Vulkan als Hauptpfad; Prototyp ANGLE-Vulkan (ADR-0013) |
 | R6 | Kein Android-Referenzgerät, Parity nicht messbar | hoch (M3) | Entscheidung vor M3 (ADR-0014) |
 | R7 | Fehler an der ABI-Grenze: kleine Integer, Callbacks auf Host-Threads (F8) | mittel | Generierte Thunks; Tests mit Müll in den oberen Bits |
-| R8 | Auf 4 KB ausgerichtete `.so` älterer Spiele (F7) | mittel | Erst nur 16 KB; dann RW-Verschiebung plus ADRP-Korrektur, gesteuert durch Korpus-Daten (ADR-0007) |
+| R8 | Auf 4 KB ausgerichtete `.so` (F7), nicht nur in älteren Spielen: In der Test-APK sind es 9 von 16, alle aus SDKs (Firebase, Crashlytics); `libil2cpp.so` und `libunity.so` haben 16 KB | mittel | Erst nur 16 KB; dann RW-Verschiebung plus ADRP-Korrektur, gesteuert durch Korpus-Daten (ADR-0007) |
 | R9 | Signale: Crash-Handler von Unity/Mono/ART erwarten Linux-`ucontext` | mittel | Übersetzung in beide Richtungen in M2 |
 | R10 | dyld-Interna und private SPIs ändern sich (iOS 27: `seg_count`) | mittel | Eigener Mach-O-Writer ohne Chained Fixups; SPI-Nutzung klein und kapseln; LiveContainer-Issues als Frühwarnung |
 | R11 | Unsicherer Code-Stand von ARTBox | mittel | Nur einzelne Module, gepinnt, reviewt, mit eigenen Tests |
@@ -282,7 +282,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 
 **Prototypen:**
 - Signieren auf dem iPhone mit zsign und dem exportierten Xcode-Zertifikat (M2b; ADR-0008);
-- Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2);
+- Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2). Erster Datenpunkt zum 4-KB-Layout: Test-APK, 9 von 16 `.so`, gelesen mit `apk-convert inspect`;
 - Kosten der Inseln;
 - Fast-Path für den Stack-Guard;
 - ART mit heap-relativen Referenzen und nterp (M4);

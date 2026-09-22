@@ -1,4 +1,6 @@
+import APKRuntime
 import SwiftUI
+import os
 
 @main
 struct APKRunnerApp: App {
@@ -6,6 +8,8 @@ struct APKRunnerApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        Logger(subsystem: "io.github.kisame76.apkrunner", category: "runtime")
+            .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG
         SpikeRunner.runIfRequested()
         #endif

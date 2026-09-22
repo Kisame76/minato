@@ -1,5 +1,6 @@
 # XcodeGen spec. Generate the Xcode project with `xcodegen generate`.
 # APKRunner.xcodeproj, app/Info.plist and app/APKRunner.entitlements are generated and not versioned.
+# Before building in Xcode, run tools/build-native.sh --app once: the app links build/APKRuntime.xcframework.
 name: APKRunner
 
 options:
@@ -35,6 +36,9 @@ targets:
         product: APKKit
       - package: APKKit
         product: APKLibrary
+      # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
+      - framework: build/APKRuntime.xcframework
+        embed: false
     info:
       path: app/Info.plist
       properties:

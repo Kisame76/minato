@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/native/${presetName}",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos",
+      "inherits": "base",
+      "displayName": "macOS: tests and host tools, with ASan and UBSan",
+      "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "26.0",
+        "APK_SANITIZE": "ON"
+      }
+    },
+    {
+      "name": "ios",
+      "inherits": "base",
+      "displayName": "iOS device: libraries for the app",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "26.0"
+      }
+    },
+    {
+      "name": "ios-simulator",
+      "inherits": "ios",
+      "displayName": "iOS Simulator: libraries for the app",
+      "cacheVariables": {
+        "CMAKE_OSX_SYSROOT": "iphonesimulator"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "macos", "configurePreset": "macos" },
+    { "name": "ios", "configurePreset": "ios" },
+    { "name": "ios-simulator", "configurePreset": "ios-simulator" }
+  ],
+  "testPresets": [
+    {
+      "name": "macos",
+      "configurePreset": "macos",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ]
+}

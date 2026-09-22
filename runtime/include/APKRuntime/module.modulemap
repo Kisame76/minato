@@ -1,0 +1,7 @@
+// Lets Swift `import APKRuntime` from build/APKRuntime.xcframework (tools/build-native.sh).
+module APKRuntime {
+    header "apkrt.h"
+    // The runtime is written in C++.
+    link "c++"
+    export *
+}

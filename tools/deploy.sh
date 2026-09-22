@@ -55,6 +55,7 @@ read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 read -r -a APP_ARGS <<< "${LAUNCH_ARGS:-}"
 
 tools/gen.sh
+tools/build-native.sh --app
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \

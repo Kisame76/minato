@@ -37,6 +37,7 @@ if [[ -z "${SIM_UDID:-}" ]]; then
 fi
 
 tools/gen.sh
+tools/build-native.sh --app
 xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
   -destination "id=$SIM_UDID" -derivedDataPath "$DERIVED" -quiet build
 
