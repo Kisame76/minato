@@ -26,3 +26,6 @@ DerivedData/
 # CMake / Android NDK
 .cxx/
 cmake-build-*/
+
+# Local test APKs (never committed; checked before use)
+/apk/

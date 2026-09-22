@@ -71,7 +71,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 ```
 
 **Import (Launcher-Modus):**
-1. `Documents/APKs/` scannen, beim Start und bei Rückkehr in den Vordergrund. Dazu kommen Dateien über „Öffnen mit".
+1. Datei über „+“ oder „Öffnen mit" übernehmen: als Klon in den versteckten Ordner `Library/Application Support/incoming/`, das Original bleibt, wo es ist (ADR-0018).
 2. APK parsen: ZIP, binäres `AndroidManifest.xml`, `resources.arsc`, Signaturblöcke v1 bis v3.1.
 3. Kompatibilität prüfen:
    - Ist `arm64-v8a` vorhanden?
@@ -100,10 +100,11 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 - **Aufgaben:** Library-Grid, Import, Launcher, Overlay.
 - **Info.plist:**
   - `UILaunchScreen` (Pflicht mit dem iOS-27-SDK);
-  - ab M1: `UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace`, `CFBundleDocumentTypes`, `UTImportedTypeDeclarations`;
+  - ab M1: `LSSupportsOpeningDocumentsInPlace`, `CFBundleDocumentTypes`, `UTImportedTypeDeclarations`, kein `UIFileSharingEnabled` (ADR-0018);
   - ab M3: `CADisableMinimumFrameDurationOnPhone`, `GCSupportsGameMode`, Kategorie Games.
 - **Speicherorte:**
-  - `Documents/` nur für Dateien, die der Nutzer ablegt;
+  - `Documents/` bleibt leer; nur iOS legt bei „Öffnen mit" Kopien in `Inbox/` ab, die die App übernimmt und löscht;
+  - `Library/Application Support/incoming/` für gewählte Dateien bis zur Installation;
   - `Library/Application Support/apps/<package>/` für Installiertes (APKs, konvertierte und signierte Libs, Metadaten);
   - `Library/Application Support/data/<package>/` für App-Daten (siehe 4.5).
 - **Bundle und Signatur:** eine Bundle-ID, keine App-Extensions (ADR-0003, ADR-0015).

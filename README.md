@@ -17,3 +17,13 @@ tools/gen.sh      # nur das Xcode-Projekt erzeugen, z. B. vor dem Öffnen in Xco
 ```
 
 `APKRunner.xcodeproj` und `app/Info.plist` werden aus [`project.yml`](project.yml) erzeugt und nicht versioniert. Änderungen daher in `project.yml` vornehmen, nicht in Xcode.
+
+## Tests und Werkzeuge
+
+```bash
+swift test --package-path importer/APKKit                      # Unit-Tests (Parser und Library)
+swift run --package-path importer/APKKit apk-inspect <apk>     # zeigt, was die App aus einer APK liest
+tools/apk-check.py <apk>                                        # Echtheit prüfen, bevor eine APK benutzt wird
+```
+
+Test-APKs liegen lokal in `apk/` (von Git ignoriert), siehe [`docs/TEST-APKS.md`](docs/TEST-APKS.md).

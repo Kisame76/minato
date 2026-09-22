@@ -1,0 +1,235 @@
+import APKKit
+import CryptoKit
+import Foundation
+
+public enum LibraryError: Error, Equatable, Sendable {
+    /// The manifest's package name is not a valid Android package name (and could escape the library folders).
+    case unsafePackageName(String)
+}
+
+/// The installed apps and the import pipeline: picked file → hidden copy → analysis → install directory → index.
+public actor Library {
+    public nonisolated let paths: LibraryPaths
+    public private(set) var entries: [LibraryEntry]
+    private let preferredLanguages: [String]
+
+    public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages) throws {
+        self.paths = paths
+        self.preferredLanguages = preferredLanguages
+        if FileManager.default.fileExists(atPath: paths.indexFile.path) {
+            entries = try Self.decoder.decode(Index.self, from: Data(contentsOf: paths.indexFile)).entries
+        } else {
+            entries = []
+        }
+    }
+
+    /// Picked files that are not installed yet: normally the ones `adopt` just took over, after an
+    /// interrupted import also those left over from last time.
+    public func scan() throws -> [URL] {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
+        return try fileManager.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: nil)
+            .filter(Self.isAPK)
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Takes over a file picked with + or opened with "Open with" and returns where it waits for `importFile`.
+    /// The file is cloned into a hidden folder: on APFS that takes no extra space, nothing new appears in the
+    /// Files app, and the original stays where it is. Only a copy iOS itself put into Documents/Inbox is removed.
+    /// Callers own security-scoped access to `url`.
+    public func adopt(_ url: URL) throws -> URL {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
+        let target = Self.unusedURL(in: paths.incoming, name: url.lastPathComponent)
+        var coordinationError: NSError?
+        var copyError: Error?
+        // Coordinated read, so that files in iCloud Drive or other file providers are materialised first.
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
+            do { try fileManager.copyItem(at: readableURL, to: target) } catch { copyError = error }
+        }
+        if let error = coordinationError ?? copyError { throw error }
+        if Self.isDirectChild(url, of: paths.inbox) {
+            try? fileManager.removeItem(at: url)
+        }
+        return target
+    }
+
+    /// Analyses and installs one APK. Never throws for a bad APK: that becomes an `.invalid` entry.
+    @discardableResult
+    public func importFile(_ url: URL, progress: @Sendable (Double) -> Void = { _ in }) throws -> LibraryEntry {
+        let fileManager = FileManager.default
+        let source = try Self.sourceFile(for: url)
+        progress(0)
+
+        let report: APKReport
+        let icon: Data?
+        do {
+            let archive = try ZipArchive(url: url)
+            report = try APKAnalyzer.analyze(archive, preferredLanguages: preferredLanguages)
+            guard Self.isSafePackageName(report.packageName) else { throw LibraryError.unsafePackageName(report.packageName) }
+            icon = try? APKAnalyzer.iconData(for: report, in: archive)
+        } catch {
+            let entry = LibraryEntry(
+                id: "file:\(url.lastPathComponent)", displayName: url.lastPathComponent, state: .invalid(String(describing: error)),
+                report: nil, base: nil, splits: [], obbs: [], source: source, iconFile: nil, importedAt: Date())
+            try store(entry)
+            discardPickedCopy(url)
+            progress(1)
+            return entry
+        }
+        progress(0.2)
+
+        let package = report.packageName
+        let installDirectory = paths.installDirectory(for: package)
+        try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true)
+        let state: LibraryEntry.State = switch report.compatibility.status {
+        case .ready: .ready
+        case .needsSplits: .needsSplits
+        case .incompatible: .incompatible
+        }
+
+        var base: PackageFile?
+        let installedAPK = installDirectory.appendingPathComponent("base.apk")
+        if state == .incompatible {
+            try? fileManager.removeItem(at: installedAPK)
+        } else {
+            let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
+            // Copy next to the target, then swap: an interrupted import never leaves a half-written base.apk.
+            // On APFS the copy is a clone and takes no extra space.
+            let partial = installDirectory.appendingPathComponent("base.apk.partial")
+            try? fileManager.removeItem(at: partial)
+            try fileManager.copyItem(at: url, to: partial)
+            if fileManager.fileExists(atPath: installedAPK.path) {
+                _ = try fileManager.replaceItemAt(installedAPK, withItemAt: partial)
+            } else {
+                try fileManager.moveItem(at: partial, to: installedAPK)
+            }
+            base = PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest)
+            for folder in ["data", "external", "obb"] {
+                try fileManager.createDirectory(at: paths.dataDirectory(for: package).appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+        }
+        progress(0.85)
+
+        var iconFile: String?
+        if let icon, let iconPath = report.iconPath {
+            let fileName = "icon." + (iconPath.split(separator: ".").last.map { $0.lowercased() } ?? "png")
+            try icon.write(to: installDirectory.appendingPathComponent(fileName), options: .atomic)
+            iconFile = "apps/\(package)/\(fileName)"
+        }
+
+        let entry = LibraryEntry(
+            id: package, displayName: report.label, state: state, report: report, base: base,
+            splits: [], obbs: [], source: source, iconFile: iconFile, importedAt: Date())
+        try store(entry)
+        discardPickedCopy(url)
+        progress(1)
+        return entry
+    }
+
+    /// Removes an app with its data. The file it was installed from is not touched.
+    public func remove(id: String) throws {
+        guard entries.contains(where: { $0.id == id }) else { return }
+        if !id.hasPrefix("file:"), Self.isSafePackageName(id) {
+            try? FileManager.default.removeItem(at: paths.installDirectory(for: id))
+            try? FileManager.default.removeItem(at: paths.dataDirectory(for: id))
+        }
+        entries.removeAll { $0.id == id }
+        try save()
+    }
+
+    /// The hidden copy `adopt` made is not needed once the app is installed or recorded as invalid.
+    private func discardPickedCopy(_ url: URL) {
+        if Self.isDirectChild(url, of: paths.incoming) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    // MARK: - Index
+
+    private struct Index: Codable {
+        var version = 1
+        var entries: [LibraryEntry]
+    }
+
+    private func store(_ entry: LibraryEntry) throws {
+        if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[position] = entry
+        } else {
+            entries.append(entry)
+        }
+        try save()
+    }
+
+    private func save() throws {
+        try FileManager.default.createDirectory(at: paths.applicationSupport, withIntermediateDirectories: true)
+        try Self.encoder.encode(Index(entries: entries)).write(to: paths.indexFile, options: .atomic)
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    // MARK: - Files
+
+    static func isAPK(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "apk"
+    }
+
+    /// Android package names: dot-separated segments of letters, digits and underscores.
+    /// Anything else could turn into a path outside the library.
+    static func isSafePackageName(_ name: String) -> Bool {
+        guard !name.isEmpty, name.count <= 255 else { return false }
+        return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { segment in
+            guard let first = segment.first, first.isASCII, first.isLetter || first == "_" else { return false }
+            return segment.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+        }
+    }
+
+    /// Whether `url` lies directly in `folder`, comparing resolved paths (/var is a symlink to /private/var).
+    static func isDirectChild(_ url: URL, of folder: URL) -> Bool {
+        url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.path
+            == folder.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    static func sourceFile(for url: URL) throws -> SourceFile {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        return SourceFile(
+            fileName: url.lastPathComponent,
+            size: UInt64(values.fileSize ?? 0),
+            modifiedMilliseconds: Int64(((values.contentModificationDate ?? .distantPast).timeIntervalSince1970 * 1000).rounded()))
+    }
+
+    private static func unusedURL(in folder: URL, name: String) -> URL {
+        var candidate = folder.appendingPathComponent(name)
+        let base = (name as NSString).deletingPathExtension
+        let pathExtension = (name as NSString).pathExtension
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(base) \(counter).\(pathExtension)")
+            counter += 1
+        }
+        return candidate
+    }
+
+    private static func sha256(of url: URL, size: UInt64, progress: (Double) -> Void) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var done: UInt64 = 0
+        while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+            done += UInt64(chunk.count)
+            progress(Double(done) / Double(max(size, 1)))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}

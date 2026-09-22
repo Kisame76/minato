@@ -11,10 +11,14 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.0.1"
+    MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     # Personal Team ID; tools/deploy.sh passes it in, empty is fine for the Simulator.
     DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+
+packages:
+  APKKit:
+    path: importer/APKKit
 
 targets:
   APKRunner:
@@ -22,6 +26,11 @@ targets:
     platform: iOS
     sources:
       - path: app/Sources
+    dependencies:
+      - package: APKKit
+        product: APKKit
+      - package: APKKit
+        product: APKLibrary
     info:
       path: app/Info.plist
       properties:
@@ -39,6 +48,24 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
+        # "Open with" hands over the original file instead of a copy in Documents/Inbox.
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Android Package
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.android.package-archive
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.android.package-archive
+            UTTypeDescription: Android Package
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - apk
+              public.mime-type:
+                - application/vnd.android.package-archive
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.apkrunner
