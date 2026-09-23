@@ -5,7 +5,10 @@ import Foundation
 
 /// Runs one test of fixtures/tests.txt (M2 step 6) when the app is launched with -runFixture <test>:
 /// the program from the bundle's Fixtures folder (tools/embed-fixtures.sh), the way Android's shell
-/// runs it: `cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>`. Its stdout and
+/// runs it: `cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>`. With
+/// -signOnDevice (M2b) the app converts and signs the program and its own libraries itself, from
+/// the ELF files in Fixtures/elf, into Application Support, as it will do with the libraries of an
+/// imported APK (ADR-0008, ADR-0022); output/signing then lists what that cost. Its stdout and
 /// stderr go to tmp/fixtures/<test>/output/, where tools/device-suite.sh fetches them, and so does
 /// its exit status: the program ends the process, and the runtime writes the status to output/status
 /// first (devicectl's exit code is not reliable for a process that ends this quickly). So nothing
@@ -18,10 +21,10 @@ enum FixtureRunner {
     static func runIfRequested() {
         let arguments = ProcessInfo.processInfo.arguments
         guard let flag = arguments.firstIndex(of: "-runFixture"), arguments.indices.contains(flag + 1) else { return }
-        run(test: arguments[flag + 1])
+        run(test: arguments[flag + 1], signOnDevice: arguments.contains("-signOnDevice"))
     }
 
-    private static func run(test: String) -> Never {
+    private static func run(test: String, signOnDevice: Bool) -> Never {
         let folder = URL.temporaryDirectory.appending(path: "fixtures/\(test)", directoryHint: .isDirectory)
         let output = folder.appending(path: "output", directoryHint: .isDirectory)
         let dataLocalTmp = folder.appending(path: "data-local-tmp", directoryHint: .isDirectory)
@@ -63,10 +66,39 @@ enum FixtureRunner {
         check(apkrt_set_working_directory("/data/local/tmp", &error, error.count), error)
 
         // The program's libraries lie next to its container, in the program's directory.
-        let container = fixtures.appending(path: "tests/\(test)/\(program).dylib").path
+        var containers = fixtures.appending(path: "tests/\(test)", directoryHint: .isDirectory)
+        if signOnDevice {
+            let libraries = fields.first { $0.hasPrefix("libraries=") }
+                .map { $0.dropFirst("libraries=".count).split(separator: ",").map(String.init) } ?? []
+            containers = convertAndSign([program] + libraries, of: test, from: fixtures, report: output.appending(path: "signing"))
+        }
+        let container = containers.appending(path: "\(program).dylib").path
         apkrt_run_program(container, cStrings(["./\(program)"]), cStrings(environment), &error, error.count)
         check(-1, error)
         fail("unreachable")
+    }
+
+    /// Converts and signs the ELF files `files` of the test into a fresh folder in Application
+    /// Support and returns it. `report` gets one line per file: name, container bytes, milliseconds
+    /// for converting and for signing.
+    private static func convertAndSign(_ files: [String], of test: String, from fixtures: URL, report: URL) -> URL {
+        let folder = URL.applicationSupportDirectory.appending(path: "fixtures/\(test)", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: folder)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let signer = try CodeSigning.signer()
+            var lines = ""
+            for file in files {
+                let elf = fixtures.appending(path: "elf/\(test)/\(file)")
+                let statistics = try signer.convert(elf, to: folder.appending(path: "\(file).dylib"))
+                lines += String(format: "%@ %llu %.3f %.3f\n", file, statistics.container_bytes,
+                                statistics.convert_milliseconds, statistics.sign_milliseconds)
+            }
+            try Data(lines.utf8).write(to: report)
+        } catch {
+            fail("cannot convert and sign on the device: \(error.localizedDescription)")
+        }
+        return folder
     }
 
     /// The fields after the test's name on its line of tests.txt.

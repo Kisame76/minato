@@ -2,6 +2,8 @@
 # Build APKRunner for the connected iPhone, install it and launch it.
 # Needs: Apple ID in Xcode (Settings > Accounts), the iPhone paired, unlocked
 # and connected, and Developer Mode enabled on the iPhone.
+# After installing, it hands the app the certificate Xcode signed it with, for signing converted
+# code (tools/hand-over-certificate.sh), when the app does not have that one yet.
 # Usage: tools/deploy.sh [device name or identifier]
 # Optional environment:
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/APKRunner.entitlements
@@ -37,6 +39,8 @@ xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
 
 APP="$DERIVED/Build/Products/Debug-iphoneos/APKRunner.app"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
+tools/hand-over-certificate.sh "$DEVICE_ID" ||
+  echo "The signing certificate was not handed over; converted code loads only once the app has it." >&2
 if [[ -n "${INSTALL_ONLY:-}" ]]; then
   echo "Installed on device $DEVICE_ID (connection: $CONN_STATE)"
 elif [[ ${#APP_ARGS[@]} -gt 0 ]]; then

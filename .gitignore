@@ -16,6 +16,9 @@ DerivedData/
 .build/
 .swiftpm/
 
+# Signing identities (certificate and private key) never go into the repo (ADR-0022)
+*.p12
+
 # No APKs or app bundles in the repo (CLAUDE.md Non-Goals)
 *.apk
 *.apks

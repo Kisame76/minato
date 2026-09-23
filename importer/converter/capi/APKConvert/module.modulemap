@@ -1,0 +1,8 @@
+// Lets Swift `import APKConvert` from build/APKConvert.xcframework (tools/build-native.sh).
+module APKConvert {
+    header "apkconv.h"
+    // The converter is written in C++ and signs with Security.framework.
+    link "c++"
+    link framework "Security"
+    export *
+}

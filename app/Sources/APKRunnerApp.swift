@@ -13,6 +13,7 @@ struct APKRunnerApp: App {
         #if DEBUG
         SpikeRunner.runIfRequested()
         FixtureRunner.runIfRequested()
+        CertificateHandover.runIfRequested()
         #endif
     }
 

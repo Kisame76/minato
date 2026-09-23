@@ -19,8 +19,9 @@ namespace apk::macho {
 /// Page size of iOS and of the macOS hosts we build for.
 inline constexpr std::uint64_t page_size = 16 * 1024;
 
-/// Free bytes the signers need behind the load commands: codesign and zsign add LC_CODE_SIGNATURE
-/// there, over whatever lies in the way. Sections start at least this far behind the last command.
+/// Free bytes the signers need behind the load commands: codesign and the converter's own signer
+/// (codesign.h) add LC_CODE_SIGNATURE there, over whatever lies in the way. Sections start at least
+/// this far behind the last command.
 inline constexpr std::size_t signature_headroom = 256;
 
 /// LC_BUILD_VERSION platforms.

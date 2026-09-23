@@ -41,6 +41,9 @@ targets:
       # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
       - framework: build/APKRuntime.xcframework
         embed: false
+      # Converter and signer (importer/converter/, C++): ELF to signed container on the iPhone (ADR-0022).
+      - framework: build/APKConvert.xcframework
+        embed: false
     info:
       path: app/Info.plist
       properties:

@@ -36,7 +36,7 @@ struct Report {
 };
 
 struct Container {
-    std::vector<std::byte> bytes;  // unsigned: codesign on the Mac, zsign on the iPhone (M2b)
+    std::vector<std::byte> bytes;  // unsigned; codesign.h signs it (ADR-0022)
     Report report;
 };
 

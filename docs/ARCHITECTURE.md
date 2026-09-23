@@ -119,7 +119,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 - **Konverter** (C++, CMake, `importer/converter/`, auf dem Mac auch als Werkzeug `apk-convert`):
   - Bestandteile: ELF-Scanner, Umschreiber (4.4) und Mach-O-Writer (ADR-0008).
   - Derselbe Code läuft auf dem Mac (M2a, Build-Werkzeug) und auf dem iPhone (M2b).
-- **Signierer** (M2b): zsign (MIT, Upstream zhlynn) mit OpenSSL. Das Zertifikat liegt im iOS-Schlüsselbund.
+- **Signierer** (M2b, ADR-0022): eigener Code im Konverter (`codesign.h`), ohne OpenSSL. Er schreibt Signaturen wie `codesign`, die RSA-Signatur macht Security.framework. Das Zertifikat liegt im iOS-Schlüsselbund, die Kette nimmt der Signierer aus der Signatur der App. Beim Entwickeln bringt `tools/deploy.sh` es dorthin: das Zertifikat, mit dem Xcode die App signiert. Die App erreicht Konverter und Signierer über `APKConvert` (C-Schnittstelle, `build/APKConvert.xcframework`).
 
 ### 4.3 Loader (`runtime/loader`)
 - **Linker mit Android-Semantik:**
@@ -231,7 +231,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 |---|---|---|---|---|
 | ARTBox (`fd48d48`, 2026-09-14) | MIT | Nach Review als gepinnte Module: ELF-Parser, Relokations-Engine, Lastgruppen, Symbolversionen, VM-/futex-/VFS-Engines. Dazu das Bionic-Build-Rezept (Overlay von 6 Dateien, Syscall-Stubs), die Testdisziplin (Orakel, feste Nenner) und ab M4 das ART-Rezept. | Nur-Build-Zeit-Wrapper als Produktweg; kontrolliertes ELF-Layout (`--no-relax`, genau 2 PT_LOADs); TLS-Trick nur im Quelltext; Scudo mit 8,25 GiB VA; Verzicht auf Gerätetests | Bester Ausgangspunkt. Aber: 9 Tage alt, ein Autor, nie auf einem iPhone gelaufen, nur für selbst gebaute ELFs gedacht. |
 | LiveContainer (`4dbe0f9`) | AGPL-3.0 | Nur Konzepte: Zertifikat-Import aus SideStore/AltStore, Co-Signing aller Mach-Os, `dlopen` aus dem Datencontainer, Neustart am Platz, `seg_count`-Toleranz für iOS 27 | Code; Multitasking über App-Extensions; private dyld-Hooks | Lizenz; Speicherlimits der Extensions |
-| zsign (upstream, `614caa8`) | MIT | On-device-Signierer für M2b | Den Fork aus Feather/LiveContainer | Saubere Herkunft (Feather ist GPL-3.0) |
+| zsign (upstream, `614caa8`) | MIT | Nur zum Vergleich gelesen: welche Blobs und Attribute eine Signatur braucht | Code; den Fork aus Feather/LiveContainer | Eigener Signierer ohne OpenSSL (ADR-0022); Feather ist GPL-3.0 |
 | Android Translation Layer (`3e686d1`) | GPL-3.0 | Nur Konzepte: Schnitt App ↔ Java-Framework, NativeActivity-Host per `dlopen`+`dlsym`, Einfügen von Surface- und Instance-Extensions bei Vulkan, Pfad-Virtualisierung | Jeglicher Code; GTK/Wayland/ALSA | Lizenz; falsche Plattform |
 | bionic_translation (`b36c17d`) | Apache-2.0, Linker ohne Lizenz (aus android2gnulinux) | Idee eines TLS-Modulregisters | Code; der Shim-Ansatz | Unklare Herkunft; auf Darwin weichen alle Konstanten ab (F9) |
 | art_standalone (`66a5d90`) | Apache-2.0 | Referenz, wie ART außerhalb von AOSP gebaut wird | Den Stand selbst (Android-10-Ära, GCC/Linux) | Veraltet |
@@ -249,7 +249,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | CMake 4.4.3, Ninja 1.13.2 | M2 | Homebrew, klein | BSD-3 / Apache-2.0 |
 | Android NDK r30 (30.0.16248370) | M2 | Download ca. 1,07 GB | Apache-2.0 u. a. |
 | Android-Emulator, Platform-Tools, System-Image Android 15 (ohne Android Studio) | M2, Referenz (ADR-0014) | Download 1,2 GB, entpackt 2,9 GB; installiert 2026-09-22 | Apache-2.0 u. a. |
-| zsign + OpenSSL | M2b | OpenSSL-Build oder fertiges Paket, mittel | MIT / Apache-2.0 |
+| ~~zsign + OpenSSL~~ | M2b | entfällt: eigener Signierer mit Security.framework (ADR-0022) | – |
 | AOSP-Bionic (gepinnter Tag) | M2 | Quellarchiv, Build mit NDK | BSD/Apache |
 | MoltenVK 1.4.2 | M3 | fertiges XCFramework ca. 32 MiB oder eigener Build | Apache-2.0 |
 | ANGLE | M3 | depot_tools + GN, Checkout mehrere GB, erster Build einige zehn Minuten | BSD-3 |
@@ -260,7 +260,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | ID | Risiko | Stufe | Gegenmaßnahme |
 |---|---|---|---|
 | R1 | Thread-Pointer und TLS in allen vorgebauten `.so` (F3) | hoch | Umschreiber (ADR-0010); Spike S3 hat das XNU-Verhalten auf dem iPhone bestätigt |
-| R2 | Konvertieren, Signieren und `dlopen` von Android-Code sind auf dem iPhone unbewiesen | hoch; nach S1b mittel | S1b: Eine Mac-signierte Dylib mit der Bundle-ID als Kennung lädt aus dem Datencontainer. M2a lädt aus dem Bundle; offen ist das Signieren auf dem iPhone mit zsign (M2b, ADR-0008) |
+| R2 | Konvertieren, Signieren und `dlopen` von Android-Code sind auf dem iPhone unbewiesen | erledigt für die Testsuite (M2b, 2026-09-22) | S1b: Eine Mac-signierte Dylib mit der Bundle-ID als Kennung lädt aus dem Datencontainer. M2a lädt aus dem Bundle (Schritt 6). M2b: Die App wandelt um und signiert mit dem importierten Zertifikat, lädt aus `Application Support`; 13 von 13 gleich (ADR-0022). Offen: große Libraries echter APKs (R8, R17, ADR-0020) |
 | R3 | Speicher und Adressraum mit kostenlosem Account (F12, F13) | hoch; mit Entitlement mittel | `increased-memory-limit` (S2: 6,00 GiB, 64-GiB-Region); Allocator-Reservierungen zentral budgetiert (ADR-0012) |
 | R4 | ART-Heap über 4 GiB (F6), Interpreter langsam | hoch (M4/M6) | Heap-relative Referenzen; Spiele mit wenig Java (NativeActivity, IL2CPP) zuerst |
 | R5 | GLES ≥ 3.1 nicht über ANGLE-Metal (F14) | hoch | Vulkan als Hauptpfad; Prototyp ANGLE-Vulkan (ADR-0013) |
@@ -270,7 +270,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | R9 | Signale: Crash-Handler von Unity/Mono/ART erwarten Linux-`ucontext` | mittel → niedrig | Umgesetzt in M2 Schritt 5c: Linux-`rt_sigframe`, Fehler übersetzt, Handler dürfen den Kontext ändern (geprüft von `signal-test`); 3,5 µs je Zustellung |
 | R10 | dyld-Interna und private SPIs ändern sich (iOS 27: `seg_count`) | mittel | Eigener Mach-O-Writer ohne Chained Fixups; SPI-Nutzung klein und kapseln; LiveContainer-Issues als Frühwarnung |
 | R11 | Unsicherer Code-Stand von ARTBox | mittel | Nur einzelne Module, gepinnt, reviewt, mit eigenen Tests |
-| R12 | Zertifikate von Xcode und SideStore kollidieren. Das Limit aktiver Entwicklungszertifikate kann zu einem Widerruf führen, und damit wird alles ungültig, was damit signiert ist. | mittel | Bis M2b nur Xcode; bei Zertifikatswechsel automatisch neu signieren |
+| R12 | Zertifikate von Xcode und SideStore kollidieren. Das Limit aktiver Entwicklungszertifikate kann zu einem Widerruf führen, und damit wird alles ungültig, was damit signiert ist. | mittel | Beim Entwickeln nur Xcode, das Zertifikat übergibt `tools/deploy.sh`. Mit SideStore: neues Zertifikat am Leaf der eigenen Signatur erkennen, übernehmen (ab SideStore 0.6.4 aus `ALTCertificate.p12` im Bundle) und alles neu signieren (ADR-0022) |
 | R13 | Performance-Kosten durch Inseln, Syscall-Schicht, Swapchain-Blit und Interpreter-ART | mittel | Messen in M2/M3; Fast-Paths |
 | R14 | Neues Projektformat in Xcode 27.2 (XcodeGen #1651/#1653) | niedrig | Auf Xcode 27.0 bleiben, bis XcodeGen es unterstützt |
 | R15 | Der Simulator täuscht: keine gleiche Signaturprüfung, kein Jetsam, ANGLE fest auf ES 3.0 | niedrig | Simulator nur für die UI; Loader-Tests auf macOS und dem iPhone |
@@ -286,7 +286,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 - Bundle-ID.
 
 **Prototypen:**
-- Signieren auf dem iPhone mit zsign und dem exportierten Xcode-Zertifikat (M2b; ADR-0008);
+- ~~Signieren auf dem iPhone~~: erledigt mit dem eigenen Signierer (M2b, ADR-0022), auf dem iPhone 13 von 13;
 - Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2). Erste Datenpunkte aus der Test-APK, gelesen mit `apk-convert inspect`: 4-KB-Layout bei 9 von 16 `.so`; `x18` gelesen in 6 von 16 (ADR-0019, Teil 4);
 - Kosten der Inseln;
 - Fast-Path für den Stack-Guard;
@@ -296,7 +296,8 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 ## 9. Wichtigste Quellen
 
 - **ARTBox:** github.com/j0shua-SYSON/ARTBox (`docs/loader-design.md`, `DECISIONS.md`, `STATUS.md`)
-- **LiveContainer:** github.com/LiveContainer/LiveContainer (`LCMachOUtils.m`, `LCBootstrap.m`, `zsign.mm`), livecontainer.github.io
+- **LiveContainer:** github.com/LiveContainer/LiveContainer (`LCMachOUtils.m`, `LCBootstrap.m`, `zsign.mm`, `LCSettingsView.swift`), livecontainer.github.io
+- **SideStore** (AGPL-3.0, nur gelesen): github.com/SideStore/SideStore, Tag `0.6.4` (`EmbedSigningCertOperation.swift`, `CertificateManager.swift`, `OperationStepDefinition.swift`)
 - **Android Translation Layer:** gitlab.com/android_translation_layer (`doc/Architecture.md`)
 - **XNU:** github.com/apple-oss-distributions/xnu, Tag `xnu-12377.121.6` (`pcb.c`, `locore.s`, `sleh.c`, `mach_loader.c`, `ux_exception.c`)
 - **Apple:** „Writing ARM64 code for Apple platforms", „Supported capabilities (iOS)", „Compare memberships", Release Notes iOS 27 / Xcode 27

@@ -6,7 +6,8 @@ extension UTType {
     static let apk = UTType(importedAs: "com.android.package-archive")
 }
 
-/// The library, laid out like a folder in the Files app: icon grid, search, a "…" menu with Select, and +.
+/// The library, laid out like a folder in the Files app: icon grid, search, a "…" menu with Select
+/// and the signing certificate, and +.
 /// Tapping an app starts it; touch and hold offers Get Info and Delete.
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var model
@@ -17,6 +18,7 @@ struct LibraryView: View {
     @State private var isSelecting = false
     @State private var selection: Set<LibraryItem.ID> = []
     @State private var deletion: Deletion?
+    @State private var showsSigning = false
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 8, alignment: .top)]
 
@@ -33,6 +35,9 @@ struct LibraryView: View {
                 }
                 .sheet(item: $shownEntry) { entry in
                     AppDetailView(entry: entry)
+                }
+                .sheet(isPresented: $showsSigning) {
+                    SigningCertificateView()
                 }
                 .alert(launchAlertTitle, isPresented: launchAlertShown, presenting: blockedLaunch) { entry in
                     Button("Get Info") { shownEntry = entry }
@@ -110,6 +115,8 @@ struct LibraryView: View {
                 Menu("More", systemImage: "ellipsis") {
                     Button("Select", systemImage: "checkmark.circle") { isSelecting = true }
                         .disabled(!model.items.contains { $0.entry != nil })
+                    Divider()
+                    Button("Signing Certificate", systemImage: "signature") { showsSigning = true }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

@@ -1,6 +1,7 @@
 // Checks that the container writer produces a dylib dyld really loads: the contents land at the
 // right addresses, code in __TEXT runs, __DATA is writable and its zero-filled tail is zero, and
 // the metadata section is found the way the loader finds it (ADR-0008, ADR-0019).
+#include "apkconv/codesign.h"
 #include "apkconv/macho.h"
 
 #include "check.h"
@@ -81,15 +82,13 @@ std::vector<std::byte> build_image(const Dylib &dylib) {
 }
 
 /// Writes `image`, signs it ad hoc (nothing runs on arm64 unsigned, F1) and returns the path.
-std::filesystem::path write_and_sign(const std::vector<std::byte> &image, const char *name) {
+/// Signs ad hoc with the converter's own signer (ADR-0022), which codesign_test holds to codesign.
+std::filesystem::path write_and_sign(std::vector<std::byte> image, const char *name) {
+    apk::codesign::sign(image, {.identifier = name});
     const auto path = scratch / name;
-    {
-        std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        file.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
-        if (!file) throw std::runtime_error("cannot write " + path.string());
-    }
-    const auto command = "codesign --force --sign - --timestamp=none '" + path.string() + "' 2>&1";
-    if (std::system(command.c_str()) != 0) throw std::runtime_error("codesign failed for " + path.string());
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
+    if (!file) throw std::runtime_error("cannot write " + path.string());
     return path;
 }
 
@@ -172,8 +171,8 @@ TEST(a_layout_dyld_cannot_map_is_rejected) {
     std::vector<std::byte> tiny(64, std::byte{0});
     CHECK_THROWS(FormatError, write_header(too_small, tiny), "too small");
 
-    // codesign and zsign add LC_CODE_SIGNATURE right behind the load commands, over whatever lies
-    // there. A section that starts too close would lose its first bytes to the signature.
+    // The signers add LC_CODE_SIGNATURE right behind the load commands, over whatever lies there.
+    // A section that starts too close would lose its first bytes to the signature.
     auto no_room = test_dylib();
     no_room.segments[0].sections[0].address = header_size(no_room) + 8;
     CHECK_THROWS(FormatError, write_header(no_room, image), "code signature");

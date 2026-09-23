@@ -1,8 +1,31 @@
-// apk-convert: the converter as a command-line tool on the Mac (M2a).
-//   apk-convert inspect <elf-file>...        what the loader will see in an ELF file
-//   apk-convert convert <elf-file> <dylib>   write the container dylib, unsigned (ADR-0019)
+// apk-convert: the converter as a command-line tool on the Mac (M2a, M2b).
+//   apk-convert inspect <elf-file>...                 what the loader will see in an ELF file
+//   apk-convert convert <elf-file> <dylib> [options]  write the container dylib (ADR-0019)
+//   apk-convert sign <mach-o>... --sign <identity>    sign containers again, e.g. for another identity
+//   apk-convert export-identity <signed-file> <file.p12>
+//                                                     the identity in the keychain that signed the file,
+//                                                     for the app on the iPhone (tools/hand-over-certificate.sh)
+// Signing (ADR-0022), as the app does it on the iPhone:
+//   --sign -              ad hoc, byte for byte like `codesign --sign -`
+//   --sign <file.p12>     with the identity in the file; the password comes from APK_P12_PASSWORD
+//                         or is asked for on the terminal (export-identity takes it the same way)
+//   --identifier <id>     the signing identifier; by default the file name without its last
+//                         extension, as codesign does. On iOS it must be the app's bundle ID.
+//   --chain-from <file>   a signed Mach-O whose signature carries the certificate chain, e.g. the
+//                         app's executable from an Xcode build (a .p12 export holds only the leaf)
+// For memset_s, which clears the password where the compiler may not optimize it away.
+#define __STDC_WANT_LIB_EXT1__ 1
+
+#include "apkconv/codesign.h"
 #include "apkconv/container.h"
 #include "apkconv/elf.h"
+#include "apkconv/security_identity.h"
+
+#include <fcntl.h>
+#include <readpassphrase.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -12,6 +35,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -124,6 +148,25 @@ void write_file(const std::string &path, const std::vector<std::byte> &bytes) {
     std::filesystem::rename(temporary, path);
 }
 
+/// Writes key material: a new file only the user can read.
+void write_private_file(const std::string &path, std::span<const std::byte> bytes) {
+    std::filesystem::remove(path);
+    const int descriptor = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR);
+    if (descriptor < 0) throw std::system_error(errno, std::generic_category(), "cannot write " + path);
+    std::size_t written = 0;
+    while (written < bytes.size()) {
+        const auto count = ::write(descriptor, bytes.data() + written, bytes.size() - written);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) {
+            const int failure = errno;
+            ::close(descriptor);
+            throw std::system_error(failure, std::generic_category(), "cannot write " + path);
+        }
+        written += static_cast<std::size_t>(count);
+    }
+    if (::close(descriptor) != 0) throw std::system_error(errno, std::generic_category(), "cannot write " + path);
+}
+
 apk::macho::Platform parse_platform(const std::string &name) {
     if (name == "macos") return apk::macho::Platform::macos;
     if (name == "ios") return apk::macho::Platform::ios;
@@ -131,9 +174,77 @@ apk::macho::Platform parse_platform(const std::string &name) {
     throw std::runtime_error("unknown platform " + name + " (macos, ios, ios-simulator)");
 }
 
-int convert(const std::vector<std::string> &arguments) {
+/// How to sign, from the options.
+struct Signing {
+    bool requested = false;
+    std::string identity;  // "-" for ad hoc, or a .p12 file
+    std::string identifier;
+    std::string chain_from;
+    std::optional<apk::codesign::Identity> loaded;  // from the .p12 file
+};
+
+std::string password() {
+    if (const char *value = std::getenv("APK_P12_PASSWORD")) return value;
+    char buffer[256];
+    if (::readpassphrase("Password of the .p12 file: ", buffer, sizeof buffer, RPP_REQUIRE_TTY) == nullptr) {
+        throw std::runtime_error("no password for the .p12 file: set APK_P12_PASSWORD or run on a terminal");
+    }
+    std::string result(buffer);
+    ::memset_s(buffer, sizeof buffer, 0, sizeof buffer);
+    return result;
+}
+
+/// Takes the signing options out of `arguments`; what is left are the other arguments.
+Signing signing_options(std::vector<std::string> &arguments) {
+    Signing signing;
+    std::vector<std::string> rest;
+    for (std::size_t index = 0; index < arguments.size(); ++index) {
+        const auto &argument = arguments[index];
+        const bool has_value = index + 1 < arguments.size();
+        if (argument == "--sign" && has_value) {
+            signing.requested = true;
+            signing.identity = arguments[++index];
+        } else if (argument == "--identifier" && has_value) {
+            signing.identifier = arguments[++index];
+        } else if (argument == "--chain-from" && has_value) {
+            signing.chain_from = arguments[++index];
+        } else {
+            rest.push_back(argument);
+        }
+    }
+    arguments = rest;
+    if (!signing.requested && (!signing.identifier.empty() || !signing.chain_from.empty())) {
+        throw std::runtime_error("--identifier and --chain-from need --sign");
+    }
+    if (signing.requested && signing.identity != "-") {
+        std::vector<apk::der::Bytes> candidates;
+        if (!signing.chain_from.empty()) {
+            candidates = apk::codesign::read_signature(read_file(signing.chain_from)).certificates;
+        }
+        signing.loaded = apk::codesign::identity_from_p12(read_file(signing.identity), password(), candidates);
+    }
+    return signing;
+}
+
+/// Signs `image` for the file `path`; says how, for the report.
+std::string sign(std::vector<std::byte> &image, const Signing &signing, const std::string &path) {
+    const auto identifier =
+        signing.identifier.empty() ? std::filesystem::path(path).stem().string() : signing.identifier;
+    const auto *identity = signing.loaded ? &*signing.loaded : nullptr;
+    const auto start = std::chrono::steady_clock::now();
+    apk::codesign::sign(image, {.identifier = identifier, .identity = identity});
+    const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
+    if (identity == nullptr) return std::format("signed ad hoc as {} in {:.2f} ms", identifier, elapsed.count());
+    const auto &leaf = identity->chain.front();
+    return std::format("signed as {} by \"{}\" (team {}) in {:.2f} ms", identifier, leaf.common_name,
+                       leaf.organizational_unit, elapsed.count());
+}
+
+int convert(std::vector<std::string> arguments) {
+    const auto signing = signing_options(arguments);
     if (arguments.size() < 3) {
-        std::cerr << "usage: apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n";
+        std::cerr << "usage: apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n"
+                     "                           [--sign -|<file.p12>] [--identifier <id>] [--chain-from <file>]\n";
         return 2;
     }
     const auto &input = arguments[1];
@@ -151,12 +262,13 @@ int convert(const std::vector<std::string> &arguments) {
 
     const auto bytes = read_file(input);
     const auto start = std::chrono::steady_clock::now();
-    const auto container = apk::container::convert(bytes, options);
+    auto container = apk::container::convert(bytes, options);
     const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
+    const auto signature = signing.requested ? sign(container.bytes, signing, output) : "unsigned";
     write_file(output, container.bytes);
 
     const auto &report = container.report;
-    std::cout << std::format("{} -> {} ({} bytes, unsigned)\n", input, output, container.bytes.size())
+    std::cout << std::format("{} -> {} ({} bytes, {})\n", input, output, container.bytes.size(), signature)
               << std::format("  {}, {} bytes of code scanned\n", report.is_static ? "static" : "dynamic",
                              report.code_bytes)
               << std::format("  rewritten: {} thread pointer reads, {} writes, {} syscalls ({} bytes of stubs)\n",
@@ -169,13 +281,48 @@ int convert(const std::vector<std::string> &arguments) {
     return 0;
 }
 
+int sign_files(std::vector<std::string> arguments) {
+    const auto signing = signing_options(arguments);
+    if (arguments.size() < 2 || !signing.requested) {
+        std::cerr << "usage: apk-convert sign <mach-o>... --sign -|<file.p12> [--identifier <id>] [--chain-from <file>]\n";
+        return 2;
+    }
+    for (std::size_t index = 1; index < arguments.size(); ++index) {
+        auto image = read_file(arguments[index]);
+        const auto how = sign(image, signing, arguments[index]);
+        write_file(arguments[index], image);
+        std::cout << std::format("{}: {}\n", arguments[index], how);
+    }
+    return 0;
+}
+
+/// Writes the identity in the keychain that signed a file, e.g. the app Xcode built, to a .p12
+/// file, for the app on the iPhone to import (tools/hand-over-certificate.sh). macOS asks whether
+/// to allow the export of the private key.
+int export_identity(const std::vector<std::string> &arguments) {
+    if (arguments.size() != 3) {
+        std::cerr << "usage: apk-convert export-identity <signed-file> <file.p12>\n";
+        return 2;
+    }
+    const auto signature = apk::codesign::read_signature(read_file(arguments[1]));
+    if (signature.leaf.empty()) throw std::runtime_error(arguments[1] + " is signed ad hoc, without a certificate");
+    const auto certificate = apk::x509::parse(signature.leaf);
+    write_private_file(arguments[2], apk::codesign::keychain_identity_as_p12(certificate, password()));
+    const std::chrono::year_month_day until{std::chrono::floor<std::chrono::days>(certificate.not_after)};
+    std::cout << std::format("{}: the identity of team {}, valid until {:04}-{:02}-{:02}\n", arguments[2],
+                             certificate.organizational_unit, static_cast<int>(until.year()),
+                             static_cast<unsigned>(until.month()), static_cast<unsigned>(until.day()));
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
     const std::vector<std::string> arguments(argv + 1, argv + argc);
-    if (!arguments.empty() && arguments[0] == "convert") {
+    if (!arguments.empty() && (arguments[0] == "convert" || arguments[0] == "sign" || arguments[0] == "export-identity")) {
         try {
-            return convert(arguments);
+            if (arguments[0] == "export-identity") return export_identity(arguments);
+            return arguments[0] == "convert" ? convert(arguments) : sign_files(arguments);
         } catch (const apk::container::Incompatible &error) {
             std::cerr << std::format("apk-convert: incompatible: {}\n", error.what());
             return 1;
@@ -186,7 +333,10 @@ int main(int argc, char **argv) {
     }
     if (arguments.size() < 2 || arguments[0] != "inspect") {
         std::cerr << "usage: apk-convert inspect <elf-file>...\n"
-                     "       apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n";
+                     "       apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n"
+                     "                           [--sign -|<file.p12>] [--identifier <id>] [--chain-from <file>]\n"
+                     "       apk-convert sign <mach-o>... --sign -|<file.p12> [--identifier <id>] [--chain-from <file>]\n"
+                     "       apk-convert export-identity <signed-file> <file.p12>\n";
         return 2;
     }
     int status = 0;

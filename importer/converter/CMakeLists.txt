@@ -1,13 +1,43 @@
 # apkconv: turns the ELF files of an APK into container dylibs (ADR-0008, ADR-0010, ADR-0019):
 # ELF reader, rewriter, Mach-O writer and the converter that puts them together.
-add_library(apkconv STATIC src/elf.cpp src/macho.cpp src/a64.cpp src/rewrite.cpp src/container.cpp)
+add_library(apkconv STATIC src/elf.cpp src/macho.cpp src/a64.cpp src/rewrite.cpp src/container.cpp src/der.cpp
+  src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/c_api.cpp)
 # The container format is shared with the loader: runtime/include/APKRuntime/container_format.h.
-target_include_directories(apkconv PUBLIC include "${PROJECT_SOURCE_DIR}/runtime/include")
+# capi/ holds the C interface for the app (APKConvert/apkconv.h), packed into build/APKConvert.xcframework.
+target_include_directories(apkconv PUBLIC include capi "${PROJECT_SOURCE_DIR}/runtime/include")
 target_link_libraries(apkconv PRIVATE apk_defaults)
+# The signer asks Security.framework to sign with the private key (security_identity.cpp, ADR-0022).
+target_link_libraries(apkconv PUBLIC "-framework Security" "-framework CoreFoundation")
 
 if(APK_HOST_BUILD)
   add_executable(apk-convert src/apk_convert.cpp)
   target_link_libraries(apk-convert PRIVATE apkconv apk_defaults)
+
+  # A container that codesign signed with the Apple Development certificate, from the Xcode device
+  # build with the fixtures (tools/device-suite.sh): the signer and the C interface check against it
+  # what a real Apple signature holds. Without that build these checks are skipped.
+  set(APK_APPLE_SIGNED_CONTAINER
+    "${PROJECT_SOURCE_DIR}/build/DerivedData/Build/Products/Debug-iphoneos/APKRunner.app/Fixtures/system-lib64/libdl.so.dylib"
+    CACHE FILEPATH "A container codesign signed with an Apple Development certificate")
+
+  # The app's C interface, compiled as plain C.
+  add_executable(converter_c_api_test tests/c_api_test.c)
+  target_link_libraries(converter_c_api_test PRIVATE apkconv apk_defaults)
+  add_test(NAME converter.c_api
+    COMMAND converter_c_api_test "${CMAKE_CURRENT_BINARY_DIR}/c_api_test_scratch" "${APK_FIXTURES_DIR}"
+      "${APK_APPLE_SIGNED_CONTAINER}")
+
+  add_executable(der_test tests/der_test.cpp)
+  target_link_libraries(der_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.der COMMAND der_test)
+
+  # Compares the signer with codesign, also against Apple's real chain; needs a directory of its own
+  # and uses the fixtures when built.
+  add_executable(codesign_test tests/codesign_test.cpp)
+  target_link_libraries(codesign_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.codesign
+    COMMAND codesign_test "${CMAKE_CURRENT_BINARY_DIR}/codesign_test_scratch" "${APK_FIXTURES_DIR}"
+      "${APK_APPLE_SIGNED_CONTAINER}")
 
   add_executable(elf_test tests/elf_test.cpp)
   target_link_libraries(elf_test PRIVATE apkconv apk_defaults apk_testing)

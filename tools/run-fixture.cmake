@@ -1,6 +1,7 @@
 # Runs one NDK fixture through the whole chain (ADR-0019, ADR-0021): apk-convert writes the
-# containers of the program, of its own libraries and of the system's, codesign signs them ad hoc,
-# and apk-run runs the program in a process of its own, the way Android's shell runs it:
+# containers of the program, of its own libraries and of the system's and signs them ad hoc with
+# its own signer (ADR-0022), and apk-run runs the program in a process of its own, the way
+# Android's shell runs it:
 #   cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>
 # The program and its own libraries lie in /data/local/tmp for the linker (<name>.dylib next to
 # the program's container), the system's libraries in /system/lib64. For files, /data/local/tmp is
@@ -37,18 +38,12 @@ set(container "${work}/${name}.dylib")
 
 function(convert elf directory)
   get_filename_component(file "${elf}" NAME)
-  execute_process(COMMAND "${CONVERT}" convert "${elf}" "${directory}/${file}.dylib"
+  execute_process(COMMAND "${CONVERT}" convert "${elf}" "${directory}/${file}.dylib" --sign -
     RESULT_VARIABLE status OUTPUT_VARIABLE report ERROR_VARIABLE error)
   if(NOT status EQUAL 0)
     message(FATAL_ERROR "apk-convert ${file} failed (${status}): ${error}")
   endif()
   message("${report}")
-
-  execute_process(COMMAND codesign --force --sign - --timestamp=none "${directory}/${file}.dylib"
-    RESULT_VARIABLE status ERROR_VARIABLE error)
-  if(NOT status EQUAL 0)
-    message(FATAL_ERROR "codesign ${file} failed (${status}): ${error}")
-  endif()
 endfunction()
 
 foreach(elf IN LISTS FIXTURE LIBRARIES)

@@ -1,6 +1,7 @@
 // Checks the converter end to end on small ELF files: the container has the layout the loader
 // expects (APKRuntime/container_format.h), the code is rewritten exactly at the patterns, dyld
 // loads the result, and files that cannot run are refused with a reason.
+#include "apkconv/codesign.h"
 #include "apkconv/container.h"
 #include "apkconv/elf.h"
 
@@ -174,15 +175,14 @@ TEST(the_same_file_gives_the_same_container) {
 }
 
 TEST(dyld_loads_the_container_with_its_writable_slots) {
-    const auto container = convert(static_program());
+    auto container = convert(static_program());
+    apk::codesign::sign(container.bytes, {.identifier = "test-program"});
     const auto path = scratch / "test-program.dylib";
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file.write(reinterpret_cast<const char *>(container.bytes.data()),
                    static_cast<std::streamsize>(container.bytes.size()));
     }
-    const auto sign = "codesign --force --sign - --timestamp=none '" + path.string() + "'";
-    CHECK(std::system(sign.c_str()) == 0);
 
     void *const handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (handle == nullptr) {

@@ -2,6 +2,8 @@
 # Xcode build phase (project.yml): puts the fixture tests of fixtures/tests.txt into the app bundle
 # for tools/device-suite.sh (M2 step 6, M2a). In Fixtures/:
 #   tests/<test>/   the program and its own libraries as container dylibs, as next to it on Android
+#   elf/<test>/     the same as ELF files, which the app converts and signs itself with
+#                   -signOnDevice (M2b, ADR-0022), as it will do with the libraries of an APK
 #   system-lib64/   bionic's libraries, the guest's /system/lib64
 #   system/         the guest's /system for files: bionic's time zone file
 #   tests.txt       the test list, for the app's FixtureRunner
@@ -54,9 +56,12 @@ while read -r name fields; do
       libraries=*) libraries=${field#libraries=} ;;
     esac
   done
+  mkdir -p "$OUT/elf/$name"
   contain "$FIXTURES/$program" "$OUT/tests/$name"
+  cp "$FIXTURES/$program" "$OUT/elf/$name/"
   for library in ${libraries//,/ }; do
     contain "$FIXTURES/$library" "$OUT/tests/$name"
+    cp "$FIXTURES/$library" "$OUT/elf/$name/"
   done
 done < <(grep -v -e '^#' -e '^$' "$TESTS")
 echo "Embedded $(find "$OUT" -name '*.dylib' | wc -l | tr -d ' ') signed containers for $PLATFORM"
