@@ -37,6 +37,8 @@ extern const std::uint32_t ref_x18_without_field[];
 extern const std::uint32_t ref_x18_unsupported_end[];
 extern const std::uint32_t ref_x18_ll_sc[];
 extern const std::uint32_t ref_x18_ll_sc_end[];
+extern const std::uint32_t ref_x18_island_cbz[];
+extern const std::uint32_t ref_x18_island_tbz[];
 extern std::uint64_t ref_syscall_slot;
 }
 
@@ -198,7 +200,7 @@ TEST(the_x18_islands_match_the_assembler) {
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
-        0xb400'0052,  // cbz x18, #+8: a branch, not yet
+        0xb400'0052,  // cbz x18, #+8: a two-way island (X2)
         0x9000'0012,  // adrp x18, #0: PC-relative, not yet
         0xd61f'0240,  // br x18: not yet
         0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
@@ -209,11 +211,12 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(bytes, 0x1000, findings);
-    const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252}};
+    const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252},
+                                     {0x1004, SiteKind::x18, 18, 0xb400'0052}};
     CHECK(findings.sites == expected);
-    CHECK(findings.x18_unsupported.size() == 6);
-    const std::uint64_t first_unsupported[] = {0x1004, 0x1008, 0x100c, 0x1010, 0x1014, 0x1018};
-    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 6; ++index) {
+    CHECK(findings.x18_unsupported.size() == 5);
+    const std::uint64_t first_unsupported[] = {0x1008, 0x100c, 0x1010, 0x1014, 0x1018};
+    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 5; ++index) {
         CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
     }
 }
@@ -261,6 +264,53 @@ TEST(forms_no_island_handles_are_refused_with_the_reason) {
                                    (describe(group.begin, 0x1000, entry.address) + ": " + entry.reason).c_str());
             }
         }
+    }
+}
+
+/// Real target of the B at word `index` of a stub that sits at `stub_address`.
+std::uint64_t branch_target_at(const std::vector<std::byte> &stub, std::size_t index, std::uint64_t stub_address) {
+    const auto instruction = word(stub, index);
+    const auto immediate = static_cast<std::int64_t>(static_cast<std::int32_t>(instruction << 6) >> 6);
+    return stub_address + 4 * index + 4 * static_cast<std::uint64_t>(immediate);
+}
+
+// A conditional branch that uses x18 runs in a two-way island (ADR-0020 X2): load the guest x18
+// into the scratch, test it, and restore the scratch on both the taken and the not-taken exit.
+TEST(the_conditional_branch_islands_match_the_assembler) {
+    const struct {
+        std::uint32_t instruction;  // the branch, with x18 and a +0x40 displacement
+        const std::uint32_t *reference;
+    } cases[] = {{0xb400'0212, ref_x18_island_cbz}, {0xb708'0212, ref_x18_island_tbz}};
+    for (const auto &test : cases) {
+        const Site site{0, SiteKind::x18, 18, test.instruction};
+        const auto stub_address = address_of(test.reference);
+        const auto [patch, stub] = emit_at(site, address_of(ref_site), stub_address);
+        CHECK(stub.size() == 9 * 4);
+        if (stub.size() != 9 * 4) continue;
+        // Setup, the retargeted branch and the two restores are the same wherever the island sits.
+        for (const std::size_t index : {0u, 1u, 2u, 3u, 4u, 5u, 7u}) CHECK(word(stub, index) == test.reference[index]);
+        // The two exits: back is the instruction after the site, taken is the branch's own target.
+        CHECK(branch_target_at(stub, 6, stub_address) == address_of(ref_site) + 4);
+        CHECK(branch_target_at(stub, 8, stub_address) == address_of(ref_site) + 0x40);
+    }
+}
+
+TEST(a_conditional_branch_on_x18_is_an_island_but_a_register_branch_is_refused) {
+    const std::uint32_t code[] = {
+        0xb400'0212,  // cbz x18, .+8: island
+        0xb500'0212,  // cbnz x18: island
+        0x3618'0212,  // tbz w18, #3: island
+        0xb708'0212,  // tbnz x18, #33: island
+        0xd61f'0240,  // br x18: refused, needs a landing pad
+        0xd63f'0240,  // blr x18: refused
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    std::vector<std::uint64_t> islands;
+    for (const auto &s : findings.sites) islands.push_back(s.address);
+    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1004, 0x1008, 0x100c}));
+    CHECK(findings.x18_unsupported.size() == 2);
+    for (const auto &entry : findings.x18_unsupported) {
+        CHECK(std::string_view(entry.reason).find("register branch") != std::string_view::npos);
     }
 }
 

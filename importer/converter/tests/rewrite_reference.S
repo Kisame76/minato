@@ -199,14 +199,12 @@ _ref_x18_below_sp:
     ldnp    x18, x19, [sp, #-16]
     ldraa   x18, [sp, #-8]
     stlur   x18, [sp, #-8]
-// Branches: a second way out of the island.
+// Branches with a register the island cannot follow: it leaves through them and never returns to
+// restore the scratch. cbz, cbnz, tbz and tbnz get a two-way island of their own (below); a
+// register branch or a compare-and-branch needs a landing pad, which comes later.
     .globl _ref_x18_branches
 _ref_x18_branches:
-    cbz     x18, 1f
-    cbnz    x18, 1f
-    tbz     w18, #3, 1f
-    tbnz    x18, #33, 1f
-    cbgt    x18, x1, 1f
+    cbgt    x18, x1, 1f             // CMPBR: two registers, two exits
     br      x18
     blr     x18
     ret     x18
@@ -258,6 +256,39 @@ _ref_x18_ll_sc:
     add     x18, x18, #2            // island
     .globl _ref_x18_ll_sc_end
 _ref_x18_ll_sc_end:
+
+// Two-way island for a conditional branch (ADR-0020 X2): the value scratch (x0 here) holds the
+// guest x18 from slot 11, the branch tests it, and both exits restore the scratch before leaving.
+// `back` is the instruction after the site, `taken` the branch's own target; the rewriter
+// recomputes each for the container, so the test checks those two branches by their target.
+// `cbz x18, .+0x40`:
+    .globl _ref_x18_island_cbz
+_ref_x18_island_cbz:
+    stur    x0, [sp, #-128]
+    mrs     x0, TPIDRRO_EL0
+    bic     x0, x0, #7
+    ldr     x0, [x0, #88]
+    cbz     x0, 1f
+    ldur    x0, [sp, #-128]
+    b       _ref_after_site
+1:  ldur    x0, [sp, #-128]
+    b       _ref_x18_cbz_taken
+_ref_x18_cbz_taken:
+    nop
+// `tbnz x18, #33, .+0x40`: the test-bit branch encodes its target in 14 bits, not 19.
+    .globl _ref_x18_island_tbz
+_ref_x18_island_tbz:
+    stur    x0, [sp, #-128]
+    mrs     x0, TPIDRRO_EL0
+    bic     x0, x0, #7
+    ldr     x0, [x0, #88]
+    tbnz    x0, #33, 1f
+    ldur    x0, [sp, #-128]
+    b       _ref_after_site
+1:  ldur    x0, [sp, #-128]
+    b       _ref_x18_tbz_taken
+_ref_x18_tbz_taken:
+    nop
 
     .data
     .p2align 3

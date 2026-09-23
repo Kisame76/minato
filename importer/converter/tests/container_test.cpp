@@ -264,10 +264,10 @@ TEST(refuses_what_cannot_run) {
     darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
     CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
 
-    auto x18_branches = static_program();
-    x18_branches.put<std::uint32_t>(0x218, 0xb400'0052);  // cbz x18, #+8
-    x18_branches.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18
-    CHECK_THROWS(Incompatible, convert(x18_branches), "x18 at 0x218 cannot run on iOS: it is a branch");
+    auto register_branch = static_program();
+    register_branch.put<std::uint32_t>(0x218, 0xb400'0052);  // cbz x18, #+8: an island now
+    register_branch.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18: still refused
+    CHECK_THROWS(Incompatible, convert(register_branch), "x18 at 0x21c cannot run on iOS: it is a register branch");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");
     CHECK_THROWS(Incompatible, convert(static_program(0x9000)), "outside");

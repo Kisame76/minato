@@ -26,10 +26,42 @@ constexpr unsigned x30 = 30;
 constexpr std::size_t read_island_words = 4;   // mrs, bic, ldr, b
 constexpr std::size_t write_island_words = 6;  // str, mrs, bic, str, ldr, b
 constexpr std::size_t syscall_veneer_words = 6;  // stp, adrp, ldr, blr, ldp, b
+constexpr std::size_t branch_island_words = 9;   // save, mrs, bic, ldr, branch, restore+b (twice)
+
+/// CBZ, CBNZ (bits 30:25 = 011010) and TBZ, TBNZ (011011): a conditional branch that tests one
+/// register (Rt, bits 4:0) and has a taken and a not-taken exit. The rest of the branch group
+/// takes no register (B, B.cond) or one no plain island can follow (BR, BLR, RET, CMPBR).
+constexpr bool is_conditional_branch(std::uint32_t instruction) {
+    const auto kind = (instruction >> 25) & 0x3f;
+    return kind == 0b011010 || kind == 0b011011;
+}
+
+constexpr bool is_test_bit_branch(std::uint32_t instruction) {
+    return ((instruction >> 25) & 0x3f) == 0b011011;  // TBZ, TBNZ: a 14-bit displacement, not 19
+}
+
+/// The byte displacement a conditional branch encodes, sign-extended (imm19 or imm14, times 4).
+std::int64_t conditional_branch_displacement(std::uint32_t instruction) {
+    if (is_test_bit_branch(instruction)) {
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(instruction << 13) >> 18) * 4;
+    }
+    return static_cast<std::int64_t>(static_cast<std::int32_t>(instruction << 8) >> 13) * 4;
+}
+
+/// `instruction` (a conditional branch) with its displacement set to `delta` bytes.
+std::uint32_t with_branch_displacement(std::uint32_t instruction, std::int64_t delta) {
+    const auto encoded = static_cast<std::uint32_t>(delta / 4);
+    if (is_test_bit_branch(instruction)) {
+        return (instruction & ~(0x3fffu << 5)) | ((encoded & 0x3fff) << 5);
+    }
+    return (instruction & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);
+}
 
 // An x18 island: save the value scratch, optionally the base scratch, read x18 from the TSD when
 // the instruction reads it, run it, write x18 back when it writes it, restore the scratch, branch.
+// A conditional branch gets a two-way island instead (see emit).
 std::size_t x18_island_words(std::uint32_t instruction) {
+    if (is_conditional_branch(instruction)) return branch_island_words;
     const auto use = a64::register_use(instruction);
     const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
     std::size_t words = 1 /* save value */ + 1 /* the instruction */ + 1 /* restore value */ + 1 /* branch */;
@@ -280,7 +312,9 @@ const char *unsupported_reason(std::uint32_t instruction) {
     if (system_register == mrs_tpidr_el0 || system_register == msr_tpidr_el0) {
         return "it moves the thread pointer through x18";
     }
-    if (is_branch(instruction)) return "it is a branch, and the island has only one way out";
+    if (is_branch(instruction) && !is_conditional_branch(instruction)) {
+        return "it is a register branch or a compare-and-branch, which needs a landing pad the island has not yet";
+    }
     if (is_pc_relative(instruction)) return "it is PC-relative and would address something else from the island";
     if (is_exclusive(instruction)) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
@@ -403,6 +437,25 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
         }
 
         case SiteKind::x18: {
+            if (is_conditional_branch(site.instruction)) {
+                // A two-way island: read guest x18 into the value scratch, test it with the branch
+                // retargeted three words ahead, and restore the scratch on both exits before leaving.
+                const auto value = scratch_registers(site.instruction).value;
+                const auto tested = a64::substitute(site.instruction, guest_x18, value);
+                if (!tested) throw RewriteError("x18 cannot be substituted in a conditional branch");
+                write(stur(value, sp, scratch_slot_0));
+                write(mrs_tpidrro_el0(value));
+                write(bic_7(value, value));
+                write(ldr_unsigned(value, value, guest_x18_offset));
+                write(with_branch_displacement(*tested, 3 * 4));  // taken: skip to the restore below
+                write(ldur(value, sp, scratch_slot_0));           // not taken: restore, then fall through
+                write(b(write.next_address(), back));
+                write(ldur(value, sp, scratch_slot_0));           // taken: restore, then branch on
+                const auto taken = site_address + static_cast<std::uint64_t>(conditional_branch_displacement(site.instruction));
+                write(b(write.next_address(), taken));
+                write.finish();
+                return b(site_address, stub_address);
+            }
             const auto use = a64::register_use(site.instruction);
             const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
             const auto scratch = scratch_registers(site.instruction);
