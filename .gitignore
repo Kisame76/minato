@@ -30,3 +30,6 @@ cmake-build-*/
 
 # Local test APKs (never committed; checked before use)
 /apk/
+
+# Python
+__pycache__/

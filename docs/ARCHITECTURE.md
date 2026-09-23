@@ -1,6 +1,6 @@
 # APK-Runner – Architektur
 
-Stand: M0, 2026-09-21; Spike-Ergebnisse ergänzt 2026-09-22. Entscheidungen stehen in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 bis ADR-0018), Fortschritt in [`STATUS.md`](STATUS.md). Die Rohberichte der Recherche mit allen Quellen liegen in [`research/`](research/).
+Stand: M0, 2026-09-21; Spike-Ergebnisse, M2 Schritt 4, die `x18`-Regel und M2 Schritt 5 ergänzt 2026-09-22. Entscheidungen stehen in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 bis ADR-0021), Fortschritt in [`STATUS.md`](STATUS.md). Die Rohberichte der Recherche mit allen Quellen liegen in [`research/`](research/).
 
 Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleitet]** = eigene Schlussfolgerung, **[unbestätigt]** = Sekundärquelle oder Nutzerbericht.
 
@@ -15,7 +15,7 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
   - Die **Host-Welt** läuft mit Darwin-ABI: Loader, Linux-Syscall-Schicht, ANGLE, MoltenVK, AudioUnit und UIKit.
   - Übergänge gibt es genau zwei: Syscalls und die NDK-System-APIs (ADR-0009, ADR-0011).
 - **Belegt ist:** Signieren mit dem eigenen Zertifikat und `dlopen` funktionieren auf iOS 27 (LiveContainer, JIT-less-Modus). Unsere eigenen Tests bestätigen das auch für Dateien im Datencontainer, wenn die Signatur-Kennung die Bundle-ID der App ist (S1b). Mit einer anderen Kennung lehnt iOS die Kopie ab (S1, ADR-0008).
-- **Nicht belegt ist,** dass Android-`.so` auf einem echten iPhone laufen. ARTBox hat das bisher nur auf macOS in CI gezeigt. Deshalb laufen drei kleine Machbarkeitstests (Spikes) noch in M0 (siehe [`STATUS.md`](STATUS.md)).
+- **Nicht belegt ist,** dass Android-`.so` auf einem echten iPhone laufen. ARTBox hat das bisher nur auf macOS in CI gezeigt. Deshalb laufen drei kleine Machbarkeitstests (Spikes) noch in M0 (siehe [`STATUS.md`](STATUS.md)). Auf macOS laufen seit M2 Schritt 4 statische NDK-Programme über Konverter, Container-Dylib und Loader (ADR-0019); das iPhone folgt in Schritt 6.
 - **Größte Risiken:**
   - Thread-Pointer in praktisch jeder `.so`.
   - Speicher und Adressraum mit kostenlosem Account.
@@ -30,7 +30,7 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
 | F1 | iOS führt nur signierten Code aus. `dynamic-codesigning` gibt es nur für Apple. Auf A15+ (TXM, also auch A17 Pro) wird frisch geschriebener Code nur ausführbar, wenn ein angehängter Debugger die Seite beschreibt. | Aller Gast-Code muss vor dem Start als signierte Datei vorliegen. JIT gibt es nur optional über StikDebug. | [belegt] Apple Platform Security; StikJIT `INTEGRATION.md` |
 | F2 | Library Validation: Ein Prozess darf Bibliotheken derselben Team-ID laden. | Konvertierte `.so` werden mit einem Zertifikat derselben (kostenlosen) Team-ID signiert. Ein Bypass ist nicht nötig. | [belegt] Apple „App code signing process"; LiveContainer JIT-less auf iOS 27. Eigene Tests: aus dem Bundle ja; Kopie im Datencontainer nur mit der Bundle-ID als Signatur-Kennung (S1/S1b, ADR-0008) |
 | F3 | XNU überschreibt `TPIDR_EL0` bei jedem Kontextwechsel mit CPU- und Cluster-Bits. Der Darwin-Thread-Pointer liegt in `TPIDRRO_EL0`, das für Apps nur lesbar ist. | Android-Code liest den Thread-Pointer über `TPIDR_EL0`: der NDK-Standard-Stack-Protector bei TP+0x28 und ELF-TLS ab minSdk 29. Das funktioniert nicht unverändert, also wird es beim Import umgeschrieben (ADR-0010). | [belegt] xnu-12377.121.6 `osfmk/arm64/pcb.c:401–425`; LLVM `AArch64ISelLowering.cpp:33570`; auf macOS 27 und mit Spike S3 auf dem iPhone (iOS 27) gemessen |
-| F4 | Der Kernel nullt `x18`, außer mit einem Apple-privaten Entitlement. | Gast-Code darf `x18` nicht nutzen. LLVM reserviert `x18` für Android ohnehin. Nutzer von `x18` sind inkompatibel. | [belegt] xnu `locore.s`, `machine_task.c`; LLVM `AArch64TargetParser.cpp:145` |
+| F4 | Der Kernel nullt `x18`, außer mit einem Apple-privaten Entitlement. | Gast-Code darf `x18` nicht lesen. LLVM reserviert `x18` für Android erst ab Version 9; ältere Builds wie Unity ≤ 2020.3 (NDK r19) nutzen es als normales Register. Lesende Nutzer sind inkompatibel (ADR-0019), Virtualisieren ist vorgeschlagen (ADR-0020). | [belegt] xnu `locore.s`, `machine_task.c`; LLVM `AArch64TargetParser.cpp:145` |
 | F5 | Darwin nimmt die Syscall-Nummer aus `x16`, Linux aus `x8`. | Ein unverändertes Linux-`svc #0` löst einen zufälligen Darwin-Syscall aus. Jedes `svc` muss beim Import ersetzt werden. | [belegt] xnu `osfmk/arm64/sleh.c` |
 | F6 | arm64-Programme brauchen eine harte 4-GiB-`__PAGEZERO`. Unter 4 GiB lässt sich nichts mappen. | Gast-Code kommt als Dylib in unseren Prozess. ARTs 32-Bit-Objektreferenzen (Heap unter 4 GiB) brauchen in M4 heap-relative Referenzen. | [belegt] xnu `bsd/kern/mach_loader.c:1087`; ARTBox ADR 0031 |
 | F7 | iOS hat 16-KB-Seiten. NDK r28+ richtet `.so` standardmäßig auf 16 KB aus. | Auf 4 KB ausgerichtete `.so` (ältere Spiele) brauchen Sonderbehandlung oder werden abgelehnt (ADR-0007). | [belegt] developer.android.com „16 KB page sizes"; NDK-r28-Changelog |
@@ -44,6 +44,7 @@ Markierungen: **[belegt]** = in Primärquelle gelesen oder gemessen, **[abgeleit
 | F15 | MoltenVK 1.4.2 hat weder Geometry Shader noch Transform Feedback. Swapchains gibt es nur in BGRA8, RGBA16F und 10 Bit, Android erwartet RGBA8. | Der Vulkan-Shim wandelt RGBA8 in BGRA8 um (ein Blit pro Frame). Titel mit Geometry Shadern sind inkompatibel. | [belegt] MoltenVK `MVKDevice.mm`; AOSP `swapchain.cpp` |
 | F16 | Das iOS-27-SDK verlangt einen Launch Screen. Xcode 27 hat `ld64` entfernt. | `UILaunchScreen` kommt in die Info.plist. Die Mach-O-Container schreiben wir selbst (ADR-0008). | [belegt] Release Notes iOS 27 / Xcode 27 |
 | F17 | Signalzustellung funktioniert ohne Mach-Exception-Ports: `EXC_BAD_ACCESS` wird zu `SIGSEGV`/`SIGBUS` mit `si_addr`, `sigaltstack` wird respektiert. | Die Crash-Handler der Spiele und ARTs implizite Null- und Stack-Checks sind machbar. Nötig ist dafür eine Übersetzung Darwin-`mcontext` ↔ Linux-`ucontext`. | [belegt] xnu `bsd/uxkern/ux_exception.c`, `bsd/dev/arm/unix_signal.c` |
+| F18 | dyld 27 lädt eine Dylib nur mit `LC_UUID` und einer Abhängigkeit von libSystem. `codesign` schreibt `LC_CODE_SIGNATURE` direkt hinter die Load-Commands, über alles, was dort liegt. | Jeder Container hat beides, eine Inhalts-UUID und 256 Byte Platz hinter den Load-Commands (ADR-0019). | [belegt] dlopen-Fehlermeldungen auf macOS 27; eigener Test `converter.container`, 2026-09-22 |
 
 ## 3. Gesamtbild
 
@@ -135,28 +136,30 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 
 | Muster | Vorkommen | Behandlung |
 |---|---|---|
-| `mrs xN, TPIDR_EL0` (lesen) | praktisch jede `.so`: Stack-Protector ist NDK-Standard, ELF-TLS ab minSdk 29 | Wird ein Sprung in eine Insel. Die Insel lädt den Gast-Thread-Pointer aus einem Darwin-TSD-Slot (`mrs xN, TPIDRRO_EL0; ldr xN, [xN, #slot]`) und springt zurück. Ein Fast-Path für das Stack-Guard-Muster wird in M2 gemessen. |
-| `msr TPIDR_EL0, xN` (schreiben) | libc und Laufzeiten | In unserer Bionic per Quelltext-Overlay gelöst. In App-Code: „Inkompatibel". |
+| `mrs xN, TPIDR_EL0` (lesen) | praktisch jede `.so`: Stack-Protector ist NDK-Standard, ELF-TLS ab minSdk 29 | Wird ein Sprung in eine Insel. Die Insel lädt den Gast-Thread-Pointer aus Darwin-TSD-Slot 6 (`mrs xN, TPIDRRO_EL0; bic xN, xN, #7; ldr xN, [xN, #0x30]`) und springt zurück (ADR-0019). Ein Fast-Path für das Stack-Guard-Muster wird in M2 gemessen. |
+| `msr TPIDR_EL0, xN` (schreiben) | libc und Laufzeiten | Wird eine Insel, die denselben Slot schreibt, mit einem kurz auf dem Stack gesicherten Hilfsregister (ADR-0019). In unserer Bionic zusätzlich per Quelltext-Overlay gelöst. |
 | `svc #0` | selten: Go-Runtime, LSS, statisch gelinkte libc | Wird ein Sprung in einen Veneer: Register sichern, Linux-Syscall-Schicht aufrufen, Linux-Fehlerkonvention beibehalten. |
-| `x18` als Register | selten: alte GCC-Builds, ShadowCallStack | „Inkompatibel" |
+| `x18` als Register | Builds mit clang ≤ 8 (Unity ≤ 2020.3: `libunity.so`, `libil2cpp.so`), alte SDK-Binaries, ShadowCallStack | Lesen: „Inkompatibel"; Schreiben und Registersicherungen (libunwind) sind harmlos und werden gezählt (ADR-0019). Virtualisieren über TSD-Slot 11 vorgeschlagen (ADR-0020) |
 | Text-Relokationen | selten | „Inkompatibel" |
 
 - **Inselbereiche:** Sie liegen im Container vor und hinter dem Code, weil ein Sprung nur ±128 MB weit reicht. `.so` mit mehr als etwa 256 MB Code brauchen einen Sonderweg und werden zunächst als inkompatibel markiert.
 - **Keine Emulation:** Nur eindeutig dekodierte Muster werden ersetzt, alles andere läuft unverändert nativ. Es gibt kein Trapping und kein Patchen zur Laufzeit.
 
 ### 4.5 Gast-libc und Linux-Personality (ADR-0009)
-- **Gast-libc:** Echte AOSP-Bionic, mit dem NDK gebaut und als Gast-Bibliothek im App-Bundle mitgeliefert. Das Quelltext-Overlay folgt dem ARTBox-Rezept:
-  - TLS-Zugriffe laufen über unseren Gast-Thread-Pointer;
-  - Syscall-Stubs rufen die Host-Schicht auf;
-  - ohne ShadowCallStack.
+- **Gast-libc:** Echte AOSP-Bionic (`android-15.0.0_r1`), mit dem NDK nach Bionics eigenen `Android.bp` gebaut und als Gast-Bibliothek mitgeliefert (ADR-0021). Das Overlay ist klein, weil der Umschreiber TLS-Zugriffe und Syscalls schon abdeckt:
+  - `setjmp.S` ohne ShadowCallStack und ohne `x18`;
+  - in `libc.so` zusätzlich (Version `APKRT_PRIVATE`): `__apkrt_start_main_thread` richtet den Hauptthread ein wie linker64, `__apkrt_register_tls_module` meldet dynamisches TLS an, dazu linker64s TLSDESC-Resolver und `__apkrt_sigreturn` als Restorer statt der vDSO-Rampe;
+  - eine eigene `ld-android.so` mit `libc_shared_globals` und den `__loader_*`-Funktionen, die der Loader bedient (`dl.cpp`: `dlopen` zur Laufzeit, `dlsym`, `dladdr`, `dl_iterate_phdr`). Der Loader sucht Libraries wie linker64 für ein Programm in `/data/local/tmp`: erst in `LD_LIBRARY_PATH`, dann in `/system/lib64`. Jede Stelle ohne die Datei lässt ENOENT in errno, wie ein fehlgeschlagenes `open()` auf Android. Lässt sich ein Programm nicht linken, endet es wie bei linker64 (`CANNOT LINK EXECUTABLE`, Status 1);
+  - eigene kleine `liblog.so` (NDK-API, Ausgabe auf stderr im Format von `logcat -v tag`) und `libnetd_client.so` (Bionic öffnet sie beim Start; ohne netd ändert sie nichts).
+  - `/system` enthält Bionics Zeitzonendatei, gepackt aus den IANA-Daten des Macs (`tools/make-tzdata.py`).
 - **Syscall-Schicht (Host):** ein Mini-Kernel im Userspace. Linux-Nummern werden nie an Darwin durchgereicht.
 
 | Bereich | Umsetzung |
 |---|---|
 | Speicher | eigener Adressraum-Manager: `mmap`/`munmap`/`mprotect`, `MADV_DONTNEED` per Neu-Mapping, `mremap` nachgebaut; ausführbare Mappings nie |
-| Dateien | VFS mit Pfadabbildung (Tabelle unten); `openat`, `read`/`write`, `getdents64`, `stat`-Familie mit Linux-Strukturen |
-| Threads | `clone` erzeugt einen Darwin-pthread (Reaper-Modell von ARTBox); futex über `os_sync_wait_on_address` (öffentlich, iOS 17.4+) |
-| Signale | Host-`sigaction`; Zustellung mit Linux-`siginfo`/`ucontext` auf dem Gast-Altstack, danach Zurückschreiben der Register; Signalnummern übersetzt |
+| Dateien | VFS mit Pfadabbildung (Tabelle unten, `vfs.cpp`); `openat`, `read`/`write`, `getdents64`, `stat`-Familie und die übrigen Datei-Syscalls mit Linux-Flags, -Strukturen und -Fehlercodes (umgesetzt in M2 Schritt 5c) |
+| Threads | `clone` erzeugt einen Darwin-pthread, der im Registerzustand des Elternteils am `svc` startet; den Zustand lädt der Kernel über ein Signal, das der Thread sich selbst schickt. `exit` kehrt auf den Host-Stack zurück, erst dort wird die Thread-ID gelöscht und ein selbst freigegebener Stack wirklich freigegeben. futex über `os_sync_wait_on_address` (öffentlich, iOS 17.4+) |
+| Signale | Gast-Signale vollständig emuliert (`signals.cpp`): Dispositionen, Masken, anstehende und eingereihte Signale, Altstack. Zustellung mit Linux-`rt_sigframe` (siginfo, ucontext, FPSIMD, ESR) auf dem Gast-Stack oder Gast-Altstack, `rt_sigreturn` stellt den Kontext wieder her. Host-Signale nur für Hardware-Fehler (übersetzt), zum Anstoßen anderer Threads (SIGURG) und fürs Beenden mit einer Standardaktion |
 | Zeit | Clock-Abbildung aus F10 |
 | Netz | Sockets auf BSD-Sockets; `epoll`/`eventfd`/`pipe2` über kqueue |
 | System | `/proc/self/{maps,cmdline,exe,auxv}`, `/proc/cpuinfo` synthetisch; `AT_PAGESZ = 16384`; Property-Bereich (`ro.build.version.sdk` u. a.) passend zur mitgelieferten Bionic |
@@ -167,8 +170,9 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | `/sdcard/Android/data/<pkg>` | `…/data/<pkg>/external` |
 | `/sdcard/Android/obb/<pkg>` | `…/data/<pkg>/obb` |
 | `/data/app/<pkg>-*/base.apk` (nur lesen) | `…/apps/<pkg>/base.apk` |
-| `/system/lib64` | Gast-Systembibliotheken im App-Bundle |
-| `/dev/null`, `/dev/zero`, `/dev/urandom` | virtuell |
+| `/system/lib64` | Gast-Systembibliotheken als Container im App-Bundle (`apkrt_add_library_directory`); `libc.so`, `libm.so` und `libdl.so` heißen wie auf Android 15 nach ihrem echten Pfad in `/apex/com.android.runtime/lib64/bionic/` |
+| `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom` | die Geräte des Hosts (`/dev/random` blockiert nie, wie ab Linux 5.6) |
+| `/system/usr/share/zoneinfo/tzdata` | Bionics Zeitzonendatei, beim Build aus den IANA-Daten des Macs gepackt |
 
 ### 4.6 ABI-Grenze Gast ↔ Host (ADR-0011)
 - **Wege vom Gast zum Host:** Gast-Code erreicht den Host nur über Syscall-Veneers oder über Importe der Front-Libs.
@@ -244,7 +248,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | XcodeGen 2.46.0 | M0 | Homebrew, klein | MIT |
 | CMake 4.4.3, Ninja 1.13.2 | M2 | Homebrew, klein | BSD-3 / Apache-2.0 |
 | Android NDK r30 (30.0.16248370) | M2 | Download ca. 1,07 GB | Apache-2.0 u. a. |
-| Android-Emulator über cmdline-tools | optional, M2 | mehrere GB | – |
+| Android-Emulator, Platform-Tools, System-Image Android 15 (ohne Android Studio) | M2, Referenz (ADR-0014) | Download 1,2 GB, entpackt 2,9 GB; installiert 2026-09-22 | Apache-2.0 u. a. |
 | zsign + OpenSSL | M2b | OpenSSL-Build oder fertiges Paket, mittel | MIT / Apache-2.0 |
 | AOSP-Bionic (gepinnter Tag) | M2 | Quellarchiv, Build mit NDK | BSD/Apache |
 | MoltenVK 1.4.2 | M3 | fertiges XCFramework ca. 32 MiB oder eigener Build | Apache-2.0 |
@@ -263,7 +267,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | R6 | Kein Android-Referenzgerät, Parity nicht messbar | hoch (M3) | Entscheidung vor M3 (ADR-0014) |
 | R7 | Fehler an der ABI-Grenze: kleine Integer, Callbacks auf Host-Threads (F8) | mittel | Generierte Thunks; Tests mit Müll in den oberen Bits |
 | R8 | Auf 4 KB ausgerichtete `.so` (F7), nicht nur in älteren Spielen: In der Test-APK sind es 9 von 16, alle aus SDKs (Firebase, Crashlytics); `libil2cpp.so` und `libunity.so` haben 16 KB | mittel | Erst nur 16 KB; dann RW-Verschiebung plus ADRP-Korrektur, gesteuert durch Korpus-Daten (ADR-0007) |
-| R9 | Signale: Crash-Handler von Unity/Mono/ART erwarten Linux-`ucontext` | mittel | Übersetzung in beide Richtungen in M2 |
+| R9 | Signale: Crash-Handler von Unity/Mono/ART erwarten Linux-`ucontext` | mittel → niedrig | Umgesetzt in M2 Schritt 5c: Linux-`rt_sigframe`, Fehler übersetzt, Handler dürfen den Kontext ändern (geprüft von `signal-test`); 3,5 µs je Zustellung |
 | R10 | dyld-Interna und private SPIs ändern sich (iOS 27: `seg_count`) | mittel | Eigener Mach-O-Writer ohne Chained Fixups; SPI-Nutzung klein und kapseln; LiveContainer-Issues als Frühwarnung |
 | R11 | Unsicherer Code-Stand von ARTBox | mittel | Nur einzelne Module, gepinnt, reviewt, mit eigenen Tests |
 | R12 | Zertifikate von Xcode und SideStore kollidieren. Das Limit aktiver Entwicklungszertifikate kann zu einem Widerruf führen, und damit wird alles ungültig, was damit signiert ist. | mittel | Bis M2b nur Xcode; bei Zertifikatswechsel automatisch neu signieren |
@@ -271,6 +275,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 | R14 | Neues Projektformat in Xcode 27.2 (XcodeGen #1651/#1653) | niedrig | Auf Xcode 27.0 bleiben, bis XcodeGen es unterstützt |
 | R15 | Der Simulator täuscht: keine gleiche Signaturprüfung, kein Jetsam, ANGLE fest auf ES 3.0 | niedrig | Simulator nur für die UI; Loader-Tests auf macOS und dem iPhone |
 | R16 | Lizenzen: AGPL/GPL-Referenzen, libcore | niedrig | ADR-0017: Projektlizenz Apache-2.0 (2026-09-22); AGPL/GPL nur lesen; libcore als eigenständige Komponente |
+| R17 | `x18` als normales Register in Builds mit clang ≤ 8: In der Test-APK `libunity.so` und `libil2cpp.so` (Unity 2020.3) und 4 SDK-Libs | hoch (Unity-Spiele bis 2020.3) | Bis zur Entscheidung inkompatibel (ADR-0019); `x18` virtualisieren (ADR-0020, vor M3) |
 
 ## 8. Offene Fragen
 
@@ -282,7 +287,7 @@ Importer:                               GAST-WELT (Android-ABI, als signierte Ma
 
 **Prototypen:**
 - Signieren auf dem iPhone mit zsign und dem exportierten Xcode-Zertifikat (M2b; ADR-0008);
-- Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2). Erster Datenpunkt zum 4-KB-Layout: Test-APK, 9 von 16 `.so`, gelesen mit `apk-convert inspect`;
+- Häufigkeit von 4-KB-Layout, `TPIDR_EL0`, `svc` und `x18` in echten APKs (Korpus, M1/M2). Erste Datenpunkte aus der Test-APK, gelesen mit `apk-convert inspect`: 4-KB-Layout bei 9 von 16 `.so`; `x18` gelesen in 6 von 16 (ADR-0019, Teil 4);
 - Kosten der Inseln;
 - Fast-Path für den Stack-Guard;
 - ART mit heap-relativen Referenzen und nterp (M4);

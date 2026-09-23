@@ -1,0 +1,90 @@
+sqrt(2.0)                      0x1.6a09e667f3bcdp+0
+sqrt(1e-300)                   0x1.a2fe76a3f9475p-499
+fma(0.1, 10.0, -1.0)           0x1p-54
+fma(3.0, 5.0, 0.25)            0x1.e8p+3
+floor(-2.5)                    -0x1.8p+1
+ceil(-2.5)                     -0x1p+1
+trunc(-2.7)                    -0x1p+1
+round(2.5)                     0x1.8p+1
+round(-2.5)                    -0x1.8p+1
+rint(2.5)                      0x1p+1
+rint(3.5)                      0x1p+2
+nearbyint(-0.5)                -0x0p+0
+lround(-3.5)                   -4
+llrint(4.5)                    4
+fmod(10.3, 3.0)                0x1.4ccccccccccdp+0
+remainder(10.3, 3.0)           0x1.4ccccccccccdp+0
+ldexp(0.75, 10)                0x1.8p+9
+scalbn(1.5, -3)                0x1.8p-3
+ilogb(1234.5)                  10
+logb(1234.5)                   0x1.4p+3
+copysign(3.0, -0.0)            -0x1.8p+1
+fabs(-7.25)                    0x1.dp+2
+fmin(1.0, NAN)                 0x1p+0
+fmax(-3.0, 2.0)                0x1p+1
+fdim(5.0, 3.5)                 0x1.8p+0
+nextafter(1.0, 2.0)            0x1.0000000000001p+0
+nextafter(1.0, 0.0)            0x1.fffffffffffffp-1
+hypot(3.0, 4.0)                0x1.4p+2
+sqrtf(2.0f)                    0x1.6a09e6p+0
+fmaf(0.1f, 10.0f, -1.0f)       0x1p-26
+floorf(-0.5f)                  -0x1p+0
+frexp(1234.5)                  0x1.34ap-1, 11
+modf(-3.25)                    -0x1p-2, -0x1.8p+1
+remquo(10.3, 3.0)              0x1.4ccccccccccdp+0, 3
+sqrtl(2.0L)                    0x1.6a09e667f3bcc908b2fb1366ea95p+0
+expl(1.0L)                     2.71828182845904523536028747135
+exp(1.0)                       2.718281828459
+exp(-10.5)                     2.7536449349747e-05
+expm1(1e-5)                    1.0000050000167e-05
+exp2(0.5)                      1.4142135623731
+log(10.0)                      2.302585092994
+log(2.5e-8)                    -17.504390012078
+log2(10.0)                     3.3219280948874
+log10(54321.0)                 4.7349677563108
+log1p(1e-4)                    9.9995000333308e-05
+pow(2.0, 0.5)                  1.4142135623731
+pow(10.0, -3.3)                0.00050118723362727
+pow(1.0001, 10000.0)           2.7181459268249
+cbrt(27.5)                     3.0184053683988
+sin(1.0)                       0.8414709848079
+cos(1.0)                       0.54030230586814
+tan(1.0)                       1.5574077246549
+sin(1e6)                       -0.34999350217129
+cos(1e22)                      0.52321478539514
+asin(0.5)                      0.5235987755983
+acos(-0.3)                     1.8754889808103
+atan(2.0)                      1.1071487177941
+atan2(-1.0, -2.0)              -2.677945044589
+sinh(2.0)                      3.626860407847
+cosh(2.0)                      3.7621956910836
+tanh(0.5)                      0.46211715726001
+asinh(1.0)                     0.88137358701954
+acosh(2.0)                     1.3169578969248
+atanh(0.25)                    0.255412811883
+erf(0.5)                       0.52049987781305
+erfc(2.0)                      0.0046777349810473
+tgamma(4.5)                    11.631728396567
+lgamma(10.5)                   13.940625219404
+expf(1.0f)                     2.71828
+logf(3.0f)                     1.09861
+powf(2.0f, 0.5f)               1.41421
+sinf(1.0f)                     0.841471
+cosf(2.0f)                     -0.416147
+sinf(1e5f)                     0.0357488
+atan2f(2.0f, 5.0f)             0.380506
+log(0.0)                       -inf, flags: divbyzero, errno 0
+log(-1.0)                      nan, flags: invalid, errno 0
+sqrt(-1.0)                     nan, flags: invalid, errno 0
+exp(1000.0)                    inf, flags: overflow inexact, errno 0
+exp(-1000.0)                   finite, flags: underflow inexact, errno 0
+pow(0.0, -1.0)                 inf, flags: divbyzero, errno 0
+one / three                    finite, flags: inexact, errno 0
+atan2(0.0, -0.0)               finite, flags: inexact, errno 0
+atan2(0.0, -0.0)               0x1.921fb54442d18p+1
+fpclassify                     1 1 1 1
+signbit(-0.0), signbit(0.0)    1 0
+to nearest                     rint(2.5) 0x1p+1, rint(-2.5) -0x1p+1, lrint(-2.7) -3, same mode 1
+upward                         rint(2.5) 0x1.8p+1, rint(-2.5) -0x1p+1, lrint(-2.7) -2, same mode 1
+downward                       rint(2.5) 0x1p+1, rint(-2.5) -0x1.8p+1, lrint(-2.7) -3, same mode 1
+toward zero                    rint(2.5) 0x1p+1, rint(-2.5) -0x1p+1, lrint(-2.7) -2, same mode 1

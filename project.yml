@@ -31,6 +31,8 @@ targets:
       - path: app/Spikes
         excludes:
           - "TestLibrary/**"
+      # The fixture tests on the iPhone (M2 step 6), run by Debug builds launched with -runFixture <test>.
+      - path: app/Fixtures
     dependencies:
       - package: APKKit
         product: APKKit
@@ -87,6 +89,8 @@ targets:
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
         SWIFT_OBJC_BRIDGING_HEADER: app/Spikes/Spikes-Bridging-Header.h
+        # YES puts the fixture tests into Debug builds (tools/embed-fixtures.sh); tools/device-suite.sh sets it.
+        APK_EMBED_FIXTURES: NO
     postBuildScripts:
       - name: Build spike test dylibs
         script: exec "$SRCROOT/tools/build-spike-dylibs.sh"
@@ -97,4 +101,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1.dylib
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-adhoc.dylib
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-bundleid.dylib
+      - name: Embed fixture containers
+        script: exec "$SRCROOT/tools/embed-fixtures.sh"
+        basedOnDependencyAnalysis: false
     scheme: {}

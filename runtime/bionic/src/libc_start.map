@@ -1,0 +1,8 @@
+# Exported from libc.so in addition to bionic's own list (ADR-0021).
+APKRT_PRIVATE {
+  global:
+    __apkrt_start_main_thread;
+    __apkrt_tlsdesc_resolvers;
+    __apkrt_register_tls_module;
+    __apkrt_sigreturn;
+};

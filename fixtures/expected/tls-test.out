@@ -1,0 +1,8 @@
+program __thread: 5, zero 0
+library __thread from the library: 11, from the program: 11, same address: yes
+library zero-initialized: 0, 64-byte aligned: yes, undefined weak is NULL: yes
+thread 1: started with 5 and 11, ended with 1005 and 1011
+thread 2: started with 5 and 11, ended with 2005 and 2011
+thread 3: started with 5 and 11, ended with 3005 and 3011
+thread 4: started with 5 and 11, ended with 4005 and 4011
+main thread after the others: 5 and 11

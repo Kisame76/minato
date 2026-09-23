@@ -1,0 +1,71 @@
+{
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021), fetched by tools/fetch-sources.py into build/sources/. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "tag": "android-15.0.0_r1",
+  "host": "https://android.googlesource.com",
+  "sources": [
+    {
+      "name": "bionic",
+      "project": "platform/bionic",
+      "commit": "361ba86734fb2821a6adcfdf775db8abd04e0de0",
+      "license": "BSD-style and Apache-2.0 (per file; libc/NOTICE)",
+      "digest": "88e680de9c31a544bb8be0cc9ff20c37e4b2375d6d5e0ef8d0e86abd377a76a1"
+    },
+    {
+      "name": "scudo",
+      "project": "platform/external/scudo",
+      "commit": "67dd481e24c770b9f416f61844c2d015f125c134",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "digest": "e36a1ac12df951a1082230d618d35dfad5cd5b672cd8be98f3f5dec3a2ca0c3b"
+    },
+    {
+      "name": "gwp_asan",
+      "project": "platform/external/gwp_asan",
+      "commit": "df96c8131b0e2cb91e7668a537bda7f18bc25635",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "digest": "cfc5f46348232ab3212bf80ad93dc2d0e00d6cabef47f899381280ce1fa4dc1d"
+    },
+    {
+      "name": "arm-optimized-routines",
+      "project": "platform/external/arm-optimized-routines",
+      "commit": "514df029da8aa4146726f6a020ddc69cf34a007d",
+      "license": "MIT OR Apache-2.0 WITH LLVM-exception",
+      "files": [
+        "LICENSE",
+        "Android.bp"
+      ],
+      "digest": "a6e1e88281955158b66bffb9dc32b694bc1b4fba839d0d672cd05f2290331713",
+      "directories": [
+        "math",
+        "string"
+      ]
+    },
+    {
+      "name": "system_core",
+      "project": "platform/system/core",
+      "commit": "fc7bc8c4bfb4c6095e34ea784509dae56f25b486",
+      "license": "Apache-2.0",
+      "files": [
+        "libcutils/NOTICE",
+        "libcutils/include/cutils/compiler.h",
+        "libcutils/include/cutils/misc.h",
+        "libcutils/include/cutils/trace.h",
+        "libcutils/include/private/android_filesystem_config.h",
+        "property_service/libpropertyinfoparser/Android.bp",
+        "property_service/libpropertyinfoparser/include/property_info_parser/property_info_parser.h",
+        "property_service/libpropertyinfoparser/property_info_parser.cpp"
+      ],
+      "digest": "5c412872ff68d9ec3efdaf4651a7f240394a54fb3940544b156430144eab5529"
+    },
+    {
+      "name": "build_make",
+      "project": "platform/build",
+      "commit": "3d9c9aacdb6ca0b745b3048dad88d0db4680d50e",
+      "license": "Apache-2.0",
+      "files": [
+        "tools/fs_config/Android.bp",
+        "tools/fs_config/fs_config_generator.py"
+      ],
+      "digest": "579c68b6515583a5c1fd8c4f291fad7422d18a3c2aa8e93ff988937df55510b3"
+    }
+  ]
+}

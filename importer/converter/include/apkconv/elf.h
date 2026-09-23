@@ -1,5 +1,5 @@
 // Reader for the ELF files the converter takes in: 64-bit, little-endian (ELF gABI, AArch64 ELF ABI).
-// It reads the file header and the program headers; what the loader needs from the rest follows in M2 step 4.
+// It reads the file header, the program headers, the section headers and the dynamic table.
 #pragma once
 
 #include <cstddef>
@@ -59,8 +59,33 @@ struct File {
     FileType type;
     std::uint16_t machine;
     std::uint64_t entry;
+    std::uint64_t program_header_offset;  // e_phoff; the loader passes their address as AT_PHDR
     std::vector<Segment> segments;
     std::string interpreter;  // path from PT_INTERP, empty without one
+};
+
+/// sh_type values the converter looks at.
+inline constexpr std::uint32_t section_type_null = 0;
+inline constexpr std::uint32_t section_type_nobits = 8;
+
+/// sh_flags
+inline constexpr std::uint64_t section_writable = 0x1;
+inline constexpr std::uint64_t section_allocated = 0x2;
+inline constexpr std::uint64_t section_executable = 0x4;
+
+struct Section {
+    std::string name;
+    std::uint32_t type;
+    std::uint64_t flags;
+    std::uint64_t address;  // sh_addr
+    std::uint64_t offset;
+    std::uint64_t size;
+};
+
+/// One entry of the dynamic table (Elf64_Dyn).
+struct DynamicEntry {
+    std::int64_t tag;
+    std::uint64_t value;
 };
 
 class FormatError : public std::runtime_error {
@@ -71,6 +96,18 @@ public:
 /// Reads the file header and the program headers. Throws FormatError when `bytes` is not a 64-bit
 /// little-endian ELF file or when a header points outside of it.
 File read(std::span<const std::byte> bytes);
+
+/// Reads the section headers and their names. Empty when the file has none. The converter only
+/// rewrites code inside executable sections (ADR-0010), so it needs them; Android's linker also
+/// insists on a valid table for apps that target API 26 and later.
+std::vector<Section> read_sections(std::span<const std::byte> bytes);
+
+/// The entries of PT_DYNAMIC up to DT_NULL. Empty without PT_DYNAMIC. `file` comes from read(bytes).
+std::vector<DynamicEntry> read_dynamic(const File &file, std::span<const std::byte> bytes);
+
+/// The LOAD segment that holds [address, address + size) in memory, including its zero-filled
+/// part. Null when no single LOAD segment covers the whole range.
+const Segment *load_containing(const File &file, std::uint64_t address, std::uint64_t size);
 
 /// Page size of iOS and of Android devices with 16 KB pages (ADR-0007).
 inline constexpr std::uint64_t page_size_16k = 16 * 1024;

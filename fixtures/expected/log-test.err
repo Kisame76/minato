@@ -1,0 +1,7 @@
+I/log-test: plain message
+W/log-test: formatted 42 text
+E/log-test: kept
+failed: 7
+Assertion failed: x > 0
+F/log-test: through the logd logger
+I/short   : logcat pads the tag to 8 characters

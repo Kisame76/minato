@@ -1,0 +1,24 @@
+raise: handled 1, signal 10, code -6, from this process 1, blocked inside 1, sa_mask inside 1, blocked after 0
+kill while blocked: handled 0, pending 1
+after unblocking: handled 1, code 0 (SI_USER)
+SA_NODEFER: blocked inside 0
+SA_RESETHAND: handled 1, then the default: 1
+ignored SIGUSR2: still here, kill(getpid(), 0) = 0
+sigaction(SIGKILL): -1, errno 22
+null write: signal 11, code 1 (SEGV_MAPERR), address is NULL 1
+write to a read-only page: signal 11, code 2 (SEGV_ACCERR), address matches 1
+misaligned exclusive load: signal 7, code 1 (BUS_ADRALN), address matches 1
+__builtin_trap: signal 5, code 1 (TRAP_BRKPT)
+undefined instruction: signal 4, code 1 (ILL_ILLOPC)
+the mask after siglongjmp: SIGSEGV blocked 0
+handler moved pc on: continued 1, x19 kept 0x1919, x20 set by the handler 0x2020
+SA_ONSTACK: handler on the alternate stack 1
+without SA_ONSTACK: on the alternate stack 0
+queued while blocked: handled 0
+real-time signal after unblocking: handled 3 times, values 1 2 3 in order, code -1 (SI_QUEUE)
+read interrupted without SA_RESTART: handled 1, result -4 (-EINTR)
+read with SA_RESTART: handled 1, then read 'r'
+sigwait in another thread got signal 12
+sigsuspend: -1 errno 4, handled 1, mask restored 1
+abort reached its handler: signal 6
+done

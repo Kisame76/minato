@@ -1,0 +1,2 @@
+CANNOT LINK EXECUTABLE "./tls-test": library "libtls-lib.so" not found: needed by main executable
+F/linker  : CANNOT LINK EXECUTABLE "./tls-test": library "libtls-lib.so" not found: needed by main executable

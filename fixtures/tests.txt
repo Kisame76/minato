@@ -1,0 +1,33 @@
+# The fixture tests (M2), one per line. Each runs the way Android's shell runs a program:
+#   cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>
+# and must print exactly fixtures/expected/<test>.out, on stderr exactly <test>.err or nothing, and
+# exit with its status. Read by CMakeLists.txt (CTest on the Mac), tools/android-reference.sh
+# (Android), tools/embed-fixtures.sh and the app (iPhone, tools/device-suite.sh).
+# After the test's name come any of:
+#   program=<fixture>          the fixture it runs, from build/fixtures/bin (default: the test's name)
+#   libraries=<file>,<file>    its own libraries, next to it in /data/local/tmp
+#   system                     bionic's libraries in /system/lib64 (tools/build-bionic.sh)
+#   no-library-path            started without LD_LIBRARY_PATH
+#   status=<n>                 its exit status (default 0)
+#   runtime-only               a test of the runtime that Android cannot run; the reason is above it
+
+# Static programs (M2 step 4).
+raw-hello
+# bionic's static start code applies no relocations, so Android cannot run a static PIE (SIGSEGV);
+# a static program at a fixed address, which Android runs, cannot be mapped on iOS.
+hello runtime-only
+# Dynamic linking without a libc (M2 step 5a): the program and the library it needs.
+raw-dyn libraries=libraw-dyn.so
+# With bionic's libraries, built from AOSP sources (M2 step 5b).
+hello-dyn system
+# The test suite (M2 step 5c).
+libc-test system
+files-test system
+math-test system
+log-test system
+thread-test system
+tls-test system libraries=libtls-lib.so
+# Without LD_LIBRARY_PATH linker64 does not look next to the program and cannot link tls-test.
+tls-test-no-library-path program=tls-test system libraries=libtls-lib.so no-library-path status=1
+dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-broken.so,libdl-unresolved.so
+signal-test system

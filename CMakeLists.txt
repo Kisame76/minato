@@ -31,5 +31,88 @@ if(APK_SANITIZE)
   target_link_options(apk_defaults INTERFACE -fsanitize=address,undefined)
 endif()
 
+if(APK_HOST_BUILD)
+  # The NDK fixtures from tools/build-fixtures.sh. Tests that need them are skipped while they are missing.
+  set(APK_FIXTURES_DIR "${PROJECT_SOURCE_DIR}/build/fixtures/bin" CACHE PATH "Directory of the built NDK fixtures")
+  # The guest libc from tools/build-bionic.sh (ADR-0021); tests that need it are skipped without it.
+  set(APK_BIONIC_DIR "${PROJECT_SOURCE_DIR}/build/bionic/lib" CACHE PATH "Directory of the built bionic libraries")
+  # The guest's /system from the same script: bionic's time zone file.
+  set(APK_GUEST_SYSTEM_DIR "${PROJECT_SOURCE_DIR}/build/bionic/system" CACHE PATH "Directory mounted as the guest's /system")
+endif()
+
 add_subdirectory(runtime)
 add_subdirectory(importer/converter)
+
+if(APK_HOST_BUILD)
+  # End to end (M2 steps 4 and 5, ADR-0019, ADR-0021): each fixture is converted, signed ad hoc and
+  # run by apk-run in a process of its own, the way Android's shell runs it:
+  #   cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>
+  # Its own libraries lie next to it, the system's in /system/lib64. It must print exactly
+  # fixtures/expected/<name>.out, on stderr exactly <name>.err or nothing, and exit with STATUS (0).
+  # PROGRAM runs another fixture than <name>; NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out.
+  # tools/android-reference.sh runs the same on Android, tools/device-suite.sh on the iPhone.
+  function(apk_fixture_test name)
+    cmake_parse_arguments(PARSE_ARGV 1 FIXTURE "NO_LIBRARY_PATH" "PROGRAM;STATUS" "LIBRARIES;SYSTEM_LIBRARIES")
+    if(NOT FIXTURE_PROGRAM)
+      set(FIXTURE_PROGRAM ${name})
+    endif()
+    if(NOT DEFINED FIXTURE_STATUS)
+      set(FIXTURE_STATUS 0)
+    endif()
+    set(expected "${PROJECT_SOURCE_DIR}/fixtures/expected/${name}")
+    set(expected_error "")
+    if(EXISTS "${expected}.err")
+      set(expected_error "-D EXPECTED_ERROR=${expected}.err")
+    endif()
+    add_test(NAME fixture.${name}
+      COMMAND ${CMAKE_COMMAND}
+        -D CONVERT=$<TARGET_FILE:apk-convert>
+        -D RUN=$<TARGET_FILE:apk-run>
+        -D TEST=${name}
+        -D FIXTURE=${APK_FIXTURES_DIR}/${FIXTURE_PROGRAM}
+        "-D LIBRARIES=${FIXTURE_LIBRARIES}"
+        "-D SYSTEM_LIBRARIES=${FIXTURE_SYSTEM_LIBRARIES}"
+        -D NO_LIBRARY_PATH=${FIXTURE_NO_LIBRARY_PATH}
+        -D WORK=${CMAKE_CURRENT_BINARY_DIR}/fixture_runs
+        -D EXPECTED_OUTPUT=${expected}.out
+        ${expected_error}
+        -D EXPECTED_STATUS=${FIXTURE_STATUS}
+        -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
+        -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
+    set_tests_properties(fixture.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endfunction()
+
+  # bionic's libraries, built from AOSP sources (M2 step 5b), as the system's: libc.so, libm.so,
+  # libdl.so, ld-android.so, liblog.so, and libnetd_client.so, which libc.so opens at start.
+  set(bionic_libraries libc libm libdl ld-android liblog libnetd_client)
+  list(TRANSFORM bionic_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
+
+  # The tests of fixtures/tests.txt, which says what each line means.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/fixtures/tests.txt")
+  file(STRINGS "${PROJECT_SOURCE_DIR}/fixtures/tests.txt" fixture_tests REGEX "^[^#]")
+  foreach(line IN LISTS fixture_tests)
+    separate_arguments(fields UNIX_COMMAND "${line}")
+    list(POP_FRONT fields name)
+    set(arguments "")
+    foreach(field IN LISTS fields)
+      if(field STREQUAL "system")
+        list(APPEND arguments SYSTEM_LIBRARIES ${bionic_libraries})
+      elseif(field STREQUAL "no-library-path")
+        list(APPEND arguments NO_LIBRARY_PATH)
+      elseif(field STREQUAL "runtime-only")
+        # Only Android leaves it out.
+      elseif(field MATCHES "^program=(.+)$")
+        list(APPEND arguments PROGRAM ${CMAKE_MATCH_1})
+      elseif(field MATCHES "^status=(.+)$")
+        list(APPEND arguments STATUS ${CMAKE_MATCH_1})
+      elseif(field MATCHES "^libraries=(.+)$")
+        string(REPLACE "," ";" own "${CMAKE_MATCH_1}")
+        list(TRANSFORM own PREPEND "${APK_FIXTURES_DIR}/")
+        list(APPEND arguments LIBRARIES ${own})
+      else()
+        message(FATAL_ERROR "fixtures/tests.txt: unknown field \"${field}\" of ${name}")
+      endif()
+    endforeach()
+    apk_fixture_test(${name} ${arguments})
+  endforeach()
+endif()

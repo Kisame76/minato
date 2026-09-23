@@ -1,0 +1,309 @@
+// Checks the A64 register-use decoder (ADR-0019) in two ways:
+//   - reference cases from the host assembler (a64_reference.S): the exact registers each
+//     instruction reads and writes, from the Arm ARM;
+//   - with llvm-objdump as the oracle, on hundreds of thousands of instruction words: the decoder
+//     must report exactly the general-purpose registers the disassembly names, plus the implicit
+//     ones of the few instructions that have them. That catches fields taken for registers that
+//     are none (v18, PRFM's operation 18) and registers the decoder misses.
+//
+//   a64_test                                      the reference cases
+//   a64_test <llvm-objdump> <scratch> [<fixtures>] the comparison with llvm-objdump
+#include "apkconv/a64.h"
+
+#include "apkconv/elf.h"
+#include "check.h"
+#include "elf_builder.h"
+
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <map>
+#include <string>
+#include <string_view>
+#include <vector>
+
+extern "C" {
+extern const std::uint32_t a64_cases[];
+extern const std::uint32_t a64_cases_end[];
+extern const std::uint32_t a64_expect[];
+}
+
+namespace {
+
+using apk::a64::RegisterUse;
+
+std::string registers(std::uint32_t mask) {
+    std::string text;
+    for (unsigned reg = 0; reg < 31; ++reg) {
+        if (mask & (1u << reg)) text += std::format("{}x{}", text.empty() ? "" : ",", reg);
+    }
+    return text.empty() ? "-" : text;
+}
+
+TEST(the_reference_cases_read_and_write_what_the_arm_arm_says) {
+    const auto count = static_cast<std::size_t>(a64_cases_end - a64_cases);
+    CHECK(count > 300);
+    for (std::size_t index = 0; index < count; ++index) {
+        const RegisterUse expected{a64_expect[2 * index], a64_expect[2 * index + 1]};
+        const auto actual = apk::a64::register_use(a64_cases[index]);
+        if (actual != expected) {
+            const auto detail = std::format("case {} ({:08x}): reads {} writes {}, expected reads {} writes {}", index,
+                                            a64_cases[index], registers(actual.reads), registers(actual.writes),
+                                            registers(expected.reads), registers(expected.writes));
+            apk::testing::fail(std::source_location::current(), "", detail.c_str());
+        }
+    }
+}
+
+/// A fixed sequence, so that a failure can be reproduced.
+class Random {
+public:
+    std::uint32_t operator()() {
+        state_ ^= state_ >> 12;
+        state_ ^= state_ << 25;
+        state_ ^= state_ >> 27;
+        return static_cast<std::uint32_t>((state_ * 0x2545'f491'4f6c'dd1dull) >> 32);
+    }
+
+private:
+    std::uint64_t state_ = 0x9e37'79b9'7f4a'7c15ull;
+};
+
+// The groups with op1 (bits 28:25) = 0000 to 0011: reserved (UDF), SME, SVE and unallocated.
+// None of it can run, so none of it uses a register, whatever its fields say.
+TEST(sve_sme_and_the_reserved_groups_use_no_registers) {
+    Random random;
+    for (int index = 0; index < 100'000; ++index) {
+        const auto word = (random() & ~(0xfu << 25)) | ((random() % 4) << 25);
+        const auto use = apk::a64::register_use(word);
+        if (use.reads != 0 || use.writes != 0) {
+            const auto detail = std::format("{:08x} reads {} writes {}", word, registers(use.reads), registers(use.writes));
+            apk::testing::fail(std::source_location::current(), "", detail.c_str());
+            return;
+        }
+    }
+}
+
+// --- Comparison with llvm-objdump ------------------------------------------------------------
+
+/// SVE (op1 = 0010) and SME (op0 = 1, op1 = 0000) are left out on purpose; see a64.h.
+bool is_sve_or_sme(std::uint32_t word) {
+    const auto op1 = (word >> 25) & 0xf;
+    return op1 == 0b0010 || (op1 == 0 && (word >> 31) != 0);
+}
+
+/// Random words, and as many again with one of the register fields set to 18.
+std::vector<std::uint32_t> random_words(std::size_t count) {
+    Random random;
+    std::vector<std::uint32_t> words;
+    constexpr unsigned field_shifts[] = {0, 5, 10, 16};
+    while (words.size() < count) {
+        auto word = random();
+        if (words.size() % 2 == 1) {
+            const auto shift = field_shifts[random() % 4];
+            word = (word & ~(0x1fu << shift)) | (18u << shift);
+        }
+        if (!is_sve_or_sme(word)) words.push_back(word);
+    }
+    return words;
+}
+
+/// The words of the executable sections of an ELF file, for real compiler output.
+std::vector<std::uint32_t> code_words(const std::filesystem::path &path) {
+    std::ifstream stream(path, std::ios::binary);
+    const std::vector<char> raw((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    const std::span bytes(reinterpret_cast<const std::byte *>(raw.data()), raw.size());
+    std::vector<std::uint32_t> words;
+    for (const auto &section : apk::elf::read_sections(bytes)) {
+        if ((section.flags & apk::elf::section_executable) == 0 || section.type == apk::elf::section_type_nobits) {
+            continue;
+        }
+        for (std::uint64_t at = 0; at + 4 <= section.size; at += 4) {
+            std::uint32_t word;
+            std::memcpy(&word, raw.data() + section.offset + at, sizeof word);
+            if (!is_sve_or_sme(word)) words.push_back(word);
+        }
+    }
+    return words;
+}
+
+/// An ELF file with `words` as its .text, for llvm-objdump.
+void write_elf(const std::filesystem::path &path, const std::vector<std::uint32_t> &words) {
+    using namespace apk::testing;
+    constexpr std::size_t text = 0x1000;
+    ElfBuilder builder;
+    builder.bytes.resize(text + 4 * words.size());
+    std::memcpy(builder.bytes.data() + text, words.data(), 4 * words.size());
+    builder.sections({{".text", sht_progbits, shf_alloc | shf_execinstr, text, text, 4 * words.size()}});
+    std::ofstream(path, std::ios::binary)
+        .write(reinterpret_cast<const char *>(builder.bytes.data()), static_cast<std::streamsize>(builder.bytes.size()));
+}
+
+bool is_word_character(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+/// General-purpose registers named in the operands: x0 to x30 and w0 to w30, as whole words.
+std::vector<unsigned> named_registers(std::string_view operands) {
+    std::vector<unsigned> found;
+    for (std::size_t at = 0; at < operands.size(); ++at) {
+        if ((operands[at] != 'x' && operands[at] != 'w') || (at > 0 && is_word_character(operands[at - 1]))) continue;
+        std::size_t end = at + 1;
+        unsigned number = 0;
+        while (end < operands.size() && end - at <= 2 && operands[end] >= '0' && operands[end] <= '9') {
+            number = number * 10 + static_cast<unsigned>(operands[end] - '0');
+            ++end;
+        }
+        if (end == at + 1 || (end < operands.size() && is_word_character(operands[end])) || number > 30) continue;
+        found.push_back(number);
+    }
+    return found;
+}
+
+std::uint32_t mask_of(std::initializer_list<unsigned> registers) {
+    std::uint32_t mask = 0;
+    for (const auto reg : registers) mask |= 1u << reg;
+    return mask;
+}
+
+/// What the disassembly does not show: the registers some instructions use implicitly, and the
+/// register of TLBI operations without an address. LLVM prints those without their Rt field; the
+/// decoder counts it as read, which is the safe side.
+std::uint32_t implicit_registers(std::uint32_t word, std::string_view mnemonic, std::string_view operands,
+                                 const std::vector<unsigned> &named) {
+    constexpr unsigned lr = 30;
+    if (mnemonic == "bl" || mnemonic.starts_with("blr")) return mask_of({lr});
+    if (mnemonic == "ret" && named.empty()) return mask_of({lr});
+    if (mnemonic.starts_with("reta")) return mask_of({lr});
+    if (mnemonic == "xpaclri") return mask_of({lr});
+    if (mnemonic.ends_with("1716")) return mask_of({16, 17});
+    if (mnemonic.ends_with("171615")) return mask_of({15, 16, 17});
+    for (const auto *name : {"paciaz", "pacibz", "autiaz", "autibz", "paciasp", "pacibsp", "autiasp", "autibsp"}) {
+        if (mnemonic == name) return mask_of({lr});
+    }
+    if (mnemonic.ends_with("sppc") || mnemonic.ends_with("sppcr")) return mask_of({lr});
+    if (mnemonic == "tlbi" && named.empty() && (word & 0x1f) != 31) return 1u << (word & 0x1f);
+    // LS64: eight consecutive registers from the last one before the address.
+    if (mnemonic == "ld64b" || mnemonic == "st64b" || mnemonic == "st64bv" || mnemonic == "st64bv0") {
+        const auto before = named_registers(operands.substr(0, operands.find('[')));
+        if (before.empty()) return 0;
+        std::uint32_t mask = 0;
+        for (unsigned reg = before.back(); reg < before.back() + 8 && reg < 31; ++reg) mask |= 1u << reg;
+        return mask;
+    }
+    return 0;
+}
+
+struct Line {
+    std::uint64_t address;
+    std::string text;
+};
+
+/// Runs llvm-objdump on `path` and returns one line per instruction.
+std::vector<Line> disassemble(const std::string &objdump, const std::filesystem::path &path) {
+    const auto command = std::format("'{}' -d --disassemble-zeroes --no-show-raw-insn '{}'", objdump, path.string());
+    FILE *pipe = popen(command.c_str(), "r");
+    if (pipe == nullptr) throw std::runtime_error("cannot run " + command);
+    std::vector<Line> lines;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof buffer, pipe) != nullptr) {
+        std::string_view line(buffer);
+        const auto colon = line.find(':');
+        if (colon == std::string_view::npos || line.empty() || line[0] != ' ') continue;
+        std::uint64_t address = 0;
+        bool is_address = colon > 0;
+        for (const char c : line.substr(0, colon)) {
+            if (c == ' ') continue;
+            const auto digit = std::string_view("0123456789abcdef").find(c);
+            if (digit == std::string_view::npos) {
+                is_address = false;
+                break;
+            }
+            address = address * 16 + digit;
+        }
+        if (!is_address) continue;
+        auto text = line.substr(colon + 1);
+        while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
+        while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.remove_suffix(1);
+        lines.push_back({address, std::string(text)});
+    }
+    if (pclose(pipe) != 0) throw std::runtime_error("llvm-objdump failed: " + command);
+    return lines;
+}
+
+int compare_with_objdump(const std::string &objdump, const std::filesystem::path &scratch,
+                         const std::filesystem::path &fixtures) {
+    auto words = random_words(400'000);
+    std::size_t real_words = 0;
+    for (const char *name : {"hello", "raw-hello"}) {
+        if (!fixtures.empty() && std::filesystem::exists(fixtures / name)) {
+            const auto code = code_words(fixtures / name);
+            words.insert(words.end(), code.begin(), code.end());
+            real_words += code.size();
+        }
+    }
+    std::filesystem::create_directories(scratch);
+    const auto path = scratch / "words.elf";
+    write_elf(path, words);
+    const auto lines = disassemble(objdump, path);
+
+    std::size_t compared = 0, unknown = 0, mismatches = 0;
+    std::map<std::string, std::size_t> mismatches_by_mnemonic;
+    for (const auto &line : lines) {
+        if (line.address < 0x1000 || (line.address - 0x1000) % 4 != 0) continue;
+        const auto index = (line.address - 0x1000) / 4;
+        if (index >= words.size()) continue;
+        const auto word = words[index];
+        const std::string_view text(line.text);
+        const auto tab = text.find_first_of("\t ");
+        const auto mnemonic = text.substr(0, tab);
+        const auto operands = tab == std::string_view::npos ? std::string_view() : text.substr(tab + 1);
+        const auto named = named_registers(operands.substr(0, operands.find("//")));
+
+        std::uint32_t expected = implicit_registers(word, mnemonic, operands, named);
+        for (const auto reg : named) expected |= 1u << reg;
+        const auto use = apk::a64::register_use(word);
+        ++compared;
+        if (mnemonic == "<unknown>") ++unknown;
+        if ((use.reads | use.writes) == expected) continue;
+
+        ++mismatches;
+        ++mismatches_by_mnemonic[std::string(mnemonic)];
+        if (mismatches <= 40) {
+            std::fprintf(stderr, "%08x  %-40s decoder %s / %s, disassembly %s\n", word, line.text.c_str(),
+                         registers(use.reads).c_str(), registers(use.writes).c_str(), registers(expected).c_str());
+        }
+    }
+    std::printf("compared %zu words (%zu from the fixtures, %zu unknown to llvm-objdump), %zu mismatches\n", compared,
+                real_words, unknown, mismatches);
+    if (mismatches > 0) {
+        for (const auto &[mnemonic, count] : mismatches_by_mnemonic) std::fprintf(stderr, "  %6zu  %s\n", count, mnemonic.c_str());
+    }
+    if (compared != words.size()) {
+        std::fprintf(stderr, "llvm-objdump printed %zu of %zu words\n", compared, words.size());
+        return 1;
+    }
+    return mismatches == 0 ? 0 : 1;
+}
+
+}  // namespace
+
+int main(int argc, char **argv) {
+    if (argc == 1) return apk::testing::run_all();
+    if (argc < 3 || argc > 4) {
+        std::fprintf(stderr, "usage: a64_test [<llvm-objdump> <scratch-directory> [<fixtures-directory>]]\n");
+        return 2;
+    }
+    if (std::string_view(argv[1]).empty()) {
+        std::printf("no llvm-objdump found, skipped\n");
+        return 77;
+    }
+    try {
+        return compare_with_objdump(argv[1], argv[2], argc == 4 ? argv[3] : "");
+    } catch (const std::exception &error) {
+        std::fprintf(stderr, "a64_test: %s\n", error.what());
+        return 1;
+    }
+}

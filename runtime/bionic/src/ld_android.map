@@ -1,0 +1,6 @@
+# Exported from our ld-android.so in addition to linker64's list (ADR-0021): the table through which
+# the runtime serves libdl.
+APKRT_PRIVATE {
+  global:
+    apkrt_loader;
+};

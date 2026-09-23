@@ -1,0 +1,24 @@
+target SDK of a shell program: 10000
+plugin: constructor ran
+dlopen: a handle, dlerror: NULL
+dlopen again: the same handle
+dlopen by path: the same handle
+dlsym through the handle: plugin_add found, helper_twice from its dependency found, plugin_value 1234
+dlsym(RTLD_DEFAULT) of a symbol of an RTLD_LOCAL library: NULL, dlerror: undefined symbol: plugin_add
+dlsym(RTLD_DEFAULT, "printf") is printf: yes
+dlsym of a missing symbol: NULL, dlerror: undefined symbol: nope, dlerror again: NULL
+dlopen(NULL) and dlsym of the program's own symbol: 5
+dl_iterate_phdr: plugin found 1 time(s), TLS module set, TLS data before first use: NULL
+plugin_add(4): 11, plugin_add(1): 13
+TLS after first use: counter 13 through dlsym, dl_iterate_phdr data is that block: yes
+another thread starts with its own counter: 23, this thread still has 13
+dladdr: 1, /data/local/tmp/libdl-plugin.so, plugin_add, symbol address is plugin_add: yes, base set: yes
+dladdr outside every library: 0
+RTLD_GLOBAL: opened, dlsym(RTLD_DEFAULT) finds its symbol: 77
+dlopen("libnope.so"): NULL, errno 2, dlerror: dlopen failed: library "libnope.so" not found
+dlopen("libdl-broken.so"): NULL, errno 2, dlerror: dlopen failed: library "libdl-missing.so" not found: needed by /data/local/tmp/libdl-broken.so in namespace (default)
+dlopen("libdl-unresolved.so"): NULL, errno 0, dlerror: dlopen failed: cannot locate symbol "function_nobody_defines" referenced by "/data/local/tmp/libdl-unresolved.so"...
+RTLD_NOLOAD of a library that does not exist: NULL, dlerror: dlopen failed: library "libdl-global-not-there.so" not found
+RTLD_NOLOAD of a library whose dlopen failed: NULL, dlerror: dlopen failed: library "libdl-broken.so" wasn't loaded and RTLD_NOLOAD prevented it
+RTLD_NOLOAD of a loaded library: a handle
+dlclose: 0

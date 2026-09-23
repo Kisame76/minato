@@ -1,0 +1,57 @@
+fgets: line 1
+fgets: line 2
+fgets: line 3
+feof: 1
+ftell at the end: 21
+after fputc: line X
+fopen of a missing file: NULL, errno 2
+tmpfile: temporary
+write: 10
+read after lseek: 234
+pread: 89
+after pwrite: AB23456789
+ftruncate: 0
+fstat: size 4, regular 1, mode 644
+fsync: 0
+close again: -1 errno 9 (Bad file descriptor)
+stat of a missing file: -1 errno 2 (No such file or directory)
+open of a missing file: -1 errno 2 (No such file or directory)
+open below a file: -1 errno 20 (Not a directory)
+open O_EXCL of an existing file: -1 errno 17 (File exists)
+mkdir: 0
+mkdir again: -1 errno 17 (File exists)
+open a directory for writing: -1 errno 21 (Is a directory)
+readdir (6 entries with . and ..): a:file b:file c:file sub:dir
+after rewinddir: 6 entries
+rename: 0
+access of the old name: -1 errno 2 (No such file or directory)
+access of the new name: 0
+rmdir of a full directory: -1 errno 39 (Directory not empty)
+unlink of a directory: -1 errno 21 (Is a directory)
+rmdir of a file: -1 errno 20 (Not a directory)
+remove of a directory: 0
+rmdir of the empty directory: 0
+stat after rmdir: -1 errno 2 (No such file or directory)
+getcwd: /data/local/tmp
+chdir: 0
+getcwd: /data/local/tmp/nested
+chdir ..: 0
+getcwd: /data/local/tmp
+access by the longer path: 0
+access by the absolute path: 0
+chdir into a file: -1 errno 20 (Not a directory)
+access of a missing path: -1 errno 2 (No such file or directory)
+pipe: 0
+read from the pipe: pipe
+read from an empty non-blocking pipe: -1 errno 11 (Try again)
+dup2: 20
+read through dup2: x
+/dev/null: write 4, read 0
+/dev/zero: read 8, all zero 1
+/dev/urandom: read 16
+symlink: 0
+readlink: 9 notes.txt
+lstat: link 1
+stat through the link: regular 1, size 21
+readlink of a file: -1 errno 22 (Invalid argument)
+unlink the link: 0

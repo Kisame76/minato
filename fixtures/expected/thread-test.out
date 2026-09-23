@@ -1,0 +1,18 @@
+join results: 7998000
+mutex counter: 160000
+recursive: 0 0 0 0
+errorcheck relock: Resource deadlock would occur, trylock: Device or resource busy
+timedlock on a held mutex from the same thread: Connection timed out
+condition variable queue: sum 4950
+cond timedwait: Connection timed out after at least 25 ms: yes
+pthread_once: initialized 1 time(s)
+keys: each thread saw its own value (sum 10), destructors summed 10, main sees NULL
+detached threads posted: 4
+sem_timedwait on an empty semaphore: -1 Connection timed out
+rwlock readers saw: 42 42 42 42
+barrier: 1 serial thread
+main thread: tid is the pid: yes
+default stack size: 1015808
+thread: own tid yes, errno starts at 0, __thread starts at 7, name worker, stack at least 256 KiB: yes
+main after the thread: errno 7, __thread 8, same thread: 0
+256 threads created and joined, results 8064

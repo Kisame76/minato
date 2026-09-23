@@ -1,10 +1,14 @@
 // apk-convert: the converter as a command-line tool on the Mac (M2a).
-// So far it only reads: `apk-convert inspect` shows what the loader will see in an ELF file.
+//   apk-convert inspect <elf-file>...        what the loader will see in an ELF file
+//   apk-convert convert <elf-file> <dylib>   write the container dylib, unsigned (ADR-0019)
+#include "apkconv/container.h"
 #include "apkconv/elf.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <exception>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -83,14 +87,106 @@ void inspect(const std::string &path) {
                                  segment.alignment, permissions(segment.flags));
     }
     std::cout << "  16 KiB pages: " << page_verdict(file) << '\n';
+
+    // What the rewriter finds in the executable sections (ADR-0010, ADR-0019).
+    try {
+        const auto scan = apk::container::scan_code(bytes);
+        std::size_t thread_pointer_reads = 0, thread_pointer_writes = 0, syscalls = 0;
+        for (const auto &site : scan.findings.sites) {
+            switch (site.kind) {
+                case apk::rewrite::SiteKind::thread_pointer_read: ++thread_pointer_reads; break;
+                case apk::rewrite::SiteKind::thread_pointer_write: ++thread_pointer_writes; break;
+                case apk::rewrite::SiteKind::syscall: ++syscalls; break;
+            }
+        }
+        const auto &findings = scan.findings;
+        std::cout << std::format("  code: {} bytes; TPIDR_EL0: {} reads, {} writes; svc #0: {}, other svc: {}\n",
+                                 scan.code_bytes, thread_pointer_reads, thread_pointer_writes, syscalls,
+                                 findings.other_syscalls.size())
+                  << std::format("  x18: {} reads, {} write{}, {} saved in register dumps", findings.x18_reads.size(),
+                                 findings.x18_writes.size(), findings.x18_writes.size() == 1 ? "" : "s",
+                                 findings.x18_saves.size());
+        if (!findings.x18_reads.empty()) std::cout << std::format(" (first read at {:#x})", findings.x18_reads.front());
+        std::cout << '\n';
+    } catch (const apk::container::Incompatible &error) {
+        std::cout << "  code: " << error.what() << '\n';
+    }
+}
+
+void write_file(const std::string &path, const std::vector<std::byte> &bytes) {
+    // Replace, never overwrite in place: the kernel caches signatures per file (ADR-0008).
+    const auto temporary = path + ".tmp";
+    {
+        std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+        stream.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if (!stream) throw std::runtime_error("cannot write " + temporary);
+    }
+    std::filesystem::rename(temporary, path);
+}
+
+apk::macho::Platform parse_platform(const std::string &name) {
+    if (name == "macos") return apk::macho::Platform::macos;
+    if (name == "ios") return apk::macho::Platform::ios;
+    if (name == "ios-simulator") return apk::macho::Platform::ios_simulator;
+    throw std::runtime_error("unknown platform " + name + " (macos, ios, ios-simulator)");
+}
+
+int convert(const std::vector<std::string> &arguments) {
+    if (arguments.size() < 3) {
+        std::cerr << "usage: apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n";
+        return 2;
+    }
+    const auto &input = arguments[1];
+    const auto &output = arguments[2];
+    apk::container::Options options{
+        .install_name = "@rpath/" + std::filesystem::path(output).filename().string(),
+    };
+    for (std::size_t index = 3; index < arguments.size(); ++index) {
+        if (arguments[index] == "--platform" && index + 1 < arguments.size()) {
+            options.platform = parse_platform(arguments[++index]);
+        } else {
+            throw std::runtime_error("unknown option " + arguments[index]);
+        }
+    }
+
+    const auto bytes = read_file(input);
+    const auto start = std::chrono::steady_clock::now();
+    const auto container = apk::container::convert(bytes, options);
+    const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
+    write_file(output, container.bytes);
+
+    const auto &report = container.report;
+    std::cout << std::format("{} -> {} ({} bytes, unsigned)\n", input, output, container.bytes.size())
+              << std::format("  {}, {} bytes of code scanned\n", report.is_static ? "static" : "dynamic",
+                             report.code_bytes)
+              << std::format("  rewritten: {} thread pointer reads, {} writes, {} syscalls ({} bytes of stubs)\n",
+                             report.thread_pointer_reads, report.thread_pointer_writes, report.syscalls,
+                             report.stub_bytes)
+              << std::format("  x18: never read; {} write{}, {} saved in register dumps\n", report.x18_writes,
+                             report.x18_writes == 1 ? "" : "s", report.x18_saves)
+              << std::format("  relocations: {}, ELF image at {:#x}\n", report.relocations, report.image_offset)
+              << std::format("  converted in {:.2f} ms\n", elapsed.count());
+    return 0;
 }
 
 }  // namespace
 
 int main(int argc, char **argv) {
     const std::vector<std::string> arguments(argv + 1, argv + argc);
+    if (!arguments.empty() && arguments[0] == "convert") {
+        try {
+            return convert(arguments);
+        } catch (const apk::container::Incompatible &error) {
+            std::cerr << std::format("apk-convert: incompatible: {}\n", error.what());
+            return 1;
+        } catch (const std::exception &error) {
+            std::cerr << std::format("apk-convert: {}\n", error.what());
+            return 1;
+        }
+    }
     if (arguments.size() < 2 || arguments[0] != "inspect") {
-        std::cerr << "usage: apk-convert inspect <elf-file>...\n";
+        std::cerr << "usage: apk-convert inspect <elf-file>...\n"
+                     "       apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n";
         return 2;
     }
     int status = 0;

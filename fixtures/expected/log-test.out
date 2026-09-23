@@ -1,0 +1,21 @@
+minimum priority at the start: 1
+loggable by default: verbose 1; with info as default: debug 0, info 1
+__android_log_write: 1
+__android_log_print: 1
+previous minimum priority: 1
+minimum priority now: 5
+below the minimum: -EPERM
+above the minimum: 1
+loggable below the minimum, whatever the default: 0
+logger: buffer 0, priority 3, tag tag, file (none):0, message [to my logger]
+logger: buffer 3, priority 4, tag tag, file (none):0, message [system buffer]
+logger: buffer 0, priority 2, tag tag, file (none):0, message [answer=42]
+logger: buffer 0, priority 4, tag log-test, file (none):0, message [without a tag]
+logger: buffer 0, priority 4, tag custom, file (none):0, message [with the default tag]
+logger: buffer 0, priority 6, tag direct, file file.c:42, message [with a file]
+logger: buffer 0, priority 7, tag assert, file (none):0, message [failed: 7]
+aborter: [failed: 7]
+logger: buffer 0, priority 7, tag assert, file (none):0, message [Assertion failed: x > 0]
+aborter: [Assertion failed: x > 0]
+aborter: [called directly]
+done

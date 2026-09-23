@@ -1,0 +1,62 @@
+errno at the start: 2
+strlen: 7
+strcmp: 1 1 1
+strcat: hello, world
+strchr: 4 strrchr: 8
+strstr: world
+strncmp: 0 strcasecmp: 0
+strspn: 4 strcspn: 2
+strtok_r: [a] [b] [c]
+memmove: ababcd
+memchr: 2 memrchr: 3
+strdup: duplicate strndup: trunc
+long strings: strlen 4095, strchr 3000
+strerror: No such file or directory | Math result not representable
+strsignal: Segmentation fault
+42|   42|42   |00042|+42
+ff|FF|0xff|10|010
+-9223372036854775808|18446744073709551615|-1
+123|-5|7
+abc|      abcd|ab    |
+ok!|%
+hello world
+3.141593|2.67|    -1.500|0.1       |
+1.234568e+04|7e-10|1.000000E+100
+0.0001|1e-05|123456|1.23457e+06|100
+0x1p+0|0x1.999999999999ap-4|-0X1.4P+1
+0.10000000000000001|0.33333333333333331
+inf|-inf|nan|-0|INF
+long double: 16 bytes, 0.333333333333333333333333333333
+snprintf: 9 [trun]
+strtol: 31 63 -42 35
+strtol stops at: abc
+strtol overflow: 9223372036854775807 errno 34
+strtoul: 18446744073709551615
+atoi: -17 atol: 123456789012
+strtod: 0.10000000000000001 3 -inf
+strtof: 3.40282347e+38
+sscanf: 4 -> 12 34 word 2.5
+ctype: 1 1 1 Q q
+realloc keeps the contents: yes, usable size big enough: yes
+calloc zeroes: yes
+posix_memalign: 0, aligned: yes
+malloc stress: 4333360 bytes checked
+qsort: 0 1 2 3 4 5 6 7 8 9
+bsearch: 7
+gmtime: 2023-11-14 22:13:20 Tue Nov 318, wday 2, yday 317
+timegm: 1700000000
+difftime: 90.0
+nanosleep: 0, at least 20 ms passed: yes
+time after 2023: yes
+localtime Europe/Berlin: 2023-11-14 23:13:20 CET, isdst 0, gmtoff 3600, mktime back: yes
+localtime Europe/Berlin: 2023-07-22 06:26:40 CEST, isdst 1, gmtoff 7200, mktime back: yes
+setenv without overwrite keeps: first
+setenv with overwrite: third
+unsetenv: gone
+locale: C.UTF-8, MB_CUR_MAX 4
+mbstowcs: 3 -> U+0061 U+00E4 U+20AC
+wcstombs: 6, same bytes: yes
+close(-1): -1, errno 9 (Bad file descriptor)
+lseek(-1): -1, errno 9
+atexit: registered second, runs first
+atexit: registered first, runs last

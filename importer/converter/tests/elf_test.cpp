@@ -1,77 +1,20 @@
 #include "apkconv/elf.h"
 
 #include "check.h"
+#include "elf_builder.h"
 
 #include <cstring>
 #include <initializer_list>
 #include <random>
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace {
 
+using namespace apk::testing;
 using apk::elf::FormatError;
 using apk::elf::SegmentType;
-
-constexpr std::uint32_t pt_load = 1;
-constexpr std::uint32_t pt_interp = 3;
-constexpr std::uint32_t pt_phdr = 6;
-constexpr std::uint32_t pt_gnu_stack = 0x6474'e551;
-constexpr std::uint32_t r = 4;
-constexpr std::uint32_t w = 2;
-constexpr std::uint32_t x = 1;
-
-struct ProgramHeader {
-    std::uint32_t type;
-    std::uint32_t flags;
-    std::uint64_t offset;
-    std::uint64_t address;
-    std::uint64_t file_size;
-    std::uint64_t memory_size;
-    std::uint64_t alignment;
-};
-
-/// Writes ELF files field by field at the offsets from the ELF gABI, independent of the reader's structs.
-class ElfBuilder {
-public:
-    std::vector<std::byte> bytes = std::vector<std::byte>(0x300);
-
-    ElfBuilder() {
-        const unsigned char ident[] = {0x7f, 'E', 'L', 'F', 2 /* 64-bit */, 1 /* little-endian */, 1 /* version */};
-        std::memcpy(bytes.data(), ident, sizeof ident);
-        put<std::uint16_t>(16, 3);       // e_type: ET_DYN
-        put<std::uint16_t>(18, 183);     // e_machine: EM_AARCH64
-        put<std::uint32_t>(20, 1);       // e_version
-        put<std::uint64_t>(24, 0x4200);  // e_entry
-        put<std::uint16_t>(52, 64);      // e_ehsize
-        put<std::uint16_t>(54, 56);      // e_phentsize
-    }
-
-    template <typename T>
-    ElfBuilder &put(std::size_t offset, T value) {
-        std::memcpy(bytes.data() + offset, &value, sizeof value);
-        return *this;
-    }
-
-    /// Writes the program header table right after the file header.
-    ElfBuilder &segments(std::initializer_list<ProgramHeader> headers) {
-        put<std::uint64_t>(32, 64);  // e_phoff
-        put<std::uint16_t>(56, static_cast<std::uint16_t>(headers.size()));
-        std::size_t at = 64;
-        for (const auto &header : headers) {
-            put(at, header.type).put(at + 4, header.flags).put(at + 8, header.offset).put(at + 16, header.address);
-            put(at + 24, header.address);  // p_paddr
-            put(at + 32, header.file_size).put(at + 40, header.memory_size).put(at + 48, header.alignment);
-            at += 56;
-        }
-        return *this;
-    }
-
-    ElfBuilder &text(std::size_t offset, std::string_view text) {
-        std::memcpy(bytes.data() + offset, text.data(), text.size());
-        return *this;
-    }
-};
 
 /// Laid out like an NDK static PIE, only smaller: every LOAD segment is aligned to 16 KiB.
 ElfBuilder static_pie() {
@@ -181,6 +124,95 @@ TEST(checks_the_16k_page_alignment) {
     CHECK(apk::elf::first_misaligned_load(shifted) == &shifted.segments[1]);
 }
 
+/// The sections of a small static PIE: code, data and bss, as the converter sees them.
+ElfBuilder static_pie_with_sections() {
+    auto builder = static_pie();
+    builder.sections({
+        {".rodata", sht_progbits, shf_alloc, 0x100, 0x100, 0x100},
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x4200, 0x200, 0x80},
+        {".data", sht_progbits, shf_alloc | shf_write, 0x8280, 0x280, 0x40},
+        {".bss", sht_nobits, shf_alloc | shf_write, 0x82c0, 0x2c0, 0xf40},
+    });
+    return builder;
+}
+
+TEST(reads_the_section_headers) {
+    const auto sections = apk::elf::read_sections(static_pie_with_sections().bytes);
+    CHECK(sections.size() == 6);  // the null section, four, .shstrtab
+    CHECK(sections[0].name.empty());
+    CHECK(sections[2].name == ".text");
+    CHECK(sections[2].type == sht_progbits);
+    CHECK(sections[2].flags == (shf_alloc | shf_execinstr));
+    CHECK(sections[2].address == 0x4200);
+    CHECK(sections[2].offset == 0x200);
+    CHECK(sections[2].size == 0x80);
+    CHECK(sections[4].name == ".bss");
+    CHECK(sections[4].type == sht_nobits);
+    CHECK(sections[5].name == ".shstrtab");
+}
+
+TEST(a_file_without_section_headers_has_no_sections) {
+    CHECK(apk::elf::read_sections(static_pie().bytes).empty());
+}
+
+TEST(rejects_malformed_section_headers) {
+    const auto valid = static_pie_with_sections();
+    const auto table = [&] {
+        std::uint64_t offset;
+        std::memcpy(&offset, valid.bytes.data() + 40, sizeof offset);
+        return static_cast<std::size_t>(offset);
+    }();
+
+    auto outside = valid;
+    outside.put<std::uint64_t>(40, outside.bytes.size() - 64);
+    CHECK_THROWS(FormatError, apk::elf::read_sections(outside.bytes), "section header table lies outside the file");
+
+    auto wrong_size = valid;
+    wrong_size.put<std::uint16_t>(58, 40);
+    CHECK_THROWS(FormatError, apk::elf::read_sections(wrong_size.bytes), "40 bytes instead of 64");
+
+    auto bad_names = valid;
+    bad_names.put<std::uint16_t>(62, 9);
+    CHECK_THROWS(FormatError, apk::elf::read_sections(bad_names.bytes), "section name table");
+
+    auto name_outside = valid;
+    name_outside.put<std::uint32_t>(table + 2 * 64, 0x7fff'ffff);
+    CHECK_THROWS(FormatError, apk::elf::read_sections(name_outside.bytes), "name of section #2");
+
+    auto contents_outside = valid;
+    contents_outside.put<std::uint64_t>(table + 2 * 64 + 32, 0x10'0000);  // sh_size of .text
+    CHECK_THROWS(FormatError, apk::elf::read_sections(contents_outside.bytes), "section #2 (.text)");
+
+    // NOBITS sections occupy no bytes of the file, whatever their size.
+    auto large_bss = valid;
+    large_bss.put<std::uint64_t>(table + 4 * 64 + 32, 0x10'0000);
+    CHECK(apk::elf::read_sections(large_bss.bytes)[4].size == 0x10'0000);
+}
+
+TEST(reads_the_dynamic_table) {
+    ElfBuilder builder;
+    builder.segments({{pt_load, r | w, 0x200, 0x4200, 0x80, 0x80, 0x4000}, {pt_dynamic, r | w, 0x200, 0x4200, 0x40, 0x40, 8}})
+        .dynamic(0x200, {{0x6fff'e000, 0x368}, {0x6fff'e001, 0x68}, {0, 0}, {0x1e, 0x8}});
+    const auto file = read(builder);
+    const auto entries = apk::elf::read_dynamic(file, builder.bytes);
+    CHECK(entries.size() == 2);  // ends at DT_NULL, not at the end of the segment
+    CHECK(entries[0].tag == 0x6fff'e000);
+    CHECK(entries[0].value == 0x368);
+    CHECK(entries[1].tag == 0x6fff'e001);
+    CHECK(entries[1].value == 0x68);
+
+    CHECK(apk::elf::read_dynamic(read(static_pie()), static_pie().bytes).empty());  // no PT_DYNAMIC
+}
+
+TEST(finds_the_load_segment_of_an_address_range) {
+    const auto file = read(static_pie());
+    CHECK(apk::elf::load_containing(file, 0x4200, 0x80) == &file.segments[2]);
+    CHECK(apk::elf::load_containing(file, 0x8280, 0x1000) == &file.segments[3]);  // bss counts
+    CHECK(apk::elf::load_containing(file, 0x4270, 0x20) == nullptr);              // runs past the end
+    CHECK(apk::elf::load_containing(file, 0x3000, 1) == nullptr);                 // in no segment
+    CHECK(apk::elf::load_containing(file, ~std::uint64_t{0}, 2) == nullptr);      // overflows
+}
+
 /// Whatever the bytes, read() either succeeds or throws FormatError. ASan and UBSan (macOS preset)
 /// catch reads outside the file, which is why every attempt gets a buffer of exactly its size.
 TEST(survives_truncated_and_corrupted_files) {
@@ -192,15 +224,27 @@ TEST(survives_truncated_and_corrupted_files) {
             {pt_load, r | x, 0x200, 0x4200, 0x80, 0x80, 0x4000},
             {pt_load, r | w, 0x280, 0x8280, 0x40, 0x1000, 0x4000},
             {pt_interp, r, 0x2c0, 0x82c0, 21, 21, 1},
-            {pt_gnu_stack, r | w, 0, 0, 0, 0, 0},
+            {pt_dynamic, r | w, 0x280, 0x8280, 0x40, 0x40, 8},
         })
-        .text(0x2c0, "/system/bin/linker64");
+        .text(0x2c0, "/system/bin/linker64")
+        .dynamic(0x280, {{0x6fff'e000, 0x100}, {0x6fff'e001, 0x10}, {0, 0}})
+        .sections({
+            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x4200, 0x200, 0x80},
+            {".dynamic", sht_progbits, shf_alloc | shf_write, 0x8280, 0x280, 0x40},
+        });
     const auto original = builder.bytes;
     CHECK(read(builder).interpreter == "/system/bin/linker64");
+    CHECK(apk::elf::read_sections(original).size() == 4);
 
     const auto attempt = [](const std::vector<std::byte> &bytes) {
         try {
-            static_cast<void>(apk::elf::first_misaligned_load(apk::elf::read(bytes)));
+            const auto file = apk::elf::read(bytes);
+            static_cast<void>(apk::elf::first_misaligned_load(file));
+            static_cast<void>(apk::elf::read_dynamic(file, bytes));
+        } catch (const FormatError &) {
+        }
+        try {
+            static_cast<void>(apk::elf::read_sections(bytes));
         } catch (const FormatError &) {
         }
     };
@@ -208,13 +252,22 @@ TEST(survives_truncated_and_corrupted_files) {
         attempt(std::vector(original.begin(), original.begin() + static_cast<std::ptrdiff_t>(size)));
     }
     constexpr std::size_t headers_end = 64 + 6 * 56;
+    const std::size_t section_table = original.size() - 4 * 64;
     std::mt19937_64 random(20260922);
     for (int round = 0; round < 20000; ++round) {
         auto bytes = original;
         for (int change = 0; change <= round % 4; ++change) {
-            // Mostly the headers, where a wrong number can mislead the reader.
-            const auto limit = change == 0 ? headers_end : bytes.size();
-            bytes[random() % limit] = static_cast<std::byte>(random() & 0xff);
+            // Mostly the headers, where a wrong number can mislead the reader: every other round the
+            // program headers, else the section header table.
+            std::size_t at;
+            if (change == 0 && round % 2 == 0) {
+                at = random() % headers_end;
+            } else if (change == 0) {
+                at = section_table + random() % (4 * 64);
+            } else {
+                at = random() % bytes.size();
+            }
+            bytes[at] = static_cast<std::byte>(random() & 0xff);
         }
         attempt(bytes);
     }

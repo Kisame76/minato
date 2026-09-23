@@ -12,6 +12,7 @@ struct APKRunnerApp: App {
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG
         SpikeRunner.runIfRequested()
+        FixtureRunner.runIfRequested()
         #endif
     }
 
