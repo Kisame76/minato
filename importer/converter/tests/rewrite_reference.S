@@ -211,17 +211,6 @@ _ref_x18_branches:
     braa    x18, x0
     braa    x0, x18                 // x18 as the modifier
 1:
-// Load- and store-exclusives: the island's memory accesses could keep the store from succeeding.
-    .globl _ref_x18_exclusives
-_ref_x18_exclusives:
-    ldxr    x18, [x0]
-    ldaxr   w18, [x0]
-    ldxr    x0, [x18]
-    stxr    w18, x0, [x1]
-    stlxr   w0, x18, [x1]
-    ldxp    x18, x19, [x0]
-    stxp    w0, x18, x19, [x1]
-    ldtxr   x18, [x0]
 // The thread pointer moved through x18: the island of either register would lose the other.
     .globl _ref_x18_thread_pointer
 _ref_x18_thread_pointer:

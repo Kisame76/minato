@@ -307,6 +307,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const std::uint64_t stubs_offset = align_up(info_offset + sizeof(apk_container_info), 16);
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
+    for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
     const std::uint64_t image_offset = page_up(stubs_offset + stubs_size);
     const auto container_address = [&](std::uint64_t address) { return image_offset + (address - min_vaddr); };
 
@@ -347,6 +348,17 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             case rewrite::SiteKind::syscall: ++report.syscalls; break;
             case rewrite::SiteKind::x18: ++report.x18_islands; break;
         }
+    }
+    // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020 X2c).
+    for (const auto &region : findings.exclusive_regions) {
+        const std::uint64_t region_address = container_address(region.address);
+        const auto size = rewrite::exclusive_region_stub_size(region);
+        const auto patch = rewrite::emit_exclusive_region(region, region_address, stub,
+                                                          std::span(bytes).subspan(static_cast<std::size_t>(stub),
+                                                                                   static_cast<std::size_t>(size)));
+        std::memcpy(bytes.data() + region_address, &patch, sizeof patch);
+        stub += size;
+        ++report.x18_islands;
     }
     report.image_offset = image_offset;
     report.stub_bytes = stubs_size;

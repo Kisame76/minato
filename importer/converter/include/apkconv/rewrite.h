@@ -46,6 +46,21 @@ struct Unsupported {
     bool operator==(const Unsupported &) const = default;
 };
 
+/// A run from a load-exclusive to the store-exclusive or CLREX that closes it, with at least one
+/// use of x18 inside (ADR-0020 X2c). No other memory access may fall between the two, so the whole
+/// run is relocated as one island: x18 becomes a scratch register throughout, loaded from the TSD
+/// once before the run and stored back once after, both outside the exclusive window.
+struct ExclusiveRegion {
+    std::uint64_t address;             // of the load-exclusive, in the address space given to scan()
+    std::vector<std::uint32_t> words;  // the whole window, load-exclusive to close, inclusive
+    bool reads_x18 = false;            // x18 is read before it is written -> load the scratch first
+    bool writes_x18 = false;           // x18 is written -> store the scratch back after
+    std::uint8_t scratch = 0;          // stands in for x18 across the window (the value)
+    std::uint8_t base = 0;             // holds the TSD base for the store-back; used only when writing
+
+    bool operator==(const ExclusiveRegion &) const = default;
+};
+
 struct Findings {
     std::vector<Site> sites;
     /// `svc #imm` with imm != 0. Left alone it would run whatever Darwin syscall x16 names (F5), and
@@ -60,6 +75,8 @@ struct Findings {
     std::vector<std::uint64_t> x18_saves;
     /// Uses of x18 that no island handles; the converter refuses a file with any of them.
     std::vector<Unsupported> x18_unsupported;
+    /// Load-/store-exclusive windows with x18 inside, each relocated as one island (ADR-0020 X2c).
+    std::vector<ExclusiveRegion> exclusive_regions;
 };
 
 class RewriteError : public std::runtime_error {
@@ -86,5 +103,14 @@ std::size_t stub_size(const Site &site);
 /// where its stub goes, and where the loader puts the address of the syscall entry.
 std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t stub_address,
                    std::uint64_t syscall_slot_address, std::span<std::byte> stub);
+
+/// Bytes the relocated island of an exclusive region needs in the stub area.
+std::size_t exclusive_region_stub_size(const ExclusiveRegion &region);
+
+/// Writes the relocated island of `region` into `stub` (exactly exclusive_region_stub_size bytes)
+/// and returns the branch that replaces the load-exclusive at `region_address`. `stub_address` is
+/// where the island goes; both are container addresses.
+std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t region_address,
+                                    std::uint64_t stub_address, std::span<std::byte> stub);
 
 }  // namespace apk::rewrite

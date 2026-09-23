@@ -375,15 +375,133 @@ bool is_register_dump(std::span<const std::byte> code, std::size_t offset) {
     return (before == below && after == above) || (before == above && after == below);
 }
 
+constexpr bool is_store_exclusive(std::uint32_t word) {
+    return is_exclusive(word) && !is_load_exclusive(word);
+}
+
+/// The signed byte displacement of any PC-relative branch, or nullopt when `word` is none: B, BL
+/// (imm26), B.cond, BC.cond (imm19), and the conditional branches CBZ, CBNZ, TBZ, TBNZ.
+std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
+    if ((word & 0x7c00'0000) == 0x1400'0000) {  // B, BL
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(word << 6) >> 6) * 4;
+    }
+    if (((word >> 24) & 0xff) == 0x54) {  // B.cond, BC.cond
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(word << 8) >> 13) * 4;
+    }
+    if (is_conditional_branch(word)) return conditional_branch_displacement(word);
+    return std::nullopt;
+}
+
+/// The end offset (inclusive) of the exclusive window that opens at `open` (a load-exclusive): the
+/// first store-exclusive, plus a CLREX right behind it, or the first CLREX. Nullopt when the window
+/// nests another load-exclusive or finds no close within a small cap.
+std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code, std::size_t open) {
+    constexpr std::size_t cap = 32 * 4;
+    for (std::size_t j = open + 4; j < code.size() && j - open <= cap; j += 4) {
+        const auto word = word_at(code, j);
+        if (is_load_exclusive(word)) return std::nullopt;
+        if (is_store_exclusive(word)) {
+            return (j + 4 < code.size() && is_clrex(word_at(code, j + 4))) ? j + 4 : j;
+        }
+        if (is_clrex(word)) return j;
+    }
+    return std::nullopt;
+}
+
+/// Builds the relocatable region for the window [open, end] when it is simple enough (ADR-0020
+/// X2c): it uses x18, keeps a scratch register free, moves the stack pointer nowhere, substitutes
+/// x18 in every word that uses it, and its branches stay inside the window when x18 is written (so
+/// the store-back after the window is never skipped). Nullopt otherwise, so the x18 uses inside are
+/// refused instead.
+std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte> code, std::uint64_t address,
+                                                      std::size_t open, std::size_t end) {
+    ExclusiveRegion region;
+    region.address = address + open;
+    std::uint32_t used = 0;
+    bool any_x18 = false, seen_x18 = false;
+    for (std::size_t j = open; j <= end; j += 4) {
+        const auto word = word_at(code, j);
+        if (writes_stack_pointer(word)) return std::nullopt;
+        const auto use = a64::register_use(word);
+        used |= use.reads | use.writes;
+        if ((use.reads | use.writes) & x18_bit) {
+            if (!seen_x18) region.reads_x18 = (use.reads & x18_bit) != 0;
+            seen_x18 = true;
+            any_x18 = true;
+            if (use.writes & x18_bit) region.writes_x18 = true;
+        }
+        region.words.push_back(word);
+    }
+    if (!any_x18) return std::nullopt;  // an exclusive loop without x18 needs no rewrite
+
+    // A branch that leaves the window must not skip the store-back, so refuse one when x18 is written.
+    for (std::size_t k = 0; region.writes_x18 && k < region.words.size(); ++k) {
+        if (const auto displacement = branch_displacement(region.words[k])) {
+            const auto target = static_cast<std::int64_t>(open + 4 * k) + *displacement;
+            if (target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end)) {
+                return std::nullopt;
+            }
+        }
+    }
+
+    // Two free registers: the value in place of x18, and the TSD base for the store-back. Both may
+    // hold live values around the loop, so the island saves them in the red zone.
+    unsigned found = 0;
+    for (unsigned candidate = 0; candidate < 29 && found < 2; ++candidate) {
+        if (candidate == guest_x18 || (used & (1u << candidate)) != 0) continue;
+        (found++ == 0 ? region.scratch : region.base) = static_cast<std::uint8_t>(candidate);
+    }
+    if (found < 2) return std::nullopt;  // not enough free registers
+    for (const auto word : region.words) {
+        const auto use = a64::register_use(word);
+        if (((use.reads | use.writes) & x18_bit) && !a64::substitute(word, guest_x18, region.scratch)) {
+            return std::nullopt;
+        }
+    }
+    return region;
+}
+
+/// Whether a direct branch anywhere in `code` lands strictly inside the window (open, end], which
+/// would enter the relocated island in the middle. Indirect branches cannot be checked; the
+/// compiler-built LL/SC loops of the test APK have none into their own body (ADR-0020 X2c).
+bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
+        if (j > open && j <= end) continue;  // branches inside the window are its own business
+        if (const auto displacement = branch_displacement(word_at(code, j))) {
+            const auto target = static_cast<std::int64_t>(j) + *displacement;
+            if (target > static_cast<std::int64_t>(open) && target <= static_cast<std::int64_t>(end)) return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings) {
     if (address % 4 != 0 || code.size() % 4 != 0) {
         throw RewriteError(std::format("code at {:#x} with {:#x} bytes is not word aligned", address, code.size()));
     }
+    // First, relocate whole load-/store-exclusive windows that use x18 (ADR-0020 X2c). Each covers
+    // its offsets, so the main loop below leaves them alone; a window a branch could enter in the
+    // middle is dropped, and its x18 uses are refused there instead.
+    std::vector<std::pair<std::size_t, std::size_t>> covered;
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        if (!is_load_exclusive(word_at(code, offset))) continue;
+        const auto end = exclusive_window_end(code, offset);
+        if (!end) continue;
+        auto region = build_exclusive_region(code, address, offset, *end);
+        if (!region || branch_enters_window(code, offset, *end)) continue;
+        findings.exclusive_regions.push_back(std::move(*region));
+        covered.emplace_back(offset, *end);
+    }
+    const auto is_covered = [&](std::size_t offset) {
+        return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
+    };
+
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
     bool exclusive_sequence = false;
     for (std::size_t offset = 0; offset < code.size(); offset += 4) {
+        if (is_covered(offset)) continue;
         const auto instruction = word_at(code, offset);
         const std::uint64_t at = address + offset;
         const auto rt = static_cast<std::uint8_t>(instruction & 0x1f);
@@ -535,6 +653,67 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
     write(b(write.next_address(), back));
     write.finish();
     return b(site_address, stub_address);
+}
+
+namespace {
+
+/// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ) with its displacement set to `delta`.
+std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delta) {
+    const auto encoded = static_cast<std::uint32_t>(delta / 4);
+    if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | (encoded & 0x03ff'ffff);  // B, BL
+    if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);  // B.cond
+    return with_branch_displacement(word, delta);  // CBZ, CBNZ, TBZ, TBNZ
+}
+
+}  // namespace
+
+std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
+    std::size_t words = 1 /* save value */ + region.words.size() + 1 /* restore value */ + 1 /* branch */;
+    if (region.reads_x18) words += 3;                 // mrs, bic, ldr before the window
+    if (region.writes_x18) words += 1 + 3 + 1;         // save base; mrs, bic, str; restore base
+    return 4 * words;
+}
+
+std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t region_address,
+                                    std::uint64_t stub_address, std::span<std::byte> stub) {
+    if (stub.size() != exclusive_region_stub_size(region)) throw RewriteError("the stub buffer has the wrong size");
+    const auto value = region.scratch, base = region.base;
+    const auto window_bytes = 4 * region.words.size();
+    StubWriter write(stub, stub_address);
+
+    write(stur(value, sp, scratch_slot_0));
+    if (region.writes_x18) write(stur(base, sp, scratch_slot_1));
+    if (region.reads_x18) {
+        write(mrs_tpidrro_el0(value));
+        write(bic_7(value, value));
+        write(ldr_unsigned(value, value, guest_x18_offset));
+    }
+    // The window itself, x18 renamed to the value register and its own branches retargeted.
+    const std::uint64_t window_start = write.next_address();
+    for (std::size_t index = 0; index < region.words.size(); ++index) {
+        auto word = region.words[index];
+        const auto use = a64::register_use(word);
+        if ((use.reads | use.writes) & x18_bit) word = *a64::substitute(word, guest_x18, value);
+        if (const auto displacement = branch_displacement(word)) {
+            const auto target = static_cast<std::int64_t>(region_address + 4 * index) + *displacement;
+            const auto offset_in_window = target - static_cast<std::int64_t>(region_address);
+            const std::uint64_t to = (offset_in_window >= 0 && offset_in_window < static_cast<std::int64_t>(window_bytes))
+                                         ? window_start + static_cast<std::uint64_t>(offset_in_window)
+                                         : static_cast<std::uint64_t>(target);
+            word = with_any_branch_displacement(word, static_cast<std::int64_t>(to - write.next_address()));
+        }
+        write(word);
+    }
+    if (region.writes_x18) {
+        write(mrs_tpidrro_el0(base));
+        write(bic_7(base, base));
+        write(str_unsigned(value, base, guest_x18_offset));
+    }
+    write(ldur(value, sp, scratch_slot_0));
+    if (region.writes_x18) write(ldur(base, sp, scratch_slot_1));
+    write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
+    write.finish();
+    return b(region_address, stub_address);
 }
 
 }  // namespace apk::rewrite

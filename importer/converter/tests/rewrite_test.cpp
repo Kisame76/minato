@@ -3,6 +3,7 @@
 // page offsets, must match what the real toolchain writes for the same instructions.
 #include "apkconv/rewrite.h"
 
+#include "apkconv/a64.h"
 #include "check.h"
 
 #include <cstring>
@@ -30,7 +31,6 @@ extern const std::uint32_t ref_x18_islands[];
 extern const std::uint32_t ref_x18_moves_sp[];
 extern const std::uint32_t ref_x18_below_sp[];
 extern const std::uint32_t ref_x18_branches[];
-extern const std::uint32_t ref_x18_exclusives[];
 extern const std::uint32_t ref_x18_thread_pointer[];
 extern const std::uint32_t ref_x18_without_field[];
 extern const std::uint32_t ref_x18_unsupported_end[];
@@ -255,8 +255,7 @@ TEST(forms_no_island_handles_are_refused_with_the_reason) {
     } groups[] = {
         {ref_x18_moves_sp, ref_x18_below_sp, "moves the stack pointer"},
         {ref_x18_below_sp, ref_x18_branches, "below the stack pointer"},
-        {ref_x18_branches, ref_x18_exclusives, "branch"},
-        {ref_x18_exclusives, ref_x18_thread_pointer, "exclusive"},
+        {ref_x18_branches, ref_x18_thread_pointer, "branch"},
         {ref_x18_thread_pointer, ref_x18_without_field, "thread pointer"},
         {ref_x18_without_field, ref_x18_unsupported_end, "field"},
     };
@@ -358,18 +357,119 @@ TEST(a_conditional_branch_on_x18_is_an_island_but_a_register_branch_is_refused) 
     }
 }
 
-// Between a load- and a store-exclusive, an island would add memory accesses: the architecture does
-// not promise that the store-exclusive ever succeeds then. Before and after, x18 goes into islands.
-TEST(x18_between_a_load_and_a_store_exclusive_is_refused) {
+// The load-/store-exclusive loop of ref_x18_ll_sc becomes one region; the x18 instructions before
+// and after it stay single-instruction islands, and the x18-free exclusive after is left alone.
+TEST(an_ll_sc_loop_becomes_a_region_with_islands_around_it) {
     const auto findings = scan_words(ref_x18_ll_sc, ref_x18_ll_sc_end, 0x1000);
-    std::vector<std::uint64_t> islands, refused;
+    std::vector<std::uint64_t> islands;
     for (const auto &site : findings.sites) islands.push_back(site.address);
-    for (const auto &entry : findings.x18_unsupported) refused.push_back(entry.address);
-    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1014, 0x1020}));
-    CHECK(refused == (std::vector<std::uint64_t>{0x1008, 0x100c}));
-    if (findings.x18_unsupported.size() == 2) {
-        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("between") != std::string_view::npos);
+    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1014, 0x1020}));  // the three add x18
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() == 1) {
+        const auto &region = findings.exclusive_regions[0];
+        CHECK(region.address == 0x1004);         // the ldaxr
+        CHECK(region.words.size() == 3);         // ldaxr, add x18, stlxr
+        CHECK(region.writes_x18);
     }
+}
+
+// A load-/store-exclusive loop with x18 inside relocates as one island (ADR-0020 X2c). The window
+// runs from the load-exclusive to the store-exclusive or CLREX that closes it; nothing between them
+// may touch memory, so x18 becomes a scratch register loaded before and stored after the window.
+TEST(an_exclusive_loop_with_x18_as_the_value_is_one_region) {
+    // Shape A: atomic add. ldxr; add x18; stlxr; retry cbnz (outside the window).
+    const std::uint32_t code[] = {0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2, 0x35ff'ffb0};
+    const auto findings = scan_words(code, code + 4, 0x1000);
+    CHECK(findings.sites.empty());
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+    CHECK(region.address == 0x1000);
+    CHECK(region.words == (std::vector<std::uint32_t>{0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2}));
+    CHECK(!region.reads_x18);  // x18 is written by the add before the stlxr reads it
+    CHECK(region.writes_x18);
+    CHECK(region.scratch == 0);  // x0 is free (the window uses x13, x14, x16, x17, x18)
+}
+
+TEST(a_cmpxchg_loop_keeps_its_internal_branch_and_reads_before_the_window) {
+    // Shape B: mov x17,x18 (its own island) then ldaxr..clrex with an internal b.ne to the clrex.
+    const std::uint32_t code[] = {0xaa12'03f1, 0xc85f'fdb2, 0xeb11'025f, 0x5400'0041,
+                                  0xc803'fda2, 0xd503'3f5f, 0xb5ff'ff43};
+    const auto findings = scan_words(code, code + 7, 0x2000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.sites.size() == 1);  // the mov x17,x18 before the loop
+    if (findings.sites.size() == 1) CHECK(findings.sites[0].address == 0x2000);
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+    CHECK(region.address == 0x2004);
+    CHECK(region.words.size() == 5);  // ldaxr, cmp, b.ne, stlxr, clrex
+    CHECK(!region.reads_x18);         // the ldaxr writes x18 first
+    CHECK(region.writes_x18);
+}
+
+TEST(an_exclusive_loop_using_x18_as_the_address_loads_the_scratch_first) {
+    // Shape C: x18 is the base of the exclusive access, read but never written.
+    const std::uint32_t code[] = {0xc85f'7e42, 0xaa01'0042, 0xc803'7e42, 0x35ff'ffa3};
+    const auto findings = scan_words(code, code + 4, 0x3000);
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+    CHECK(region.words.size() == 3);
+    CHECK(region.reads_x18);
+    CHECK(!region.writes_x18);
+}
+
+TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
+    // A branch from before the loop lands on the add inside the window: it cannot be relocated.
+    const std::uint32_t code[] = {
+        0x1400'0002,  // b .+8, onto the add
+        0xc85f'7db1,  // ldxr x17, [x13]
+        0x8b0e'0232,  // add x18, x17, x14
+        0xc810'fdb2,  // stlxr w16, x18, [x13]
+        0x35ff'ffb0,  // cbnz w16, ldxr
+    };
+    const auto findings = scan_words(code, code + 5, 0x4000);
+    CHECK(findings.exclusive_regions.empty());
+    CHECK(!findings.x18_unsupported.empty());
+}
+
+// The relocated island: x18 becomes the scratch everywhere, the guest value is loaded before and
+// stored after the window, and the store-exclusive keeps working on the same address.
+TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
+    const std::uint32_t code[] = {0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2, 0x35ff'ffb0};  // shape A
+    const auto findings = scan_words(code, code + 4, 0x1000);
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+
+    CHECK(region.scratch == 0);  // value in x0
+    CHECK(region.base == 1);     // TSD base in x1
+    std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
+    const auto stub_address = address_of(ref_site) - 0x100;  // anywhere; only the final b depends on it
+    const auto patch = apk::rewrite::emit_exclusive_region(region, address_of(ref_site), stub_address, stub);
+
+    // The load-exclusive is replaced by a branch to the stub.
+    CHECK((patch & 0xfc00'0000) == 0x1400'0000);
+    // x18 is written, so the island saves both scratch registers in the red zone and stores back.
+    const auto words = stub.size() / 4;
+    CHECK(words == 1 /* save value */ + 1 /* save base */ + 3 /* window */ + 3 /* mrs, bic, str */ +
+                       2 /* restore value, base */ + 1 /* b */);
+    for (std::size_t index = 0; index < words; ++index) {
+        const auto use = apk::a64::register_use(word(stub, index));
+        CHECK(((use.reads | use.writes) & (1u << 18)) == 0);  // no word still names x18
+    }
+    CHECK(word(stub, 0) == 0xf818'03e0);   // stur x0, [sp, #-128]
+    CHECK(word(stub, 1) == 0xf818'83e1);   // stur x1, [sp, #-120]
+    // The window keeps its shape, x18 renamed to x0: ldxr (no x18, unchanged), add, stlxr.
+    CHECK(word(stub, 2) == 0xc85f'7db1);   // ldxr x17, [x13]
+    CHECK(word(stub, 3) == 0x8b0e'0220);   // add x0, x17, x14
+    CHECK(word(stub, 4) == 0xc810'fda0);   // stlxr w16, x0, [x13]
+    CHECK(word(stub, 5) == 0xd53b'd061);   // mrs x1, TPIDRRO_EL0 (the TSD base)
+    CHECK(word(stub, 7) == 0xf900'2c20);   // str x0, [x1, #88]
+    CHECK(branch_target_at(stub, 10, stub_address) == address_of(ref_site) + 4 * 3);  // after the window
 }
 
 TEST(stubs_out_of_branch_range_are_rejected) {
