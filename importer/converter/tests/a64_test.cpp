@@ -1,10 +1,12 @@
-// Checks the A64 register-use decoder (ADR-0019) in two ways:
+// Checks the A64 register-use decoder (ADR-0019) and the register substitution (ADR-0020) in two
+// ways:
 //   - reference cases from the host assembler (a64_reference.S): the exact registers each
-//     instruction reads and writes, from the Arm ARM;
+//     instruction reads and writes, from the Arm ARM; and hand-made substitution cases;
 //   - with llvm-objdump as the oracle, on hundreds of thousands of instruction words: the decoder
 //     must report exactly the general-purpose registers the disassembly names, plus the implicit
 //     ones of the few instructions that have them. That catches fields taken for registers that
-//     are none (v18, PRFM's operation 18) and registers the decoder misses.
+//     are none (v18, PRFM's operation 18) and registers the decoder misses. Every word that uses
+//     x18 is also substituted, and its disassembly must be the original one with x18 renamed.
 //
 //   a64_test                                      the reference cases
 //   a64_test <llvm-objdump> <scratch> [<fixtures>] the comparison with llvm-objdump
@@ -15,6 +17,7 @@
 #include "elf_builder.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -70,6 +73,29 @@ public:
 private:
     std::uint64_t state_ = 0x9e37'79b9'7f4a'7c15ull;
 };
+
+TEST(substitution_renames_register_fields_and_nothing_else) {
+    using apk::a64::substitute;
+    // add x18, x18, x1: Rd and Rn.
+    CHECK(substitute(0x8b01'0252, 18, 9) == 0x8b01'0129u);
+    // ldp x17, x18, [x3, #0x50]: Rt2.
+    CHECK(substitute(0xa945'4871, 18, 9) == 0xa945'2471u);
+    // ldr x18, [x0, #0x90]: the scaled offset 18 lies where Rt2 would be, and stays.
+    CHECK(substitute(0xf940'4812, 18, 9) == 0xf940'4809u);
+    // fmov x18, d18: d18 is no general-purpose register.
+    CHECK(substitute(0x9e66'0252, 18, 9) == 0x9e66'0249u);
+    // cbz x18, #+8 and msr TPIDR_EL0, x18: only Rt; the offset and the system register stay.
+    CHECK(substitute(0xb400'0052, 18, 9) == 0xb400'0049u);
+    CHECK(substitute(0xd51b'd052, 18, 9) == 0xd51b'd049u);
+    // A word without x18 stays as it is.
+    CHECK(substitute(0x8b02'0020, 18, 9) == 0x8b02'0020u);
+    // Refused: x18 without a field of its own (st64b x16 uses x16 to x23), a register pair (casp),
+    // a replacement the instruction uses already, and sp/zr.
+    CHECK(!substitute(0xf83f'9010, 18, 9));
+    CHECK(!substitute(0x4832'7c02, 18, 9));
+    CHECK(!substitute(0x8b01'0252, 18, 1));
+    CHECK(!substitute(0x8b01'0252, 18, 31));
+}
 
 // The groups with op1 (bits 28:25) = 0000 to 0011: reserved (UDF), SME, SVE and unallocated.
 // None of it can run, so none of it uses a register, whatever its fields say.
@@ -233,6 +259,95 @@ std::vector<Line> disassemble(const std::string &objdump, const std::filesystem:
     return lines;
 }
 
+/// `text` with the general-purpose register `from` renamed to `to`, as whole words: x and w forms.
+std::string renamed(std::string_view text, unsigned from, unsigned to) {
+    std::string result;
+    for (std::size_t at = 0; at < text.size();) {
+        const bool starts = (text[at] == 'x' || text[at] == 'w') && (at == 0 || !is_word_character(text[at - 1]));
+        const auto digits = std::to_string(from);
+        if (starts && text.substr(at + 1, digits.size()) == digits &&
+            (at + 1 + digits.size() == text.size() || !is_word_character(text[at + 1 + digits.size()]))) {
+            result += text[at];
+            result += std::to_string(to);
+            at += 1 + digits.size();
+        } else {
+            result += text[at++];
+        }
+    }
+    return result;
+}
+
+/// `text` with each run of spaces and tabs as one space.
+std::string squeezed(std::string_view text) {
+    std::string result;
+    for (const char c : text) {
+        const bool blank = c == ' ' || c == '\t';
+        if (blank && !result.empty() && result.back() == ' ') continue;
+        result += blank ? ' ' : c;
+    }
+    return result;
+}
+
+/// The lowest register the word does not use, other than `avoid`: a replacement for x18.
+unsigned free_register(std::uint32_t word, unsigned avoid) {
+    const auto use = apk::a64::register_use(word);
+    for (unsigned reg = 0; reg < 31; ++reg) {
+        if (reg != avoid && ((use.reads | use.writes) & (1u << reg)) == 0) return reg;
+    }
+    return 31;
+}
+
+/// Substitutes x18 in every word that uses it and compares the disassembly of the result with the
+/// original one, x18 renamed. The words keep their addresses, so PC-relative targets are the same.
+int compare_substitutions(const std::string &objdump, const std::filesystem::path &scratch,
+                          const std::vector<std::uint32_t> &words, const std::vector<Line> &lines) {
+    std::vector<std::uint32_t> substituted = words;
+    std::map<std::size_t, unsigned> replacement;  // index -> the register that replaces x18
+    std::map<std::string, std::size_t> refused_by_mnemonic;
+    std::map<std::size_t, std::string_view> original_text;
+    for (const auto &line : lines) {
+        if (line.address < 0x1000 || (line.address - 0x1000) % 4 != 0) continue;
+        const auto index = (line.address - 0x1000) / 4;
+        if (index >= words.size()) continue;
+        const auto use = apk::a64::register_use(words[index]);
+        if (((use.reads | use.writes) & (1u << 18)) == 0) continue;
+        const auto to = free_register(words[index], 18);
+        if (const auto word = apk::a64::substitute(words[index], 18, to)) {
+            substituted[index] = *word;
+            replacement[index] = to;
+            original_text[index] = line.text;
+        } else {
+            const std::string_view text(line.text);
+            const auto mnemonic = std::string(text.substr(0, text.find_first_of("\t ")));
+            if (++refused_by_mnemonic[mnemonic] <= 2 && std::getenv("A64_SHOW_REFUSED") != nullptr) {
+                std::fprintf(stderr, "refused %08x  %s\n", words[index], line.text.c_str());
+            }
+        }
+    }
+    const auto path = scratch / "substituted.elf";
+    write_elf(path, substituted);
+    std::size_t mismatches = 0;
+    for (const auto &line : disassemble(objdump, path)) {
+        if (line.address < 0x1000 || (line.address - 0x1000) % 4 != 0) continue;
+        const auto index = (line.address - 0x1000) / 4;
+        const auto found = replacement.find(index);
+        if (found == replacement.end()) continue;
+        // The comment column moves when the register name gets shorter or longer.
+        const auto expected = squeezed(renamed(original_text[index], 18, found->second));
+        if (squeezed(line.text) == expected) continue;
+        if (++mismatches <= 40) {
+            std::fprintf(stderr, "%08x -> %08x  %s, expected %s\n", words[index], substituted[index], line.text.c_str(),
+                         expected.c_str());
+        }
+    }
+    std::size_t refused = 0;
+    for (const auto &[mnemonic, count] : refused_by_mnemonic) refused += count;
+    std::printf("substituted x18 in %zu words, %zu mismatches; refused %zu:", replacement.size(), mismatches, refused);
+    for (const auto &[mnemonic, count] : refused_by_mnemonic) std::printf(" %s %zu", mnemonic.c_str(), count);
+    std::printf("\n");
+    return mismatches == 0 ? 0 : 1;
+}
+
 int compare_with_objdump(const std::string &objdump, const std::filesystem::path &scratch,
                          const std::filesystem::path &fixtures) {
     auto words = random_words(400'000);
@@ -285,7 +400,8 @@ int compare_with_objdump(const std::string &objdump, const std::filesystem::path
         std::fprintf(stderr, "llvm-objdump printed %zu of %zu words\n", compared, words.size());
         return 1;
     }
-    return mismatches == 0 ? 0 : 1;
+    const auto substitutions = compare_substitutions(objdump, scratch, words, lines);
+    return mismatches == 0 && substitutions == 0 ? 0 : 1;
 }
 
 }  // namespace

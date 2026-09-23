@@ -28,8 +28,9 @@ struct Report {
     std::uint32_t thread_pointer_reads = 0;
     std::uint32_t thread_pointer_writes = 0;
     std::uint32_t syscalls = 0;
-    std::uint32_t x18_writes = 0;    // harmless: XNU may clear x18, but nothing reads it (ADR-0019)
-    std::uint32_t x18_saves = 0;     // harmless: x18 stored in a dump of all registers
+    std::uint32_t x18_writes = 0;    // instructions that only write x18
+    std::uint32_t x18_saves = 0;     // x18 stored in a dump of all registers
+    std::uint32_t x18_islands = 0;   // instructions run with a scratch register for x18 (ADR-0020)
     std::uint64_t relocations = 0;   // RELR addresses plus RELA entries, all in writable memory
     std::uint64_t image_offset = 0;  // where the ELF image starts in the container
     std::uint64_t stub_bytes = 0;    // islands and veneers

@@ -657,4 +657,30 @@ RegisterUse register_use(std::uint32_t instruction) {
     return {};  // reserved, SME, SVE, unallocated
 }
 
+std::optional<std::uint32_t> substitute(std::uint32_t instruction, unsigned from, unsigned to) {
+    if (from > 30 || to > 30 || from == to) return std::nullopt;
+    const auto use = register_use(instruction);
+    const std::uint32_t from_bit = 1u << from, to_bit = 1u << to;
+    if (((use.reads | use.writes) & from_bit) == 0) return instruction;
+    if (((use.reads | use.writes) & to_bit) != 0) return std::nullopt;
+
+    // A register field: changing it brings in `to` and changes nothing but `from` and `to`. Other
+    // fields can hold the same number too, and changing an opcode field among them gives another
+    // instruction with other registers, or none.
+    const std::uint32_t others = ~(from_bit | to_bit);
+    const auto is_register_field = [&](const RegisterUse &changed) {
+        return ((changed.reads | changed.writes) & to_bit) != 0 && (changed.reads & others) == (use.reads & others) &&
+               (changed.writes & others) == (use.writes & others);
+    };
+    std::uint32_t result = instruction;
+    for (const unsigned shift : {0u, 5u, 10u, 16u}) {
+        if (((instruction >> shift) & 0x1f) != from) continue;
+        const auto changed = (instruction & ~(0x1fu << shift)) | (to << shift);
+        if (is_register_field(register_use(changed))) result = (result & ~(0x1fu << shift)) | (to << shift);
+    }
+    const auto renamed = [&](std::uint32_t mask) { return (mask & from_bit) != 0 ? (mask & ~from_bit) | to_bit : mask; };
+    if (register_use(result) != RegisterUse{renamed(use.reads), renamed(use.writes)}) return std::nullopt;
+    return result;
+}
+
 }  // namespace apk::a64

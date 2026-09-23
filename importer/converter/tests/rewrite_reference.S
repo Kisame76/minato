@@ -2,6 +2,15 @@
 // The rewriter must emit exactly these words, including the branch and page offsets the linker
 // resolves, so the tests compare against a real assembler instead of hand-computed constants.
 
+    // The x18 forms below include extensions: MTE, CPA, LSUI, CMPBR, LS64, LRCPC3.
+    .arch armv9.6-a
+    .arch_extension memtag
+    .arch_extension cpa
+    .arch_extension lsui
+    .arch_extension cmpbr
+    .arch_extension ls64
+    .arch_extension rcpc3
+
     .text
     .p2align 2
 
@@ -47,6 +56,49 @@ _ref_syscall_veneer:
     ldr     x16, [x16, _ref_syscall_slot@PAGEOFF]
     blr     x16
     ldp     x16, x30, [sp], #16
+    b       _ref_after_site
+
+// x18 islands (ADR-0020), complete with the branch back: the island runs the instruction with a
+// scratch register in place of x18, whose value lives in Darwin TSD slot 11 (offset 88). Scratch
+// registers are saved in the red zone, at sp - 128 and sp - 120, without moving sp.
+// `add x18, x18, x1`: reads and writes x18; scratch x0, TSD base in x2.
+    .globl _ref_x18_island_read_write
+_ref_x18_island_read_write:
+    stur    x0, [sp, #-128]
+    stur    x2, [sp, #-120]
+    mrs     x0, TPIDRRO_EL0
+    bic     x0, x0, #7
+    ldr     x0, [x0, #88]
+    add     x0, x0, x1
+    mrs     x2, TPIDRRO_EL0
+    bic     x2, x2, #7
+    str     x0, [x2, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x2, [sp, #-120]
+    b       _ref_after_site
+
+// `str x18, [x0]`: reads x18 only; scratch x1.
+    .globl _ref_x18_island_read
+_ref_x18_island_read:
+    stur    x1, [sp, #-128]
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    ldr     x1, [x1, #88]
+    str     x1, [x0]
+    ldur    x1, [sp, #-128]
+    b       _ref_after_site
+
+// `mov x18, x19`: writes x18 only; scratch x0, TSD base in x1.
+    .globl _ref_x18_island_write
+_ref_x18_island_write:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    mov     x0, x19
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
     b       _ref_after_site
 
 // A site as the rewriter leaves it: a branch to its stub.
@@ -97,6 +149,115 @@ _ref_x18:
     prfm    pstl2keep, [x0]         // neither: the operation 18 is no register
     .globl _ref_x18_end
 _ref_x18_end:
+
+// x18 next to register 31 in forms an island handles (ADR-0020): 31 as xzr, sp read but not moved,
+// sp as the base of an access at or above it. Every word goes into an island.
+    .globl _ref_x18_islands
+_ref_x18_islands:
+    mov     x18, x19                // orr x18, xzr, x19
+    orr     x18, xzr, #0xff         // logical immediate: Rn is xzr
+    cmp     x18, #1                 // subs xzr, x18, #1: with S set, Rd is xzr
+    cmp     x18, x1, uxtx           // extended register, S set: xzr
+    tst     x18, #1                 // ands xzr, x18, #1
+    add     x18, sp, #16            // sp read, not written
+    mov     x18, sp
+    add     x18, sp, x1
+    ldr     x18, [sp, #8]           // unsigned offset
+    str     w18, [sp, #12]
+    ldur    x18, [sp, #0x1e]        // unscaled, not negative (libunity.so)
+    ldr     x18, [sp, x1]           // register offset
+    stp     x18, x19, [sp, #16]
+    ldp     x0, x18, [sp]
+    stnp    x18, x19, [sp, #16]
+    ldar    x18, [sp]               // no offset
+    str     x30, [x18], #8          // writeback to x18, not to sp (ShadowCallStack)
+
+// x18 in forms no island handles, grouped by the reason; every word is refused.
+// sp moves, and with it the red zone where the island keeps its registers.
+    .globl _ref_x18_moves_sp
+_ref_x18_moves_sp:
+    mov     sp, x18                 // add sp, x18, #0
+    sub     sp, x18, #16
+    add     sp, sp, x18             // extended register
+    and     sp, x18, #~15           // logical immediate: Rd is sp
+    addg    sp, x18, #16, #1
+    irg     sp, x18
+    addpt   sp, sp, x18
+    ldr     x18, [sp], #16          // post-index
+    str     x18, [sp, #-16]!        // pre-index
+    stp     x18, x19, [sp, #-16]!
+    ldp     x18, x19, [sp], #16
+    ldraa   x18, [sp, #8]!
+    stlr    x18, [sp, #-8]!
+    ld1     {v0.16b}, [sp], x18     // x18 as the post-index offset
+// Below sp, where the island keeps its registers. Linux code never goes there: it has no red zone.
+    .globl _ref_x18_below_sp
+_ref_x18_below_sp:
+    stur    x18, [sp, #-8]
+    sttr    x18, [sp, #-8]
+    stp     x18, x19, [sp, #-16]
+    ldnp    x18, x19, [sp, #-16]
+    ldraa   x18, [sp, #-8]
+    stlur   x18, [sp, #-8]
+// Branches: a second way out of the island.
+    .globl _ref_x18_branches
+_ref_x18_branches:
+    cbz     x18, 1f
+    cbnz    x18, 1f
+    tbz     w18, #3, 1f
+    tbnz    x18, #33, 1f
+    cbgt    x18, x1, 1f
+    br      x18
+    blr     x18
+    ret     x18
+    braa    x18, x0
+    braa    x0, x18                 // x18 as the modifier
+1:
+// PC-relative: in an island they would point elsewhere.
+    .globl _ref_x18_pc_relative
+_ref_x18_pc_relative:
+    adr     x18, _ref_x18_unsupported_end
+    adrp    x18, _ref_x18_unsupported_end@PAGE
+    ldr     x18, _ref_x18_unsupported_end
+    ldrsw   x18, _ref_x18_unsupported_end
+// Load- and store-exclusives: the island's memory accesses could keep the store from succeeding.
+    .globl _ref_x18_exclusives
+_ref_x18_exclusives:
+    ldxr    x18, [x0]
+    ldaxr   w18, [x0]
+    ldxr    x0, [x18]
+    stxr    w18, x0, [x1]
+    stlxr   w0, x18, [x1]
+    ldxp    x18, x19, [x0]
+    stxp    w0, x18, x19, [x1]
+    ldtxr   x18, [x0]
+// The thread pointer moved through x18: the island of either register would lose the other.
+    .globl _ref_x18_thread_pointer
+_ref_x18_thread_pointer:
+    mrs     x18, TPIDR_EL0
+    msr     TPIDR_EL0, x18
+// x18 without a register field of its own: half of a pair, one of the eight registers of ST64B.
+    .globl _ref_x18_without_field
+_ref_x18_without_field:
+    casp    x18, x19, x0, x1, [x2]
+    st64b   x16, [x0]
+    .globl _ref_x18_unsupported_end
+_ref_x18_unsupported_end:
+
+// An LL/SC loop, with x18 before, inside and after it.
+    .globl _ref_x18_ll_sc
+_ref_x18_ll_sc:
+    add     x18, x18, #1            // island: before the loop
+1:  ldaxr   x0, [x1]
+    add     x18, x0, #1             // refused: between the load- and the store-exclusive
+    stlxr   w2, x18, [x1]           // refused: a store-exclusive
+    cbnz    w2, 1b
+    add     x18, x18, #1            // island: after the loop
+    ldxr    x0, [x1]
+    clrex                           // ends the sequence as well
+    add     x18, x18, #2            // island
+    .globl _ref_x18_ll_sc_end
+_ref_x18_ll_sc_end:
 
     .data
     .p2align 3

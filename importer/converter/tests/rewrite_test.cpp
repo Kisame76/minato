@@ -6,6 +6,9 @@
 #include "check.h"
 
 #include <cstring>
+#include <format>
+#include <string>
+#include <string_view>
 #include <vector>
 
 extern "C" {
@@ -20,6 +23,20 @@ extern const std::uint32_t ref_patterns[];
 extern const std::uint32_t ref_patterns_end[];
 extern const std::uint32_t ref_x18[];
 extern const std::uint32_t ref_x18_end[];
+extern const std::uint32_t ref_x18_island_read_write[];
+extern const std::uint32_t ref_x18_island_read[];
+extern const std::uint32_t ref_x18_island_write[];
+extern const std::uint32_t ref_x18_islands[];
+extern const std::uint32_t ref_x18_moves_sp[];
+extern const std::uint32_t ref_x18_below_sp[];
+extern const std::uint32_t ref_x18_branches[];
+extern const std::uint32_t ref_x18_pc_relative[];
+extern const std::uint32_t ref_x18_exclusives[];
+extern const std::uint32_t ref_x18_thread_pointer[];
+extern const std::uint32_t ref_x18_without_field[];
+extern const std::uint32_t ref_x18_unsupported_end[];
+extern const std::uint32_t ref_x18_ll_sc[];
+extern const std::uint32_t ref_x18_ll_sc_end[];
 extern std::uint64_t ref_syscall_slot;
 }
 
@@ -36,6 +53,19 @@ std::uint32_t word(const std::vector<std::byte> &bytes, std::size_t index) {
     std::uint32_t value;
     std::memcpy(&value, bytes.data() + 4 * index, sizeof value);
     return value;
+}
+
+/// Scans the words from `begin` to `end` as if they sat at `address`.
+apk::rewrite::Findings scan_words(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t address) {
+    const std::span code(reinterpret_cast<const std::byte *>(begin), 4 * static_cast<std::size_t>(end - begin));
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, address, findings);
+    return findings;
+}
+
+/// Names the word at `address` of the words scanned from `begin` at `base`, for a failure message.
+std::string describe(const std::uint32_t *begin, std::uint64_t base, std::uint64_t address) {
+    return std::format("{:#010x} (word {})", begin[(address - base) / 4], (address - base) / 4);
 }
 
 /// Emits the stub of `site` as if the site sat at `site_address` and the stub at `stub_address`.
@@ -73,7 +103,14 @@ TEST(scan_sorts_x18_into_reads_writes_and_register_dumps) {
     CHECK(findings.x18_writes == (std::vector<std::uint64_t>{0x2000, 0x2004}));
     CHECK(findings.x18_reads == (std::vector<std::uint64_t>{0x2008, 0x200c, 0x2028, 0x2034}));
     CHECK(findings.x18_saves == (std::vector<std::uint64_t>{0x2014, 0x2020}));
-    CHECK(findings.sites.empty());
+    // Each of them runs in an island with another register (ADR-0020), the register dumps too.
+    std::vector<std::uint64_t> islands;
+    for (const auto &site : findings.sites) {
+        CHECK(site.kind == SiteKind::x18);
+        islands.push_back(site.address);
+    }
+    CHECK(islands == (std::vector<std::uint64_t>{0x2000, 0x2004, 0x2008, 0x200c, 0x2014, 0x2020, 0x2028, 0x2034}));
+    CHECK(findings.x18_unsupported.empty());
 }
 
 TEST(a_register_dump_at_the_edge_of_the_code_is_a_read) {
@@ -135,6 +172,110 @@ TEST(the_syscall_veneer_and_the_patched_site_match_the_linker) {
     CHECK(stub.size() == 24);
     for (std::size_t index = 0; index < 6; ++index) CHECK(word(stub, index) == ref_syscall_veneer[index]);
     CHECK(patch == ref_site[0]);  // b _ref_syscall_veneer
+}
+
+// x18 islands (ADR-0020): placed where the reference island is, so that the final branch back to
+// the instruction after the site is the one the linker resolved.
+TEST(the_x18_islands_match_the_assembler) {
+    const struct {
+        std::uint32_t instruction;
+        const std::uint32_t *reference;
+        std::size_t words;
+    } cases[] = {
+        {0x8b01'0252, ref_x18_island_read_write, 12},  // add x18, x18, x1
+        {0xf900'0012, ref_x18_island_read, 7},          // str x18, [x0]
+        {0xaa13'03f2, ref_x18_island_write, 9},         // mov x18, x19
+    };
+    for (const auto &test : cases) {
+        const Site site{0, SiteKind::x18, 18, test.instruction};
+        const auto [patch, stub] = emit_at(site, address_of(ref_site), address_of(test.reference));
+        CHECK(stub.size() == 4 * test.words);
+        if (stub.size() != 4 * test.words) continue;
+        for (std::size_t index = 0; index < test.words; ++index) CHECK(word(stub, index) == test.reference[index]);
+    }
+}
+
+TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
+    const std::uint32_t code[] = {
+        0x8b01'0252,  // add x18, x18, x1: island
+        0xb400'0052,  // cbz x18, #+8: a branch, not yet
+        0x9000'0012,  // adrp x18, #0: PC-relative, not yet
+        0xd61f'0240,  // br x18: not yet
+        0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
+        0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
+        0xc85f'7c12,  // ldxr x18, [x0]: exclusive access, not yet
+        0x9100'0421,  // add x1, x1, #1: no x18
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252}};
+    CHECK(findings.sites == expected);
+    CHECK(findings.x18_unsupported.size() == 6);
+    const std::uint64_t first_unsupported[] = {0x1004, 0x1008, 0x100c, 0x1010, 0x1014, 0x1018};
+    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 6; ++index) {
+        CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
+    }
+}
+
+// Register 31 is sp or xzr depending on the form. Only moving sp and addressing below it clash
+// with the red-zone slots of the island; everything else next to sp or xzr goes into islands.
+TEST(x18_next_to_sp_or_xzr_goes_into_islands) {
+    const auto findings = scan_words(ref_x18_islands, ref_x18_moves_sp, 0x1000);
+    for (const auto &entry : findings.x18_unsupported) {
+        apk::testing::fail(std::source_location::current(), "refused: ",
+                           (describe(ref_x18_islands, 0x1000, entry.address) + ": " + entry.reason).c_str());
+    }
+    const auto words = static_cast<std::size_t>(ref_x18_moves_sp - ref_x18_islands);
+    CHECK(findings.sites.size() == words);
+    for (std::size_t index = 0; index < findings.sites.size(); ++index) {
+        CHECK(findings.sites[index].kind == SiteKind::x18);
+        CHECK(findings.sites[index].address == 0x1000 + 4 * index);
+    }
+}
+
+TEST(forms_no_island_handles_are_refused_with_the_reason) {
+    const struct {
+        const std::uint32_t *begin;
+        const std::uint32_t *end;
+        const char *reason;
+    } groups[] = {
+        {ref_x18_moves_sp, ref_x18_below_sp, "moves the stack pointer"},
+        {ref_x18_below_sp, ref_x18_branches, "below the stack pointer"},
+        {ref_x18_branches, ref_x18_pc_relative, "branch"},
+        {ref_x18_pc_relative, ref_x18_exclusives, "PC-relative"},
+        {ref_x18_exclusives, ref_x18_thread_pointer, "exclusive"},
+        {ref_x18_thread_pointer, ref_x18_without_field, "thread pointer"},
+        {ref_x18_without_field, ref_x18_unsupported_end, "field"},
+    };
+    for (const auto &group : groups) {
+        const auto findings = scan_words(group.begin, group.end, 0x1000);
+        for (const auto &site : findings.sites) {
+            apk::testing::fail(std::source_location::current(), "not refused: ",
+                               describe(group.begin, 0x1000, site.address).c_str());
+        }
+        CHECK(findings.x18_unsupported.size() == static_cast<std::size_t>(group.end - group.begin));
+        for (const auto &entry : findings.x18_unsupported) {
+            if (std::string_view(entry.reason).find(group.reason) == std::string_view::npos) {
+                apk::testing::fail(std::source_location::current(), "unexpected reason: ",
+                                   (describe(group.begin, 0x1000, entry.address) + ": " + entry.reason).c_str());
+            }
+        }
+    }
+}
+
+// Between a load- and a store-exclusive, an island would add memory accesses: the architecture does
+// not promise that the store-exclusive ever succeeds then. Before and after, x18 goes into islands.
+TEST(x18_between_a_load_and_a_store_exclusive_is_refused) {
+    const auto findings = scan_words(ref_x18_ll_sc, ref_x18_ll_sc_end, 0x1000);
+    std::vector<std::uint64_t> islands, refused;
+    for (const auto &site : findings.sites) islands.push_back(site.address);
+    for (const auto &entry : findings.x18_unsupported) refused.push_back(entry.address);
+    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1014, 0x1020}));
+    CHECK(refused == (std::vector<std::uint64_t>{0x1008, 0x100c}));
+    if (findings.x18_unsupported.size() == 2) {
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("between") != std::string_view::npos);
+    }
 }
 
 TEST(stubs_out_of_branch_range_are_rejected) {

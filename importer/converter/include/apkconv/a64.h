@@ -1,6 +1,7 @@
 // Register use of A64 instructions: which general-purpose registers an instruction reads and
 // writes, from its encoding (Arm ARM, chapter C4, "A64 Instruction Set Encoding"). The converter
-// needs it for x18, which XNU sets to zero at every context switch (F4, ADR-0019).
+// needs it for x18, which XNU sets to zero at every context switch (F4, ADR-0019): to find the
+// instructions that use it, and to run them with another register instead (ADR-0020).
 //
 // Covered are the base instruction set, every extension whose instructions name general-purpose
 // registers (LSE, LSE128, LRCPC 1 to 3, PAuth and PAuth_LR, MTE, MOPS, CSSC, LS64, CRC32, TME,
@@ -10,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 namespace apk::a64 {
 
@@ -26,5 +28,14 @@ struct RegisterUse {
 /// of BL, x16 and x17 of PACIA1716, the eight registers of ST64B. An unallocated encoding uses
 /// none, like SVE and SME: it cannot run.
 RegisterUse register_use(std::uint32_t instruction);
+
+/// `instruction` with the general-purpose register `from` replaced by `to` in each register field
+/// that names it: Rd (bits 4:0), Rn (9:5), Rt2 or Ra (14:10), Rm or Rs (20:16). A field counts as
+/// a register field when changing it changes the registers the instruction uses, so an immediate
+/// or a SIMD register that holds the same number stays. The instruction unchanged when it does not
+/// use `from`. Nothing when the result would not use `to` exactly where the original used `from`:
+/// `from` used without a field of its own (the registers of ST64B after Rt) or as half of a
+/// register pair (CASP), `to` used already, or either of them 31, which is sp or zr.
+std::optional<std::uint32_t> substitute(std::uint32_t instruction, unsigned from, unsigned to);
 
 }  // namespace apk::a64

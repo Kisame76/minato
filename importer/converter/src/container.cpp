@@ -278,14 +278,14 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         throw Incompatible(std::format("svc #{:#x} at {:#x} is no Linux syscall and would run a Darwin one",
                                        (instruction >> 5) & 0xffff, address));
     }
-    // XNU sets x18 to zero at every context switch (F4). Code that reads x18 would see 0 at random
-    // moments; writes alone and register dumps are harmless (ADR-0019).
-    if (!findings.x18_reads.empty()) {
-        const auto more = findings.x18_reads.size() - 1;
+    // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
+    // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
+    if (!findings.x18_unsupported.empty()) {
+        const auto more = findings.x18_unsupported.size() - 1;
+        const auto &first = findings.x18_unsupported.front();
         throw Incompatible(std::format(
-            "x18 is read at {:#x}{}: XNU clears x18 at every context switch, so the code cannot keep a value in it",
-            findings.x18_reads.front(),
-            more == 0 ? "" : std::format(" and {} more place{}", more, more == 1 ? "" : "s")));
+            "x18 at {:#x} cannot run on iOS: {}{}", first.address, first.reason,
+            more == 0 ? "" : std::format(" (and {} more x18 use{} no island handles)", more, more == 1 ? "" : "s")));
     }
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
@@ -345,6 +345,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             case rewrite::SiteKind::thread_pointer_read: ++report.thread_pointer_reads; break;
             case rewrite::SiteKind::thread_pointer_write: ++report.thread_pointer_writes; break;
             case rewrite::SiteKind::syscall: ++report.syscalls; break;
+            case rewrite::SiteKind::x18: ++report.x18_islands; break;
         }
     }
     report.image_offset = image_offset;

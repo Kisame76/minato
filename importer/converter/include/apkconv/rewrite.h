@@ -6,6 +6,10 @@
 //   msr TPIDR_EL0, xN   Same slot, written; the island saves one scratch register on the stack.
 //   svc #0              XNU takes the syscall number from x16, Linux from x8 (F5). The veneer calls
 //                       the Linux syscall layer through a slot the loader fills in.
+//   any use of x18      XNU sets x18 to zero at every context switch (F4). The island runs the
+//                       instruction with a scratch register in place of x18, whose value lives in
+//                       Darwin TSD slot 11 (ADR-0020). Forms that need more than that are listed as
+//                       unsupported, and the converter refuses the file.
 //
 // Every other instruction stays as it is: no emulation, no trapping (ADR-0001).
 #pragma once
@@ -22,14 +26,24 @@ enum class SiteKind : std::uint8_t {
     thread_pointer_read,   // mrs xN, TPIDR_EL0
     thread_pointer_write,  // msr TPIDR_EL0, xN
     syscall,               // svc #0
+    x18,                   // an instruction that uses x18
 };
 
 struct Site {
     std::uint64_t address;  // of the instruction, in the address space given to scan()
     SiteKind kind;
-    std::uint8_t reg;  // N of xN, 31 for xzr; 0 for syscalls
+    std::uint8_t reg;  // N of xN, 31 for xzr; 0 for syscalls; 18 for x18
+    std::uint32_t instruction = 0;  // the instruction itself, for x18
 
     bool operator==(const Site &) const = default;
+};
+
+/// An instruction that uses x18 in a form no island handles (yet), and why.
+struct Unsupported {
+    std::uint64_t address;
+    const char *reason;
+
+    bool operator==(const Unsupported &) const = default;
 };
 
 struct Findings {
@@ -44,6 +58,8 @@ struct Findings {
     /// Stores of x18 in a dump of the whole register file (libunwind's unw_getcontext, hwasan):
     /// stp x18, x19 between stp x16, x17 and stp x20, x21 to the neighbouring slots.
     std::vector<std::uint64_t> x18_saves;
+    /// Uses of x18 that no island handles; the converter refuses a file with any of them.
+    std::vector<Unsupported> x18_unsupported;
 };
 
 class RewriteError : public std::runtime_error {
@@ -54,6 +70,10 @@ public:
 /// Offset of the guest thread pointer from the Darwin TSD base: slot 6 (ADR-0019), the same value
 /// as APKRT_GUEST_TLS_OFFSET in the runtime.
 inline constexpr std::uint32_t guest_thread_pointer_offset = 8 * 6;
+
+/// Offset of the guest's x18 from the Darwin TSD base: slot 11, the other slot Apple leaves free
+/// (ADR-0019, ADR-0020); the same value as APKRT_GUEST_X18_OFFSET in the runtime.
+inline constexpr std::uint32_t guest_x18_offset = 8 * 11;
 
 /// Scans the instructions in `code`, which starts at `address`, and appends what it finds.
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings);

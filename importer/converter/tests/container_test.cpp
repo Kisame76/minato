@@ -229,14 +229,30 @@ TEST(a_program_that_needs_libraries_is_not_static) {
     CHECK(read_info(container.bytes).flags == 0);
 }
 
-TEST(counts_what_only_writes_or_saves_x18) {
+TEST(runs_x18_uses_in_islands) {
     auto builder = static_program();
     builder.put<std::uint32_t>(0x218, 0xaa13'03f2);  // mov x18, x19
     builder.put<std::uint32_t>(0x21c, 0xa949'4c12);  // ldp x18, x19, [x0, #0x90]
     const auto container = convert(builder);
+    CHECK(container.report.x18_islands == 2);
     CHECK(container.report.x18_writes == 2);
     CHECK(container.report.x18_saves == 0);
-    CHECK(convert(static_program()).report.x18_writes == 0);
+    CHECK(container.report.stub_bytes == 16 + 24 + 24 + 2 * 36);  // two islands of 9 words that only write x18
+    const auto image = read_info(container.bytes).image_offset;
+    for (const std::uint64_t site : {0x218u, 0x21cu}) {
+        const auto island = branch_target(container.bytes, image + site);
+        CHECK(island.has_value());
+        if (!island) continue;
+        CHECK(*island < image && *island >= sizeof(mach_header_64));
+        CHECK(branch_target(container.bytes, *island + 32) == image + site + 4);
+    }
+    CHECK(convert(static_program()).report.x18_islands == 0);
+
+    // ShadowCallStack reads x18 as well; under ADR-0019 that made the file incompatible.
+    auto shadow_call_stack = static_program();
+    shadow_call_stack.put<std::uint32_t>(0x218, 0xf800'865e);  // str x30, [x18], #8
+    shadow_call_stack.put<std::uint32_t>(0x21c, 0x9100'0640);  // add x0, x18, #1
+    CHECK(convert(shadow_call_stack).report.x18_islands == 2);
 }
 
 TEST(refuses_what_cannot_run) {
@@ -248,10 +264,10 @@ TEST(refuses_what_cannot_run) {
     darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
     CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
 
-    auto shadow_call_stack = static_program();
-    shadow_call_stack.put<std::uint32_t>(0x218, 0xf800'865e);  // str x30, [x18], #8
-    shadow_call_stack.put<std::uint32_t>(0x21c, 0x9100'0640);  // add x0, x18, #1
-    CHECK_THROWS(Incompatible, convert(shadow_call_stack), "x18 is read at 0x218 and 1 more place");
+    auto x18_branches = static_program();
+    x18_branches.put<std::uint32_t>(0x218, 0xb400'0052);  // cbz x18, #+8
+    x18_branches.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18
+    CHECK_THROWS(Incompatible, convert(x18_branches), "x18 at 0x218 cannot run on iOS: it is a branch");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");
     CHECK_THROWS(Incompatible, convert(static_program(0x9000)), "outside");
