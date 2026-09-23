@@ -211,13 +211,6 @@ _ref_x18_branches:
     braa    x18, x0
     braa    x0, x18                 // x18 as the modifier
 1:
-// PC-relative: in an island they would point elsewhere.
-    .globl _ref_x18_pc_relative
-_ref_x18_pc_relative:
-    adr     x18, _ref_x18_unsupported_end
-    adrp    x18, _ref_x18_unsupported_end@PAGE
-    ldr     x18, _ref_x18_unsupported_end
-    ldrsw   x18, _ref_x18_unsupported_end
 // Load- and store-exclusives: the island's memory accesses could keep the store from succeeding.
     .globl _ref_x18_exclusives
 _ref_x18_exclusives:
@@ -289,6 +282,111 @@ _ref_x18_island_tbz:
     b       _ref_x18_tbz_taken
 _ref_x18_tbz_taken:
     nop
+
+// PC-relative forms on x18 (ADR-0020 X2): the island computes the same address for its own place,
+// always with ADRP (then ADD, then the load), since ADR and the literal loads reach only 1 MiB and
+// the islands lie before the image. The sites are assembled here too, so that the linker resolves
+// the original displacement as well as the island's, and the islands start on a page of their own:
+// an ADRP left as it was would then point to the wrong page. x18 is only written, so x0 takes the
+// value and x1 the TSD base.
+    .globl _ref_x18_site_adrp
+_ref_x18_site_adrp:
+    adrp    x18, _ref_syscall_slot@PAGE     // a page in __DATA
+_ref_x18_after_adrp:
+    nop
+    .globl _ref_x18_site_adr
+_ref_x18_site_adr:
+    adr     x18, _ref_x18_literal
+_ref_x18_after_adr:
+    nop
+// The loads from a literal keep their size and extension: LDR X, LDR W, LDRSW.
+    .globl _ref_x18_site_ldr
+_ref_x18_site_ldr:
+    ldr     x18, _ref_x18_literal
+_ref_x18_after_ldr:
+    nop
+    .globl _ref_x18_site_ldr_w
+_ref_x18_site_ldr_w:
+    ldr     w18, _ref_x18_literal
+_ref_x18_after_ldr_w:
+    nop
+    .globl _ref_x18_site_ldrsw
+_ref_x18_site_ldrsw:
+    ldrsw   x18, _ref_x18_literal
+_ref_x18_after_ldrsw:
+    nop
+
+    .p2align 12
+    .globl _ref_x18_island_adrp
+_ref_x18_island_adrp:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    adrp    x0, _ref_syscall_slot@PAGE
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_after_adrp
+
+    .globl _ref_x18_island_adr
+_ref_x18_island_adr:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    adrp    x0, _ref_x18_literal@PAGE
+    add     x0, x0, _ref_x18_literal@PAGEOFF
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_after_adr
+
+    .globl _ref_x18_island_ldr
+_ref_x18_island_ldr:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    adrp    x0, _ref_x18_literal@PAGE
+    add     x0, x0, _ref_x18_literal@PAGEOFF
+    ldr     x0, [x0]
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_after_ldr
+
+    .globl _ref_x18_island_ldr_w
+_ref_x18_island_ldr_w:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    adrp    x0, _ref_x18_literal@PAGE
+    add     x0, x0, _ref_x18_literal@PAGEOFF
+    ldr     w0, [x0]
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_after_ldr_w
+
+    .globl _ref_x18_island_ldrsw
+_ref_x18_island_ldrsw:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    adrp    x0, _ref_x18_literal@PAGE
+    add     x0, x0, _ref_x18_literal@PAGEOFF
+    ldrsw   x0, [x0]
+    mrs     x1, TPIDRRO_EL0
+    bic     x1, x1, #7
+    str     x0, [x1, #88]
+    ldur    x0, [sp, #-128]
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_after_ldrsw
+
+    .p2align 3
+_ref_x18_literal:
+    .quad   0x1122334455667788
 
     .data
     .p2align 3

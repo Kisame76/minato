@@ -2,6 +2,7 @@
 
 #include "apkconv/a64.h"
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 
@@ -57,14 +58,40 @@ std::uint32_t with_branch_displacement(std::uint32_t instruction, std::int64_t d
     return (instruction & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);
 }
 
+/// Words an island needs to compute a PC-relative instruction's address for its own place: ADRP
+/// (1), ADR as ADRP and ADD (2), a load from a literal as ADRP, ADD and the load (3). ADR and the
+/// literal loads reach only 1 MiB, and the islands lie before the image. 0 for anything else.
+constexpr std::size_t pc_relative_words(std::uint32_t instruction) {
+    if ((instruction & 0x9f00'0000) == 0x9000'0000) return 1;  // ADRP
+    if ((instruction & 0x9f00'0000) == 0x1000'0000) return 2;  // ADR
+    // LDR W, LDR X, LDRSW (literal) by opc, bits 31:30; opc 11 is PRFM, which names no register
+    if ((instruction & 0x3f00'0000) == 0x1800'0000 && (instruction >> 30) != 0b11) return 3;
+    return 0;
+}
+
+/// The address a PC-relative instruction at `at` computes: the page for ADRP, the byte for ADR,
+/// the literal for a load.
+std::uint64_t pc_relative_target(std::uint32_t instruction, std::uint64_t at) {
+    if (pc_relative_words(instruction) == 3) {
+        const auto imm19 = static_cast<std::int32_t>(instruction << 8) >> 13;  // bits 23:5
+        return at + static_cast<std::uint64_t>(static_cast<std::int64_t>(imm19) * 4);
+    }
+    const auto imm21 = (((instruction >> 5) & 0x7'ffff) << 2) | ((instruction >> 29) & 0x3);  // immhi:immlo
+    const auto imm = static_cast<std::int64_t>(static_cast<std::int32_t>(imm21 << 11) >> 11);
+    if (pc_relative_words(instruction) == 1) return (at & ~std::uint64_t{0xfff}) + static_cast<std::uint64_t>(imm * 4096);
+    return at + static_cast<std::uint64_t>(imm);
+}
+
 // An x18 island: save the value scratch, optionally the base scratch, read x18 from the TSD when
 // the instruction reads it, run it, write x18 back when it writes it, restore the scratch, branch.
-// A conditional branch gets a two-way island instead (see emit).
+// A PC-relative instruction becomes one to three words; a conditional branch gets a two-way island
+// instead (see emit).
 std::size_t x18_island_words(std::uint32_t instruction) {
     if (is_conditional_branch(instruction)) return branch_island_words;
     const auto use = a64::register_use(instruction);
     const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
-    std::size_t words = 1 /* save value */ + 1 /* the instruction */ + 1 /* restore value */ + 1 /* branch */;
+    const auto body = std::max<std::size_t>(pc_relative_words(instruction), 1);
+    std::size_t words = 1 /* save value */ + body + 1 /* restore value */ + 1 /* branch */;
     if (reads) words += 3;   // mrs, bic, ldr
     if (writes) words += 5;  // save base, mrs, bic, str, restore base
     return words;
@@ -90,10 +117,15 @@ std::uint32_t b(std::uint64_t from, std::uint64_t to) {
 std::uint32_t adrp(unsigned rd, std::uint64_t from, std::uint64_t to) {
     const auto delta = static_cast<std::int64_t>((to & ~std::uint64_t{0xfff}) - (from & ~std::uint64_t{0xfff})) >> 12;
     if (delta < -(std::int64_t{1} << 20) || delta >= (std::int64_t{1} << 20)) {
-        throw RewriteError(std::format("the syscall slot at {:#x} is beyond 4 GiB of {:#x}", to, from));
+        throw RewriteError(std::format("the page of {:#x} is beyond 4 GiB of {:#x}", to, from));
     }
     const auto immediate = static_cast<std::uint32_t>(delta) & 0x1f'ffff;
     return 0x9000'0000 | ((immediate & 0x3) << 29) | ((immediate >> 2) << 5) | reg(rd, 0);
+}
+
+/// ADD Xd, Xn, #imm12, for the offset within the page that ADRP leaves out.
+std::uint32_t add_immediate(unsigned rd, unsigned rn, std::uint64_t imm12) {
+    return 0x9100'0000 | (static_cast<std::uint32_t>(imm12 & 0xfff) << 10) | reg(rn, 5) | reg(rd, 0);
 }
 
 /// LDR/STR Xt, [Xn, #offset], unsigned offset scaled by 8.
@@ -239,11 +271,6 @@ constexpr bool is_branch(std::uint32_t word) {
     return (word & 0x1c00'0000) == 0x1400'0000 && (word >> 24) != 0xd5;
 }
 
-/// ADR, ADRP and the loads from a literal.
-constexpr bool is_pc_relative(std::uint32_t word) {
-    return (word & 0x1f00'0000) == 0x1000'0000 || (word & 0x3b00'0000) == 0x1800'0000;
-}
-
 /// LDXR, STXR and their acquire, release and pair forms (bits 29:23 = 0010000, where o1 set with
 /// bit 31 clear is CASP instead), and LDTXR, STTXR (LSUI, bits 29:23 = 0010010).
 constexpr bool is_exclusive(std::uint32_t word) {
@@ -303,10 +330,11 @@ constexpr const char *inside_exclusive_sequence =
 
 /// Why an x18 instruction cannot run in an island, or nullptr when it can. The island saves two
 /// scratch registers in the red zone, loads the guest x18 from the TSD, runs the instruction with
-/// the value register in place of x18, stores the value back and branches to the next instruction.
-/// That leaves out: the thread pointer moved through x18, branches, PC-relative forms, exclusives
-/// (scan() adds what lies between them), sp moved or addressed below, and x18 without a register
-/// field of its own.
+/// the value register in place of x18, stores the value back and branches to the next instruction;
+/// a conditional branch leaves by two exits, a PC-relative form is computed for the island's place.
+/// That leaves out: the thread pointer moved through x18, register branches and compare-and-branch,
+/// exclusives (scan() adds what lies between them), sp moved or addressed below, and x18 without a
+/// register field of its own.
 const char *unsupported_reason(std::uint32_t instruction) {
     const auto system_register = instruction & register_mask;
     if (system_register == mrs_tpidr_el0 || system_register == msr_tpidr_el0) {
@@ -315,7 +343,6 @@ const char *unsupported_reason(std::uint32_t instruction) {
     if (is_branch(instruction) && !is_conditional_branch(instruction)) {
         return "it is a register branch or a compare-and-branch, which needs a landing pad the island has not yet";
     }
-    if (is_pc_relative(instruction)) return "it is PC-relative and would address something else from the island";
     if (is_exclusive(instruction)) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
     }
@@ -469,7 +496,18 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
                 write(bic_7(scratch.value, scratch.value));
                 write(ldr_unsigned(scratch.value, scratch.value, guest_x18_offset));
             }
-            write(*substituted);
+            if (const auto words = pc_relative_words(site.instruction)) {
+                // The same address, computed for the island's place: ADRP, then ADD and the load.
+                const auto target = pc_relative_target(site.instruction, site_address);
+                write(adrp(scratch.value, write.next_address(), target));
+                if (words >= 2) write(add_immediate(scratch.value, scratch.value, target & 0xfff));
+                if (words == 3) {
+                    constexpr std::uint32_t loads[] = {0xb940'0000, 0xf940'0000, 0xb980'0000};  // LDR W, X; LDRSW
+                    write(loads[site.instruction >> 30] | reg(scratch.value, 5) | reg(scratch.value, 0));
+                }
+            } else {
+                write(*substituted);
+            }
             if (writes) {
                 write(mrs_tpidrro_el0(scratch.base));
                 write(bic_7(scratch.base, scratch.base));

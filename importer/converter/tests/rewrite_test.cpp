@@ -30,7 +30,6 @@ extern const std::uint32_t ref_x18_islands[];
 extern const std::uint32_t ref_x18_moves_sp[];
 extern const std::uint32_t ref_x18_below_sp[];
 extern const std::uint32_t ref_x18_branches[];
-extern const std::uint32_t ref_x18_pc_relative[];
 extern const std::uint32_t ref_x18_exclusives[];
 extern const std::uint32_t ref_x18_thread_pointer[];
 extern const std::uint32_t ref_x18_without_field[];
@@ -39,6 +38,16 @@ extern const std::uint32_t ref_x18_ll_sc[];
 extern const std::uint32_t ref_x18_ll_sc_end[];
 extern const std::uint32_t ref_x18_island_cbz[];
 extern const std::uint32_t ref_x18_island_tbz[];
+extern const std::uint32_t ref_x18_site_adrp[];
+extern const std::uint32_t ref_x18_island_adrp[];
+extern const std::uint32_t ref_x18_site_adr[];
+extern const std::uint32_t ref_x18_island_adr[];
+extern const std::uint32_t ref_x18_site_ldr[];
+extern const std::uint32_t ref_x18_island_ldr[];
+extern const std::uint32_t ref_x18_site_ldr_w[];
+extern const std::uint32_t ref_x18_island_ldr_w[];
+extern const std::uint32_t ref_x18_site_ldrsw[];
+extern const std::uint32_t ref_x18_island_ldrsw[];
 extern std::uint64_t ref_syscall_slot;
 }
 
@@ -201,7 +210,7 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
         0xb400'0052,  // cbz x18, #+8: a two-way island (X2)
-        0x9000'0012,  // adrp x18, #0: PC-relative, not yet
+        0x9000'0012,  // adrp x18, #0: recomputed in the island (X2)
         0xd61f'0240,  // br x18: not yet
         0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
         0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
@@ -212,11 +221,12 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     apk::rewrite::Findings findings;
     apk::rewrite::scan(bytes, 0x1000, findings);
     const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252},
-                                     {0x1004, SiteKind::x18, 18, 0xb400'0052}};
+                                     {0x1004, SiteKind::x18, 18, 0xb400'0052},
+                                     {0x1008, SiteKind::x18, 18, 0x9000'0012}};
     CHECK(findings.sites == expected);
-    CHECK(findings.x18_unsupported.size() == 5);
-    const std::uint64_t first_unsupported[] = {0x1008, 0x100c, 0x1010, 0x1014, 0x1018};
-    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 5; ++index) {
+    CHECK(findings.x18_unsupported.size() == 4);
+    const std::uint64_t first_unsupported[] = {0x100c, 0x1010, 0x1014, 0x1018};
+    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 4; ++index) {
         CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
     }
 }
@@ -245,8 +255,7 @@ TEST(forms_no_island_handles_are_refused_with_the_reason) {
     } groups[] = {
         {ref_x18_moves_sp, ref_x18_below_sp, "moves the stack pointer"},
         {ref_x18_below_sp, ref_x18_branches, "below the stack pointer"},
-        {ref_x18_branches, ref_x18_pc_relative, "branch"},
-        {ref_x18_pc_relative, ref_x18_exclusives, "PC-relative"},
+        {ref_x18_branches, ref_x18_exclusives, "branch"},
         {ref_x18_exclusives, ref_x18_thread_pointer, "exclusive"},
         {ref_x18_thread_pointer, ref_x18_without_field, "thread pointer"},
         {ref_x18_without_field, ref_x18_unsupported_end, "field"},
@@ -292,6 +301,41 @@ TEST(the_conditional_branch_islands_match_the_assembler) {
         // The two exits: back is the instruction after the site, taken is the branch's own target.
         CHECK(branch_target_at(stub, 6, stub_address) == address_of(ref_site) + 4);
         CHECK(branch_target_at(stub, 8, stub_address) == address_of(ref_site) + 0x40);
+    }
+}
+
+// A PC-relative instruction on x18 runs in an island that computes the same address for its own
+// place (ADR-0020 X2). Site and island are both assembled and linked, so every word of the island,
+// the recomputed page and the branch back included, must be what the linker resolved.
+TEST(the_pc_relative_islands_match_the_assembler) {
+    const struct {
+        const std::uint32_t *site;
+        const std::uint32_t *reference;
+        std::size_t words;
+    } cases[] = {
+        {ref_x18_site_adrp, ref_x18_island_adrp, 9},    // adrp: the page only
+        {ref_x18_site_adr, ref_x18_island_adr, 10},     // adr: page and offset
+        {ref_x18_site_ldr, ref_x18_island_ldr, 11},     // ldr x from a literal
+        {ref_x18_site_ldr_w, ref_x18_island_ldr_w, 11}, // ldr w
+        {ref_x18_site_ldrsw, ref_x18_island_ldrsw, 11}, // ldrsw
+    };
+    for (const auto &test : cases) {
+        // The scanner puts the site into an island.
+        const auto findings = scan_words(test.site, test.site + 1, 0x1000);
+        CHECK(findings.x18_unsupported.empty());
+        CHECK(findings.sites.size() == 1);
+
+        const Site site{0, SiteKind::x18, 18, test.site[0]};
+        const auto [patch, stub] = emit_at(site, address_of(test.site), address_of(test.reference));
+        CHECK(stub.size() == 4 * test.words);
+        if (stub.size() != 4 * test.words) continue;
+        for (std::size_t index = 0; index < test.words; ++index) {
+            if (word(stub, index) != test.reference[index]) {
+                apk::testing::fail(std::source_location::current(), "word differs: ",
+                                   std::format("{:#010x} at {}: {:#010x} expected", word(stub, index), index,
+                                               test.reference[index]).c_str());
+            }
+        }
     }
 }
 
