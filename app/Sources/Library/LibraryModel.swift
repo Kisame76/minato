@@ -1,5 +1,6 @@
 import APKKit
 import APKLibrary
+import APKSigning
 import Foundation
 import Observation
 import os
@@ -11,6 +12,8 @@ struct LibraryItem: Identifiable {
     enum Status {
         case new
         case installing(Double)
+        /// Its converted code is being signed with a new certificate (ADR-0023).
+        case updating
         case ready
         case needsSplits
         case incompatible(String)
@@ -31,6 +34,8 @@ final class LibraryModel {
     private(set) var entries: [LibraryEntry] = []
     private(set) var pending: [URL] = []
     private(set) var progress: [URL: Double] = [:]
+    /// Entries whose converted code is being signed again, shown as "Updating".
+    private(set) var resigningIDs: Set<String> = []
     var errorMessage: String?
 
     @ObservationIgnored private let library: Library?
@@ -67,7 +72,7 @@ final class LibraryModel {
                 LibraryItem(
                     id: entry.id,
                     title: entry.displayName,
-                    status: Texts.status(of: entry),
+                    status: resigningIDs.contains(entry.id) ? .updating : Texts.status(of: entry),
                     entry: entry,
                     iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) })
             }
@@ -123,6 +128,35 @@ final class LibraryModel {
             }
         }
         await refresh()
+    }
+
+    // MARK: - Signing again (ADR-0023)
+
+    func resignCandidates() async -> [ResignCandidate] {
+        await library?.resignCandidates() ?? []
+    }
+
+    /// Signs again everything the certificate `fingerprint` did not sign, one entry after the
+    /// other, each shown as "Updating" while it runs.
+    func resignAll(fingerprint: String, with converter: some ContainerConverting) async -> ResignSummary {
+        guard let library else { return ResignSummary(entries: 0, files: 0, failures: []) }
+        let summary = await library.resignAll(fingerprint: fingerprint, with: converter) { [weak self] id in
+            await MainActor.run { self?.resigningIDs = [id] }
+        }
+        resigningIDs = []
+        entries = await library.entries
+        return summary
+    }
+
+    /// Makes all converted code count as signed by an old certificate ("Simulate Certificate Change").
+    func forgetSignatures() async {
+        guard let library else { return }
+        do {
+            try await library.forgetSignatures()
+        } catch {
+            errorMessage = "The library could not be updated: \(error.localizedDescription)"
+        }
+        entries = await library.entries
     }
 
     func remove(_ entries: [LibraryEntry]) async {

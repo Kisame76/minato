@@ -1,12 +1,13 @@
+import APKSigning
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Shows the development certificate APK-Runner signs converted code with, and imports or removes
-/// it (ADR-0022). Import: pick the .p12 file, enter its password; on a device the app then checks
-/// that iOS accepts code signed with it before keeping it.
+/// Shows the development certificate APK-Runner signs converted code with (ADR-0022, ADR-0023).
+/// APK-Runner gets it from SideStore or AltStore by itself; a .p12 file can still be imported by
+/// hand, which the app checks the same way before keeping it. The diagnostics are one level down.
 struct SigningCertificateView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var certificate = CodeSigning.storedCertificate()
+    @Environment(SigningCoordinator.self) private var signing
     @State private var isPicking = false
     @State private var pickedFile: PickedFile?
     @State private var password = ""
@@ -21,19 +22,19 @@ struct SigningCertificateView: View {
     }
 
     var body: some View {
+        let certificate = CodeSigning.storedCertificateInfo()
+        @Bindable var signing = signing
         NavigationStack {
             Form {
                 Section {
+                    LabeledContent("Status", value: status)
                     if let certificate {
-                        LabeledContent("Name", value: certificate.name)
+                        LabeledContent("Name", value: certificate.commonName)
                         LabeledContent("Team", value: certificate.team)
-                        LabeledContent("Expires", value: certificate.expires.formatted(date: .abbreviated, time: .omitted))
-                    } else {
-                        Text("No certificate imported")
-                            .foregroundStyle(.secondary)
+                        LabeledContent("Expires", value: certificate.notAfter.formatted(date: .abbreviated, time: .omitted))
                     }
                 } footer: {
-                    Text("APK-Runner signs the native code of your apps with your development certificate, so that iOS runs it. Export the certificate as a .p12 file, for example in Xcode under Settings › Accounts › Manage Certificates, and import it here. It stays in the keychain of this iPhone.")
+                    Text("APK-Runner signs the native code of your apps with your development certificate, so that iOS runs it. It gets the certificate from SideStore or AltStore by itself; you can also import a .p12 file. The certificate stays in the keychain of this iPhone.")
                 }
                 Section {
                     Button(certificate == nil ? "Import Certificate…" : "Replace Certificate…") { isPicking = true }
@@ -42,6 +43,9 @@ struct SigningCertificateView: View {
                         Button("Remove Certificate", role: .destructive) { confirmsRemoval = true }
                             .disabled(isWorking)
                     }
+                }
+                Section {
+                    NavigationLink("Diagnostics") { SigningDiagnosticsView() }
                 }
             }
             .navigationTitle("Signing")
@@ -74,14 +78,36 @@ struct SigningCertificateView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            // Over this sheet, the setup sheet can only come from here, e.g. after Remove or a
+            // simulated change in the diagnostics.
+            .sheet(isPresented: $signing.showsSetup) {
+                CertificateSetupView()
+            }
             .confirmationDialog("Remove the certificate?", isPresented: $confirmsRemoval, titleVisibility: .visible) {
                 Button("Remove Certificate", role: .destructive) {
-                    CodeSigning.removeIdentity()
-                    certificate = nil
+                    Task { await signing.removeCertificate() }
                 }
             } message: {
-                Text("Apps whose code is already signed keep working until the certificate expires. New apps cannot be prepared until you import a certificate again.")
+                Text("Apps whose code is already signed keep working until the certificate expires. APK-Runner gets it again from SideStore or AltStore when it can.")
             }
+        }
+    }
+
+    private var status: String {
+        switch signing.activity {
+        case .importing: return "Checking…"
+        case .waitingForStore(let store): return "Waiting for \(store.name)…"
+        case .resigning: return "Updating apps…"
+        case .idle: break
+        }
+        switch signing.state {
+        case .valid: return "Ready"
+        case .notNeeded: return "Not needed in the Simulator"
+        case .ownCertificateUnreadable: return "Can’t read the app’s own certificate"
+        case .missing: return "No certificate"
+        case .changed: return "Changed, getting the new one"
+        case .expired: return "Expired"
+        case .selfTestFailed: return "iOS rejects code signed with it"
         }
     }
 
@@ -99,15 +125,9 @@ struct SigningCertificateView: View {
         let entered = password
         password = ""
         isWorking = true
-        Task.detached {
-            let result = Result { try CodeSigning.importIdentity(from: file.data, password: entered) }
-            await MainActor.run {
-                isWorking = false
-                switch result {
-                case .success(let imported): certificate = imported
-                case .failure(let error): errorMessage = error.localizedDescription
-                }
-            }
+        Task {
+            errorMessage = await signing.importFile(file.data, password: entered)
+            isWorking = false
         }
     }
 

@@ -1,4 +1,5 @@
 #if DEBUG
+import APKSigning
 import Darwin
 import Foundation
 
@@ -36,11 +37,9 @@ enum CertificateHandover {
     }
 
     private static func status() -> String {
-        guard let stored = CodeSigning.storedCertificateData(), let certificate = CodeSigning.storedCertificate() else {
-            return "none"
-        }
-        let state = stored == CodeSigning.appCertificate() ? "current" : "other"
-        return "\(state) \(certificate.team) \(day(certificate.expires))"
+        guard let certificate = CodeSigning.storedCertificateInfo() else { return "none" }
+        let state = certificate.sha256 == CodeSigning.ownCertificate?.sha256 ? "current" : "other"
+        return "\(state) \(certificate.team) \(day(certificate.notAfter))"
     }
 
     private static func importHandedOverIdentity() -> String {
@@ -51,8 +50,9 @@ enum CertificateHandover {
         try? FileManager.default.removeItem(at: file)
         guard let data, let password else { return "failed no certificate was handed over" }
         do {
-            let certificate = try CodeSigning.importIdentity(from: data, password: password)
-            return "imported \(certificate.team) \(day(certificate.expires))"
+            let certificate = try CertificateImporter.importCertificate(data, passwords: [password], source: .xcodeHandover,
+                                                                        own: CodeSigning.ownSignature)
+            return "imported \(certificate.team) \(day(certificate.notAfter))"
         } catch {
             return "failed \(error.localizedDescription)"
         }

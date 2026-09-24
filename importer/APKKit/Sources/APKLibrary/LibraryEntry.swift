@@ -24,6 +24,9 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// Icon image, relative to Application Support.
     public var iconFile: String?
     public var importedAt: Date
+    /// SHA-256 of the certificate the converted libraries are signed with (ADR-0023); nil while
+    /// nothing is converted or signed.
+    public var signedWith: String?
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

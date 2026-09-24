@@ -35,6 +35,25 @@ int main(int argc, char **argv) {
 
     expect(apkconv_check_signer(signer, scratch, error, sizeof error) == 0, "apkconv_check_signer: the kernel takes it");
 
+    apkconv_self_test_result result = {0};
+    const int tested = apkconv_self_test(signer, scratch, &result, error, sizeof error);
+    if (tested != 0) fprintf(stderr, "apkconv_self_test: %s\n", error);
+    expect(tested == 0 && result.value == 42 && result.sign_milliseconds >= 0 && result.load_milliseconds >= 0,
+           "apkconv_self_test signs, loads and calls the test container: 42");
+    error[0] = '\0';
+    expect(apkconv_self_test(signer, "/nonexistent/folder", &result, error, sizeof error) == -1 && error[0] != '\0',
+           "apkconv_self_test names a folder it cannot write to");
+
+    unsigned char key[4096];
+    unsigned char key_certificate[4096];
+    size_t key_length = 0;
+    size_t key_certificate_length = 0;
+    error[0] = '\0';
+    expect(apkconv_read_unencrypted_pkcs12("garbage, not PKCS12", 19, key, sizeof key, &key_length, key_certificate,
+                                           sizeof key_certificate, &key_certificate_length, error, sizeof error) == -1 &&
+               error[0] != '\0',
+           "apkconv_read_unencrypted_pkcs12 refuses garbage");
+
     char fixture[1024];
     char container[1024];
     snprintf(fixture, sizeof fixture, "%s/raw-hello", argv[2]);

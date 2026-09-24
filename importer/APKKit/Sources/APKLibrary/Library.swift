@@ -152,6 +152,19 @@ public actor Library {
         var entries: [LibraryEntry]
     }
 
+    /// Changes every entry in place and saves the index once.
+    func recordAll(_ change: (inout LibraryEntry) -> Void) throws {
+        for position in entries.indices { change(&entries[position]) }
+        try save()
+    }
+
+    /// Changes the entry `id` in place and saves the index; nothing when there is no such entry.
+    func record(id: String, _ change: (inout LibraryEntry) -> Void) throws {
+        guard let position = entries.firstIndex(where: { $0.id == id }) else { return }
+        change(&entries[position])
+        try save()
+    }
+
     private func store(_ entry: LibraryEntry) throws {
         if let position = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[position] = entry

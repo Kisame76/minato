@@ -9,11 +9,16 @@ let package = Package(
         .library(name: "APKKit", targets: ["APKKit"]),
         // The on-device library: finds dropped APKs, installs them, keeps the index.
         .library(name: "APKLibrary", targets: ["APKLibrary"]),
+        // What APK-Runner decides about its signing certificate (ADR-0023): pure logic, no
+        // Security.framework, so the decisions are tested on the Mac.
+        .library(name: "APKSigning", targets: ["APKSigning"]),
     ],
     targets: [
         .target(name: "APKKit"),
-        .target(name: "APKLibrary", dependencies: ["APKKit"]),
-        .testTarget(name: "APKLibraryTests", dependencies: ["APKLibrary", "APKKit", "APKTestSupport"]),
+        .target(name: "APKLibrary", dependencies: ["APKKit", "APKSigning"]),
+        .testTarget(name: "APKLibraryTests", dependencies: ["APKLibrary", "APKKit", "APKSigning", "APKTestSupport"]),
+        .target(name: "APKSigning"),
+        .testTarget(name: "APKSigningTests", dependencies: ["APKSigning"]),
         // Development tool: prints what APKKit reads from a real APK.
         .executableTarget(name: "apk-inspect", dependencies: ["APKKit"]),
         // Test-only builders that encode ZIP, binary XML and resource tables independently

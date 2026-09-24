@@ -38,6 +38,9 @@ targets:
         product: APKKit
       - package: APKKit
         product: APKLibrary
+      # What the app decides about its signing certificate (ADR-0023).
+      - package: APKKit
+        product: APKSigning
       # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
       - framework: build/APKRuntime.xcframework
         embed: false
@@ -61,6 +64,15 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # The certificate export of SideStore and AltStore answers here (ADR-0023).
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.kisame76.apkrunner.certificate
+            CFBundleURLSchemes:
+              - apkrunner
+        # To see whether the store that installed the app is still there (canOpenURL).
+        LSApplicationQueriesSchemes:
+          - sidestore
+          - altstore-classic
         # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
         # "Open with" hands over the original file instead of a copy in Documents/Inbox.
         LSSupportsOpeningDocumentsInPlace: true

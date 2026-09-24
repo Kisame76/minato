@@ -31,6 +31,11 @@ public struct LibraryPaths: Sendable {
         applicationSupport.appendingPathComponent("apps", isDirectory: true).appendingPathComponent(package, isDirectory: true)
     }
 
+    /// Converted native code: each ELF original next to its signed container (ADR-0008).
+    public func libraryDirectory(for package: String) -> URL {
+        installDirectory(for: package).appendingPathComponent("lib", isDirectory: true)
+    }
+
     /// Stands in for /data/data/<package>, /sdcard/Android/data/<package> and /sdcard/Android/obb/<package>.
     public func dataDirectory(for package: String) -> URL {
         applicationSupport.appendingPathComponent("data", isDirectory: true).appendingPathComponent(package, isDirectory: true)

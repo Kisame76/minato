@@ -10,6 +10,7 @@
 //     CodeDirectory, requirements and signed attributes, so that codesign's own RSA signature fits
 //     them, and codesign verifies the result against Apple's real chain. No private key needed.
 // Usage: codesign_test <scratch directory> [<NDK fixtures directory> [<container signed by codesign>]]
+#include "APKConvert/apkconv.h"
 #include "apkconv/codesign.h"
 #include "apkconv/container.h"
 #include "apkconv/macho.h"
@@ -514,6 +515,86 @@ TEST(identity_from_p12_is_read_in_memory) {
 }
 
 // MARK: - Handing the identity over to the iPhone (tools/hand-over-certificate.sh)
+
+TEST(describes_serial_number_and_validity) {
+    const auto chain = make_test_chain();
+    const auto describe = [](const x509::Certificate &certificate) {
+        apkconv_certificate described{};
+        char error[256] = "";
+        CHECK(apkconv_describe_certificate(certificate.encoding.data(), certificate.encoding.size(), &described, error,
+                                           sizeof error) == 0);
+        return described;
+    };
+    const auto leaf = describe(chain.leaf);
+    CHECK(std::string_view(leaf.serial_number) == "7B3809B45860FDF9");
+    CHECK(leaf.not_before == 1'767'225'600);  // 2026-01-01
+    CHECK(leaf.not_after == 2'082'758'400);   // 2036-01-01
+    CHECK(std::string_view(describe(chain.intermediate).serial_number) == "123456789ABC");
+    CHECK(std::string_view(describe(chain.root).serial_number) == "01");
+    // DER puts a zero byte in front of a serial whose top bit is set, to keep it positive.
+    const auto high = test_certificate(chain.key, 0x8000'0000, test_name(test_root_name), test_name("High Serial"), false);
+    CHECK(std::string_view(describe(high).serial_number) == "80000000");
+}
+
+TEST(names_the_certificates_of_a_signature) {
+    const auto chain = make_test_chain();
+    const auto path = scratch / "chain-names.dylib";
+    write_file(path, signed_copy(test_container(1, macho::Platform::macos), {.identifier = bundle_id, .identity = &chain.identity}));
+    char names[1024] = "";
+    char error[256] = "";
+    CHECK(apkconv_signing_chain(path.c_str(), names, sizeof names, error, sizeof error) == 0);
+    std::vector<std::string> lines;
+    for (std::string_view rest = names; !rest.empty();) {
+        const auto end = rest.find('\n');
+        lines.emplace_back(rest.substr(0, end));
+        rest = end == std::string_view::npos ? std::string_view{} : rest.substr(end + 1);
+    }
+    std::ranges::sort(lines);
+    // Sorted: the signature carries them as a DER SET OF, in the order of their encodings.
+    CHECK((lines == std::vector<std::string>{test_intermediate_name, test_leaf_name, test_root_name}));
+
+    const auto adhoc = scratch / "chain-names-adhoc.dylib";
+    write_file(adhoc, signed_copy(test_container(1, macho::Platform::macos), {.identifier = bundle_id}));
+    std::strcpy(names, "unset");
+    CHECK(apkconv_signing_chain(adhoc.c_str(), names, sizeof names, error, sizeof error) == 0);
+    CHECK(names[0] == '\0');
+}
+
+TEST(signer_from_a_key_and_its_certificate) {
+    if (fixtures.empty() || !std::filesystem::exists(fixtures / "raw-hello")) {
+        std::printf("     (no fixtures, skipped)\n");
+        return;
+    }
+    const auto chain = make_test_chain();
+    // The app's own executable in the app: signed with the same chain, which completes the leaf's.
+    const auto chain_source = scratch / "chain-source.dylib";
+    write_file(chain_source, signed_copy(test_container(1, macho::Platform::macos), {.identifier = bundle_id, .identity = &chain.identity}));
+
+    char error[512] = "";
+    auto *signer = apkconv_signer_create_with_key(chain.key, chain.leaf.encoding.data(), chain.leaf.encoding.size(),
+                                                  chain_source.c_str(), bundle_id, error, sizeof error);
+    CHECK(signer != nullptr);
+    if (signer == nullptr) {
+        std::fprintf(stderr, "apkconv_signer_create_with_key: %s\n", error);
+        return;
+    }
+    const auto container = scratch / "raw-hello-with-key.dylib";
+    CHECK(apkconv_convert(signer, (fixtures / "raw-hello").c_str(), container.c_str(), nullptr, error, sizeof error) == 0);
+    apkconv_signer_free(signer);
+    const auto signature = codesign::read_signature(read_file(container));
+    CHECK(signature.identifier == bundle_id);
+    CHECK(signature.team == test_team);
+    CHECK(signature.leaf == chain.leaf.encoding);
+    CHECK(signature.certificates.size() == 3);
+
+    // A certificate of another team: iOS would not load what it signs.
+    const auto other = test_certificate(chain.key, 99, test_name(test_intermediate_name), test_name(test_leaf_name, "OTHERTEAM1"), false);
+    error[0] = '\0';
+    CHECK(apkconv_signer_create_with_key(chain.key, other.encoding.data(), other.encoding.size(), chain_source.c_str(),
+                                         bundle_id, error, sizeof error) == nullptr);
+    CHECK(std::string_view(error).find("OTHERTEAM1") != std::string_view::npos);
+    CHECK(std::string_view(error).find(test_team) != std::string_view::npos);
+}
 
 TEST(keychain_export_refuses_a_certificate_without_an_identity) {
     // The test chain is in no keychain. Looking for it only reads the keychain, nothing asks the user.

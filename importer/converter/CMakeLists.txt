@@ -1,7 +1,7 @@
 # apkconv: turns the ELF files of an APK into container dylibs (ADR-0008, ADR-0010, ADR-0019):
 # ELF reader, rewriter, Mach-O writer and the converter that puts them together.
 add_library(apkconv STATIC src/elf.cpp src/macho.cpp src/a64.cpp src/rewrite.cpp src/container.cpp src/der.cpp
-  src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/c_api.cpp)
+  src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/pkcs12.cpp src/c_api.cpp)
 # The container format is shared with the loader: runtime/include/APKRuntime/container_format.h.
 # capi/ holds the C interface for the app (APKConvert/apkconv.h), packed into build/APKConvert.xcframework.
 target_include_directories(apkconv PUBLIC include capi "${PROJECT_SOURCE_DIR}/runtime/include")
@@ -30,6 +30,11 @@ if(APK_HOST_BUILD)
   add_executable(der_test tests/der_test.cpp)
   target_link_libraries(der_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.der COMMAND der_test)
+
+  # The reader for the unencrypted PKCS #12 files SideStore writes (ADR-0023).
+  add_executable(pkcs12_test tests/pkcs12_test.cpp)
+  target_link_libraries(pkcs12_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.pkcs12 COMMAND pkcs12_test)
 
   # Compares the signer with codesign, also against Apple's real chain; needs a directory of its own
   # and uses the fixtures when built.

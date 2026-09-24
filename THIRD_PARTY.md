@@ -36,3 +36,18 @@ Bionic liest Zeitzonen aus einer Datei in seinem eigenen Format. `tools/make-tzd
 ## Referenzen ohne übernommenen Code
 
 - **ARTBox** (MIT, `fd48d48`): Die Liste der Bionic-Quellen und ihre Commits für `android-15.0.0_r1` diente als Ausgangspunkt; die Commits sind gegen den Tag auf `android.googlesource.com` geprüft. Code ist nicht übernommen.
+- **Zertifikat aus SideStore und AltStore** (ADR-0023, Recherche in [`docs/research/store-certificates.md`](docs/research/store-certificates.md)). Nur gelesen:
+  - welche URL der Export-Deep-Link hat und welche Platzhalter er ersetzt;
+  - welche Marker die Stores in die Info.plist schreiben;
+  - wie SideStore seine `.p12` aufbaut.
+
+  Code ist nicht übernommen. Der PKCS#12-Leser und der Rückruf-Parser sind eigener Code, geschrieben nach RFC 7292 und nach dem gemessenen Verhalten.
+
+  | Projekt | Stand | Lizenz |
+  |---|---|---|
+  | LiveContainer | `main` @`4dbe0f9a` (3.8.10) | AGPL-3.0 |
+  | SideStore | `0.7.0-alpha` @`6032424`, `develop` @`0dd743f` | AGPL-3.0 |
+  | AltStore Classic | `classic` @`fafd76ee` (2.3) | AGPL-3.0 |
+  | AltSign | `0d3c1a3c` | keine Lizenzdatei |
+  | SideSign | `6b68651` | keine Lizenzdatei |
+  | CodeSignKit | `d0c6771` | nicht angegeben |

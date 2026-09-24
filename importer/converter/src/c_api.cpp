@@ -4,11 +4,17 @@
 #include "apkconv/codesign.h"
 #include "apkconv/container.h"
 #include "apkconv/macho.h"
+#include "apkconv/pkcs12.h"
 #include "apkconv/security_identity.h"
 
 #include <TargetConditionals.h>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#endif
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -151,14 +157,24 @@ void check_signature(const char *path) {
     ::close(descriptor);
 }
 
-/// The smallest container: a page of __TEXT with the header, and __LINKEDIT.
-std::vector<std::byte> test_container() {
+/// Where the test container's function sits: at the end of its __TEXT page, after the header.
+constexpr std::size_t test_function_offset = apk::macho::page_size - 16;
+
+/// The UUID of the test container made with `tag`.
+std::array<std::uint8_t, 16> test_container_uuid(std::uint32_t tag) {
+    return {0x41, 0x50, 0x4b, 0x43, 0x48, 0x45, 0x43, 0x4b, 0x80, 0, 0, 0, static_cast<std::uint8_t>(tag >> 24),
+            static_cast<std::uint8_t>(tag >> 16), static_cast<std::uint8_t>(tag >> 8), static_cast<std::uint8_t>(tag)};
+}
+
+/// The smallest container: a page of __TEXT with the header and a function that returns 42, and
+/// __LINKEDIT. `tag` makes its install name and UUID unique, so that dyld loads each one anew.
+std::vector<std::byte> test_container(std::uint32_t tag) {
     using apk::macho::page_size;
     const apk::macho::Dylib dylib{
-        .install_name = "@rpath/signing-check.dylib",
+        .install_name = std::format("@rpath/signing-check-{:08x}.dylib", tag),
         .platform = platform,
         .version = 26u << 16,
-        .uuid = {0x41, 0x50, 0x4b, 0x43, 0x48, 0x45, 0x43, 0x4b, 0x80, 0, 0, 0, 0, 0, 0, 1},
+        .uuid = test_container_uuid(tag),
         .segments =
             {
                 apk::macho::Segment{.name = "__TEXT",
@@ -179,7 +195,48 @@ std::vector<std::byte> test_container() {
     };
     std::vector<std::byte> image(page_size + 16);
     apk::macho::write_header(dylib, image);
+    const std::uint32_t function[] = {0x5280'0540, 0xd65f'03c0};  // mov w0, #42; ret
+    std::memcpy(image.data() + test_function_offset, function, sizeof function);
     return image;
+}
+
+/// The image dyld loaded with `uuid`, found by its LC_UUID; nullptr when there is none.
+const mach_header_64 *loaded_image(const std::array<std::uint8_t, 16> &uuid) {
+    for (std::uint32_t index = 0; index < _dyld_image_count(); ++index) {
+        const auto *header = reinterpret_cast<const mach_header_64 *>(_dyld_get_image_header(index));
+        if (header == nullptr || header->magic != MH_MAGIC_64) continue;
+        const auto *command = reinterpret_cast<const std::uint8_t *>(header + 1);
+        for (std::uint32_t number = 0; number < header->ncmds; ++number) {
+            load_command current;
+            std::memcpy(&current, command, sizeof current);
+            if (current.cmd == LC_UUID) {
+                uuid_command identifier;
+                std::memcpy(&identifier, command, sizeof identifier);
+                if (std::memcmp(identifier.uuid, uuid.data(), uuid.size()) == 0) return header;
+                break;
+            }
+            command += current.cmdsize;
+        }
+    }
+    return nullptr;
+}
+
+/// The code signature of the app's own executable, `chain_source`: its certificates complete the
+/// chain of an imported certificate, and its team is the one iOS accepts.
+apk::codesign::Signature app_signature(const char *chain_source) {
+    if (chain_source == nullptr) throw std::runtime_error("signing with a certificate needs a chain source");
+    const MappedFile source(chain_source);
+    return apk::codesign::read_signature(source.bytes());
+}
+
+void check_team(const apk::codesign::Identity &identity, const apk::codesign::Signature &app) {
+    const auto &team = identity.chain.front().organizational_unit;
+    if (!app.team.empty() && app.team != team) {
+        throw std::runtime_error(std::format(
+            "the certificate belongs to team {}, but the app is signed for team {}; iOS would not load "
+            "code signed with it",
+            team, app.team));
+    }
 }
 
 }  // namespace
@@ -191,18 +248,31 @@ extern "C" apkconv_signer *apkconv_signer_create(SecIdentityRef identity, const 
         auto signer = std::make_unique<apkconv_signer>();
         signer->identifier = identifier;
         if (identity != nullptr) {
-            if (chain_source == nullptr) throw std::runtime_error("signing with a certificate needs a chain source");
-            const MappedFile source(chain_source);
-            const auto own = apk::codesign::read_signature(source.bytes());
-            signer->identity = apk::codesign::identity_from(identity, own.certificates);
-            const auto &team = signer->identity->chain.front().organizational_unit;
-            if (!own.team.empty() && own.team != team) {
-                throw std::runtime_error(std::format(
-                    "the certificate belongs to team {}, but the app is signed for team {}; iOS would not load "
-                    "code signed with it",
-                    team, own.team));
-            }
+            const auto app = app_signature(chain_source);
+            signer->identity = apk::codesign::identity_from(identity, app.certificates);
+            check_team(*signer->identity, app);
         }
+        return signer.release();
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return nullptr;
+    }
+}
+
+extern "C" apkconv_signer *apkconv_signer_create_with_key(SecKeyRef private_key, const void *certificate,
+                                                          size_t certificate_size, const char *chain_source,
+                                                          const char *identifier, char *error, size_t error_size) {
+    try {
+        if (identifier == nullptr || *identifier == '\0') throw std::runtime_error("the signer needs an identifier");
+        if (private_key == nullptr || certificate == nullptr) {
+            throw std::runtime_error("apkconv_signer_create_with_key needs a key and a certificate");
+        }
+        auto signer = std::make_unique<apkconv_signer>();
+        signer->identifier = identifier;
+        const auto app = app_signature(chain_source);
+        const auto leaf = apk::x509::parse(std::span(static_cast<const std::byte *>(certificate), certificate_size));
+        signer->identity = apk::codesign::identity_with_key(private_key, apk::codesign::complete_chain(leaf, app.certificates));
+        check_team(*signer->identity, app);
         return signer.release();
     } catch (const std::exception &failure) {
         report(failure, error, error_size);
@@ -262,7 +332,7 @@ extern "C" int apkconv_check_signer(const apkconv_signer *signer, const char *di
                                     size_t error_size) {
     try {
         if (signer == nullptr || directory == nullptr) throw std::runtime_error("apkconv_check_signer needs a signer");
-        auto image = test_container();
+        auto image = test_container(std::random_device{}());
         apk::codesign::sign(image, {.identifier = signer->identifier,
                                     .identity = signer->identity ? &*signer->identity : nullptr});
         const auto path = std::filesystem::path(directory) /
@@ -271,10 +341,12 @@ extern "C" int apkconv_check_signer(const apkconv_signer *signer, const char *di
         try {
             check_signature(path.c_str());
         } catch (...) {
-            std::filesystem::remove(path);
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
             throw;
         }
-        std::filesystem::remove(path);
+        std::error_code ignored;
+        std::filesystem::remove(path, ignored);
         return 0;
     } catch (const std::exception &failure) {
         report(failure, error, error_size);
@@ -289,8 +361,97 @@ extern "C" int apkconv_describe_certificate(const void *der, size_t size, apkcon
         const auto parsed = apk::x509::parse(std::span(static_cast<const std::byte *>(der), size));
         copy_text(parsed.common_name, certificate->common_name, sizeof certificate->common_name);
         copy_text(parsed.organizational_unit, certificate->team, sizeof certificate->team);
+        // The INTEGER's contents without the zero bytes DER puts in front to keep it positive.
+        auto serial = apk::der::read(parsed.serial_number).contents;
+        while (serial.size() > 1 && serial.front() == std::byte{0}) serial = serial.subspan(1);
+        std::string serial_text;
+        for (const auto byte : serial) serial_text += std::format("{:02X}", std::to_integer<unsigned>(byte));
+        copy_text(serial_text, certificate->serial_number, sizeof certificate->serial_number);
+        certificate->not_before = parsed.not_before.time_since_epoch().count();
         certificate->not_after = parsed.not_after.time_since_epoch().count();
         return 0;
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
+extern "C" int apkconv_self_test(const apkconv_signer *signer, const char *directory, apkconv_self_test_result *result,
+                                 char *error, size_t error_size) {
+    try {
+        if (signer == nullptr || directory == nullptr || result == nullptr) {
+            throw std::runtime_error("apkconv_self_test needs a signer, a directory and a result");
+        }
+        *result = {};
+        const std::uint32_t tag = std::random_device{}();
+        auto image = test_container(tag);
+        const auto signing = std::chrono::steady_clock::now();
+        apk::codesign::sign(image, {.identifier = signer->identifier,
+                                    .identity = signer->identity ? &*signer->identity : nullptr});
+        result->sign_milliseconds = milliseconds_since(signing);
+
+        const auto path = std::filesystem::path(directory) / std::format("self-test-{:08x}.dylib", tag);
+        replace_file(path, image);
+        const auto loading = std::chrono::steady_clock::now();
+        const mach_header_64 *header = nullptr;
+        try {
+            check_signature(path.c_str());
+            if (::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL) == nullptr) {
+                throw std::runtime_error(std::format("dlopen refuses the test container: {}", ::dlerror()));
+            }
+            header = loaded_image(test_container_uuid(tag));
+            if (header == nullptr) throw std::runtime_error("dlopen loaded the test container, but dyld does not list it");
+        } catch (...) {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+            throw;
+        }
+        // The mapping stays when the file goes.
+        std::error_code ignored;
+        std::filesystem::remove(path, ignored);
+        result->load_milliseconds = milliseconds_since(loading);
+
+        using TestFunction = int (*)();
+        const auto address = reinterpret_cast<std::uintptr_t>(header) + test_function_offset;
+#if __has_feature(ptrauth_calls)
+        const auto function = ptrauth_sign_unauthenticated(reinterpret_cast<TestFunction>(address), ptrauth_key_function_pointer, 0);
+#else
+        const auto function = reinterpret_cast<TestFunction>(address);
+#endif
+        result->value = function();
+        if (result->value != 42) {
+            throw std::runtime_error(std::format("the test container's function returned {} instead of 42", result->value));
+        }
+        return 0;
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
+extern "C" int apkconv_read_unencrypted_pkcs12(const void *pkcs12, size_t size, void *key, size_t key_size,
+                                               size_t *key_length, void *certificate, size_t certificate_size,
+                                               size_t *certificate_length, char *error, size_t error_size) {
+    try {
+        if (pkcs12 == nullptr || key == nullptr || key_length == nullptr || certificate == nullptr ||
+            certificate_length == nullptr) {
+            throw std::runtime_error("apkconv_read_unencrypted_pkcs12 needs a file and two buffers");
+        }
+        *key_length = 0;
+        *certificate_length = 0;
+        const auto contents = apk::pkcs12::read_unencrypted(std::span(static_cast<const std::byte *>(pkcs12), size));
+        *key_length = contents.rsa_private_key.size();
+        *certificate_length = contents.certificate.size();
+        if (contents.rsa_private_key.size() > key_size || contents.certificate.size() > certificate_size) {
+            throw std::runtime_error(std::format("the buffers are too small: the key needs {} bytes, the certificate {}",
+                                                 contents.rsa_private_key.size(), contents.certificate.size()));
+        }
+        std::memcpy(key, contents.rsa_private_key.data(), contents.rsa_private_key.size());
+        std::memcpy(certificate, contents.certificate.data(), contents.certificate.size());
+        return 0;
+    } catch (const apk::pkcs12::EncryptedError &failure) {
+        report(failure, error, error_size);
+        return 1;
     } catch (const std::exception &failure) {
         report(failure, error, error_size);
         return -1;
@@ -303,6 +464,24 @@ extern "C" int apkconv_signing_team(const char *path, char *team, size_t team_si
         if (path == nullptr || team == nullptr) throw std::runtime_error("apkconv_signing_team needs a path");
         const MappedFile file(path);
         copy_text(apk::codesign::read_signature(file.bytes()).team, team, team_size);
+        return 0;
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
+extern "C" int apkconv_signing_chain(const char *path, char *names, size_t size, char *error, size_t error_size) {
+    try {
+        if (path == nullptr || names == nullptr) throw std::runtime_error("apkconv_signing_chain needs a path and a buffer");
+        const MappedFile file(path);
+        std::string text;
+        for (const auto &certificate : apk::codesign::read_signature(file.bytes()).certificates) {
+            const auto name = apk::x509::parse(certificate).common_name;
+            if (!text.empty()) text += '\n';
+            text += name.empty() ? "(no common name)" : name;
+        }
+        copy_text(text, names, size);
         return 0;
     } catch (const std::exception &failure) {
         report(failure, error, error_size);
