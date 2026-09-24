@@ -34,6 +34,7 @@ struct Report {
     std::uint64_t relocations = 0;   // RELR addresses plus RELA entries, all in writable memory
     std::uint64_t image_offset = 0;  // where the ELF image starts in the container
     std::uint64_t stub_bytes = 0;    // islands and veneers
+    std::uint64_t island_table_bytes = 0;  // one entry per x18 island (ADR-0020 X4)
 };
 
 struct Container {

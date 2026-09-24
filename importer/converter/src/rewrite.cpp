@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <tuple>
 
 namespace apk::rewrite {
 namespace {
@@ -449,41 +450,58 @@ std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code,
     return std::nullopt;
 }
 
+/// The words of the window [open, end] that a forward branch inside it can skip: what they write
+/// may not have happened when a later word of the window runs.
+std::vector<bool> skippable_words(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    const auto count = static_cast<std::int64_t>((end - open) / 4 + 1);
+    std::vector<bool> skippable(static_cast<std::size_t>(count), false);
+    for (std::int64_t k = 0; k < count; ++k) {
+        const auto displacement = branch_displacement(word_at(code, open + 4 * static_cast<std::size_t>(k)));
+        if (!displacement) continue;
+        const auto target = std::min(k + *displacement / 4, count);
+        for (auto j = k + 1; j < target; ++j) skippable[static_cast<std::size_t>(j)] = true;
+    }
+    return skippable;
+}
+
+/// Whether a word of the window [open, end] reads one of `registers` before a write that every
+/// path through the window passes.
+bool reads_before_written(std::span<const std::byte> code, std::size_t open, std::size_t end, std::uint32_t registers) {
+    const auto skippable = skippable_words(code, open, end);
+    std::uint32_t written = 0;
+    for (std::size_t k = 0; open + 4 * k <= end; ++k) {
+        const auto use = a64::register_use(word_at(code, open + 4 * k));
+        if ((use.reads & registers & ~written) != 0) return true;
+        if (!skippable[k]) written |= use.writes;
+    }
+    return false;
+}
+
 /// Builds the relocatable region for the window [open, end] when it is simple enough (ADR-0020
-/// X2c): it uses x18, keeps a scratch register free, moves the stack pointer nowhere, substitutes
-/// x18 in every word that uses it, and its branches stay inside the window when x18 is written (so
-/// the store-back after the window is never skipped). Nullopt otherwise, so the x18 uses inside are
-/// refused instead.
+/// X2c): it uses x18, keeps a scratch register free, moves the stack pointer nowhere and
+/// substitutes x18 in every word that uses it. Nullopt otherwise, so the x18 uses inside are refused
+/// instead. Whether the window may run again from its start is restart_problem()'s question.
 std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte> code, std::uint64_t address,
                                                       std::size_t open, std::size_t end) {
     ExclusiveRegion region;
     region.address = address + open;
     std::uint32_t used = 0;
-    bool any_x18 = false, seen_x18 = false;
+    bool any_x18 = false;
     for (std::size_t j = open; j <= end; j += 4) {
         const auto word = word_at(code, j);
         if (writes_stack_pointer(word)) return std::nullopt;
         const auto use = a64::register_use(word);
         used |= use.reads | use.writes;
         if ((use.reads | use.writes) & x18_bit) {
-            if (!seen_x18) region.reads_x18 = (use.reads & x18_bit) != 0;
-            seen_x18 = true;
             any_x18 = true;
             if (use.writes & x18_bit) region.writes_x18 = true;
         }
         region.words.push_back(word);
     }
     if (!any_x18) return std::nullopt;  // an exclusive loop without x18 needs no rewrite
-
-    // A branch that leaves the window must not skip the store-back, so refuse one when x18 is written.
-    for (std::size_t k = 0; region.writes_x18 && k < region.words.size(); ++k) {
-        if (const auto displacement = branch_displacement(region.words[k])) {
-            const auto target = static_cast<std::int64_t>(open + 4 * k) + *displacement;
-            if (target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end)) {
-                return std::nullopt;
-            }
-        }
-    }
+    // The island loads x18 before the window when some path reads it before writing it; the first
+    // use alone does not tell, a branch can skip it (ADR-0020 X4).
+    region.reads_x18 = reads_before_written(code, open, end, x18_bit);
 
     // Two free registers: the value in place of x18, and the TSD base for the store-back. Both may
     // hold live values around the loop, so the island saves them in the red zone.
@@ -516,16 +534,117 @@ bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std
     return false;
 }
 
+// --- Windows that run again from their start (ADR-0020 X4) -------------------------------------
+//
+// A signal inside a relocated window sends the thread back to its load-exclusive, so running the
+// window a second time must give what running it once gives.
+
+/// Whether `word` may stand in such a window: data processing on general-purpose registers
+/// (immediate and register; not ADR and ADRP, which the relocated island would compute for its own
+/// place), a direct branch other than BL (restart_problem checks that it stays inside; the return
+/// address of a BL would point into the island), a barrier, CLREX, and the exclusive pair itself.
+/// Anything else the island would copy unchanged, a system instruction or SIMD register the checks
+/// below cannot follow, or a memory access running twice.
+bool allowed_in_window(std::uint32_t word) {
+    if (is_exclusive(word) || is_clrex(word)) return true;
+    if (branch_displacement(word)) return (word & 0xfc00'0000) != 0x9400'0000;  // not BL
+    const auto barrier = word & 0xffff'f0ff;  // CRm cleared
+    if (barrier == 0xd503'309f || barrier == 0xd503'30bf || barrier == 0xd503'30df) return true;  // DSB, DMB, ISB
+    if ((word & 0x1c00'0000) == 0x1000'0000) return (word & 0x1f00'0000) != 0x1000'0000;         // DP (immediate)
+    return (word & 0x0e00'0000) == 0x0a00'0000;                                                  // DP (register)
+}
+
+/// Whether `word`, allowed in a window, changes NZCV: the S forms of add and subtract (immediate,
+/// shifted and extended register, with carry), ANDS and BICS, the conditional compares, RMIF, SETF8
+/// and SETF16.
+bool modifies_flags(std::uint32_t word) {
+    if ((word & 0x1f00'0000) == 0x1100'0000 || (word & 0x1f00'0000) == 0x0b00'0000) return bit(word, 29);
+    if ((word & 0x1f80'0000) == 0x1200'0000 || (word & 0x1f00'0000) == 0x0a00'0000) return ((word >> 29) & 3) == 3;
+    if ((word & 0x1fe0'0000) == 0x1a00'0000) return bit(word, 29);  // ADCS, SBCS, RMIF, SETF8, SETF16
+    return (word & 0x1fe0'0000) == 0x1a40'0000;                      // CCMN, CCMP
+}
+
+/// Whether `word`, allowed in a window, reads NZCV: B.cond and BC.cond, the conditional selects and
+/// compares, and add and subtract with carry.
+bool reads_flags(std::uint32_t word) {
+    if ((word & 0xff00'0000) == 0x5400'0000) return true;                                         // B.cond, BC.cond
+    if ((word & 0x1fe0'0000) == 0x1a80'0000 || (word & 0x1fe0'0000) == 0x1a40'0000) return true;  // CSEL.., CCMN, CCMP
+    return (word & 0x1fe0'fc00) == 0x1a00'0000;                                                   // ADC, ADCS, SBC, SBCS
+}
+
+/// Whether `word` sets all of NZCV without reading them: ADDS, SUBS, ANDS, BICS.
+bool sets_flags(std::uint32_t word) {
+    return modifies_flags(word) && !reads_flags(word) && (word & 0x1fe0'0000) != 0x1a00'0000;
+}
+
+constexpr const char *window_branch_leaves =
+    "it lies in an exclusive window that cannot run again from its start: a branch leaves it";
+constexpr const char *window_instruction =
+    "it lies in an exclusive window that cannot run again from its start: it holds an instruction other than "
+    "data processing on general-purpose registers, a branch within the window (not a call), a barrier or the "
+    "exclusive pair";
+constexpr const char *window_writes_input =
+    "it lies in an exclusive window that cannot run again from its start: it writes a register it reads first";
+constexpr const char *window_reads_flags =
+    "it lies in an exclusive window that cannot run again from its start: it reads the flags before it sets them";
+
+/// Why the window [open, end] cannot run again from its load-exclusive, or nullptr when it can. It
+/// holds only what allowed_in_window() allows, and no branch leaves it. It writes no register it
+/// reads before writing it; x18 is exempt, the island renames it, and so is what the load-exclusive
+/// loads and the status the store-exclusive writes, both of which come first or last. If it changes
+/// the flags, it does not read them before it sets them.
+const char *restart_problem(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    const std::size_t count = (end - open) / 4 + 1;
+    std::size_t commit = count - 1;  // the store-exclusive, or the CLREX that closes a window without one
+    for (std::size_t k = 1; k < count; ++k) {
+        if (is_store_exclusive(word_at(code, open + 4 * k))) {
+            commit = k;
+            break;
+        }
+    }
+    std::uint32_t written = 0;
+    bool changes_flags = false;
+    for (std::size_t k = 0; k < count; ++k) {
+        const auto word = word_at(code, open + 4 * k);
+        if (!allowed_in_window(word)) return window_instruction;
+        if (const auto displacement = branch_displacement(word)) {
+            const auto target = 4 * static_cast<std::int64_t>(k) + *displacement;
+            if (target < 0 || target >= 4 * static_cast<std::int64_t>(count)) return window_branch_leaves;
+        }
+        if (k != commit) written |= a64::register_use(word).writes;
+        changes_flags = changes_flags || modifies_flags(word);
+    }
+    written &= ~x18_bit;
+    const auto skippable = skippable_words(code, open, end);
+    const auto opening = a64::register_use(word_at(code, open));
+    if ((opening.reads & written) != 0) return window_writes_input;
+    std::uint32_t defined = opening.writes;
+    bool flags_defined = false;
+    for (std::size_t k = 1; k < count; ++k) {
+        const auto word = word_at(code, open + 4 * k);
+        const auto use = a64::register_use(word);
+        if ((use.reads & ~defined & written) != 0) return window_writes_input;
+        if (changes_flags && !flags_defined && reads_flags(word)) return window_reads_flags;
+        if (!skippable[k]) {
+            defined |= use.writes;
+            flags_defined = flags_defined || sets_flags(word);
+        }
+    }
+    return nullptr;
+}
+
 // --- Jump tables through x18 (ADR-0020 X2d) ------------------------------------------------------
 
 constexpr std::uint32_t br_x18 = 0xd61f'0240;
 constexpr std::uint32_t jump_table_trap = 0xd420'0300;  // BRK #0x18: a target without a landing pad
-constexpr std::uint64_t max_jump_table_span = 64 * 1024;
+constexpr std::uint64_t max_jump_table_span = 32 * 1024;
 
 // The island (see emit_jump_table): 13 words up to its BR, then the trap of 3; each landing pad has 4.
 constexpr std::size_t jump_trap_word = 13;
 constexpr std::size_t jump_island_words = 16;
 constexpr std::size_t landing_pad_words = 4;
+// The island table gives the length of an island in 16 bits (ADR-0020 X4), which caps the span.
+static_assert(jump_island_words + landing_pad_words * (max_jump_table_span / 4) <= 0xffff);
 
 /// B.cond (not BC.cond): the condition in bits 3:0.
 constexpr bool is_branch_on_flags(std::uint32_t word) {
@@ -659,7 +778,7 @@ const char *find_jump_table(std::span<const std::byte> code, std::uint64_t addre
     std::ranges::sort(targets);
     targets.erase(std::ranges::unique(targets).begin(), targets.end());
     if (targets.back() - targets.front() >= max_jump_table_span) {
-        return "it is a register branch whose jump table spans more than 64 KiB";
+        return "it is a register branch whose jump table spans more than 32 KiB";
     }
     table = {.address = address + offset, .table = *start, .entries = check->entries, .targets = std::move(targets)};
     return nullptr;
@@ -697,17 +816,29 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     }
     // First, relocate whole load-/store-exclusive windows that use x18 (ADR-0020 X2c). Each covers
     // its offsets, so the main loop below leaves them alone; a window a branch could enter in the
-    // middle is dropped, and its x18 uses are refused there instead.
+    // middle is dropped, and its x18 uses are refused there instead. So is a window that cannot run
+    // again from its start (ADR-0020 X4), with the reason.
     std::vector<std::pair<std::size_t, std::size_t>> covered;
+    std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         if (!is_load_exclusive(word_at(code, offset))) continue;
         const auto end = exclusive_window_end(code, offset);
         if (!end) continue;
         auto region = build_exclusive_region(code, address, offset, *end);
         if (!region || branch_enters_window(code, offset, *end)) continue;
+        if (const char *problem = restart_problem(code, offset, *end)) {
+            refused_windows.emplace_back(offset, *end, problem);
+            continue;
+        }
         findings.exclusive_regions.push_back(std::move(*region));
         covered.emplace_back(offset, *end);
     }
+    const auto refused_window = [&](std::size_t offset) -> const char * {
+        for (const auto &[open, end, problem] : refused_windows) {
+            if (offset >= open && offset <= end) return problem;
+        }
+        return nullptr;
+    };
     const auto is_covered = [&](std::size_t offset) {
         return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
     };
@@ -736,9 +867,11 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             } else {
                 findings.x18_writes.push_back(at);
             }
-            const char *reason = (exclusive_sequence && !is_exclusive(instruction)) ? inside_exclusive_sequence
-                                                                                    : unsupported_reason(instruction);
-            if (instruction == br_x18 && reason != inside_exclusive_sequence) {
+            const char *window_reason = refused_window(offset);
+            const char *reason = window_reason != nullptr                              ? window_reason
+                                 : (exclusive_sequence && !is_exclusive(instruction)) ? inside_exclusive_sequence
+                                                                                      : unsupported_reason(instruction);
+            if (instruction == br_x18 && window_reason == nullptr && reason != inside_exclusive_sequence) {
                 // A register branch runs only as the end of a jump table, through landing pads (X2d).
                 JumpTable table;
                 reason = find_jump_table(code, address, offset, read_only_data, table);
@@ -996,6 +1129,65 @@ std::uint32_t emit_jump_table(const JumpTable &table, std::uint64_t branch_addre
     if (target != table.targets.end()) throw RewriteError("a jump table target has no landing pad");
     write.finish();
     return b(branch_address, stub_address);
+}
+
+IslandLayout island_layout(const Site &site) {
+    if (site.kind != SiteKind::x18) throw RewriteError("only an x18 site has an island layout");
+    const auto scratch = scratch_registers(site.instruction);
+    IslandLayout layout{.kind = APK_ISLAND_SINGLE,
+                        .words = static_cast<std::uint32_t>(x18_island_words(site.instruction)),
+                        .value = static_cast<std::uint8_t>(scratch.value)};
+    if (is_conditional_branch(site.instruction)) {
+        layout.kind = APK_ISLAND_BRANCH;  // changes nothing but pc: always back to the site
+        return layout;
+    }
+    // As emit() writes it: save the value (and the base), load x18, the instruction in one to three
+    // words, then store x18 with mrs, bic and str.
+    const auto use = a64::register_use(site.instruction);
+    const bool reads = (use.reads & x18_bit) != 0, writes = (use.writes & x18_bit) != 0;
+    const std::size_t first = 1 + (writes ? 1u : 0u) + (reads ? 3u : 0u);
+    const auto body = std::max<std::size_t>(pc_relative_words(site.instruction), 1);
+    layout.commit = static_cast<std::uint8_t>(first + body - 1);
+    if (writes) {
+        layout.base = static_cast<std::uint8_t>(scratch.base);
+        layout.store = static_cast<std::uint8_t>(layout.commit + 3);
+    }
+    layout.resume = 1;
+    return layout;
+}
+
+IslandLayout exclusive_region_layout(const ExclusiveRegion &region) {
+    IslandLayout layout{.kind = APK_ISLAND_EXCLUSIVE,
+                        .words = static_cast<std::uint32_t>(exclusive_region_stub_size(region) / 4),
+                        .value = region.scratch};
+    // As emit_exclusive_region() writes it: save the value (and the base), load x18, the window,
+    // then store x18 with mrs, bic and str. The window completes with its store-exclusive, or with
+    // the CLREX that closes a window without one.
+    const std::size_t first = 1 + (region.writes_x18 ? 1u : 0u) + (region.reads_x18 ? 3u : 0u);
+    std::size_t closing = region.words.size() - 1;
+    for (std::size_t index = 1; index < region.words.size(); ++index) {
+        if (is_store_exclusive(region.words[index])) {
+            closing = index;
+            break;
+        }
+    }
+    layout.commit = static_cast<std::uint8_t>(first + closing);
+    if (region.writes_x18) {
+        layout.base = region.base;
+        layout.store = static_cast<std::uint8_t>(first + region.words.size() + 2);
+    }
+    layout.resume = static_cast<std::uint8_t>(region.words.size());
+    return layout;
+}
+
+IslandLayout jump_table_layout(const JumpTable &table) {
+    // As emit_jump_table() writes it: both scratch registers saved and nothing stored. The jump
+    // changes nothing but pc, so the thread always goes back to the br.
+    const auto scratch = scratch_registers(br_x18);
+    return {.kind = APK_ISLAND_JUMP_TABLE,
+            .words = static_cast<std::uint32_t>(jump_table_stub_size(table) / 4),
+            .value = static_cast<std::uint8_t>(scratch.value),
+            .base = static_cast<std::uint8_t>(scratch.base)};
 }
 
 }  // namespace apk::rewrite

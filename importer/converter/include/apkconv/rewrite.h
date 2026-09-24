@@ -14,6 +14,8 @@
 // Every other instruction stays as it is: no emulation, no trapping (ADR-0001).
 #pragma once
 
+#include "APKRuntime/container_format.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -50,11 +52,13 @@ struct Unsupported {
 /// A run from a load-exclusive to the store-exclusive or CLREX that closes it, with at least one
 /// use of x18 inside (ADR-0020 X2c). No other memory access may fall between the two, so the whole
 /// run is relocated as one island: x18 becomes a scratch register throughout, loaded from the TSD
-/// once before the run and stored back once after, both outside the exclusive window.
+/// once before the run and stored back once after, both outside the exclusive window. Only a window
+/// that runs the same when it runs again from its load-exclusive is relocated: a signal inside the
+/// island sends the thread back there (ADR-0020 X4).
 struct ExclusiveRegion {
     std::uint64_t address;             // of the load-exclusive, in the address space given to scan()
     std::vector<std::uint32_t> words;  // the whole window, load-exclusive to close, inclusive
-    bool reads_x18 = false;            // x18 is read before it is written -> load the scratch first
+    bool reads_x18 = false;            // a path reads x18 before writing it -> load the scratch first
     bool writes_x18 = false;           // x18 is written -> store the scratch back after
     std::uint8_t scratch = 0;          // stands in for x18 across the window (the value)
     std::uint8_t base = 0;             // holds the TSD base for the store-back; used only when writing
@@ -145,5 +149,28 @@ std::size_t jump_table_stub_size(const JumpTable &table);
 /// the island goes; both are container addresses, and each target keeps its distance to the br.
 std::uint32_t emit_jump_table(const JumpTable &table, std::uint64_t branch_address, std::uint64_t stub_address,
                               std::span<std::byte> stub);
+
+/// What the island table of the container records about one x18 island (ADR-0020 X4): the fields of
+/// struct apk_island that do not depend on where the island and its site lie.
+struct IslandLayout {
+    std::uint8_t kind = 0;                       // APK_ISLAND_*
+    std::uint32_t words = 0;                     // the island's length, landing pads included
+    std::uint8_t value = 0;                      // the register that stands in for x18
+    std::uint8_t base = APK_ISLAND_NO_REGISTER;  // the second scratch register
+    std::uint8_t commit = APK_ISLAND_NO_COMMIT;  // the word that completes the guest instruction or window
+    std::uint8_t store = 0;                      // the word that stores x18 to the TSD; 0 when there is none
+    std::uint8_t resume = 0;                     // words from the site to where the thread goes on after the commit
+
+    bool operator==(const IslandLayout &) const = default;
+};
+
+/// The layout of the island emit() writes for `site`, which must be an x18 site.
+IslandLayout island_layout(const Site &site);
+
+/// The layout of the island emit_exclusive_region() writes for `region`.
+IslandLayout exclusive_region_layout(const ExclusiveRegion &region);
+
+/// The layout of the island and the landing pads emit_jump_table() writes for `table`.
+IslandLayout jump_table_layout(const JumpTable &table);
 
 }  // namespace apk::rewrite

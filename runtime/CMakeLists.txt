@@ -1,9 +1,10 @@
 # apkrt: loader and Linux syscall layer for guest code (ARCHITECTURE.md 4.3–4.6).
 enable_language(ASM)
 # M2 step 4: static programs from container dylibs; step 5: the linker and libdl for dynamic programs
-# (ADR-0021), and the Linux personality their test suite needs: files, threads, signals.
+# (ADR-0021), and the Linux personality their test suite needs: files, threads, signals. The
+# signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/sys_memory.cpp src/sys_signals.cpp
-  src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/process_exit.cpp)
+  src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/islands.cpp src/process_exit.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -33,10 +34,11 @@ if(APK_HOST_BUILD)
   target_link_libraries(guest_tls_test PRIVATE apkrt apk_defaults)
   add_test(NAME runtime.guest_tls COMMAND guest_tls_test)
 
+  # Loads small containers the converter makes (ADR-0020 X4), so it needs a directory of its own.
   add_executable(loader_test tests/loader_test.cpp tests/checked_loader.cpp)
-  target_include_directories(loader_test PRIVATE src)
-  target_link_libraries(loader_test PRIVATE apkrt apk_defaults apk_testing)
-  add_test(NAME runtime.loader COMMAND loader_test)
+  target_include_directories(loader_test PRIVATE src "${PROJECT_SOURCE_DIR}/importer/converter/tests")
+  target_link_libraries(loader_test PRIVATE apkrt apkconv apk_defaults apk_testing)
+  add_test(NAME runtime.loader COMMAND loader_test "${CMAKE_CURRENT_BINARY_DIR}/loader_test_scratch")
 
   # On the NDK fixtures raw-dyn and libraw-dyn.so, laid out in memory; skipped while they are missing.
   add_executable(linker_test tests/linker_test.cpp tests/checked_linker.cpp tests/checked_loader.cpp)

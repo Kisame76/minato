@@ -1,5 +1,6 @@
 #include "loader.h"
 
+#include "islands.h"
 #include "syscall_frame.h"
 
 #include <dlfcn.h>
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <string_view>
 
 namespace apkrt::loader {
 namespace {
@@ -251,6 +253,11 @@ Image load(const std::string &path) {
     const auto base = reinterpret_cast<std::uint64_t>(header);
     auto *slots = reinterpret_cast<apk_runtime_slots *>(base + info->runtime_slots);
     slots->syscall_entry = reinterpret_cast<std::uint64_t>(&apkrt_syscall_entry);
+    // Where a signal handler finds the x18 islands of the container (ADR-0020 X4).
+    std::string_view name(resolved);
+    name.remove_prefix(name.rfind('/') + 1);
+    if (name.ends_with(".dylib")) name.remove_suffix(std::string_view(".dylib").size());
+    islands::add(header, *info, name);
     return Image{.header = header, .info = info, .bias = base + info->image_offset - info->min_vaddr};
 }
 

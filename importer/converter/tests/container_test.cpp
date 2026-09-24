@@ -340,6 +340,89 @@ TEST(runs_a_jump_table_through_x18_with_landing_pads) {
     dlclose(handle);
 }
 
+/// The island table of a converted container, after the checks every table must pass (ADR-0020
+/// X4): one entry per x18 island, between __apk_info and the stubs, sorted by address and without
+/// overlaps, each island inside the stub area and its site a branch to it.
+std::vector<apk_island> island_table(const apk::container::Container &container,
+                                     std::source_location location = std::source_location::current()) {
+    const auto info = read_info(container.bytes);
+    const auto &report = container.report;
+    if (info.island_count != report.x18_islands) fail(location, "the table has not one entry per x18 island");
+    if (report.island_table_bytes != std::uint64_t{info.island_count} * sizeof(apk_island)) {
+        fail(location, "the report gives another size of the table");
+    }
+    if (info.stubs_size != report.stub_bytes || info.stubs + info.stubs_size > info.image_offset) {
+        fail(location, "the stub area is not where the report says");
+    }
+    if (info.islands % 8 != 0 || info.islands + report.island_table_bytes > info.stubs) {
+        fail(location, "the table is not between __apk_info and the stubs");
+        return {};
+    }
+    std::vector<apk_island> islands(info.island_count);
+    std::memcpy(islands.data(), container.bytes.data() + info.islands, islands.size() * sizeof(apk_island));
+    std::uint64_t end = info.stubs;
+    for (const auto &island : islands) {
+        if (island.stub < end) fail(location, "the entries overlap or are not sorted");
+        end = island.stub + 4 * std::uint64_t{island.words};
+        if (end > info.stubs + info.stubs_size) fail(location, "an island reaches beyond the stub area");
+        if (branch_target(container.bytes, island.site) != island.stub) fail(location, "a site does not branch to its island");
+    }
+    return islands;
+}
+
+// ADR-0020 X4: the island table has one entry per x18 island, sorted by address, with what the
+// runtime needs to send a thread that stopped inside the island back to the guest.
+TEST(the_island_table_describes_every_x18_island) {
+    auto builder = static_program();
+    builder.put<std::uint32_t>(0x218, 0x9100'0640);  // add x0, x18, #1: reads x18
+    builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
+    const auto singles = convert(builder);
+    const auto image = read_info(singles.bytes).image_offset;
+    CHECK(read_info(singles.bytes).version == 2);
+    const auto islands = island_table(singles);
+    CHECK(islands.size() == 2);
+    if (islands.size() == 2) {
+        // add x0, x18, #1: stur x1; mrs, bic, ldr x1; add x0, x1, #1; ldur x1; b
+        CHECK(islands[0].site == image + 0x218);
+        CHECK(islands[0].kind == APK_ISLAND_SINGLE && islands[0].words == 7 && islands[0].value == 1 &&
+              islands[0].base == APK_ISLAND_NO_REGISTER && islands[0].commit == 4 && islands[0].store == 0 &&
+              islands[0].resume == 1);
+        // mov x18, x19: stur x0; stur x1; mov x0, x19; mrs, bic, str x0; ldur x0; ldur x1; b
+        CHECK(islands[1].site == image + 0x21c);
+        CHECK(islands[1].kind == APK_ISLAND_SINGLE && islands[1].words == 9 && islands[1].value == 0 &&
+              islands[1].base == 1 && islands[1].commit == 2 && islands[1].store == 5 && islands[1].resume == 1);
+    }
+    CHECK(island_table(convert(static_program())).empty());  // no x18, no entries
+
+    // An LL/SC loop on x18 as the address: one entry for the whole window.
+    auto loop = static_program();
+    loop.put<std::uint32_t>(0x200, 0xc85f'7e48);  // ldxr x8, [x18]
+    loop.put<std::uint32_t>(0x204, 0x9100'0508);  // add x8, x8, #1
+    loop.put<std::uint32_t>(0x208, 0xc809'7e48);  // stxr w9, x8, [x18]
+    loop.put<std::uint32_t>(0x20c, 0x35ff'ffa9);  // cbnz w9, 0x200
+    const auto loop_container = convert(loop);
+    const auto window = island_table(loop_container);
+    CHECK(window.size() == 1);
+    if (window.size() == 1) {
+        // stur x0; mrs, bic, ldr x0; ldxr x8, [x0]; add x8, x8, #1; stxr w9, x8, [x0]; ldur x0; b
+        CHECK(window[0].site == read_info(loop_container.bytes).image_offset + 0x200);
+        CHECK(window[0].kind == APK_ISLAND_EXCLUSIVE && window[0].words == 9 && window[0].value == 0 &&
+              window[0].base == APK_ISLAND_NO_REGISTER && window[0].commit == 6 && window[0].store == 0 &&
+              window[0].resume == 3);
+    }
+
+    // The jump table: four single instructions, then the br with the landing pads of 0x220 to 0x23c.
+    const auto jump_container = convert(jump_table_program());
+    const auto jump = island_table(jump_container);
+    CHECK(jump.size() == 5);
+    if (jump.size() == 5) {
+        for (std::size_t index = 0; index < 4; ++index) CHECK(jump[index].kind == APK_ISLAND_SINGLE);
+        CHECK(jump[4].site == read_info(jump_container.bytes).image_offset + 0x21c);
+        CHECK(jump[4].kind == APK_ISLAND_JUMP_TABLE && jump[4].words == 16 + 4 * 8 && jump[4].value == 0 &&
+              jump[4].base == 1 && jump[4].commit == APK_ISLAND_NO_COMMIT && jump[4].store == 0);
+    }
+}
+
 TEST(refuses_what_cannot_run) {
     auto four_kib = static_program();
     four_kib.put<std::uint64_t>(64 + 56 + 48, 0x1000);  // p_align of the code segment

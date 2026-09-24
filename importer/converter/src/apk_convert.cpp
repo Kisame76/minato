@@ -281,8 +281,10 @@ int convert(std::vector<std::string> arguments) {
               << std::format("  rewritten: {} thread pointer reads, {} writes, {} syscalls ({} bytes of stubs)\n",
                              report.thread_pointer_reads, report.thread_pointer_writes, report.syscalls,
                              report.stub_bytes)
-              << std::format("  x18: {} island{}, of them {} only writing x18, {} saving it in a register dump\n",
-                             report.x18_islands, report.x18_islands == 1 ? "" : "s", report.x18_writes, report.x18_saves)
+              << std::format("  x18: {} island{} ({} bytes of island table), of them {} only writing x18, {} saving "
+                             "it in a register dump\n",
+                             report.x18_islands, report.x18_islands == 1 ? "" : "s", report.island_table_bytes,
+                             report.x18_writes, report.x18_saves)
               << std::format("  relocations: {}, ELF image at {:#x}\n", report.relocations, report.image_offset)
               << std::format("  converted in {:.2f} ms\n", elapsed.count());
     return 0;

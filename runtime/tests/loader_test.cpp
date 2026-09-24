@@ -1,16 +1,28 @@
 // Checks the parts of the loader that work on plain memory: relocations and the Linux start stack
-// (ADR-0019). Loading real containers is checked end to end by the fixture tests.
+// (ADR-0019); and on small containers the converter makes, the version check and the island table
+// (ADR-0020 X4). Programs are loaded and run end to end by the fixture tests.
+#include "islands.h"
 #include "loader.h"
 
+#include "apkconv/codesign.h"
+#include "apkconv/container.h"
 #include "check.h"
+#include "elf_builder.h"
 
+#include <cstddef>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
 
 using apkrt::loader::Range;
+
+std::filesystem::path scratch;
 
 // Linux auxv types (include/uapi/linux/auxvec.h).
 constexpr std::uint64_t at_null = 0;
@@ -226,8 +238,84 @@ TEST(a_start_stack_that_does_not_fit_is_refused) {
     CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::build_start_stack(start, stack), "start stack");
 }
 
+/// The container of a static program with a thread pointer read, two uses of x18 and a syscall
+/// between them: its stub area holds a thread pointer island, an x18 island, a syscall veneer and
+/// another x18 island, in this order. Unsigned.
+std::vector<std::byte> x18_program_container() {
+    namespace elf = apk::testing;
+    constexpr std::uint32_t code[] = {
+        0xd53b'd040,  // 0x200 mrs x0, TPIDR_EL0
+        0x9100'0640,  // 0x204 add x0, x18, #1
+        0xd400'0001,  // 0x208 svc #0
+        0xaa13'03f2,  // 0x20c mov x18, x19
+        0xd65f'03c0,  // 0x210 ret
+    };
+    elf::ElfBuilder builder;
+    builder.put<std::uint64_t>(24, 0x200);  // e_entry
+    builder.segments({{elf::pt_load, elf::r | elf::x, 0, 0, 0x214, 0x214, 0x4000}});
+    std::memcpy(builder.bytes.data() + 0x200, code, sizeof code);
+    builder.sections({{".text", elf::sht_progbits, elf::shf_alloc | elf::shf_execinstr, 0x200, 0x200, sizeof code}});
+    return apk::container::convert(builder.bytes, {.install_name = "@rpath/program.dylib"}).bytes;
+}
+
+/// Signs `container` ad hoc and writes it as <name>.dylib into the scratch directory.
+std::string write_signed(const std::string &name, std::vector<std::byte> container) {
+    apk::codesign::sign(container, {.identifier = name});
+    const auto path = scratch / (name + ".dylib");
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char *>(container.data()), static_cast<std::streamsize>(container.size()));
+    return path.string();
+}
+
+TEST(a_container_of_another_version_is_refused) {
+    auto container = x18_program_container();
+    const std::string_view magic(APK_CONTAINER_MAGIC, sizeof APK_CONTAINER_MAGIC);  // with its zero
+    const auto at = std::string_view(reinterpret_cast<const char *>(container.data()), container.size()).find(magic);
+    CHECK(at != std::string_view::npos);
+    if (at == std::string_view::npos) return;
+    const std::uint32_t version = 1;
+    std::memcpy(container.data() + at + offsetof(apk_container_info, version), &version, sizeof version);
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-1", std::move(container))),
+                 "container version 1, this runtime reads version 2");
+}
+
+// ADR-0020 X4: the loader registers the island table of every container it loads, so that a
+// signal handler can tell from a pc whether the thread stopped inside an x18 island, and in which.
+TEST(the_islands_of_a_loaded_container_are_found_by_pc) {
+    const auto image = apkrt::loader::load(write_signed("islands", x18_program_container()));
+    const auto header = reinterpret_cast<std::uint64_t>(image.header);
+    const auto &info = *image.info;
+    CHECK(info.island_count == 2);
+    if (info.island_count != 2) return;
+    const auto *table = reinterpret_cast<const apk_island *>(header + info.islands);
+    const auto *container = apkrt::islands::container_at(header + table[0].stub);
+    CHECK(container != nullptr);
+    if (container == nullptr) return;
+    CHECK(std::string_view(container->name) == "islands");
+    for (std::uint32_t index = 0; index < info.island_count; ++index) {
+        const auto first = header + table[index].stub, last = first + 4 * (table[index].words - 1u);
+        CHECK(apkrt::islands::container_at(first) == container && apkrt::islands::container_at(last) == container);
+        CHECK(apkrt::islands::island_at(*container, first) == &table[index]);
+        CHECK(apkrt::islands::island_at(*container, last) == &table[index]);
+    }
+    // The thread pointer island in front and the veneer between the x18 islands are stubs, but no
+    // x18 islands. The last x18 island ends the stub area, and the image is no stub.
+    CHECK(apkrt::islands::container_at(header + info.stubs) == container);
+    CHECK(apkrt::islands::island_at(*container, header + info.stubs) == nullptr);
+    CHECK(apkrt::islands::island_at(*container, header + table[0].stub + 4 * table[0].words) == nullptr);
+    CHECK(apkrt::islands::container_at(header + info.stubs + info.stubs_size) == nullptr);
+    CHECK(apkrt::islands::container_at(header + info.image_offset) == nullptr);
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        std::fprintf(stderr, "usage: loader_test <scratch-directory>\n");
+        return 2;
+    }
+    // dyld records the canonical path of a loaded image, and the loader looks images up by path.
+    std::filesystem::create_directories(argv[1]);
+    scratch = std::filesystem::canonical(argv[1]);
     return apk::testing::run_all();
 }

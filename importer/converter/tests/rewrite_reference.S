@@ -239,6 +239,114 @@ _ref_x18_ll_sc:
     .globl _ref_x18_ll_sc_end
 _ref_x18_ll_sc_end:
 
+// ADR-0020 X4: a signal inside a relocated window sends the thread back to its load-exclusive, so
+// the rewriter relocates only windows that run the same when they run again from there. First nine
+// that do not, then three that do.
+    .globl _ref_x18_window_exit
+_ref_x18_window_exit:               // a branch leaves the window, which only reads x18
+    ldaxr   x8, [x18]
+    cmp     x8, x1
+    b.ne    1f
+    stlxr   w9, x2, [x18]
+    cbnz    w9, _ref_x18_window_exit
+    ret
+1:  clrex
+    ret
+    .globl _ref_x18_window_input
+_ref_x18_window_input:              // writes x1, which it reads first
+    ldxr    x8, [x18]
+    add     x8, x8, x1
+    add     x1, x1, #1
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_input
+    ret
+    .globl _ref_x18_window_flags
+_ref_x18_window_flags:              // reads the flags before it sets them, and then sets them
+    ldxr    x8, [x18]
+    csel    x8, x8, x1, eq
+    cmp     x8, #0
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_flags
+    ret
+    .globl _ref_x18_window_memory
+_ref_x18_window_memory:             // another memory access inside the window
+    ldxr    x8, [x18]
+    ldr     x10, [x0]
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_memory
+    ret
+    .globl _ref_x18_window_syscall
+_ref_x18_window_syscall:            // an svc, which the island would copy unchanged
+    ldxr    x8, [x18]
+    svc     #0
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_syscall
+    ret
+    .globl _ref_x18_window_simd
+_ref_x18_window_simd:               // SIMD registers, which the check cannot follow
+    ldxr    x8, [x18]
+    fmov    d0, x8
+    fmov    x8, d0
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_simd
+    ret
+    .globl _ref_x18_window_exit_next
+_ref_x18_window_exit_next:          // a branch to the word right after the window leaves it too
+    ldaxr   x8, [x18]
+    cmp     x8, x1
+    b.ne    1f
+    stlxr   w9, x2, [x18]
+1:  cbnz    w9, _ref_x18_window_exit_next
+    ret
+    .globl _ref_x18_window_base
+_ref_x18_window_base:               // changes the base register of its load-exclusive
+    ldxr    x8, [x0]
+    mov     x0, x18
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_base
+    ret
+    .globl _ref_x18_window_call
+_ref_x18_window_call:               // a bl, whose return address would point into the island
+    ldxr    x8, [x18]
+    bl      1f
+1:  stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_call
+    ret
+    .globl _ref_x18_window_flags_read
+_ref_x18_window_flags_read:         // runs the same again: reads the flags, never changes them
+    ldxr    x8, [x18]
+    csel    x8, x8, x1, eq
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_flags_read
+    ret
+    .globl _ref_x18_window_skipped_write
+_ref_x18_window_skipped_write:      // runs the same again, but the cbz can skip the write of x18
+    ldxr    x8, [x0]
+    cbz     x8, 1f
+    mov     x18, x8
+1:  stxr    w9, x18, [x0]
+    cbnz    w9, _ref_x18_window_skipped_write
+    ret
+    .globl _ref_x18_window_status
+_ref_x18_window_status:             // runs the same again: only the store-exclusive writes w9
+    ldxr    x8, [x18]
+    add     x8, x8, x9
+    stxr    w9, x8, [x18]
+    cbnz    w9, _ref_x18_window_status
+    ret
+    .globl _ref_x18_window_end
+_ref_x18_window_end:
+
+// A window a CLREX closes without a store-exclusive: the CLREX completes it (ADR-0020 X4).
+    .globl _ref_x18_window_clrex_only
+_ref_x18_window_clrex_only:
+    ldaxr   x8, [x18]
+    cmp     x8, x1
+    clrex
+    ret
+    .globl _ref_x18_window_clrex_only_end
+_ref_x18_window_clrex_only_end:
+
 // Two-way island for a conditional branch (ADR-0020 X2): the value scratch (x0 here) holds the
 // guest x18 from slot 11, the branch tests it, and both exits restore the scratch before leaving.
 // `back` is the instruction after the site, `taken` the branch's own target; the rewriter

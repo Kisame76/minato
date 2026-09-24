@@ -38,6 +38,21 @@ extern const std::uint32_t ref_x18_without_field[];
 extern const std::uint32_t ref_x18_unsupported_end[];
 extern const std::uint32_t ref_x18_ll_sc[];
 extern const std::uint32_t ref_x18_ll_sc_end[];
+extern const std::uint32_t ref_x18_window_exit[];
+extern const std::uint32_t ref_x18_window_input[];
+extern const std::uint32_t ref_x18_window_flags[];
+extern const std::uint32_t ref_x18_window_memory[];
+extern const std::uint32_t ref_x18_window_syscall[];
+extern const std::uint32_t ref_x18_window_simd[];
+extern const std::uint32_t ref_x18_window_exit_next[];
+extern const std::uint32_t ref_x18_window_base[];
+extern const std::uint32_t ref_x18_window_call[];
+extern const std::uint32_t ref_x18_window_flags_read[];
+extern const std::uint32_t ref_x18_window_skipped_write[];
+extern const std::uint32_t ref_x18_window_status[];
+extern const std::uint32_t ref_x18_window_end[];
+extern const std::uint32_t ref_x18_window_clrex_only[];
+extern const std::uint32_t ref_x18_window_clrex_only_end[];
 extern const std::uint32_t ref_x18_island_cbz[];
 extern const std::uint32_t ref_x18_island_tbz[];
 extern const std::uint32_t ref_x18_site_adrp[];
@@ -433,6 +448,62 @@ TEST(an_exclusive_loop_using_x18_as_the_address_loads_the_scratch_first) {
     CHECK(!region.writes_x18);
 }
 
+// ADR-0020 X4: a signal inside a relocated window sends the thread back to its load-exclusive, so
+// only windows that run the same when they run again from there are relocated. The x18 uses of any
+// other window are refused, with the reason.
+TEST(an_exclusive_window_that_cannot_run_again_is_refused) {
+    constexpr std::string_view other =
+        "it holds an instruction other than data processing on general-purpose registers, a branch within "
+        "the window (not a call), a barrier or the exclusive pair";
+    struct Case {
+        const std::uint32_t *begin, *end;
+        std::string_view why;
+    };
+    const Case cases[] = {
+        {ref_x18_window_exit, ref_x18_window_input, "a branch leaves it"},
+        {ref_x18_window_input, ref_x18_window_flags, "it writes a register it reads first"},
+        {ref_x18_window_flags, ref_x18_window_memory, "it reads the flags before it sets them"},
+        {ref_x18_window_memory, ref_x18_window_syscall, other},
+        {ref_x18_window_syscall, ref_x18_window_simd, other},
+        {ref_x18_window_simd, ref_x18_window_exit_next, other},
+        {ref_x18_window_exit_next, ref_x18_window_base, "a branch leaves it"},
+        {ref_x18_window_base, ref_x18_window_call, "it writes a register it reads first"},
+        {ref_x18_window_call, ref_x18_window_flags_read, other},
+    };
+    for (const auto &c : cases) {
+        const auto findings = scan_words(c.begin, c.end, 0x10000);
+        CHECK(findings.exclusive_regions.empty());
+        CHECK(findings.x18_unsupported.size() == 2);  // the load- and the store-exclusive on x18
+        for (const auto &use : findings.x18_unsupported) {
+            const std::string_view reason(use.reason);
+            if (!reason.starts_with("it lies in an exclusive window that cannot run again from its start: ") ||
+                !reason.ends_with(c.why)) {
+                apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
+            }
+        }
+    }
+}
+
+// A window that reads the flags but never changes them runs the same twice, and so does one that
+// reads the status register only its store-exclusive writes. One whose write of x18 a branch can
+// skip is relocated as well, and its island loads x18 before the window: the path through the cbz
+// reads x18 without writing it first.
+TEST(restartable_exclusive_windows_are_relocated) {
+    const auto status = scan_words(ref_x18_window_status, ref_x18_window_end, 0x10000);
+    CHECK(status.exclusive_regions.size() == 1);
+    CHECK(status.x18_unsupported.empty());
+    const auto flags = scan_words(ref_x18_window_flags_read, ref_x18_window_skipped_write, 0x10000);
+    CHECK(flags.exclusive_regions.size() == 1);
+    CHECK(flags.x18_unsupported.empty());
+    const auto skipped = scan_words(ref_x18_window_skipped_write, ref_x18_window_status, 0x10000);
+    CHECK(skipped.x18_unsupported.empty());
+    CHECK(skipped.exclusive_regions.size() == 1);
+    if (skipped.exclusive_regions.size() != 1) return;
+    CHECK(skipped.exclusive_regions[0].words.size() == 4);  // ldxr, cbz, mov x18, stxr
+    CHECK(skipped.exclusive_regions[0].reads_x18);
+    CHECK(skipped.exclusive_regions[0].writes_x18);
+}
+
 TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
     // A branch from before the loop lands on the add inside the window: it cannot be relocated.
     const std::uint32_t code[] = {
@@ -612,10 +683,19 @@ TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
     outside.table[2] = 0x30000 - 0x20040;  // beyond the code
     check_refused(outside.scan(), "outside");
 
-    auto wide = found;  // a target 64 KiB past the first
-    wide.code.resize(0x10000 / 4 + 16, 0xd503'201f);
-    wide.table[1] = 0x1001c + 0x10000 - 0x20040;
-    check_refused(wide.scan(), "64 KiB");
+    auto wide = found;  // a target 32 KiB past the first
+    wide.code.resize(0x8000 / 4 + 16, 0xd503'201f);
+    wide.table[1] = 0x1001c + 0x8000 - 0x20040;
+    check_refused(wide.scan(), "32 KiB");
+    // One word less is the widest span the landing pads cover; the island table can still give
+    // the length of such an island in 16 bits (ADR-0020 X4).
+    auto widest = wide;
+    widest.table[1] = 0x1001c + 0x8000 - 4 - 0x20040;
+    const auto widest_found = widest.scan();
+    CHECK(widest_found.jump_tables.size() == 1);
+    if (widest_found.jump_tables.size() == 1) {
+        CHECK(apk::rewrite::jump_table_layout(widest_found.jump_tables[0]).words <= 0xffff);
+    }
 
     auto into_window = found;  // an LL/SC loop on x18 after the cases, and a target inside it
     into_window.code.insert(into_window.code.end(), {0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2, 0x35ff'ffb0});
@@ -740,6 +820,134 @@ TEST(each_jump_table_recognition_rule_is_covered) {
     findings = scan_with_table(branch_inside, inside_targets);
     CHECK(findings.jump_tables.empty());
     CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x10018; }));
+}
+
+// --- The island table (ADR-0020 X4) --------------------------------------------------------------
+
+/// Checks what every island form's layout says about the words its emitter wrote: the length, word
+/// 0 saving `value` and word 1 saving `base` in the red zone, and the store word writing `value` to
+/// TSD slot 11. `instruction` names the island in a failure message.
+void check_common_layout(const apk::rewrite::IslandLayout &layout, const std::vector<std::byte> &stub,
+                         std::uint32_t instruction, std::source_location location = std::source_location::current()) {
+    const auto failed = [&](const char *message) {
+        apk::testing::fail(location, message, std::format(" (the island of {:#010x})", instruction).c_str());
+    };
+    const auto stur = [](std::uint32_t rt, std::int32_t offset) {
+        return 0xf800'0000u | ((static_cast<std::uint32_t>(offset) & 0x1ff) << 12) | (31u << 5) | rt;
+    };
+    if (4 * std::size_t{layout.words} != stub.size()) {
+        failed("the length differs");
+        return;
+    }
+    if (word(stub, 0) != stur(layout.value, -128)) failed("word 0 does not save the value register");
+    if (layout.base != APK_ISLAND_NO_REGISTER && word(stub, 1) != stur(layout.base, -120)) {
+        failed("word 1 does not save the base register");
+    }
+    const auto store_x18 = 0xf900'2c00u | (std::uint32_t{layout.base} << 5) | layout.value;  // str value, [base, #88]
+    if (layout.store != 0 && (layout.store >= layout.words || word(stub, layout.store) != store_x18)) {
+        failed("the store word does not store the value register to slot 11");
+    }
+    if (layout.commit != APK_ISLAND_NO_COMMIT && layout.commit >= layout.words) failed("the commit word lies outside");
+}
+
+// What the island table records about an island must match the words its emitter wrote: the commit
+// word completes the guest instruction (the instruction itself, the last word of a PC-relative one,
+// the store-exclusive of a window or the CLREX that closes one without it), and the last word goes
+// on `resume` words past the site. A conditional branch and a jump table always go back to the site.
+TEST(island_layouts_match_the_emitted_islands) {
+    constexpr std::uint64_t site_address = 0x10000, stub_address = 0x20000;
+    const auto writes_value = [](std::uint32_t word, unsigned value) {
+        return ((apk::a64::register_use(word).writes >> value) & 1) != 0;
+    };
+    // Single instructions: those of the reference code, the five PC-relative forms and both kinds
+    // of conditional branch.
+    std::vector<std::uint32_t> instructions;
+    for (const auto &[begin, end] : {std::pair{ref_x18, ref_x18_end}, std::pair{ref_x18_islands, ref_x18_moves_sp}}) {
+        for (const auto &site : scan_words(begin, end, site_address).sites) {
+            if (site.kind == SiteKind::x18) instructions.push_back(site.instruction);
+        }
+    }
+    for (const auto *form : {ref_x18_site_adrp, ref_x18_site_adr, ref_x18_site_ldr, ref_x18_site_ldr_w, ref_x18_site_ldrsw}) {
+        instructions.push_back(form[0]);
+    }
+    instructions.push_back(0xb400'0212);  // cbz x18, .+0x40
+    instructions.push_back(0xb708'0212);  // tbnz x18, #33, .+0x40
+    for (const auto instruction : instructions) {
+        const Site site{site_address, SiteKind::x18, 18, instruction};
+        const auto [patch, stub] = emit_at(site, site_address, stub_address);
+        const auto layout = apk::rewrite::island_layout(site);
+        check_common_layout(layout, stub, instruction);
+        if (4 * std::size_t{layout.words} != stub.size()) continue;
+        if (((instruction >> 25) & 0x3e) == 0x1a) {  // CBZ, CBNZ, TBZ, TBNZ
+            CHECK(layout.kind == APK_ISLAND_BRANCH);
+            CHECK(layout.commit == APK_ISLAND_NO_COMMIT && layout.base == APK_ISLAND_NO_REGISTER && layout.store == 0);
+            continue;
+        }
+        const bool writes = writes_value(instruction, 18);
+        CHECK(layout.kind == APK_ISLAND_SINGLE);
+        CHECK(layout.resume == 1 && branch_target_at(stub, layout.words - 1, stub_address) == site_address + 4);
+        CHECK((layout.store != 0) == writes && (layout.base != APK_ISLAND_NO_REGISTER) == writes);
+        CHECK(layout.commit < layout.words - 1);  // before the branch back
+        if (layout.commit >= layout.words - 1) continue;
+        const auto commit = word(stub, layout.commit);
+        // ADR, ADRP and the loads from a literal become words that compute the value; the last of them commits.
+        if ((instruction & 0x1f00'0000) == 0x1000'0000 || (instruction & 0x3b00'0000) == 0x1800'0000) {
+            CHECK(writes_value(commit, layout.value) && !writes_value(word(stub, layout.commit + 1u), layout.value));
+        } else {
+            CHECK(commit == apk::a64::substitute(instruction, 18, layout.value));
+        }
+    }
+
+    // LL/SC windows: x18 written by an add, x18 as the address with the flags read, a write of x18 a
+    // branch can skip, only the store-exclusive writing its status, a CLREX closing the window
+    // without a store-exclusive, and the cmpxchg shape with a CLREX behind its store-exclusive.
+    std::vector<apk::rewrite::ExclusiveRegion> windows;
+    for (const auto &[begin, end] : {std::pair{ref_x18_ll_sc, ref_x18_ll_sc_end},
+                                     std::pair{ref_x18_window_flags_read, ref_x18_window_end},
+                                     std::pair{ref_x18_window_clrex_only, ref_x18_window_clrex_only_end}}) {
+        for (auto &region : scan_words(begin, end, site_address).exclusive_regions) windows.push_back(std::move(region));
+    }
+    const std::uint32_t cmpxchg[] = {0xaa12'03f1, 0xc85f'fdb2, 0xeb11'025f, 0x5400'0041,
+                                     0xc803'fda2, 0xd503'3f5f, 0xb5ff'ff43};
+    for (auto &region : scan_words(cmpxchg, cmpxchg + std::size(cmpxchg), site_address).exclusive_regions) {
+        windows.push_back(std::move(region));
+    }
+    CHECK(windows.size() == 6);
+    const auto is_store_exclusive = [](std::uint32_t word) {
+        return (word & 0x3f80'0000) == 0x0800'0000 && ((word >> 22) & 1) == 0;
+    };
+    for (const auto &region : windows) {
+        std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
+        apk::rewrite::emit_exclusive_region(region, region.address, stub_address, stub);
+        const auto layout = apk::rewrite::exclusive_region_layout(region);
+        check_common_layout(layout, stub, region.words[0]);
+        if (4 * std::size_t{layout.words} != stub.size() || layout.commit >= layout.words) continue;
+        CHECK(layout.kind == APK_ISLAND_EXCLUSIVE);
+        CHECK(layout.resume == region.words.size());
+        CHECK(branch_target_at(stub, layout.words - 1, stub_address) == region.address + 4 * layout.resume);
+        CHECK((layout.store != 0) == region.writes_x18 && (layout.base != APK_ISLAND_NO_REGISTER) == region.writes_x18);
+        const auto commit = word(stub, layout.commit);
+        if (std::ranges::any_of(region.words, is_store_exclusive)) {
+            CHECK(is_store_exclusive(commit));
+        } else {
+            CHECK((commit & 0xffff'f0ff) == 0xd503'305f);  // CLREX
+        }
+    }
+
+    // The jump table: both registers saved, nothing stored.
+    apk::rewrite::Findings jumps;
+    apk::rewrite::scan(std::span(reinterpret_cast<const std::byte *>(ref_x18_jump_function),
+                                 4 * static_cast<std::size_t>(ref_x18_jump_function_end - ref_x18_jump_function)),
+                       address_of(ref_x18_jump_function), jumps, reference_table);
+    CHECK(jumps.jump_tables.size() == 1);
+    for (const auto &table : jumps.jump_tables) {
+        std::vector<std::byte> stub(apk::rewrite::jump_table_stub_size(table));
+        apk::rewrite::emit_jump_table(table, table.address, address_of(ref_x18_island_jump), stub);
+        const auto layout = apk::rewrite::jump_table_layout(table);
+        check_common_layout(layout, stub, 0xd61f'0240);
+        CHECK(layout.kind == APK_ISLAND_JUMP_TABLE && layout.base != APK_ISLAND_NO_REGISTER);
+        CHECK(layout.commit == APK_ISLAND_NO_COMMIT && layout.store == 0);
+    }
 }
 
 TEST(stubs_out_of_branch_range_are_rejected) {

@@ -331,7 +331,12 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                      macho::Segment{.name = "__LINKEDIT", .protection = macho::protection_read}},
     };
     const std::uint64_t info_offset = align_up(macho::header_size(dylib) + macho::signature_headroom, 8);
-    const std::uint64_t stubs_offset = align_up(info_offset + sizeof(apk_container_info), 16);
+    // The island table follows __apk_info: one entry per x18 island, in the order of the stubs.
+    const auto island_count =
+        static_cast<std::size_t>(std::ranges::count(findings.sites, rewrite::SiteKind::x18, &rewrite::Site::kind)) +
+        findings.exclusive_regions.size() + findings.jump_tables.size();
+    const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
+    const std::uint64_t stubs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 16);
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
@@ -361,6 +366,22 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                     elf_bytes.data() + segment->offset, segment->file_size);
     }
 
+    // What a signal handler needs to know of each x18 island (ADR-0020 X4). Both offsets fit 32 bits:
+    // emit() refuses a site more than 128 MiB from its stub, and the stubs lie before the image.
+    std::vector<apk_island> islands;
+    islands.reserve(island_count);
+    const auto add_island = [&](const rewrite::IslandLayout &layout, std::uint64_t stub_at, std::uint64_t site_at) {
+        islands.push_back({.stub = static_cast<std::uint32_t>(stub_at),
+                           .site = static_cast<std::uint32_t>(site_at),
+                           .words = static_cast<std::uint16_t>(layout.words),
+                           .kind = layout.kind,
+                           .value = layout.value,
+                           .base = layout.base,
+                           .commit = layout.commit,
+                           .store = layout.store,
+                           .resume = layout.resume});
+    };
+
     // Rewrite the sites; each stub goes into the stub area in the order of the sites.
     std::uint64_t stub = stubs_offset;
     for (const auto &site : findings.sites) {
@@ -369,13 +390,16 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         const auto patch = rewrite::emit(site, site_address, stub, runtime_slots + offsetof(apk_runtime_slots, syscall_entry),
                                          std::span(bytes).subspan(static_cast<std::size_t>(stub), static_cast<std::size_t>(size)));
         std::memcpy(bytes.data() + site_address, &patch, sizeof patch);
-        stub += size;
         switch (site.kind) {
             case rewrite::SiteKind::thread_pointer_read: ++report.thread_pointer_reads; break;
             case rewrite::SiteKind::thread_pointer_write: ++report.thread_pointer_writes; break;
             case rewrite::SiteKind::syscall: ++report.syscalls; break;
-            case rewrite::SiteKind::x18: ++report.x18_islands; break;
+            case rewrite::SiteKind::x18:
+                ++report.x18_islands;
+                add_island(rewrite::island_layout(site), stub, site_address);
+                break;
         }
+        stub += size;
     }
     // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020 X2c).
     for (const auto &region : findings.exclusive_regions) {
@@ -385,6 +409,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                                                           std::span(bytes).subspan(static_cast<std::size_t>(stub),
                                                                                    static_cast<std::size_t>(size)));
         std::memcpy(bytes.data() + region_address, &patch, sizeof patch);
+        add_island(rewrite::exclusive_region_layout(region), stub, region_address);
         stub += size;
         ++report.x18_islands;
     }
@@ -396,11 +421,14 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                                                     std::span(bytes).subspan(static_cast<std::size_t>(stub),
                                                                              static_cast<std::size_t>(size)));
         std::memcpy(bytes.data() + branch_address, &patch, sizeof patch);
+        add_island(rewrite::jump_table_layout(table), stub, branch_address);
         stub += size;
         ++report.x18_islands;
     }
+    std::memcpy(bytes.data() + islands_offset, islands.data(), islands.size() * sizeof(apk_island));
     report.image_offset = image_offset;
     report.stub_bytes = stubs_size;
+    report.island_table_bytes = islands.size() * sizeof(apk_island);
 
     apk_container_info info{};
     std::memcpy(info.magic, APK_CONTAINER_MAGIC, sizeof info.magic);
@@ -419,6 +447,10 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     info.thread_pointer_reads = report.thread_pointer_reads;
     info.thread_pointer_writes = report.thread_pointer_writes;
     info.syscalls = report.syscalls;
+    info.island_count = static_cast<std::uint32_t>(islands.size());
+    info.islands = islands_offset;
+    info.stubs = stubs_offset;
+    info.stubs_size = stubs_size;
     std::memcpy(bytes.data() + info_offset, &info, sizeof info);
 
     dylib.uuid = content_uuid(bytes, options.install_name);
