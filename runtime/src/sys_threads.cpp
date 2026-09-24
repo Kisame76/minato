@@ -24,11 +24,7 @@ constexpr std::uint64_t thread_flags = clone_vm | clone_fs | clone_files | clone
 void *start_child(void *argument) {
     auto *thread = static_cast<threads::GuestThread *>(argument);
     threads::run(
-        *thread, [](void *child) {
-            auto &started = *static_cast<threads::GuestThread *>(child);
-            started.signals.in_runtime.store(false);
-            signals::resume(started.start);
-        },
+        *thread, [](void *child) { signals::resume(static_cast<threads::GuestThread *>(child)->start); },
         thread);
     delete thread;
     return nullptr;

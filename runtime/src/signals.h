@@ -18,7 +18,9 @@
 #include <pthread.h>
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace apkrt::signals {
 
@@ -76,6 +78,11 @@ constexpr std::int32_t ss_autodisarm = std::int32_t(1u << 31);
 struct ThreadSignals {
     std::atomic<std::uint64_t> mask{0};
     std::atomic<std::uint64_t> pending{0};  // signals waiting, standard and real-time
+    // Whether the thread runs the runtime's code rather than guest code: signals wait until it goes
+    // back to guest code. It changes exactly where the code changes sides (ADR-0025): the syscall
+    // entry sets it, the syscall exit and the resume of a context clear it. A new thread starts in
+    // the runtime.
+    std::atomic<bool> in_runtime{true};
     LinuxSiginfo info[signal_count + 1] = {};  // what came with each pending standard signal
     struct Queued {
         int signal;
@@ -86,9 +93,6 @@ struct ThreadSignals {
     int queued = 0;
     std::atomic_flag lock = ATOMIC_FLAG_INIT;
     LinuxStack alternate_stack{0, ss_disable, 0, 0};
-    // Whether the thread runs the runtime's code rather than guest code: signals wait until it
-    // goes back to guest code. A new thread starts in the runtime.
-    std::atomic<bool> in_runtime{true};
     // Raised whenever a signal is sent to the thread, for sigsuspend and sigtimedwait to wait on.
     std::atomic<std::uint32_t> wake{0};
     // sigsuspend: the mask the handler's frame returns to, instead of the temporary one.
@@ -96,6 +100,9 @@ struct ThreadSignals {
     std::uint64_t frame_mask = 0;
     pthread_t host{};
 };
+static_assert(offsetof(ThreadSignals, mask) == 0 && offsetof(ThreadSignals, pending) == 8 &&
+                  offsetof(ThreadSignals, in_runtime) == 16 && sizeof(std::atomic<bool>) == 1,
+              "layout used by syscall_entry.S");
 
 /// The signal state of the calling thread: its guest thread's, or a state of its own for a host
 /// thread that makes guest syscalls (tests).
@@ -108,7 +115,8 @@ void install();
 void set_default_restorer(std::uint64_t address);
 
 /// Continues the calling guest thread in `context`, and first delivers the guest signals it can
-/// take, as the Linux kernel does on its way back to user space. Never returns.
+/// take, as the Linux kernel does on its way back to user space. The thread stays in the runtime
+/// until the runtime signal's handler switches to the context. Never returns.
 [[noreturn]] void resume(const GuestContext &context);
 
 /// The disposition of a signal, and setting it (sys_signals.cpp checks the arguments).
@@ -132,11 +140,28 @@ bool take(ThreadSignals &state, std::uint64_t allowed, int &signal, LinuxSiginfo
 /// The pending signals of the calling thread.
 std::uint64_t pending(const ThreadSignals &state);
 
-/// At the end of every syscall of a guest thread, called with the frame as the syscall leaves it
-/// (x[0] the result): delivers the signals that became deliverable, restarting the syscall after
-/// the handler when it was interrupted and the handler has SA_RESTART. Returns when there is
-/// nothing to deliver.
-void at_syscall_exit(const apkrt_syscall_frame &frame, std::uint64_t first_argument, std::uint64_t number);
+/// At the end of every syscall: the state of the calling guest thread, whose in_runtime the exit of
+/// syscall_entry.S clears before it looks for signals to deliver (ADR-0025); null for a host thread.
+ThreadSignals *at_syscall_exit();
+
+/// The exit's slow path, when it found a deliverable signal, with the frame as the syscall leaves it
+/// (x[0] the result, x[31] its first argument, which the dispatcher keeps there): delivers the
+/// signals, restarting the syscall after the handler when it was interrupted and the handler has
+/// SA_RESTART.
+[[noreturn]] void deliver_at_syscall_exit(const apkrt_syscall_frame &frame);
+
+/// Where a runtime signal from another thread found a guest thread, by its pc and in_runtime
+/// (ADR-0025).
+enum class Stopped {
+    in_runtime,     // runtime code, or the syscall entry before it set in_runtime: signals wait
+    in_guest_code,  // the signal context is the guest's
+    returning,      // the syscall exit after it cleared in_runtime: counts as returned
+};
+Stopped where_stopped(std::uint64_t pc, bool in_runtime);
+
+/// For a thread stopped `returning`: the guest's state after the syscall, as if the exit had run to
+/// its end, with the slow path's SA_RESTART rule for the `deliverable` signals.
+GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable);
 
 /// A signal frame's ucontext for rt_sigreturn: restores the mask and the alternate stack of the
 /// calling thread and returns the registers to resume. False when `address` holds no frame the

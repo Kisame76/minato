@@ -625,7 +625,6 @@ long dispatch(const apkrt_syscall_frame &frame) {
                 report("apkrt: rt_sigreturn without a signal frame\n");
                 apkrt::process::exit(128 + 11);  // Linux sends SIGSEGV, which ends the process
             }
-            apkrt::signals::current().in_runtime.store(false);
             apkrt::signals::resume(restored);
         }
 
@@ -662,12 +661,12 @@ void trace(const apkrt_syscall_frame &frame, const long *result) {
 
 }  // namespace
 
-extern "C" void apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
+extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     // errno belongs to the host: keep the host's value, whatever the syscall did to it.
     const int saved_errno = errno;
-    // The thread is in the runtime now: guest signals wait for the end of the syscall (signals.h).
-    apkrt::signals::current().in_runtime.store(true);
-    const auto first_argument = frame->x[0];
+    // The entry has marked the thread as in the runtime (signals.h); guest signals wait for the exit,
+    // which may restart the syscall with its first argument.
+    frame->x[31] = frame->x[0];
     if (tracing()) trace(*frame, nullptr);
     const long result = dispatch(*frame);
     if (tracing()) trace(*frame, &result);
@@ -681,5 +680,9 @@ extern "C" void apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     }
     frame->x[0] = static_cast<std::uint64_t>(result);
     errno = saved_errno;
-    apkrt::signals::at_syscall_exit(*frame, first_argument, frame->x[8]);
+    return apkrt::signals::at_syscall_exit();
+}
+
+extern "C" void apkrt_syscall_deliver(apkrt_syscall_frame *frame) {
+    apkrt::signals::deliver_at_syscall_exit(*frame);
 }

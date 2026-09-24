@@ -18,23 +18,36 @@ std::uint64_t read_fpcr() {
 
 }  // namespace
 
-std::optional<GuestContext> context_at_syscall(const apkrt_syscall_frame &frame) {
+bool returns_through_veneer(const apkrt_syscall_frame &frame) {
     const auto *code = reinterpret_cast<const std::uint32_t *>(frame.x[30]);
-    if (code == nullptr || code[0] != veneer_restore || (code[1] & branch_mask) != branch) return std::nullopt;
-    // imm26, sign-extended, in instructions.
-    const auto offset = static_cast<std::int64_t>(static_cast<std::int32_t>(code[1] << 6) >> 6) * 4;
+    return code != nullptr && code[0] == veneer_restore && (code[1] & branch_mask) == branch;
+}
+
+GuestContext context_after_syscall(const apkrt_syscall_frame &frame, std::uint64_t sp) {
     GuestContext context{};
     std::memcpy(context.x, frame.x, sizeof context.x);
-    const auto *saved = reinterpret_cast<const std::uint64_t *>(&frame + 1);  // the veneer's stp x16, x30
-    context.x[16] = saved[0];
-    context.x[30] = saved[1];
-    context.sp = reinterpret_cast<std::uint64_t>(saved + 2);
-    context.pc = frame.x[30] + 4 + static_cast<std::uint64_t>(offset);
+    context.sp = sp;
+    context.pc = frame.x[30];
     context.nzcv = frame.nzcv;
     context.fpsr = frame.fpsr;
     context.fpcr = read_fpcr();  // the syscall entry leaves FPCR alone, so it is still the guest's
     std::memcpy(context.q, frame.q, sizeof context.q);
+    if (returns_through_veneer(frame)) {
+        const auto *code = reinterpret_cast<const std::uint32_t *>(frame.x[30]);
+        // imm26, sign-extended, in instructions.
+        const auto offset = static_cast<std::int64_t>(static_cast<std::int32_t>(code[1] << 6) >> 6) * 4;
+        const auto *saved = reinterpret_cast<const std::uint64_t *>(sp);  // the veneer's stp x16, x30
+        context.x[16] = saved[0];
+        context.x[30] = saved[1];
+        context.sp = sp + 16;
+        context.pc = frame.x[30] + 4 + static_cast<std::uint64_t>(offset);
+    }
     return context;
+}
+
+std::optional<GuestContext> context_at_syscall(const apkrt_syscall_frame &frame) {
+    if (!returns_through_veneer(frame)) return std::nullopt;
+    return context_after_syscall(frame, reinterpret_cast<std::uint64_t>(&frame + 1));
 }
 
 GuestContext context_from(const ucontext_t &uc) {

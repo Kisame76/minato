@@ -29,6 +29,15 @@ struct GuestContext {
 /// Darwin's SIGURG: ignored by default, and free, because guest signals are emulated.
 inline constexpr int runtime_signal = SIGURG;
 
+/// Whether the syscall that entered `frame` returns through a veneer (its return address holds the
+/// veneer's last two instructions), so that context_at_syscall knows the guest's state.
+bool returns_through_veneer(const apkrt_syscall_frame &frame);
+
+/// The guest's state once the syscall entry has returned with the registers of `frame` (x0 the
+/// result) and `sp` just above the frame: through a veneer, as the veneer leaves it (x16 and x30 from
+/// its save area at sp, sp above that, pc the target of its final branch); else at the return address.
+GuestContext context_after_syscall(const apkrt_syscall_frame &frame, std::uint64_t sp);
+
 /// The guest's state at the svc that entered `frame`, as the syscall will return to it: registers,
 /// flags and SIMD from the frame (x0 as the frame has it), x16 and x30 from the veneer's save area
 /// above the frame, sp as it was at the svc, pc the instruction after the svc (the target of the

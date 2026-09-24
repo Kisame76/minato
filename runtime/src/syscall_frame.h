@@ -9,7 +9,7 @@
 extern "C" {
 
 struct apkrt_syscall_frame {
-    std::uint64_t x[32];  // x0-x30; x[31] is padding
+    std::uint64_t x[32];  // x0-x30; x[31] is not restored, the dispatcher keeps x0 from before there
     std::uint64_t nzcv;
     std::uint64_t fpsr;
     __uint128_t q[32];
@@ -19,10 +19,23 @@ static_assert(offsetof(apkrt_syscall_frame, q) == 272, "layout used by syscall_e
 static_assert(sizeof(apkrt_syscall_frame) == 784, "FRAME_SIZE in syscall_entry.S");
 
 /// Called by syscall_entry.S: runs the Linux syscall in x[8] with the arguments in x[0]-x[5].
-void apkrt_syscall_dispatch(apkrt_syscall_frame *frame);
+/// Returns the calling guest thread's signals::ThreadSignals when the exit is to look for signals
+/// (signals::at_syscall_exit), else null.
+void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame);
+
+/// Called by syscall_entry.S when its exit found a deliverable signal (signals::deliver_at_syscall_exit).
+[[noreturn]] void apkrt_syscall_deliver(apkrt_syscall_frame *frame);
 
 /// syscall_entry.S. Its address goes into the runtime slots of every container.
 void apkrt_syscall_entry(void);
+
+/// Labels in syscall_entry.S that the runtime signal's handler knows (ADR-0025): the entry is in
+/// the runtime from apkrt_syscall_entered on, and from apkrt_syscall_returning up to
+/// apkrt_syscall_returned the exit counts as returned, with apkrt_syscall_return its final ret.
+extern const std::uint32_t apkrt_syscall_entered[];
+extern const std::uint32_t apkrt_syscall_returning[];
+extern const std::uint32_t apkrt_syscall_return[];
+extern const std::uint32_t apkrt_syscall_returned[];
 
 /// syscall_entry.S: switches to `stack_pointer`, clears every register and jumps to `entry`.
 [[noreturn]] void apkrt_enter_guest(std::uint64_t entry, std::uint64_t stack_pointer);

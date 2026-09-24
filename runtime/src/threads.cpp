@@ -13,6 +13,11 @@
 #include <map>
 #include <mutex>
 
+/// current_key for syscall_entry.S, which reads the GuestThread from the TSD itself (ADR-0025); ~0
+/// until the key exists.
+extern "C" std::atomic<std::uint64_t> apkrt_guest_thread_key{~std::uint64_t{0}};
+static_assert(sizeof(std::atomic<std::uint64_t>) == 8 && std::atomic<std::uint64_t>::is_always_lock_free);
+
 namespace apkrt::threads {
 namespace {
 
@@ -28,6 +33,7 @@ int first_thread_exit_code = 0;                  // guarded by registry_mutex
 
 void create_key() {
     pthread_key_create(&current_key, nullptr);
+    apkrt_guest_thread_key.store(current_key);
 }
 
 /// What the kernel does when a thread has ended, once the thread is off the guest's stack.

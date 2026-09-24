@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstring>
 #include <mutex>
+#include <optional>
 
 namespace apkrt::signals {
 namespace {
@@ -394,7 +395,8 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
 }
 
 /// The runtime signal: resume a context the thread asked for, or deliver guest signals that
-/// another thread sent while this one ran guest code.
+/// another thread sent while this one ran guest code. Runtime code finishes first: in the syscall
+/// entry the exit delivers them, and in the exit the thread counts as returned (ADR-0025).
 void handle_runtime_signal(int, siginfo_t *, void *raw) {
     auto &uc = *static_cast<ucontext_t *>(raw);
     const auto *request = static_cast<const GuestContext *>(::pthread_getspecific(request_key));
@@ -404,11 +406,22 @@ void handle_runtime_signal(int, siginfo_t *, void *raw) {
         context = *request;
         ::pthread_setspecific(request_key, nullptr);
     } else {
-        if (thread == nullptr || thread->signals.in_runtime.load()) return;  // at the syscall's end
-        if ((thread->signals.pending.load() & ~thread->signals.mask.load()) == 0) return;
-        context = context_from(uc);
+        if (thread == nullptr) return;
+        auto &state = thread->signals;
+        const auto stopped = where_stopped(uc.uc_mcontext->__ss.__pc, state.in_runtime.load());
+        if (stopped == Stopped::in_runtime) return;
+        if ((state.pending.load() & ~state.mask.load()) == 0) return;
+        if (stopped == Stopped::returning) {
+            context = after_syscall_exit(uc, state.pending.load() & ~state.mask.load());
+        } else {
+            context = context_from(uc);
+        }
     }
-    if (thread != nullptr) deliver_pending(thread->signals, context);
+    if (thread != nullptr) {
+        deliver_pending(thread->signals, context);
+        // Back to guest code, the context asked for or a handler, when this handler returns.
+        thread->signals.in_runtime.store(false);
+    }
     apply(context, uc);
 }
 
@@ -447,6 +460,20 @@ bool restartable(std::uint64_t number, const apkrt_syscall_frame &frame) {
         default:
             return true;
     }
+}
+
+/// The guest's state after the syscall of `frame` (sp just above the frame), with the SA_RESTART rule
+/// for the `deliverable` signals.
+GuestContext after_syscall(const apkrt_syscall_frame &frame, std::uint64_t sp, std::uint64_t deliverable) {
+    auto context = context_after_syscall(frame, sp);
+    constexpr std::uint64_t eintr = static_cast<std::uint64_t>(-4);
+    if (frame.x[0] == eintr && restartable(frame.x[8], frame) && (action(next_signal(deliverable)).flags & sa_restart)) {
+        // As the kernel's -ERESTARTSYS: back to the svc, with its first argument, after the handler.
+        // Without a veneer, the word before the return address is the call of the entry itself.
+        context.x[0] = frame.x[31];
+        context.pc -= 4;
+    }
+    return context;
 }
 
 }  // namespace
@@ -547,22 +574,48 @@ std::uint64_t pending(const ThreadSignals &state) {
     return state.pending.load();
 }
 
-void at_syscall_exit(const apkrt_syscall_frame &frame, std::uint64_t first_argument, std::uint64_t number) {
-    threads::GuestThread *thread = threads::current();
-    if (thread == nullptr) return;
-    auto &state = thread->signals;
-    state.in_runtime.store(false);
-    const auto deliverable = state.pending.load() & ~state.mask.load();
-    if (deliverable == 0) return;
-    auto context = context_at_syscall(frame);
-    if (!context) return;  // not called through a veneer: the signal waits for the next syscall
-    constexpr std::uint64_t eintr = static_cast<std::uint64_t>(-4);
-    if (frame.x[0] == eintr && restartable(number, frame) && (action(next_signal(deliverable)).flags & sa_restart)) {
-        // As the kernel's -ERESTARTSYS: back to the svc, with its first argument, after the handler.
-        context->x[0] = first_argument;
-        context->pc -= 4;
+namespace {
+
+bool within(std::uint64_t pc, const void *begin, const void *end) {
+    return pc >= reinterpret_cast<std::uint64_t>(begin) && pc < reinterpret_cast<std::uint64_t>(end);
+}
+
+}  // namespace
+
+Stopped where_stopped(std::uint64_t pc, bool in_runtime) {
+    if (within(pc, apkrt_syscall_returning, apkrt_syscall_returned)) return Stopped::returning;
+    if (in_runtime || within(pc, reinterpret_cast<const void *>(&apkrt_syscall_entry), apkrt_syscall_entered)) {
+        return Stopped::in_runtime;
     }
-    resume(*context);
+    return Stopped::in_guest_code;
+}
+
+GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable) {
+    const auto &machine = *uc.uc_mcontext;
+    if (machine.__ss.__pc != reinterpret_cast<std::uint64_t>(apkrt_syscall_return)) {
+        const auto &frame = *reinterpret_cast<const apkrt_syscall_frame *>(machine.__ss.__sp);
+        return after_syscall(frame, machine.__ss.__sp + sizeof frame, deliverable);
+    }
+    // At the ret the frame lies below sp: the registers hold it, the first argument in x16.
+    apkrt_syscall_frame frame{};
+    for (int index = 0; index < 29; ++index) frame.x[index] = machine.__ss.__x[index];
+    frame.x[29] = machine.__ss.__fp;
+    frame.x[30] = machine.__ss.__lr;
+    frame.x[31] = machine.__ss.__x[16];
+    frame.nzcv = machine.__ss.__cpsr & 0xf000'0000u;
+    frame.fpsr = machine.__ns.__fpsr;
+    std::memcpy(frame.q, machine.__ns.__v, sizeof frame.q);
+    return after_syscall(frame, machine.__ss.__sp, deliverable);
+}
+
+ThreadSignals *at_syscall_exit() {
+    threads::GuestThread *thread = threads::current();
+    return thread != nullptr ? &thread->signals : nullptr;
+}
+
+void deliver_at_syscall_exit(const apkrt_syscall_frame &frame) {
+    auto &state = current();
+    resume(after_syscall(frame, reinterpret_cast<std::uint64_t>(&frame + 1), state.pending.load() & ~state.mask.load()));
 }
 
 bool read_frame(std::uint64_t address, GuestContext &context) {

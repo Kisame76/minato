@@ -73,6 +73,17 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.threads COMMAND threads_test)
   set_tests_properties(runtime.threads PROPERTIES TIMEOUT 60)
 
+  # Signals against the switches between guest and runtime code (ADR-0025), on clone children.
+  add_executable(transitions_test tests/transitions_test.cpp tests/transitions_probe.S tests/threads_probe.S
+    tests/syscall_entry_probe.S)
+  target_include_directories(transitions_test PRIVATE src)
+  target_link_libraries(transitions_test PRIVATE apkrt apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/transitions_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.transitions COMMAND transitions_test)
+  set_tests_properties(runtime.transitions PROPERTIES TIMEOUT 60)
+
   add_executable(syscall_entry_test tests/syscall_entry_test.c tests/syscall_entry_probe.S)
   target_link_libraries(syscall_entry_test PRIVATE apkrt apk_defaults)
   add_test(NAME runtime.syscall_entry COMMAND syscall_entry_test)

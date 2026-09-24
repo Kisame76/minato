@@ -1,5 +1,6 @@
-// Probe for syscall_entry_test.c: calls the syscall entry the way an svc veneer in guest code
-// does, with every register set to a known value, and stores all registers afterwards.
+// Probe for syscall_entry_test.c and transitions_test.cpp: calls the syscall entry the way an svc
+// veneer in guest code does, with every register set to a known value, and stores all registers
+// afterwards.
 //
 //   void probe_syscall_entry(uint64_t number, const struct probe_state *before,
 //                            struct probe_state *after);
@@ -65,12 +66,14 @@ _probe_syscall_entry:
     ldp     x27, x28, [x16, #216]
     ldr     x29, [x16, #232]
 
-    // Exactly what a veneer does around the call.
+    // Exactly what a veneer does around the call, its branch back to the site included.
     stp     x16, x30, [sp, #-16]!
     adrp    x16, _apkrt_syscall_entry@GOTPAGE
     ldr     x16, [x16, _apkrt_syscall_entry@GOTPAGEOFF]
     blr     x16
     ldp     x16, x30, [sp], #16
+    b       1f
+1:
 
     // Store everything into `after`. x0 (the result) goes to the stack first, so x0 can hold the
     // pointer; x18 would not do, XNU clears it on any context switch (F4).

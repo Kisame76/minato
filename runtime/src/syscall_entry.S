@@ -6,6 +6,10 @@
 // everything from it. Like the Linux kernel, only x0 changes: guest code may keep values in any
 // register across an inline svc. x18 is saved and restored only for completeness; XNU clears it on
 // every context switch anyway (F4), and converted code never relies on it.
+// The entry and the exit also switch the thread's in_runtime (signals.h, ADR-0025): the entry sets
+// it before any C++ runs, the exit clears it and only then looks at the pending signals once more,
+// so that none gets lost between the dispatcher's end and guest code. The runtime signal's handler
+// knows the words before the set and after the clear by the labels below.
 //
 // apkrt_enter_guest: starts a guest program the way Linux starts an executable: stack pointer on
 // the start stack (argc, argv, envp, auxv), every register zero.
@@ -15,6 +19,8 @@
 // is intercepted by AddressSanitizer in the test builds, which then warns about the stack switch.
 
 #define FRAME_SIZE 784  // sizeof(struct apkrt_syscall_frame)
+#define SIGNALS_MASK 0  // offsetof(ThreadSignals, mask), pending follows it
+#define IN_RUNTIME 16   // offsetof(ThreadSignals, in_runtime); ThreadSignals starts a GuestThread
 
     .text
     .p2align 2
@@ -22,12 +28,32 @@
 _apkrt_syscall_entry:
     hint    #34                     // bti c: called with blr
     sub     sp, sp, #FRAME_SIZE
+    // The frame's lowest word first: on a guest stack that is used up, this store faults while the
+    // thread still counts as in guest code, a guest fault as at its next push. No later store of
+    // the entry can fault: the rest of the frame lies between this word and the veneer's.
     stp     x0, x1, [sp, #0]
+    stp     x9, x10, [sp, #72]
+    // In the runtime from here on: in_runtime of the calling GuestThread, which the TSD holds under
+    // apkrt_guest_thread_key (the load pthread_getspecific does); ~0 while no guest thread exists.
+    // Nothing here may touch the flags: NZCV is saved further down.
+    adrp    x9, _apkrt_guest_thread_key@PAGE
+    ldr     x9, [x9, _apkrt_guest_thread_key@PAGEOFF]
+    add     x10, x9, #1
+    cbz     x10, 1f
+    mrs     x10, TPIDRRO_EL0
+    and     x10, x10, #~7
+    ldr     x9, [x10, x9, lsl #3]
+    cbz     x9, 1f                  // a host thread (tests)
+    mov     w10, #1
+    strb    w10, [x9, #IN_RUNTIME]
+1:
+    .globl _apkrt_syscall_entered
+_apkrt_syscall_entered:
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
     stp     x6, x7, [sp, #48]
-    stp     x8, x9, [sp, #64]
-    stp     x10, x11, [sp, #80]
+    str     x8, [sp, #64]
+    str     x11, [sp, #88]
     stp     x12, x13, [sp, #96]
     stp     x14, x15, [sp, #112]
     stp     x16, x17, [sp, #128]
@@ -62,7 +88,7 @@ _apkrt_syscall_entry:
     // A frame record over the saved x29/x30, so debuggers and crash logs walk on into the guest.
     add     x29, sp, #232
     mov     x0, sp
-    bl      _apkrt_syscall_dispatch
+    bl      _apkrt_syscall_dispatch     // x0: the thread's ThreadSignals if the exit checks, else 0
 
     ldp     x9, x10, [sp, #256]
     msr     nzcv, x9
@@ -83,7 +109,6 @@ _apkrt_syscall_entry:
     ldp     q26, q27, [sp, #688]
     ldp     q28, q29, [sp, #720]
     ldp     q30, q31, [sp, #752]
-    ldp     x0, x1, [sp, #0]
     ldp     x2, x3, [sp, #16]
     ldp     x4, x5, [sp, #32]
     ldp     x6, x7, [sp, #48]
@@ -99,8 +124,30 @@ _apkrt_syscall_entry:
     ldp     x26, x27, [sp, #208]
     ldp     x28, x29, [sp, #224]
     ldr     x30, [sp, #240]
+    // x0 and x1 come last. x16 belongs to the veneer, which restores it, so the check may use it.
+    cbz     x0, 2f
+    strb    wzr, [x0, #IN_RUNTIME]
+    // From here to apkrt_syscall_returned the thread counts as returned from the syscall: a runtime
+    // signal delivers on the state after it, from the frame (at the ret: from the registers, the
+    // first argument in x16 for a restart).
+    .globl _apkrt_syscall_returning
+_apkrt_syscall_returning:
+    ldp     x1, x16, [x0, #SIGNALS_MASK]    // mask, pending
+    bic     x16, x16, x1                    // without touching the guest's flags, restored above
+    cbnz    x16, 3f
+2:  ldp     x0, x1, [sp, #0]
+    ldr     x16, [sp, #248]                 // x[31]: the first argument
     add     sp, sp, #FRAME_SIZE
+    .globl _apkrt_syscall_return
+_apkrt_syscall_return:
     ret
+3:  mov     w1, #1                          // a signal to deliver: back in the runtime first
+    strb    w1, [x0, #IN_RUNTIME]
+    .globl _apkrt_syscall_returned
+_apkrt_syscall_returned:
+    mov     x0, sp
+    bl      _apkrt_syscall_deliver          // delivers and resumes the guest, never returns
+    brk     #1
 
 // void apkrt_enter_guest(uint64_t entry, uint64_t stack_pointer)  -- never returns
     .p2align 2

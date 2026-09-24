@@ -15,6 +15,8 @@
 namespace apkrt::threads {
 
 struct GuestThread {
+    // First, so that syscall_entry.S finds in_runtime at a fixed offset from the thread.
+    signals::ThreadSignals signals;
     std::int32_t tid = 0;
     std::uint64_t thread_pointer = 0;   // the guest thread pointer it starts with
     std::uint64_t clear_child_tid = 0;  // cleared and woken at exit (CLONE_CHILD_CLEARTID, set_tid_address)
@@ -24,9 +26,9 @@ struct GuestThread {
     // A range the thread unmapped while it still ran on it, its own stack: unmapped once it is off it.
     std::uint64_t deferred_unmap_start = 0;
     std::uint64_t deferred_unmap_length = 0;
-    signals::ThreadSignals signals;
     void *host_signal_stack = nullptr;  // where the runtime's signal handlers run for this thread
 };
+static_assert(offsetof(GuestThread, signals) == 0, "syscall_entry.S");
 
 /// The guest thread the calling host thread is running, or null for a host thread.
 GuestThread *current();
