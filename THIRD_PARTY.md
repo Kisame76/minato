@@ -1,53 +1,53 @@
-# Fremder Code
+# Third-party code
 
-Was Minato von anderen übernimmt, mit Lizenz und Stand. Projektlizenz: Apache-2.0 (ADR-0017). GPL- und AGPL-Code wird nicht übernommen.
+What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted.
 
-## Gast-libc (ADR-0009, ADR-0021)
+## Guest libc (ADR-0009, ADR-0021)
 
-AOSP-Quellen zum Tag `android-15.0.0_r1`, von `android.googlesource.com`. `tools/fetch-sources.py` lädt sie nach `build/sources/` (nicht im Repo) und prüft sie gegen die Prüfsummen in [`third_party/sources.json`](third_party/sources.json). `tools/build-bionic.sh` baut daraus mit dem NDK `libc.so`, `libm.so`, `libdl.so` und `ld-android.so`. Diese Bibliotheken laufen als Gast-Code im Prozess.
+AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in [`third_party/sources.json`](third_party/sources.json). From them, `tools/build-bionic.sh` builds `libc.so`, `libm.so`, `libdl.so` and `ld-android.so` with the NDK. These libraries run as guest code in the process.
 
-| Quelle | Commit | Lizenz | Was davon |
+| Source | Commit | License | Which parts |
 |---|---|---|---|
-| `platform/bionic` | `361ba86734fb` | BSD-artig und Apache-2.0, je Datei (`libc/NOTICE`) | libc, libm, libdl; Build-Beschreibungen, Generatoren (`gensyscalls.py`, `generate-version-script.py`); aus linker64 `linker/arch/arm64/tlsdesc_resolver.S` (BSD), in unsere `libc.so` gebaut |
-| `platform/external/scudo` | `67dd481e24c7` | Apache-2.0 WITH LLVM-exception | Allocator der libc |
-| `platform/external/gwp_asan` | `df96c8131b0e` | Apache-2.0 WITH LLVM-exception | von der libc verlangt |
-| `platform/external/arm-optimized-routines` | `514df029da8a` | MIT OR Apache-2.0 WITH LLVM-exception | `string/` und `math/`: String- und Mathe-Routinen für arm64 |
-| `platform/system/core` | `fc7bc8c4bfb4` | Apache-2.0 | 8 Dateien: libcutils-Header, Property-Parser |
-| `platform/build` | `3d9c9aacdb6c` | Apache-2.0 | `fs_config_generator.py`: erzeugt die Tabelle der Android-UIDs |
+| `platform/bionic` | `361ba86734fb` | BSD-style and Apache-2.0, per file (`libc/NOTICE`) | libc, libm, libdl; build descriptions, generators (`gensyscalls.py`, `generate-version-script.py`); from linker64 `linker/arch/arm64/tlsdesc_resolver.S` (BSD), built into our `libc.so` |
+| `platform/external/scudo` | `67dd481e24c7` | Apache-2.0 WITH LLVM-exception | Allocator of the libc |
+| `platform/external/gwp_asan` | `df96c8131b0e` | Apache-2.0 WITH LLVM-exception | required by the libc |
+| `platform/external/arm-optimized-routines` | `514df029da8a` | MIT OR Apache-2.0 WITH LLVM-exception | `string/` and `math/`: string and math routines for arm64 |
+| `platform/system/core` | `fc7bc8c4bfb4` | Apache-2.0 | 8 files: libcutils headers, property parser |
+| `platform/build` | `3d9c9aacdb6c` | Apache-2.0 | `fs_config_generator.py`: generates the table of Android UIDs |
 
-**Unsere Änderungen an Bionic** (`runtime/bionic/`, ADR-0021):
-- `overlay/bionic/libc/arch-arm64/bionic/setjmp.S`: Bionics Datei, ohne das Sichern und Zurückschreiben von `x18` (ADR-0019). Lizenz wie das Original (BSD, Kopf in der Datei).
-- `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: eigener Code (Apache-2.0), gebaut mit Bionics privaten Headern.
-- `src/liblog.cpp`, `src/libnetd_client.cpp`: eigene kleine Fassungen von `liblog.so` und `libnetd_client.so` (Apache-2.0), nach der Dokumentation des NDK bzw. nach dem, was Bionic von der Library erwartet; kein AOSP-Code übernommen.
+**Our changes to Bionic** (`runtime/bionic/`, ADR-0021):
+- `overlay/bionic/libc/arch-arm64/bionic/setjmp.S`: Bionic's file, without saving and restoring `x18` (ADR-0019). License as in the original (BSD, header in the file).
+- `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: our own code (Apache-2.0), built with Bionic's private headers.
+- `src/liblog.cpp`, `src/libnetd_client.cpp`: our own small versions of `liblog.so` and `libnetd_client.so` (Apache-2.0), based on the NDK documentation and on what Bionic expects of the library, respectively; no AOSP code adopted.
 
-**Aus dem Android NDK r30** (`30.0.16248370`) in den Gast-Bibliotheken:
+**From the Android NDK r30** (`30.0.16248370`) in the guest libraries:
 
-| Teil | Lizenz | Wofür |
+| Part | License | What for |
 |---|---|---|
-| LLVM libunwind (`libunwind.a`) | Apache-2.0 WITH LLVM-exception | in `libc.so`, wie Androids `libunwind-exported`; `tools/export-archive-symbols.py` macht seine Symbole exportierbar |
-| compiler-rt builtins | Apache-2.0 WITH LLVM-exception | Laufzeithilfen des Compilers (z. B. 128-Bit-Gleitkomma) |
-| `crtbegin_so.o`, `crtend_so.o` | BSD (Bionic) | Start und Ende von `libm.so`, `libdl.so`, `ld-android.so` |
-| `android/log.h` | Apache-2.0 | Header für die libc (liblog) |
+| LLVM libunwind (`libunwind.a`) | Apache-2.0 WITH LLVM-exception | in `libc.so`, like Android's `libunwind-exported`; `tools/export-archive-symbols.py` makes its symbols exportable |
+| compiler-rt builtins | Apache-2.0 WITH LLVM-exception | Runtime helpers of the compiler (e.g. 128-bit floating point) |
+| `crtbegin_so.o`, `crtend_so.o` | BSD (Bionic) | Start and end of `libm.so`, `libdl.so`, `ld-android.so` |
+| `android/log.h` | Apache-2.0 | Header for the libc (liblog) |
 
-## Zeitzonen
+## Time zones
 
-Bionic liest Zeitzonen aus einer Datei in seinem eigenen Format. `tools/make-tzdata.py` packt sie beim Build aus der IANA-Zeitzonendatenbank des Macs (`/usr/share/zoneinfo`, gemeinfrei) nach `build/bionic/system/usr/share/zoneinfo/tzdata`; nicht im Repo.
+Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.
 
-## Referenzen ohne übernommenen Code
+## References without adopted code
 
-- **ARTBox** (MIT, `fd48d48`): Die Liste der Bionic-Quellen und ihre Commits für `android-15.0.0_r1` diente als Ausgangspunkt; die Commits sind gegen den Tag auf `android.googlesource.com` geprüft. Code ist nicht übernommen.
-- **Zertifikat aus SideStore und AltStore** (ADR-0023, Recherche in [`docs/research/store-certificates.md`](docs/research/store-certificates.md)). Nur gelesen:
-  - welche URL der Export-Deep-Link hat und welche Platzhalter er ersetzt;
-  - welche Marker die Stores in die Info.plist schreiben;
-  - wie SideStore seine `.p12` aufbaut.
+- **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.
+- **Certificate from SideStore and AltStore** (ADR-0023, research in [`docs/research/store-certificates.md`](docs/research/store-certificates.md)). Only read:
+  - which URL the export deep link has and which placeholders it replaces;
+  - which markers the stores write into the Info.plist;
+  - how SideStore builds its `.p12`.
 
-  Code ist nicht übernommen. Der PKCS#12-Leser und der Rückruf-Parser sind eigener Code, geschrieben nach RFC 7292 und nach dem gemessenen Verhalten.
+  No code is adopted. The PKCS#12 reader and the callback parser are our own code, written from RFC 7292 and from the measured behavior.
 
-  | Projekt | Stand | Lizenz |
+  | Project | Version | License |
   |---|---|---|
   | LiveContainer | `main` @`4dbe0f9a` (3.8.10) | AGPL-3.0 |
   | SideStore | `0.7.0-alpha` @`6032424`, `develop` @`0dd743f` | AGPL-3.0 |
   | AltStore Classic | `classic` @`fafd76ee` (2.3) | AGPL-3.0 |
-  | AltSign | `0d3c1a3c` | keine Lizenzdatei |
-  | SideSign | `6b68651` | keine Lizenzdatei |
-  | CodeSignKit | `d0c6771` | nicht angegeben |
+  | AltSign | `0d3c1a3c` | no license file |
+  | SideSign | `6b68651` | no license file |
+  | CodeSignKit | `d0c6771` | not stated |
