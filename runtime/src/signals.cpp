@@ -1,5 +1,6 @@
 #include "signals.h"
 
+#include "APKRuntime/apkrt.h"
 #include "process_exit.h"
 #include "threads.h"
 
@@ -251,6 +252,7 @@ void setup_frame(ThreadSignals &state, int signal, const LinuxSiginfo &info, con
     state.frame_mask_set = false;
     uc.fault_address = fault != nullptr ? fault->address : 0;
     std::memcpy(uc.regs, context.x, sizeof uc.regs);
+    uc.regs[18] = apkrt_get_guest_x18();  // XNU clears the register itself; the guest's x18 is in slot 11
     uc.sp = context.sp;
     uc.pc = context.pc;
     uc.pstate = context.nzcv & 0xf000'0000;
@@ -660,6 +662,7 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     }
     if (fpsimd == nullptr) return false;
     std::memcpy(context.x, uc.regs, sizeof context.x);
+    apkrt_set_guest_x18(uc.regs[18]);
     context.sp = uc.sp;
     context.pc = uc.pc;
     context.nzcv = uc.pstate & 0xf000'0000;

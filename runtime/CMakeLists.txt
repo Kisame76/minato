@@ -96,6 +96,16 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.blocking COMMAND blocking_test)
   set_tests_properties(runtime.blocking PROPERTIES TIMEOUT 120)
 
+  # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
+  add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)
+  target_include_directories(signals_test PRIVATE src)
+  target_link_libraries(signals_test PRIVATE apkrt apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/signals_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.signals COMMAND signals_test)
+  set_tests_properties(runtime.signals PROPERTIES TIMEOUT 60)
+
   add_executable(syscall_entry_test tests/syscall_entry_test.c tests/syscall_entry_probe.S)
   target_link_libraries(syscall_entry_test PRIVATE apkrt apk_defaults)
   add_test(NAME runtime.syscall_entry COMMAND syscall_entry_test)

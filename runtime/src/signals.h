@@ -174,9 +174,9 @@ GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable)
 /// to its end.
 GuestContext after_loader_call(const ucontext_t &uc);
 
-/// A signal frame's ucontext for rt_sigreturn: restores the mask and the alternate stack of the
-/// calling thread and returns the registers to resume. False when `address` holds no frame the
-/// syscall layer can read.
+/// A signal frame's ucontext for rt_sigreturn: restores the mask, the alternate stack and the
+/// guest's x18 (Darwin TSD slot 11, ADR-0020) of the calling thread and returns the registers to
+/// resume. False when `address` holds no frame the syscall layer can read.
 bool read_frame(std::uint64_t address, GuestContext &context);
 
 }  // namespace apkrt::signals
