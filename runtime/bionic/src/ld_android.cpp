@@ -6,12 +6,16 @@
 //     finds .eh_frame through it. Their TLS blocks are found as linker64 finds them.
 //   - dlopen, dlsym, dladdr and friends ask the runtime through apkrt_loader, which it fills in
 //     before any guest code runs. Namespaces do not exist here: one program per process (ADR-0003).
+//   - They take a lock of their own where linker64 takes g_dl_mutex, so that a thread waits for
+//     another one's dlopen here, in guest code, where signals reach it (ADR-0025, decision 8).
 // Built without the stack protector: libc.so calls in before the thread pointer is set up.
 #include "APKRuntime/guest_interface.h"
 
 #include <android/dlext.h>
+#include <asm/unistd.h>
 #include <dlfcn.h>
 #include <link.h>
+#include <linux/futex.h>
 #include <signal.h>
 #include <string.h>
 
@@ -40,6 +44,60 @@ libc_shared_globals shared_globals;
 const char* no_loader = "the runtime offers no dynamic loading here";
 const char* pending_error;
 
+// A futex call through svc #0: ld-android.so has no libc, because libc.so needs it. The converter
+// routes the svc to the runtime like every other guest syscall.
+long futex(int* word, int operation, int value) {
+  register long x0 __asm__("x0") = reinterpret_cast<long>(word);
+  register long x1 __asm__("x1") = operation;
+  register long x2 __asm__("x2") = value;
+  register long x3 __asm__("x3") = 0;  // no timeout
+  register long x8 __asm__("x8") = __NR_futex;
+  __asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3), "r"(x8) : "memory");
+  return x0;
+}
+
+// linker64's g_dl_mutex, which is recursive: a constructor that dlopen runs may call libdl again.
+// The word is the futex mutex of Drepper's "Futexes Are Tricky": 0 free, 1 held, 2 held with
+// waiters. As in bionic's recursive mutex, a handler that calls libdl while its thread is between
+// taking the word and writing the owner waits for itself.
+class LoaderLock {
+ public:
+  void lock() {
+    void* self = __builtin_thread_pointer();
+    if (__atomic_load_n(&owner_, __ATOMIC_RELAXED) == self) {  // only this thread stores self
+      ++depth_;
+      return;
+    }
+    int state = 0;
+    if (!__atomic_compare_exchange_n(&word_, &state, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+      while (__atomic_exchange_n(&word_, 2, __ATOMIC_ACQUIRE) != 0) futex(&word_, FUTEX_WAIT_PRIVATE, 2);
+    }
+    __atomic_store_n(&owner_, self, __ATOMIC_RELAXED);
+    depth_ = 1;
+  }
+
+  void unlock() {
+    if (--depth_ != 0) return;
+    __atomic_store_n(&owner_, nullptr, __ATOMIC_RELAXED);
+    if (__atomic_exchange_n(&word_, 0, __ATOMIC_RELEASE) == 2) futex(&word_, FUTEX_WAKE_PRIVATE, 1);
+  }
+
+ private:
+  int word_ = 0;
+  void* owner_ = nullptr;
+  int depth_ = 0;
+};
+
+LoaderLock loader_lock;
+
+class Locked {
+ public:
+  Locked() { loader_lock.lock(); }
+  ~Locked() { loader_lock.unlock(); }
+  Locked(const Locked&) = delete;
+  Locked& operator=(const Locked&) = delete;
+};
+
 }  // namespace
 
 libc_shared_globals* __loader_shared_globals() {
@@ -47,6 +105,7 @@ libc_shared_globals* __loader_shared_globals() {
 }
 
 void* __loader_dlopen(const char* filename, int flags, const void* caller) {
+  Locked locked;
   if (apkrt_loader.dlopen == nullptr) {
     pending_error = no_loader;
     return nullptr;
@@ -70,6 +129,7 @@ void* __loader_android_dlopen_ext(const char* filename, int flags, const android
 }
 
 void* __loader_dlsym(void* handle, const char* symbol, const void* caller) {
+  Locked locked;
   if (apkrt_loader.dlsym == nullptr) {
     pending_error = no_loader;
     return nullptr;
@@ -78,6 +138,7 @@ void* __loader_dlsym(void* handle, const char* symbol, const void* caller) {
 }
 
 void* __loader_dlvsym(void* handle, const char* symbol, const char* version, const void* caller) {
+  Locked locked;
   if (apkrt_loader.dlsym == nullptr) {
     pending_error = no_loader;
     return nullptr;
@@ -86,6 +147,7 @@ void* __loader_dlvsym(void* handle, const char* symbol, const char* version, con
 }
 
 int __loader_dlclose(void* handle) {
+  Locked locked;
   return apkrt_loader.dlclose == nullptr ? 0 : apkrt_loader.dlclose(handle);
 }
 
@@ -97,6 +159,7 @@ char* __loader_dlerror() {
 }
 
 int __loader_dladdr(const void* address, Dl_info* info) {
+  Locked locked;
   return apkrt_loader.dladdr == nullptr ? 0 : apkrt_loader.dladdr(address, info);
 }
 
@@ -119,6 +182,7 @@ void* tls_block(const apkrt_object& object) {
 }  // namespace
 
 int __loader_dl_iterate_phdr(int (*callback)(dl_phdr_info* info, size_t size, void* data), void* data) {
+  Locked locked;  // also against a dlopen that registers a TLS module meanwhile
   const size_t count = __atomic_load_n(&apkrt_loader.object_count, __ATOMIC_ACQUIRE);
   for (size_t index = 0; index < count; ++index) {
     const apkrt_object& object = apkrt_loader.objects[index];
@@ -143,6 +207,7 @@ void __loader_android_get_LD_LIBRARY_PATH(char* buffer, size_t buffer_size) {
 void __loader_android_update_LD_LIBRARY_PATH(const char*) {}
 
 void __loader_android_set_application_target_sdk_version(int target) {
+  Locked locked;  // not in the middle of a dlopen, as in linker64
   apkrt_loader.target_sdk_version = target;
   if (shared_globals.set_target_sdk_version_hook != nullptr) shared_globals.set_target_sdk_version_hook(target);
 }

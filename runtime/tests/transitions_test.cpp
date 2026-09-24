@@ -581,7 +581,7 @@ struct LoaderView {
     std::atomic<int> calling{0};
     std::atomic<int> returned{0};
     std::uint64_t result = ~std::uint64_t{0};
-    int after = -1;  // SIGUSR1 handlers that ran from the call's start to the first word after it
+    int after = -1;  // SIGUSR1 handlers that ran by the first word after the call
 };
 apkrt_loader loader_table{};
 
@@ -602,38 +602,41 @@ void loader_child(void *argument) {
     view.returned = 1;
 }
 
-// ADR-0025, decision 7: a thread whose call into the loader waits for the loader's lock still takes
-// signals, as linker64's waiters for g_dl_mutex do; a garbage collector that stops the lock's holder
-// may wait for it. Its call then runs to the end, and the signal is not delivered twice.
-TEST(a_thread_that_waits_for_the_loader_s_lock_takes_signals) {
+// ADR-0025, decisions 4 and 9: while ld-android.so's call into the loader runs, waiting for the
+// loader's lock included, the thread is in the runtime: a signal waits for the call's return and
+// arrives right there, on the caller's registers and pc. Guest callers wait for the lock in
+// ld-android.so instead, in guest code (addition d, fixture dl-lock-test).
+TEST(a_signal_waits_for_a_call_into_the_loader_to_return) {
     apkrt::dl::set_loader_functions(loader_table);
     static LoaderView view;
     view.tid = 0;
     view.calling = 0;
     view.returned = 0;
+    seen.pcs_recorded = 0;
     const int before = seen.count[sigusr1].load();
     void *stack = map_stack();
     CHECK(stack != nullptr);
     int tid_word = 0;
     int during = -1;
     {
-        const std::lock_guard held(apkrt::dl::lock());  // the call waits for it
+        const std::lock_guard held(apkrt::dl::lock());  // the call waits for it, inside the loader
         CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, loader_child, &view) > 0);
         while (view.calling.load() == 0) std::this_thread::yield();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        seen.recording = true;
         CHECK(send(view.tid.load(), sigusr1) == 0);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (seen.count[sigusr1].load() == before && std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         during = seen.count[sigusr1].load() - before;
-        CHECK(view.returned.load() == 0);  // still waiting
+        CHECK(view.returned.load() == 0);
     }
     join(&tid_word);
+    seen.recording = false;
     ::munmap(stack, stack_size);
-    CHECK(during == 1);
+    CHECK(during == 0);
     CHECK(view.result == 0);  // no loaded library holds the address
-    CHECK(view.after == 1);   // the one delivery, while it waited
+    CHECK(view.after == 1);
+    CHECK(seen.pcs_recorded.load() == 1);
+    if (seen.pcs_recorded.load() == 1) CHECK(seen.pcs[0] == address(probe_call_return));
 }
 
 const char *program = nullptr;  // argv[0], to start the test again in a child process

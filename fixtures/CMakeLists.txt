@@ -79,3 +79,8 @@ add_executable(dl-test suite/dl-test.c)
 target_link_libraries(dl-test PRIVATE dl)
 target_link_options(dl-test PRIVATE -Wl,--export-dynamic-symbol=dl_test_exported)
 add_executable(signal-test suite/signal-test.c)
+# dl-lock-test and the library whose constructor holds the dynamic linker's lock (ADR-0025, addition d).
+add_library(dl-lock SHARED suite/libdl-lock.c)
+target_link_libraries(dl-lock PRIVATE dl)
+add_executable(dl-lock-test suite/dl-lock-test.c)
+target_link_libraries(dl-lock-test PRIVATE dl)

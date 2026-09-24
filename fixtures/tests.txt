@@ -31,3 +31,5 @@ tls-test system libraries=libtls-lib.so
 tls-test-no-library-path program=tls-test system libraries=libtls-lib.so no-library-path status=1
 dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-broken.so,libdl-unresolved.so
 signal-test system
+# A thread that waits for the dynamic linker's lock takes signals there (ADR-0025, addition d).
+dl-lock-test system libraries=libdl-lock.so

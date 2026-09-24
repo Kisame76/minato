@@ -1,0 +1,6 @@
+dlopen: a handle
+the constructor's own dlsym, with the lock held: found
+the other thread's dlsym took SIGUSR1 while it waited for the lock: yes
+the signal found it in the dynamic linker: yes
+its dlsym after the dlopen: found
+dl_iterate_phdr in a third thread waited for the dlopen: yes, then listed objects: yes

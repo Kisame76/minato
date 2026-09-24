@@ -113,6 +113,10 @@ if(NOT status EQUAL 0)
 endif()
 include("${CMAKE_BINARY_DIR}/plan.cmake")
 
+# ld-android.so has no libc, because libc.so needs it. Its lock's atomics stay inline: the
+# compiler's outline atomics set themselves up with getauxval and system properties from libc.so.
+target_compile_options(bionic_ld_android PRIVATE -mno-outline-atomics)
+
 # liblog.so: Minato's own (runtime/bionic/src/liblog.cpp), because Android's needs the logd
 # service. The NDK's API without symbol versions, like the NDK's stub library.
 set(bionic_include "${APK_SOURCES}/bionic/libc/include" "${APK_SOURCES}/bionic/libc/kernel/uapi"

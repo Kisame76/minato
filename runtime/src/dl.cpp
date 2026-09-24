@@ -323,31 +323,15 @@ void *address_of(State &state, const Library &library, const linker::Symbol &sym
 }
 
 // --- libdl, called by guest code through ld-android.so ------------------------------------------
-
-/// The loader's lock for a call from guest code. While the thread waits for it, it counts as in guest
-/// code, as linker64's waiters for g_dl_mutex are, so that it still takes signals: a garbage collector
-/// may stop the thread that holds the lock and wait for this one (ADR-0025, decision 7). Once the
-/// thread has the lock, it is in the runtime again.
-class GuestCallLock {
-public:
-    explicit GuestCallLock(std::recursive_mutex &mutex) : mutex_(mutex) {
-        if (mutex_.try_lock()) return;
-        auto &signals = signals::current();
-        signals.in_runtime.store(false);
-        mutex_.lock();
-        signals.in_runtime.store(true);
-    }
-    ~GuestCallLock() { mutex_.unlock(); }
-    GuestCallLock(const GuestCallLock &) = delete;
-    GuestCallLock &operator=(const GuestCallLock &) = delete;
-
-private:
-    std::recursive_mutex &mutex_;
-};
+//
+// ld-android.so takes a lock of its own before it calls in, as linker64 takes g_dl_mutex, so guest
+// threads wait for each other there, in guest code, where signals reach them (ADR-0025, decision 8).
+// The runtime's lock only keeps them apart from start-up work, which runs no guest code while it
+// holds the lock: a plain lock is enough here (decision 9).
 
 void *guest_dlopen(const char *name, int flags, const void *, int *error_number) {
     auto &state = ::apkrt::dl::state();
-    const GuestCallLock lock(state.mutex);
+    const std::lock_guard lock(state.mutex);
     if (name == nullptr) return &state.libraries.front();
     const std::string wanted(name);
     // linker64 searches with open(): one that failed leaves ENOENT in errno, whatever came after.
@@ -416,7 +400,7 @@ void *guest_dlopen(const char *name, int flags, const void *, int *error_number)
 
 void *guest_dlsym(void *handle, const char *name, const char *version_text, const void *caller) {
     auto &state = ::apkrt::dl::state();
-    const GuestCallLock lock(state.mutex);
+    const std::lock_guard lock(state.mutex);
     if (name == nullptr) {
         set_error("dlsym failed: symbol name is null");
         return nullptr;
@@ -466,7 +450,7 @@ void *guest_dlsym(void *handle, const char *name, const char *version_text, cons
 
 int guest_dlclose(void *handle) {
     auto &state = ::apkrt::dl::state();
-    const GuestCallLock lock(state.mutex);
+    const std::lock_guard lock(state.mutex);
     if (!is_handle(state, handle)) {
         set_error(std::format("dlclose failed: invalid handle: {}", handle));
         return -1;
@@ -490,7 +474,7 @@ struct DlInfo {
 
 int guest_dladdr(const void *address, void *raw_info) {
     auto &state = ::apkrt::dl::state();
-    const GuestCallLock lock(state.mutex);
+    const std::lock_guard lock(state.mutex);
     const auto target = reinterpret_cast<std::uint64_t>(address);
     const Library *library = containing(state, target);
     if (library == nullptr) return 0;

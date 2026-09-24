@@ -68,7 +68,8 @@ typedef uint64_t (*apkrt_register_tls_module_function)(struct apkrt_object *obje
 /// null; ld-android.so then reports that it cannot do what was asked. The runtime publishes new
 /// objects by raising object_count (a release store) after the entry is written; readers load it
 /// with acquire. dlopen writes a Linux errno value to `error_number` when its search failed to open a
-/// file somewhere, which linker64 leaves in errno; ld-android.so sets errno to it.
+/// file somewhere, which linker64 leaves in errno; ld-android.so sets errno to it. ld-android.so calls
+/// all but dlerror under a lock of its own, one thread at a time (ADR-0025, decision 8).
 struct apkrt_loader {
     int target_sdk_version;
     const struct apkrt_object *objects;  // for dl_iterate_phdr
