@@ -18,6 +18,8 @@
 // (threads.cpp), so that SYS_exit gets back to the host's stack. Our own, because libc's longjmp
 // is intercepted by AddressSanitizer in the test builds, which then warns about the stack switch.
 
+#include "loader_syscalls.h"
+
 #define FRAME_SIZE 784  // sizeof(struct apkrt_syscall_frame)
 #define SIGNALS_MASK 0  // offsetof(ThreadSignals, mask), pending follows it
 #define IN_RUNTIME 16   // offsetof(ThreadSignals, in_runtime); ThreadSignals starts a GuestThread
@@ -148,6 +150,38 @@ _apkrt_syscall_returned:
     mov     x0, sp
     bl      _apkrt_syscall_deliver          // delivers and resumes the guest, never returns
     brk     #1
+
+// libdl's functions for apkrt_loader in ld-android.so (ADR-0025): syscalls of the runtime's own, so
+// that the thread is in the runtime for the whole call and what became pending arrives right after
+// the return. Each stub puts its number into x8 and calls the entry with the veneer's instructions;
+// x8 and x16 are free across a call. The veneer's branch leads to the ret, which the runtime skips
+// when it delivers there: the state is then the caller's, after the call.
+.macro LOADER_STUB name, number
+    .p2align 2
+    .globl _\name
+_\name:
+    hint    #34                     // bti c: called with blr
+    mov     x8, #\number
+    b       Lloader_call
+.endm
+
+    LOADER_STUB apkrt_loader_dlopen, APKRT_NR_DLOPEN
+    LOADER_STUB apkrt_loader_dlsym, APKRT_NR_DLSYM
+    LOADER_STUB apkrt_loader_dlclose, APKRT_NR_DLCLOSE
+    LOADER_STUB apkrt_loader_dlerror, APKRT_NR_DLERROR
+    LOADER_STUB apkrt_loader_dladdr, APKRT_NR_DLADDR
+
+    .p2align 2
+Lloader_call:
+    stp     x16, x30, [sp, #-16]!
+    adrp    x16, _apkrt_syscall_entry@PAGE
+    add     x16, x16, _apkrt_syscall_entry@PAGEOFF
+    blr     x16
+    ldp     x16, x30, [sp], #16
+    b       _apkrt_loader_return
+    .globl _apkrt_loader_return
+_apkrt_loader_return:
+    ret
 
 // void apkrt_enter_guest(uint64_t entry, uint64_t stack_pointer)  -- never returns
     .p2align 2

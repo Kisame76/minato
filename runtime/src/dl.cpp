@@ -1,6 +1,7 @@
 #include "dl.h"
 
 #include "APKRuntime/apkrt.h"
+#include "loader_syscalls.h"
 #include "process_exit.h"
 #include "signals.h"
 #include "vfs.h"
@@ -492,6 +493,35 @@ int guest_dladdr(const void *address, void *raw_info) {
 
 }  // namespace
 
+void set_loader_functions(apkrt_loader &loader) {
+    loader.dlopen = apkrt_loader_dlopen;
+    loader.dlsym = apkrt_loader_dlsym;
+    loader.dlclose = apkrt_loader_dlclose;
+    loader.dlerror = apkrt_loader_dlerror;
+    loader.dladdr = apkrt_loader_dladdr;
+}
+
+long loader_syscall(const apkrt_syscall_frame &frame) {
+    const auto *x = frame.x;
+    switch (x[8]) {
+        case APKRT_NR_DLOPEN:
+            return reinterpret_cast<long>(guest_dlopen(reinterpret_cast<const char *>(x[0]), static_cast<int>(x[1]),
+                                                       reinterpret_cast<const void *>(x[2]), reinterpret_cast<int *>(x[3])));
+        case APKRT_NR_DLSYM:
+            return reinterpret_cast<long>(guest_dlsym(reinterpret_cast<void *>(x[0]), reinterpret_cast<const char *>(x[1]),
+                                                      reinterpret_cast<const char *>(x[2]), reinterpret_cast<const void *>(x[3])));
+        case APKRT_NR_DLCLOSE: return guest_dlclose(reinterpret_cast<void *>(x[0]));
+        case APKRT_NR_DLERROR: return reinterpret_cast<long>(guest_dlerror());
+        case APKRT_NR_DLADDR:
+            return guest_dladdr(reinterpret_cast<const void *>(x[0]), reinterpret_cast<void *>(x[1]));
+        default: return -38;  // ENOSYS: not one of the stubs' numbers
+    }
+}
+
+std::recursive_mutex &lock() {
+    return state().mutex;
+}
+
 void add_library_directory(std::string_view guest_directory, const std::filesystem::path &host_directory) {
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
@@ -555,11 +585,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         if (const auto *symbol = linker::find_symbol(object, APKRT_LOADER, "APKRT_PRIVATE")) {
             auto &loader = *reinterpret_cast<apkrt_loader *>(at(symbol));
             loader.objects = state.entries;
-            loader.dlopen = guest_dlopen;
-            loader.dlsym = guest_dlsym;
-            loader.dlclose = guest_dlclose;
-            loader.dlerror = guest_dlerror;
-            loader.dladdr = guest_dladdr;
+            set_loader_functions(loader);
             state.loader = &loader;
         }
     }

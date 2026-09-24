@@ -3,6 +3,7 @@
 // goes back to guest code, without getting lost on the way. The guest threads are clone children that
 // make their syscalls through the veneer's exact instructions (threads_probe.S, transitions_probe.S);
 // the signals come from the test's own thread, like from another thread of the program.
+#include "dl.h"
 #include "signals.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -10,9 +11,12 @@
 #include "check.h"
 
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <spawn.h>
 #include <signal.h>
 #include <sys/ucontext.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -47,6 +51,9 @@ extern const std::uint32_t probe_loop_begin[];
 extern const std::uint32_t probe_loop_end[];
 long probe_syscall_without_veneer(std::uint64_t number, std::uint64_t a0, std::uint64_t a1 = 0, std::uint64_t a2 = 0,
                                   std::uint64_t a3 = 0);
+std::uint64_t probe_call(const void *function, std::uint64_t a0, std::uint64_t a1 = 0, std::uint64_t a2 = 0,
+                         std::uint64_t a3 = 0);
+extern const std::uint32_t probe_call_return[];
 extern const std::uint32_t probe_site[];
 extern const std::uint32_t probe_after_site[];
 extern const std::uint32_t probe_stub_return[];
@@ -527,9 +534,124 @@ TEST(the_flag_stores_sit_right_before_their_labels) {
     CHECK(apkrt_syscall_return[-1] == 0x910c'43ff);     // add sp, sp, #784
 }
 
+struct LoaderView {
+    std::atomic<long> tid{0};
+    std::atomic<int> calling{0};
+    std::atomic<int> returned{0};
+    std::uint64_t result = ~std::uint64_t{0};
+    int after = -1;  // SIGUSR1 handlers that ran by the first word after the call
+};
+apkrt_loader loader_table{};
+
+void loader_child(void *argument) {
+    auto &view = *static_cast<LoaderView *>(argument);
+    view.tid = probe_syscall(nr_gettid, 0);
+    struct {
+        const char *fname;
+        void *fbase;
+        const char *sname;
+        void *saddr;
+    } info{};  // Dl_info on Android
+    const int before = seen.count[sigusr1].load();
+    view.calling = 1;
+    view.result = probe_call(reinterpret_cast<const void *>(loader_table.dladdr), address(&info),
+                             reinterpret_cast<std::uint64_t>(&info));
+    view.after = seen.count[sigusr1].load() - before;
+    view.returned = 1;
+}
+
+// ADR-0025, decision 4: while ld-android.so's call into the loader runs, the thread is in the runtime:
+// a signal waits for the call's return and arrives right there, on the caller's registers and pc.
+TEST(a_signal_waits_for_a_call_into_the_loader_to_return) {
+    apkrt::dl::set_loader_functions(loader_table);
+    static LoaderView view;
+    view.tid = 0;
+    view.calling = 0;
+    view.returned = 0;
+    seen.pcs_recorded = 0;
+    const int before = seen.count[sigusr1].load();
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    int during = -1;
+    {
+        const std::lock_guard held(apkrt::dl::lock());  // the call waits for it, inside the loader
+        CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, loader_child, &view) > 0);
+        while (view.calling.load() == 0) std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        seen.recording = true;
+        CHECK(send(view.tid.load(), sigusr1) == 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        during = seen.count[sigusr1].load() - before;
+        CHECK(view.returned.load() == 0);
+    }
+    join(&tid_word);
+    seen.recording = false;
+    ::munmap(stack, stack_size);
+    CHECK(during == 0);
+    CHECK(view.result == 0);  // no loaded library holds the address
+    CHECK(view.after == 1);
+    CHECK(seen.pcs_recorded.load() == 1);
+    if (seen.pcs_recorded.load() == 1) CHECK(seen.pcs[0] == address(probe_call_return));
+}
+
+const char *program = nullptr;  // argv[0], to start the test again in a child process
+
+constexpr std::uint64_t sigsegv = 11;
+
+void on_segv(int, void *, void *) {
+    static const char message[] = "the guest's SIGSEGV handler ran\n";
+    static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
+    ::_exit(42);
+}
+
+void loader_fault_child(void *) {
+    probe_call(reinterpret_cast<const void *>(loader_table.dlsym), 0 /* RTLD_DEFAULT */, 1 /* no name */);
+}
+
+/// In the child process: a guest thread whose call into the loader faults.
+int run_loader_fault() {
+    static apkrt::threads::GuestThread first{};
+    first.tid = ::getpid();
+    apkrt::threads::add(first);
+    struct {
+        std::uint64_t handler, flags, restorer, mask;
+    } action{reinterpret_cast<std::uint64_t>(&on_segv), sa_siginfo | sa_restorer,
+             reinterpret_cast<std::uint64_t>(&probe_sigreturn), 0};
+    if (probe_syscall(nr_rt_sigaction, sigsegv, reinterpret_cast<std::uint64_t>(&action), 0, 8) != 0) return 2;
+    apkrt::dl::set_loader_functions(loader_table);
+    void *stack = map_stack();
+    int tid_word = 0;
+    if (probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, loader_fault_child, nullptr) <= 0) return 2;
+    join(&tid_word);
+    return 3;  // the fault should have ended the process
+}
+
+// ADR-0025, decision 4: a fault inside the loader is the runtime's own, even when guest code called it:
+// the process dies as with any fault of the runtime, and the guest's SIGSEGV handler does not run.
+TEST(a_fault_in_the_loader_is_the_runtime_s_own) {
+    char mode[] = "--loader-fault";
+    char *arguments[] = {const_cast<char *>(program), mode, nullptr};
+    // The child's stderr gets the report of the fault; the test only looks at how it ended.
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    pid_t child = 0;
+    CHECK(::posix_spawn(&child, program, &actions, nullptr, arguments, nullptr) == 0);
+    posix_spawn_file_actions_destroy(&actions);
+    int status = 0;
+    CHECK(::waitpid(child, &status, 0) == child);
+    const bool guest_handler = WIFEXITED(status) && WEXITSTATUS(status) == 42;  // on_segv's _exit
+    if (guest_handler) std::fprintf(stderr, "the fault in the loader went to the guest's handler\n");
+    CHECK(!guest_handler);
+    CHECK(WIFSIGNALED(status) || (WIFEXITED(status) && WEXITSTATUS(status) != 0 && WEXITSTATUS(status) != 3));
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char **argv) {
+    program = argv[0];
+    if (argc > 1 && std::strcmp(argv[1], "--loader-fault") == 0) return run_loader_fault();
     // The test's own thread is the program's first thread: the process lives as long as it does.
     static apkrt::threads::GuestThread first{};
     first.tid = ::getpid();

@@ -8,11 +8,25 @@
 #include "APKRuntime/guest_interface.h"
 #include "linker.h"
 #include "loader.h"
+#include "syscall_frame.h"
 
 #include <filesystem>
+#include <mutex>
 #include <string_view>
 
 namespace apkrt::dl {
+
+/// Points libdl's functions in ld-android.so's table at the loader (load_program does it): at the
+/// stubs in syscall_entry.S, which make them syscalls of the runtime's own (ADR-0025).
+void set_loader_functions(apkrt_loader &loader);
+
+/// The syscalls of those stubs (loader_syscalls.h), with their arguments in x0-x3 as the C
+/// functions of apkrt_loader take them; the result goes back in x0.
+long loader_syscall(const apkrt_syscall_frame &frame);
+
+/// The lock of the loader's state, which its functions and the program's start take, recursively as
+/// linker64's g_dl_mutex. A test holds it to keep a guest thread inside the loader.
+std::recursive_mutex &lock();
 
 /// The library containers in `host_directory` (<file name>.dylib, as apk-convert writes them) are the
 /// library files the guest finds in `guest_directory`, an absolute guest path, e.g. /system/lib64.

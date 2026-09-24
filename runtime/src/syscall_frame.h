@@ -37,6 +37,15 @@ extern const std::uint32_t apkrt_syscall_returning[];
 extern const std::uint32_t apkrt_syscall_return[];
 extern const std::uint32_t apkrt_syscall_returned[];
 
+/// syscall_entry.S: libdl's functions for apkrt_loader, as syscalls of the runtime's own
+/// (loader_syscalls.h). They all end at the ret apkrt_loader_return.
+void *apkrt_loader_dlopen(const char *name, int flags, const void *caller, int *error_number);
+void *apkrt_loader_dlsym(void *handle, const char *symbol, const char *version, const void *caller);
+int apkrt_loader_dlclose(void *handle);
+const char *apkrt_loader_dlerror(void);
+int apkrt_loader_dladdr(const void *address, void *info);
+extern const std::uint32_t apkrt_loader_return[];
+
 /// syscall_entry.S: switches to `stack_pointer`, clears every register and jumps to `entry`.
 [[noreturn]] void apkrt_enter_guest(std::uint64_t entry, std::uint64_t stack_pointer);
 

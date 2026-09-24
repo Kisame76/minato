@@ -4,7 +4,9 @@
 // have files of their own (sys_*.cpp, syscalls.h). At the end of each syscall, guest signals that
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
+#include "dl.h"
 #include "guest_context.h"
+#include "loader_syscalls.h"
 #include "process_exit.h"
 #include "signals.h"
 #include "syscalls.h"
@@ -627,6 +629,13 @@ long dispatch(const apkrt_syscall_frame &frame) {
             }
             apkrt::signals::resume(restored);
         }
+
+        case APKRT_NR_DLOPEN:
+        case APKRT_NR_DLSYM:
+        case APKRT_NR_DLCLOSE:
+        case APKRT_NR_DLERROR:
+        case APKRT_NR_DLADDR:
+            return apkrt::dl::loader_syscall(frame);  // ld-android.so's calls into the loader (ADR-0025)
 
         default:
             report_unsupported(x[8]);

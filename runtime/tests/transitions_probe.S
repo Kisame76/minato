@@ -8,6 +8,10 @@
 //   Calls the syscall entry like a veneer but returns with ret, so the entry's return address holds
 //   no veneer: after the syscall the thread goes on at that address.
 //
+// uint64_t probe_call(void *function, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3);
+//   Calls `function` as guest code calls a function pointer (ld-android.so its apkrt_loader);
+//   probe_call_return is the word after the call.
+//
 // probe_site, probe_after_site, probe_stub_return: a syscall site as the converter lays it out, for
 //   the tests that build a frame by hand. The svc became a branch to a stub, which calls the entry
 //   and branches back to the word after the site; the entry returns to probe_stub_return. A restart
@@ -51,6 +55,22 @@ _probe_syscall_without_veneer:
     ldr     x16, [x16, _apkrt_syscall_entry@GOTPAGEOFF]
     blr     x16
     ldp     x16, x30, [sp], #16
+    ret
+
+    .p2align 2
+    .globl _probe_call
+_probe_call:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    mov     x16, x0
+    mov     x0, x1
+    mov     x1, x2
+    mov     x2, x3
+    mov     x3, x4
+    blr     x16
+    .globl _probe_call_return
+_probe_call_return:
+    ldp     x29, x30, [sp], #16
     ret
 
     .p2align 2

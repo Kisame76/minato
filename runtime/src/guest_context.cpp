@@ -41,6 +41,8 @@ GuestContext context_after_syscall(const apkrt_syscall_frame &frame, std::uint64
         context.x[30] = saved[1];
         context.sp = sp + 16;
         context.pc = frame.x[30] + 4 + static_cast<std::uint64_t>(offset);
+        // The loader's stubs branch to their ret: after it, the state is the caller's.
+        if (context.pc == reinterpret_cast<std::uint64_t>(apkrt_loader_return)) context.pc = context.x[30];
     }
     return context;
 }
