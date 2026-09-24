@@ -30,7 +30,7 @@ struct SigningDiagnosticsView: View {
                 Button("Simulate Certificate Change") { run { await signing.simulateChange() } }
                 Button("Remove Certificate", role: .destructive) { confirmsRemoval = true }
             } footer: {
-                Text("Simulate Certificate Change treats the stored certificate as an old one: APK-Runner gets it again and signs your apps again, as after a real change.")
+                Text("Simulate Certificate Change treats the stored certificate as an old one: Minato gets it again and signs your apps again, as after a real change.")
             }
             .disabled(isWorking)
         }
@@ -39,7 +39,7 @@ struct SigningDiagnosticsView: View {
         .confirmationDialog("Remove the certificate?", isPresented: $confirmsRemoval, titleVisibility: .visible) {
             Button("Remove Certificate", role: .destructive) { run { await signing.removeCertificate() } }
         } message: {
-            Text("APK-Runner gets it again from SideStore or AltStore when it can.")
+            Text("Minato gets it again from SideStore or AltStore when it can.")
         }
     }
 

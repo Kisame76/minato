@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build APKRunner for the iOS Simulator, install it and launch it.
+# Build Minato for the iOS Simulator, install it and launch it.
 # Usage: tools/sim.sh [--headless] [simulator name or UDID]
 # Without a name the newest available iPhone simulator is used.
 # Optional environment, as for tools/deploy.sh:
@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="io.github.kisame76.apkrunner"
+BUNDLE_ID="io.github.kisame76.minato"
 DERIVED="build/DerivedData"
 
 HEADLESS=0
@@ -28,11 +28,11 @@ tools/gen.sh
 tools/build-native.sh --app
 read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
-xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
+xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Debug \
   -destination "id=$SIM_UDID" -derivedDataPath "$DERIVED" -quiet build \
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
-APP="$DERIVED/Build/Products/Debug-iphonesimulator/APKRunner.app"
+APP="$DERIVED/Build/Products/Debug-iphonesimulator/Minato.app"
 xcrun simctl boot "$SIM_UDID" 2>/dev/null || true # already booted is fine
 xcrun simctl install "$SIM_UDID" "$APP"
 if [[ -n "${INSTALL_ONLY:-}" ]]; then

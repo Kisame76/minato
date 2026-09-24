@@ -17,7 +17,7 @@ if(APK_HOST_BUILD)
   # build with the fixtures (tools/device-suite.sh): the signer and the C interface check against it
   # what a real Apple signature holds. Without that build these checks are skipped.
   set(APK_APPLE_SIGNED_CONTAINER
-    "${PROJECT_SOURCE_DIR}/build/DerivedData/Build/Products/Debug-iphoneos/APKRunner.app/Fixtures/system-lib64/libdl.so.dylib"
+    "${PROJECT_SOURCE_DIR}/build/DerivedData/Build/Products/Debug-iphoneos/Minato.app/Fixtures/system-lib64/libdl.so.dylib"
     CACHE FILEPATH "A container codesign signed with an Apple Development certificate")
 
   # The app's C interface, compiled as plain C.

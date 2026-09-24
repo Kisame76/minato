@@ -33,7 +33,7 @@ struct CertificateExportTests {
         #expect(components.host == "certificate")
         #expect(components.queryItems?.count == 1)
         let template = try #require(components.queryItems?.first { $0.name == "callback_template" }?.value)
-        #expect(template == "apkrunner://certificate?request=\(request.token)&cert=$(BASE64_CERT)&password=$(PASSWORD)")
+        #expect(template == "minato://certificate?request=\(request.token)&cert=$(BASE64_CERT)&password=$(PASSWORD)")
         #expect(template.removingPercentEncoding == template)  // survives the stores' second decode
     }
 
@@ -60,9 +60,9 @@ struct CertificateExportTests {
     }
 
     @Test func rawPasswordComesFirst() throws {
-        let url = try #require(URL(string: "apkrunner://certificate?request=\(Self.token)&cert=AA%3D%3D&password=a%41b"))
+        let url = try #require(URL(string: "minato://certificate?request=\(Self.token)&cert=AA%3D%3D&password=a%41b"))
         #expect(try CertificateCallback.parse(url).passwordCandidates == ["a%41b", "aAb"])
-        let plain = try #require(URL(string: "apkrunner://certificate?request=\(Self.token)&cert=AA%3D%3D&password=abc"))
+        let plain = try #require(URL(string: "minato://certificate?request=\(Self.token)&cert=AA%3D%3D&password=abc"))
         #expect(try CertificateCallback.parse(plain).passwordCandidates == ["abc"])
     }
 
@@ -73,19 +73,19 @@ struct CertificateExportTests {
             .replacingOccurrences(of: "=", with: "")
         let doubleEncoded = base64.replacingOccurrences(of: "+", with: "%252B")
         for cert in [spaced, urlSafe, doubleEncoded] {
-            let url = try #require(URL(string: "apkrunner://certificate?request=\(Self.token)&cert=\(cert)&password="))
+            let url = try #require(URL(string: "minato://certificate?request=\(Self.token)&cert=\(cert)&password="))
             #expect(try CertificateCallback.parse(url).certificate == Self.p12)
         }
     }
 
     @Test(arguments: [
         ("https://certificate?request=\(token)&cert=AA%3D%3D&password=", CallbackError.notACertificateCallback),
-        ("apkrunner://other?request=\(token)&cert=AA%3D%3D&password=", .notACertificateCallback),
-        ("apkrunner://certificate?cert=AA%3D%3D&password=", .missingField("request")),
-        ("apkrunner://certificate?request=\(token)&password=", .missingField("cert")),
-        ("apkrunner://certificate?request=\(token)&cert=&password=", .missingField("cert")),
-        ("apkrunner://certificate?request=\(token)&cert=AA%3D%3D", .missingField("password")),
-        ("apkrunner://certificate?request=\(token)&cert=%21%21%21&password=", .badCertificate),
+        ("minato://other?request=\(token)&cert=AA%3D%3D&password=", .notACertificateCallback),
+        ("minato://certificate?cert=AA%3D%3D&password=", .missingField("request")),
+        ("minato://certificate?request=\(token)&password=", .missingField("cert")),
+        ("minato://certificate?request=\(token)&cert=&password=", .missingField("cert")),
+        ("minato://certificate?request=\(token)&cert=AA%3D%3D", .missingField("password")),
+        ("minato://certificate?request=\(token)&cert=%21%21%21&password=", .badCertificate),
     ])
     func rejectsWhatIsNotACallback(text: String, error: CallbackError) throws {
         let url = try #require(URL(string: text))
@@ -94,7 +94,7 @@ struct CertificateExportTests {
 
     @Test func rejectsOversizedCertificates() throws {
         let big = Data(count: CertificateCallback.maximumCertificateSize + 1).base64EncodedString()
-        let url = try #require(URL(string: "apkrunner://certificate?request=\(Self.token)&cert=\(big)&password="))
+        let url = try #require(URL(string: "minato://certificate?request=\(Self.token)&cert=\(big)&password="))
         #expect(throws: CallbackError.tooLarge) { try CertificateCallback.parse(url) }
     }
 

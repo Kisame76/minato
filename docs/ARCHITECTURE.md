@@ -1,4 +1,4 @@
-# APK-Runner – Architektur
+# Minato – Architektur
 
 Stand: M0, 2026-09-21; Spike-Ergebnisse, M2 Schritt 4, die `x18`-Regel und M2 Schritt 5 ergänzt 2026-09-22. Entscheidungen stehen in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 bis ADR-0021), Fortschritt in [`STATUS.md`](STATUS.md). Die Rohberichte der Recherche mit allen Quellen liegen in [`research/`](research/).
 

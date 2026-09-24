@@ -1,4 +1,4 @@
-// APK-Runner, added to bionic's libc.so (ADR-0021): the restorer of signal handlers. Linux returns a
+// Minato, added to bionic's libc.so (ADR-0021): the restorer of signal handlers. Linux returns a
 // handler without SA_RESTORER to the rt_sigreturn trampoline of its vDSO, and bionic's sigaction
 // leaves SA_RESTORER out on arm64 on purpose, so that unwinders find that trampoline. There is no
 // vDSO here; the runtime returns such handlers here instead (signals.cpp).

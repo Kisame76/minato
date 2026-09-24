@@ -41,7 +41,7 @@ public struct SelfTestRecord: Sendable, Equatable, Codable {
 public enum SigningState: Sendable, Equatable {
     /// The app is signed ad hoc (Simulator); converted code is signed ad hoc too.
     case notNeeded
-    /// The app is signed with a certificate that APK-Runner cannot read, so it cannot tell which
+    /// The app is signed with a certificate that Minato cannot read, so it cannot tell which
     /// certificate iOS accepts. Nothing is imported until that is fixed.
     case ownCertificateUnreadable(String)
     case missing

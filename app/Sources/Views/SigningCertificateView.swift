@@ -2,8 +2,8 @@ import APKSigning
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Shows the development certificate APK-Runner signs converted code with (ADR-0022, ADR-0023).
-/// APK-Runner gets it from SideStore or AltStore by itself; a .p12 file can still be imported by
+/// Shows the development certificate Minato signs converted code with (ADR-0022, ADR-0023).
+/// Minato gets it from SideStore or AltStore by itself; a .p12 file can still be imported by
 /// hand, which the app checks the same way before keeping it. The diagnostics are one level down.
 struct SigningCertificateView: View {
     @Environment(\.dismiss) private var dismiss
@@ -34,7 +34,7 @@ struct SigningCertificateView: View {
                         LabeledContent("Expires", value: certificate.notAfter.formatted(date: .abbreviated, time: .omitted))
                     }
                 } footer: {
-                    Text("APK-Runner signs the native code of your apps with your development certificate, so that iOS runs it. It gets the certificate from SideStore or AltStore by itself; you can also import a .p12 file. The certificate stays in the keychain of this iPhone.")
+                    Text("Minato signs the native code of your apps with your development certificate, so that iOS runs it. It gets the certificate from SideStore or AltStore by itself; you can also import a .p12 file. The certificate stays in the keychain of this iPhone.")
                 }
                 Section {
                     Button(certificate == nil ? "Import Certificate…" : "Replace Certificate…") { isPicking = true }
@@ -88,7 +88,7 @@ struct SigningCertificateView: View {
                     Task { await signing.removeCertificate() }
                 }
             } message: {
-                Text("Apps whose code is already signed keep working until the certificate expires. APK-Runner gets it again from SideStore or AltStore when it can.")
+                Text("Apps whose code is already signed keep working until the certificate expires. Minato gets it again from SideStore or AltStore when it can.")
             }
         }
     }

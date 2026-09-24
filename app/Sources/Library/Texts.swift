@@ -38,7 +38,7 @@ enum Texts {
         case .ready, .new, .installing:
             ("Can’t Open “\(entry.displayName)” Yet", "Launching apps comes with the native loader (M2) and graphics (M3).")
         case .updating:
-            ("“\(entry.displayName)” Is Updating", "APK-Runner is signing this app’s code with your new certificate. Try again in a moment.")
+            ("“\(entry.displayName)” Is Updating", "Minato is signing this app’s code with your new certificate. Try again in a moment.")
         case .needsSplits:
             ("Can’t Open “\(entry.displayName)”", "This app needs its split APKs. Importing split sets comes in milestone M5.")
         case .incompatible(let reason):

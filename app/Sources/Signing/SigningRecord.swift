@@ -1,7 +1,7 @@
 import APKSigning
 import Foundation
 
-/// What APK-Runner remembers about its signing certificate besides the keychain items, none of it
+/// What Minato remembers about its signing certificate besides the keychain items, none of it
 /// secret (ADR-0023): Library/Application Support/signing.json.
 struct SigningRecord: Codable, Equatable {
     var source: CertificateSource?

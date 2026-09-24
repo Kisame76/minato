@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hands the signing certificate over to APK-Runner on the connected iPhone, so that the app signs
+# Hands the signing certificate over to Minato on the connected iPhone, so that the app signs
 # converted code with it (ADR-0022), without a .p12 file exported and imported by hand.
 # tools/deploy.sh runs this after every install. It needs the Debug build tools/deploy.sh
 # installed: it asks the app whether it has the certificate it is signed with
@@ -15,8 +15,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="io.github.kisame76.apkrunner"
-APP="build/DerivedData/Build/Products/Debug-iphoneos/APKRunner.app"
+BUNDLE_ID="io.github.kisame76.minato"
+APP="build/DerivedData/Build/Products/Debug-iphoneos/Minato.app"
 APK_CONVERT="build/native/macos/importer/converter/apk-convert"
 FORCE=0
 if [[ "${1:-}" == "--force" ]]; then
@@ -29,7 +29,7 @@ if [[ -z "${DEVICE_ID:-}" ]]; then
   echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
   exit 1
 fi
-if [[ ! -f "$APP/APKRunner" ]]; then
+if [[ ! -f "$APP/Minato" ]]; then
   echo "No device build of the app at $APP; tools/deploy.sh builds and installs it." >&2
   exit 1
 fi
@@ -83,7 +83,7 @@ cmake --preset macos >/dev/null
 cmake --build --preset macos --target apk-convert >/dev/null
 password=$(/usr/bin/openssl rand -hex 24)
 echo "  macOS now asks whether apk-convert may export the key from your keychain: enter your Mac's password and choose Allow."
-if ! APK_P12_PASSWORD="$password" "$APK_CONVERT" export-identity "$APP/APKRunner" "$WORK/identity.p12" >/dev/null; then
+if ! APK_P12_PASSWORD="$password" "$APK_CONVERT" export-identity "$APP/Minato" "$WORK/identity.p12" >/dev/null; then
   echo "Not handed over. Allow the export, or import a .p12 file in the app (More > Signing Certificate)." >&2
   exit 1
 fi

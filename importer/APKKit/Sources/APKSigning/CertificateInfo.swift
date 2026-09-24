@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// What APK-Runner needs to know about a signing certificate (ADR-0023). The fingerprint decides:
+/// What Minato needs to know about a signing certificate (ADR-0023). The fingerprint decides:
 /// iOS runs converted code only when it is signed with exactly the certificate the app itself is
 /// signed with, because amfid checks that the app's provisioning profile lists it (ADR-0008, S1b).
 public struct CertificateInfo: Sendable, Equatable, Codable {

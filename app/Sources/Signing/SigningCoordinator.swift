@@ -5,7 +5,7 @@ import Observation
 import UIKit
 import os
 
-private let log = Logger(subsystem: "io.github.kisame76.apkrunner", category: "signing")
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "signing")
 
 /// Keeps the signing certificate right without the user's help (ADR-0023). At launch and whenever
 /// the app comes back to the foreground it compares the imported certificate with the one the app

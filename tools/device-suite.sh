@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="io.github.kisame76.apkrunner"
+BUNDLE_ID="io.github.kisame76.minato"
 SIMULATOR=0
 SIGN_ON_DEVICE=0
 WANTED_DEVICE=""

@@ -1,6 +1,6 @@
-# APK-Runner (Arbeitstitel)
+# Minato
 
-Android-Apps und -Spiele (APKs) nativ auf dem iPhone ausführen, ohne Emulator. Privates Forschungsprojekt, verteilt nur per Sideload.
+Android-Apps und -Spiele (APKs) nativ auf dem iPhone ausführen, ohne Emulator. Privates Forschungsprojekt, verteilt nur per Sideload. Vorher Arbeitstitel APK-Runner (ADR-0024).
 
 - Architektur: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Entscheidungen (ADRs): [`docs/DECISIONS.md`](docs/DECISIONS.md)
@@ -17,7 +17,7 @@ tools/gen.sh                 # nur das Xcode-Projekt erzeugen, z. B. vor dem Öf
 tools/build-native.sh --app  # C/C++ für die App bauen (build/APKRuntime.xcframework, build/APKConvert.xcframework), vor dem ersten Build in Xcode
 ```
 
-`APKRunner.xcodeproj`, `app/Info.plist` und `app/APKRunner.entitlements` werden aus [`project.yml`](project.yml) erzeugt und nicht versioniert. Änderungen daher in `project.yml` vornehmen, nicht in Xcode.
+`Minato.xcodeproj`, `app/Info.plist` und `app/Minato.entitlements` werden aus [`project.yml`](project.yml) erzeugt und nicht versioniert. Änderungen daher in `project.yml` vornehmen, nicht in Xcode.
 
 ## Tests und Werkzeuge
 

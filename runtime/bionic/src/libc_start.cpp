@@ -1,4 +1,4 @@
-// APK-Runner, added to bionic's libc.so (ADR-0021): sets up the main thread of a dynamic program the
+// Minato, added to bionic's libc.so (ADR-0021): sets up the main thread of a dynamic program the
 // way linker64 does before any constructor runs (linker_main.cpp, linker_tls.cpp): the thread
 // pointer, the main thread's pthread_internal_t and bionic_tls, the stack guard, and the static TLS
 // of the program and its libraries. The runtime's loader calls it on the program thread in place

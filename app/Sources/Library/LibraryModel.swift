@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import os
 
-private let log = Logger(subsystem: "io.github.kisame76.apkrunner", category: "import")
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "import")
 
 /// One tile in the library grid: an installed entry or a dropped file that is not imported yet.
 struct LibraryItem: Identifiable {

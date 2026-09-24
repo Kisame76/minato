@@ -1,6 +1,6 @@
 # Fremder Code
 
-Was APK-Runner von anderen übernimmt, mit Lizenz und Stand. Projektlizenz: Apache-2.0 (ADR-0017). GPL- und AGPL-Code wird nicht übernommen.
+Was Minato von anderen übernimmt, mit Lizenz und Stand. Projektlizenz: Apache-2.0 (ADR-0017). GPL- und AGPL-Code wird nicht übernommen.
 
 ## Gast-libc (ADR-0009, ADR-0021)
 

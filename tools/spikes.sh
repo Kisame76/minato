@@ -13,5 +13,5 @@ fi
 LAUNCH_ARGS="-runSpikes" tools/deploy.sh "$@"
 
 echo "Entitlements of this build:"
-codesign -d --entitlements - --xml build/DerivedData/Build/Products/Debug-iphoneos/APKRunner.app 2>/dev/null \
+codesign -d --entitlements - --xml build/DerivedData/Build/Products/Debug-iphoneos/Minato.app 2>/dev/null \
   | plutil -convert json -o - - | python3 -c 'import json, sys; print(*("  " + key for key in json.load(sys.stdin)), sep="\n")'

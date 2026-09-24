@@ -19,7 +19,7 @@ enum OwnSignature: Equatable {
     /// Signed ad hoc, as on the Simulator: converted code is signed ad hoc too.
     case adHoc
     case certificate(CertificateInfo)
-    /// Signed with a certificate APK-Runner cannot read; the reason.
+    /// Signed with a certificate Minato cannot read; the reason.
     case unreadable(String)
 
     var certificate: CertificateInfo? {
@@ -31,7 +31,7 @@ enum OwnSignature: Equatable {
     }
 }
 
-/// The development certificate APK-Runner signs converted native code with, so that iOS runs it
+/// The development certificate Minato signs converted native code with, so that iOS runs it
 /// (ADR-0008, ADR-0022, ADR-0023). It is kept in the app's keychain, on this device only: as one
 /// identity when SecPKCS12Import read it, or as its private key and certificate when it came as an
 /// unencrypted file from SideStore. No password is kept.
@@ -202,7 +202,7 @@ struct SignerConverter: ContainerConverting, @unchecked Sendable {
 final class ContainerSigner {
     private let signer: OpaquePointer
 
-    private static var identifier: String { Bundle.main.bundleIdentifier ?? "io.github.kisame76.apkrunner" }
+    private static var identifier: String { Bundle.main.bundleIdentifier ?? "io.github.kisame76.minato" }
 
     /// With `identity` nil the containers are signed ad hoc, which only the Simulator runs.
     init(identity: SecIdentity?) throws {

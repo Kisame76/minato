@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Build APKRunner for the connected iPhone, install it and launch it.
+# Build Minato for the connected iPhone, install it and launch it.
 # Needs: Apple ID in Xcode (Settings > Accounts), the iPhone paired, unlocked
 # and connected, and Developer Mode enabled on the iPhone.
 # After installing, it hands the app the certificate Xcode signed it with, for signing converted
 # code (tools/hand-over-certificate.sh), when the app does not have that one yet.
 # Usage: tools/deploy.sh [device name or identifier]
 # Optional environment:
-#   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/APKRunner.entitlements
+#   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/Minato.entitlements
 #   LAUNCH_ARGS     arguments for the app; its output is then shown here until it exits
 #   INSTALL_ONLY    when set, installs the app without launching it
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="io.github.kisame76.apkrunner"
+BUNDLE_ID="io.github.kisame76.minato"
 DERIVED="build/DerivedData"
 
 read -r DEVICE_ID DEVICE_UDID DEV_MODE CONN_STATE < <(python3 tools/find-device.py "${1:-}") || true
@@ -32,12 +32,12 @@ read -r -a APP_ARGS <<< "${LAUNCH_ARGS:-}"
 tools/gen.sh
 tools/build-native.sh --app
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
-xcodebuild -project APKRunner.xcodeproj -scheme APKRunner -configuration Debug \
+xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Debug \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration -quiet build \
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
-APP="$DERIVED/Build/Products/Debug-iphoneos/APKRunner.app"
+APP="$DERIVED/Build/Products/Debug-iphoneos/Minato.app"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
 tools/hand-over-certificate.sh "$DEVICE_ID" ||
   echo "The signing certificate was not handed over; converted code loads only once the app has it." >&2

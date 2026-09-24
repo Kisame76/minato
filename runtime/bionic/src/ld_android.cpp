@@ -1,4 +1,4 @@
-// APK-Runner's ld-android.so (ADR-0021), in place of bionic's stub: what linker64 provides to libc.so
+// Minato's ld-android.so (ADR-0021), in place of bionic's stub: what linker64 provides to libc.so
 // and libdl.so in-process, on top of the runtime's loader.
 //   - libc_shared_globals lives here, as in linker64. It is constant-initialized, so libc.so can use
 //     it before any constructor has run.

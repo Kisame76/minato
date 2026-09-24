@@ -1,4 +1,4 @@
-// APK-Runner's libnetd_client.so (ADR-0021). bionic's libc.so opens it in every process at start
+// Minato's libnetd_client.so (ADR-0021). bionic's libc.so opens it in every process at start
 // (NetdClient.cpp) and passes each socket function to one of these init functions, which on Android
 // wrap them so that the netd service can mark and route the sockets. There is no netd here: the
 // functions leave bionic's own in place. The library exists so that the dlopen succeeds as on

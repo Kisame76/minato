@@ -1,8 +1,8 @@
-# Native code of APK-Runner: the runtime (runtime/) and the converter (importer/converter/).
+# Native code of Minato: the runtime (runtime/) and the converter (importer/converter/).
 # Configure with the presets in CMakePresets.json, usually through tools/build-native.sh (ADR-0016).
 # The NDK fixtures are a separate project (fixtures/), because they need the Android toolchain.
 cmake_minimum_required(VERSION 4.0)
-project(APKRunnerNative VERSION 0.1.0 LANGUAGES C CXX)
+project(MinatoNative VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

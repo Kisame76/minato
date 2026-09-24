@@ -69,11 +69,11 @@ struct CertificateSetupView: View {
         let changed = if case .changed = signing.state { "Your signing certificate has changed. " } else { "" }
         switch signing.setupStore {
         case .sideStore:
-            return changed + "APK-Runner needs your signing certificate to run apps. SideStore opens by itself: tap Export there, and it brings you back here."
+            return changed + "Minato needs your signing certificate to run apps. SideStore opens by itself: tap Export there, and it brings you back here."
         case .altStore:
-            return changed + "APK-Runner needs your signing certificate to run apps. AltStore opens by itself: tap Export there and leave the password empty."
+            return changed + "Minato needs your signing certificate to run apps. AltStore opens by itself: tap Export there and leave the password empty."
         case nil:
-            return changed + "APK-Runner needs your signing certificate to run apps."
+            return changed + "Minato needs your signing certificate to run apps."
         }
     }
 

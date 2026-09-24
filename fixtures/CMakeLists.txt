@@ -1,7 +1,7 @@
 # NDK test programs for the loader (M2), built for arm64-v8a by tools/build-fixtures.sh.
 # Static programs first (M2 step 4), then dynamically linked ones (step 5).
 cmake_minimum_required(VERSION 4.0)
-project(APKRunnerFixtures LANGUAGES C ASM)
+project(MinatoFixtures LANGUAGES C ASM)
 
 if(NOT ANDROID OR NOT ANDROID_ABI STREQUAL "arm64-v8a")
   message(FATAL_ERROR "Build the fixtures with tools/build-fixtures.sh (Android NDK, arm64-v8a).")

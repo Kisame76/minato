@@ -44,7 +44,7 @@ std::filesystem::path scratch;
 std::filesystem::path fixtures;
 std::filesystem::path apple_signed;
 
-constexpr char bundle_id[] = "io.github.kisame76.apkrunner";
+constexpr char bundle_id[] = "io.github.kisame76.minato";
 const sys_seconds signing_time = sys_days{year{2026} / 9 / 23} + hours{2} + minutes{2} + seconds{28};
 
 std::vector<std::byte> read_file(const std::filesystem::path &path) {

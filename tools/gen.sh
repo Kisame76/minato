@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate APKRunner.xcodeproj from project.yml.
+# Generate Minato.xcodeproj from project.yml.
 # The development team comes from $DEVELOPMENT_TEAM or from the accounts in
 # Xcode (Settings > Accounts), Personal Team first.
 set -euo pipefail
@@ -33,4 +33,4 @@ fi
 export DEVELOPMENT_TEAM
 
 xcodegen generate --quiet
-echo "Generated APKRunner.xcodeproj (team: ${DEVELOPMENT_TEAM:-none})"
+echo "Generated Minato.xcodeproj (team: ${DEVELOPMENT_TEAM:-none})"

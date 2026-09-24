@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks APK-Runner's certificate handling in the Simulator (ADR-0023): every .p12 format SideStore
+# Checks Minato's certificate handling in the Simulator (ADR-0023): every .p12 format SideStore
 # and AltStore write, the refusals, the certificate SideStore embeds, AltStore's export with its
 # callback, and a certificate change. The Debug build answers through
 # app/Sources/Signing/CertificateCheck.swift; the Simulator app is signed ad hoc, so the app is told
@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="io.github.kisame76.apkrunner"
+BUNDLE_ID="io.github.kisame76.minato"
 read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${1:-}") || true
 if [[ -z "${SIM_UDID:-}" ]]; then
   echo "No matching iPhone simulator found." >&2
@@ -95,7 +95,7 @@ expect "without a certificate the app asks AltStore by itself" "missing requestE
 python3 - "$WORK/files/legacy.p12" "$token" >"$CHECK/callback.txt" <<'EOF'
 import base64, sys, urllib.parse
 certificate = urllib.parse.quote(base64.b64encode(open(sys.argv[1], "rb").read()).decode(), safe="")
-print(f"apkrunner://certificate?request={sys.argv[2]}&cert={certificate}&password=pw")
+print(f"minato://certificate?request={sys.argv[2]}&cert={certificate}&password=pw")
 EOF
 got=$(ask "${own[@]}" "${altstore[@]}" -certificateCheckAwaitCallback -certificateCheckOpenCallback callback.txt \
   -certificateCheckStatus)

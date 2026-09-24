@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "APKKit", targets: ["APKKit"]),
         // The on-device library: finds dropped APKs, installs them, keeps the index.
         .library(name: "APKLibrary", targets: ["APKLibrary"]),
-        // What APK-Runner decides about its signing certificate (ADR-0023): pure logic, no
+        // What Minato decides about its signing certificate (ADR-0023): pure logic, no
         // Security.framework, so the decisions are tested on the Mac.
         .library(name: "APKSigning", targets: ["APKSigning"]),
     ],

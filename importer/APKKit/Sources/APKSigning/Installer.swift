@@ -1,4 +1,4 @@
-/// The two stores APK-Runner takes its certificate from (ADR-0023).
+/// The two stores Minato takes its certificate from (ADR-0023).
 public enum Store: String, Sendable, Codable, CaseIterable {
     case sideStore
     case altStore

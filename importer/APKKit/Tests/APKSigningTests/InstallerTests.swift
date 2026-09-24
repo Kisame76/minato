@@ -5,7 +5,7 @@ import Testing
 /// Info.plist markers the stores write into apps they sign (docs/research/store-certificates.md, section 5).
 @Suite("Installer detection")
 struct InstallerTests {
-    static let finalID = "io.github.kisame76.apkrunner.ABCDE12345"
+    static let finalID = "io.github.kisame76.minato.ABCDE12345"
 
     static func plist(utis: [String] = [], schemes: [String] = [], altBundleID: Bool = false) -> [String: Any] {
         var plist: [String: Any] = [
@@ -14,8 +14,8 @@ struct InstallerTests {
             "UTImportedTypeDeclarations": [["UTTypeIdentifier": "com.android.package-archive"]],
         ]
         plist["UTExportedTypeDeclarations"] = utis.map { ["UTTypeIdentifier": $0, "UTTypeDescription": "AltStore Installed App"] }
-        plist["CFBundleURLTypes"] = [["CFBundleURLSchemes": ["apkrunner"]]] + schemes.map { ["CFBundleURLSchemes": [$0]] }
-        if altBundleID { plist["ALTBundleIdentifier"] = "io.github.kisame76.apkrunner" }
+        plist["CFBundleURLTypes"] = [["CFBundleURLSchemes": ["minato"]]] + schemes.map { ["CFBundleURLSchemes": [$0]] }
+        if altBundleID { plist["ALTBundleIdentifier"] = "io.github.kisame76.minato" }
         return plist
     }
 
@@ -34,12 +34,12 @@ struct InstallerTests {
     }
 
     @Test func altStoreOnDevice() {
-        let info = Self.plist(utis: ["io.altstore.Installed.\(Self.finalID)"], schemes: ["altstore-io.github.kisame76.apkrunner"], altBundleID: true)
+        let info = Self.plist(utis: ["io.altstore.Installed.\(Self.finalID)"], schemes: ["altstore-io.github.kisame76.minato"], altBundleID: true)
         #expect(Installer.detect(infoDictionary: info) == .store(.altStore))
     }
 
     @Test func altStoreThroughAltServerHasNoUTI() {
-        let info = Self.plist(schemes: ["altstore-io.github.kisame76.apkrunner"], altBundleID: true)
+        let info = Self.plist(schemes: ["altstore-io.github.kisame76.minato"], altBundleID: true)
         #expect(Installer.detect(infoDictionary: info) == .store(.altStore))
     }
 

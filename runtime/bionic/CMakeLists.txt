@@ -3,7 +3,7 @@
 # libdl.so, libc.so and libm.so. Which sources and flags come from bionic's own Android.bp files
 # (tools/bionic-plan.py). Built by tools/build-bionic.sh; the results go to <build>/lib.
 cmake_minimum_required(VERSION 4.0)
-project(APKRunnerBionic LANGUAGES C CXX ASM)
+project(MinatoBionic LANGUAGES C CXX ASM)
 
 if(NOT ANDROID OR NOT ANDROID_ABI STREQUAL "arm64-v8a")
   message(FATAL_ERROR "Build bionic with tools/build-bionic.sh (Android NDK, arm64-v8a).")
@@ -113,7 +113,7 @@ if(NOT status EQUAL 0)
 endif()
 include("${CMAKE_BINARY_DIR}/plan.cmake")
 
-# liblog.so: APK-Runner's own (runtime/bionic/src/liblog.cpp), because Android's needs the logd
+# liblog.so: Minato's own (runtime/bionic/src/liblog.cpp), because Android's needs the logd
 # service. The NDK's API without symbol versions, like the NDK's stub library.
 set(bionic_include "${APK_SOURCES}/bionic/libc/include" "${APK_SOURCES}/bionic/libc/kernel/uapi"
   "${APK_SOURCES}/bionic/libc/kernel/android/uapi" "${APK_SOURCES}/bionic/libc/kernel/uapi/asm-arm64")
@@ -121,7 +121,7 @@ apk_bionic_unit(apk_liblog SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/liblog.cpp" 
   CFLAGS -Wall -Wextra -Werror)
 apk_bionic_library(liblog UNITS apk_liblog NEEDED libc)
 
-# libnetd_client.so: APK-Runner's own (runtime/bionic/src/libnetd_client.cpp). bionic's libc.so opens
+# libnetd_client.so: Minato's own (runtime/bionic/src/libnetd_client.cpp). bionic's libc.so opens
 # it at start; without netd its functions leave the socket functions as they are.
 apk_bionic_unit(apk_netd_client SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/libnetd_client.cpp" INCLUDES ${bionic_include}
   CFLAGS -Wall -Wextra -Werror)

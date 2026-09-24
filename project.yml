@@ -1,7 +1,7 @@
 # XcodeGen spec. Generate the Xcode project with `xcodegen generate`.
-# APKRunner.xcodeproj, app/Info.plist and app/APKRunner.entitlements are generated and not versioned.
+# Minato.xcodeproj, app/Info.plist and app/Minato.entitlements are generated and not versioned.
 # Before building in Xcode, run tools/build-native.sh --app once: the app links build/APKRuntime.xcframework.
-name: APKRunner
+name: Minato
 
 options:
   bundleIdPrefix: io.github.kisame76
@@ -22,11 +22,13 @@ packages:
     path: importer/APKKit
 
 targets:
-  APKRunner:
+  Minato:
     type: application
     platform: iOS
     sources:
       - path: app/Sources
+      # Asset catalog with the app icon (ADR-0024).
+      - path: app/Resources
       # Feasibility spikes S1–S3 and S1b (docs/STATUS.md), run by Debug builds launched with -runSpikes.
       - path: app/Spikes
         excludes:
@@ -50,7 +52,7 @@ targets:
     info:
       path: app/Info.plist
       properties:
-        CFBundleDisplayName: APK-Runner
+        CFBundleDisplayName: Minato
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
@@ -66,9 +68,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         # The certificate export of SideStore and AltStore answers here (ADR-0023).
         CFBundleURLTypes:
-          - CFBundleURLName: io.github.kisame76.apkrunner.certificate
+          - CFBundleURLName: io.github.kisame76.minato.certificate
             CFBundleURLSchemes:
-              - apkrunner
+              - minato
         # To see whether the store that installed the app is still there (canOpenURL).
         LSApplicationQueriesSchemes:
           - sidestore
@@ -94,12 +96,13 @@ targets:
     # Every build carries increased-memory-limit: about 6 GiB instead of 3.3 GiB
     # and a 64 GiB address range on iOS 27 (ADR-0012, spike S2).
     entitlements:
-      path: app/APKRunner.entitlements
+      path: app/Minato.entitlements
       properties:
         com.apple.developer.kernel.increased-memory-limit: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.apkrunner
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.minato
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO

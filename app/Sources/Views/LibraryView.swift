@@ -129,7 +129,7 @@ struct LibraryView: View {
         ContentUnavailableView {
             Label("No Apps", systemImage: "square.grid.2x2")
         } description: {
-            Text("Tap + to add APK files, or open an APK with APK-Runner from another app.")
+            Text("Tap + to add APK files, or open an APK with Minato from another app.")
         }
     }
 
@@ -145,7 +145,7 @@ struct LibraryView: View {
     }
 
     private var title: String {
-        guard isSelecting else { return "APK-Runner" }
+        guard isSelecting else { return "Minato" }
         return switch selectedEntries.count {
         case 0: "Select Items"
         case 1: "1 Item Selected"

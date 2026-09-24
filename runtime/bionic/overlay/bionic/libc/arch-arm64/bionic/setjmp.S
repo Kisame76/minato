@@ -147,7 +147,7 @@ ENTRY_WEAK_FOR_NATIVE_BRIDGE(sigsetjmp)
   // Mask off the signal flag bit.
   bic x1, x1, #1
 
-  // APK-Runner (ADR-0019, ADR-0021): no shadow call stack, and XNU clears x18 at every context
+  // Minato (ADR-0019, ADR-0021): no shadow call stack, and XNU clears x18 at every context
   // switch, so x18 is neither saved nor restored. The slot stays in the jmp_buf and holds 0.
   mov x3, xzr
 

@@ -3,7 +3,7 @@ import SwiftUI
 import os
 
 @main
-struct APKRunnerApp: App {
+struct MinatoApp: App {
     @State private var library: LibraryModel
     @State private var signing: SigningCoordinator
     @Environment(\.scenePhase) private var scenePhase
@@ -12,7 +12,7 @@ struct APKRunnerApp: App {
         let library = LibraryModel()
         _library = State(initialValue: library)
         _signing = State(initialValue: SigningCoordinator(library: library))
-        Logger(subsystem: "io.github.kisame76.apkrunner", category: "runtime")
+        Logger(subsystem: "io.github.kisame76.minato", category: "runtime")
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG
         SpikeRunner.runIfRequested()
@@ -28,7 +28,7 @@ struct APKRunnerApp: App {
                 .environment(library)
                 .environment(signing)
                 .onOpenURL { url in
-                    // The stores' certificate export answers with apkrunner://; anything else is a file.
+                    // The stores' certificate export answers with minato://; anything else is a file.
                     if !signing.handle(url) {
                         Task { await library.open(url) }
                     }

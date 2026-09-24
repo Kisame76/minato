@@ -1,4 +1,4 @@
-// APK-Runner's liblog.so (ADR-0021): the NDK's logging API (android/log.h), guest code next to
+// Minato's liblog.so (ADR-0021): the NDK's logging API (android/log.h), guest code next to
 // bionic. Android's liblog sends messages to the logd service; there is none here, so the device's
 // logger writes "<priority>/<tag>: <message>" lines to stderr, which the runtime owns. Everything a
 // program can observe follows the NDK's documentation: return values, loggability (no log.tag

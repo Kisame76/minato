@@ -49,9 +49,9 @@ public enum CallbackError: Error, Equatable, Sendable {
     case expired
 }
 
-/// A store's answer to an `ExportRequest`: `apkrunner://certificate?request=…&cert=…&password=…`.
+/// A store's answer to an `ExportRequest`: `minato://certificate?request=…&cert=…&password=…`.
 public struct CertificateCallback: Sendable, Equatable {
-    public static let scheme = "apkrunner"
+    public static let scheme = "minato"
     public static let host = "certificate"
     /// A .p12 with one certificate and its key is a few KiB.
     public static let maximumCertificateSize = 65_536

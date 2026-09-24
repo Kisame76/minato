@@ -4,7 +4,7 @@ import Foundation
 import Security
 import os
 
-private let log = Logger(subsystem: "io.github.kisame76.apkrunner", category: "signing")
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "signing")
 
 enum CertificateImportError: LocalizedError, Equatable {
     case unreadable(String)
@@ -19,21 +19,21 @@ enum CertificateImportError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unreadable(let reason):
-            "The file is not a certificate APK-Runner can read (\(reason))."
+            "The file is not a certificate Minato can read (\(reason))."
         case .wrongPassword:
             "The password is not correct."
         case .notTheAppsCertificate(.some(.sideStore)):
-            "SideStore has a newer certificate than the one APK-Runner is installed with. Re-sign APK-Runner in SideStore first."
+            "SideStore has a newer certificate than the one Minato is installed with. Re-sign Minato in SideStore first."
         case .notTheAppsCertificate(.some(.altStore)):
-            "AltStore has a newer certificate than the one APK-Runner is installed with. Refresh APK-Runner in AltStore first."
+            "AltStore has a newer certificate than the one Minato is installed with. Refresh Minato in AltStore first."
         case .notTheAppsCertificate(.none):
-            "This is not the certificate APK-Runner is installed with, so iOS would not run code signed with it."
+            "This is not the certificate Minato is installed with, so iOS would not run code signed with it."
         case .selfTestFailed(let reason):
             "iOS does not run code signed with this certificate: \(reason)"
         case .keychain(let status):
             "The certificate could not be saved in the keychain (error \(status))."
         case .ownCertificateUnreadable(let reason):
-            "APK-Runner cannot read the certificate it is signed with (\(reason)), so it cannot check this one."
+            "Minato cannot read the certificate it is signed with (\(reason)), so it cannot check this one."
         }
     }
 }
