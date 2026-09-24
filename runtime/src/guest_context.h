@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <sys/ucontext.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -24,6 +25,11 @@ struct GuestContext {
     std::uint64_t fpcr;
     __uint128_t q[32];
 };
+static_assert(offsetof(GuestContext, sp) == 248 && offsetof(GuestContext, pc) == 256 &&
+                  offsetof(GuestContext, nzcv) == 264 && offsetof(GuestContext, fpsr) == 272 &&
+                  offsetof(GuestContext, fpcr) == 280 && offsetof(GuestContext, q) == 288 &&
+                  sizeof(GuestContext) == 800,
+              "layout used by apkrt_call_guest in syscall_entry.S");
 
 /// The host signal the runtime sends a thread to run code in its signal context (signals.h).
 /// Darwin's SIGURG: ignored by default, and free, because guest signals are emulated.

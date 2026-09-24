@@ -9,6 +9,7 @@
 #include "APKRuntime/guest_interface.h"
 
 #include "dl.h"
+#include "guest_call.h"
 #include "loader.h"
 #include "process_exit.h"
 #include "syscall_frame.h"
@@ -45,7 +46,7 @@ void enter_program(void *argument) {
     if (start.dynamic) {
         if (auto *start_main_thread = apkrt::dl::start_main_thread()) {
             auto guest_start = apkrt::dl::guest_start(reinterpret_cast<void *>(start.stack_pointer));
-            if (start_main_thread(&guest_start) != 0) {
+            if (apkrt::call_guest(start_main_thread, &guest_start) != 0) {
                 static const char message[] = "apkrt: too many objects with TLS for the main thread\n";
                 static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
                 apkrt::process::exit(127);
@@ -57,7 +58,7 @@ void enter_program(void *argument) {
         auto **const argv = reinterpret_cast<char **>(words + 1);
         apkrt::dl::finish_start(argc, argv, argv + argc + 1);
     }
-    apkrt_enter_guest(start.entry, start.stack_pointer);
+    apkrt::signals::enter_guest(start.entry, start.stack_pointer);
 }
 
 void *program_thread(void *argument) {

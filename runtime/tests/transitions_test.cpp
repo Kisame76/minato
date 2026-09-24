@@ -4,6 +4,7 @@
 // make their syscalls through the veneer's exact instructions (threads_probe.S, transitions_probe.S);
 // the signals come from the test's own thread, like from another thread of the program.
 #include "dl.h"
+#include "linker.h"
 #include "signals.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -356,6 +357,47 @@ TEST(a_runtime_signal_knows_the_edges_of_a_syscall) {
     CHECK(where_stopped(returned, true) == Stopped::in_runtime);
     CHECK(where_stopped(address(probe_loop_begin), false) == Stopped::in_guest_code);
     CHECK(where_stopped(address(probe_loop_begin), true) == Stopped::in_runtime);
+    // apkrt_call_guest's own words are runtime code: after the guest code returned, in_runtime is
+    // still clear until the helper sets it.
+    CHECK(where_stopped(reinterpret_cast<std::uint64_t>(&apkrt_call_guest), false) == Stopped::in_runtime);
+    CHECK(where_stopped(address(apkrt_call_guest_end) - 4, false) == Stopped::in_runtime);
+    // The loader's stubs: on the way in the thread counts as in the runtime already, on the way out
+    // as back at its caller.
+    CHECK(where_stopped(reinterpret_cast<std::uint64_t>(&apkrt_loader_dladdr), false) == Stopped::in_runtime);
+    CHECK(where_stopped(address(apkrt_loader_back) - 4, false) == Stopped::in_runtime);  // the blr
+    CHECK(where_stopped(address(apkrt_loader_back), false) == Stopped::leaving_loader);
+    CHECK(where_stopped(address(apkrt_loader_return), false) == Stopped::leaving_loader);
+}
+
+// ADR-0025: a thread stopped in a loader stub after its call returned gets its caller's state, as if
+// the stub had run to its end: x16 and x30 from the stub's words, sp above them, pc = x30.
+TEST(a_thread_stopped_on_its_way_out_of_the_loader_is_back_at_the_caller) {
+    alignas(16) static std::uint64_t saved[2];
+    saved[0] = 0x1616;
+    saved[1] = address(probe_call_return);  // the caller's return address, which the stub saved
+    _STRUCT_MCONTEXT64 machine{};
+    ucontext_t uc{};
+    uc.uc_mcontext = &machine;
+    machine.__ss.__x[0] = 7;  // the result
+    machine.__ss.__x[19] = 0x1919;
+    machine.__ss.__pc = address(apkrt_loader_back);  // before the ldp
+    machine.__ss.__sp = address(&saved[0]);
+    machine.__ss.__lr = address(apkrt_loader_back);  // the entry's return, into the stub
+    auto after = apkrt::signals::after_loader_call(uc);
+    CHECK(after.pc == address(probe_call_return));
+    CHECK(after.sp == address(&saved[2]));
+    CHECK(after.x[16] == 0x1616 && after.x[30] == address(probe_call_return));
+    CHECK(after.x[0] == 7 && after.x[19] == 0x1919);
+    for (const auto pc : {address(apkrt_loader_back) + 4, address(apkrt_loader_return)}) {
+        machine.__ss.__pc = pc;  // after the ldp
+        machine.__ss.__sp = address(&saved[2]);
+        machine.__ss.__x[16] = 0x1616;
+        machine.__ss.__lr = address(probe_call_return);
+        after = apkrt::signals::after_loader_call(uc);
+        CHECK(after.pc == address(probe_call_return));
+        CHECK(after.sp == address(&saved[2]));
+        CHECK(after.x[0] == 7 && after.x[16] == 0x1616);
+    }
 }
 
 /// A guest stack with a syscall frame on it as syscall_entry.S leaves it for a syscall from
@@ -539,7 +581,7 @@ struct LoaderView {
     std::atomic<int> calling{0};
     std::atomic<int> returned{0};
     std::uint64_t result = ~std::uint64_t{0};
-    int after = -1;  // SIGUSR1 handlers that ran by the first word after the call
+    int after = -1;  // SIGUSR1 handlers that ran from the call's start to the first word after it
 };
 apkrt_loader loader_table{};
 
@@ -560,39 +602,38 @@ void loader_child(void *argument) {
     view.returned = 1;
 }
 
-// ADR-0025, decision 4: while ld-android.so's call into the loader runs, the thread is in the runtime:
-// a signal waits for the call's return and arrives right there, on the caller's registers and pc.
-TEST(a_signal_waits_for_a_call_into_the_loader_to_return) {
+// ADR-0025, decision 7: a thread whose call into the loader waits for the loader's lock still takes
+// signals, as linker64's waiters for g_dl_mutex do; a garbage collector that stops the lock's holder
+// may wait for it. Its call then runs to the end, and the signal is not delivered twice.
+TEST(a_thread_that_waits_for_the_loader_s_lock_takes_signals) {
     apkrt::dl::set_loader_functions(loader_table);
     static LoaderView view;
     view.tid = 0;
     view.calling = 0;
     view.returned = 0;
-    seen.pcs_recorded = 0;
     const int before = seen.count[sigusr1].load();
     void *stack = map_stack();
     CHECK(stack != nullptr);
     int tid_word = 0;
     int during = -1;
     {
-        const std::lock_guard held(apkrt::dl::lock());  // the call waits for it, inside the loader
+        const std::lock_guard held(apkrt::dl::lock());  // the call waits for it
         CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, loader_child, &view) > 0);
         while (view.calling.load() == 0) std::this_thread::yield();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        seen.recording = true;
         CHECK(send(view.tid.load(), sigusr1) == 0);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (seen.count[sigusr1].load() == before && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         during = seen.count[sigusr1].load() - before;
-        CHECK(view.returned.load() == 0);
+        CHECK(view.returned.load() == 0);  // still waiting
     }
     join(&tid_word);
-    seen.recording = false;
     ::munmap(stack, stack_size);
-    CHECK(during == 0);
+    CHECK(during == 1);
     CHECK(view.result == 0);  // no loaded library holds the address
-    CHECK(view.after == 1);
-    CHECK(seen.pcs_recorded.load() == 1);
-    if (seen.pcs_recorded.load() == 1) CHECK(seen.pcs[0] == address(probe_call_return));
+    CHECK(view.after == 1);   // the one delivery, while it waited
 }
 
 const char *program = nullptr;  // argv[0], to start the test again in a child process
@@ -645,6 +686,192 @@ TEST(a_fault_in_the_loader_is_the_runtime_s_own) {
     if (guest_handler) std::fprintf(stderr, "the fault in the loader went to the guest's handler\n");
     CHECK(!guest_handler);
     CHECK(WIFSIGNALED(status) || (WIFEXITED(status) && WEXITSTATUS(status) != 0 && WEXITSTATUS(status) != 3));
+}
+
+constexpr std::uint64_t nr_getpid = 172, nr_exit = 93;
+
+std::uint64_t guest_sum(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
+    return a0 + a1 + a2;
+}
+
+struct CallView {
+    std::atomic<long> tid{0};
+    std::atomic<int> spinning{0};
+    int in_runtime_inside = -1;        // what the guest function found
+    int in_runtime_after_syscall = -1;  // after its own syscall
+    int arrived_inside = -1;           // the signal from the test thread came while it ran
+    std::uint64_t result = 0;
+    int in_runtime_after = -1;         // what the runtime found after the call
+};
+CallView call_view;
+
+std::uint64_t guest_function(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
+    auto &view = call_view;
+    view.in_runtime_inside = static_cast<int>(apkrt::signals::current().in_runtime.load());
+    // First without a syscall, whose exit would clear the flag anyway.
+    const int before = seen.count[sigusr1].load();
+    view.spinning = 1;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (seen.count[sigusr1].load() == before && std::chrono::steady_clock::now() < deadline) {
+    }
+    view.arrived_inside = static_cast<int>(seen.count[sigusr1].load() != before);
+    CHECK(probe_syscall(nr_getpid, 0) == ::getpid());
+    view.in_runtime_after_syscall = static_cast<int>(apkrt::signals::current().in_runtime.load());
+    return a0 + a1 + a2;
+}
+
+void call_child(void *) {
+    auto &view = call_view;
+    view.tid = probe_syscall(nr_gettid, 0);
+    auto &state = apkrt::signals::current();
+    state.in_runtime = true;  // as in the runtime's own code, where it calls guest code
+    view.result = apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_function), 1, 20, 300);
+    view.in_runtime_after = static_cast<int>(state.in_runtime.load());
+    state.in_runtime = false;  // back in the test's code, guest code again
+}
+
+// ADR-0025, decision 5: the runtime calls guest code through apkrt_call_guest, which clears in_runtime
+// for the call and sets it again after, also when the guest code's own syscall cleared it. A signal
+// from another thread reaches the guest code while it runs.
+TEST(the_runtime_calls_guest_code_as_guest_code) {
+    auto &view = call_view;
+    view.tid = 0;
+    view.spinning = 0;
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, call_child, nullptr) > 0);
+    while (view.spinning.load() == 0) std::this_thread::yield();
+    CHECK(send(view.tid.load(), sigusr1) == 0);
+    join(&tid_word);
+    ::munmap(stack, stack_size);
+    CHECK(view.in_runtime_inside == 0);
+    CHECK(view.in_runtime_after_syscall == 0);
+    CHECK(view.arrived_inside == 1);
+    CHECK(view.result == 321);
+    CHECK(view.in_runtime_after == 1);
+}
+
+struct StartView {
+    int in_runtime_at_start = -1;
+    int handled_at_start = -1;
+};
+int handled_before_start;
+StartView start_view;
+void *program_stack = nullptr;
+
+[[noreturn]] void program_entry() {
+    start_view.handled_at_start = seen.count[sigusr1].load() - handled_before_start;
+    start_view.in_runtime_at_start = static_cast<int>(apkrt::signals::current().in_runtime.load());
+    probe_syscall(nr_exit, 0);
+    __builtin_trap();  // exit does not return
+}
+
+void start_child(void *) {
+    const auto tid = static_cast<std::int32_t>(probe_syscall(nr_gettid, 0));
+    apkrt::signals::current().in_runtime = true;  // the program thread runs the runtime until then
+    // A signal that came while the runtime set the program up, from its constructors, say.
+    handled_before_start = seen.count[sigusr1].load();
+    apkrt::signals::LinuxSiginfo info{};
+    info.signo = static_cast<std::int32_t>(sigusr1);
+    apkrt::signals::send_to_thread(tid, static_cast<int>(sigusr1), info);  // own thread: pending
+    apkrt::signals::enter_guest(reinterpret_cast<std::uint64_t>(&program_entry),
+                                reinterpret_cast<std::uint64_t>(top_of(program_stack)) - 64);
+}
+
+// ADR-0025, decision 6: the program starts as guest code, and what became pending while the runtime
+// worked arrives before its first instruction.
+TEST(the_program_starts_as_guest_code) {
+    program_stack = map_stack();
+    void *stack = map_stack();
+    CHECK(stack != nullptr && program_stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, start_child, nullptr) > 0);
+    join(&tid_word);
+    ::munmap(stack, stack_size);
+    ::munmap(program_stack, stack_size);
+    CHECK(start_view.in_runtime_at_start == 0);
+    CHECK(start_view.handled_at_start == 1);
+}
+
+struct ConstructorView {
+    int in_runtime_inside = -1;
+    int arguments_seen = 0;
+    int in_runtime_after = -1;
+};
+ConstructorView constructor_view;
+
+void constructor(int argc, char **argv, char **envp) {
+    constructor_view.in_runtime_inside = static_cast<int>(apkrt::signals::current().in_runtime.load());
+    constructor_view.arguments_seen = static_cast<int>(argc == 1 && argv != nullptr && envp != nullptr);
+    CHECK(probe_syscall(nr_getpid, 0) == ::getpid());  // its exit clears in_runtime
+}
+
+void constructors_child(void *) {
+    static const std::uint64_t init_array[] = {reinterpret_cast<std::uint64_t>(&constructor)};
+    static apkrt::linker::Object object;
+    object.name = "libconstructor.so";
+    object.dynamic.init_array = init_array;
+    const apkrt::linker::Object *objects[] = {&object};
+    static char name[] = "program";
+    static char *argv[] = {name, nullptr};
+    static char *envp[] = {nullptr};
+    auto &state = apkrt::signals::current();
+    state.in_runtime = true;  // as in dlopen, which runs them
+    apkrt::linker::run_constructors(objects, 1, argv, envp, false);
+    constructor_view.in_runtime_after = static_cast<int>(state.in_runtime.load());
+    state.in_runtime = false;
+}
+
+// ADR-0025, decision 5, at a call site: the loader runs a library's constructors as guest code, and
+// is back in the runtime once they return, although the constructor made a syscall.
+TEST(constructors_run_as_guest_code) {
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, constructors_child, nullptr) > 0);
+    join(&tid_word);
+    ::munmap(stack, stack_size);
+    CHECK(constructor_view.in_runtime_inside == 0);
+    CHECK(constructor_view.arguments_seen == 1);
+    CHECK(constructor_view.in_runtime_after == 1);
+}
+
+int handled_before_call = 0;
+int handled_at_first_word = -1;
+
+std::uint64_t count_on_entry(std::uint64_t, std::uint64_t, std::uint64_t) {
+    handled_at_first_word = seen.count[sigusr1].load() - handled_before_call;
+    return 0;
+}
+
+void pending_call_child(void *) {
+    const auto tid = static_cast<std::int32_t>(probe_syscall(nr_gettid, 0));
+    auto &state = apkrt::signals::current();
+    state.in_runtime = true;  // the runtime works, a signal comes, then it calls guest code
+    handled_before_call = seen.count[sigusr1].load();
+    apkrt::signals::LinuxSiginfo info{};
+    info.signo = static_cast<std::int32_t>(sigusr1);
+    apkrt::signals::send_to_thread(tid, static_cast<int>(sigusr1), info);  // own thread: pending
+    apkrt_call_guest(reinterpret_cast<std::uint64_t>(&count_on_entry), 0, 0, 0);
+    state.in_runtime = false;
+}
+
+// ADR-0025, decision 5: a signal that became pending while the runtime worked arrives before the first
+// instruction of the guest code the runtime calls, which may never make a syscall.
+TEST(a_pending_signal_arrives_when_the_runtime_calls_guest_code) {
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, pending_call_child, nullptr) > 0);
+    join(&tid_word);
+    ::munmap(stack, stack_size);
+    CHECK(handled_at_first_word == 1);
+}
+
+// On a host thread (this test's own), apkrt_call_guest is a plain call.
+TEST(a_host_thread_calls_guest_code_directly) {
+    CHECK(apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_sum), 4, 50, 600) == 654);
 }
 
 }  // namespace

@@ -45,9 +45,17 @@ int apkrt_loader_dlclose(void *handle);
 const char *apkrt_loader_dlerror(void);
 int apkrt_loader_dladdr(const void *address, void *info);
 extern const std::uint32_t apkrt_loader_return[];
+/// Labels around the stubs (ADR-0025): from apkrt_loader_stubs up to apkrt_loader_back the thread
+/// is on its way into the loader, from there to apkrt_loader_end on its way back to the caller.
+extern const std::uint32_t apkrt_loader_stubs[];
+extern const std::uint32_t apkrt_loader_back[];
+extern const std::uint32_t apkrt_loader_end[];
 
-/// syscall_entry.S: switches to `stack_pointer`, clears every register and jumps to `entry`.
-[[noreturn]] void apkrt_enter_guest(std::uint64_t entry, std::uint64_t stack_pointer);
+/// syscall_entry.S: calls guest code at `function` from the runtime with up to three arguments and
+/// returns its x0; the thread counts as in guest code while it runs (ADR-0025).
+std::uint64_t apkrt_call_guest(std::uint64_t function, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2);
+extern const std::uint32_t apkrt_call_guest_end[];
+
 
 /// syscall_entry.S: _setjmp and _longjmp for the host side of guest threads.
 struct apkrt_host_context {

@@ -413,6 +413,8 @@ void handle_runtime_signal(int, siginfo_t *, void *raw) {
         if ((state.pending.load() & ~state.mask.load()) == 0) return;
         if (stopped == Stopped::returning) {
             context = after_syscall_exit(uc, state.pending.load() & ~state.mask.load());
+        } else if (stopped == Stopped::leaving_loader) {
+            context = after_loader_call(uc);
         } else {
             context = context_from(uc);
         }
@@ -504,6 +506,13 @@ void resume(const GuestContext &context) {
     process::exit(127);
 }
 
+void enter_guest(std::uint64_t entry, std::uint64_t stack_pointer) {
+    GuestContext context{};  // every register 0, the flags, FPSR and FPCR as well
+    context.pc = entry;
+    context.sp = stack_pointer;
+    resume(context);
+}
+
 LinuxSigaction action(int signal) {
     const SpinLock lock(actions_lock);
     return actions[signal];
@@ -584,7 +593,12 @@ bool within(std::uint64_t pc, const void *begin, const void *end) {
 
 Stopped where_stopped(std::uint64_t pc, bool in_runtime) {
     if (within(pc, apkrt_syscall_returning, apkrt_syscall_returned)) return Stopped::returning;
-    if (in_runtime || within(pc, reinterpret_cast<const void *>(&apkrt_syscall_entry), apkrt_syscall_entered)) {
+    if (within(pc, apkrt_loader_back, apkrt_loader_end)) return Stopped::leaving_loader;
+    // The entry before its store, a loader stub on its way into the loader, and apkrt_call_guest's
+    // words after the guest code returned, before it sets the flag again.
+    if (in_runtime || within(pc, reinterpret_cast<const void *>(&apkrt_syscall_entry), apkrt_syscall_entered) ||
+        within(pc, apkrt_loader_stubs, apkrt_loader_back) ||
+        within(pc, reinterpret_cast<const void *>(&apkrt_call_guest), apkrt_call_guest_end)) {
         return Stopped::in_runtime;
     }
     return Stopped::in_guest_code;
@@ -606,6 +620,18 @@ GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable)
     frame.fpsr = machine.__ns.__fpsr;
     std::memcpy(frame.q, machine.__ns.__v, sizeof frame.q);
     return after_syscall(frame, machine.__ss.__sp, deliverable);
+}
+
+GuestContext after_loader_call(const ucontext_t &uc) {
+    auto context = context_from(uc);
+    if (context.pc == reinterpret_cast<std::uint64_t>(apkrt_loader_back)) {  // before the ldp x16, x30, [sp], #16
+        const auto *saved = reinterpret_cast<const std::uint64_t *>(context.sp);
+        context.x[16] = saved[0];
+        context.x[30] = saved[1];
+        context.sp += 16;
+    }
+    context.pc = context.x[30];
+    return context;
 }
 
 ThreadSignals *at_syscall_exit() {
@@ -649,3 +675,7 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
 }
 
 }  // namespace apkrt::signals
+
+extern "C" void apkrt_call_guest_enter(const apkrt::GuestContext *context) {
+    apkrt::signals::resume(*context);
+}

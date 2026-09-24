@@ -1,5 +1,7 @@
 #include "linker.h"
 
+#include "guest_call.h"
+
 #include <algorithm>
 #include <cstring>
 #include <format>
@@ -248,7 +250,7 @@ std::uint64_t call_ifunc_resolver(std::uint64_t resolver) {
     static const Argument argument{sizeof(Argument), loader::guest_hwcap, 0};
     constexpr std::uint64_t ifunc_arg_hwcap = std::uint64_t{1} << 62;  // _IFUNC_ARG_HWCAP
     using Resolver = std::uint64_t (*)(std::uint64_t, const Argument *);
-    return reinterpret_cast<Resolver>(resolver)(argument.hwcap | ifunc_arg_hwcap, &argument);
+    return call_guest(reinterpret_cast<Resolver>(resolver), argument.hwcap | ifunc_arg_hwcap, &argument);
 }
 
 /// The host address of `symbol`, which `object` defines.
@@ -615,7 +617,7 @@ void run_constructors(std::span<const Object *const> objects, int argc, char **a
     using Constructor = void (*)(int, char **, char **);
     // Entries of 0 and -1 are skipped, as linker64 does.
     const auto call = [&](std::uint64_t address) {
-        if (address != 0 && address != ~std::uint64_t{0}) reinterpret_cast<Constructor>(address)(argc, argv, envp);
+        if (address != 0 && address != ~std::uint64_t{0}) call_guest(reinterpret_cast<Constructor>(address), argc, argv, envp);
     };
     if (objects.empty()) return;
     if (program) {

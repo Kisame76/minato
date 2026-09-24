@@ -1,4 +1,4 @@
-// The two places where control passes between host and guest code (ADR-0019).
+// The places where control passes between host and guest code (ADR-0019, ADR-0025).
 //
 // apkrt_syscall_entry: called by every svc veneer in converted guest code. The veneer has saved
 // x16 and x30; this entry saves all other registers, NZCV and FPSR in a struct apkrt_syscall_frame
@@ -11,8 +11,9 @@
 // so that none gets lost between the dispatcher's end and guest code. The runtime signal's handler
 // knows the words before the set and after the clear by the labels below.
 //
-// apkrt_enter_guest: starts a guest program the way Linux starts an executable: stack pointer on
-// the start stack (argc, argv, envp, auxv), every register zero.
+// The loader's stubs: libdl's calls from ld-android.so, as syscalls through the entry.
+//
+// apkrt_call_guest: the runtime's calls into guest code, which run as guest code.
 //
 // apkrt_save_host / apkrt_return_to_host: _setjmp and _longjmp for the host side of a guest thread
 // (threads.cpp), so that SYS_exit gets back to the host's stack. Our own, because libc's longjmp
@@ -156,6 +157,10 @@ _apkrt_syscall_returned:
 // the return. Each stub puts its number into x8 and calls the entry with the veneer's instructions;
 // x8 and x16 are free across a call. The veneer's branch leads to the ret, which the runtime skips
 // when it delivers there: the state is then the caller's, after the call.
+    .text
+    .p2align 2
+    .globl _apkrt_loader_stubs
+_apkrt_loader_stubs:
 .macro LOADER_STUB name, number
     .p2align 2
     .globl _\name
@@ -177,83 +182,99 @@ Lloader_call:
     adrp    x16, _apkrt_syscall_entry@PAGE
     add     x16, x16, _apkrt_syscall_entry@PAGEOFF
     blr     x16
+    .globl _apkrt_loader_back
+_apkrt_loader_back:
     ldp     x16, x30, [sp], #16
     b       _apkrt_loader_return
     .globl _apkrt_loader_return
 _apkrt_loader_return:
     ret
+    .globl _apkrt_loader_end
+_apkrt_loader_end:
 
-// void apkrt_enter_guest(uint64_t entry, uint64_t stack_pointer)  -- never returns
+// The calling GuestThread into \reg, 0 on a host thread: what pthread_getspecific finds under
+// apkrt_guest_thread_key (~0 while no guest thread exists). Uses x9 and x10.
+.macro GUEST_THREAD reg
+    mov     \reg, #0
+    adrp    x9, _apkrt_guest_thread_key@PAGE
+    ldr     x9, [x9, _apkrt_guest_thread_key@PAGEOFF]
+    add     x10, x9, #1
+    cbz     x10, 1f
+    mrs     x10, TPIDRRO_EL0
+    and     x10, x10, #~7
+    ldr     \reg, [x10, x9, lsl #3]
+1:
+.endm
+
+// uint64_t apkrt_call_guest(uint64_t function, uint64_t a0, uint64_t a1, uint64_t a2)
+//   On a guest thread, the call goes through the runtime signal, as clone's start does: resume()
+//   switches to the guest code and clears in_runtime in one step, and delivers what became pending
+//   while the runtime worked before the guest code's first word. The guest code returns to 2:, which
+//   sets the flag again; a runtime signal treats these words as runtime code. On a host thread it is
+//   a plain call.
+#define CONTEXT_SIZE 800  // sizeof(apkrt::GuestContext)
     .p2align 2
-    .globl _apkrt_enter_guest
-_apkrt_enter_guest:
-    mov     sp, x1
+    .globl _apkrt_call_guest
+_apkrt_call_guest:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    str     x19, [sp, #16]
+    GUEST_THREAD x19                        // x19: the guest code keeps it
+    cbnz    x19, 1f
     mov     x16, x0
-    msr     nzcv, xzr
-    msr     fpsr, xzr
-    msr     fpcr, xzr
-    movi    v0.2d, #0
-    movi    v1.2d, #0
-    movi    v2.2d, #0
-    movi    v3.2d, #0
-    movi    v4.2d, #0
-    movi    v5.2d, #0
-    movi    v6.2d, #0
-    movi    v7.2d, #0
-    movi    v8.2d, #0
-    movi    v9.2d, #0
-    movi    v10.2d, #0
-    movi    v11.2d, #0
-    movi    v12.2d, #0
-    movi    v13.2d, #0
-    movi    v14.2d, #0
-    movi    v15.2d, #0
-    movi    v16.2d, #0
-    movi    v17.2d, #0
-    movi    v18.2d, #0
-    movi    v19.2d, #0
-    movi    v20.2d, #0
-    movi    v21.2d, #0
-    movi    v22.2d, #0
-    movi    v23.2d, #0
-    movi    v24.2d, #0
-    movi    v25.2d, #0
-    movi    v26.2d, #0
-    movi    v27.2d, #0
-    movi    v28.2d, #0
-    movi    v29.2d, #0
-    movi    v30.2d, #0
-    movi    v31.2d, #0
-    mov     x0, xzr
-    mov     x1, xzr
-    mov     x2, xzr
-    mov     x3, xzr
-    mov     x4, xzr
-    mov     x5, xzr
-    mov     x6, xzr
-    mov     x7, xzr
-    mov     x8, xzr
-    mov     x9, xzr
-    mov     x10, xzr
-    mov     x11, xzr
-    mov     x12, xzr
-    mov     x13, xzr
-    mov     x14, xzr
-    mov     x15, xzr
-    mov     x17, xzr
-    mov     x19, xzr
-    mov     x20, xzr
-    mov     x21, xzr
-    mov     x22, xzr
-    mov     x23, xzr
-    mov     x24, xzr
-    mov     x25, xzr
-    mov     x26, xzr
-    mov     x27, xzr
-    mov     x28, xzr
-    mov     x29, xzr
-    mov     x30, xzr
-    br      x16
+    mov     x0, x1
+    mov     x1, x2
+    mov     x2, x3
+    blr     x16
+    b       3f
+1:  sub     sp, sp, #CONTEXT_SIZE           // the GuestContext to resume
+    stp     x1, x2, [sp, #0]                // x0-x2: the arguments, the other argument registers 0
+    stp     x3, xzr, [sp, #16]
+    stp     xzr, xzr, [sp, #32]
+    stp     xzr, xzr, [sp, #48]
+    stp     xzr, xzr, [sp, #64]
+    stp     xzr, xzr, [sp, #80]
+    stp     xzr, xzr, [sp, #96]
+    stp     xzr, xzr, [sp, #112]
+    stp     xzr, xzr, [sp, #128]
+    stp     xzr, x19, [sp, #144]            // x19-x29 as they are: the guest code keeps them
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    adr     x9, 2f
+    add     x10, sp, #CONTEXT_SIZE
+    stp     x9, x10, [sp, #240]             // x30: the word after the call; sp: above this context
+    stp     x0, xzr, [sp, #256]             // pc: the function; NZCV 0
+    mrs     x9, fpsr
+    mrs     x10, fpcr
+    stp     x9, x10, [sp, #272]
+    stp     q0, q1, [sp, #288]              // v8-v15 as they are, the guest code keeps them
+    stp     q2, q3, [sp, #320]
+    stp     q4, q5, [sp, #352]
+    stp     q6, q7, [sp, #384]
+    stp     q8, q9, [sp, #416]
+    stp     q10, q11, [sp, #448]
+    stp     q12, q13, [sp, #480]
+    stp     q14, q15, [sp, #512]
+    stp     q16, q17, [sp, #544]
+    stp     q18, q19, [sp, #576]
+    stp     q20, q21, [sp, #608]
+    stp     q22, q23, [sp, #640]
+    stp     q24, q25, [sp, #672]
+    stp     q26, q27, [sp, #704]
+    stp     q28, q29, [sp, #736]
+    stp     q30, q31, [sp, #768]
+    mov     x0, sp
+    bl      _apkrt_call_guest_enter         // resumes the context, never returns
+2:  mov     w9, #1                          // the guest code returned, with sp above the context
+    strb    w9, [x19, #IN_RUNTIME]
+3:  ldr     x19, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+    .globl _apkrt_call_guest_end
+_apkrt_call_guest_end:
 
 // int apkrt_save_host(uint64_t context[22]): callee-saved registers, sp and lr; returns 0, and 1
 // when apkrt_return_to_host comes back to it.

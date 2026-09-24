@@ -119,6 +119,11 @@ void set_default_restorer(std::uint64_t address);
 /// until the runtime signal's handler switches to the context. Never returns.
 [[noreturn]] void resume(const GuestContext &context);
 
+/// Starts guest code at `entry` the way Linux starts an executable: the stack pointer at
+/// `stack_pointer`, every other register zero, and the thread in guest code from the first word, with
+/// what became pending while the runtime worked delivered first (ADR-0025). Never returns.
+[[noreturn]] void enter_guest(std::uint64_t entry, std::uint64_t stack_pointer);
+
 /// The disposition of a signal, and setting it (sys_signals.cpp checks the arguments).
 LinuxSigaction action(int signal);
 void set_action(int signal, const LinuxSigaction &action);
@@ -156,6 +161,7 @@ enum class Stopped {
     in_runtime,     // runtime code, or the syscall entry before it set in_runtime: signals wait
     in_guest_code,  // the signal context is the guest's
     returning,      // the syscall exit after it cleared in_runtime: counts as returned
+    leaving_loader,  // a loader stub after its call returned: counts as back at the caller
 };
 Stopped where_stopped(std::uint64_t pc, bool in_runtime);
 
@@ -163,9 +169,17 @@ Stopped where_stopped(std::uint64_t pc, bool in_runtime);
 /// its end, with the slow path's SA_RESTART rule for the `deliverable` signals.
 GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable);
 
+/// For a thread stopped `leaving_loader`: the caller's state after its call, as if the stub had run
+/// to its end.
+GuestContext after_loader_call(const ucontext_t &uc);
+
 /// A signal frame's ucontext for rt_sigreturn: restores the mask and the alternate stack of the
 /// calling thread and returns the registers to resume. False when `address` holds no frame the
 /// syscall layer can read.
 bool read_frame(std::uint64_t address, GuestContext &context);
 
 }  // namespace apkrt::signals
+
+/// Called by apkrt_call_guest in syscall_entry.S on a guest thread: resumes `context`, the guest
+/// function's entry.
+extern "C" [[noreturn]] void apkrt_call_guest_enter(const apkrt::GuestContext *context);
