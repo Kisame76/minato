@@ -179,9 +179,36 @@ std::vector<elf::Section> sections_for_scan(std::span<const std::byte> elf_bytes
     return sections;
 }
 
+/// Where the tables of jump tables may lie (ADR-0020 X2d): in a section that is loaded but neither
+/// written nor run, backed by the file part of a LOAD segment that is not writable either. Code
+/// could change a table anywhere else, or the rewriter could, taking its words for instructions.
+rewrite::ReadOnlyData read_only_data(const elf::File &file, std::span<const std::byte> elf_bytes,
+                                     const std::vector<elf::Section> &sections) {
+    // Whether [start, start + size) lies within `limit` bytes, without overflowing (as elf.cpp's fits).
+    const auto within = [](std::uint64_t start, std::uint64_t size, std::uint64_t limit) {
+        return start <= limit && size <= limit - start;
+    };
+    return [&file, elf_bytes, &sections, within](std::uint64_t address, std::size_t size) -> std::span<const std::byte> {
+        constexpr auto kinds = elf::section_allocated | elf::section_writable | elf::section_executable;
+        const bool in_section = std::ranges::any_of(sections, [&](const elf::Section &section) {
+            return (section.flags & kinds) == elf::section_allocated && section.type != elf::section_type_nobits &&
+                   address >= section.address && within(address - section.address, size, section.size);
+        });
+        const auto *segment = elf::load_containing(file, address, size);  // bounds address in the segment
+        if (!in_section || segment == nullptr || (segment->flags & elf::segment_writable) != 0 ||
+            !within(address - segment->address, size, segment->file_size)) {
+            return {};
+        }
+        const auto offset = segment->offset + (address - segment->address);
+        if (!within(offset, size, elf_bytes.size())) return {};
+        return elf_bytes.subspan(static_cast<std::size_t>(offset), size);
+    };
+}
+
 CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_bytes,
                        const std::vector<elf::Section> &sections) {
     CodeScan scan;
+    const auto data = read_only_data(file, elf_bytes, sections);
     for (const auto &section : sections) {
         if ((section.flags & (elf::section_allocated | elf::section_executable)) !=
                 (elf::section_allocated | elf::section_executable) ||
@@ -194,7 +221,7 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
             throw Incompatible(std::format("the executable section {} is not where its segment says", section.name));
         }
         rewrite::scan(elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
-                      section.address, scan.findings);
+                      section.address, scan.findings, data);
         scan.code_bytes += section.size;
     }
     return scan;
@@ -308,6 +335,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
+    for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
     const std::uint64_t image_offset = page_up(stubs_offset + stubs_size);
     const auto container_address = [&](std::uint64_t address) { return image_offset + (address - min_vaddr); };
 
@@ -357,6 +385,17 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                                                           std::span(bytes).subspan(static_cast<std::size_t>(stub),
                                                                                    static_cast<std::size_t>(size)));
         std::memcpy(bytes.data() + region_address, &patch, sizeof patch);
+        stub += size;
+        ++report.x18_islands;
+    }
+    // Each br x18 that ends a jump table: an island with its landing pads (ADR-0020 X2d).
+    for (const auto &table : findings.jump_tables) {
+        const std::uint64_t branch_address = container_address(table.address);
+        const auto size = rewrite::jump_table_stub_size(table);
+        const auto patch = rewrite::emit_jump_table(table, branch_address, stub,
+                                                    std::span(bytes).subspan(static_cast<std::size_t>(stub),
+                                                                             static_cast<std::size_t>(size)));
+        std::memcpy(bytes.data() + branch_address, &patch, sizeof patch);
         stub += size;
         ++report.x18_islands;
     }

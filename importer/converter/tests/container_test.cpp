@@ -255,6 +255,91 @@ TEST(runs_x18_uses_in_islands) {
     CHECK(convert(shadow_call_stack).report.x18_islands == 2);
 }
 
+// A function with a jump table through x18, as clang 8 builds one (ADR-0020 X2d), at 0x200:
+// f(i) returns 10 + i for i from 0 to 3 and -1 otherwise. Its table of 32-bit offsets is at 0x280.
+constexpr std::uint32_t jump_table_code[] = {
+    0xaa00'03f2,               // 0x200 mov x18, x0
+    0xf100'0e5f,               // 0x204 cmp x18, #3
+    0x5400'01c8,               // 0x208 b.hi 0x240
+    0x9000'0009,               // 0x20c adrp x9, 0x0
+    0x910a'0129,               // 0x210 add x9, x9, #0x280
+    0xb8b2'7932,               // 0x214 ldrsw x18, [x9, x18, lsl #2]
+    0x8b09'0252,               // 0x218 add x18, x18, x9
+    0xd61f'0240,               // 0x21c br x18
+    0xd280'0140, 0xd65f'03c0,  // 0x220 mov x0, #10; ret
+    0xd280'0160, 0xd65f'03c0,  // 0x228 mov x0, #11; ret
+    0xd280'0180, 0xd65f'03c0,  // 0x230 mov x0, #12; ret
+    0xd280'01a0, 0xd65f'03c0,  // 0x238 mov x0, #13; ret
+    0x9280'0000, 0xd65f'03c0,  // 0x240 mov x0, #-1; ret
+};
+constexpr std::int32_t jump_table[] = {0x220 - 0x280, 0x228 - 0x280, 0x230 - 0x280, 0x238 - 0x280};
+
+ElfBuilder jump_table_program(std::uint64_t table_section_flags = shf_alloc) {
+    ElfBuilder builder;
+    builder.put<std::uint64_t>(24, 0x200);  // e_entry
+    builder
+        .segments({
+            {pt_phdr, r, 0x40, 0x40, 4 * 56, 4 * 56, 8},
+            {pt_load, r | x, 0, 0, 0x290, 0x290, 0x4000},
+            {pt_load, r | w, 0x2c0, 0x42c0, 0x40, 0x40, 0x4000},
+            {pt_dynamic, r | w, 0x2c0, 0x42c0, 0x40, 0x40, 8},
+        })
+        .dynamic(0x2c0, {{0, 0}});
+    std::memcpy(builder.bytes.data() + 0x200, jump_table_code, sizeof jump_table_code);
+    std::memcpy(builder.bytes.data() + 0x280, jump_table, sizeof jump_table);
+    builder.sections({
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof jump_table_code},
+        {".rodata", sht_progbits, table_section_flags, 0x280, 0x280, sizeof jump_table},
+        {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
+    });
+    return builder;
+}
+
+/// Darwin TSD slot 11 of the calling thread, where the islands keep the guest's x18 (ADR-0020).
+volatile std::uint64_t &guest_x18_slot() {
+    std::uint64_t base;
+    __asm__ volatile("mrs %0, TPIDRRO_EL0" : "=r"(base));
+    return reinterpret_cast<volatile std::uint64_t *>(base & ~std::uint64_t{7})[11];
+}
+
+// The whole jump runs on the Mac: mov, cmp, ldrsw and add on x18 in their islands, then the br
+// through a landing pad to the case, which returns to this test.
+TEST(runs_a_jump_table_through_x18_with_landing_pads) {
+    auto container = convert(jump_table_program());
+    CHECK(container.report.x18_islands == 5);  // four single instructions and the br
+    apk::codesign::sign(container.bytes, {.identifier = "jump-table-program"});
+    const auto path = scratch / "jump-table-program.dylib";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char *>(container.bytes.data()),
+                   static_cast<std::streamsize>(container.bytes.size()));
+    }
+    void *const handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        apk::testing::fail(std::source_location::current(), "dlopen failed: ", dlerror());
+        return;
+    }
+    std::uintptr_t base = 0;
+    for (std::uint32_t index = 0; index < _dyld_image_count(); ++index) {
+        if (path == _dyld_get_image_name(index)) base = reinterpret_cast<std::uintptr_t>(_dyld_get_image_header(index));
+    }
+    CHECK(base != 0);
+    if (base == 0) return;
+
+    const auto image = base + read_info(container.bytes).image_offset;
+    const auto function = reinterpret_cast<std::int64_t (*)(std::int64_t)>(image + 0x200);
+    auto &x18 = guest_x18_slot();
+    const auto saved = x18;
+    for (std::int64_t index = 0; index < 4; ++index) {
+        CHECK(function(index) == 10 + index);
+        CHECK(x18 == image + 0x220 + 8 * static_cast<std::uint64_t>(index));  // the target it computed
+    }
+    CHECK(function(7) == -1);
+    CHECK(x18 == 7);  // no jump: x18 still holds the index
+    x18 = saved;
+    dlclose(handle);
+}
+
 TEST(refuses_what_cannot_run) {
     auto four_kib = static_program();
     four_kib.put<std::uint64_t>(64 + 56 + 48, 0x1000);  // p_align of the code segment
@@ -268,6 +353,9 @@ TEST(refuses_what_cannot_run) {
     register_branch.put<std::uint32_t>(0x218, 0xb400'0052);  // cbz x18, #+8: an island now
     register_branch.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18: still refused
     CHECK_THROWS(Incompatible, convert(register_branch), "x18 at 0x21c cannot run on iOS: it is a register branch");
+    // A jump table whose table lies in code: the rewriter could have changed it as an instruction.
+    CHECK_THROWS(Incompatible, convert(jump_table_program(shf_alloc | shf_execinstr)),
+                 "x18 at 0x21c cannot run on iOS: it is a register branch whose table is not in read-only data");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");
     CHECK_THROWS(Incompatible, convert(static_program(0x9000)), "outside");

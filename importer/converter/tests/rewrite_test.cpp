@@ -6,8 +6,10 @@
 #include "apkconv/a64.h"
 #include "check.h"
 
+#include <algorithm>
 #include <cstring>
 #include <format>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,6 +50,15 @@ extern const std::uint32_t ref_x18_site_ldr_w[];
 extern const std::uint32_t ref_x18_island_ldr_w[];
 extern const std::uint32_t ref_x18_site_ldrsw[];
 extern const std::uint32_t ref_x18_island_ldrsw[];
+extern const std::uint32_t ref_x18_jump_function[];
+extern const std::uint32_t ref_x18_jump_site[];
+extern const std::uint32_t ref_x18_jump_case0[];
+extern const std::uint32_t ref_x18_jump_case1[];
+extern const std::uint32_t ref_x18_jump_case2[];
+extern const std::uint32_t ref_x18_jump_function_end[];
+extern const std::int32_t ref_x18_jump_table[];
+extern const std::uint32_t ref_x18_island_jump[];
+extern const std::uint32_t ref_x18_island_jump_end[];
 extern std::uint64_t ref_syscall_slot;
 }
 
@@ -470,6 +481,265 @@ TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
     CHECK(word(stub, 5) == 0xd53b'd061);   // mrs x1, TPIDRRO_EL0 (the TSD base)
     CHECK(word(stub, 7) == 0xf900'2c20);   // str x0, [x1, #88]
     CHECK(branch_target_at(stub, 10, stub_address) == address_of(ref_site) + 4 * 3);  // after the window
+}
+
+// --- Jump tables through x18 (ADR-0020 X2d) --------------------------------------------------------
+
+/// The reference table as the only read-only data the scanned code may use.
+std::span<const std::byte> reference_table(std::uint64_t address, std::size_t size) {
+    const auto table = address_of(ref_x18_jump_table);
+    if (address < table || address + size > table + 4 * 4) return {};
+    return {reinterpret_cast<const std::byte *>(address), size};
+}
+
+// The reference function, assembled and linked: the scanner finds the table through ADRP and ADD,
+// its size through the bounds check, and the targets through the table.
+TEST(a_jump_table_through_x18_is_found_with_its_targets) {
+    const auto start = address_of(ref_x18_jump_function);
+    const std::span code(reinterpret_cast<const std::byte *>(ref_x18_jump_function),
+                         4 * static_cast<std::size_t>(ref_x18_jump_function_end - ref_x18_jump_function));
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, start, findings, reference_table);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.jump_tables.size() == 1);
+    if (findings.jump_tables.size() != 1) return;
+    const auto &table = findings.jump_tables[0];
+    CHECK(table.address == address_of(ref_x18_jump_site));
+    CHECK(table.table == address_of(ref_x18_jump_table));
+    CHECK(table.entries == 4);
+    // Ascending, and the repeated target only once.
+    CHECK(table.targets == (std::vector<std::uint64_t>{address_of(ref_x18_jump_case0), address_of(ref_x18_jump_case1),
+                                                       address_of(ref_x18_jump_case2)}));
+    // The cmp, ldrsw and add on x18 stay islands of their own.
+    std::vector<std::uint64_t> islands;
+    for (const auto &site : findings.sites) islands.push_back(site.address);
+    CHECK(islands == (std::vector<std::uint64_t>{start, start + 16, start + 20}));
+}
+
+// The island reads T, checks T - lo against the span and branches through a landing pad that
+// restores both scratch registers; every word must be what the assembler and the linker made.
+TEST(the_jump_table_island_and_its_landing_pads_match_the_assembler) {
+    const apk::rewrite::JumpTable table{
+        .address = address_of(ref_x18_jump_site),
+        .table = address_of(ref_x18_jump_table),
+        .entries = 4,
+        .targets = {address_of(ref_x18_jump_case0), address_of(ref_x18_jump_case1), address_of(ref_x18_jump_case2)},
+    };
+    const auto words = static_cast<std::size_t>(ref_x18_island_jump_end - ref_x18_island_jump);
+    std::vector<std::byte> stub(apk::rewrite::jump_table_stub_size(table));
+    CHECK(stub.size() == 4 * words);
+    if (stub.size() != 4 * words) return;
+    const auto island = address_of(ref_x18_island_jump);
+    const auto patch = apk::rewrite::emit_jump_table(table, table.address, island, stub);
+    for (std::size_t index = 0; index < words; ++index) {
+        if (word(stub, index) != ref_x18_island_jump[index]) {
+            apk::testing::fail(std::source_location::current(), "word differs: ",
+                               std::format("{:#010x} at {}: {:#010x} expected", word(stub, index), index,
+                                           ref_x18_island_jump[index]).c_str());
+        }
+    }
+    CHECK(patch == (0x1400'0000 | (static_cast<std::uint32_t>((island - table.address) / 4) & 0x03ff'ffff)));
+}
+
+/// A jump table at 0x10000 as clang 8 builds it, with its table in read-only data at 0x20040.
+struct SyntheticJumpTable {
+    std::vector<std::uint32_t> code = {
+        0x7100'0e5f,  // 0x10000 cmp w18, #3
+        0x5400'00e8,  // 0x10004 b.hi 0x10020
+        0x9000'0089,  // 0x10008 adrp x9, 0x20000
+        0x9101'0129,  // 0x1000c add x9, x9, #0x40
+        0xb8b2'7932,  // 0x10010 ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // 0x10014 add x18, x18, x9
+        0xd61f'0240,  // 0x10018 br x18
+        0xd503'201f,  // 0x1001c nop: cases 0 and 2
+        0xd65f'03c0,  // 0x10020 ret: cases 1 and 3, and the default
+    };
+    std::vector<std::int32_t> table = {0x1001c - 0x20040, 0x10020 - 0x20040, 0x1001c - 0x20040, 0x10020 - 0x20040};
+
+    apk::rewrite::Findings scan() const {
+        apk::rewrite::Findings findings;
+        apk::rewrite::scan(std::as_bytes(std::span(code)), 0x10000, findings,
+                           [this](std::uint64_t address, std::size_t size) -> std::span<const std::byte> {
+                               if (address < 0x20040 || address + size > 0x20040 + 4 * table.size()) return {};
+                               return std::as_bytes(std::span(table)).subspan(address - 0x20040, size);
+                           });
+        return findings;
+    }
+};
+
+void check_refused(const apk::rewrite::Findings &findings, std::string_view why,
+                   std::source_location location = std::source_location::current()) {
+    if (!findings.jump_tables.empty()) apk::testing::fail(location, "a jump table was found");
+    const auto refused = std::ranges::find(findings.x18_unsupported, 0x10018u, &apk::rewrite::Unsupported::address);
+    if (refused == findings.x18_unsupported.end()) {
+        apk::testing::fail(location, "the br x18 was not refused");
+    } else if (std::string_view(refused->reason).find(why) == std::string_view::npos) {
+        apk::testing::fail(location, "unexpected reason: ", refused->reason);
+    }
+}
+
+TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
+    const SyntheticJumpTable found;
+    const auto findings = found.scan();
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.jump_tables.size() == 1);
+    if (findings.jump_tables.size() == 1) {
+        CHECK(findings.jump_tables[0].targets == (std::vector<std::uint64_t>{0x1001c, 0x10020}));
+    }
+    // The other bound and index forms compilers use: B.HS after CMP #n (n entries), a UXTW index.
+    auto unsigned_bound = found;
+    unsigned_bound.code[0] = 0x7100'125f;  // cmp w18, #4
+    unsigned_bound.code[1] = 0x5400'00e2;  // b.hs 0x10020
+    unsigned_bound.code[4] = 0xb8b2'5932;  // ldrsw x18, [x9, w18, uxtw #2]
+    const auto also_found = unsigned_bound.scan();
+    CHECK(also_found.x18_unsupported.empty());
+    CHECK(also_found.jump_tables.size() == 1);
+    if (also_found.jump_tables.size() == 1) CHECK(also_found.jump_tables[0].entries == 4);
+
+    auto no_bounds_check = found;
+    no_bounds_check.code[0] = 0xd503'201f;  // nop in place of the cmp
+    check_refused(no_bounds_check.scan(), "bounds check");
+
+    auto other_base = found;
+    other_base.code[2] = 0xaa00'03e9;  // mov x9, x0 in place of the adrp
+    check_refused(other_base.scan(), "table base");
+
+    auto entered = found;
+    entered.code[7] = 0x17ff'fffe;  // b 0x10014: into the jump sequence, past the bounds check
+    check_refused(entered.scan(), "another branch");
+
+    auto outside = found;
+    outside.table[2] = 0x30000 - 0x20040;  // beyond the code
+    check_refused(outside.scan(), "outside");
+
+    auto wide = found;  // a target 64 KiB past the first
+    wide.code.resize(0x10000 / 4 + 16, 0xd503'201f);
+    wide.table[1] = 0x1001c + 0x10000 - 0x20040;
+    check_refused(wide.scan(), "64 KiB");
+
+    auto into_window = found;  // an LL/SC loop on x18 after the cases, and a target inside it
+    into_window.code.insert(into_window.code.end(), {0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2, 0x35ff'ffb0});
+    into_window.table[1] = 0x10028 - 0x20040;  // the add x18 behind the ldxr at 0x10024
+    check_refused(into_window.scan(), "exclusive window");
+
+    auto equal = found;
+    equal.code[1] = 0x5400'00e0;  // b.eq: no bound at all
+    check_refused(equal.scan(), "bounds check");
+
+    apk::rewrite::Findings without_data;  // no read-only data at all
+    apk::rewrite::scan(std::as_bytes(std::span(found.code)), 0x10000, without_data);
+    check_refused(without_data, "read-only data");
+}
+
+/// Scans `code` at 0x10000 with `table` served as read-only data at 0x20040 (as clang lays it out).
+apk::rewrite::Findings scan_with_table(std::span<const std::uint32_t> code, std::span<const std::int32_t> table) {
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(std::as_bytes(code), 0x10000, findings,
+                       [table](std::uint64_t address, std::size_t size) -> std::span<const std::byte> {
+                           const auto bytes = std::as_bytes(table);
+                           if (address < 0x20040 || address + size > 0x20040 + bytes.size()) return {};
+                           return bytes.subspan(address - 0x20040, size);
+                       });
+    return findings;
+}
+
+/// Each recognition rule the ADR states, one code shape per rule, so a rule that stops working shows
+/// up here rather than in a converted binary (ADR-0020 X2d). The table base is always adrp x9 + add
+/// #0x40 to 0x20040, and its entries are 32-bit offsets from there.
+TEST(each_jump_table_recognition_rule_is_covered) {
+    // A flag-setting instruction between the CMP and the branch breaks the bounds check.
+    const std::uint32_t flags_between[] = {
+        0x7100'0e5f,  // 0x10000 cmp w18, #3
+        0x7100'013f,  // 0x10004 cmp w9, #0: sets the flags the branch reads
+        0x5400'00e8,  // 0x10008 b.hi 0x10024
+        0x9000'0089,  // 0x1000c adrp x9, 0x20000
+        0x9101'0129,  // 0x10010 add x9, x9, #0x40
+        0xb8b2'7932,  // 0x10014 ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // 0x10018 add x18, x18, x9
+        0xd61f'0240,  // 0x1001c br x18
+        0xd503'201f,  // 0x10020 nop
+        0xd65f'03c0,  // 0x10024 ret
+    };
+    const std::int32_t four[] = {0x10020 - 0x20040, 0x10024 - 0x20040, 0x10020 - 0x20040, 0x10024 - 0x20040};
+    auto findings = scan_with_table(flags_between, four);
+    CHECK(findings.jump_tables.empty());
+    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x1001c; }));
+
+    // An index write between the branch and the load makes the checked value stale.
+    const std::uint32_t index_written[] = {
+        0x7100'0e5f,  // cmp w18, #3
+        0x5400'0108,  // b.hi 0x10024
+        0x2a00'03f2,  // mov w18, w0: writes the index after the check
+        0x9000'0089,  // adrp x9, 0x20000
+        0x9101'0129,  // add x9, x9, #0x40
+        0xb8b2'7932,  // ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // add x18, x18, x9
+        0xd61f'0240,  // 0x1001c br x18
+        0xd503'201f, 0xd65f'03c0,
+    };
+    findings = scan_with_table(index_written, four);
+    CHECK(findings.jump_tables.empty());
+    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x1001c; }));
+
+    // CMP #0 with B.HS reaches zero entries: no table, and no read of an empty target list.
+    const std::uint32_t zero_entries[] = {
+        0x7100'025f,  // cmp w18, #0
+        0x5400'0102,  // b.hs 0x10024
+        0x9000'0089,  // adrp x9, 0x20000
+        0x9101'0129,  // add x9, x9, #0x40
+        0xb8b2'7932,  // ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // add x18, x18, x9
+        0xd61f'0240,  // 0x10018 br x18
+        0xd503'201f, 0xd65f'03c0, 0xd503'201f,
+    };
+    findings = scan_with_table(zero_entries, four);
+    CHECK(findings.jump_tables.empty());
+    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x10018; }));
+
+    // A target on the first word of a relocated LL/SC window is fine: the window is entered at its
+    // load-exclusive, which is where a jump into it must land anyway.
+    const std::uint32_t into_window_start[] = {
+        0x7100'0e5f,  // 0x10000 cmp w18, #3
+        0x5400'0168,  // 0x10004 b.hi 0x10030
+        0x9000'0089,  // 0x10008 adrp x9, 0x20000
+        0x9101'0129,  // 0x1000c add x9, x9, #0x40
+        0xb8b2'7932,  // 0x10010 ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // 0x10014 add x18, x18, x9
+        0xd61f'0240,  // 0x10018 br x18
+        0xd503'201f,  // 0x1001c nop: one target
+        0xc85f'7db1,  // 0x10020 ldxr x17, [x13]: the window start, the other target
+        0x8b0e'0232,  // 0x10024 add x18, x17, x14
+        0xc810'fdb2,  // 0x10028 stlxr w16, x18, [x13]
+        0x35ff'ffb0,  // 0x1002c cbnz w16, 0x10020
+        0xd65f'03c0,  // 0x10030 ret
+    };
+    const std::int32_t window_targets[] = {0x1001c - 0x20040, 0x10020 - 0x20040, 0x1001c - 0x20040, 0x10020 - 0x20040};
+    findings = scan_with_table(into_window_start, window_targets);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.jump_tables.size() == 1);
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.jump_tables.size() == 1) {
+        CHECK(findings.jump_tables[0].targets == (std::vector<std::uint64_t>{0x1001c, 0x10020}));
+    }
+
+    // The bounds branch itself must leave the sequence; one that lands back inside it is refused,
+    // because then the entry count would not describe what the index can reach.
+    const std::uint32_t branch_inside[] = {
+        0x7100'0e5f,  // 0x10000 cmp w18, #3
+        0x5400'0068,  // 0x10004 b.hi 0x10010: back into the sequence, not out to a default case
+        0x9000'0089,  // 0x10008 adrp x9, 0x20000
+        0x9101'0129,  // 0x1000c add x9, x9, #0x40
+        0xb8b2'7932,  // 0x10010 ldrsw x18, [x9, x18, lsl #2]
+        0x8b09'0252,  // 0x10014 add x18, x18, x9
+        0xd61f'0240,  // 0x10018 br x18
+        0xd503'201f,  // 0x1001c nop: a target
+        0xd65f'03c0,  // 0x10020 ret: a target
+    };
+    // Targets in range, so the only thing that refuses this shape is the branch back into it.
+    const std::int32_t inside_targets[] = {0x1001c - 0x20040, 0x10020 - 0x20040, 0x1001c - 0x20040, 0x10020 - 0x20040};
+    findings = scan_with_table(branch_inside, inside_targets);
+    CHECK(findings.jump_tables.empty());
+    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x10018; }));
 }
 
 TEST(stubs_out_of_branch_range_are_rejected) {

@@ -200,8 +200,8 @@ _ref_x18_below_sp:
     ldraa   x18, [sp, #-8]
     stlur   x18, [sp, #-8]
 // Branches with a register the island cannot follow: it leaves through them and never returns to
-// restore the scratch. cbz, cbnz, tbz and tbnz get a two-way island of their own (below); a
-// register branch or a compare-and-branch needs a landing pad, which comes later.
+// restore the scratch. cbz, cbnz, tbz and tbnz get a two-way island of their own (below), and br x18
+// gets landing pads when it ends a jump table (further below); here it ends none.
     .globl _ref_x18_branches
 _ref_x18_branches:
     cbgt    x18, x1, 1f             // CMPBR: two registers, two exits
@@ -372,6 +372,84 @@ _ref_x18_island_ldrsw:
     ldur    x0, [sp, #-128]
     ldur    x1, [sp, #-120]
     b       _ref_x18_after_ldrsw
+
+// A jump table through x18 (ADR-0020 X2d), shaped as clang 8 builds one: the bounds check, the base
+// from ADRP and ADD, then LDRSW, ADD and BR on x18. The table sits in read-only data. Its last entry
+// repeats a target, and the word between case1 and case2 is none, so its landing pad traps.
+    .globl _ref_x18_jump_function
+_ref_x18_jump_function:
+    cmp     w18, #3
+    b.hi    1f
+    adrp    x9, _ref_x18_jump_table@PAGE
+    add     x9, x9, _ref_x18_jump_table@PAGEOFF
+    ldrsw   x18, [x9, x18, lsl #2]
+    add     x18, x18, x9
+    .globl _ref_x18_jump_site
+_ref_x18_jump_site:
+    br      x18
+    .globl _ref_x18_jump_case0
+_ref_x18_jump_case0:
+    nop
+    .globl _ref_x18_jump_case1
+_ref_x18_jump_case1:
+    nop
+    nop
+    .globl _ref_x18_jump_case2
+_ref_x18_jump_case2:
+    nop
+1:  ret
+    .globl _ref_x18_jump_function_end
+_ref_x18_jump_function_end:
+
+    .section __TEXT,__const
+    .p2align 2
+    .globl _ref_x18_jump_table
+_ref_x18_jump_table:
+    .long   _ref_x18_jump_case0 - _ref_x18_jump_table
+    .long   _ref_x18_jump_case1 - _ref_x18_jump_table
+    .long   _ref_x18_jump_case2 - _ref_x18_jump_table
+    .long   _ref_x18_jump_case1 - _ref_x18_jump_table
+    .text
+    .p2align 2
+
+// Its island: T from slot 11, T - lo checked against a span of 16 bytes (the mask keeps bits 4 to 63
+// and 0 to 1), then one landing pad of 16 bytes per word from case0 to case2.
+    .globl _ref_x18_island_jump
+_ref_x18_island_jump:
+    stur    x0, [sp, #-128]
+    stur    x1, [sp, #-120]
+    mrs     x0, TPIDRRO_EL0
+    bic     x0, x0, #7
+    ldr     x0, [x0, #88]
+    adrp    x1, _ref_x18_jump_case0@PAGE
+    add     x1, x1, _ref_x18_jump_case0@PAGEOFF
+    sub     x0, x0, x1
+    and     x1, x0, #0xfffffffffffffff3
+    cbnz    x1, 1f
+    adr     x1, 2f
+    add     x0, x1, x0, lsl #2
+    br      x0
+1:  ldur    x0, [sp, #-128]         // no landing pad: the registers back, then stop
+    ldur    x1, [sp, #-120]
+    brk     #0x18
+2:  ldur    x0, [sp, #-128]         // case0
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_jump_case0
+    brk     #0x18
+    ldur    x0, [sp, #-128]         // case1
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_jump_case1
+    brk     #0x18
+    ldur    x0, [sp, #-128]         // the word after case1: no target
+    ldur    x1, [sp, #-120]
+    brk     #0x18
+    brk     #0x18
+    ldur    x0, [sp, #-128]         // case2
+    ldur    x1, [sp, #-120]
+    b       _ref_x18_jump_case2
+    brk     #0x18
+    .globl _ref_x18_island_jump_end
+_ref_x18_island_jump_end:
 
     .p2align 3
 _ref_x18_literal:

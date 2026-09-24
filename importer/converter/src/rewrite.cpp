@@ -181,6 +181,47 @@ std::uint32_t mrs_tpidrro_el0(unsigned rt) {
     return 0xd53b'd060 | reg(rt, 0);
 }
 
+/// SUB Xd, Xn, Xm.
+std::uint32_t sub_register(unsigned rd, unsigned rn, unsigned rm) {
+    return 0xcb00'0000 | reg(rm, 16) | reg(rn, 5) | reg(rd, 0);
+}
+
+/// ADD Xd, Xn, Xm, LSL #shift.
+std::uint32_t add_shifted(unsigned rd, unsigned rn, unsigned rm, unsigned shift) {
+    return 0x8b00'0000 | reg(rm, 16) | ((shift & 0x3f) << 10) | reg(rn, 5) | reg(rd, 0);
+}
+
+/// AND Xd, Xn, #mask, the mask with bits 0, 1 and `bits` to 63 set: nonzero exactly for an offset
+/// that is negative, at least 2^bits or not a multiple of 4. Its ones form one run that wraps from
+/// bit 63 to bit 0, 66 - bits of them, rotated right by 64 - bits (logical immediate with N = 1).
+std::uint32_t and_outside_span(unsigned rd, unsigned rn, unsigned bits) {
+    return 0x9240'0000 | ((64 - bits) << 16) | ((65 - bits) << 10) | reg(rn, 5) | reg(rd, 0);
+}
+
+/// The byte distance from `from` to `to` for a branch or ADR that reaches ±1 MiB.
+std::int64_t near_distance(std::uint64_t from, std::uint64_t to) {
+    const auto delta = static_cast<std::int64_t>(to - from);
+    if (delta < -(std::int64_t{1} << 20) || delta >= (std::int64_t{1} << 20)) {
+        throw RewriteError(std::format("{:#x} is beyond 1 MiB of {:#x}", to, from));
+    }
+    return delta;
+}
+
+/// CBNZ Xt: PC-relative, ±1 MiB.
+std::uint32_t cbnz(unsigned rt, std::uint64_t from, std::uint64_t to) {
+    return 0xb500'0000 | ((static_cast<std::uint32_t>(near_distance(from, to) >> 2) & 0x7'ffff) << 5) | reg(rt, 0);
+}
+
+/// ADR Xd: PC-relative, ±1 MiB.
+std::uint32_t adr(unsigned rd, std::uint64_t from, std::uint64_t to) {
+    const auto immediate = static_cast<std::uint32_t>(near_distance(from, to)) & 0x1f'ffff;
+    return 0x1000'0000 | ((immediate & 0x3) << 29) | ((immediate >> 2) << 5) | reg(rd, 0);
+}
+
+std::uint32_t br(unsigned rn) {
+    return 0xd61f'0000 | reg(rn, 5);
+}
+
 /// BIC Xd, Xn, #7, which is AND Xd, Xn, #~7: the low bits of TPIDRRO_EL0 are not part of the TSD
 /// base, libsyscall masks them the same way. Logical immediate N=1, immr=61, imms=60.
 std::uint32_t bic_7(unsigned rd, unsigned rn) {
@@ -475,9 +516,182 @@ bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std
     return false;
 }
 
+// --- Jump tables through x18 (ADR-0020 X2d) ------------------------------------------------------
+
+constexpr std::uint32_t br_x18 = 0xd61f'0240;
+constexpr std::uint32_t jump_table_trap = 0xd420'0300;  // BRK #0x18: a target without a landing pad
+constexpr std::uint64_t max_jump_table_span = 64 * 1024;
+
+// The island (see emit_jump_table): 13 words up to its BR, then the trap of 3; each landing pad has 4.
+constexpr std::size_t jump_trap_word = 13;
+constexpr std::size_t jump_island_words = 16;
+constexpr std::size_t landing_pad_words = 4;
+
+/// B.cond (not BC.cond): the condition in bits 3:0.
+constexpr bool is_branch_on_flags(std::uint32_t word) {
+    return (word & 0xff00'0010) == 0x5400'0000;
+}
+constexpr unsigned condition_hs = 0b0010;  // unsigned >=, also named CS
+constexpr unsigned condition_hi = 0b1000;  // unsigned >
+
+/// Whether `word` leaves NZCV alone, of the forms a compiler puts between a bounds check and its
+/// branch: ADD and SUB (immediate, shifted or extended register) and the logical operations
+/// without S, the wide moves, ADR, ADRP, loads and stores. Anything else counts as setting them.
+bool leaves_flags(std::uint32_t word) {
+    if (is_load_store(word)) return true;
+    const auto operation = (word >> 29) & 0x3;
+    if ((word & 0x1f00'0000) == 0x1100'0000 || (word & 0x1f00'0000) == 0x0b00'0000) return !bit(word, 29);
+    if ((word & 0x1f00'0000) == 0x0a00'0000 || (word & 0x1f80'0000) == 0x1200'0000) return operation != 0b11;  // not ANDS
+    if ((word & 0x1f80'0000) == 0x1280'0000) return true;  // MOVN, MOVZ, MOVK
+    return (word & 0x1f00'0000) == 0x1000'0000;           // ADR, ADRP
+}
+
+struct BoundsCheck {
+    std::size_t compare;    // offset of the CMP
+    std::uint32_t entries;  // table entries the index can reach
+};
+
+/// The bounds check of the index register before the table load at `load`: CMP wI|xI, #n, then
+/// B.HI (n + 1 entries) or B.HS (n). Between the CMP and the branch only words that leave the flags
+/// and the index alone; between the branch and the load none that writes the index.
+std::optional<BoundsCheck> bounds_check(std::span<const std::byte> code, std::size_t load, unsigned index) {
+    constexpr std::size_t reach = 16 * 4;
+    std::optional<unsigned> condition;
+    for (std::size_t offset = load; offset >= 4 && load - offset < reach;) {
+        offset -= 4;
+        const auto word = word_at(code, offset);
+        const bool writes_index = (a64::register_use(word).writes & (1u << index)) != 0;
+        if (!condition) {
+            if (is_branch_on_flags(word)) {
+                condition = word & 0xf;
+                if (*condition != condition_hi && *condition != condition_hs) return std::nullopt;
+            } else if (writes_index) {
+                return std::nullopt;
+            }
+            continue;
+        }
+        if ((word & 0x7fc0'001f) == 0x7100'001f && rn_field(word) == index) {  // SUBS (immediate) into the zero register
+            const auto bound = (word >> 10) & 0xfff;
+            const auto entries = *condition == condition_hi ? bound + 1 : bound;
+            if (entries == 0) return std::nullopt;
+            return BoundsCheck{offset, entries};
+        }
+        if (writes_index || !leaves_flags(word)) return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+/// The table base in register `base` at the load at `load`: the last write of it before must be
+/// ADD base, base, #low, and the last one before that ADRP base. Only the straight line back is
+/// read; a loop that set the base anew further down would go unseen, and the island's check would
+/// then stop the program rather than let it branch anywhere else (ADR-0020 X2d).
+std::optional<std::uint64_t> table_base(std::span<const std::byte> code, std::uint64_t address, std::size_t load,
+                                        unsigned base) {
+    constexpr std::size_t reach = 1024 * 4;
+    std::optional<std::uint64_t> low;
+    for (std::size_t offset = load; offset >= 4 && load - offset < reach;) {
+        offset -= 4;
+        const auto word = word_at(code, offset);
+        if ((a64::register_use(word).writes & (1u << base)) == 0) continue;
+        if (!low) {
+            if ((word & 0xffc0'0000) != 0x9100'0000 || rd_field(word) != base || rn_field(word) != base) return std::nullopt;
+            low = (word >> 10) & 0xfff;  // ADD (immediate), 64-bit, unshifted
+            continue;
+        }
+        if ((word & 0x9f00'0000) != 0x9000'0000 || rd_field(word) != base) return std::nullopt;  // ADRP
+        return pc_relative_target(word, address + offset) + *low;
+    }
+    return std::nullopt;
+}
+
+constexpr const char *not_a_jump_table = "it is a register branch that ends no jump table the rewriter knows";
+
+/// The jump table that the `br x18` at `offset` ends, filled into `table`, or why there is none the
+/// island can take (ADR-0020 X2d).
+const char *find_jump_table(std::span<const std::byte> code, std::uint64_t address, std::size_t offset,
+                            const ReadOnlyData &read_only_data, JumpTable &table) {
+    if (offset < 8) return not_a_jump_table;
+    // ADD x18, x18, xB (or xB, x18): ADD (shifted register), 64-bit, unshifted.
+    const auto add = word_at(code, offset - 4);
+    if ((add & 0xffe0'fc00) != 0x8b00'0000 || rd_field(add) != guest_x18) return not_a_jump_table;
+    const auto first = rn_field(add), second = (add >> 16) & 0x1f;
+    if (first != guest_x18 && second != guest_x18) return not_a_jump_table;
+    const auto base = first == guest_x18 ? second : first;
+    if (base == guest_x18 || base == zero_register) return not_a_jump_table;
+    // LDRSW x18, [xB, xI, LSL #2] or [xB, wI, UXTW #2]: LDRSW (register), scaled.
+    const auto load = word_at(code, offset - 8);
+    if ((load & 0xffe0'dc00) != 0xb8a0'5800 || rd_field(load) != guest_x18 || rn_field(load) != base) {
+        return not_a_jump_table;
+    }
+
+    const auto check = bounds_check(code, offset - 8, (load >> 16) & 0x1f);
+    if (!check) return "it is a register branch whose jump table has no bounds check before it";
+    if (branch_enters_window(code, check->compare, offset)) {
+        return "it is a register branch into whose jump sequence another branch leads";
+    }
+    // The bounds branch must leave the sequence (to the default case): a direct branch inside it
+    // that lands back inside would change how many entries the index reaches (ADR-0020 X2d).
+    for (std::size_t j = check->compare; j < offset; j += 4) {
+        if (const auto displacement = branch_displacement(word_at(code, j))) {
+            const auto target = static_cast<std::int64_t>(j) + *displacement;
+            if (target > static_cast<std::int64_t>(check->compare) && target <= static_cast<std::int64_t>(offset)) {
+                return "it is a register branch whose bounds branch stays inside the jump sequence";
+            }
+        }
+    }
+    const auto start = table_base(code, address, offset - 8, base);
+    if (!start) return "it is a register branch whose table base does not come from ADRP and ADD";
+
+    const std::size_t size = 4 * std::size_t{check->entries};
+    const auto entries = read_only_data ? read_only_data(*start, size) : std::span<const std::byte>{};
+    if (entries.size() != size) return "it is a register branch whose table is not in read-only data";
+    std::vector<std::uint64_t> targets;
+    for (std::size_t at = 0; at < size; at += 4) {
+        std::int32_t entry;
+        std::memcpy(&entry, entries.data() + at, sizeof entry);
+        const auto target = *start + static_cast<std::uint64_t>(std::int64_t{entry});
+        if (target % 4 != 0 || target < address || target - address >= code.size()) {
+            return "it is a register branch whose jump table has a target outside its code";
+        }
+        targets.push_back(target);
+    }
+    if (targets.empty()) return "it is a register branch whose jump table has no entries";  // guarded by bounds_check
+    std::ranges::sort(targets);
+    targets.erase(std::ranges::unique(targets).begin(), targets.end());
+    if (targets.back() - targets.front() >= max_jump_table_span) {
+        return "it is a register branch whose jump table spans more than 64 KiB";
+    }
+    table = {.address = address + offset, .table = *start, .entries = check->entries, .targets = std::move(targets)};
+    return nullptr;
+}
+
+/// log2 of the bytes the landing pads cover: the span of the targets, rounded up to a power of two
+/// and at least 16, so that one AND finds a target outside it or off a word. Also the one place that
+/// checks a JumpTable an outside caller may have built, so the size and the emitter can trust it: the
+/// targets are word-aligned, strictly ascending and no wider than the cap.
+unsigned jump_table_span_bits(const JumpTable &table) {
+    if (table.targets.empty()) throw RewriteError("a jump table without targets");
+    for (std::size_t i = 0; i < table.targets.size(); ++i) {
+        if (table.targets[i] % 4 != 0) throw RewriteError("a jump table target is not word aligned");
+        if (i > 0 && table.targets[i] <= table.targets[i - 1]) {
+            throw RewriteError("jump table targets are not strictly ascending");
+        }
+    }
+    const auto span = table.targets.back() - table.targets.front() + 4;
+    if (span > max_jump_table_span) throw RewriteError("a jump table spans more than the cap");
+    unsigned bits = 4;
+    while ((std::uint64_t{1} << bits) < span) ++bits;
+    return bits;
+}
+
+std::size_t landing_pads(const JumpTable &table) {
+    return (std::size_t{1} << jump_table_span_bits(table)) / 4;
+}
+
 }  // namespace
 
-void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings) {
+void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
+          const ReadOnlyData &read_only_data) {
     if (address % 4 != 0 || code.size() % 4 != 0) {
         throw RewriteError(std::format("code at {:#x} with {:#x} bytes is not word aligned", address, code.size()));
     }
@@ -496,6 +710,11 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     }
     const auto is_covered = [&](std::size_t offset) {
         return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
+    };
+    // Whether a jump table target lies inside a relocated window, past its first word (ADR-0020 X2d).
+    const auto enters_window = [&](std::uint64_t target) {
+        const auto offset = target - address;
+        return std::ranges::any_of(covered, [&](const auto &span) { return offset > span.first && offset <= span.second; });
     };
 
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
@@ -519,11 +738,18 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             }
             const char *reason = (exclusive_sequence && !is_exclusive(instruction)) ? inside_exclusive_sequence
                                                                                     : unsupported_reason(instruction);
-            if (reason) {
-                findings.x18_unsupported.push_back({at, reason});
-            } else {
+            if (instruction == br_x18 && reason != inside_exclusive_sequence) {
+                // A register branch runs only as the end of a jump table, through landing pads (X2d).
+                JumpTable table;
+                reason = find_jump_table(code, address, offset, read_only_data, table);
+                if (!reason && std::ranges::any_of(table.targets, enters_window)) {
+                    reason = "it is a register branch whose jump table leads into a relocated exclusive window";
+                }
+                if (!reason) findings.jump_tables.push_back(std::move(table));
+            } else if (!reason) {
                 findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});
             }
+            if (reason) findings.x18_unsupported.push_back({at, reason});
         } else if ((instruction & register_mask) == mrs_tpidr_el0) {
             findings.sites.push_back({at, SiteKind::thread_pointer_read, rt});
         } else if ((instruction & register_mask) == msr_tpidr_el0) {
@@ -714,6 +940,62 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
     write.finish();
     return b(region_address, stub_address);
+}
+
+std::size_t jump_table_stub_size(const JumpTable &table) {
+    return 4 * (jump_island_words + landing_pad_words * landing_pads(table));
+}
+
+std::uint32_t emit_jump_table(const JumpTable &table, std::uint64_t branch_address, std::uint64_t stub_address,
+                              std::span<std::byte> stub) {
+    if (stub.size() != jump_table_stub_size(table)) throw RewriteError("the stub buffer has the wrong size");
+    const auto scratch = scratch_registers(br_x18);  // the br names no other register: x0 and x1
+    const auto value = scratch.value, base = scratch.base;
+    // Each target keeps its distance to the br in the container.
+    const auto in_container = [&](std::uint64_t target) { return branch_address + (target - table.address); };
+    const auto low = in_container(table.targets.front());
+    const auto trap = stub_address + 4 * jump_trap_word;
+    const auto pads = stub_address + 4 * jump_island_words;
+    StubWriter write(stub, stub_address);
+
+    write(stur(value, sp, scratch_slot_0));
+    write(stur(base, sp, scratch_slot_1));
+    write(mrs_tpidrro_el0(value));
+    write(bic_7(value, value));
+    write(ldr_unsigned(value, value, guest_x18_offset));  // T, the target the guest computed
+    write(adrp(base, write.next_address(), low));
+    write(add_immediate(base, base, low & 0xfff));
+    write(sub_register(value, value, base));  // T - lo
+    write(and_outside_span(base, value, jump_table_span_bits(table)));
+    write(cbnz(base, write.next_address(), trap));
+    write(adr(base, write.next_address(), pads));
+    write(add_shifted(value, base, value, 2));  // the landing pad of T: 16 bytes for each word
+    write(br(value));
+    if (write.next_address() != trap) throw RewriteError("the jump table island is not the expected length");
+    // No landing pad for T: the guest's registers back, then stop.
+    write(ldur(value, sp, scratch_slot_0));
+    write(ldur(base, sp, scratch_slot_1));
+    write(jump_table_trap);
+
+    // One landing pad per word from lo: both scratch registers back, then on to the target; a word
+    // that is no target of the table traps like the check above.
+    if (write.next_address() != pads) throw RewriteError("the jump table landing pads are misplaced");
+    auto target = table.targets.begin();
+    for (std::size_t pad = 0; pad < landing_pads(table); ++pad) {
+        const auto at = low + 4 * pad;
+        write(ldur(value, sp, scratch_slot_0));
+        write(ldur(base, sp, scratch_slot_1));
+        if (target != table.targets.end() && in_container(*target) == at) {
+            write(b(write.next_address(), at));
+            ++target;
+        } else {
+            write(jump_table_trap);
+        }
+        write(jump_table_trap);
+    }
+    if (target != table.targets.end()) throw RewriteError("a jump table target has no landing pad");
+    write.finish();
+    return b(branch_address, stub_address);
 }
 
 }  // namespace apk::rewrite
