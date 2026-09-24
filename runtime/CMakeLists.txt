@@ -3,7 +3,7 @@ enable_language(ASM)
 # M2 step 4: static programs from container dylibs; step 5: the linker and libdl for dynamic programs
 # (ADR-0021), and the Linux personality their test suite needs: files, threads, signals.
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/sys_memory.cpp src/sys_signals.cpp
-  src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/process_exit.cpp)
+  src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/process_exit.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -83,6 +83,16 @@ if(APK_HOST_BUILD)
   endif()
   add_test(NAME runtime.transitions COMMAND transitions_test)
   set_tests_properties(runtime.transitions PROPERTIES TIMEOUT 60)
+
+  # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
+  add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
+  target_include_directories(blocking_test PRIVATE src)
+  target_link_libraries(blocking_test PRIVATE apkrt apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/blocking_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.blocking COMMAND blocking_test)
+  set_tests_properties(runtime.blocking PROPERTIES TIMEOUT 120)
 
   add_executable(syscall_entry_test tests/syscall_entry_test.c tests/syscall_entry_probe.S)
   target_link_libraries(syscall_entry_test PRIVATE apkrt apk_defaults)

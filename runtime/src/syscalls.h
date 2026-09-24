@@ -3,7 +3,10 @@
 // in, Darwin calls out.
 #pragma once
 
+#include "signals.h"
 #include "syscall_frame.h"
+
+#include <time.h>
 
 #include <cstdint>
 #include <optional>
@@ -90,9 +93,57 @@ T *as_pointer(std::uint64_t value) {
     return reinterpret_cast<T *>(static_cast<std::uintptr_t>(value));
 }
 
-// --- futex (syscalls.cpp) -----------------------------------------------------------------------------
+// --- Time (syscalls.cpp) ------------------------------------------------------------------------------
 
-/// Wakes up to `count` waiters on `word` and returns how many there were, as FUTEX_WAKE does.
+/// Linux's CLOCK_MONOTONIC, Darwin's CLOCK_UPTIME_RAW (F10), in nanoseconds: the clock of deadlines.
+std::int64_t monotonic_now();
+
+/// A valid time (neither field negative, tv_nsec below a second) in nanoseconds; INT64_MAX where it
+/// does not fit, as Linux's ktime saturates.
+std::int64_t nanoseconds_of(const timespec &time);
+
+/// The deadline `nanoseconds` (not negative) from now; INT64_MAX where it does not fit.
+std::int64_t deadline_after(std::int64_t nanoseconds);
+
+// --- Waiting (sys_signals.cpp, ADR-0026) --------------------------------------------------------------
+//
+// Every blocking syscall waits in wait_until, on the calling thread's signal word (ThreadSignals::wake),
+// which every signal sent to the thread and every futex wake of it raise. It reads the word before it
+// checks, and sleeps only while the word still has that value: whatever raises it after the checks keeps
+// the sleep from beginning, so no signal slips in between.
+
+/// Why a wait ended: its own condition came true, the deadline passed, or a signal the thread takes is
+/// pending, checked in this order. As on Linux, a wait whose time is up ends as timed out even when a
+/// signal came as well; the signal is delivered at the end of the syscall all the same.
+enum class WaitEnd { done, timeout, signal };
+
+constexpr std::int64_t no_deadline = -1;
+
+/// Sleeps while the thread's signal word is still `seen`, until `deadline` (monotonic_now's clock) at
+/// the latest. May come back early.
+void sleep_on_wake(signals::ThreadSignals &state, std::uint32_t seen, std::int64_t deadline);
+
+/// Waits until `done()` holds, `deadline` passes, or a signal the thread does not block is pending.
+/// Anything else that wakes the thread, the runtime signal for a blocked signal among them, only
+/// leads to the next round.
+template <typename Done>
+WaitEnd wait_until(signals::ThreadSignals &state, Done done, std::int64_t deadline) {
+    while (true) {
+        const std::uint32_t seen = state.wake.load();
+        if (done()) return WaitEnd::done;
+        if (deadline != no_deadline && monotonic_now() >= deadline) return WaitEnd::timeout;
+        if ((state.pending.load() & ~state.mask.load()) != 0) return WaitEnd::signal;
+        sleep_on_wake(state, seen, deadline);
+    }
+}
+
+// --- futex (sys_futex.cpp, ADR-0026) ------------------------------------------------------------------
+
+long sys_futex(std::uint64_t address, int operation, std::uint32_t value, std::uint64_t timeout_address,
+               std::uint32_t bitset);
+
+/// Wakes up to `count` waiters on `word` and returns how many it woke, as FUTEX_WAKE does. Private and
+/// shared futexes are the same: every waiter is in this one process.
 long futex_wake(std::uint32_t *word, int count, bool shared);
 
 // --- Memory (sys_memory.cpp) -------------------------------------------------------------------------

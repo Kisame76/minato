@@ -93,7 +93,8 @@ struct ThreadSignals {
     int queued = 0;
     std::atomic_flag lock = ATOMIC_FLAG_INIT;
     LinuxStack alternate_stack{0, ss_disable, 0, 0};
-    // Raised whenever a signal is sent to the thread, for sigsuspend and sigtimedwait to wait on.
+    // Raised whenever a signal is sent to the thread or a futex wake takes it: every blocking syscall
+    // of the thread sleeps on it (ADR-0026, syscalls.h wait_until).
     std::atomic<std::uint32_t> wake{0};
     // sigsuspend: the mask the handler's frame returns to, instead of the temporary one.
     bool frame_mask_set = false;
@@ -135,7 +136,7 @@ long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info);
 /// that does not.
 long send_to_process(int signal, const LinuxSiginfo &info);
 
-/// Wakes a thread waiting for signals (sigsuspend, sigtimedwait) after its state changed.
+/// Raises the thread's signal word and wakes it where a blocking syscall of it sleeps on the word.
 void notify(ThreadSignals &state);
 
 /// Takes the lowest pending signal among `allowed` (a set of signals), for sigtimedwait; false

@@ -1,6 +1,7 @@
 // Signal syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5, R9) on the emulated
-// signal state of signals.h: masks, dispositions, alternate stacks, sending and waiting. No guest
-// disposition or mask reaches a host signal.
+// signal state of signals.h: masks, dispositions, alternate stacks, sending and waiting, and the sleep
+// of every blocking syscall on the thread's signal word (ADR-0026). No guest disposition or mask
+// reaches a host signal.
 #include "signals.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -9,6 +10,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace apkrt::sys {
@@ -41,21 +43,20 @@ LinuxSiginfo sender_info(int signal, std::int32_t code) {
     return info;
 }
 
-/// Waits until the thread's wake count moves on from `seen` or `timeout_ns` passes (never with -1).
-/// Returns false on the timeout.
-bool wait_for_signal(signals::ThreadSignals &state, std::uint32_t seen, std::int64_t timeout_ns) {
-    if (timeout_ns < 0) {
-        ::os_sync_wait_on_address(&state.wake, seen, sizeof seen, OS_SYNC_WAIT_ON_ADDRESS_NONE);
-        return true;
-    }
-    if (timeout_ns == 0) return false;
-    const int result = ::os_sync_wait_on_address_with_timeout(&state.wake, seen, sizeof seen,
-                                                              OS_SYNC_WAIT_ON_ADDRESS_NONE, OS_CLOCK_MACH_ABSOLUTE_TIME,
-                                                              static_cast<std::uint64_t>(timeout_ns));
-    return !(result < 0 && errno == ETIMEDOUT);
-}
-
 }  // namespace
+
+void sleep_on_wake(signals::ThreadSignals &state, std::uint32_t seen, std::int64_t deadline) {
+    if (deadline == no_deadline) {
+        ::os_sync_wait_on_address(&state.wake, seen, sizeof seen, OS_SYNC_WAIT_ON_ADDRESS_NONE);
+        return;
+    }
+    const std::int64_t left = deadline - monotonic_now();
+    if (left <= 0) return;
+    // A day at most per sleep, far within what the kernel converts to its ticks; wait_until sleeps again.
+    constexpr std::int64_t day = 86'400'000'000'000;
+    ::os_sync_wait_on_address_with_timeout(&state.wake, seen, sizeof seen, OS_SYNC_WAIT_ON_ADDRESS_NONE,
+                                           OS_CLOCK_MACH_ABSOLUTE_TIME, static_cast<std::uint64_t>(std::min(left, day)));
+}
 
 long sys_rt_sigprocmask(int how, std::uint64_t new_address, std::uint64_t old_address, std::uint64_t size) {
     if (size != linux_sigset_size) return -linux_errno::einval;
@@ -124,11 +125,7 @@ long sys_rt_sigsuspend(std::uint64_t address, std::uint64_t size) {
     state.frame_mask = state.mask.load();
     state.frame_mask_set = true;
     state.mask.store(temporary);
-    while (true) {
-        const auto seen = state.wake.load();
-        if ((signals::pending(state) & ~temporary) != 0) break;
-        wait_for_signal(state, seen, -1);
-    }
+    wait_until(state, [] { return false; }, no_deadline);  // only a signal ends it
     return -linux_errno::eintr;  // delivered at the end of this syscall
 }
 
@@ -137,30 +134,22 @@ long sys_rt_sigtimedwait(std::uint64_t set_address, std::uint64_t info_address, 
     if (size != linux_sigset_size) return -linux_errno::einval;
     auto &state = signals::current();
     const auto wanted = *as_pointer<const std::uint64_t>(set_address) & ~unblockable;
-    std::int64_t deadline = -1;
+    std::int64_t deadline = no_deadline;
     if (timeout_address != 0) {
         const auto &timeout = *as_pointer<const timespec>(timeout_address);
         if (timeout.tv_sec < 0 || timeout.tv_nsec < 0 || timeout.tv_nsec >= 1'000'000'000) return -linux_errno::einval;
-        deadline = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) +
-                   static_cast<std::int64_t>(timeout.tv_sec) * 1'000'000'000 + timeout.tv_nsec;
+        deadline = deadline_after(nanoseconds_of(timeout));
     }
-    while (true) {
-        const auto seen = state.wake.load();
-        int signal;
-        LinuxSiginfo info;
-        if (signals::take(state, wanted, signal, info)) {
+    int signal = 0;
+    LinuxSiginfo info{};
+    switch (wait_until(state, [&] { return signals::take(state, wanted, signal, info); }, deadline)) {
+        case WaitEnd::done:
             if (info_address != 0) std::memcpy(as_pointer<void>(info_address), &info, sizeof info);
             return signal;
-        }
-        // Another signal the thread takes now interrupts the wait.
-        if ((signals::pending(state) & ~state.mask.load()) != 0) return -linux_errno::eintr;
-        std::int64_t left = -1;
-        if (deadline >= 0) {
-            left = deadline - static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-            if (left <= 0) return -linux_errno::eagain;
-        }
-        wait_for_signal(state, seen, left);
+        case WaitEnd::signal: return -linux_errno::eintr;  // another signal the thread takes now
+        case WaitEnd::timeout: return -linux_errno::eagain;
     }
+    return -linux_errno::eagain;
 }
 
 long sys_kill(int pid, int signal) {

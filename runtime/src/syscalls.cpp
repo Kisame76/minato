@@ -1,7 +1,7 @@
 // The Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): Linux AArch64 syscall numbers, argument
 // conventions, errno values and structures in, Darwin calls out. Numbers are never passed through
-// to Darwin. This file has the dispatcher and the small syscalls; memory, files, threads and signals
-// have files of their own (sys_*.cpp, syscalls.h). At the end of each syscall, guest signals that
+// to Darwin. This file has the dispatcher and the small syscalls; memory, files, threads, signals and
+// futex have files of their own (sys_*.cpp, syscalls.h). At the end of each syscall, guest signals that
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
 #include "dl.h"
@@ -12,7 +12,6 @@
 #include "syscalls.h"
 #include "threads.h"
 
-#include <os/os_sync_wait_on_address.h>
 #include <pthread.h>
 #include <sched.h>
 #include <sys/mman.h>
@@ -91,14 +90,19 @@ void report(const char *message) {
     static_cast<void>(::write(STDERR_FILENO, message, std::char_traits<char>::length(message)));
 }
 
-long futex_wake(std::uint32_t *word, int count, bool shared) {
-    const auto flags = shared ? OS_SYNC_WAKE_BY_ADDRESS_SHARED : OS_SYNC_WAKE_BY_ADDRESS_NONE;
-    long woken = 0;
-    while (woken < count) {
-        if (::os_sync_wake_by_address_any(word, sizeof *word, flags) != 0) break;  // ENOENT: nobody left
-        ++woken;
-    }
-    return woken;
+std::int64_t monotonic_now() {
+    return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
+
+std::int64_t nanoseconds_of(const timespec &time) {
+    constexpr std::int64_t second = 1'000'000'000;
+    if (time.tv_sec > (INT64_MAX - time.tv_nsec) / second) return INT64_MAX;
+    return static_cast<std::int64_t>(time.tv_sec) * second + time.tv_nsec;
+}
+
+std::int64_t deadline_after(std::int64_t nanoseconds) {
+    const std::int64_t now = monotonic_now();
+    return nanoseconds > INT64_MAX - now ? INT64_MAX : now + nanoseconds;
 }
 
 }  // namespace apkrt::sys
@@ -255,10 +259,6 @@ std::optional<clockid_t> to_darwin_clock(int linux_clock) {
     }
 }
 
-std::int64_t nanoseconds_of(const timespec &time) {
-    return static_cast<std::int64_t>(time.tv_sec) * 1'000'000'000 + time.tv_nsec;
-}
-
 /// struct timespec has the same layout on both systems: two 64-bit fields.
 long sys_clock_gettime(int linux_clock, std::uint64_t time, bool resolution) {
     const auto clock = to_darwin_clock(linux_clock);
@@ -285,108 +285,40 @@ bool valid(const timespec &time) {
     return time.tv_sec >= 0 && time.tv_nsec >= 0 && time.tv_nsec < 1'000'000'000;
 }
 
-/// Sleeps for `duration`; on a signal, writes what is left to `remaining` (if not 0) and answers EINTR.
-long sleep_for(timespec duration, std::uint64_t remaining) {
-    timespec left{};
-    if (::nanosleep(&duration, &left) == 0) return 0;
-    const int error = errno;
-    if (error == EINTR && remaining != 0) *as_pointer<timespec>(remaining) = left;
-    return -to_linux_errno(error);
+/// Sleeps until `deadline` (monotonic_now's clock) in wait_until, which a signal ends: then EINTR,
+/// with what is left written to `remaining` (if not 0).
+long sleep_until(std::int64_t deadline, std::uint64_t remaining) {
+    if (wait_until(apkrt::signals::current(), [] { return false; }, deadline) != WaitEnd::signal) return 0;
+    if (remaining != 0) {
+        const std::int64_t left = std::max<std::int64_t>(deadline - monotonic_now(), 0);
+        *as_pointer<timespec>(remaining) = {static_cast<time_t>(left / 1'000'000'000),
+                                            static_cast<long>(left % 1'000'000'000)};
+    }
+    return -linux_errno::eintr;
 }
 
 long sys_nanosleep(std::uint64_t request, std::uint64_t remaining) {
     const auto duration = *as_pointer<const timespec>(request);
     if (!valid(duration)) return -linux_errno::einval;
-    return sleep_for(duration, remaining);
+    return sleep_until(deadline_after(nanoseconds_of(duration)), remaining);
 }
 
 /// Darwin has no clock_nanosleep: a relative sleep is nanosleep, an absolute one sleeps for the
-/// difference to the clock's current time, again after a signal, as Linux would.
+/// difference to the clock's current time, again after each wait, as Linux would.
 long sys_clock_nanosleep(int linux_clock, int flags, std::uint64_t request, std::uint64_t remaining) {
     constexpr int timer_abstime = 1;
     const auto clock = to_darwin_clock(linux_clock);
     if (!clock || *clock == CLOCK_THREAD_CPUTIME_ID) return -linux_errno::einval;
     const auto time = *as_pointer<const timespec>(request);
     if (!valid(time)) return -linux_errno::einval;
-    if ((flags & timer_abstime) == 0) return sleep_for(time, remaining);
+    if ((flags & timer_abstime) == 0) return sleep_until(deadline_after(nanoseconds_of(time)), remaining);
     const std::int64_t target = nanoseconds_of(time);
     while (true) {
         const auto now = static_cast<std::int64_t>(clock_gettime_nsec_np(*clock));
         if (now >= target) return 0;
-        const std::int64_t left = target - now;
-        const timespec duration{static_cast<time_t>(left / 1'000'000'000), static_cast<long>(left % 1'000'000'000)};
-        if (const long result = sleep_for(duration, 0); result != 0) return result;  // no remaining time for TIMER_ABSTIME
+        // No remaining time for TIMER_ABSTIME.
+        if (const long result = sleep_until(deadline_after(target - now), 0); result != 0) return result;
     }
-}
-
-// --- futex (ADR-0009: os_sync_wait_on_address) ---------------------------------------------------------
-
-namespace linux_futex {
-constexpr int wait = 0;
-constexpr int wake = 1;
-constexpr int wait_bitset = 9;
-constexpr int wake_bitset = 10;
-constexpr int private_flag = 128;
-constexpr int clock_realtime = 256;
-constexpr std::uint32_t bitset_match_any = 0xffff'ffff;
-}  // namespace linux_futex
-
-long futex_wait(std::uint32_t *word, std::uint32_t expected, std::optional<std::int64_t> timeout_ns, bool shared) {
-    // Linux compares first and answers EAGAIN on a mismatch; os_sync would just return.
-    if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) return -linux_errno::eagain;
-    const auto flags = shared ? OS_SYNC_WAIT_ON_ADDRESS_SHARED : OS_SYNC_WAIT_ON_ADDRESS_NONE;
-    int result;
-    if (!timeout_ns) {
-        result = ::os_sync_wait_on_address(word, expected, sizeof *word, flags);
-    } else if (*timeout_ns <= 0) {
-        return -linux_errno::etimedout;
-    } else {
-        result = ::os_sync_wait_on_address_with_timeout(word, expected, sizeof *word, flags,
-                                                         OS_CLOCK_MACH_ABSOLUTE_TIME,
-                                                         static_cast<std::uint64_t>(*timeout_ns));
-    }
-    if (result >= 0) return 0;
-    return errno == ETIMEDOUT ? -linux_errno::etimedout : -to_linux_errno(errno);
-}
-
-
-long sys_futex(std::uint64_t address, int operation, std::uint32_t value, std::uint64_t timeout_address,
-               std::uint32_t bitset) {
-    if (address % 4 != 0) return -linux_errno::einval;
-    auto *word = as_pointer<std::uint32_t>(address);
-    const bool shared = (operation & linux_futex::private_flag) == 0;
-    const int command = operation & ~(linux_futex::private_flag | linux_futex::clock_realtime);
-
-    switch (command) {
-        case linux_futex::wait:
-        case linux_futex::wait_bitset: {
-            if (command == linux_futex::wait_bitset && bitset != linux_futex::bitset_match_any) break;
-            std::optional<std::int64_t> timeout;
-            if (timeout_address != 0) {
-                const auto &time = *as_pointer<const timespec>(timeout_address);
-                if (time.tv_sec < 0 || time.tv_nsec < 0 || time.tv_nsec >= 1'000'000'000) return -linux_errno::einval;
-                if (command == linux_futex::wait) {
-                    timeout = nanoseconds_of(time);  // relative
-                } else {
-                    // Absolute, on CLOCK_MONOTONIC or with FUTEX_CLOCK_REALTIME on CLOCK_REALTIME.
-                    const auto clock = (operation & linux_futex::clock_realtime) ? CLOCK_REALTIME : CLOCK_UPTIME_RAW;
-                    timeout = nanoseconds_of(time) - static_cast<std::int64_t>(clock_gettime_nsec_np(clock));
-                }
-            }
-            return futex_wait(word, value, timeout, shared);
-        }
-        case linux_futex::wake:
-        case linux_futex::wake_bitset:
-            if (command == linux_futex::wake_bitset && bitset != linux_futex::bitset_match_any) break;
-            return futex_wake(word, static_cast<int>(std::min<std::uint32_t>(value, INT32_MAX)), shared);
-        default: break;
-    }
-    // Requeue, wake-op, priority inheritance and bitsets other than "any" follow when a program needs them.
-    char message[80];
-    const int length = std::snprintf(message, sizeof message, "apkrt: futex operation %#x is not supported yet\n",
-                                     static_cast<unsigned>(operation));
-    if (length > 0) static_cast<void>(::write(STDERR_FILENO, message, static_cast<std::size_t>(length)));
-    return -linux_errno::enosys;
 }
 
 // --- Process ------------------------------------------------------------------------------------------
