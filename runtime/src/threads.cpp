@@ -40,6 +40,7 @@ void create_key() {
 void finish(GuestThread &thread) {
     pthread_setspecific(current_key, nullptr);
     apkrt_set_guest_tls(nullptr);
+    apkrt_set_guest_x18(0);
     if (thread.host_signal_stack != nullptr) {
         stack_t off{};
         off.ss_flags = SS_DISABLE;
@@ -75,6 +76,12 @@ void finish(GuestThread &thread) {
 GuestThread *current() {
     std::call_once(key_created, create_key);
     return static_cast<GuestThread *>(pthread_getspecific(current_key));
+}
+
+const char *used_guest_slot() {
+    if (apkrt_get_guest_tls() != nullptr) return "Darwin TSD slot 6";
+    if (apkrt_get_guest_x18() != 0) return "Darwin TSD slot 11";
+    return nullptr;
 }
 
 std::int32_t new_tid() {
@@ -128,6 +135,7 @@ void run(GuestThread &thread, void (*enter)(void *), void *argument) {
         }
     }
     apkrt_set_guest_tls(reinterpret_cast<void *>(thread.thread_pointer));
+    apkrt_set_guest_x18(thread.x18);
     if (apkrt_save_host(&thread.exit_point) == 0) {
         enter(argument);
         static const char message[] = "apkrt: guest code returned to the host\n";

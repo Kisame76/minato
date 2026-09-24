@@ -5,6 +5,7 @@
 #include "apkconv/container.h"
 #include "apkconv/elf.h"
 
+#include "APKRuntime/apkrt.h"
 #include "APKRuntime/container_format.h"
 #include "check.h"
 #include "elf_builder.h"
@@ -25,6 +26,10 @@ namespace {
 
 using namespace apk::testing;
 using apk::container::Incompatible;
+
+// The islands the converter writes and the runtime that fills the slots must agree on them.
+static_assert(apk::rewrite::guest_thread_pointer_offset == APKRT_GUEST_TLS_OFFSET);
+static_assert(apk::rewrite::guest_x18_offset == APKRT_GUEST_X18_OFFSET);
 
 std::filesystem::path scratch;
 

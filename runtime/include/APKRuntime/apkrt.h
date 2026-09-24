@@ -4,6 +4,7 @@
 #define APKRUNTIME_APKRT_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,20 @@ void apkrt_set_guest_tls(void *thread_pointer);
 
 /// The guest thread pointer of the calling thread, or NULL when the thread has none.
 void *apkrt_get_guest_tls(void);
+
+// MARK: - Guest x18 (ADR-0020)
+
+/// The Darwin TSD slot that holds the guest's x18. XNU sets x18 to zero at every context switch,
+/// so converted guest code runs each use of x18 in an island that keeps the value in this slot:
+/// `mrs xN, TPIDRRO_EL0; bic xN, xN, #7; ldr xN, [xN, #APKRT_GUEST_X18_OFFSET]`.
+#define APKRT_GUEST_X18_SLOT 11
+#define APKRT_GUEST_X18_OFFSET (8 * APKRT_GUEST_X18_SLOT)
+
+/// Sets the guest x18 of the calling thread.
+void apkrt_set_guest_x18(uint64_t value);
+
+/// The guest x18 of the calling thread; 0 in a thread that has not run guest code.
+uint64_t apkrt_get_guest_x18(void);
 
 // MARK: - Guest file system (ARCHITECTURE.md 4.5)
 

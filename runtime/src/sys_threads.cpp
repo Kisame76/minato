@@ -50,6 +50,7 @@ long sys_clone(const apkrt_syscall_frame &frame, std::uint64_t flags, std::uint6
     thread->tid = threads::new_tid();
     thread->start = *start;
     thread->thread_pointer = (flags & clone_settls) ? tls : reinterpret_cast<std::uint64_t>(apkrt_get_guest_tls());
+    thread->x18 = apkrt_get_guest_x18();  // the child starts with the parent's registers, x18 included
     if (flags & clone_child_cleartid) thread->clear_child_tid = child_tid;
     // The child's signal mask is the parent's; its alternate signal stack is none (CLONE_VM).
     thread->signals.mask.store(signals::current().mask.load());

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <set>
+#include <string_view>
 #include <thread>
 
 extern "C" {
@@ -47,7 +48,7 @@ constexpr std::uint64_t linux_sigchld = 17;
 /// What bionic's pthread_create passes.
 constexpr std::uint64_t pthread_flags = clone_vm | clone_fs | clone_files | clone_sighand | clone_thread |
                                         clone_sysvsem | clone_settls | clone_parent_settid | clone_child_cleartid;
-constexpr std::uint64_t nr_futex = 98, nr_set_tid_address = 96, nr_gettid = 178, nr_munmap = 215;
+constexpr std::uint64_t nr_exit = 93, nr_futex = 98, nr_set_tid_address = 96, nr_gettid = 178, nr_munmap = 215;
 constexpr std::uint64_t futex_wait = 0, futex_wake = 1;
 constexpr long enosys = 38, eagain = 11;
 
@@ -190,6 +191,68 @@ TEST(fork_and_vfork_are_refused) {
 TEST(futex_wake_reports_how_many_waited) {
     int word = 0;
     CHECK(probe_syscall(nr_futex, reinterpret_cast<std::uint64_t>(&word), futex_wake, 1) == 0);
+}
+
+// ADR-0020 X4: the islands keep the guest's x18 in TSD slot 11. On Linux a clone child starts with
+// all of the parent's registers, x18 included.
+TEST(clone_hands_the_parents_x18_to_the_child) {
+    static std::atomic<std::uint64_t> seen{0};
+    apkrt_set_guest_x18(0x1818'1818'1818'1818);
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    const long tid = probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word,
+                                 [](void *) { seen.store(apkrt_get_guest_x18()); }, nullptr);
+    CHECK(tid > 0);
+    join(&tid_word);
+    CHECK(seen.load() == 0x1818'1818'1818'1818);
+    CHECK(apkrt_get_guest_x18() == 0x1818'1818'1818'1818);  // the parent's own is untouched
+    apkrt_set_guest_x18(0);
+    ::munmap(stack, stack_size);
+}
+
+// A guest thread finds its thread pointer in slot 6 and its x18 in slot 11 when it starts, and
+// leaves both empty on its host thread when it ends.
+TEST(a_guest_thread_starts_with_its_x18_and_leaves_both_slots_empty) {
+    std::thread([] {
+        static apkrt::threads::GuestThread thread;
+        static std::uint64_t x18 = 0;
+        static void *thread_pointer = nullptr;
+        thread.tid = apkrt::threads::new_tid();
+        thread.thread_pointer = 0x7000;
+        thread.x18 = 0x1818;
+        apkrt::threads::add(thread);
+        apkrt::threads::run(
+            thread,
+            [](void *) {
+                x18 = apkrt_get_guest_x18();
+                thread_pointer = apkrt_get_guest_tls();
+                probe_syscall(nr_exit, 0);  // back into run(), which ends the guest thread
+            },
+            nullptr);
+        CHECK(x18 == 0x1818);
+        CHECK(thread_pointer == reinterpret_cast<void *>(0x7000));
+        CHECK(apkrt_get_guest_x18() == 0);
+        CHECK(apkrt_get_guest_tls() == nullptr);
+    }).join();
+}
+
+// The program's first thread needs both slots empty; the runtime refuses to start it otherwise.
+TEST(the_program_thread_needs_both_slots_empty) {
+    std::thread([] {
+        const auto used = [] {
+            const char *slot = apkrt::threads::used_guest_slot();
+            return std::string_view(slot != nullptr ? slot : "none");
+        };
+        CHECK(used() == "none");
+        apkrt_set_guest_x18(1);
+        CHECK(used() == "Darwin TSD slot 11");
+        apkrt_set_guest_x18(0);
+        apkrt_set_guest_tls(reinterpret_cast<void *>(0x7000));
+        CHECK(used() == "Darwin TSD slot 6");
+        apkrt_set_guest_tls(nullptr);
+        CHECK(used() == "none");
+    }).join();
 }
 
 }  // namespace

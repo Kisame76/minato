@@ -19,6 +19,7 @@ struct GuestThread {
     signals::ThreadSignals signals;
     std::int32_t tid = 0;
     std::uint64_t thread_pointer = 0;   // the guest thread pointer it starts with
+    std::uint64_t x18 = 0;              // the guest x18 it starts with (ADR-0020)
     std::uint64_t clear_child_tid = 0;  // cleared and woken at exit (CLONE_CHILD_CLEARTID, set_tid_address)
     GuestContext start{};               // where a clone child starts
     apkrt_host_context exit_point{};    // SYS_exit returns here, to the host's stack
@@ -32,6 +33,10 @@ static_assert(offsetof(GuestThread, signals) == 0, "syscall_entry.S");
 
 /// The guest thread the calling host thread is running, or null for a host thread.
 GuestThread *current();
+
+/// The Darwin TSD slot for guest code (6 for the thread pointer, 11 for x18) that is not empty on
+/// the calling thread, as "Darwin TSD slot 6" or "Darwin TSD slot 11"; null when both are.
+const char *used_guest_slot();
 
 /// Runs `enter` as the guest thread `thread` on the calling host thread; `enter` switches to guest
 /// code and never returns. Comes back when the guest thread ends with SYS_exit: then the thread's

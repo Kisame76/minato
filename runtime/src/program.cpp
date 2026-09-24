@@ -62,11 +62,13 @@ void enter_program(void *argument) {
 }
 
 void *program_thread(void *argument) {
-    // The islands of converted code read the guest thread pointer from TSD slot 6. A new thread must
-    // start with it empty; the program's libc sets it (msr TPIDR_EL0 becomes an island that writes it).
-    if (apkrt_get_guest_tls() != nullptr) {
-        static const char message[] = "apkrt: Darwin TSD slot 6 is already in use on the program thread\n";
-        static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
+    // The islands of converted code keep the guest thread pointer in TSD slot 6 and x18 in slot 11
+    // (ADR-0019, ADR-0020). A new thread must start with both empty: the program's libc sets the
+    // thread pointer (msr TPIDR_EL0 becomes an island that writes it), and x18 starts as 0, as
+    // Linux's start_thread clears every register.
+    if (const char *slot = apkrt::threads::used_guest_slot()) {
+        const auto message = std::format("apkrt: {} is already in use on the program thread\n", slot);
+        static_cast<void>(::write(STDERR_FILENO, message.data(), message.size()));
         apkrt::process::exit(127);
     }
     static apkrt::threads::GuestThread first;
