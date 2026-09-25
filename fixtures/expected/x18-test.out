@@ -1,0 +1,28 @@
+mov, add and mov through x18: 42
+add w18 of 0x1fffffffe and 1: 0xffffffff
+loads and stores of x18: 0x8877665544332211 0x22 0xffffffffffff8877 0x88776655
+x18 as the base, with post-index: 124
+ldp and stp with x18: 6 5
+x18 next to sp: 1024
+cmp, adds, csel and ccmp on x18: 1 1 7 1
+madd, udiv, msub and umulh with x18: 47 6 5 23
+movk, bfi and ubfx on x18: 0x11223344beef7788 0x11223344beefab88 0xbeef
+fmov, ins and umov with x18: 0x123456789abcdf0
+msr and mrs nzcv through x18: 1 1 0x60000000
+ldadd, swp, cas, ldar and stlr with x18: 10 16 15 99 99
+a register dump stores x18 between its neighbours: 16 17 18 19 20 21
+adrp and add into x18 give the address of a symbol: yes
+adr into x18 gives the address of a symbol: yes
+ldr x18, ldr w18 and ldrsw x18 from literals: 0x102030405060708 0x89abcdef 0xffffffff89abcdef
+cbz, cbnz, tbz and tbnz on x18: 0x5 for 9, 0xa for 0
+an LL/SC window with x18 as the value: 42
+an LL/SC window with x18 as the address: 44
+an LL/SC window in 32 bits: 0x0
+cmpxchg through x18: swapped 7 for 8, then kept 8
+a window a CLREX closes: 8
+a window that skips its only write of x18: 77, and one that makes it: 5
+a jump table through br x18: 10 11 12 13 -1
+x18 across a syscall: kept
+x18 across 1000 sched_yield: kept
+the handler found x18 in its frame: 0x1818aaaa, the thread went on with the handler's: 0x5eed
+a new thread's x18 is set: yes, and is not its creator's: yes

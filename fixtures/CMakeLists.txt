@@ -84,3 +84,6 @@ add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)
 add_executable(dl-lock-test suite/dl-lock-test.c)
 target_link_libraries(dl-lock-test PRIVATE dl)
+# x18-test: every form of x18 the converter puts into an island, written in assembly, since the
+# NDK's clang reserves x18 (ADR-0020 X5).
+add_executable(x18-test suite/x18-test.c suite/x18-test.S)
