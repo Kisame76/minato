@@ -58,7 +58,7 @@ struct Unsupported {
 struct ExclusiveRegion {
     std::uint64_t address;             // of the load-exclusive, in the address space given to scan()
     std::vector<std::uint32_t> words;  // the whole window, load-exclusive to close, inclusive
-    bool reads_x18 = false;            // a path reads x18 before writing it -> load the scratch first
+    bool loads_x18 = false;            // a path reads x18 before writing it or leaves it unwritten -> load it first
     bool writes_x18 = false;           // x18 is written -> store the scratch back after
     std::uint8_t scratch = 0;          // stands in for x18 across the window (the value)
     std::uint8_t base = 0;             // holds the TSD base for the store-back; used only when writing

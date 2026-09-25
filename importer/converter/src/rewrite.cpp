@@ -464,9 +464,10 @@ std::vector<bool> skippable_words(std::span<const std::byte> code, std::size_t o
     return skippable;
 }
 
-/// Whether a word of the window [open, end] reads one of `registers` before a write that every
-/// path through the window passes.
-bool reads_before_written(std::span<const std::byte> code, std::size_t open, std::size_t end, std::uint32_t registers) {
+/// Whether one of `registers` is live into the window [open, end], the store after the window
+/// counted as a read: a word reads it before a write that every path through the window passes, or
+/// there is no such write.
+bool live_into_window(std::span<const std::byte> code, std::size_t open, std::size_t end, std::uint32_t registers) {
     const auto skippable = skippable_words(code, open, end);
     std::uint32_t written = 0;
     for (std::size_t k = 0; open + 4 * k <= end; ++k) {
@@ -474,7 +475,7 @@ bool reads_before_written(std::span<const std::byte> code, std::size_t open, std
         if ((use.reads & registers & ~written) != 0) return true;
         if (!skippable[k]) written |= use.writes;
     }
-    return false;
+    return (registers & ~written) != 0;
 }
 
 /// Builds the relocatable region for the window [open, end] when it is simple enough (ADR-0020
@@ -499,9 +500,10 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
         region.words.push_back(word);
     }
     if (!any_x18) return std::nullopt;  // an exclusive loop without x18 needs no rewrite
-    // The island loads x18 before the window when some path reads it before writing it; the first
-    // use alone does not tell, a branch can skip it (ADR-0020 X4).
-    region.reads_x18 = reads_before_written(code, open, end, x18_bit);
+    // The island loads x18 before the window when some path reads it before writing it, or leaves
+    // it unwritten: the store after the window writes the value register back on every path. The
+    // first use alone does not tell, a branch can skip it (ADR-0020 X4).
+    region.loads_x18 = live_into_window(code, open, end, x18_bit);
 
     // Two free registers: the value in place of x18, and the TSD base for the store-back. Both may
     // hold live values around the loop, so the island saves them in the red zone.
@@ -1028,7 +1030,7 @@ std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delt
 
 std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
     std::size_t words = 1 /* save value */ + region.words.size() + 1 /* restore value */ + 1 /* branch */;
-    if (region.reads_x18) words += 3;                 // mrs, bic, ldr before the window
+    if (region.loads_x18) words += 3;                 // mrs, bic, ldr before the window
     if (region.writes_x18) words += 1 + 3 + 1;         // save base; mrs, bic, str; restore base
     return 4 * words;
 }
@@ -1042,7 +1044,7 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
 
     write(stur(value, sp, scratch_slot_0));
     if (region.writes_x18) write(stur(base, sp, scratch_slot_1));
-    if (region.reads_x18) {
+    if (region.loads_x18) {
         write(mrs_tpidrro_el0(value));
         write(bic_7(value, value));
         write(ldr_unsigned(value, value, guest_x18_offset));
@@ -1163,7 +1165,7 @@ IslandLayout exclusive_region_layout(const ExclusiveRegion &region) {
     // As emit_exclusive_region() writes it: save the value (and the base), load x18, the window,
     // then store x18 with mrs, bic and str. The window completes with its store-exclusive, or with
     // the CLREX that closes a window without one.
-    const std::size_t first = 1 + (region.writes_x18 ? 1u : 0u) + (region.reads_x18 ? 3u : 0u);
+    const std::size_t first = 1 + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);
     std::size_t closing = region.words.size() - 1;
     for (std::size_t index = 1; index < region.words.size(); ++index) {
         if (is_store_exclusive(region.words[index])) {

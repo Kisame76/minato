@@ -347,6 +347,19 @@ _ref_x18_window_clrex_only:
     .globl _ref_x18_window_clrex_only_end
 _ref_x18_window_clrex_only_end:
 
+// A window whose cbz can skip its only write of x18, and which never reads x18: on that path the
+// store after the window writes back whatever the value register holds (found in the review of X4).
+    .globl _ref_x18_window_unread
+_ref_x18_window_unread:
+    ldxr    x8, [x0]
+    cbz     x8, 1f
+    mov     x18, x8
+1:  stxr    w9, x8, [x0]
+    cbnz    w9, _ref_x18_window_unread
+    ret
+    .globl _ref_x18_window_unread_end
+_ref_x18_window_unread_end:
+
 // Two-way island for a conditional branch (ADR-0020 X2): the value scratch (x0 here) holds the
 // guest x18 from slot 11, the branch tests it, and both exits restore the scratch before leaving.
 // `back` is the instruction after the site, `taken` the branch's own target; the rewriter

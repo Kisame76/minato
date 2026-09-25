@@ -53,6 +53,8 @@ extern const std::uint32_t ref_x18_window_status[];
 extern const std::uint32_t ref_x18_window_end[];
 extern const std::uint32_t ref_x18_window_clrex_only[];
 extern const std::uint32_t ref_x18_window_clrex_only_end[];
+extern const std::uint32_t ref_x18_window_unread[];
+extern const std::uint32_t ref_x18_window_unread_end[];
 extern const std::uint32_t ref_x18_island_cbz[];
 extern const std::uint32_t ref_x18_island_tbz[];
 extern const std::uint32_t ref_x18_site_adrp[];
@@ -414,7 +416,7 @@ TEST(an_exclusive_loop_with_x18_as_the_value_is_one_region) {
     const auto &region = findings.exclusive_regions[0];
     CHECK(region.address == 0x1000);
     CHECK(region.words == (std::vector<std::uint32_t>{0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2}));
-    CHECK(!region.reads_x18);  // x18 is written by the add before the stlxr reads it
+    CHECK(!region.loads_x18);  // x18 is written by the add before the stlxr reads it
     CHECK(region.writes_x18);
     CHECK(region.scratch == 0);  // x0 is free (the window uses x13, x14, x16, x17, x18)
 }
@@ -432,7 +434,7 @@ TEST(a_cmpxchg_loop_keeps_its_internal_branch_and_reads_before_the_window) {
     const auto &region = findings.exclusive_regions[0];
     CHECK(region.address == 0x2004);
     CHECK(region.words.size() == 5);  // ldaxr, cmp, b.ne, stlxr, clrex
-    CHECK(!region.reads_x18);         // the ldaxr writes x18 first
+    CHECK(!region.loads_x18);         // the ldaxr writes x18 first
     CHECK(region.writes_x18);
 }
 
@@ -444,7 +446,7 @@ TEST(an_exclusive_loop_using_x18_as_the_address_loads_the_scratch_first) {
     if (findings.exclusive_regions.size() != 1) return;
     const auto &region = findings.exclusive_regions[0];
     CHECK(region.words.size() == 3);
-    CHECK(region.reads_x18);
+    CHECK(region.loads_x18);
     CHECK(!region.writes_x18);
 }
 
@@ -500,8 +502,22 @@ TEST(restartable_exclusive_windows_are_relocated) {
     CHECK(skipped.exclusive_regions.size() == 1);
     if (skipped.exclusive_regions.size() != 1) return;
     CHECK(skipped.exclusive_regions[0].words.size() == 4);  // ldxr, cbz, mov x18, stxr
-    CHECK(skipped.exclusive_regions[0].reads_x18);
+    CHECK(skipped.exclusive_regions[0].loads_x18);
     CHECK(skipped.exclusive_regions[0].writes_x18);
+}
+
+// A window whose cbz can skip its only write of x18, and which never reads x18: on that path the
+// store after the window writes back whatever the value register holds, so the island loads x18
+// before this window too (found in the review of X4).
+TEST(a_window_that_can_skip_its_only_write_of_x18_loads_it_first) {
+    const auto findings = scan_words(ref_x18_window_unread, ref_x18_window_unread_end, 0x10000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+    CHECK(region.words.size() == 4);  // ldxr, cbz, mov x18, stxr
+    CHECK(region.loads_x18);
+    CHECK(region.writes_x18);
 }
 
 TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
