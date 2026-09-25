@@ -90,7 +90,8 @@ struct LibraryTests {
 
         #expect(await library.entries.count == 2)
         #expect(try await library.scan().isEmpty)
-        let installed = sandbox.paths.installDirectory(for: "org.example.game").appendingPathComponent("base.apk")
+        let entry = try #require(await library.entries.first(where: { $0.id == "org.example.game" }))
+        let installed = sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")
         #expect(try Data(contentsOf: installed) == SampleAPK.make())
     }
 
@@ -140,13 +141,13 @@ struct LibraryTests {
         let file = try sandbox.file(apk, named: "game.apk")
         let library = try Library(paths: sandbox.paths)
 
-        let entry = try await library.importFile(file)
+        let entry = try await library.importFile(file).entry
 
         #expect(entry.id == "org.example.game")
         #expect(entry.displayName == "My Game")
         #expect(entry.state == .ready)
         #expect(entry.report?.versionCode == 7)
-        let installed = sandbox.paths.installDirectory(for: "org.example.game").appendingPathComponent("base.apk")
+        let installed = sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")
         #expect(try Data(contentsOf: installed) == apk)
         #expect(entry.base?.size == UInt64(apk.count))
         #expect(entry.base?.sha256.count == 64)
@@ -164,12 +165,12 @@ struct LibraryTests {
         let file = try sandbox.file(SampleAPK.make(package: "org.example.old", abis: ["armeabi-v7a"]), named: "old.apk")
         let library = try Library(paths: sandbox.paths)
 
-        let entry = try await library.importFile(file)
+        let entry = try await library.importFile(file).entry
 
         #expect(entry.state == .incompatible)
         #expect(entry.report?.compatibility.issues.contains(.only32Bit(["armeabi-v7a"])) == true)
         #expect(entry.base == nil)
-        #expect(!sandbox.exists(sandbox.paths.installDirectory(for: "org.example.old").appendingPathComponent("base.apk")))
+        #expect(!sandbox.exists(sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")))
     }
 
     @Test func importOfBaseNeedingSplitsKeepsBase() async throws {
@@ -178,7 +179,7 @@ struct LibraryTests {
         let file = try sandbox.file(SampleAPK.make(package: "org.example.split", splitRequired: true), named: "base.apk")
         let library = try Library(paths: sandbox.paths)
 
-        let entry = try await library.importFile(file)
+        let entry = try await library.importFile(file).entry
 
         #expect(entry.state == .needsSplits)
         #expect(entry.base != nil)
@@ -190,7 +191,7 @@ struct LibraryTests {
         let file = try sandbox.file(Data("this is not an apk".utf8), named: "broken.apk")
         let library = try Library(paths: sandbox.paths)
 
-        let entry = try await library.importFile(file)
+        let entry = try await library.importFile(file).entry
 
         #expect(entry.id == "file:broken.apk")
         #expect(entry.displayName == "broken.apk")
@@ -208,12 +209,12 @@ struct LibraryTests {
         let save = sandbox.paths.dataDirectory(for: "org.example.game").appendingPathComponent("data/save.dat")
         try Data("progress".utf8).write(to: save)
 
-        let updated = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))
+        let updated = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk")).entry
 
         #expect(updated.report?.versionCode == 2)
         #expect(await library.entries.count == 1)
         #expect(try Data(contentsOf: save) == Data("progress".utf8))
-        let installed = sandbox.paths.installDirectory(for: "org.example.game").appendingPathComponent("base.apk")
+        let installed = sandbox.paths.versionDirectory(for: updated).appendingPathComponent("base.apk")
         #expect(try Data(contentsOf: installed) == SampleAPK.make(versionCode: 2))
     }
 
@@ -222,7 +223,7 @@ struct LibraryTests {
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
 
-        let entry = try await library.importFile(sandbox.file(SampleAPK.make(package: "../../escape"), named: "evil.apk"))
+        let entry = try await library.importFile(sandbox.file(SampleAPK.make(package: "../../escape"), named: "evil.apk")).entry
 
         #expect(entry.id == "file:evil.apk")
         #expect(!sandbox.exists(sandbox.paths.applicationSupport.appendingPathComponent("escape")))

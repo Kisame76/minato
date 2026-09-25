@@ -175,14 +175,16 @@ final class LibraryModel {
         progress[url] = 0
         do {
             let start = ContinuousClock.now
-            let entry = try await library.importFile(url) { [weak self] value in
+            // Read first: the import discards the picked copy.
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            let result = try await library.importFile(url) { [weak self] value in
                 Task { @MainActor in
                     guard let self, self.pending.contains(url) else { return }
                     self.progress[url] = value
                 }
             }
-            let megabytes = Double(entry.source.size) / 1_000_000
-            log.info("Imported \(url.lastPathComponent, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB) in \(ContinuousClock.now - start, privacy: .public)")
+            let megabytes = Double(size) / 1_000_000
+            log.info("Imported \(url.lastPathComponent, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB, \(String(describing: result.decision), privacy: .public)) in \(ContinuousClock.now - start, privacy: .public)")
         } catch {
             errorMessage = "“\(url.lastPathComponent)” could not be imported: \(error.localizedDescription)"
         }

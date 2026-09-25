@@ -27,13 +27,25 @@ public struct LibraryPaths: Sendable {
 
     public var indexFile: URL { applicationSupport.appendingPathComponent("library.json") }
 
+    /// Where installed apps live, each in a folder named after its package.
+    public var appsDirectory: URL { applicationSupport.appendingPathComponent("apps", isDirectory: true) }
+
+    /// An app's folder, which holds the folder of its installed version.
     public func installDirectory(for package: String) -> URL {
-        applicationSupport.appendingPathComponent("apps", isDirectory: true).appendingPathComponent(package, isDirectory: true)
+        appsDirectory.appendingPathComponent(package, isDirectory: true)
     }
 
-    /// Converted native code: each ELF original next to its signed container (ADR-0008).
-    public func libraryDirectory(for package: String) -> URL {
-        installDirectory(for: package).appendingPathComponent("lib", isDirectory: true)
+    /// The installed version's folder (ADR-0034): apps/<package>/<folder>/, or apps/<package>/ itself
+    /// for an entry from before version folders.
+    public func versionDirectory(for entry: LibraryEntry) -> URL {
+        let app = installDirectory(for: entry.id)
+        return entry.folder.map { app.appendingPathComponent($0, isDirectory: true) } ?? app
+    }
+
+    /// Converted native code of the installed version: each ELF original next to its signed
+    /// container (ADR-0008).
+    public func libraryDirectory(for entry: LibraryEntry) -> URL {
+        versionDirectory(for: entry).appendingPathComponent("lib", isDirectory: true)
     }
 
     /// Stands in for /data/data/<package>, /sdcard/Android/data/<package> and /sdcard/Android/obb/<package>.

@@ -107,19 +107,30 @@ expect "AltStore's callback is imported" "valid altStoreExport $OWN" "$got"
 FIXTURE=build/fixtures/bin/raw-hello
 if [[ -f "$FIXTURE" ]]; then
   SUPPORT="$CONTAINER/Library/Application Support"
-  mkdir -p "$SUPPORT/apps/org.example.resign/lib"
-  cp "$FIXTURE" "$SUPPORT/apps/org.example.resign/lib/libhello.so"
+  # The entry joins the library's own index, which stays: a launch removes the folders of apps without
+  # an entry (ADR-0034). Its code lies in the folder of its version.
+  VERSION="$SUPPORT/apps/org.example.resign/0123456789abcdef"
+  mkdir -p "$VERSION/lib"
+  cp "$FIXTURE" "$VERSION/lib/libhello.so"
   cp "$SUPPORT/library.json" "$WORK/library.json.saved" 2>/dev/null || true
-  cat >"$SUPPORT/library.json" <<EOF
-{"version":1,"entries":[{"id":"org.example.resign","displayName":"Resign Check","state":{"ready":{}},"splits":[],"obbs":[],"source":{"fileName":"resign.apk","size":1,"modifiedMilliseconds":0},"importedAt":"2026-09-23T00:00:00Z","signedWith":"$OWN"}]}
+  python3 - "$SUPPORT/library.json" "$OWN" <<'EOF'
+import json, os, sys
+path, own = sys.argv[1], sys.argv[2]
+index = json.load(open(path)) if os.path.exists(path) else {"version": 1, "entries": []}
+index["entries"] = [e for e in index["entries"] if e["id"] != "org.example.resign"] + [{
+    "id": "org.example.resign", "displayName": "Resign Check", "state": {"ready": {}}, "splits": [], "obbs": [],
+    "source": {"fileName": "resign.apk", "size": 1, "modifiedMilliseconds": 0},
+    "importedAt": "2026-09-23T00:00:00Z", "signedWith": own, "folder": "0123456789abcdef"}]
+with open(path, "w") as handle:
+    json.dump(index, handle)
 EOF
   expect "a change signs the library again" "valid sideStoreEmbedded $OWN" \
     "$(ask "${own[@]}" "${sidestore[@]}" -certificateCheckSimulateChange -certificateCheckStatus)"
-  signed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["entries"][0].get("signedWith"))' \
+  signed=$(python3 -c 'import json,sys; print(next(e for e in json.load(open(sys.argv[1]))["entries"] if e["id"] == "org.example.resign").get("signedWith"))' \
     "$SUPPORT/library.json")
   expect "the entry records the certificate that signed it" "$OWN" "$signed"
   container_made=no
-  [[ -s "$SUPPORT/apps/org.example.resign/lib/libhello.so.dylib" ]] && container_made=yes
+  [[ -s "$VERSION/lib/libhello.so.dylib" ]] && container_made=yes
   expect "the container is written next to its ELF original" "yes" "$container_made"
   rm -rf "$SUPPORT/apps/org.example.resign"
   if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi

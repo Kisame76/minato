@@ -21,8 +21,8 @@ struct ResigningTests {
 
     /// An installed app with the ELF files `names` in its lib/ folder, as the import in M3 leaves them.
     static func installedApp(in sandbox: LibraryTests.Sandbox, library: Library, libraries names: [String]) async throws -> LibraryEntry {
-        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk"))
-        let lib = sandbox.paths.libraryDirectory(for: entry.id)
+        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let lib = sandbox.paths.libraryDirectory(for: entry)
         try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
         for name in names { try Data(name.utf8).write(to: lib.appendingPathComponent(name)) }
         return entry
@@ -36,7 +36,7 @@ struct ResigningTests {
 
         #expect(try await library.resign(id: entry.id, fingerprint: "aa", with: RecordingConverter(fingerprint: "aa")) == 2)
 
-        let lib = sandbox.paths.libraryDirectory(for: entry.id)
+        let lib = sandbox.paths.libraryDirectory(for: entry)
         #expect(try Data(contentsOf: lib.appendingPathComponent("libfoo.so.dylib")) == Data("aa:libfoo.so".utf8))
         #expect(try Data(contentsOf: lib.appendingPathComponent("libmain.so.dylib")) == Data("aa:libmain.so".utf8))
         #expect(await library.entries.first?.signedWith == "aa")
@@ -69,12 +69,12 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let old = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.old"), named: "old.apk"))
-        let unrecorded = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.new"), named: "new.apk"))
-        let current = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.current"), named: "current.apk"))
+        let old = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.old"), named: "old.apk")).entry
+        let unrecorded = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.new"), named: "new.apk")).entry
+        let current = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.current"), named: "current.apk")).entry
         _ = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.plain"), named: "plain.apk"))
         for (entry, names) in [(old, ["liba.so", "libb.so"]), (unrecorded, ["libc.so"]), (current, ["libd.so"])] {
-            let lib = sandbox.paths.libraryDirectory(for: entry.id)
+            let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
             for name in names { try Data(name.utf8).write(to: lib.appendingPathComponent(name)) }
         }
@@ -89,7 +89,7 @@ struct ResigningTests {
         let signed = Dictionary(uniqueKeysWithValues: await library.entries.map { ($0.id, $0.signedWith) })
         #expect(signed[old.id] == "aa")
         #expect(signed[unrecorded.id] == "aa")
-        #expect(try Data(contentsOf: sandbox.paths.libraryDirectory(for: current.id).appendingPathComponent("libd.so.dylib"))
+        #expect(try Data(contentsOf: sandbox.paths.libraryDirectory(for: current).appendingPathComponent("libd.so.dylib"))
             == Data("aa:libd.so".utf8))
     }
 
@@ -97,10 +97,10 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let broken = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.broken"), named: "broken.apk"))
-        let fine = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.fine"), named: "fine.apk"))
+        let broken = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.broken"), named: "broken.apk")).entry
+        let fine = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.fine"), named: "fine.apk")).entry
         for (entry, name) in [(broken, "libbroken.so"), (fine, "libfine.so")] {
-            let lib = sandbox.paths.libraryDirectory(for: entry.id)
+            let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
             try Data(name.utf8).write(to: lib.appendingPathComponent(name))
         }
@@ -120,10 +120,10 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let first = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.a"), named: "a.apk"))
-        let second = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.b"), named: "b.apk"))
+        let first = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.a"), named: "a.apk")).entry
+        let second = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.b"), named: "b.apk")).entry
         for (entry, names) in [(first, ["liba.so", "libb.so"]), (second, ["libc.so"])] {
-            let lib = sandbox.paths.libraryDirectory(for: entry.id)
+            let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
             for name in names { try Data(name.utf8).write(to: lib.appendingPathComponent(name)) }
         }
@@ -170,7 +170,7 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk"))
+        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
 
         #expect(await library.resignCandidates() == [ResignCandidate(id: entry.id, signedWith: nil, containerCount: 0)])
         #expect(try await library.resign(id: entry.id, fingerprint: "aa", with: RecordingConverter(fingerprint: "aa")) == 0)

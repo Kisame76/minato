@@ -70,10 +70,10 @@ extension Library {
         try recordAll { $0.signedWith = nil }
     }
 
-    /// The ELF originals in the entry's lib/ folder, sorted by name.
+    /// The ELF originals in the lib/ folder of the entry's installed version (ADR-0034), sorted by name.
     private func libraryFiles(of id: String) -> [URL] {
-        guard !id.hasPrefix("file:"), Self.isSafePackageName(id) else { return [] }
-        let folder = paths.libraryDirectory(for: id)
+        guard !id.hasPrefix("file:"), Self.isSafePackageName(id), let entry = entries.first(where: { $0.id == id }) else { return [] }
+        let folder = paths.libraryDirectory(for: entry)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         return names.filter { $0.hasSuffix(".so") }.sorted().map { folder.appendingPathComponent($0) }
     }
