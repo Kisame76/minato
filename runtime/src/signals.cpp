@@ -1,6 +1,7 @@
 #include "signals.h"
 
 #include "APKRuntime/apkrt.h"
+#include "islands.h"
 #include "process_exit.h"
 #include "threads.h"
 
@@ -233,6 +234,9 @@ bool take_locked(ThreadSignals &state, std::uint64_t allowed, int &signal, Linux
 /// into the handler's entry, as the kernel's setup_rt_frame does.
 void setup_frame(ThreadSignals &state, int signal, const LinuxSiginfo &info, const LinuxSigaction &action,
                  GuestContext &context, const Fault *fault) {
+    // A thread stopped inside an x18 island goes back to a guest state before anything reads it
+    // (ADR-0020 X4): the frame would overwrite the red zone the island saved its registers in.
+    if (std::uint64_t x18 = apkrt_get_guest_x18(); islands::leave(context, x18)) apkrt_set_guest_x18(x18);
     const auto alternate = state.alternate_stack;
     const bool alternate_usable = (alternate.flags & ss_disable) == 0 && alternate.size != 0;
     const bool on_alternate =
@@ -335,10 +339,10 @@ bool mapped(std::uint64_t address) {
     return result == KERN_SUCCESS && region <= address;
 }
 
-Translated translate(int host_signal, const siginfo_t &host_info, const ucontext_t &uc) {
+/// `pc` is where the guest sees the fault: the site of an x18 island it faulted in.
+Translated translate(int host_signal, const siginfo_t &host_info, const ucontext_t &uc, std::uint64_t pc) {
     const auto &exception = uc.uc_mcontext->__es;
     const std::uint64_t esr = exception.__esr;
-    const std::uint64_t pc = uc.uc_mcontext->__ss.__pc;
     switch (host_signal) {
         case SIGSEGV:
         case SIGBUS: {
@@ -380,7 +384,10 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
         return;
     }
     auto &state = thread->signals;
-    const auto translated = translate(host_signal, *host_info, uc);
+    auto context = context_from(uc);
+    // Inside an x18 island, the guest faults at the site (ADR-0020 X4).
+    if (std::uint64_t x18 = apkrt_get_guest_x18(); islands::leave(context, x18)) apkrt_set_guest_x18(x18);
+    const auto translated = translate(host_signal, *host_info, uc, context.pc);
     const auto chosen = action(translated.signal);
     // A fault that is blocked, ignored or left to the default ends the process, as on Linux.
     if (chosen.handler == sig_dfl || chosen.handler == sig_ign || (state.mask.load() & bit(translated.signal)) != 0) {
@@ -391,7 +398,6 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     info.signo = translated.signal;
     info.code = translated.code;
     info.fields.address = translated.fault.address;
-    auto context = context_from(uc);
     setup_frame(state, translated.signal, info, chosen, context, &translated.fault);
     apply(context, uc);
 }

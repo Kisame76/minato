@@ -4,6 +4,7 @@
 #pragma once
 
 #include "APKRuntime/container_format.h"
+#include "guest_context.h"
 
 #include <cstdint>
 #include <string_view>
@@ -29,5 +30,23 @@ const Container *container_at(std::uint64_t pc);
 /// The x18 island of `container` that holds `pc`, or null: the stub area holds thread pointer
 /// islands and syscall veneers as well. Safe in signal handlers.
 const apk_island *island_at(const Container &container, std::uint64_t pc);
+
+/// A thread's state after it left an island, and the x18 it has then.
+struct Settled {
+    GuestContext context;
+    std::uint64_t x18;
+};
+
+/// Pure: the guest state of a thread stopped at `context.pc` inside `island` of the container whose
+/// Mach-O header is at `header`, given the two red zone words the island saved (sp - 128 and
+/// sp - 120) and its current x18. See struct apk_island for the rule.
+Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
+               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18);
+
+/// When `context` stopped inside an x18 island, turns it and `x18` (the thread's slot 11) into the
+/// guest's state and returns true. Reads the red zone below context.sp, which the island has
+/// written, so the thread must be stopped: a signal handler on the thread itself, or the stepper.
+/// No locks, no allocation.
+bool leave(GuestContext &context, std::uint64_t &x18);
 
 }  // namespace apkrt::islands

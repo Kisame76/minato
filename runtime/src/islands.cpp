@@ -44,4 +44,33 @@ const apk_island *island_at(const Container &container, std::uint64_t pc) {
     return offset - island.stub < 4 * std::uint64_t{island.words} ? &island : nullptr;
 }
 
+Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
+               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18) {
+    const std::uint64_t word = (context.pc - (header + island.stub)) / 4;
+    const bool back = island.commit == APK_ISLAND_NO_COMMIT || word <= island.commit;
+    Settled settled{context, x18};
+    // Forward, before the island's own store: x18 is still in the value register.
+    if (!back && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
+    if (word >= 1) settled.context.x[island.value] = saved_value;
+    if (island.base != APK_ISLAND_NO_REGISTER && word >= 2) settled.context.x[island.base] = saved_base;
+    settled.context.pc = header + island.site + (back ? 0 : 4 * std::uint64_t{island.resume});
+    return settled;
+}
+
+bool leave(GuestContext &context, std::uint64_t &x18) {
+    const auto *container = container_at(context.pc);
+    if (container == nullptr) return false;
+    const auto *island = island_at(*container, context.pc);
+    if (island == nullptr) return false;
+    const std::uint64_t word = (context.pc - (container->header + island->stub)) / 4;
+    // The island's own stores to the red zone succeeded, so reading it back cannot fault.
+    const auto *red_zone = reinterpret_cast<const std::uint64_t *>(context.sp - 128);
+    const auto saved_value = word >= 1 ? red_zone[0] : 0;
+    const auto saved_base = word >= 2 && island->base != APK_ISLAND_NO_REGISTER ? red_zone[1] : 0;
+    const auto settled = settle(*island, container->header, context, saved_value, saved_base, x18);
+    context = settled.context;
+    x18 = settled.x18;
+    return true;
+}
+
 }  // namespace apkrt::islands

@@ -106,6 +106,18 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.signals COMMAND signals_test)
   set_tests_properties(runtime.signals PROPERTIES TIMEOUT 60)
 
+  # Leaving x18 islands (ADR-0020 X4): a harness that single-steps calls into a converted program,
+  # and clone children that get signals and faults inside its islands.
+  add_executable(islands_test tests/islands_test.cpp tests/stepper.cpp tests/stepper_probe.S tests/threads_probe.S
+    tests/signals_probe.S)
+  target_include_directories(islands_test PRIVATE src "${PROJECT_SOURCE_DIR}/importer/converter/tests")
+  target_link_libraries(islands_test PRIVATE apkrt apkconv apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/islands_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.islands COMMAND islands_test "${CMAKE_CURRENT_BINARY_DIR}/islands_test_scratch")
+  set_tests_properties(runtime.islands PROPERTIES TIMEOUT 120)
+
   add_executable(syscall_entry_test tests/syscall_entry_test.c tests/syscall_entry_probe.S)
   target_link_libraries(syscall_entry_test PRIVATE apkrt apk_defaults)
   add_test(NAME runtime.syscall_entry COMMAND syscall_entry_test)
