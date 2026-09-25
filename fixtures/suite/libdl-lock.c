@@ -17,16 +17,16 @@
 
 static pthread_t waiter;
 static pthread_t iterator;
-static atomic_int waiting;         // the waiter is about to call dlsym
-static atomic_int handled;         // its handler ran
-static const void *interrupted_pc;  // where the signal found it
-static void *waiter_symbol;
-static void *own_symbol;
-static int handled_while_waiting;
+static atomic_int waiting;    // the waiter is about to call dlsym
+static atomic_int looked_up;  // its dlsym returned
 static atomic_int iterating;  // the iterator is about to call dl_iterate_phdr
 static atomic_int iterated;   // its dl_iterate_phdr returned
-static int listed;            // how many objects it listed
-static int iteration_waited;
+static atomic_int handled;    // the handler ran
+static const void *interrupted_pc;  // where the signal found its thread
+static void *waiter_symbol;
+static void *own_symbol;
+static int listed;  // how many objects the iterator listed
+static struct dl_lock_report result;
 
 static void on_signal(int signal, siginfo_t *info, void *context) {
     (void)signal;
@@ -39,6 +39,7 @@ static void *wait_for_the_lock(void *argument) {
     (void)argument;
     atomic_store(&waiting, 1);
     waiter_symbol = dlsym(RTLD_DEFAULT, "printf");
+    atomic_store(&looked_up, 1);
     return NULL;
 }
 
@@ -59,6 +60,56 @@ static void *iterate(void *argument) {
     return NULL;
 }
 
+struct Pair {
+    const void *first;
+    const void *second;
+    int together;
+};
+
+static int contains(const struct dl_phdr_info *info, const void *address) {
+    for (int index = 0; index < info->dlpi_phnum; ++index) {
+        const ElfW(Phdr) *phdr = &info->dlpi_phdr[index];
+        const ElfW(Addr) start = info->dlpi_addr + phdr->p_vaddr;
+        if (phdr->p_type == PT_LOAD && (ElfW(Addr))address >= start && (ElfW(Addr))address - start < phdr->p_memsz) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int look_at(struct dl_phdr_info *info, size_t size, void *argument) {
+    struct Pair *pair = argument;
+    (void)size;
+    if (contains(info, pair->first) && contains(info, pair->second)) pair->together = 1;
+    return 0;
+}
+
+/// Whether both addresses lie in the loaded segments of one object. Not with dladdr: Android's does
+/// not know linker64's addresses, while its dl_iterate_phdr lists linker64. The lock is recursive,
+/// so the constructor may call it.
+static int same_object(const void *first, const void *second) {
+    struct Pair pair = {first, second, 0};
+    if (first != NULL && second != NULL) dl_iterate_phdr(look_at, &pair);
+    return pair.together;
+}
+
+/// Sends `thread` SIGUSR1 until its handler finds it in the dynamic linker, the object that serves
+/// libdl, for about 5 s at most: the thread may not have reached the lock yet. Sets `*ran` once the
+/// handler has run at all.
+static int found_in_the_dynamic_linker(pthread_t thread, int *ran) {
+    const void *loader = dlsym(RTLD_DEFAULT, "__loader_dlsym");
+    for (int round = 0; round < 50; ++round) {
+        atomic_store(&handled, 0);
+        if (pthread_kill(thread, SIGUSR1) != 0) return 0;
+        for (int waited = 0; waited < 1000 && !atomic_load(&handled); ++waited) usleep(1000);
+        if (!atomic_load(&handled)) return 0;
+        *ran = 1;
+        if (same_object(interrupted_pc, loader)) return 1;
+        usleep(100 * 1000);
+    }
+    return 0;
+}
+
 __attribute__((constructor)) static void start(void) {
     own_symbol = dlsym(RTLD_DEFAULT, "printf");  // the lock is recursive
     struct sigaction action = {0};
@@ -68,21 +119,20 @@ __attribute__((constructor)) static void start(void) {
     pthread_create(&waiter, NULL, wait_for_the_lock, NULL);
     pthread_create(&iterator, NULL, iterate, NULL);
     while (!atomic_load(&waiting) || !atomic_load(&iterating)) sched_yield();
-    usleep(200 * 1000);  // long enough for their calls to reach the lock and wait
-    pthread_kill(waiter, SIGUSR1);
-    for (int waited = 0; waited < 5000 && !atomic_load(&handled); ++waited) usleep(1000);
-    // Its dlsym cannot have returned yet: this thread holds the lock until its dlopen returns.
-    handled_while_waiting = atomic_load(&handled);
-    iteration_waited = !atomic_load(&iterated);
+    int handled_in_iterator = 0;
+    result.found_in_linker = found_in_the_dynamic_linker(waiter, &result.handled_while_waiting);
+    const int iterator_in_linker = found_in_the_dynamic_linker(iterator, &handled_in_iterator);
+    usleep(100 * 1000);  // time enough for a call that does not wait to return
+    // Neither call can have returned yet: this thread holds the lock until its dlopen returns.
+    result.handled_while_waiting = result.handled_while_waiting && !atomic_load(&looked_up);
+    result.iteration_waited = iterator_in_linker && !atomic_load(&iterated);
 }
 
 void dl_lock_finish(struct dl_lock_report *report) {
     pthread_join(waiter, NULL);
     pthread_join(iterator, NULL);
+    *report = result;
     report->own_found = own_symbol != NULL;
-    report->handled_while_waiting = handled_while_waiting;
-    report->interrupted_pc = interrupted_pc;
     report->waiter_found = waiter_symbol != NULL;
-    report->iteration_waited = iteration_waited;
     report->iteration_listed = listed > 0;
 }
