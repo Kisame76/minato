@@ -49,10 +49,11 @@ if(APK_HOST_BUILD)
   #   cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>
   # Its own libraries lie next to it, the system's in /system/lib64. It must print exactly
   # fixtures/expected/<name>.out, on stderr exactly <name>.err or nothing, and exit with STATUS (0).
-  # PROGRAM runs another fixture than <name>; NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out.
+  # PROGRAM runs another fixture than <name>; NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out; MEASURES
+  # marks a benchmark, whose stdout is not compared.
   # tools/android-reference.sh runs the same on Android, tools/device-suite.sh on the iPhone.
   function(apk_fixture_test name)
-    cmake_parse_arguments(PARSE_ARGV 1 FIXTURE "NO_LIBRARY_PATH" "PROGRAM;STATUS" "LIBRARIES;SYSTEM_LIBRARIES")
+    cmake_parse_arguments(PARSE_ARGV 1 FIXTURE "NO_LIBRARY_PATH;MEASURES" "PROGRAM;STATUS" "LIBRARIES;SYSTEM_LIBRARIES")
     if(NOT FIXTURE_PROGRAM)
       set(FIXTURE_PROGRAM ${name})
     endif()
@@ -73,6 +74,7 @@ if(APK_HOST_BUILD)
         "-D LIBRARIES=${FIXTURE_LIBRARIES}"
         "-D SYSTEM_LIBRARIES=${FIXTURE_SYSTEM_LIBRARIES}"
         -D NO_LIBRARY_PATH=${FIXTURE_NO_LIBRARY_PATH}
+        -D MEASURES=${FIXTURE_MEASURES}
         -D WORK=${CMAKE_CURRENT_BINARY_DIR}/fixture_runs
         -D EXPECTED_OUTPUT=${expected}.out
         ${expected_error}
@@ -101,6 +103,8 @@ if(APK_HOST_BUILD)
         list(APPEND arguments NO_LIBRARY_PATH)
       elseif(field STREQUAL "runtime-only")
         # Only Android leaves it out.
+      elseif(field STREQUAL "measures")
+        list(APPEND arguments MEASURES)
       elseif(field MATCHES "^program=(.+)$")
         list(APPEND arguments PROGRAM ${CMAKE_MATCH_1})
       elseif(field MATCHES "^status=(.+)$")

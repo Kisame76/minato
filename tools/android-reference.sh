@@ -5,7 +5,7 @@
 # creates and starts without a window when no emulator runs, and stops again afterwards. Only an
 # emulator is used, because every fixture starts with an empty /data/local/tmp on the device.
 # The tests are those of fixtures/tests.txt, run as CTest runs them; tests of the runtime that
-# Android cannot run are left out.
+# Android cannot run are left out, and what a benchmark (measures) prints is shown, not compared.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 # Results: build/android-reference/<test>.{out,err,logcat}
 # Optional environment:
@@ -151,18 +151,26 @@ for name in "${fixtures[@]}"; do
     grep -Ev "$logcat_line" "$expected.err" >"$expected_err" || true
     grep -E "$logcat_line" "$expected.err" >"$expected_logcat" || true
   fi
+  measures=$(field "$name" measures)
   problems=""
-  cmp -s "$expected.out" "$RESULTS/$name.out" || problems+=" stdout"
+  [[ "$measures" == yes ]] || cmp -s "$expected.out" "$RESULTS/$name.out" || problems+=" stdout"
   cmp -s "$expected_err" "$RESULTS/$name.err" || problems+=" stderr"
   cmp -s "$expected_logcat" "$RESULTS/$name.logcat" || problems+=" logcat"
   expected_status=$(field "$name" status)
   [[ $status -eq ${expected_status:-0} ]] || problems+=" exit-status-$status"
-  if [[ -z "$problems" ]]; then
+  if [[ -z "$problems" && "$measures" == yes ]]; then
+    echo "measured $name"
+    sed 's/^/    /' "$RESULTS/$name.out"
+  elif [[ -z "$problems" ]]; then
     echo "same     $name"
   else
     failed=1
     echo "DIFFERS  $name:$problems"
-    diff -u "$expected.out" "$RESULTS/$name.out" | sed 's/^/    /' || true
+    if [[ "$measures" == yes ]]; then
+      sed 's/^/    /' "$RESULTS/$name.out"
+    else
+      diff -u "$expected.out" "$RESULTS/$name.out" | sed 's/^/    /' || true
+    fi
     diff -u "$expected_err" "$RESULTS/$name.err" | sed 's/^/    /' || true
     diff -u "$expected_logcat" "$RESULTS/$name.logcat" | sed 's/^/    /' || true
   fi

@@ -10,6 +10,9 @@
 #   no-library-path            started without LD_LIBRARY_PATH
 #   status=<n>                 its exit status (default 0)
 #   runtime-only               a test of the runtime that Android cannot run; the reason is above it
+#   measures                   a benchmark: what it prints differs from run to run, so there is no
+#                              expected output and no runner compares it; android-reference.sh and
+#                              device-suite.sh show it, CTest with -V
 
 # Static programs (M2 step 4).
 raw-hello
@@ -36,3 +39,5 @@ dl-lock-test system libraries=libdl-lock.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
 x18-test system
 x18-stress system
+# What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
+island-bench system measures

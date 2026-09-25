@@ -89,7 +89,11 @@ target_link_libraries(dl-lock-test PRIVATE dl)
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
 # x18-stress: eight threads with x18 islands under SIGUSR1 from the main thread.
 add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
+# island-bench: what one pass through an island costs, against a twin the converter leaves alone
+# (ADR-0020 X6).
+add_executable(island-bench bench/island-bench.c bench/island-bench.S)
 # lld relaxes ADRP and ADD into NOP and ADR when the target lies within 1 MiB, and the converter
 # knows a jump table's base only from ADRP and ADD, as the toolchains that use x18 left it.
 target_link_options(x18-test PRIVATE -Wl,--no-relax)
 target_link_options(x18-stress PRIVATE -Wl,--no-relax)
+target_link_options(island-bench PRIVATE -Wl,--no-relax)

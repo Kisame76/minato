@@ -9,10 +9,11 @@
 # Passes when the program prints exactly the contents of EXPECTED_OUTPUT on stdout and of
 # EXPECTED_ERROR on stderr (nothing when not given), and exits with EXPECTED_STATUS (0 if not given).
 # NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out; TEST names the run when it is not the program's name.
+# MEASURES marks a benchmark: its stdout is not compared, and EXPECTED_OUTPUT is not read.
 #   cmake -D CONVERT=<apk-convert> -D RUN=<apk-run> -D FIXTURE=<elf> -D WORK=<dir>
 #         -D EXPECTED_OUTPUT=<file> [-D EXPECTED_ERROR=<file>] [-D EXPECTED_STATUS=<status>]
 #         [-D LIBRARIES=<elf>;<elf>...] [-D SYSTEM_LIBRARIES=<elf>;<elf>...] [-D SYSTEM=<dir>]
-#         [-D NO_LIBRARY_PATH=TRUE] [-D TEST=<name>]
+#         [-D NO_LIBRARY_PATH=TRUE] [-D MEASURES=TRUE] [-D TEST=<name>]
 #         -P tools/run-fixture.cmake
 foreach(elf IN LISTS FIXTURE LIBRARIES SYSTEM_LIBRARIES)
   if(NOT EXISTS "${elf}")
@@ -53,7 +54,9 @@ foreach(elf IN LISTS SYSTEM_LIBRARIES)
   convert("${elf}" "${system_libraries}")
 endforeach()
 
-file(READ "${EXPECTED_OUTPUT}" expected_output)
+if(NOT MEASURES)
+  file(READ "${EXPECTED_OUTPUT}" expected_output)
+endif()
 set(expected_error "")
 if(DEFINED EXPECTED_ERROR)
   file(READ "${EXPECTED_ERROR}" expected_error)
@@ -73,7 +76,7 @@ message("exit status: ${status}\nstdout: [${output}]\nstderr: [${error}]")
 if(NOT status EQUAL EXPECTED_STATUS)
   message(FATAL_ERROR "${TEST} exited with ${status}, expected ${EXPECTED_STATUS}")
 endif()
-if(NOT output STREQUAL expected_output)
+if(NOT MEASURES AND NOT output STREQUAL expected_output)
   message(FATAL_ERROR "${TEST} printed [${output}], expected [${expected_output}]")
 endif()
 if(NOT error STREQUAL expected_error)
