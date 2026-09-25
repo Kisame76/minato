@@ -36,3 +36,6 @@ cmake-build-*/
 
 # Python
 __pycache__/
+
+# graphify's knowledge graph of the code, built locally (.graphifyignore)
+graphify-out/
