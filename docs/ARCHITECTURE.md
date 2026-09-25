@@ -1,6 +1,6 @@
 # Minato – Architecture
 
-As of: M0, 2026-09-21; spike results, M2 step 4, the `x18` rule and M2 step 5 added 2026-09-22. Decisions are in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 to ADR-0021), progress in [`STATUS.md`](STATUS.md). The raw research reports with all sources are in [`research/`](research/).
+As of: M0, 2026-09-21; spike results, M2 step 4, the `x18` rule and M2 step 5 added 2026-09-22; `x18` in islands and the costs of the islands added 2026-09-24. Decisions are in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 to ADR-0021), progress in [`STATUS.md`](STATUS.md). The raw research reports with all sources are in [`research/`](research/).
 
 Markers: **[verified]** = read in a primary source or measured, **[inferred]** = own conclusion, **[unverified]** = secondary source or user report.
 
@@ -30,7 +30,7 @@ Markers: **[verified]** = read in a primary source or measured, **[inferred]** =
 | F1 | iOS only runs signed code. `dynamic-codesigning` exists only for Apple. On A15+ (TXM, so also A17 Pro), freshly written code only becomes executable if an attached debugger writes the page. | All guest code must be present as a signed file before launch. JIT exists only as an option via StikDebug. | [verified] Apple Platform Security; StikJIT `INTEGRATION.md` |
 | F2 | Library Validation: a process may load libraries of the same Team ID. | Converted `.so` files are signed with a certificate of the same (free) Team ID. No bypass is needed. | [verified] Apple "App code signing process"; LiveContainer JIT-less on iOS 27. Our own tests: from the bundle yes; a copy in the data container only with the bundle ID as signature identifier (S1/S1b, ADR-0008) |
 | F3 | XNU overwrites `TPIDR_EL0` with CPU and cluster bits on every context switch. The Darwin thread pointer is in `TPIDRRO_EL0`, which is read-only for apps. | Android code reads the thread pointer via `TPIDR_EL0`: the NDK default stack protector at TP+0x28 and ELF TLS from minSdk 29. This does not work unchanged, so it is rewritten at import (ADR-0010). | [verified] xnu-12377.121.6 `osfmk/arm64/pcb.c:401–425`; LLVM `AArch64ISelLowering.cpp:33570`; measured on macOS 27 and with spike S3 on the iPhone (iOS 27) |
-| F4 | The kernel zeroes `x18`, except with an Apple-private entitlement. | Guest code must not read `x18`. LLVM reserves `x18` for Android only from version 9; older builds such as Unity ≤ 2020.3 (NDK r19) use it as a normal register. Code that reads it is incompatible (ADR-0019), virtualizing it is proposed (ADR-0020). | [verified] xnu `locore.s`, `machine_task.c`; LLVM `AArch64TargetParser.cpp:145` |
+| F4 | The kernel zeroes `x18`, except with an Apple-private entitlement. | Guest code cannot keep a value in `x18`. LLVM reserves `x18` for Android only from version 9; older builds such as Unity ≤ 2020.3 (NDK r19) use it as a normal register. The converter puts each of their uses into an island that keeps the value in TSD slot 11 (ADR-0020). | [verified] xnu `locore.s`, `machine_task.c`; LLVM `AArch64TargetParser.cpp:145` |
 | F5 | Darwin takes the syscall number from `x16`, Linux from `x8`. | An unchanged Linux `svc #0` triggers a random Darwin syscall. Every `svc` must be replaced at import. | [verified] xnu `osfmk/arm64/sleh.c` |
 | F6 | arm64 programs need a hard 4 GiB `__PAGEZERO`. Nothing can be mapped below 4 GiB. | Guest code comes into our process as a dylib. ART's 32-bit object references (heap below 4 GiB) need heap-relative references in M4. | [verified] xnu `bsd/kern/mach_loader.c:1087`; ARTBox ADR 0031 |
 | F7 | iOS has 16 KB pages. NDK r28+ aligns `.so` files to 16 KB by default. | `.so` files aligned to 4 KB (older games) need special handling or are rejected (ADR-0007). | [verified] developer.android.com "16 KB page sizes"; NDK r28 changelog |
@@ -136,10 +136,10 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 
 | Pattern | Occurrence | Handling |
 |---|---|---|
-| `mrs xN, TPIDR_EL0` (read) | practically every `.so`: the stack protector is the NDK default, ELF TLS from minSdk 29 | Becomes a branch to an island. The island loads the guest thread pointer from Darwin TSD slot 6 (`mrs xN, TPIDRRO_EL0; bic xN, xN, #7; ldr xN, [xN, #0x30]`) and branches back (ADR-0019). A fast path for the stack guard pattern is measured in M2. |
+| `mrs xN, TPIDR_EL0` (read) | practically every `.so`: the stack protector is the NDK default, ELF TLS from minSdk 29 | Becomes a branch to an island. The island loads the guest thread pointer from Darwin TSD slot 6 (`mrs xN, TPIDRRO_EL0; bic xN, xN, #7; ldr xN, [xN, #0x30]`) and branches back (ADR-0019). It costs 1.9 cycles per read on the iPhone (ADR-0020 X6); a fast path for the stack guard pattern is left for M6. |
 | `msr TPIDR_EL0, xN` (write) | libc and runtimes | Becomes an island that writes the same slot, with a helper register briefly saved on the stack (ADR-0019). In our Bionic also solved with a source overlay. |
 | `svc #0` | rare: Go runtime, LSS, statically linked libc | Becomes a branch to a veneer: save registers, call the Linux syscall layer, keep the Linux error convention. |
-| `x18` as a register | Builds with clang ≤ 8 (Unity ≤ 2020.3: `libunity.so`, `libil2cpp.so`), old SDK binaries, ShadowCallStack | Reading: "Incompatible"; writing and register saves (libunwind) are harmless and are counted (ADR-0019). Virtualizing via TSD slot 11 proposed (ADR-0020) |
+| `x18` as a register | Builds with clang ≤ 8 (Unity ≤ 2020.3: `libunity.so`, `libil2cpp.so`), old SDK binaries, ShadowCallStack | Every use becomes an island that keeps the value in TSD slot 11 (ADR-0020): on the iPhone 1 to 4 cycles more per pass, 1.5 among other work, a jump table through `br x18` 6.7. "Incompatible" only for forms without an island, such as `blr x18` |
 | Text relocations | rare | "Incompatible" |
 
 - **Island areas:** They are in the container before and after the code, because a branch only reaches ±128 MB. `.so` files with more than about 256 MB of code need a special approach and are marked incompatible for now.
@@ -271,11 +271,11 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | R10 | dyld internals and private SPIs change (iOS 27: `seg_count`) | medium | Our own Mach-O writer without chained fixups; keep SPI use small and encapsulate it; LiveContainer issues as early warning |
 | R11 | Uncertain state of ARTBox's code | medium | Only individual modules, pinned, reviewed, with our own tests |
 | R12 | Certificates from Xcode and SideStore collide. The limit on active development certificates can lead to a revocation, and with that, everything signed with it becomes invalid. | medium | During development only Xcode; `tools/deploy.sh` hands over the certificate. With SideStore: detect a new certificate at the leaf of our own signature, adopt it (as of SideStore 0.6.4 from `ALTCertificate.p12` in the bundle) and re-sign everything (ADR-0022) |
-| R13 | Performance cost from islands, syscall layer, swapchain blit and interpreter ART | medium | Measure in M2/M3; fast paths |
+| R13 | Performance cost from islands, syscall layer, swapchain blit and interpreter ART | medium | Islands measured (ADR-0020 X6): 1 to 4 cycles per pass, a thread pointer read 1.9; a syscall through the veneer 21 ns (ADR-0025); swapchain blit in M3, ART in M4; fast paths |
 | R14 | New project format in Xcode 27.2 (XcodeGen #1651/#1653) | low | Stay on Xcode 27.0 until XcodeGen supports it |
 | R15 | The Simulator is misleading: not the same signature check, no Jetsam, ANGLE fixed at ES 3.0 | low | Simulator only for the UI; loader tests on macOS and the iPhone |
 | R16 | Licenses: AGPL/GPL references, libcore | low | ADR-0017: project license Apache-2.0 (2026-09-22); only read AGPL/GPL; libcore as a separate component |
-| R17 | `x18` as a normal register in builds with clang ≤ 8: in the test APK `libunity.so` and `libil2cpp.so` (Unity 2020.3) and 4 SDK libs | high (Unity games up to 2020.3) | Incompatible until the decision (ADR-0019); virtualize `x18` (ADR-0020, before M3) |
+| R17 | `x18` as a normal register in builds with clang ≤ 8: in the test APK `libunity.so` and `libil2cpp.so` (Unity 2020.3) and 4 SDK libs | low (was high) | Virtualized (ADR-0020, 2026-09-24): every `x18` site of the test APK gets an island. What the sites cost in a running engine shows its profile in M4 |
 
 ## 8. Open questions
 
@@ -288,8 +288,8 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 **Prototypes:**
 - ~~signing on the iPhone~~: done with our own signer (M2b, ADR-0022), on the iPhone 13 of 13;
 - frequency of 4 KB layout, `TPIDR_EL0`, `svc` and `x18` in real APKs (corpus, M1/M2). First data points from the test APK, read with `apk-convert inspect`: 4 KB layout in 9 of 16 `.so` files; `x18` read in 6 of 16 (ADR-0019, part 4);
-- cost of the islands;
-- fast path for the stack guard;
+- ~~cost of the islands~~: measured on the iPhone (ADR-0020 X6);
+- fast path for the stack guard (its island costs 1.9 cycles per read, ADR-0020 X6);
 - ART with heap-relative references and nterp (M4);
 - cost of the swapchain blit at 120 Hz (M3).
 
