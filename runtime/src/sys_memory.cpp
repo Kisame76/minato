@@ -1,5 +1,6 @@
 // Memory syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): mmap, mprotect and
 // madvise with Linux flags on Darwin's virtual memory. Executable memory is never handed out.
+#include "descriptors.h"
 #include "syscalls.h"
 #include "threads.h"
 
@@ -53,7 +54,13 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     if (flags & linux_map::fixed) host_flags |= MAP_FIXED;
     if (flags & linux_map::anonymous) host_flags |= MAP_ANON;
     if (flags & linux_map::noreserve) host_flags |= MAP_NORESERVE;
-    const int host_fd = (flags & linux_map::anonymous) ? -1 : fd;
+    // A file mapping maps the host descriptor behind the guest's; the mapping keeps the file itself.
+    descriptors::Handle description;
+    if (!(flags & linux_map::anonymous)) {
+        description = descriptors::get(fd);
+        if (!description) return -linux_errno::ebadf;
+    }
+    const int host_fd = description ? description->host() : -1;
 
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));

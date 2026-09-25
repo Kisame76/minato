@@ -8,6 +8,7 @@
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 
+#include "descriptors.h"
 #include "dl.h"
 #include "guest_call.h"
 #include "loader.h"
@@ -85,6 +86,8 @@ std::vector<std::string> strings(const char *const list[]) {
 }
 
 [[noreturn]] void run(const char *container_path, const char *const argv[], const char *const envp[]) {
+    // The program's 0, 1 and 2 are duplicates of the starter's (ADR-0027).
+    apkrt::descriptors::adopt_standard_descriptors();
     const auto image = apkrt::loader::load(container_path);
     const auto &info = *image.info;
     const bool is_static = (info.flags & APK_CONTAINER_STATIC) != 0;

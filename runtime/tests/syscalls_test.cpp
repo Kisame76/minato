@@ -1,5 +1,7 @@
 // Checks the Linux semantics of the syscall layer (ADR-0009): each call goes through the dispatcher
-// with Linux numbers, flags and structures, exactly as a guest's svc veneer delivers them.
+// with Linux numbers, flags and structures, exactly as a guest's svc veneer delivers them. Descriptors
+// are guest numbers (ADR-0027); host_of() shows the host descriptor behind one.
+#include "descriptors.h"
 #include "syscall_frame.h"
 #include "vfs.h"
 
@@ -45,6 +47,8 @@ constexpr std::uint64_t nr_futex = 98;
 constexpr std::uint64_t nr_clock_gettime = 113;
 constexpr std::uint64_t nr_sched_getaffinity = 123;
 constexpr std::uint64_t nr_prctl = 167;
+constexpr std::uint64_t nr_close = 57;
+constexpr std::uint64_t nr_pipe2 = 59;
 
 constexpr std::uint64_t prot_read = 1, prot_write = 2, prot_exec = 4;
 constexpr std::uint64_t map_private = 0x02, map_fixed = 0x10, map_anonymous = 0x20, map_stack = 0x20000;
@@ -68,6 +72,18 @@ std::int64_t call(std::uint64_t number, std::initializer_list<std::uint64_t> arg
     frame.x[8] = number;
     apkrt_syscall_dispatch(&frame);
     return static_cast<std::int64_t>(frame.x[0]);
+}
+
+/// The host descriptor behind the guest's `fd`, or -1.
+int host_of(std::int64_t fd) {
+    const auto description = apkrt::descriptors::get(static_cast<int>(fd));
+    return description ? description->host() : -1;
+}
+
+/// A new pipe of the guest's: its read end in [0], its write end in [1].
+void guest_pipe(int (&ends)[2]) {
+    ends[0] = ends[1] = -1;
+    CHECK(call(nr_pipe2, {reinterpret_cast<std::uint64_t>(ends), 0}) == 0);
 }
 
 std::uint64_t map_anonymous_pages(std::size_t count) {
@@ -174,7 +190,7 @@ TEST(getrandom_fills_the_whole_buffer) {
 
 TEST(fcntl_speaks_linux_flags) {
     int fds[2];
-    CHECK(::pipe(fds) == 0);
+    guest_pipe(fds);
     constexpr std::uint64_t f_dupfd = 0, f_getfd = 1, f_setfd = 2, f_getfl = 3, f_setfl = 4, f_dupfd_cloexec = 1030;
     constexpr std::int64_t linux_o_wronly = 01, linux_o_nonblock = 04000;
     const auto write_end = static_cast<std::uint64_t>(fds[1]);
@@ -182,7 +198,7 @@ TEST(fcntl_speaks_linux_flags) {
     CHECK(call(nr_fcntl, {write_end, f_getfl}) == linux_o_wronly);
     CHECK(call(nr_fcntl, {write_end, f_setfl, static_cast<std::uint64_t>(linux_o_nonblock)}) == 0);
     CHECK(call(nr_fcntl, {write_end, f_getfl}) == (linux_o_wronly | linux_o_nonblock));
-    CHECK((::fcntl(fds[1], F_GETFL) & O_NONBLOCK) != 0);  // really set on the host
+    CHECK((::fcntl(host_of(fds[1]), F_GETFL) & O_NONBLOCK) != 0);  // really set on the host
 
     CHECK(call(nr_fcntl, {write_end, f_getfd}) == 0);
     CHECK(call(nr_fcntl, {write_end, f_setfd, 1 /* FD_CLOEXEC */}) == 0);
@@ -197,10 +213,9 @@ TEST(fcntl_speaks_linux_flags) {
     // bionic's start-up checks stdin, stdout and stderr like this and accepts only EBADF as failure.
     CHECK(call(nr_fcntl, {999, f_getfl}) == -ebadf);
 
-    ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(static_cast<int>(copy));
-    ::close(static_cast<int>(plain_copy));
+    for (const auto fd : {std::int64_t{fds[0]}, std::int64_t{fds[1]}, copy, plain_copy}) {
+        call(nr_close, {static_cast<std::uint64_t>(fd)});
+    }
 }
 
 TEST(sched_queries_answer_like_an_ordinary_linux_thread) {
@@ -263,14 +278,15 @@ static_assert(sizeof(LinuxStat) == 128);
 
 TEST(fstat_fills_the_linux_struct_stat) {
     char path[] = "/tmp/apkrt-fstat-XXXXXX";
-    const int fd = ::mkstemp(path);
-    CHECK(fd >= 0);
-    CHECK(::write(fd, "twelve bytes", 12) == 12);
+    const int host_fd = ::mkstemp(path);
+    CHECK(host_fd >= 0);
+    CHECK(::write(host_fd, "twelve bytes", 12) == 12);
+    const auto fd = apkrt::descriptors::add(::dup(host_fd), false);  // as the runtime takes one in
     LinuxStat linux_stat;
     std::memset(&linux_stat, 0xee, sizeof linux_stat);
     CHECK(call(nr_fstat, {static_cast<std::uint64_t>(fd), reinterpret_cast<std::uint64_t>(&linux_stat)}) == 0);
     struct stat host;
-    CHECK(::fstat(fd, &host) == 0);
+    CHECK(::fstat(host_fd, &host) == 0);
     CHECK(linux_stat.size == 12);
     CHECK((linux_stat.mode & 0170000) == 0100000);  // S_IFREG, same bits on both systems
     CHECK((linux_stat.mode & 0777) == (host.st_mode & 0777));
@@ -287,13 +303,14 @@ TEST(fstat_fills_the_linux_struct_stat) {
     CHECK(same.ino == linux_stat.ino && same.size == 12);
 
     int fds[2];
-    CHECK(::pipe(fds) == 0);
+    guest_pipe(fds);
     CHECK(call(nr_fstat, {static_cast<std::uint64_t>(fds[1]), reinterpret_cast<std::uint64_t>(&linux_stat)}) == 0);
     CHECK((linux_stat.mode & 0170000) == 0010000);  // S_IFIFO
     CHECK(call(nr_fstat, {999, reinterpret_cast<std::uint64_t>(&linux_stat)}) == -ebadf);
-    ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(fd);
+    for (const auto open_fd : {std::int64_t{fds[0]}, std::int64_t{fds[1]}, static_cast<std::int64_t>(fd)}) {
+        call(nr_close, {static_cast<std::uint64_t>(open_fd)});
+    }
+    ::close(host_fd);
     ::unlink(path);
 }
 
@@ -319,20 +336,20 @@ TEST(the_basic_devices_are_there) {
     const auto null = static_cast<int>(call(nr_openat, {at_fdcwd, path("/dev/null"), o_wronly | o_cloexec, 0}));
     CHECK(null >= 0);
     if (null >= 0) {
-        CHECK(::write(null, "x", 1) == 1);
-        CHECK((::fcntl(null, F_GETFD) & FD_CLOEXEC) != 0);
-        CHECK((::fcntl(null, F_GETFL) & O_ACCMODE) == O_WRONLY);
-        ::close(null);
+        CHECK(::write(host_of(null), "x", 1) == 1);
+        CHECK(call(nr_fcntl, {static_cast<std::uint64_t>(null), 1 /* F_GETFD */}) == 1);  // O_CLOEXEC
+        CHECK((::fcntl(host_of(null), F_GETFL) & O_ACCMODE) == O_WRONLY);
+        call(nr_close, {static_cast<std::uint64_t>(null)});
     }
     const auto random = static_cast<int>(call(nr_openat, {at_fdcwd, path("/dev/urandom"), o_nonblock, 0}));
     CHECK(random >= 0);
     if (random >= 0) {
         unsigned char bytes[32] = {};
-        CHECK(::read(random, bytes, sizeof bytes) == sizeof bytes);
+        CHECK(::read(host_of(random), bytes, sizeof bytes) == sizeof bytes);
         CHECK(std::count(std::begin(bytes), std::end(bytes), 0) < 8);
-        CHECK((::fcntl(random, F_GETFD) & FD_CLOEXEC) == 0);
-        CHECK((::fcntl(random, F_GETFL) & O_NONBLOCK) != 0);
-        ::close(random);
+        CHECK(call(nr_fcntl, {static_cast<std::uint64_t>(random), 1 /* F_GETFD */}) == 0);
+        CHECK((::fcntl(host_of(random), F_GETFL) & O_NONBLOCK) != 0);
+        call(nr_close, {static_cast<std::uint64_t>(random)});
     }
     CHECK(call(nr_faccessat, {at_fdcwd, path("/dev/urandom"), 4 /* R_OK */}) == 0);
     CHECK(call(nr_faccessat, {at_fdcwd, path("/dev/random"), 0 /* F_OK */}) == 0);
@@ -346,7 +363,7 @@ TEST(the_basic_devices_are_there) {
 
 constexpr std::uint64_t nr_getcwd = 17, nr_dup = 23, nr_dup3 = 24, nr_ioctl = 29, nr_mkdirat = 34, nr_unlinkat = 35,
                         nr_symlinkat = 36, nr_statfs = 43, nr_ftruncate = 46, nr_chdir = 49, nr_fchdir = 50,
-                        nr_close = 57, nr_pipe2 = 59, nr_getdents64 = 61, nr_lseek = 62, nr_read = 63, nr_write = 64,
+                        nr_getdents64 = 61, nr_lseek = 62, nr_read = 63, nr_write = 64,
                         nr_readv = 65, nr_writev = 66, nr_pread64 = 67, nr_pwrite64 = 68, nr_readlinkat = 78,
                         nr_fsync = 82, nr_fdatasync = 83, nr_utimensat = 88, nr_renameat2 = 276;
 constexpr std::uint64_t o_rdonly = 0, o_wronly = 1, o_rdwr = 2, o_creat = 0100, o_excl = 0200, o_trunc = 01000,
@@ -462,8 +479,8 @@ TEST(open_translates_the_linux_flags) {
     CHECK(call(nr_lseek, {unsigned_of(appending), 0, 0}) == 0);
     CHECK(write_text(appending, "cd") == 2);  // at the end all the same
     CHECK(scratch.contents("log") == "abcd");
-    CHECK((::fcntl(static_cast<int>(appending), F_GETFD) & FD_CLOEXEC) != 0);
-    CHECK((::fcntl(static_cast<int>(first), F_GETFD) & FD_CLOEXEC) == 0);
+    CHECK(call(nr_fcntl, {unsigned_of(appending), 1 /* F_GETFD */}) == 1);
+    CHECK(call(nr_fcntl, {unsigned_of(first), 1 /* F_GETFD */}) == 0);
     CHECK(call(nr_fcntl, {unsigned_of(appending), 3 /* F_GETFL */}) == static_cast<std::int64_t>(o_wronly | o_append));
     const auto truncating = open_guest(at_fdcwd, "log", o_wronly | o_trunc);
     CHECK(scratch.contents("log").empty());
@@ -498,10 +515,10 @@ TEST(offsets_and_vectors_work_like_linux) {
     CHECK(scratch.contents("digits") == "xy23456789ABC");
 
     int fds[2];
-    CHECK(::pipe(fds) == 0);
+    guest_pipe(fds);
     CHECK(call(nr_lseek, {static_cast<std::uint64_t>(fds[0]), 0, 0}) == -espipe);
-    ::close(fds[0]);
-    ::close(fds[1]);
+    call(nr_close, {static_cast<std::uint64_t>(fds[0])});
+    call(nr_close, {static_cast<std::uint64_t>(fds[1])});
     call(nr_close, {unsigned_of(fd)});
 }
 
@@ -628,13 +645,14 @@ TEST(descriptors_duplicate_and_pipes_connect) {
     CHECK(copy >= 0 && copy != fd);
     CHECK(write_text(copy, "via copy") == 8);
     CHECK(call(nr_dup3, {unsigned_of(fd), 60, o_cloexec}) == 60);
-    CHECK((::fcntl(60, F_GETFD) & FD_CLOEXEC) != 0);
+    CHECK(call(nr_fcntl, {60, 1 /* F_GETFD */}) == 1);
     CHECK(call(nr_dup3, {unsigned_of(fd), unsigned_of(fd), 0}) == -einval);
     for (const auto open_fd : {fd, copy, std::int64_t{60}}) call(nr_close, {unsigned_of(open_fd)});
 
     int fds[2] = {-1, -1};
     CHECK(call(nr_pipe2, {address(fds), o_cloexec | o_nonblock}) == 0);
-    CHECK((::fcntl(fds[0], F_GETFD) & FD_CLOEXEC) != 0 && (::fcntl(fds[1], F_GETFL) & O_NONBLOCK) != 0);
+    CHECK(call(nr_fcntl, {static_cast<std::uint64_t>(fds[0]), 1 /* F_GETFD */}) == 1);
+    CHECK((call(nr_fcntl, {static_cast<std::uint64_t>(fds[1]), 3 /* F_GETFL */}) & static_cast<std::int64_t>(o_nonblock)) != 0);
     CHECK(read_text(fds[0], 4) == "error 11");  // EAGAIN on an empty non-blocking pipe
     CHECK(write_text(fds[1], "abc") == 3);
     int available = -1;

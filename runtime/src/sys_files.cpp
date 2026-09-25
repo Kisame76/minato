@@ -1,6 +1,7 @@
 // File syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): Linux paths, flags and
-// structures on Darwin's file descriptors. Every path goes through the path table (vfs.h); guest
-// file descriptors are host file descriptors.
+// structures on Darwin's file descriptors. Every path goes through the path table (vfs.h), every
+// descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
+#include "descriptors.h"
 #include "syscalls.h"
 #include "vfs.h"
 
@@ -18,7 +19,6 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <map>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -41,6 +41,15 @@ constexpr int async = 020000;
 constexpr int sync = 04000000 | dsync;
 }  // namespace linux_fcntl
 
+/// Runs `host_call` with the host descriptor behind the guest's `fd`, which stays open until it
+/// returns even when another thread closes `fd` meanwhile, as on Linux; -EBADF when `fd` is not open.
+template <typename HostCall>
+long with_host(int fd, HostCall host_call) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    return host_call(description->host());
+}
+
 /// File status flags of an open file, Darwin to Linux (for F_GETFL).
 int to_linux_status_flags(int flags) {
     int result = flags & O_ACCMODE;  // O_RDONLY, O_WRONLY, O_RDWR agree
@@ -56,26 +65,28 @@ int to_linux_status_flags(int flags) {
 
 long sys_fcntl(int fd, int command, std::uint64_t argument) {
     switch (command) {
-        case linux_fcntl::dupfd: return result_or_error(::fcntl(fd, F_DUPFD, as_int(argument)));
-        case linux_fcntl::dupfd_cloexec: return result_or_error(::fcntl(fd, F_DUPFD_CLOEXEC, as_int(argument)));
-        case linux_fcntl::getfd: return result_or_error(::fcntl(fd, F_GETFD));  // FD_CLOEXEC is 1 on both
-        case linux_fcntl::setfd: return result_or_error(::fcntl(fd, F_SETFD, as_int(argument) & FD_CLOEXEC));
-        case linux_fcntl::getfl: {
-            const int flags = ::fcntl(fd, F_GETFL);
-            return flags < 0 ? -to_linux_errno(errno) : to_linux_status_flags(flags);
-        }
-        case linux_fcntl::setfl: {
-            // Linux changes only O_APPEND, O_ASYNC, O_DIRECT, O_NOATIME and O_NONBLOCK here and ignores
-            // the rest; Darwin has no O_DIRECT or O_NOATIME to set.
-            const int requested = as_int(argument);
-            const int current = ::fcntl(fd, F_GETFL);
-            if (current < 0) return -to_linux_errno(errno);
-            int flags = current & ~(O_APPEND | O_NONBLOCK | O_ASYNC);
-            if (requested & linux_fcntl::append) flags |= O_APPEND;
-            if (requested & linux_fcntl::nonblock) flags |= O_NONBLOCK;
-            if (requested & linux_fcntl::async) flags |= O_ASYNC;
-            return result_or_error(::fcntl(fd, F_SETFL, flags));
-        }
+        case linux_fcntl::dupfd: return descriptors::duplicate(fd, as_int(argument), false);
+        case linux_fcntl::dupfd_cloexec: return descriptors::duplicate(fd, as_int(argument), true);
+        case linux_fcntl::getfd: return descriptors::close_on_exec(fd);  // FD_CLOEXEC is 1 on both
+        case linux_fcntl::setfd: return descriptors::set_close_on_exec(fd, (as_int(argument) & FD_CLOEXEC) != 0);
+        case linux_fcntl::getfl:
+            return with_host(fd, [](int host) -> long {
+                const int flags = ::fcntl(host, F_GETFL);
+                return flags < 0 ? -to_linux_errno(errno) : to_linux_status_flags(flags);
+            });
+        case linux_fcntl::setfl:
+            return with_host(fd, [&](int host) {
+                // Linux changes only O_APPEND, O_ASYNC, O_DIRECT, O_NOATIME and O_NONBLOCK here and
+                // ignores the rest; Darwin has no O_DIRECT or O_NOATIME to set.
+                const int requested = as_int(argument);
+                const int current = ::fcntl(host, F_GETFL);
+                if (current < 0) return -to_linux_errno(errno);
+                int flags = current & ~(O_APPEND | O_NONBLOCK | O_ASYNC);
+                if (requested & linux_fcntl::append) flags |= O_APPEND;
+                if (requested & linux_fcntl::nonblock) flags |= O_NONBLOCK;
+                if (requested & linux_fcntl::async) flags |= O_ASYNC;
+                return result_or_error(::fcntl(host, F_SETFL, flags));
+            });
         default: {
             char message[80];
             const int length =
@@ -140,10 +151,12 @@ LinuxStat to_linux_stat(const struct stat &host) {
 }  // namespace
 
 long sys_fstat(int fd, std::uint64_t buffer) {
-    struct stat host;
-    if (::fstat(fd, &host) != 0) return -to_linux_errno(errno);
-    *as_pointer<LinuxStat>(buffer) = to_linux_stat(host);
-    return 0;
+    return with_host(fd, [&](int host) {
+        struct stat status;
+        if (::fstat(host, &status) != 0) return -to_linux_errno(errno);
+        *as_pointer<LinuxStat>(buffer) = to_linux_stat(status);
+        return 0L;
+    });
 }
 
 namespace {
@@ -175,11 +188,13 @@ constexpr int tmpfile = 020000000;
 }  // namespace linux_open
 
 /// Where a guest path lies on the host: `path` relative to the host directory descriptor
-/// `directory`, which is AT_FDCWD for an absolute host path; or an error.
+/// `directory`, which is AT_FDCWD for an absolute host path; or an error. `held` keeps the guest's
+/// directory descriptor open while the path is in use.
 struct HostPath {
     long error = 0;
     int directory = AT_FDCWD;
     std::string path;
+    descriptors::Handle held;
 };
 
 /// Resolves a path argument of openat and its relatives. Absolute paths and paths relative to the
@@ -189,7 +204,12 @@ HostPath resolve(int directory, std::uint64_t address) {
     if (address == 0) return {.error = -linux_errno::efault};
     const std::string_view guest(as_pointer<const char>(address));
     if (guest.empty()) return {.error = -linux_errno::enoent};
-    if (!guest.starts_with('/') && directory != linux_at_fdcwd) return {.directory = directory, .path = std::string(guest)};
+    if (!guest.starts_with('/') && directory != linux_at_fdcwd) {
+        auto held = descriptors::get(directory);
+        if (!held) return {.error = -linux_errno::ebadf};
+        const int host = held->host();
+        return {.directory = host, .path = std::string(guest), .held = std::move(held)};
+    }
     const auto absolute = vfs::absolute(guest, guest.starts_with('/') ? "/" : vfs::working_directory());
     auto host = vfs::host_path(absolute);
     if (!host) return {.error = -linux_errno::enoent};
@@ -205,37 +225,20 @@ int host_at_flags(int linux_flags) {
 
 // --- Directory streams ---------------------------------------------------------------------------------
 //
-// getdents64 reads a directory through a DIR* of its own for each guest descriptor, opened on a
-// duplicate at the first call. Positions (d_off, lseek) count entries from the start.
-
-struct DirectoryStream {
-    DIR *directory;
-    long position;  // entries read so far
-};
-
-std::mutex streams_mutex;
-std::map<int, DirectoryStream> streams;  // guarded by streams_mutex
-
-/// Forgets the stream of a descriptor that is closed or replaced.
-void drop_stream(int fd) {
-    const std::lock_guard lock(streams_mutex);
-    if (const auto found = streams.find(fd); found != streams.end()) {
-        ::closedir(found->second.directory);
-        streams.erase(found);
-    }
-}
+// getdents64 reads a directory through a DIR* of its open file description (descriptors.h), opened
+// on a host duplicate at the first call. The guest's duplicates share it, as they share the position
+// on Linux. Positions (d_off, lseek) count entries from the start.
 
 /// struct linux_dirent64 (include/linux/dirent.h): 19 bytes of header, the name, 8-byte aligned.
 constexpr std::size_t dirent_header = 19;
 
-long get_directory_entries(int fd, std::uint64_t buffer, std::uint64_t size) {
-    const std::lock_guard lock(streams_mutex);
-    auto found = streams.find(fd);
-    if (found == streams.end()) {
+long get_directory_entries(descriptors::Description &description, std::uint64_t buffer, std::uint64_t size) {
+    const std::lock_guard lock(description.stream_mutex);
+    if (description.stream == nullptr) {
         struct stat status;
-        if (::fstat(fd, &status) != 0) return -to_linux_errno(errno);
+        if (::fstat(description.host(), &status) != 0) return -to_linux_errno(errno);
         if (!S_ISDIR(status.st_mode)) return -linux_errno::enotdir;
-        const int copy = ::dup(fd);
+        const int copy = ::fcntl(description.host(), F_DUPFD_CLOEXEC, 0);
         if (copy < 0) return -to_linux_errno(errno);
         DIR *directory = ::fdopendir(copy);
         if (directory == nullptr) {
@@ -244,15 +247,16 @@ long get_directory_entries(int fd, std::uint64_t buffer, std::uint64_t size) {
             return -to_linux_errno(error);
         }
         ::rewinddir(directory);
-        found = streams.emplace(fd, DirectoryStream{directory, 0}).first;
+        description.stream = directory;
+        description.stream_position = 0;
     }
-    auto &stream = found->second;
+    DIR *const directory = description.stream;
     auto *const output = as_pointer<char>(buffer);
     std::uint64_t used = 0;
     while (true) {
-        const long before = ::telldir(stream.directory);
+        const long before = ::telldir(directory);
         errno = 0;
-        const dirent *entry = ::readdir(stream.directory);
+        const dirent *entry = ::readdir(directory);
         if (entry == nullptr) {
             if (errno != 0 && used == 0) return -to_linux_errno(errno);
             break;
@@ -260,14 +264,14 @@ long get_directory_entries(int fd, std::uint64_t buffer, std::uint64_t size) {
         const std::size_t name_length = std::strlen(entry->d_name);
         const std::size_t record = (dirent_header + name_length + 1 + 7) & ~std::size_t{7};
         if (used + record > size) {
-            ::seekdir(stream.directory, before);  // it stays for the next call
+            ::seekdir(directory, before);  // it stays for the next call
             if (used == 0) return -linux_errno::einval;
             break;
         }
         char *const out = output + used;
         std::memset(out, 0, record);
         const std::uint64_t inode = entry->d_ino;
-        const std::int64_t next = stream.position + 1;
+        const std::int64_t next = description.stream_position + 1;
         const auto length = static_cast<std::uint16_t>(record);
         std::memcpy(out, &inode, 8);
         std::memcpy(out + 8, &next, 8);
@@ -275,28 +279,28 @@ long get_directory_entries(int fd, std::uint64_t buffer, std::uint64_t size) {
         out[18] = static_cast<char>(entry->d_type);  // DT_* values agree
         std::memcpy(out + dirent_header, entry->d_name, name_length);
         used += record;
-        ++stream.position;
+        ++description.stream_position;
     }
     return static_cast<long>(used);
 }
 
-/// lseek on a descriptor getdents64 reads from: positions count entries.
-std::optional<long> seek_stream(int fd, std::int64_t offset, int whence) {
-    const std::lock_guard lock(streams_mutex);
-    const auto found = streams.find(fd);
-    if (found == streams.end()) return std::nullopt;
-    auto &stream = found->second;
+/// lseek on a directory getdents64 reads from: positions count entries.
+std::optional<long> seek_stream(descriptors::Description &description, std::int64_t offset, int whence) {
+    const std::lock_guard lock(description.stream_mutex);
+    if (description.stream == nullptr) return std::nullopt;
     std::int64_t target;
     switch (whence) {
         case SEEK_SET: target = offset; break;
-        case SEEK_CUR: target = stream.position + offset; break;
+        case SEEK_CUR: target = description.stream_position + offset; break;
         default: return -linux_errno::einval;
     }
     if (target < 0) return -linux_errno::einval;
-    ::rewinddir(stream.directory);
-    stream.position = 0;
-    while (stream.position < target && ::readdir(stream.directory) != nullptr) ++stream.position;
-    return stream.position;
+    ::rewinddir(description.stream);
+    description.stream_position = 0;
+    while (description.stream_position < target && ::readdir(description.stream) != nullptr) {
+        ++description.stream_position;
+    }
+    return description.stream_position;
 }
 
 }  // namespace
@@ -316,19 +320,17 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     if (flags & linux_open::async) host_flags |= O_ASYNC;
     if (flags & linux_open::directory) host_flags |= O_DIRECTORY;
     if (flags & linux_open::no_follow) host_flags |= O_NOFOLLOW;
-    if (flags & linux_open::cloexec) host_flags |= O_CLOEXEC;
     if (flags & linux_open::sync) host_flags |= O_SYNC;
     else if (flags & linux_open::dsync) host_flags |= O_DSYNC;
-    // O_LARGEFILE, O_NOATIME and O_DIRECT change nothing a program can observe here.
-    const int fd = ::openat(host.directory, host.path.c_str(), host_flags, mode & 07777);
+    // O_LARGEFILE, O_NOATIME and O_DIRECT change nothing a program can observe here. O_CLOEXEC is the
+    // guest number's (descriptors.h); on the host every descriptor of the guest has it.
+    const int fd = ::openat(host.directory, host.path.c_str(), host_flags | O_CLOEXEC, mode & 07777);
     if (fd < 0) return -to_linux_errno(errno);
-    drop_stream(fd);  // a stale stream of an earlier descriptor with this number
-    return fd;
+    return descriptors::add(fd, (flags & linux_open::cloexec) != 0);
 }
 
 long sys_close(int fd) {
-    drop_stream(fd);
-    return result_or_error(::close(fd));
+    return descriptors::close(fd);
 }
 
 long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
@@ -444,7 +446,9 @@ long sys_utimensat(int directory, std::uint64_t path, std::uint64_t times, int f
         }
         pointer = host_times;
     }
-    if (path == 0) return result_or_error(::futimens(directory, pointer));  // Linux allows a NULL path
+    if (path == 0) {  // Linux allows a NULL path: the descriptor's own file
+        return with_host(directory, [&](int host) { return result_or_error(::futimens(host, pointer)); });
+    }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     return result_or_error(::utimensat(host.directory, host.path.c_str(), pointer, host_at_flags(flags)));
@@ -481,16 +485,20 @@ long sys_chdir(std::uint64_t path) {
 }
 
 long sys_fchdir(int fd) {
-    char host[MAXPATHLEN];
-    if (::fcntl(fd, F_GETPATH, host) != 0) return -to_linux_errno(errno);
-    const auto guest = vfs::guest_path(host);
-    if (!guest) return -linux_errno::enoent;  // a directory the guest cannot name
-    return change_directory(*guest, host);
+    return with_host(fd, [](int directory) {
+        char host[MAXPATHLEN];
+        if (::fcntl(directory, F_GETPATH, host) != 0) return -to_linux_errno(errno);
+        const auto guest = vfs::guest_path(host);
+        if (!guest) return -linux_errno::enoent;  // a directory the guest cannot name
+        return change_directory(*guest, host);
+    });
 }
 
 long sys_lseek(int fd, std::int64_t offset, int whence) {
     constexpr int linux_seek_data = 3, linux_seek_hole = 4;  // the other way round on Darwin
-    if (const auto result = seek_stream(fd, offset, whence)) return *result;
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (const auto result = seek_stream(*description, offset, whence)) return *result;
     int host_whence;
     switch (whence) {
         case SEEK_SET:
@@ -500,20 +508,22 @@ long sys_lseek(int fd, std::int64_t offset, int whence) {
         case linux_seek_hole: host_whence = SEEK_HOLE; break;
         default: return -linux_errno::einval;
     }
-    return result_or_error(::lseek(fd, offset, host_whence));
+    return result_or_error(::lseek(description->host(), offset, host_whence));
 }
 
 long sys_getdents64(int fd, std::uint64_t buffer, std::uint64_t size) {
-    return get_directory_entries(fd, buffer, size);
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    return get_directory_entries(*description, buffer, size);
+}
+
+long sys_dup(int fd) {
+    return descriptors::duplicate(fd, 0, false);
 }
 
 long sys_dup3(int fd, int target, int flags) {
     if (fd == target || (flags & ~linux_open::cloexec) != 0) return -linux_errno::einval;
-    drop_stream(target);
-    const int result = ::dup2(fd, target);
-    if (result < 0) return -to_linux_errno(errno);
-    if (flags & linux_open::cloexec) ::fcntl(result, F_SETFD, FD_CLOEXEC);
-    return result;
+    return descriptors::duplicate_to(fd, target, (flags & linux_open::cloexec) != 0);
 }
 
 long sys_pipe2(std::uint64_t fds, int flags) {
@@ -521,13 +531,87 @@ long sys_pipe2(std::uint64_t fds, int flags) {
     if (flags & ~(linux_open::cloexec | linux_open::nonblock | linux_o_direct)) return -linux_errno::einval;
     int pair[2];
     if (::pipe(pair) != 0) return -to_linux_errno(errno);
-    for (const int fd : pair) {
-        drop_stream(fd);
-        if (flags & linux_open::cloexec) ::fcntl(fd, F_SETFD, FD_CLOEXEC);
-        if (flags & linux_open::nonblock) ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL) | O_NONBLOCK);
+    if (flags & linux_open::nonblock) {
+        for (const int end : pair) ::fcntl(end, F_SETFL, ::fcntl(end, F_GETFL) | O_NONBLOCK);
     }
-    std::memcpy(as_pointer<int>(fds), pair, sizeof pair);
+    const bool close_on_exec = (flags & linux_open::cloexec) != 0;
+    const long read_end = descriptors::add(pair[0], close_on_exec);
+    if (read_end < 0) {
+        ::close(pair[1]);
+        return read_end;
+    }
+    const long write_end = descriptors::add(pair[1], close_on_exec);
+    if (write_end < 0) {
+        descriptors::close(static_cast<int>(read_end));  // Linux takes both numbers or none
+        return write_end;
+    }
+    const int guest[2] = {static_cast<int>(read_end), static_cast<int>(write_end)};
+    std::memcpy(as_pointer<int>(fds), guest, sizeof guest);
     return 0;
+}
+
+long sys_read(int fd, std::uint64_t buffer, std::uint64_t size) {
+    return with_host(fd, [&](int host) { return result_or_error(::read(host, as_pointer<void>(buffer), size)); });
+}
+
+long sys_write(int fd, std::uint64_t buffer, std::uint64_t size) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::write(host, as_pointer<const void>(buffer), size));
+    });
+}
+
+// struct iovec has the same layout on Linux and Darwin: a pointer and a size_t.
+
+long sys_readv(int fd, std::uint64_t vectors, int count) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::readv(host, as_pointer<const iovec>(vectors), count));
+    });
+}
+
+long sys_writev(int fd, std::uint64_t vectors, int count) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::writev(host, as_pointer<const iovec>(vectors), count));
+    });
+}
+
+long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::pread(host, as_pointer<void>(buffer), size, offset));
+    });
+}
+
+long sys_pwrite64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::pwrite(host, as_pointer<const void>(buffer), size, offset));
+    });
+}
+
+long sys_preadv(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::preadv(host, as_pointer<const iovec>(vectors), count, offset));
+    });
+}
+
+long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
+    return with_host(fd, [&](int host) {
+        return result_or_error(::pwritev(host, as_pointer<const iovec>(vectors), count, offset));
+    });
+}
+
+long sys_fchmod(int fd, int mode) {
+    return with_host(fd, [&](int host) { return result_or_error(::fchmod(host, static_cast<mode_t>(mode & 07777))); });
+}
+
+long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group) {
+    return with_host(fd, [&](int host) { return result_or_error(::fchown(host, owner, group)); });
+}
+
+long sys_ftruncate(int fd, std::int64_t length) {
+    return with_host(fd, [&](int host) { return result_or_error(::ftruncate(host, length)); });
+}
+
+long sys_fsync(int fd) {
+    return with_host(fd, [](int host) { return result_or_error(::fsync(host)); });
 }
 
 namespace {
@@ -581,21 +665,26 @@ long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument) {
     // Requests from include/uapi/asm-generic/ioctls.h.
     constexpr std::uint32_t tcgets = 0x5401, tiocgwinsz = 0x5413, fionread = 0x541b, fionbio = 0x5421,
                             fionclex = 0x5450, fioclex = 0x5451;
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    const int host = description->host();
     switch (request) {
         case tcgets: {
-            termios host;
-            if (::tcgetattr(fd, &host) != 0) return errno == ENOTTY ? -linux_errno::enotty : -to_linux_errno(errno);
-            *as_pointer<LinuxTermios>(argument) = to_linux_termios(host);
+            termios attributes;
+            if (::tcgetattr(host, &attributes) != 0) {
+                return errno == ENOTTY ? -linux_errno::enotty : -to_linux_errno(errno);
+            }
+            *as_pointer<LinuxTermios>(argument) = to_linux_termios(attributes);
             return 0;
         }
         case tiocgwinsz:  // struct winsize: four unsigned shorts on both systems
-            return result_or_error(::ioctl(fd, TIOCGWINSZ, as_pointer<winsize>(argument)));
+            return result_or_error(::ioctl(host, TIOCGWINSZ, as_pointer<winsize>(argument)));
         case fionread:
-            return result_or_error(::ioctl(fd, FIONREAD, as_pointer<int>(argument)));
+            return result_or_error(::ioctl(host, FIONREAD, as_pointer<int>(argument)));
         case fionbio:
-            return result_or_error(::ioctl(fd, FIONBIO, as_pointer<int>(argument)));
-        case fioclex: return result_or_error(::fcntl(fd, F_SETFD, FD_CLOEXEC));
-        case fionclex: return result_or_error(::fcntl(fd, F_SETFD, 0));
+            return result_or_error(::ioctl(host, FIONBIO, as_pointer<int>(argument)));
+        case fioclex: return descriptors::set_close_on_exec(fd, true);
+        case fionclex: return descriptors::set_close_on_exec(fd, false);
         default: {
             char message[80];
             std::snprintf(message, sizeof message, "apkrt: ioctl request %#x is not supported yet\n", request);
@@ -646,10 +735,12 @@ long sys_statfs(std::uint64_t path, std::uint64_t buffer) {
 }
 
 long sys_fstatfs(int fd, std::uint64_t buffer) {
-    struct statfs status;
-    if (::fstatfs(fd, &status) != 0) return -to_linux_errno(errno);
-    *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status);
-    return 0;
+    return with_host(fd, [&](int host) {
+        struct statfs status;
+        if (::fstatfs(host, &status) != 0) return -to_linux_errno(errno);
+        *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status);
+        return 0L;
+    });
 }
 
 }  // namespace apkrt::sys

@@ -4,6 +4,7 @@
 // futex have files of their own (sys_*.cpp, syscalls.h). At the end of each syscall, guest signals that
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
+#include "descriptors.h"
 #include "dl.h"
 #include "guest_context.h"
 #include "loader_syscalls.h"
@@ -18,7 +19,6 @@
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
-#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -176,6 +176,8 @@ constexpr std::uint64_t rt_sigpending = 136;
 constexpr std::uint64_t rt_sigtimedwait = 137;
 constexpr std::uint64_t rt_sigqueueinfo = 138;
 constexpr std::uint64_t rt_sigreturn = 139;
+constexpr std::uint64_t getrlimit = 163;
+constexpr std::uint64_t setrlimit = 164;
 constexpr std::uint64_t umask = 166;
 constexpr std::uint64_t prctl = 167;
 constexpr std::uint64_t gettimeofday = 169;
@@ -192,6 +194,7 @@ constexpr std::uint64_t mmap = 222;
 constexpr std::uint64_t mprotect = 226;
 constexpr std::uint64_t madvise = 233;
 constexpr std::uint64_t rt_tgsigqueueinfo = 240;
+constexpr std::uint64_t prlimit64 = 261;
 constexpr std::uint64_t renameat2 = 276;
 constexpr std::uint64_t getrandom = 278;
 constexpr std::uint64_t faccessat2 = 439;
@@ -363,6 +366,27 @@ long sys_prctl(int option, std::uint64_t argument) {
     }
 }
 
+/// prlimit64, and getrlimit and setrlimit, which are prlimit64 of the calling process. struct rlimit
+/// and struct rlimit64 are two 64-bit words on arm64. Only RLIMIT_NOFILE so far: the descriptor table's
+/// (ADR-0027).
+long sys_prlimit64(int pid, int resource, std::uint64_t new_address, std::uint64_t old_address) {
+    constexpr int rlimit_nofile = 7;
+    if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
+    if (resource != rlimit_nofile) {
+        char message[80];
+        std::snprintf(message, sizeof message, "apkrt: resource limit %d is not supported yet\n", resource);
+        report(message);
+        return -linux_errno::enosys;
+    }
+    const auto previous = apkrt::descriptors::limits();
+    if (new_address != 0) {
+        const auto requested = *as_pointer<const apkrt::descriptors::Limits>(new_address);
+        if (const long result = apkrt::descriptors::set_limits(requested); result != 0) return result;
+    }
+    if (old_address != 0) *as_pointer<apkrt::descriptors::Limits>(old_address) = previous;
+    return 0;
+}
+
 // getrandom flags (include/uapi/linux/random.h): GRND_NONBLOCK, GRND_RANDOM, GRND_INSECURE.
 constexpr unsigned grnd_known = 0x1 | 0x2 | 0x4;
 
@@ -381,11 +405,9 @@ long dispatch(const apkrt_syscall_frame &frame) {
     const auto *x = frame.x;
     switch (x[8]) {
         case nr::write:
-            return result_or_error(::write(as_int(x[0]), as_pointer<const void>(x[1]), x[2]));
-
+            return sys_write(as_int(x[0]), x[1], x[2]);
         case nr::writev:
-            // struct iovec has the same layout on Linux and Darwin: a pointer and a size_t.
-            return result_or_error(::writev(as_int(x[0]), as_pointer<const iovec>(x[1]), as_int(x[2])));
+            return sys_writev(as_int(x[0]), x[1], as_int(x[2]));
 
         case nr::exit:
             apkrt::threads::exit_current(as_int(x[0]));
@@ -421,23 +443,27 @@ long dispatch(const apkrt_syscall_frame &frame) {
 
         case nr::prctl:
             return sys_prctl(as_int(x[0]), x[1]);
+        case nr::getrlimit:
+            return sys_prlimit64(0, as_int(x[0]), 0, x[1]);
+        case nr::setrlimit:
+            return sys_prlimit64(0, as_int(x[0]), x[1], 0);
+        case nr::prlimit64:
+            return sys_prlimit64(as_int(x[0]), as_int(x[1]), x[2], x[3]);
         case nr::getrandom:
             return sys_getrandom(x[0], x[1], static_cast<unsigned>(x[2]));
 
         case nr::read:
-            return result_or_error(::read(as_int(x[0]), as_pointer<void>(x[1]), x[2]));
+            return sys_read(as_int(x[0]), x[1], x[2]);
         case nr::readv:
-            return result_or_error(::readv(as_int(x[0]), as_pointer<const iovec>(x[1]), as_int(x[2])));
+            return sys_readv(as_int(x[0]), x[1], as_int(x[2]));
         case nr::pread64:
-            return result_or_error(::pread(as_int(x[0]), as_pointer<void>(x[1]), x[2], static_cast<off_t>(x[3])));
+            return sys_pread64(as_int(x[0]), x[1], x[2], static_cast<std::int64_t>(x[3]));
         case nr::pwrite64:
-            return result_or_error(::pwrite(as_int(x[0]), as_pointer<const void>(x[1]), x[2], static_cast<off_t>(x[3])));
+            return sys_pwrite64(as_int(x[0]), x[1], x[2], static_cast<std::int64_t>(x[3]));
         case nr::preadv:
-            return result_or_error(::preadv(as_int(x[0]), as_pointer<const iovec>(x[1]), as_int(x[2]),
-                                            static_cast<off_t>(x[3])));
+            return sys_preadv(as_int(x[0]), x[1], as_int(x[2]), static_cast<std::int64_t>(x[3]));
         case nr::pwritev:
-            return result_or_error(::pwritev(as_int(x[0]), as_pointer<const iovec>(x[1]), as_int(x[2]),
-                                             static_cast<off_t>(x[3])));
+            return sys_pwritev(as_int(x[0]), x[1], as_int(x[2]), static_cast<std::int64_t>(x[3]));
         case nr::lseek:
             return sys_lseek(as_int(x[0]), static_cast<std::int64_t>(x[1]), as_int(x[2]));
         case nr::openat:
@@ -445,7 +471,7 @@ long dispatch(const apkrt_syscall_frame &frame) {
         case nr::close:
             return sys_close(as_int(x[0]));
         case nr::dup:
-            return result_or_error(::dup(as_int(x[0])));
+            return sys_dup(as_int(x[0]));
         case nr::dup3:
             return sys_dup3(as_int(x[0]), as_int(x[1]), as_int(x[2]));
         case nr::pipe2:
@@ -483,19 +509,19 @@ long dispatch(const apkrt_syscall_frame &frame) {
         case nr::fchmodat:
             return sys_fchmodat(as_int(x[0]), x[1], as_int(x[2]));
         case nr::fchmod:
-            return result_or_error(::fchmod(as_int(x[0]), static_cast<mode_t>(x[1] & 07777)));
+            return sys_fchmod(as_int(x[0]), as_int(x[1]));
         case nr::fchownat:
             return sys_fchownat(as_int(x[0]), x[1], static_cast<std::uint32_t>(x[2]), static_cast<std::uint32_t>(x[3]),
                                 as_int(x[4]));
         case nr::fchown:
-            return result_or_error(::fchown(as_int(x[0]), static_cast<uid_t>(x[1]), static_cast<gid_t>(x[2])));
+            return sys_fchown(as_int(x[0]), static_cast<std::uint32_t>(x[1]), static_cast<std::uint32_t>(x[2]));
         case nr::truncate:
             return sys_truncate(x[0], static_cast<std::int64_t>(x[1]));
         case nr::ftruncate:
-            return result_or_error(::ftruncate(as_int(x[0]), static_cast<off_t>(x[1])));
+            return sys_ftruncate(as_int(x[0]), static_cast<std::int64_t>(x[1]));
         case nr::fsync:
         case nr::fdatasync:
-            return result_or_error(::fsync(as_int(x[0])));
+            return sys_fsync(as_int(x[0]));
         case nr::sync:
             ::sync();
             return 0;

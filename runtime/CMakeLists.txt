@@ -3,7 +3,7 @@ enable_language(ASM)
 # M2 step 4: static programs from container dylibs; step 5: the linker and libdl for dynamic programs
 # (ADR-0021), and the Linux personality their test suite needs: files, threads, signals. The
 # signal handlers look up the x18 islands (ADR-0020 X4).
-set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/sys_memory.cpp src/sys_signals.cpp
+set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/islands.cpp src/process_exit.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
@@ -61,6 +61,12 @@ if(APK_HOST_BUILD)
   target_include_directories(syscalls_test PRIVATE src)
   target_link_libraries(syscalls_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.syscalls COMMAND syscalls_test)
+
+  # The guest's descriptor table (ADR-0027).
+  add_executable(descriptors_test tests/descriptors_test.cpp)
+  target_include_directories(descriptors_test PRIVATE src)
+  target_link_libraries(descriptors_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.descriptors COMMAND descriptors_test)
 
   add_executable(apk-run tools/apk_run.cpp)
   target_link_libraries(apk-run PRIVATE apkrt apk_defaults)

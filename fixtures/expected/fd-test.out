@@ -1,0 +1,40 @@
+three opens: 3 4 5
+open after closing 4: 4
+dup: 6
+F_DUPFD from 10: 10, then 11
+F_DUPFD_CLOEXEC: 7, FD_CLOEXEC there 1, on the original 0
+dup2 to 20: 20
+dup3 to 21 with O_CLOEXEC: 21
+FD_CLOEXEC of 20 and 21: 0 1
+dup2 of fd-c onto 20: 20
+fd-c now holds: via 20
+dup2 onto itself: 3
+dup3 onto itself: -1 errno 22 (Invalid argument)
+offset seen through the copy: 10
+read after the copy's lseek: 456
+O_APPEND seen through the original: 1
+FD_CLOEXEC stays with its number: copy 1, original 0
+the copy writes on after the original is closed: 1
+close of a number never opened: -1 errno 9 (Bad file descriptor)
+read from it: -1 errno 9 (Bad file descriptor)
+dup of it: -1 errno 9 (Bad file descriptor)
+fcntl F_GETFD of it: -1 errno 9 (Bad file descriptor)
+dup2 to -1: -1 errno 9 (Bad file descriptor)
+fcntl F_DUPFD from -1: -1 errno 22 (Invalid argument)
+dup3 with O_APPEND: -1 errno 22 (Invalid argument)
+pipe2 with O_NONBLOCK and O_CLOEXEC: 0
+pipe ends: 3 4
+read from the empty pipe: -1 errno 11 (Try again)
+FD_CLOEXEC of both ends: 1 1
+O_NONBLOCK of the read end: 1
+read what was written: 5
+pipe: 0
+a blocking read of what is there: 8 blocking
+a blocking read after the writer closed: 0
+the file took number 1
+it holds: into the file
+dup when the table is full: -1 errno 24 (Too many open files)
+open when the table is full: -1 errno 24 (Too many open files)
+pipe when the table is full: -1 errno 24 (Too many open files)
+dup after closing the copies: 4
+done

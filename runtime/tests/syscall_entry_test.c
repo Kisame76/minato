@@ -20,7 +20,7 @@ _Static_assert(__builtin_offsetof(struct probe_state, q) == 272, "layout of sysc
 void probe_syscall_entry(uint64_t number, const struct probe_state *before, struct probe_state *after);
 
 // Linux AArch64 syscall numbers (asm-generic/unistd.h) and errno values (asm-generic/errno*.h).
-enum { linux_write = 64, linux_getpid = 172 };
+enum { linux_pipe2 = 59, linux_read = 63, linux_write = 64, linux_getpid = 172 };
 enum { linux_ebadf = 9, linux_enosys = 38 };
 
 static int failures = 0;
@@ -93,8 +93,12 @@ int main(void) {
     state.fpsr = 0;
     CHECK(call(linux_getpid, &state, "getpid with other flags") == getpid());
 
-    int fds[2];
-    CHECK(pipe(fds) == 0);
+    // A pipe of the guest's: its numbers are in the guest's descriptor table (ADR-0027).
+    int fds[2] = {-1, -1};
+    state = distinct_state();
+    state.x[0] = (uint64_t)(uintptr_t)fds;
+    state.x[1] = 0;
+    CHECK(call(linux_pipe2, &state, "pipe2") == 0);
     static const char message[] = "through the syscall entry";
     state = distinct_state();
     state.x[0] = (uint64_t)fds[1];
@@ -102,7 +106,11 @@ int main(void) {
     state.x[2] = sizeof message - 1;
     CHECK(call(linux_write, &state, "write") == (int64_t)(sizeof message - 1));
     char received[sizeof message] = {0};
-    CHECK(read(fds[0], received, sizeof received) == (ssize_t)(sizeof message - 1));
+    state = distinct_state();
+    state.x[0] = (uint64_t)fds[0];
+    state.x[1] = (uint64_t)(uintptr_t)received;
+    state.x[2] = sizeof received;
+    CHECK(call(linux_read, &state, "read") == (int64_t)(sizeof message - 1));
     CHECK(strcmp(received, message) == 0);
 
     // Errors come back as negative Linux errno values, not Darwin ones.
