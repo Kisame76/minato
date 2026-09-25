@@ -25,6 +25,8 @@ let package = Package(
         // encoded independently of the production parsers, plus the manifest compiler and the layout.
         .target(name: "APKPack", dependencies: ["APKKit"]),
         .testTarget(name: "APKPackTests", dependencies: ["APKPack", "APKKit", "APKTestSupport"]),
+        // Development tool: packs our test apps (ADR-0031); tools/make-apk.sh builds and runs it.
+        .executableTarget(name: "make-apk", dependencies: ["APKPack"]),
         // Test-only builders for resource tables, ELF headers, signing blocks and whole sample APKs;
         // re-exports APKPack's writers.
         .target(name: "APKTestSupport", dependencies: ["APKPack"], path: "Tests/APKTestSupport"),

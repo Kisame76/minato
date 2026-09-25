@@ -160,21 +160,42 @@ public enum APKSigner {
     /// The signed APK: `unsigned` with a v2 signing block by `key` before its central directory.
     public static func sign(_ unsigned: Data, with key: DebugKey) throws -> Data {
         let data = Data(unsigned)
-        guard let (centralDirectory, endRecord) = locateEndRecord(in: data) else {
+        let (centralDirectory, endRecord) = try layout(of: data)
+        let digest = contentDigest(of: data, centralDirectoryOffset: centralDirectory, endRecordOffset: endRecord)
+        let signed = signedData(digests: [(algorithm, digest)], certificates: [key.certificate])
+        let signer = signer(signedData: signed, signatures: [(algorithm, try key.sign(signed))], publicKey: key.subjectPublicKeyInfo)
+        return insert(signingBlock(v2Signers: [signer]), into: data)
+    }
+
+    // The parts of the signature, each as the specification lays it out; tests build from them what
+    // Android must refuse.
+
+    /// Where the central directory and the end record of an unsigned archive lie.
+    static func layout(of data: Data) throws -> (centralDirectory: Int, endRecord: Int) {
+        guard let offsets = locateEndRecord(in: data) else {
             throw PackError(file: "APK", message: "not a ZIP archive with a central directory, or a ZIP64 one")
         }
-        let digest = contentDigest(of: data, centralDirectoryOffset: centralDirectory, endRecordOffset: endRecord)
+        return offsets
+    }
 
-        var signedData = ByteWriter()
-        signedData.bytes(prefixed(prefixed(littleEndian(algorithm) + prefixed(digest))))
-        signedData.bytes(prefixed(prefixed(key.certificate)))
-        signedData.bytes(prefixed(Data()))
-        var signer = ByteWriter()
-        signer.bytes(prefixed(signedData.data))
-        signer.bytes(prefixed(prefixed(littleEndian(algorithm) + prefixed(try key.sign(signedData.data)))))
-        signer.bytes(prefixed(key.subjectPublicKeyInfo))
-        let value = prefixed(prefixed(signer.data))
+    /// Signed data: the digests, the certificates, and the additional attributes as they are given.
+    static func signedData(digests: [(algorithm: UInt32, digest: Data)], certificates: [Data],
+                           additionalAttributes: Data = Data()) -> Data {
+        prefixed(digests.map { prefixed(littleEndian($0.algorithm) + prefixed($0.digest)) }.reduce(Data(), +))
+            + prefixed(certificates.map(prefixed).reduce(Data(), +))
+            + prefixed(additionalAttributes)
+    }
 
+    /// A signer: its signed data, its signatures over them, and its public key.
+    static func signer(signedData: Data, signatures: [(algorithm: UInt32, signature: Data)], publicKey: Data) -> Data {
+        prefixed(signedData)
+            + prefixed(signatures.map { prefixed(littleEndian($0.algorithm) + prefixed($0.signature)) }.reduce(Data(), +))
+            + prefixed(publicKey)
+    }
+
+    /// The APK Signing Block with a v2 block of these signers.
+    static func signingBlock(v2Signers: [Data]) -> Data {
+        let value = prefixed(v2Signers.map(prefixed).reduce(Data(), +))
         var pairs = ByteWriter()
         pairs.u64(UInt64(4 + value.count))
         pairs.u32(v2BlockID)
@@ -185,10 +206,15 @@ public enum APKSigner {
         block.bytes(pairs.data)
         block.u64(size)
         block.bytes(Data("APK Sig Block 42".utf8))
+        return block.data
+    }
 
+    /// `data` with `block` before its central directory and the end record's offset moved by its size.
+    static func insert(_ block: Data, into data: Data) -> Data {
+        guard let (centralDirectory, endRecord) = locateEndRecord(in: data) else { return data }
         var end = data.subdata(in: endRecord..<data.count)
         end.replaceSubrange(16..<20, with: littleEndian(UInt32(centralDirectory + block.count)))
-        return data.subdata(in: 0..<centralDirectory) + block.data + data.subdata(in: centralDirectory..<endRecord) + end
+        return data.subdata(in: 0..<centralDirectory) + block + data.subdata(in: centralDirectory..<endRecord) + end
     }
 
     /// The offsets of the central directory and of the end record (0x06054b50), searched from the end

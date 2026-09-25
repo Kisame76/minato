@@ -1,14 +1,17 @@
 import APKKit
 import Foundation
 
-/// A file to pack: its name in the APK below `lib/arm64-v8a/` or `assets/`, and its bytes.
+/// A file to pack: its name in the APK below `lib/arm64-v8a/` or `assets/`, its bytes, and where it
+/// comes from, which a message names; by default its name.
 public struct PackFile: Sendable, Equatable {
     public var name: String
     public var contents: Data
+    public var origin: String
 
-    public init(name: String, contents: Data) {
+    public init(name: String, contents: Data, origin: String? = nil) {
         self.name = name
         self.contents = contents
+        self.origin = origin ?? name
     }
 }
 
@@ -36,7 +39,7 @@ public enum APKLayout {
         // Android's zip reader refuses an APK with two entries of the same name.
         var assetNames = Set<String>()
         for asset in assets where !assetNames.insert(asset.name).inserted {
-            throw PackError(file: asset.name, message: "given twice")
+            throw PackError(file: asset.origin, message: "given twice")
         }
 
         // Android maps stored libraries in place and extracts deflated ones.
@@ -62,14 +65,14 @@ public enum APKLayout {
             // Android's installer skips other names (ApkParsing.cpp, isFilenameSafe).
             guard library.name.hasPrefix("lib"), library.name.hasSuffix(".so"),
                   library.name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+,-.=_".contains($0)) }) else {
-                throw PackError(file: library.name,
+                throw PackError(file: library.origin,
                                 message: "Android installs only libraries named lib*.so with A-Z, a-z, 0-9 and + , - . = _")
             }
             guard names.insert(library.name).inserted else {
-                throw PackError(file: library.name, message: "given twice")
+                throw PackError(file: library.origin, message: "given twice")
             }
             guard (try? ELFProbe.probe(library.contents.prefix(64 * 1024)))?.isAArch64 == true else {
-                throw PackError(file: library.name, message: "not AArch64 code; Minato runs arm64-v8a only (ADR-0006)")
+                throw PackError(file: library.origin, message: "not AArch64 code; Minato runs arm64-v8a only (ADR-0006)")
             }
         }
         if let name = manifest.nativeLibraryName, !names.contains("lib\(name).so") {
