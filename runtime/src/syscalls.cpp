@@ -90,6 +90,14 @@ void report(const char *message) {
     static_cast<void>(::write(STDERR_FILENO, message, std::char_traits<char>::length(message)));
 }
 
+void raise_sigpipe() {
+    signals::LinuxSiginfo info{};
+    info.signo = 13;  // SIGPIPE
+    info.fields.sender.pid = ::getpid();
+    info.fields.sender.uid = ::getuid();
+    signals::send_to_thread(static_cast<std::int32_t>(sys_gettid()), 13, info);
+}
+
 std::int64_t monotonic_now() {
     return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
 }
@@ -637,14 +645,9 @@ extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     if (tracing()) trace(*frame, nullptr);
     const long result = dispatch(*frame);
     if (tracing()) trace(*frame, &result);
-    // A write to a pipe or socket nobody reads: Linux raises SIGPIPE along with EPIPE.
-    if (result == -linux_errno::epipe && is_write(frame->x[8])) {
-        apkrt::signals::LinuxSiginfo info{};
-        info.signo = 13;  // SIGPIPE
-        info.fields.sender.pid = ::getpid();
-        info.fields.sender.uid = ::getuid();
-        apkrt::signals::send_to_thread(static_cast<std::int32_t>(sys_gettid()), 13, info);
-    }
+    // A write to a pipe or socket nobody reads: Linux raises SIGPIPE along with EPIPE (and along with
+    // the count of a write that got some bytes out first, sys_files.cpp).
+    if (result == -linux_errno::epipe && is_write(frame->x[8])) raise_sigpipe();
     frame->x[0] = static_cast<std::uint64_t>(result);
     errno = saved_errno;
     return apkrt::signals::at_syscall_exit();

@@ -1,12 +1,16 @@
 // fd-test: descriptor numbers as Linux hands them out (ADR-0027): the lowest free number, duplicates
 // that share their open file, close-on-exec per number, Linux's errors, a full table, pipes, and the
 // standard descriptors. It first closes every number from 3 to 1023, which must disturb neither the
-// program nor whoever started it. Expected output: fixtures/expected/fd-test.out
+// program nor whoever started it. Then signals during blocking reads and writes on pipes, and
+// O_NONBLOCK through FIONBIO. Expected output: fixtures/expected/fd-test.out
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 static void report(const char *what, int result) {
@@ -146,6 +150,116 @@ static void full_table(void) {
     close(fd);
 }
 
+// --- Signals during blocking reads and writes ---------------------------------------------------------
+
+static volatile sig_atomic_t handled;
+
+static void on_signal(int signal) {
+    (void)signal;
+    ++handled;
+}
+
+static void install(int flags) {
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_handler = on_signal;
+    action.sa_flags = flags;
+    sigaction(SIGUSR1, &action, NULL);
+}
+
+static char big[256 * 1024];  // more than a pipe holds
+
+// A read or write that a thread of its own makes, with SIGUSR1 blocked if asked.
+struct call {
+    int fd;
+    int writing;
+    size_t size;
+    int blocked;
+    char byte;  // what a read of one byte got
+    ssize_t result;
+    int error;
+};
+
+static void *make_call(void *argument) {
+    struct call *call = argument;
+    sigset_t set, old;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    if (call->blocked) pthread_sigmask(SIG_BLOCK, &set, &old);
+    call->result = call->writing ? write(call->fd, big, call->size) : read(call->fd, &call->byte, call->size);
+    call->error = errno;
+    if (call->blocked) pthread_sigmask(SIG_SETMASK, &old, NULL);  // the pending SIGUSR1 arrives here
+    return NULL;
+}
+
+// Starts `call`, sends its thread SIGUSR1 50 ms later, writes `late` to `late_fd` 50 ms after that
+// unless it is 0, and waits for the call.
+static void interrupt(struct call *call, char late, int late_fd) {
+    handled = 0;
+    pthread_t thread;
+    pthread_create(&thread, NULL, make_call, call);
+    usleep(50 * 1000);
+    pthread_kill(thread, SIGUSR1);
+    if (late != 0) {
+        usleep(50 * 1000);
+        write(late_fd, &late, 1);
+    }
+    pthread_join(thread, NULL);
+}
+
+static void report_call(const char *what, const struct call *call) {
+    errno = call->error;
+    report(what, (int)call->result);
+    printf("  handled: %d\n", (int)handled);
+}
+
+static void blocking(void) {
+    int ends[2];
+    pipe(ends);
+    struct call call = {.fd = ends[0], .size = 1};
+    install(0);
+    interrupt(&call, 0, -1);
+    report_call("a blocking read that a handler without SA_RESTART interrupts", &call);
+
+    install(SA_RESTART);
+    call = (struct call){.fd = ends[0], .size = 1};
+    interrupt(&call, 'r', ends[1]);
+    report_call("a blocking read that a handler with SA_RESTART interrupts", &call);
+    printf("  it read: %c\n", call.byte);
+
+    call = (struct call){.fd = ends[0], .size = 1, .blocked = 1};
+    interrupt(&call, 'b', ends[1]);
+    report_call("a blocking read while the signal is blocked", &call);
+    printf("  it read: %c\n", call.byte);
+    close(ends[0]);
+    close(ends[1]);
+
+    pipe(ends);
+    install(0);
+    call = (struct call){.fd = ends[1], .writing = 1, .size = sizeof big};
+    interrupt(&call, 0, -1);
+    printf("a blocking write of 256 KiB that a handler interrupts: some of it %d\n",
+           call.result > 0 && call.result < (ssize_t)sizeof big);
+    printf("  handled: %d\n", (int)handled);
+    call = (struct call){.fd = ends[1], .writing = 1, .size = 1};
+    interrupt(&call, 0, -1);
+    report_call("a blocking write to the full pipe that a handler interrupts", &call);
+
+    // FIONBIO sets and clears O_NONBLOCK, as fcntl does.
+    int on = 1, off = 0;
+    report("FIONBIO on the read end", ioctl(ends[0], FIONBIO, &on));
+    printf("O_NONBLOCK of the read end: %d\n", (fcntl(ends[0], F_GETFL) & O_NONBLOCK) != 0);
+    char byte;
+    while (read(ends[0], big, sizeof big) > 0) {
+    }
+    report("a read of the drained pipe", (int)read(ends[0], &byte, 1));
+    report("FIONBIO off", ioctl(ends[0], FIONBIO, &off));
+    printf("O_NONBLOCK of the read end: %d\n", (fcntl(ends[0], F_GETFL) & O_NONBLOCK) != 0);
+    close(ends[0]);
+    close(ends[1]);
+    signal(SIGUSR1, SIG_DFL);
+}
+
 int main(void) {
     numbers();
     sharing();
@@ -153,6 +267,7 @@ int main(void) {
     pipes();
     standard();
     full_table();
+    blocking();
     const char *const files[] = {"fd-a", "fd-b", "fd-c", "fd-d", "fd-shared", "fd-stdout", "fd-full"};
     for (unsigned index = 0; index < sizeof files / sizeof files[0]; ++index) unlink(files[index]);
     printf("done\n");

@@ -67,6 +67,8 @@ if(APK_HOST_BUILD)
   target_include_directories(descriptors_test PRIVATE src)
   target_link_libraries(descriptors_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.descriptors COMMAND descriptors_test)
+  # A read that waits for good, instead of answering EAGAIN, fails the test within a minute.
+  set_tests_properties(runtime.descriptors PROPERTIES TIMEOUT 60)
 
   add_executable(apk-run tools/apk_run.cpp)
   target_link_libraries(apk-run PRIVATE apkrt apk_defaults)

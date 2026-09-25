@@ -121,10 +121,11 @@ long futex_wake(std::uint32_t *word, int count, bool) {
             waiter = next;
         }
     }
-    // Raised after the lock, as with Linux's wake queue: a woken thread need not wait for the lock.
+    // Raised after the lock, as with Linux's wake queue: a woken thread need not wait for the lock. Only
+    // the word: the waiter sleeps on it, not in its kqueue (ADR-0027).
     while (taken != nullptr) {
         Waiter *const next = taken->next;
-        signals::notify(*taken->thread);
+        signals::raise_signal_word(*taken->thread);
         taken->released.store(true, std::memory_order_release);  // the last access: the waiter may go
         taken = next;
     }

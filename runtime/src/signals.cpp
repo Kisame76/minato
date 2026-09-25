@@ -5,9 +5,11 @@
 #include "process_exit.h"
 #include "threads.h"
 
+#include <fcntl.h>
 #include <mach/mach.h>
 #include <os/os_sync_wait_on_address.h>
 #include <signal.h>
+#include <sys/event.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
 
@@ -555,9 +557,39 @@ void set_action(int signal, const LinuxSigaction &value) {
     });
 }
 
-void notify(ThreadSignals &state) {
+ThreadSignals::~ThreadSignals() {
+    if (const int descriptor = wait_queue.load(); descriptor >= 0) ::close(descriptor);
+}
+
+void raise_signal_word(ThreadSignals &state) {
     state.wake.fetch_add(1);
     ::os_sync_wake_by_address_all(&state.wake, sizeof(std::uint32_t), OS_SYNC_WAKE_BY_ADDRESS_NONE);
+}
+
+void notify(ThreadSignals &state) {
+    raise_signal_word(state);
+    // A thread whose kqueue is not there yet makes it before it checks for signals (wait_queue_of).
+    if (const int descriptor = state.wait_queue.load(); descriptor >= 0) {
+        struct kevent trigger;
+        EV_SET(&trigger, 0, EVFILT_USER, 0, NOTE_TRIGGER, 0, nullptr);
+        ::kevent(descriptor, &trigger, 1, nullptr, 0, nullptr);
+    }
+}
+
+int wait_queue_of(ThreadSignals &state) {
+    if (const int present = state.wait_queue.load(); present >= 0) return present;
+    const int made = ::kqueue();
+    if (made < 0) return -1;
+    // The user event stays triggered until a kevent takes it (EV_CLEAR), whenever notify() came.
+    struct kevent user;
+    EV_SET(&user, 0, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, nullptr);
+    if (::kevent(made, &user, 1, nullptr, 0, nullptr) != 0) {
+        ::close(made);
+        return -1;
+    }
+    ::fcntl(made, F_SETFD, FD_CLOEXEC);
+    state.wait_queue.store(made);
+    return made;
 }
 
 long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info) {

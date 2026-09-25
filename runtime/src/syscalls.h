@@ -84,6 +84,9 @@ long result_or_error(long result);
 /// Writes a message about something the layer does not offer yet to stderr, without allocating.
 void report(const char *message);
 
+/// Raises SIGPIPE for the calling thread, as Linux does for a write to a pipe or socket nobody reads.
+void raise_sigpipe();
+
 inline int as_int(std::uint64_t value) {
     return static_cast<int>(static_cast<std::int32_t>(value));  // Linux passes int arguments in the low half
 }
@@ -107,10 +110,11 @@ std::int64_t deadline_after(std::int64_t nanoseconds);
 
 // --- Waiting (sys_signals.cpp, ADR-0026) --------------------------------------------------------------
 //
-// Every blocking syscall waits in wait_until, on the calling thread's signal word (ThreadSignals::wake),
-// which every signal sent to the thread and every futex wake of it raise. It reads the word before it
-// checks, and sleeps only while the word still has that value: whatever raises it after the checks keeps
-// the sleep from beginning, so no signal slips in between.
+// Every blocking syscall that does not wait on descriptors (for those see below) waits in wait_until, on
+// the calling thread's signal word (ThreadSignals::wake), which every signal sent to the thread and every
+// futex wake of it raise. It reads the word before it checks, and sleeps only while the word still has
+// that value: whatever raises it after the checks keeps the sleep from beginning, so no signal slips in
+// between.
 
 /// Why a wait ended: its own condition came true, the deadline passed, or a signal the thread takes is
 /// pending, checked in this order. As on Linux, a wait whose time is up ends as timed out even when a
@@ -135,6 +139,59 @@ WaitEnd wait_until(signals::ThreadSignals &state, Done done, std::int64_t deadli
         if ((state.pending.load() & ~state.mask.load()) != 0) return WaitEnd::signal;
         sleep_on_wake(state, seen, deadline);
     }
+}
+
+// --- Waiting on descriptors (sys_signals.cpp, ADR-0027) -----------------------------------------------
+//
+// A wait for host descriptors sleeps in the calling thread's kqueue (signals.h, wait_queue_of), where
+// notify() triggers a user event along with the signal word. The kqueue is there before the wait first
+// checks for signals, and its event stays triggered until a sleep takes it: a signal sent after the
+// check ends the sleep at once.
+
+/// A host descriptor a wait watches: for reading (EVFILT_READ) or for writing (EVFILT_WRITE).
+struct Watched {
+    int host;
+    std::int16_t filter;
+    bool ready = false;           // the kqueue reported it at the last probe or sleep
+    bool armed = false;           // its filter is in the thread's kqueue
+    std::int64_t available = -1;  // when ready: the bytes to read or the room to write; -1 unknown
+};
+
+/// Asks the thread's kqueue at once which of `watched` are ready; makes the kqueue if need be.
+void probe_descriptors(signals::ThreadSignals &state, Watched *watched, int count);
+
+/// Sleeps in the thread's kqueue until one of `watched` is ready, notify() is called or `deadline`
+/// (monotonic_now's clock) passes. May come back early.
+void sleep_on_descriptors(signals::ThreadSignals &state, Watched *watched, int count, std::int64_t deadline);
+
+/// Takes the filters of `watched` that a probe or a sleep left in the thread's kqueue out again.
+void stop_watching(signals::ThreadSignals &state, Watched *watched, int count);
+
+/// wait_until for descriptors: waits until `done()` holds, `deadline` passes, or a signal the thread
+/// does not block is pending, in this order, and sleeps on `watched` in between. A wait whose `done()`
+/// holds at once makes no kqueue, unless `done()` itself asks the kqueue (probe_descriptors).
+template <typename Done>
+WaitEnd wait_for_descriptors(signals::ThreadSignals &state, Watched *watched, int count, Done done,
+                             std::int64_t deadline) {
+    WaitEnd end;
+    while (true) {
+        if (done()) {
+            end = WaitEnd::done;
+            break;
+        }
+        if (deadline != no_deadline && monotonic_now() >= deadline) {
+            end = WaitEnd::timeout;
+            break;
+        }
+        signals::wait_queue_of(state);  // before the check: a signal sent after it triggers the user event
+        if ((state.pending.load() & ~state.mask.load()) != 0) {
+            end = WaitEnd::signal;
+            break;
+        }
+        sleep_on_descriptors(state, watched, count, deadline);
+    }
+    stop_watching(state, watched, count);
+    return end;
 }
 
 // --- futex (sys_futex.cpp, ADR-0026) ------------------------------------------------------------------

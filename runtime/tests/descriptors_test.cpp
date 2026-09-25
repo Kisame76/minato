@@ -1,8 +1,11 @@
 // Checks the guest's descriptor table (ADR-0027): the guest's numbers are Linux's, whatever the
-// process holds on the host, and every call that takes a descriptor goes through the table. Each
-// call goes through the dispatcher with Linux numbers, as a guest's svc veneer delivers it.
+// process holds on the host, every call that takes a descriptor goes through the table, and the
+// guest's O_NONBLOCK is its own. Each call goes through the dispatcher with Linux numbers, as a
+// guest's svc veneer delivers it.
 #include "descriptors.h"
+#include "signals.h"
 #include "syscall_frame.h"
+#include "threads.h"
 #include "vfs.h"
 
 #include "check.h"
@@ -10,10 +13,13 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +28,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -30,15 +37,16 @@ namespace {
 constexpr std::uint64_t nr_getcwd = 17, nr_dup = 23, nr_dup3 = 24, nr_fcntl = 25, nr_ioctl = 29, nr_fstatfs = 44,
                         nr_ftruncate = 46, nr_fchdir = 50, nr_fchmod = 52, nr_openat = 56, nr_close = 57,
                         nr_pipe2 = 59, nr_getdents64 = 61, nr_lseek = 62, nr_read = 63, nr_write = 64,
-                        nr_pread64 = 67, nr_fstat = 80, nr_fsync = 82, nr_utimensat = 88, nr_munmap = 215,
-                        nr_mmap = 222;
+                        nr_readv = 65, nr_writev = 66, nr_pread64 = 67, nr_fstat = 80, nr_fsync = 82,
+                        nr_utimensat = 88, nr_munmap = 215, nr_mmap = 222;
 constexpr std::uint64_t f_dupfd = 0, f_getfd = 1, f_setfd = 2, f_getfl = 3, f_setfl = 4, f_dupfd_cloexec = 1030;
 constexpr std::uint64_t o_rdonly = 0, o_rdwr = 2, o_creat = 0100, o_append = 02000, o_cloexec = 02000000;
 constexpr std::uint64_t at_fdcwd = static_cast<std::uint64_t>(-100);
 constexpr std::uint64_t seek_set = 0, seek_cur = 1;
 constexpr std::uint64_t prot_read = 1, map_private = 2;
-constexpr std::uint64_t fionread = 0x541b;
-constexpr std::int64_t ebadf = 9, einval = 22, emfile = 24;
+constexpr std::uint64_t o_nonblock = 04000;
+constexpr std::uint64_t fionread = 0x541b, fionbio = 0x5421;
+constexpr std::int64_t eintr = 4, ebadf = 9, eagain = 11, einval = 22, emfile = 24;
 
 std::int64_t call(std::uint64_t number, std::initializer_list<std::uint64_t> arguments) {
     apkrt_syscall_frame frame{};
@@ -131,13 +139,15 @@ struct Table {
 };
 
 /// Runs `body` in a child process and returns whether its checks passed there: for tests that
-/// change the process's standard descriptors or close numbers by the hundred.
+/// change the process's standard descriptors or close numbers by the hundred. It runs on a thread of
+/// its own there, with a signal state of its own: the kqueue of the parent's thread for its waits on
+/// descriptors (signals.h) does not survive fork.
 template <typename Body>
 bool in_child(Body body) {
     std::fflush(nullptr);
     const pid_t child = ::fork();
     if (child == 0) {
-        body();
+        std::thread(body).join();
         std::fflush(nullptr);
         ::_exit(apk::testing::failures == 0 ? 0 : 1);
     }
@@ -444,6 +454,278 @@ TEST(pipe_calls_go_through_the_table) {
         CHECK(description != nullptr);
         if (description != nullptr) CHECK((::fcntl(description->host(), F_GETFD) & FD_CLOEXEC) != 0);
     }
+    CHECK(table.holds_its_own());
+}
+
+// --- Descriptors that can block (ADR-0027, decisions 5 and 7, test 7) -------------------------------
+
+using namespace std::chrono_literals;
+
+/// The host's status flags behind a guest number.
+int host_status_flags(std::int64_t fd) {
+    const auto description = apkrt::descriptors::get(static_cast<int>(fd));
+    return description != nullptr ? ::fcntl(description->host(), F_GETFL) : -1;
+}
+
+/// Whether F_GETFL shows the guest's O_NONBLOCK on `fd`.
+bool nonblocking(std::int64_t fd) {
+    return (call(nr_fcntl, {unsigned_of(fd), f_getfl}) & static_cast<std::int64_t>(o_nonblock)) != 0;
+}
+
+/// Runs `action` on a thread of its own 50 ms from now; the thread goes with the object.
+class Later {
+public:
+    template <typename Action>
+    explicit Later(Action action)
+        : thread_([action] {
+              std::this_thread::sleep_for(50ms);
+              action();
+          }) {}
+    ~Later() { thread_.join(); }
+    Later(const Later &) = delete;
+    Later &operator=(const Later &) = delete;
+
+private:
+    std::thread thread_;
+};
+
+TEST(o_nonblock_is_the_guests_own_and_a_blocking_read_still_waits) {
+    Table table;
+    int quick[2] = {-1, -1}, slow[2] = {-1, -1};
+    CHECK(call(nr_pipe2, {address(quick), o_nonblock}) == 0);
+    CHECK(call(nr_pipe2, {address(slow), 0}) == 0);
+    char byte = 0;
+    CHECK(call(nr_read, {unsigned_of(quick[0]), address(&byte), 1}) == -eagain);
+    CHECK(nonblocking(quick[0]) && nonblocking(quick[1]));
+    CHECK(!nonblocking(slow[0]) && !nonblocking(slow[1]));
+    // Every host descriptor of a pipe is non-blocking, whatever the guest's flag says.
+    for (const int fd : {quick[0], quick[1], slow[0], slow[1]}) CHECK((host_status_flags(fd) & O_NONBLOCK) != 0);
+
+    // A blocking read of the other pipe still waits: for the byte another thread writes later.
+    const auto start = std::chrono::steady_clock::now();
+    {
+        const Later writer([&] { call(nr_write, {unsigned_of(slow[1]), address("w"), 1}); });
+        CHECK(call(nr_read, {unsigned_of(slow[0]), address(&byte), 1}) == 1 && byte == 'w');
+    }
+    CHECK(std::chrono::steady_clock::now() - start >= 40ms);
+
+    // F_SETFL and FIONBIO change the guest's flag only.
+    CHECK(call(nr_fcntl, {unsigned_of(slow[0]), f_setfl, o_nonblock}) == 0);
+    CHECK(nonblocking(slow[0]));
+    CHECK(call(nr_read, {unsigned_of(slow[0]), address(&byte), 1}) == -eagain);
+    const int off = 0, on = 1;
+    CHECK(call(nr_ioctl, {unsigned_of(slow[0]), fionbio, address(&off)}) == 0);
+    CHECK(!nonblocking(slow[0]));
+    CHECK(call(nr_ioctl, {unsigned_of(slow[1]), fionbio, address(&on)}) == 0);
+    CHECK(nonblocking(slow[1]));
+    for (const int fd : {slow[0], slow[1]}) CHECK((host_status_flags(fd) & O_NONBLOCK) != 0);
+
+    // The flag belongs to the open file: a duplicate shares it.
+    const auto copy = call(nr_dup, {unsigned_of(slow[0])});
+    CHECK(call(nr_fcntl, {unsigned_of(copy), f_setfl, o_nonblock}) == 0);
+    CHECK(nonblocking(slow[0]));
+    CHECK(call(nr_read, {unsigned_of(slow[0]), address(&byte), 1}) == -eagain);
+    CHECK(table.holds_its_own());
+}
+
+TEST(a_terminal_can_block_and_a_regular_file_keeps_the_guests_o_nonblock) {
+    Table table;
+    // A terminal's host descriptor is non-blocking too, and the guest's flag stays apart.
+    const int master = ::posix_openpt(O_RDWR | O_NOCTTY);
+    CHECK(master >= 0 && ::grantpt(master) == 0 && ::unlockpt(master) == 0);
+    const auto terminal = guest_number_of(::open(::ptsname(master), O_RDWR | O_NOCTTY));
+    CHECK(terminal >= 0);
+    CHECK((host_status_flags(terminal) & O_NONBLOCK) != 0);
+    CHECK(!nonblocking(terminal));
+    CHECK(call(nr_close, {unsigned_of(terminal)}) == 0);
+    ::close(master);
+    // A regular file cannot block, and F_GETFL still shows the O_NONBLOCK it was opened with.
+    const auto file = open_guest("plain", o_creat | o_rdwr | o_nonblock);
+    CHECK(file >= 0 && nonblocking(file));
+    const auto blocking_file = open_guest("plain", o_rdwr);
+    CHECK(blocking_file >= 0 && !nonblocking(blocking_file));
+    CHECK(table.holds_its_own());
+}
+
+TEST(a_standard_descriptor_starts_with_the_starters_o_nonblock) {
+    CHECK(in_child([] {
+        ::alarm(5);  // a read that blocks for good ends the child, and with it the check
+        int in[2];
+        if (::pipe(in) != 0 || ::dup2(in[0], STDIN_FILENO) != STDIN_FILENO) ::_exit(3);
+        ::fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+        CHECK(nonblocking(0));
+        char byte = 0;
+        CHECK(call(nr_read, {0, address(&byte), 1}) == -eagain);
+        apkrt::descriptors::reset();
+    }));
+}
+
+TEST(the_guests_o_nonblock_on_a_standard_descriptor_leaves_the_starters_flags_alone) {
+    CHECK(in_child([] {
+        ::alarm(5);  // a read that blocks for good ends the child, and with it the check
+        int in[2];
+        if (::pipe(in) != 0 || ::dup2(in[0], STDIN_FILENO) != STDIN_FILENO) ::_exit(3);
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+        char byte = 0;
+        CHECK(call(nr_fcntl, {0, f_setfl, o_nonblock}) == 0);
+        CHECK(nonblocking(0));
+        CHECK((::fcntl(STDIN_FILENO, F_GETFL) & O_NONBLOCK) == 0);  // the starter's stays blocking
+        CHECK(call(nr_read, {0, address(&byte), 1}) == -eagain);
+        CHECK(::write(in[1], "i", 1) == 1);
+        CHECK(call(nr_read, {0, address(&byte), 1}) == 1 && byte == 'i');
+
+        // Blocking again, the read waits for the byte that comes later.
+        CHECK(call(nr_fcntl, {0, f_setfl, 0}) == 0);
+        CHECK(!nonblocking(0));
+        const auto start = std::chrono::steady_clock::now();
+        {
+            const Later writer([&] { static_cast<void>(::write(in[1], "j", 1)); });
+            CHECK(call(nr_read, {0, address(&byte), 1}) == 1 && byte == 'j');
+        }
+        CHECK(std::chrono::steady_clock::now() - start >= 40ms);
+        apkrt::descriptors::reset();
+    }));
+}
+
+/// Fills the host pipe that `host` writes to until not a byte more fits; `host` blocks again after.
+void fill(int host) {
+    ::fcntl(host, F_SETFL, O_NONBLOCK);
+    static const char chunk[4096] = {};
+    for (const std::size_t size : {sizeof chunk, std::size_t{1}}) {
+        while (::write(host, chunk, size) > 0) {
+        }
+    }
+    ::fcntl(host, F_SETFL, 0);
+}
+
+TEST(a_blocking_transfer_on_a_standard_descriptor_ends_at_once_while_a_signal_is_deliverable) {
+    CHECK(in_child([] {
+        ::alarm(5);  // a read or write that blocks for good ends the child, and with it the check
+        int in[2], out[2];
+        if (::pipe(in) != 0 || ::pipe(out) != 0) ::_exit(3);
+        if (::dup2(in[0], STDIN_FILENO) != STDIN_FILENO || ::dup2(out[1], STDOUT_FILENO) != STDOUT_FILENO) {
+            ::_exit(3);
+        }
+        fill(out[1]);  // the starter's standard output holds not a byte more
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+
+        auto &state = apkrt::signals::current();
+        constexpr std::uint64_t sigusr1 = std::uint64_t{1} << 9;
+        state.pending.fetch_or(sigusr1);
+        char byte = 0;
+        // What is there to read comes first, as on Linux; then the read ends with EINTR at once.
+        CHECK(::write(in[1], "d", 1) == 1);
+        CHECK(call(nr_read, {0, address(&byte), 1}) == 1 && byte == 'd');
+        CHECK(call(nr_read, {0, address(&byte), 1}) == -eintr);
+        CHECK(call(nr_write, {1, address("w"), 1}) == -eintr);
+        state.pending.fetch_and(~sigusr1);
+
+        // A signal sent during the wait ends it as well, without the runtime signal.
+        {
+            const Later sender([&state] {
+                state.pending.fetch_or(sigusr1);
+                apkrt::signals::notify(state);
+            });
+            CHECK(call(nr_read, {0, address(&byte), 1}) == -eintr);
+        }
+        state.pending.fetch_and(~sigusr1);
+        apkrt::descriptors::reset();
+    }));
+}
+
+TEST(a_write_to_a_standard_descriptor_that_does_not_fit_takes_what_fits_and_ends) {
+    // As Linux's pipe_write, with a signal deliverable or the guest's O_NONBLOCK: the bytes that fit,
+    // at once, never a wait in the host call for the rest.
+    CHECK(in_child([] {
+        ::alarm(5);  // a write that blocks for good ends the child, and with it the check
+        int out[2];
+        if (::pipe(out) != 0 || ::dup2(out[1], STDOUT_FILENO) != STDOUT_FILENO) ::_exit(3);
+        static char drained[4096];
+        const auto make_room = [&] { CHECK(::read(out[0], drained, sizeof drained) == 4096); };
+        fill(out[1]);
+        make_room();  // 4,096 bytes free
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+        static const char big[65536] = {};
+
+        auto &state = apkrt::signals::current();
+        constexpr std::uint64_t sigusr1 = std::uint64_t{1} << 9;
+        state.pending.fetch_or(sigusr1);
+        CHECK(call(nr_write, {1, address(big), sizeof big}) == 4096);
+        state.pending.fetch_and(~sigusr1);
+
+        make_room();
+        CHECK(call(nr_fcntl, {1, f_setfl, o_nonblock}) == 0);
+        CHECK(call(nr_write, {1, address(big), sizeof big}) == 4096);
+
+        // The same through writev, whose vectors the room ends within the second.
+        make_room();
+        const iovec vectors[3] = {{const_cast<char *>(big), 1000}, {const_cast<char *>(big), 30000},
+                                  {const_cast<char *>(big), 30000}};
+        CHECK(call(nr_writev, {1, address(vectors), 3}) == 4096);
+        apkrt::descriptors::reset();
+    }));
+}
+
+TEST(a_write_to_a_standard_descriptor_whose_reader_goes_raises_sigpipe_with_its_count) {
+    // As Linux's pipe_write: the bytes that went out, and SIGPIPE all the same.
+    CHECK(in_child([] {
+        ::alarm(5);  // a write that waits for good ends the child, and with it the check
+        // The program's first thread, which the SIGPIPE of a host thread's syscall goes to (sys_gettid).
+        static apkrt::threads::GuestThread first{};
+        first.tid = ::getpid();
+        apkrt::threads::add(first);
+        ::signal(SIGPIPE, SIG_IGN);  // as the runtime has it (signals.cpp): EPIPE instead
+        int out[2];
+        if (::pipe(out) != 0 || ::dup2(out[1], STDOUT_FILENO) != STDOUT_FILENO) ::_exit(3);
+        fill(out[1]);
+        static char drained[4096];
+        CHECK(::read(out[0], drained, sizeof drained) == 4096);  // room for 4,096 bytes
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+        static const char big[65536] = {};
+        {
+            const Later reader_goes([&] { ::close(out[0]); });
+            CHECK(call(nr_write, {1, address(big), sizeof big}) == 4096);
+        }
+        constexpr std::uint64_t sigpipe = std::uint64_t{1} << 12;
+        CHECK((first.signals.pending.load() & sigpipe) != 0);
+        apkrt::descriptors::reset();
+    }));
+}
+
+TEST(a_read_on_a_standard_descriptor_takes_what_is_there_without_a_kqueue) {
+    // With no descriptor left for the thread's kqueue, the read makes the blocking host call, as
+    // before the waits on descriptors.
+    CHECK(in_child([] {
+        ::alarm(5);  // a read that waits for good ends the child, and with it the check
+        int in[2];
+        if (::pipe(in) != 0 || ::dup2(in[0], STDIN_FILENO) != STDIN_FILENO) ::_exit(3);
+        CHECK(::write(in[1], "k", 1) == 1);
+        apkrt::descriptors::reset();
+        apkrt::descriptors::adopt_standard_descriptors();
+        const rlimit few{64, 64};
+        CHECK(::setrlimit(RLIMIT_NOFILE, &few) == 0);
+        while (::open("/dev/null", O_RDONLY) >= 0) {
+        }
+        char byte = 0;
+        CHECK(call(nr_read, {0, address(&byte), 1}) == 1 && byte == 'k');
+    }));
+}
+
+TEST(vector_calls_with_no_vectors_answer_0) {
+    // Linux answers 0 for readv and writev with no vectors; Darwin answers EINVAL.
+    Table table;
+    int ends[2] = {-1, -1};
+    CHECK(call(nr_pipe2, {address(ends), 0}) == 0);
+    const auto file = open_guest("vectors", o_creat | o_rdwr);
+    iovec none{nullptr, 0};
+    for (const std::int64_t fd : {std::int64_t{ends[0]}, file}) CHECK(call(nr_readv, {unsigned_of(fd), address(&none), 0}) == 0);
+    for (const std::int64_t fd : {std::int64_t{ends[1]}, file}) CHECK(call(nr_writev, {unsigned_of(fd), address(&none), 0}) == 0);
     CHECK(table.holds_its_own());
 }
 

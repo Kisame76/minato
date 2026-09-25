@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <sys/event.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/param.h>
@@ -16,12 +17,15 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace apkrt::sys {
 namespace {
@@ -69,24 +73,32 @@ long sys_fcntl(int fd, int command, std::uint64_t argument) {
         case linux_fcntl::dupfd_cloexec: return descriptors::duplicate(fd, as_int(argument), true);
         case linux_fcntl::getfd: return descriptors::close_on_exec(fd);  // FD_CLOEXEC is 1 on both
         case linux_fcntl::setfd: return descriptors::set_close_on_exec(fd, (as_int(argument) & FD_CLOEXEC) != 0);
-        case linux_fcntl::getfl:
-            return with_host(fd, [](int host) -> long {
-                const int flags = ::fcntl(host, F_GETFL);
-                return flags < 0 ? -to_linux_errno(errno) : to_linux_status_flags(flags);
-            });
-        case linux_fcntl::setfl:
-            return with_host(fd, [&](int host) {
-                // Linux changes only O_APPEND, O_ASYNC, O_DIRECT, O_NOATIME and O_NONBLOCK here and
-                // ignores the rest; Darwin has no O_DIRECT or O_NOATIME to set.
-                const int requested = as_int(argument);
-                const int current = ::fcntl(host, F_GETFL);
-                if (current < 0) return -to_linux_errno(errno);
-                int flags = current & ~(O_APPEND | O_NONBLOCK | O_ASYNC);
-                if (requested & linux_fcntl::append) flags |= O_APPEND;
-                if (requested & linux_fcntl::nonblock) flags |= O_NONBLOCK;
-                if (requested & linux_fcntl::async) flags |= O_ASYNC;
-                return result_or_error(::fcntl(host, F_SETFL, flags));
-            });
+        case linux_fcntl::getfl: {
+            const auto description = descriptors::get(fd);
+            if (!description) return -linux_errno::ebadf;
+            const int flags = ::fcntl(description->host(), F_GETFL);
+            if (flags < 0) return -to_linux_errno(errno);
+            // O_NONBLOCK is the guest's own (descriptors.h), whatever the host descriptor has.
+            return to_linux_status_flags(flags & ~O_NONBLOCK) | (description->nonblocking() ? linux_fcntl::nonblock : 0);
+        }
+        case linux_fcntl::setfl: {
+            const auto description = descriptors::get(fd);
+            if (!description) return -linux_errno::ebadf;
+            // Linux changes only O_APPEND, O_ASYNC, O_DIRECT, O_NOATIME and O_NONBLOCK here and ignores
+            // the rest; Darwin has no O_DIRECT or O_NOATIME to set. O_NONBLOCK is the guest's own, and a
+            // flag that does not change leaves the host descriptor alone, which an adopted one shares
+            // with the starter.
+            const int requested = as_int(argument);
+            const int host = description->host();
+            const int current = ::fcntl(host, F_GETFL);
+            if (current < 0) return -to_linux_errno(errno);
+            int flags = current & ~(O_APPEND | O_ASYNC);
+            if (requested & linux_fcntl::append) flags |= O_APPEND;
+            if (requested & linux_fcntl::async) flags |= O_ASYNC;
+            if (flags != current && ::fcntl(host, F_SETFL, flags) != 0) return -to_linux_errno(errno);
+            description->set_nonblocking((requested & linux_fcntl::nonblock) != 0);
+            return 0;
+        }
         default: {
             char message[80];
             const int length =
@@ -326,7 +338,7 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     // guest number's (descriptors.h); on the host every descriptor of the guest has it.
     const int fd = ::openat(host.directory, host.path.c_str(), host_flags | O_CLOEXEC, mode & 07777);
     if (fd < 0) return -to_linux_errno(errno);
-    return descriptors::add(fd, (flags & linux_open::cloexec) != 0);
+    return descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0);
 }
 
 long sys_close(int fd) {
@@ -531,16 +543,14 @@ long sys_pipe2(std::uint64_t fds, int flags) {
     if (flags & ~(linux_open::cloexec | linux_open::nonblock | linux_o_direct)) return -linux_errno::einval;
     int pair[2];
     if (::pipe(pair) != 0) return -to_linux_errno(errno);
-    if (flags & linux_open::nonblock) {
-        for (const int end : pair) ::fcntl(end, F_SETFL, ::fcntl(end, F_GETFL) | O_NONBLOCK);
-    }
     const bool close_on_exec = (flags & linux_open::cloexec) != 0;
-    const long read_end = descriptors::add(pair[0], close_on_exec);
+    const bool nonblocking = (flags & linux_open::nonblock) != 0;
+    const long read_end = descriptors::add(pair[0], close_on_exec, nonblocking);
     if (read_end < 0) {
         ::close(pair[1]);
         return read_end;
     }
-    const long write_end = descriptors::add(pair[1], close_on_exec);
+    const long write_end = descriptors::add(pair[1], close_on_exec, nonblocking);
     if (write_end < 0) {
         descriptors::close(static_cast<int>(read_end));  // Linux takes both numbers or none
         return write_end;
@@ -550,28 +560,173 @@ long sys_pipe2(std::uint64_t fds, int flags) {
     return 0;
 }
 
+namespace {
+
+// --- Reads and writes (ADR-0027, decision 7) -----------------------------------------------------------
+//
+// On a description that can block (descriptors.h) the host descriptor is non-blocking: a read or write
+// tries the host call and, on EAGAIN, unless the guest's O_NONBLOCK is set, waits in the thread's kqueue
+// (syscalls.h, wait_for_descriptors) and tries again, so a signal ends the wait at any moment. A write
+// goes on until every byte is written; a signal after some bytes ends it with their count, as on Linux.
+// An adopted description's host descriptor blocks, as the starter keeps it: the call waits until it is
+// ready, then makes the blocking host call, which SIGURG may interrupt.
+
+/// The buffers a read or write still has to fill or empty: the guest's list, or a copy of its rest
+/// once a write has gone into it.
+class Buffers {
+public:
+    Buffers(const iovec *vectors, int count) : vectors_(vectors), count_(count) {}
+    Buffers(const Buffers &) = delete;  // a copy's vectors would be the original's rest
+    Buffers &operator=(const Buffers &) = delete;
+
+    const iovec *vectors() const { return vectors_; }
+    int count() const { return count_; }
+    bool empty() const { return count_ == 0; }
+
+    /// The buffers of the first `limit` bytes.
+    std::vector<iovec> within(std::size_t limit) const {
+        std::vector<iovec> part;
+        for (int index = 0; index < count_ && limit > 0; ++index) {
+            const std::size_t size = std::min(vectors_[index].iov_len, limit);
+            part.push_back({vectors_[index].iov_base, size});
+            limit -= size;
+        }
+        return part;
+    }
+
+    /// Moves past `bytes` that went through.
+    void advance(std::size_t bytes) {
+        if (!copied_) {  // the guest's list stays as it is
+            rest_.assign(vectors_, vectors_ + count_);
+            copied_ = true;
+        }
+        auto first = rest_.begin();
+        for (; first != rest_.end() && bytes >= first->iov_len; ++first) bytes -= first->iov_len;
+        rest_.erase(rest_.begin(), first);
+        if (!rest_.empty()) {
+            rest_.front().iov_base = static_cast<char *>(rest_.front().iov_base) + bytes;
+            rest_.front().iov_len -= bytes;
+        }
+        vectors_ = rest_.data();
+        count_ = static_cast<int>(rest_.size());
+    }
+
+private:
+    const iovec *vectors_;
+    int count_;
+    std::vector<iovec> rest_;
+    bool copied_ = false;
+};
+
+/// A read (`writing` false) or a write of `buffers` on `description`, which can block.
+long transfer(descriptors::Description &description, bool writing, Buffers buffers) {
+    constexpr std::size_t unlimited = std::numeric_limits<std::size_t>::max();
+    const int host = description.host();
+    // The host call on the buffers still to go, of `limit` bytes of them at most.
+    const auto host_call = [&](std::size_t limit) {
+        const iovec *vectors = buffers.vectors();
+        int count = buffers.count();
+        // One buffer, as read and write give it: the plain calls, which cost Darwin 50 ns less each.
+        if (count == 1) {
+            const std::size_t size = std::min(vectors->iov_len, limit);
+            return result_or_error(writing ? ::write(host, vectors->iov_base, size) : ::read(host, vectors->iov_base, size));
+        }
+        std::vector<iovec> part;
+        if (limit != unlimited) {
+            part = buffers.within(limit);
+            vectors = part.data();
+            count = static_cast<int>(part.size());
+        }
+        return result_or_error(writing ? ::writev(host, vectors, count) : ::readv(host, vectors, count));
+    };
+    // A write that got bytes out ends with their count, whatever came then; as Linux's pipe_write, a
+    // reader that went away raises SIGPIPE even so.
+    const auto count_of_moved = [](long moved, long last) {
+        if (last == -linux_errno::epipe) raise_sigpipe();
+        return moved;
+    };
+    auto &state = signals::current();
+    Watched watched{host, static_cast<std::int16_t>(writing ? EVFILT_WRITE : EVFILT_READ)};
+    long moved = 0;  // what a write has written so far
+
+    if (!description.adopted()) {
+        long last = 0;
+        const auto finished = [&] {
+            while (true) {
+                last = host_call(unlimited);
+                // A non-blocking call can still wait for the lock of a Darwin pipe, which SIGURG ends with
+                // EINTR: the call is simply made again, and a deliverable signal ends the wait after it.
+                if (last == -linux_errno::eintr) continue;
+                if (last == -linux_errno::eagain) return description.nonblocking();
+                if (last <= 0 || !writing) return true;
+                moved += last;
+                buffers.advance(static_cast<std::size_t>(last));
+                if (buffers.empty() || description.nonblocking()) return true;
+            }
+        };
+        const auto end = wait_for_descriptors(state, &watched, 1, finished, no_deadline);
+        if (moved > 0) return count_of_moved(moved, last);
+        return end == WaitEnd::done ? last : -linux_errno::eintr;
+    }
+
+    // Adopted: wait until the host descriptor is ready, then the blocking call, for a write with no more
+    // bytes than the kqueue saw room for, so that the call does not wait in the host. Only the starter's
+    // side can take the data or the room first, and a SIGURG that ends the call then leads to the same
+    // again: what is ready first, else a deliverable signal ends it.
+    const auto ready = [&] {
+        probe_descriptors(state, &watched, 1);
+        return watched.ready;
+    };
+    while (true) {
+        const auto end =
+            wait_for_descriptors(state, &watched, 1, ready, description.nonblocking() ? monotonic_now() : no_deadline);
+        if (end != WaitEnd::done) {
+            if (moved > 0) return moved;
+            return end == WaitEnd::signal ? -linux_errno::eintr : -linux_errno::eagain;
+        }
+        const long result =
+            host_call(writing && watched.available > 0 ? static_cast<std::size_t>(watched.available) : unlimited);
+        if (result == -linux_errno::eintr || result == -linux_errno::eagain) continue;
+        if (result <= 0 || !writing) return moved > 0 ? count_of_moved(moved, result) : result;
+        moved += result;
+        buffers.advance(static_cast<std::size_t>(result));
+        if (buffers.empty() || description.nonblocking()) return moved;
+    }
+}
+
+/// read, write, readv and writev on the guest's `fd`: `plain` makes the host call as it is on a
+/// description that cannot block.
+template <typename Plain>
+long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain plain) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
+    if (!description->can_block()) return result_or_error(plain(description->host()));
+    return transfer(*description, writing, Buffers(vectors, count));
+}
+
+}  // namespace
+
 long sys_read(int fd, std::uint64_t buffer, std::uint64_t size) {
-    return with_host(fd, [&](int host) { return result_or_error(::read(host, as_pointer<void>(buffer), size)); });
+    const iovec one{as_pointer<void>(buffer), size};
+    return read_or_write(fd, false, &one, 1, [&](int host) { return ::read(host, one.iov_base, size); });
 }
 
 long sys_write(int fd, std::uint64_t buffer, std::uint64_t size) {
-    return with_host(fd, [&](int host) {
-        return result_or_error(::write(host, as_pointer<const void>(buffer), size));
-    });
+    const iovec one{as_pointer<void>(buffer), size};
+    return read_or_write(fd, true, &one, 1, [&](int host) { return ::write(host, one.iov_base, size); });
 }
 
 // struct iovec has the same layout on Linux and Darwin: a pointer and a size_t.
 
 long sys_readv(int fd, std::uint64_t vectors, int count) {
-    return with_host(fd, [&](int host) {
-        return result_or_error(::readv(host, as_pointer<const iovec>(vectors), count));
-    });
+    const auto *list = as_pointer<const iovec>(vectors);
+    return read_or_write(fd, false, list, count, [&](int host) { return ::readv(host, list, count); });
 }
 
 long sys_writev(int fd, std::uint64_t vectors, int count) {
-    return with_host(fd, [&](int host) {
-        return result_or_error(::writev(host, as_pointer<const iovec>(vectors), count));
-    });
+    const auto *list = as_pointer<const iovec>(vectors);
+    return read_or_write(fd, true, list, count, [&](int host) { return ::writev(host, list, count); });
 }
 
 long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset) {
@@ -681,8 +836,9 @@ long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument) {
             return result_or_error(::ioctl(host, TIOCGWINSZ, as_pointer<winsize>(argument)));
         case fionread:
             return result_or_error(::ioctl(host, FIONREAD, as_pointer<int>(argument)));
-        case fionbio:
-            return result_or_error(::ioctl(host, FIONBIO, as_pointer<int>(argument)));
+        case fionbio:  // the guest's O_NONBLOCK (descriptors.h)
+            description->set_nonblocking(*as_pointer<const int>(argument) != 0);
+            return 0;
         case fioclex: return descriptors::set_close_on_exec(fd, true);
         case fionclex: return descriptors::set_close_on_exec(fd, false);
         default: {

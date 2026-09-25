@@ -37,4 +37,21 @@ dup when the table is full: -1 errno 24 (Too many open files)
 open when the table is full: -1 errno 24 (Too many open files)
 pipe when the table is full: -1 errno 24 (Too many open files)
 dup after closing the copies: 4
+a blocking read that a handler without SA_RESTART interrupts: -1 errno 4 (Interrupted system call)
+  handled: 1
+a blocking read that a handler with SA_RESTART interrupts: 1
+  handled: 1
+  it read: r
+a blocking read while the signal is blocked: 1
+  handled: 1
+  it read: b
+a blocking write of 256 KiB that a handler interrupts: some of it 1
+  handled: 1
+a blocking write to the full pipe that a handler interrupts: -1 errno 4 (Interrupted system call)
+  handled: 1
+FIONBIO on the read end: 0
+O_NONBLOCK of the read end: 1
+a read of the drained pipe: -1 errno 11 (Try again)
+FIONBIO off: 0
+O_NONBLOCK of the read end: 0
 done

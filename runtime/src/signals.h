@@ -94,12 +94,21 @@ struct ThreadSignals {
     std::atomic_flag lock = ATOMIC_FLAG_INIT;
     LinuxStack alternate_stack{0, ss_disable, 0, 0};
     // Raised whenever a signal is sent to the thread or a futex wake takes it: every blocking syscall
-    // of the thread sleeps on it (ADR-0026, syscalls.h wait_until).
+    // of the thread that does not wait on descriptors sleeps on it (ADR-0026, syscalls.h wait_until).
     std::atomic<std::uint32_t> wake{0};
+    // The thread's kqueue for its waits on descriptors (ADR-0027, decision 6; syscalls.h
+    // wait_for_descriptors), made at its first such wait, with a user event that notify() triggers
+    // along with the signal word; -1 before. Closed with the state, once the thread has ended.
+    std::atomic<int> wait_queue{-1};
     // sigsuspend: the mask the handler's frame returns to, instead of the temporary one.
     bool frame_mask_set = false;
     std::uint64_t frame_mask = 0;
     pthread_t host{};
+
+    ThreadSignals() = default;
+    ~ThreadSignals();
+    ThreadSignals(const ThreadSignals &) = delete;
+    ThreadSignals &operator=(const ThreadSignals &) = delete;
 };
 static_assert(offsetof(ThreadSignals, mask) == 0 && offsetof(ThreadSignals, pending) == 8 &&
                   offsetof(ThreadSignals, in_runtime) == 16 && sizeof(std::atomic<bool>) == 1,
@@ -136,8 +145,17 @@ long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info);
 /// that does not.
 long send_to_process(int signal, const LinuxSiginfo &info);
 
-/// Raises the thread's signal word and wakes it where a blocking syscall of it sleeps on the word.
+/// Raises the thread's signal word and triggers the user event in its kqueue: a blocking syscall of
+/// the thread wakes up, whether it sleeps on the word or in the kqueue.
 void notify(ThreadSignals &state);
+
+/// Raises only the thread's signal word, for a futex wake: it ends a futex wait, which sleeps on the
+/// word, and leaves the kqueue alone.
+void raise_signal_word(ThreadSignals &state);
+
+/// The calling thread's kqueue for its waits on descriptors (ThreadSignals::wait_queue), made at the
+/// first call; -1 when the host cannot make one.
+int wait_queue_of(ThreadSignals &state);
 
 /// Takes the lowest pending signal among `allowed` (a set of signals), for sigtimedwait; false
 /// when there is none.

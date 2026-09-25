@@ -6,6 +6,7 @@
 
 #include <dirent.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -13,16 +14,30 @@
 namespace apkrt::descriptors {
 
 /// An open file description, Linux's struct file: what a guest number refers to. Its duplicates
-/// share it, and with it the host descriptor's offset and status flags.
+/// share it, and with it the host descriptor's offset and status flags, and the guest's O_NONBLOCK.
 class Description {
 public:
     /// Takes `host`, which is closed with the description, when its last guest number closes.
-    explicit Description(int host) : host_(host) {}
+    Description(int host, bool can_block, bool adopted, bool nonblocking)
+        : nonblocking_(nonblocking), host_(host), can_block_(can_block), adopted_(adopted) {}
     ~Description();
     Description(const Description &) = delete;
     Description &operator=(const Description &) = delete;
 
     int host() const { return host_; }
+
+    /// Whether a read or write of it can wait (ADR-0027, decision 5): a pipe, a FIFO, a socket or a
+    /// terminal. Its host descriptor is non-blocking, unless it is adopted; the guest's calls wait in
+    /// the runtime (syscalls.h, wait_for_descriptors).
+    bool can_block() const { return can_block_; }
+
+    /// Whether it is a duplicate of one of the starter's standard descriptors, whose host status flags
+    /// it shares with the starter: the runtime never changes them.
+    bool adopted() const { return adopted_; }
+
+    /// The guest's O_NONBLOCK, which lives only here: F_GETFL, F_SETFL and FIONBIO read and change it.
+    bool nonblocking() const { return nonblocking_.load(std::memory_order_relaxed); }
+    void set_nonblocking(bool value) { nonblocking_.store(value, std::memory_order_relaxed); }
 
     // getdents64's stream on a directory (sys_files.cpp), opened at its first call. Its position
     // counts entries and belongs to the open file, as on Linux: duplicates share it.
@@ -31,7 +46,10 @@ public:
     long stream_position = 0;  // guarded by stream_mutex
 
 private:
+    std::atomic<bool> nonblocking_;
     const int host_;
+    const bool can_block_;
+    const bool adopted_;
 };
 
 using Handle = std::shared_ptr<Description>;
@@ -55,9 +73,10 @@ long set_limits(Limits requested);
 Handle get(int fd);
 
 /// Takes `host`, a host descriptor the runtime has just opened for the guest, into the table at the
-/// lowest free number and returns that number; `host` gets FD_CLOEXEC on the host. When the table is
-/// full, `host` is closed and the result is -EMFILE.
-long add(int host, bool close_on_exec);
+/// lowest free number and returns that number; `host` gets FD_CLOEXEC on the host, and O_NONBLOCK when
+/// it can block. `nonblocking` is the guest's O_NONBLOCK. When the table is full, `host` is closed and
+/// the result is -EMFILE.
+long add(int host, bool close_on_exec, bool nonblocking = false);
 
 /// dup and F_DUPFD: `fd`'s description at the lowest free number from `minimum` on.
 long duplicate(int fd, int minimum, bool close_on_exec);
@@ -73,8 +92,9 @@ long close(int fd);
 long close_on_exec(int fd);
 long set_close_on_exec(int fd, bool value);
 
-/// At a program's start: guest 0, 1 and 2 become duplicates of the starter's host 0, 1 and 2, and
-/// the host's soft limit of descriptors rises, as far as its hard limit allows, to hold the table.
+/// At a program's start: guest 0, 1 and 2 become duplicates of the starter's host 0, 1 and 2, adopted
+/// with the O_NONBLOCK they have, and the host's soft limit of descriptors rises, as far as its hard
+/// limit allows, to hold the table.
 void adopt_standard_descriptors();
 
 /// Empties the table, for tests.

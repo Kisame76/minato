@@ -1,9 +1,11 @@
-// Checks that blocking syscalls end as on Linux when signals come (ADR-0026): a futex wait or a sleep
-// ends with EINTR at once when a signal is deliverable, however shortly before the wait it came, and a
-// signal the thread blocks ends neither. Host threads call the dispatcher directly, as
+// Checks that blocking syscalls end as on Linux when signals come (ADR-0026, ADR-0027): a futex wait, a
+// sleep or a blocking read or write on a pipe ends with EINTR at once when a signal is deliverable,
+// however shortly before the wait it came, and a signal the thread blocks ends none of them. Host
+// threads call the dispatcher directly, as
 // syscalls_test.cpp does; the guest threads are clone children that make their syscalls through the
 // veneer's exact instructions (threads_probe.S, blocking_probe.S), and the test's own thread sends them
 // signals like another thread of the program.
+#include "descriptors.h"
 #include "signals.h"
 #include "syscall_frame.h"
 #include "syscalls.h"
@@ -11,10 +13,14 @@
 
 #include "check.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/event.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -23,6 +29,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <string>
 #include <thread>
 
 extern "C" {
@@ -50,11 +58,13 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, asm-generic/signal.h, linux/futex.h,
 // linux/time.h, errno.h.
 constexpr std::uint64_t pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
-constexpr std::uint64_t nr_futex = 98, nr_nanosleep = 101, nr_clock_nanosleep = 115, nr_tgkill = 131,
+constexpr std::uint64_t nr_fcntl = 25, nr_ioctl = 29, nr_close = 57, nr_pipe2 = 59, nr_read = 63, nr_write = 64,
+                        nr_writev = 66, nr_futex = 98, nr_nanosleep = 101, nr_clock_nanosleep = 115, nr_tgkill = 131,
                         nr_rt_sigaction = 134, nr_rt_sigprocmask = 135, nr_rt_sigtimedwait = 137;
+constexpr std::uint64_t f_setfl = 4, o_nonblock = 04000, fionread = 0x541b;
 constexpr std::uint64_t futex_wait = 0, futex_wake = 1, futex_private = 128;
 constexpr std::uint64_t everyone = 0x7fff'ffff;  // FUTEX_WAKE's count for all waiters
-constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
+constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12, sigpipe = 13;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
 constexpr std::uint64_t sig_block = 0, sig_unblock = 1;
 constexpr std::uint64_t clock_monotonic = 1, timer_abstime = 1;
@@ -240,6 +250,75 @@ TEST(a_raise_of_the_signal_word_after_the_wait_read_it_keeps_the_wait_from_sleep
     CHECK(with_deadline.result(raise_again) == 0);
 }
 
+TEST(a_wait_on_a_descriptor_the_kqueue_refuses_polls_instead_of_spinning) {
+    // The kqueue refuses /dev/null, which no wait of the guest watches (ADR-0027, decision 5). Should a
+    // wait meet such a descriptor all the same, it looks again every millisecond instead of spinning.
+    const int null = ::open("/dev/null", O_RDONLY);
+    CHECK(null >= 0);
+    apkrt::sys::Watched watched{null, EVFILT_READ};
+    int rounds = 0;
+    const auto start = now_ns();
+    const auto end = apkrt::sys::wait_for_descriptors(
+        apkrt::signals::current(), &watched, 1,
+        [&] {
+            ++rounds;
+            return now_ns() - start >= 20'000'000;
+        },
+        apkrt::sys::no_deadline);
+    CHECK(end == apkrt::sys::WaitEnd::done);
+    CHECK(rounds <= 60);                         // about 20; a spin makes thousands
+    CHECK(now_ns() - start < 500'000'000);  // and a look every millisecond, not every second
+    ::close(null);
+}
+
+TEST(a_wait_whose_kqueue_fails_polls_instead_of_spinning) {
+    // A kevent that fails for good, here on a kqueue closed behind the thread's back, never happens;
+    // should it, the wait looks again every millisecond instead of spinning.
+    int ends[2] = {-1, -1};
+    CHECK(::pipe(ends) == 0);
+    Waiter waiter(leave_as_is, [&] {
+        auto &state = apkrt::signals::current();
+        const int gone = ::kqueue();
+        ::close(gone);
+        state.wait_queue.store(gone);
+        apkrt::sys::Watched watched{ends[0], EVFILT_READ};
+        int rounds = 0;
+        const auto start = now_ns();
+        apkrt::sys::wait_for_descriptors(
+            state, &watched, 1,
+            [&] {
+                ++rounds;
+                return now_ns() - start >= 20'000'000;
+            },
+            apkrt::sys::no_deadline);
+        state.wait_queue.store(-1);  // nothing for the end of the thread to close
+        return static_cast<long>(rounds);
+    });
+    CHECK(waiter.result([](Waiter &) {}) <= 60);  // about 20; a spin makes thousands
+    for (const int end : ends) ::close(end);
+}
+
+TEST(a_wait_on_descriptors_makes_its_kqueue_before_it_first_checks_for_signals) {
+    // Else a signal sent between the check and the making of the kqueue would trigger nothing there,
+    // and the wait would sleep through it.
+    int ends[2] = {-1, -1};
+    CHECK(::pipe(ends) == 0);
+    Waiter waiter(leave_as_is, [&] {
+        auto &state = apkrt::signals::current();  // a new thread's: no kqueue yet
+        apkrt::sys::Watched watched{ends[0], EVFILT_READ};
+        const auto end = apkrt::sys::wait_for_descriptors(
+            state, &watched, 1,
+            [&] {
+                mark_pending(state);  // a signal that came while the wait looked at its condition
+                return false;
+            },
+            apkrt::sys::no_deadline);
+        return end == apkrt::sys::WaitEnd::signal && state.wait_queue.load() >= 0 ? 0L : -1L;
+    });
+    CHECK(waiter.result([](Waiter &stuck) { apkrt::signals::notify(stuck.state()); }) == 0);
+    for (const int end : ends) ::close(end);
+}
+
 // --- A signal that is deliverable before the wait -----------------------------------------------
 
 TEST(a_futex_wait_ends_at_once_while_a_signal_is_deliverable) {
@@ -333,6 +412,207 @@ TEST(a_signal_sent_during_a_sleep_ends_it_without_the_runtime_signal) {
     CHECK(waiter.result(by_signal) == -eintr);
 }
 
+// --- Blocking reads and writes on pipes (ADR-0027) ------------------------------------------------
+
+/// A pipe of the guest's, from pipe2 with `flags`; both ends close with it.
+struct Pipe {
+    int read_end = -1;
+    int write_end = -1;
+
+    explicit Pipe(std::uint64_t flags = 0) {
+        int ends[2] = {-1, -1};
+        CHECK(call(nr_pipe2, address(ends), flags) == 0);
+        read_end = ends[0];
+        write_end = ends[1];
+    }
+    ~Pipe() {
+        call(nr_close, static_cast<std::uint64_t>(read_end));
+        call(nr_close, static_cast<std::uint64_t>(write_end));
+    }
+    Pipe(const Pipe &) = delete;
+    Pipe &operator=(const Pipe &) = delete;
+};
+
+long read_from(int fd, void *buffer, std::size_t size) {
+    return call(nr_read, static_cast<std::uint64_t>(fd), address(buffer), size);
+}
+
+long write_to(int fd, const void *buffer, std::size_t size) {
+    return call(nr_write, static_cast<std::uint64_t>(fd), address(buffer), size);
+}
+
+/// Fills `pipe` until not a byte more fits, with the guest's O_NONBLOCK on its write end for the time;
+/// how many bytes it holds then.
+std::size_t fill(const Pipe &pipe) {
+    CHECK(call(nr_fcntl, static_cast<std::uint64_t>(pipe.write_end), f_setfl, o_nonblock) == 0);
+    static const char chunk[4096] = {};
+    std::size_t held = 0;
+    for (const std::size_t size : {sizeof chunk, std::size_t{1}}) {
+        for (long written; (written = write_to(pipe.write_end, chunk, size)) > 0;) {
+            held += static_cast<std::size_t>(written);
+        }
+    }
+    CHECK(call(nr_fcntl, static_cast<std::uint64_t>(pipe.write_end), f_setfl, 0) == 0);
+    return held;
+}
+
+/// Takes what `pipe` holds, with the guest's O_NONBLOCK on its read end from now on; how many bytes.
+std::size_t drain(const Pipe &pipe) {
+    CHECK(call(nr_fcntl, static_cast<std::uint64_t>(pipe.read_end), f_setfl, o_nonblock) == 0);
+    static char chunk[65536];
+    std::size_t taken = 0;
+    for (long got; (got = read_from(pipe.read_end, chunk, sizeof chunk)) > 0;) taken += static_cast<std::size_t>(got);
+    return taken;
+}
+
+/// Ends a read of `pipe` that did not end by itself: with a byte to read.
+auto by_writing_to(const Pipe &pipe) {
+    return [&pipe](Waiter &) { write_to(pipe.write_end, "x", 1); };
+}
+
+/// Ends a write to `pipe` that did not end by itself: with room to write.
+auto by_draining(const Pipe &pipe) {
+    return [&pipe](Waiter &) { drain(pipe); };
+}
+
+/// The host descriptor behind a guest number.
+int host_of(int fd) {
+    const auto description = apkrt::descriptors::get(fd);
+    return description != nullptr ? description->host() : -1;
+}
+
+/// Whether the thread's kqueue holds no filter for reading `host` any more; takes it out if it does.
+bool holds_no_filter(apkrt::signals::ThreadSignals &state, int host) {
+    const int queue = state.wait_queue.load();
+    if (queue < 0) return true;
+    struct kevent change, receipt;
+    EV_SET(&change, host, EVFILT_READ, EV_DELETE | EV_RECEIPT, 0, 0, nullptr);
+    return ::kevent(queue, &change, 1, &receipt, 1, nullptr) == 1 && receipt.data == ENOENT;
+}
+
+TEST(a_blocking_pipe_read_ends_at_once_while_a_signal_is_deliverable) {
+    Pipe pipe;
+    Waiter waiter(mark_pending, [&] {
+        char byte = 0;
+        return read_from(pipe.read_end, &byte, 1);
+    });
+    CHECK(waiter.finishes_within(2s));
+    CHECK(waiter.result(by_writing_to(pipe)) == -eintr);
+}
+
+TEST(a_blocking_pipe_write_ends_at_once_while_a_signal_is_deliverable) {
+    Pipe pipe;
+    const std::size_t held = fill(pipe);
+    Waiter waiter(mark_pending, [&] { return write_to(pipe.write_end, "more", 4); });
+    CHECK(waiter.finishes_within(2s));
+    CHECK(waiter.result(by_draining(pipe)) == -eintr);
+    CHECK(drain(pipe) == held);  // not a byte more
+}
+
+TEST(a_signal_sent_during_a_blocking_pipe_read_ends_it_without_the_runtime_signal) {
+    Pipe pipe;
+    Waiter waiter(leave_as_is, [&] {
+        char byte = 0;
+        return read_from(pipe.read_end, &byte, 1);
+    });
+    CHECK(waiter.sleeps());
+    send_without_runtime_signal(waiter.state(), sigusr1);
+    CHECK(waiter.finishes_within(2s));
+    CHECK(holds_no_filter(waiter.state(), host_of(pipe.read_end)));  // the wait took its filter out again
+    CHECK(waiter.result(by_writing_to(pipe)) == -eintr);
+}
+
+TEST(a_wait_leaves_no_filter_behind_that_wakes_the_next_wait_in_vain) {
+    // The first pipe keeps a byte while the thread waits for the second: a filter left for it would
+    // wake that wait again and again.
+    Pipe first, second;
+    Waiter waiter(leave_as_is, [&] {
+        char byte = 0;
+        read_from(first.read_end, &byte, 1);
+        return read_from(second.read_end, &byte, 1);
+    });
+    CHECK(waiter.sleeps());
+    write_to(first.write_end, "ab", 2);
+    int left = 0;
+    CHECK(within(2s, [&] {
+        call(nr_ioctl, static_cast<std::uint64_t>(first.read_end), fionread, address(&left));
+        return left == 1;
+    }));
+    CHECK(waiter.sleeps());
+    CHECK(holds_no_filter(waiter.state(), host_of(first.read_end)));
+    CHECK(waiter.result(by_writing_to(second)) == 1);
+}
+
+TEST(a_blocking_writev_writes_every_vector_in_order) {
+    // More than a pipe holds, in three vectors and an empty one: the write goes on from wherever the
+    // pipe was full, while the test takes what arrives.
+    static char parts[3][100 * 1024];
+    std::string expected;
+    for (int part = 0; part < 3; ++part) {
+        for (std::size_t index = 0; index < sizeof parts[part]; ++index) {
+            parts[part][index] = static_cast<char>(part * 31 + static_cast<int>(index % 251));
+        }
+        expected.append(parts[part], sizeof parts[part]);
+    }
+    const iovec vectors[4] = {{parts[0], sizeof parts[0]}, {parts[1], 0}, {parts[1], sizeof parts[1]},
+                              {parts[2], sizeof parts[2]}};
+    Pipe pipe;
+    Waiter waiter(leave_as_is, [&] { return call(nr_writev, static_cast<std::uint64_t>(pipe.write_end), address(vectors), 4); });
+    CHECK(call(nr_fcntl, static_cast<std::uint64_t>(pipe.read_end), f_setfl, o_nonblock) == 0);
+    std::string received;
+    static char chunk[65536];
+    CHECK(within(5s, [&] {
+        for (long got; (got = read_from(pipe.read_end, chunk, sizeof chunk)) > 0;) {
+            received.append(chunk, static_cast<std::size_t>(got));
+        }
+        return received.size() == expected.size();
+    }));
+    CHECK(waiter.result(by_draining(pipe)) == static_cast<long>(expected.size()));
+    CHECK(received == expected);
+}
+
+TEST(a_threads_kqueue_goes_with_the_thread) {
+    const auto open_descriptors = [] {
+        int count = 0;
+        for (int fd = 0; fd < 4096; ++fd) count += ::fcntl(fd, F_GETFD) != -1 ? 1 : 0;
+        return count;
+    };
+    Pipe pipe;
+    const int before = open_descriptors();
+    for (int round = 0; round < 8; ++round) {
+        Waiter waiter(leave_as_is, [&] {
+            char byte = 0;
+            return read_from(pipe.read_end, &byte, 1);
+        });
+        CHECK(waiter.sleeps());  // in its wait: it has its kqueue
+        CHECK(waiter.result(by_writing_to(pipe)) == 1);
+    }
+    CHECK(open_descriptors() == before);
+}
+
+TEST(a_signal_sent_during_a_blocking_pipe_write_ends_it_without_the_runtime_signal) {
+    Pipe pipe;
+    fill(pipe);
+    Waiter waiter(leave_as_is, [&] { return write_to(pipe.write_end, "more", 4); });
+    CHECK(waiter.sleeps());
+    send_without_runtime_signal(waiter.state(), sigusr1);
+    CHECK(waiter.finishes_within(2s));
+    CHECK(waiter.result(by_draining(pipe)) == -eintr);
+}
+
+TEST(a_blocking_write_that_a_signal_ends_after_some_bytes_returns_their_count) {
+    // As on Linux: EINTR only when not a byte was written.
+    static const char big[256 * 1024] = {};
+    Pipe pipe;
+    Waiter waiter(leave_as_is, [&] { return write_to(pipe.write_end, big, sizeof big); });
+    CHECK(waiter.sleeps());
+    send_without_runtime_signal(waiter.state(), sigusr1);
+    CHECK(waiter.finishes_within(2s));
+    const long written = waiter.result(by_draining(pipe));
+    CHECK(written > 0 && written < static_cast<long>(sizeof big));
+    CHECK(drain(pipe) == static_cast<std::size_t>(written));
+}
+
 // --- Guest threads ------------------------------------------------------------------------------
 
 std::atomic<int> handled[64];
@@ -342,12 +622,12 @@ void on_signal(int signal) {
     if (signal > 0 && signal < 64) handled[signal].fetch_add(1);
 }
 
-/// SIGUSR1 and SIGUSR2 go to on_signal, with SA_RESTART.
+/// SIGUSR1, SIGUSR2 and SIGPIPE go to on_signal, with SA_RESTART.
 void install_handlers() {
     struct {
         std::uint64_t handler, flags, restorer, mask;
     } action{address(&on_signal), sa_restart | sa_restorer, address(&blocking_sigreturn), 0};
-    for (const auto signal : {sigusr1, sigusr2}) {
+    for (const auto signal : {sigusr1, sigusr2, sigpipe}) {
         CHECK(probe_syscall(nr_rt_sigaction, signal, address(&action), 0, 8) == 0);
     }
 }
@@ -409,10 +689,12 @@ private:
 /// The rounds of the stress tests: the test's thread starts a round and sends SIGUSR1, and the child
 /// enters its wait at a random moment up to 6 µs after it saw the round begin.
 struct Rounds {
-    bool sleep = false;         // nanosleep, else a futex wait on `word`
+    enum class Wait { futex, sleep, pipe_read };
+    Wait wait = Wait::futex;    // a futex wait on `word`, nanosleep, or a read of a byte from `pipe`
     std::atomic<int> round{0};  // -1 ends the child
     std::atomic<int> done{0};   // the last round whose syscall came back
     alignas(4) std::uint32_t word = 0;
+    int pipe[2] = {-1, -1};  // the guest's pipe2, for pipe_read
 };
 
 void wait_in_rounds(void *argument) {
@@ -427,11 +709,20 @@ void wait_in_rounds(void *argument) {
         random ^= random << 17;
         for (const auto until = now_ns() + static_cast<std::int64_t>(random % 6000); now_ns() < until;) {
         }
-        if (rounds.sleep) {
-            const Timespec ten_seconds{10, 0};
-            probe_syscall(nr_nanosleep, address(&ten_seconds), 0);
-        } else {
-            probe_syscall(nr_futex, address(&rounds.word), futex_wait | futex_private, 0, 0);
+        switch (rounds.wait) {
+            case Rounds::Wait::futex:
+                probe_syscall(nr_futex, address(&rounds.word), futex_wait | futex_private, 0, 0);
+                break;
+            case Rounds::Wait::sleep: {
+                const Timespec ten_seconds{10, 0};
+                probe_syscall(nr_nanosleep, address(&ten_seconds), 0);
+                break;
+            }
+            case Rounds::Wait::pipe_read: {
+                char byte = 0;
+                probe_syscall(nr_read, static_cast<std::uint64_t>(rounds.pipe[0]), address(&byte), 1);
+                break;
+            }
         }
         rounds.done.store(next);
     }
@@ -446,14 +737,17 @@ int first_lost_signal(Rounds &rounds, std::uint64_t tid, int count) {
         rounds.round.store(round);
         probe_syscall(nr_tgkill, pid, tid, sigusr1);
         const bool reached = within(500ms, [&] { return handled[sigusr1].load() > before; });
-        // The wait ends by its futex word; a sleep, whose signal may have come before it, by more signals.
-        if (!rounds.sleep) {
+        // A futex wait ends by its word and a read by its byte; a sleep, whose signal may have come before
+        // it, by more signals.
+        if (rounds.wait == Rounds::Wait::futex) {
             __atomic_store_n(&rounds.word, 1, __ATOMIC_SEQ_CST);
             probe_syscall(nr_futex, address(&rounds.word), futex_wake | futex_private, everyone);
+        } else if (rounds.wait == Rounds::Wait::pipe_read) {
+            probe_syscall(nr_write, static_cast<std::uint64_t>(rounds.pipe[1]), address("x"), 1);
         }
         const bool ended = within(5s, [&] {
             if (rounds.done.load() >= round) return true;
-            if (rounds.sleep) probe_syscall(nr_tgkill, pid, tid, sigusr2);
+            if (rounds.wait == Rounds::Wait::sleep) probe_syscall(nr_tgkill, pid, tid, sigusr2);
             std::this_thread::sleep_for(200us);
             return rounds.done.load() >= round;
         });
@@ -475,10 +769,22 @@ TEST(every_signal_reaches_a_thread_on_its_way_into_a_futex_wait) {
 
 TEST(every_signal_reaches_a_thread_on_its_way_into_a_sleep) {
     static Rounds rounds;
-    rounds.sleep = true;
+    rounds.wait = Rounds::Wait::sleep;
     Child child(wait_in_rounds, &rounds);
     CHECK(first_lost_signal(rounds, child.tid(), 1000) == 0);
     rounds.round.store(-1);
+}
+
+TEST(every_signal_reaches_a_thread_on_its_way_into_a_blocking_pipe_read) {
+    static Rounds rounds;
+    rounds.wait = Rounds::Wait::pipe_read;
+    CHECK(probe_syscall(nr_pipe2, address(rounds.pipe), 0) == 0);
+    {
+        Child child(wait_in_rounds, &rounds);
+        CHECK(first_lost_signal(rounds, child.tid(), 3000) == 0);
+        rounds.round.store(-1);
+    }
+    for (const int end : rounds.pipe) probe_syscall(nr_close, static_cast<std::uint64_t>(end));
 }
 
 /// The guest thread of the next test: a futex wait and a sleep with SIGUSR2 blocked.
@@ -530,6 +836,112 @@ TEST(a_signal_the_thread_blocks_ends_neither_a_futex_wait_nor_a_sleep) {
     CHECK(blocked.sleep_result.load() == 0);
     CHECK(blocked.slept_ns.load() >= 250'000'000);
     CHECK(handled[sigusr2].load() == before + 1);  // once, when the thread unblocked it
+}
+
+/// The guest thread of the next test: a blocking read and a blocking write on a pipe with SIGUSR2
+/// blocked.
+struct BlockedTransfers {
+    int pipe[2] = {-1, -1};
+    std::atomic<int> phase{0};  // 1: the read, 2: the write, 3: past both
+    std::atomic<long> read_result{1};
+    std::atomic<long> write_result{1};
+    char received[16] = {};
+};
+
+constexpr std::size_t big_write = 256 * 1024;  // more than a pipe holds
+char big_buffer[big_write];                    // a pattern that the test finds again at the other end
+
+void transfer_with_sigusr2_blocked(void *argument) {
+    auto &transfers = *static_cast<BlockedTransfers *>(argument);
+    const std::uint64_t set = bit(sigusr2);
+    probe_syscall(nr_rt_sigprocmask, sig_block, address(&set), 0, 8);
+    transfers.phase.store(1);
+    transfers.read_result.store(probe_syscall(nr_read, static_cast<std::uint64_t>(transfers.pipe[0]),
+                                              address(transfers.received), sizeof transfers.received));
+    transfers.phase.store(2);
+    transfers.write_result.store(
+        probe_syscall(nr_write, static_cast<std::uint64_t>(transfers.pipe[1]), address(big_buffer), big_write));
+    transfers.phase.store(3);
+    probe_syscall(nr_rt_sigprocmask, sig_unblock, address(&set), 0, 8);  // the pending SIGUSR2 arrives here
+}
+
+TEST(a_signal_the_thread_blocks_ends_neither_a_blocking_read_nor_a_blocking_write) {
+    static BlockedTransfers transfers;
+    for (std::size_t index = 0; index < big_write; ++index) {
+        big_buffer[index] = static_cast<char>(index % 253 + index / 65536);
+    }
+    CHECK(probe_syscall(nr_pipe2, address(transfers.pipe), 0) == 0);
+    const auto read_end = static_cast<std::uint64_t>(transfers.pipe[0]);
+    const auto write_end = static_cast<std::uint64_t>(transfers.pipe[1]);
+    const int before = handled[sigusr2].load();
+    Child child(transfer_with_sigusr2_blocked, &transfers);
+    const auto host = child.host();
+    const auto send_three = [&] {
+        for (int time = 0; time < 3; ++time) {
+            CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), child.tid(), sigusr2) == 0);
+            std::this_thread::sleep_for(5ms);
+        }
+    };
+    CHECK(within(2s, [&] { return transfers.phase.load() == 1 && sleeping(host); }));
+    send_three();
+    // Still in the read: the data goes to it. A read that ended already gets none, lest the test's own
+    // write wait for good behind the thread's in a full pipe.
+    const bool still_reading = transfers.phase.load() == 1;
+    CHECK(still_reading);
+    if (still_reading) CHECK(probe_syscall(nr_write, write_end, address("data"), 4) == 4);
+    CHECK(within(2s, [&] { return transfers.phase.load() == 3 || (transfers.phase.load() == 2 && sleeping(host)); }));
+    send_three();
+    // The test takes what the write puts into the pipe, until the write is past.
+    CHECK(probe_syscall(nr_fcntl, read_end, f_setfl, o_nonblock) == 0);
+    static char chunk[65536];
+    std::size_t drained = 0;
+    bool intact = true;  // the bytes arrive as the write had them
+    CHECK(within(5s, [&] {
+        const bool past = transfers.phase.load() == 3;
+        for (long got; (got = probe_syscall(nr_read, read_end, address(chunk), sizeof chunk)) > 0;) {
+            const auto size = static_cast<std::size_t>(got);
+            intact = intact && drained + size <= big_write && std::memcmp(chunk, big_buffer + drained, size) == 0;
+            drained += size;
+        }
+        return past;
+    }));
+    child.join();
+    CHECK(transfers.read_result.load() == 4 && std::memcmp(transfers.received, "data", 4) == 0);
+    CHECK(transfers.write_result.load() == static_cast<long>(big_write));
+    CHECK(drained == big_write && intact);
+    CHECK(handled[sigusr2].load() == before + 1);  // once, when the thread unblocked it
+    probe_syscall(nr_close, read_end);
+    probe_syscall(nr_close, write_end);
+}
+
+/// The guest thread of the next test: a write of more than a pipe holds, whose reader goes away.
+struct BrokenPipe {
+    int pipe[2] = {-1, -1};
+    std::atomic<int> phase{0};  // 1: the write, 2: past it
+    std::atomic<long> result{1};
+};
+
+void write_into_a_pipe_that_breaks(void *argument) {
+    auto &broken = *static_cast<BrokenPipe *>(argument);
+    broken.phase.store(1);
+    broken.result.store(
+        probe_syscall(nr_write, static_cast<std::uint64_t>(broken.pipe[1]), address(big_buffer), big_write));
+    broken.phase.store(2);
+}
+
+TEST(a_write_whose_reader_goes_after_some_bytes_returns_their_count_and_raises_sigpipe) {
+    // As Linux's pipe_write: SIGPIPE comes with the count as well, not only with EPIPE.
+    static BrokenPipe broken;
+    CHECK(probe_syscall(nr_pipe2, address(broken.pipe), 0) == 0);
+    const int before = handled[sigpipe].load();
+    Child child(write_into_a_pipe_that_breaks, &broken);
+    const auto host = child.host();
+    CHECK(within(2s, [&] { return broken.phase.load() == 1 && sleeping(host); }));
+    probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[0]));  // the reader goes
+    child.join();
+    CHECK(broken.result.load() > 0 && broken.result.load() < static_cast<long>(big_write));
+    CHECK(handled[sigpipe].load() == before + 1);
+    probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[1]));
 }
 
 // --- The futex queue ----------------------------------------------------------------------------
@@ -658,6 +1070,27 @@ TEST(a_futex_waiter_woken_before_a_signal_came_returns_0) {
     CHECK(waiter.sleeps());
     CHECK(call(nr_futex, address(&word), futex_wake | futex_private, 1) == 1);
     send_without_runtime_signal(waiter.state(), sigusr1);  // as on Linux, the wake that came first wins
+    CHECK(waiter.result(by_waking(&word)) == 0);
+}
+
+TEST(a_futex_wake_raises_only_the_signal_word) {
+    // A futex wait sleeps on the word (ADR-0027, decision 6): the wake triggers nothing in the thread's
+    // kqueue, which the thread's next wait on a descriptor would wake up for in vain.
+    Pipe pipe;
+    alignas(4) static std::uint32_t word = 0;
+    Waiter waiter(leave_as_is, [&] {
+        char byte = 0;
+        read_from(pipe.read_end, &byte, 1);  // a wait on a descriptor: the thread has its kqueue from here on
+        return call(nr_futex, address(&word), futex_wait | futex_private, 0, 0);
+    });
+    CHECK(waiter.sleeps());
+    write_to(pipe.write_end, "x", 1);
+    CHECK(within(2s, [&] { return call(nr_futex, address(&word), futex_wake | futex_private, 1) == 1; }));
+    CHECK(waiter.finishes_within(2s));
+    const int queue = waiter.state().wait_queue.load();
+    struct kevent event;
+    const timespec now{0, 0};
+    CHECK(queue >= 0 && ::kevent(queue, nullptr, 0, &event, 1, &now) == 0);
     CHECK(waiter.result(by_waking(&word)) == 0);
 }
 
