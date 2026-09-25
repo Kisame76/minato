@@ -15,7 +15,9 @@
 #include "elf_builder.h"
 #include "stepper.h"
 
+#include <spawn.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -32,6 +34,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -60,6 +63,7 @@ using apkrt::islands::Settled;
 using apkrt::testing::Step;
 
 std::filesystem::path scratch;
+const char *self_path = nullptr;  // argv[0], to start the test again in a child process
 
 // The program, at its ELF addresses; assembled with the NDK's clang and checked with llvm-objdump.
 // Each use of x18 becomes an island of the kind named.
@@ -305,7 +309,7 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
 // Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, asm-generic/signal.h, errno.h.
 constexpr std::uint64_t pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
 constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134, nr_gettid = 178;
-constexpr std::uint64_t sigusr1 = 10, sigsegv = 11;
+constexpr std::uint64_t sigtrap = 5, sigusr1 = 10, sigsegv = 11;
 constexpr std::uint64_t sa_siginfo = 0x4, sa_restorer = 0x0400'0000;
 constexpr long eagain = 11;
 // The Linux ucontext on arm64: struct sigcontext's pc after regs[31] and sp (signals.cpp).
@@ -384,6 +388,92 @@ TEST(a_fault_inside_an_island_shows_the_handler_its_site) {
     CHECK(fault_view.pc == program().image + fault_at);
     CHECK(fault_view.address == unmapped);
     CHECK(fault_view.x18_after == 0x1818);  // the load never happened
+}
+
+// ADR-0020 X4f: the message names the br by its library and ELF address, and the target the guest
+// computed, with its ELF address when it lies in the image.
+TEST(describe_names_the_br_and_where_it_jumps) {
+    apk_container_info info{};
+    info.image_offset = 0x8000;
+    info.image_size = 0x4000;
+    info.min_vaddr = 0x1000;
+    const apkrt::islands::Container container{.header = 0x1'0000'0000, .info = &info, .name = "libgame.so",
+                                              .next = nullptr};
+    apk_island island{};
+    island.site = 0x8000 + 0x254;  // ELF address 0x1254
+    island.kind = APK_ISLAND_JUMP_TABLE;
+    char message[256];
+    const auto inside = apkrt::islands::describe({&container, &island, 0x1'0000'8000 + 0x25c}, message, sizeof message);
+    CHECK(std::string_view(message, inside) ==
+          "apkrt: br x18 at libgame.so+0x1254 jumps to 0x10000825c (libgame.so+0x125c), which its jump table does "
+          "not hold (ADR-0020)\n");
+    const auto outside = apkrt::islands::describe({&container, &island, 0x1234}, message, sizeof message);
+    CHECK(std::string_view(message, outside) ==
+          "apkrt: br x18 at libgame.so+0x1254 jumps to 0x1234, which its jump table does not hold (ADR-0020)\n");
+    char small[24];
+    std::memset(small, 'x', sizeof small);
+    const auto cut = apkrt::islands::describe({&container, &island, 0x1234}, small, 16);
+    CHECK(cut == 16 && std::string_view(small, 16) == "apkrt: br x18 at" && small[16] == 'x');  // cut, never past
+}
+
+constexpr std::uint64_t br_at = 0x254;
+constexpr std::uint64_t no_case_at = 0x25c;  // within the span of the jump table's targets, but no case
+
+void on_sigtrap(int, void *, void *) {
+    static const char message[] = "the guest's SIGTRAP handler ran\n";
+    static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
+    ::_exit(42);
+}
+
+void trap_child(void *) {
+    apkrt_set_guest_x18(program().image + no_case_at);
+    reinterpret_cast<void (*)()>(program().image + br_at)();  // the site of the br: into its island
+}
+
+/// In the child process: a guest thread whose br x18 goes to a word without a landing pad.
+int run_jump_table_trap() {
+    static apkrt::threads::GuestThread first{};
+    first.tid = ::getpid();
+    apkrt::threads::add(first);
+    set_action(sigtrap, on_sigtrap);
+    void *stack = map_stack();
+    int tid_word = 0;
+    if (probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, trap_child, nullptr) <= 0) return 2;
+    join(&tid_word);
+    return 3;  // the trap should have ended the process
+}
+
+// ADR-0020 X4f: a br x18 to a target without a landing pad ends the process by SIGTRAP, with a
+// message that names the br and the target. The guest's SIGTRAP handler does not run: it would
+// return to the same brk forever.
+TEST(a_jump_to_a_word_without_a_landing_pad_ends_the_process_with_a_message) {
+    int pipe_ends[2];
+    CHECK(::pipe(pipe_ends) == 0);
+    // A scratch directory of its own: rewriting the program's container here would pull the pages
+    // from under this process, which has it loaded.
+    const auto child_scratch = (scratch / "trap").string();
+    char mode[] = "--jump-table-trap";
+    char *arguments[] = {const_cast<char *>(self_path), const_cast<char *>(child_scratch.c_str()), mode, nullptr};
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, pipe_ends[0]);
+    pid_t child = 0;
+    CHECK(::posix_spawn(&child, self_path, &actions, nullptr, arguments, nullptr) == 0);
+    posix_spawn_file_actions_destroy(&actions);
+    ::close(pipe_ends[1]);
+    std::string output;
+    char chunk[512];
+    for (ssize_t got; (got = ::read(pipe_ends[0], chunk, sizeof chunk)) > 0;) {
+        output.append(chunk, static_cast<std::size_t>(got));
+    }
+    ::close(pipe_ends[0]);
+    int status = 0;
+    CHECK(::waitpid(child, &status, 0) == child);
+    CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGTRAP);
+    CHECK(output.find("apkrt: br x18 at islands-program+0x254 jumps to 0x") != std::string::npos);
+    CHECK(output.find(" (islands-program+0x25c), which its jump table does not hold (ADR-0020)\n") != std::string::npos);
+    CHECK(output.find("the guest's SIGTRAP handler ran") == std::string::npos);
 }
 
 struct Seen {
@@ -471,13 +561,15 @@ TEST(signals_from_another_thread_never_stop_the_guest_inside_an_island) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: islands_test <scratch-directory>\n");
+    if (argc != 2 && argc != 3) {
+        std::fprintf(stderr, "usage: islands_test <scratch-directory> [--jump-table-trap]\n");
         return 2;
     }
+    self_path = argv[0];
     // dyld records the canonical path of a loaded image, and the loader looks images up by path.
     std::filesystem::create_directories(argv[1]);
     scratch = std::filesystem::canonical(argv[1]);
+    if (argc == 3 && std::strcmp(argv[2], "--jump-table-trap") == 0) return run_jump_table_trap();
     // The test's own thread is the program's first thread: the process lives as long as it does.
     static apkrt::threads::GuestThread first{};
     first.tid = ::getpid();

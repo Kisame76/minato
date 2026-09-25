@@ -6,7 +6,9 @@
 #include "APKRuntime/container_format.h"
 #include "guest_context.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace apkrt::islands {
@@ -48,5 +50,20 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
 /// written, so the thread must be stopped: a signal handler on the thread itself, or the stepper.
 /// No locks, no allocation.
 bool leave(GuestContext &context, std::uint64_t &x18);
+
+/// A jump table island that found no landing pad for the target the guest computed (ADR-0020 X2d).
+struct JumpTableTrap {
+    const Container *container;
+    const apk_island *island;
+    std::uint64_t target;  // the guest's x18
+};
+
+/// The trap when `pc` is a `brk #0x18` of a jump table island, else nullopt. Safe in signal handlers.
+std::optional<JumpTableTrap> jump_table_trap(std::uint64_t pc, std::uint64_t x18);
+
+/// "apkrt: br x18 at libgame.so+0x9ab704 jumps to 0x... (libgame.so+0x9ab800), which its jump table
+/// does not hold (ADR-0020)\n" into `buffer`, without allocating, cut to `size`; returns the length.
+/// The target's ELF address comes only when it lies in the image.
+std::size_t describe(const JumpTableTrap &trap, char *buffer, std::size_t size);
 
 }  // namespace apkrt::islands

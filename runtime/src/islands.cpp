@@ -8,8 +8,44 @@ namespace {
 
 static_assert(sizeof(apk_island) == 16);
 
+constexpr std::uint32_t jump_table_brk = 0xd420'0300;  // BRK #0x18: a target without a landing pad
+
 /// The registered containers, the newest first. Entries are only ever added.
 std::atomic<const Container *> first{nullptr};
+
+/// Writes text and hexadecimal numbers into a fixed buffer, cut at its end, without allocating.
+class Writer {
+public:
+    Writer(char *buffer, std::size_t size) : buffer_(buffer), size_(size) {}
+
+    Writer &text(std::string_view text) {
+        for (const char character : text) put(character);
+        return *this;
+    }
+
+    Writer &hex(std::uint64_t value) {
+        char digits[16];
+        int count = 0;
+        do {
+            digits[count++] = "0123456789abcdef"[value & 0xf];
+            value >>= 4;
+        } while (value != 0);
+        text("0x");
+        while (count > 0) put(digits[--count]);
+        return *this;
+    }
+
+    std::size_t length() const { return length_; }
+
+private:
+    void put(char character) {
+        if (length_ < size_) buffer_[length_++] = character;
+    }
+
+    char *buffer_;
+    std::size_t size_;
+    std::size_t length_ = 0;
+};
 
 }  // namespace
 
@@ -71,6 +107,29 @@ bool leave(GuestContext &context, std::uint64_t &x18) {
     context = settled.context;
     x18 = settled.x18;
     return true;
+}
+
+std::optional<JumpTableTrap> jump_table_trap(std::uint64_t pc, std::uint64_t x18) {
+    const auto *container = container_at(pc);
+    if (container == nullptr) return std::nullopt;
+    const auto *island = island_at(*container, pc);
+    if (island == nullptr || island->kind != APK_ISLAND_JUMP_TABLE) return std::nullopt;
+    if (*reinterpret_cast<const std::uint32_t *>(pc) != jump_table_brk) return std::nullopt;
+    return JumpTableTrap{container, island, x18};
+}
+
+std::size_t describe(const JumpTableTrap &trap, char *buffer, std::size_t size) {
+    const auto &info = *trap.container->info;
+    const std::string_view name(trap.container->name);
+    Writer write(buffer, size);
+    write.text("apkrt: br x18 at ").text(name).text("+").hex(trap.island->site - info.image_offset + info.min_vaddr);
+    write.text(" jumps to ").hex(trap.target);
+    const auto image = trap.container->header + info.image_offset;
+    if (trap.target - image < info.image_size) {
+        write.text(" (").text(name).text("+").hex(trap.target - image + info.min_vaddr).text(")");
+    }
+    write.text(", which its jump table does not hold (ADR-0020)\n");
+    return write.length();
 }
 
 }  // namespace apkrt::islands
