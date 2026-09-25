@@ -1,6 +1,6 @@
 # Minato – Architecture
 
-As of: M0, 2026-09-21; spike results, M2 step 4, the `x18` rule and M2 step 5 added 2026-09-22; `x18` in islands and the costs of the islands added 2026-09-24. Decisions are in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 to ADR-0021), progress in [`STATUS.md`](STATUS.md). The raw research reports with all sources are in [`research/`](research/).
+As of: M0, 2026-09-21; spike results, M2 step 4, the `x18` rule and M2 step 5 added 2026-09-22; `x18` in islands and the costs of the islands added 2026-09-24; GLES path and speed reference decided before M3, 2026-09-24. Decisions are in [`DECISIONS.md`](DECISIONS.md) (ADR-0001 to ADR-0026), progress in [`STATUS.md`](STATUS.md). The raw research reports with all sources are in [`research/`](research/).
 
 Markers: **[verified]** = read in a primary source or measured, **[inferred]** = own conclusion, **[unverified]** = secondary source or user report.
 
@@ -21,7 +21,7 @@ Markers: **[verified]** = read in a primary source or measured, **[inferred]** =
   - Memory and address space with a free account.
   - ART heap versus the 4 GiB `__PAGEZERO` (M4).
   - OpenGL ES ≥ 3.1: ANGLE-Metal only supports 3.0.
-  - Missing Android reference device for the performance comparison.
+  - No Android device: speed is only compared with the native iOS version on the same iPhone (ADR-0014).
 
 ## 2. Platform facts that determine the design
 
@@ -251,7 +251,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | Android emulator, platform tools, system image Android 15 (without Android Studio) | M2, reference (ADR-0014) | Download 1.2 GB, unpacked 2.9 GB; installed 2026-09-22 | Apache-2.0 and others |
 | ~~zsign + OpenSSL~~ | M2b | dropped: our own signer with Security.framework (ADR-0022) | – |
 | AOSP Bionic (pinned tag) | M2 | Source archive, build with the NDK | BSD/Apache |
-| MoltenVK 1.4.2 | M3 | prebuilt XCFramework approx. 32 MiB or our own build | Apache-2.0 |
+| MoltenVK 1.4.2 | M3 | Khronos release, packed: iOS 32.9 MiB, macOS 56.8 MiB (for the tests on the Mac); or our own build | Apache-2.0 |
 | ANGLE | M3 | depot_tools + GN, checkout several GB, first build a few tens of minutes | BSD-3 |
 | ART + libcore + ICU | M4 | approx. 1,150 C++ units (ARTBox count), JDK 17 + D8, `libart` approx. 14 MB, ICU data approx. 28 MB | Apache-2.0; libcore GPL-2.0+CE |
 
@@ -263,8 +263,8 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | R2 | Converting, signing and `dlopen` of Android code are unproven on the iPhone | done for the test suite (M2b, 2026-09-22) | S1b: a Mac-signed dylib with the bundle ID as identifier loads from the data container. M2a loads from the bundle (step 6). M2b: the app converts and signs with the imported certificate, loads from `Application Support`; 13 of 13 identical (ADR-0022). Open: large libraries of real APKs (R8, R17, ADR-0020) |
 | R3 | Memory and address space with a free account (F12, F13) | high; medium with the entitlement | `increased-memory-limit` (S2: 6.00 GiB, 64 GiB region); allocator reservations budgeted centrally (ADR-0012) |
 | R4 | ART heap above 4 GiB (F6), interpreter slow | high (M4/M6) | Heap-relative references; games with little Java (NativeActivity, IL2CPP) first |
-| R5 | GLES ≥ 3.1 not via ANGLE-Metal (F14) | high | Vulkan as the main path; prototype ANGLE-Vulkan (ADR-0013) |
-| R6 | No Android reference device, parity not measurable | high (M3) | Decision before M3 (ADR-0014) |
+| R5 | GLES ≥ 3.1 not via ANGLE-Metal (F14) | high | Vulkan as the main path; prototype ANGLE-Vulkan in M4 (ADR-0013, accepted 2026-09-24) |
+| R6 | No Android device: how an app runs on an Android phone stays unmeasured | low (was high) | Your decision (ADR-0014, 2026-09-24): speed against the native iOS version on the same iPhone; in M3 the benchmark scene as an APK and as a native build; the emulator only for output and behavior |
 | R7 | Errors at the ABI boundary: small integers, callbacks on host threads (F8) | medium | Generated thunks; tests with garbage in the upper bits |
 | R8 | `.so` files aligned to 4 KB (F7), not only in older games: in the test APK it is 9 of 16, all from SDKs (Firebase, Crashlytics); `libil2cpp.so` and `libunity.so` have 16 KB | medium | Only 16 KB at first; then RW shift plus ADRP correction, driven by corpus data (ADR-0007) |
 | R9 | Signals: crash handlers of Unity/Mono/ART expect a Linux `ucontext` | medium → low | Implemented in M2 step 5c: Linux `rt_sigframe`, faults translated, handlers may change the context (checked by `signal-test`); 3.5 µs per delivery |
@@ -280,8 +280,8 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 ## 8. Open questions
 
 **Your decision:**
-- GLES path (ADR-0013, before M3, touches fixed decision #5);
-- reference device (ADR-0014, before M3);
+- ~~GLES path~~: accepted as proposed (ADR-0013, 2026-09-24);
+- ~~reference device~~: none, speed against the native iOS version (ADR-0014, 2026-09-24);
 - when to possibly pay for the account (ADR-0015);
 - bundle ID.
 
