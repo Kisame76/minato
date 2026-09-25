@@ -87,3 +87,9 @@ target_link_libraries(dl-lock-test PRIVATE dl)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
+# x18-stress: eight threads with x18 islands under SIGUSR1 from the main thread.
+add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
+# lld relaxes ADRP and ADD into NOP and ADR when the target lies within 1 MiB, and the converter
+# knows a jump table's base only from ADRP and ADD, as the toolchains that use x18 left it.
+target_link_options(x18-test PRIVATE -Wl,--no-relax)
+target_link_options(x18-stress PRIVATE -Wl,--no-relax)

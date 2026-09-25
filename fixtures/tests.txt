@@ -35,3 +35,4 @@ signal-test system
 dl-lock-test system libraries=libdl-lock.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
 x18-test system
+x18-stress system

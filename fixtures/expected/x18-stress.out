@@ -1,0 +1,8 @@
+8 threads, each with a tag of its own in x18
+every thread took SIGUSR1 at least 200 times inside its loop: yes
+x18 in every signal frame inside the loop carried its thread's tag: yes
+every signal found its thread in the code of a loaded object: yes
+some signal found its thread at an instruction that uses x18: yes
+no thread took a branch that its x18 rules out: yes
+the shared counter is each thread's rounds times its tag, summed: yes
+each thread's x18, its cells and its jump table cases are what its rounds give: yes
