@@ -326,8 +326,9 @@ void *address_of(State &state, const Library &library, const linker::Symbol &sym
 //
 // ld-android.so takes a lock of its own before it calls in, as linker64 takes g_dl_mutex, so guest
 // threads wait for each other there, in guest code, where signals reach them (ADR-0025, decision 8).
-// The runtime's lock only keeps them apart from start-up work, which runs no guest code while it
-// holds the lock: a plain lock is enough here (decision 9).
+// The runtime's lock only keeps them apart from start-up work, which waits for no guest thread and
+// runs guest code under the lock only before the first guest thread starts (the ifunc resolvers of
+// load_program): a plain lock is enough here (decision 9).
 
 void *guest_dlopen(const char *name, int flags, const void *, int *error_number) {
     auto &state = ::apkrt::dl::state();
