@@ -588,6 +588,24 @@ TEST(describe_names_the_br_and_where_it_jumps) {
     CHECK(cut == 16 && std::string_view(small, 16) == "apkrt: br x18 at" && small[16] == 'x');  // cut, never past
 }
 
+// The longest message, with names of 63 characters and addresses of 16 hexadecimal digits, fits the
+// buffer the fault handler gives describe() (found in the review of X4).
+TEST(the_longest_message_fits_the_handlers_buffer) {
+    apk_container_info info{};
+    info.image_offset = 0x8000;
+    info.image_size = 0x4000;
+    info.min_vaddr = 0xf000'0000'0000'0000;
+    apkrt::islands::Container container{.header = 0xf000'0000'0000'0000, .info = &info, .name = {}, .next = nullptr};
+    std::memset(container.name, 'n', sizeof container.name - 1);
+    apk_island island{};
+    island.site = 0x8000 + 0x254;
+    island.kind = APK_ISLAND_JUMP_TABLE;
+    char message[apkrt::islands::message_capacity];
+    const auto length =
+        apkrt::islands::describe({&container, &island, container.header + 0x8000 + 0x25c}, message, sizeof message);
+    CHECK(std::string_view(message, length).ends_with("+0xf00000000000025c), which its jump table does not hold (ADR-0020)\n"));
+}
+
 constexpr std::uint64_t br_at = 0x254;
 constexpr std::uint64_t no_case_at = 0x25c;  // within the span of the jump table's targets, but no case
 

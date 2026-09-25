@@ -66,4 +66,8 @@ std::optional<JumpTableTrap> jump_table_trap(std::uint64_t pc, std::uint64_t x18
 /// The target's ELF address comes only when it lies in the image.
 std::size_t describe(const JumpTableTrap &trap, char *buffer, std::size_t size);
 
+/// The buffer the fault handler gives describe(): the longest message, with two names of 63
+/// characters and three addresses of 16 hexadecimal digits, has 261 bytes.
+inline constexpr std::size_t message_capacity = 272;
+
 }  // namespace apkrt::islands

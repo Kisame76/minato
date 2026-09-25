@@ -386,7 +386,7 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     if (host_signal == SIGTRAP) {
         if (const auto trap = islands::jump_table_trap(uc.uc_mcontext->__ss.__pc, apkrt_get_guest_x18())) {
             // The guest's handler would return to the same brk forever (ADR-0020 X2d): stop here.
-            char message[256];
+            char message[islands::message_capacity];
             static_cast<void>(::write(STDERR_FILENO, message, islands::describe(*trap, message, sizeof message)));
             die_by(sigtrap);
             return;
