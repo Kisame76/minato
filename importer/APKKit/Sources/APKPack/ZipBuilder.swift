@@ -165,7 +165,10 @@ public struct ZipBuilder {
     /// Raw DEFLATE (RFC 1951), which is what ZIP method 8 stores.
     public static func deflate(_ data: Data) -> Data {
         if data.isEmpty { return Data([0x03, 0x00]) }
-        let capacity = data.count + 1024
+        // Data that does not compress comes out a little larger: Apple's zlib stores it in blocks of
+        // 16 KiB with 5 bytes each. A buffer that is too small makes the encoder return 0. An eighth
+        // more is far beyond that overhead.
+        let capacity = data.count + data.count / 8 + 1024
         var output = Data(count: capacity)
         let written = output.withUnsafeMutableBytes { dst in
             data.withUnsafeBytes { src in

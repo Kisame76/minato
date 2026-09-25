@@ -21,9 +21,13 @@ let package = Package(
         .testTarget(name: "APKSigningTests", dependencies: ["APKSigning"]),
         // Development tool: prints what APKKit reads from a real APK.
         .executableTarget(name: "apk-inspect", dependencies: ["APKKit"]),
-        // Test-only builders that encode ZIP, binary XML and resource tables independently
-        // of the production parsers.
-        .target(name: "APKTestSupport", path: "Tests/APKTestSupport"),
+        // Writes APKs for our test apps (make-apk, ADR-0031): ZIP, binary XML and string pools,
+        // encoded independently of the production parsers, plus the manifest compiler and the layout.
+        .target(name: "APKPack", dependencies: ["APKKit"]),
+        .testTarget(name: "APKPackTests", dependencies: ["APKPack", "APKKit", "APKTestSupport"]),
+        // Test-only builders for resource tables, ELF headers, signing blocks and whole sample APKs;
+        // re-exports APKPack's writers.
+        .target(name: "APKTestSupport", dependencies: ["APKPack"], path: "Tests/APKTestSupport"),
         .testTarget(name: "APKKitTests", dependencies: ["APKKit", "APKTestSupport"]),
     ]
 )
