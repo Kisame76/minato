@@ -29,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <set>
 #include <span>
@@ -87,7 +88,7 @@ constexpr std::uint32_t code[] = {
     0xf100'0e5f,  // 0x23c cmp x18, #3                   single, sets the flags
     0x5400'01c8,  // 0x240 b.hi 0x278
     0x9000'000c,  // 0x244 adrp x12, 0x0
-    0x910b'018c,  // 0x248 add x12, x12, #0x2c0
+    0x9110'018c,  // 0x248 add x12, x12, #0x400
     0xb8b2'7992,  // 0x24c ldrsw x18, [x12, x18, lsl #2]
     0x8b0c'0252,  // 0x250 add x18, x18, x12
     0xd61f'0240,  // 0x254 br x18                        jump table
@@ -109,11 +110,53 @@ constexpr std::uint32_t code[] = {
     // fault(address)
     0xf940'0012,  // 0x2a4 ldr x18, [x0]                 single, writes
     0xd65f'03c0,  // 0x2a8 ret
+    // forms(inputs): inputs points at the x18 to use, the counter's address, the address of a word
+    // that is zero or not, and what the cmpxchg expects in the counter.
+    0xf940'0009,  // 0x2ac ldr x9, [x0]
+    0xf940'0401,  // 0x2b0 ldr x1, [x0, #8]
+    0xf940'080a,  // 0x2b4 ldr x10, [x0, #16]
+    0xf940'0c0c,  // 0x2b8 ldr x12, [x0, #24]
+    0x1000'0ab2,  // 0x2bc adr x18, 0x410                single, ADR: two words
+    0x5800'0a92,  // 0x2c0 ldr x18, 0x410                single, LDR (literal): three words
+    0xaa09'03f2,  // 0x2c4 mov x18, x9
+    0xc85f'7c28,  // 0x2c8 ldxr x8, [x1]                 LL/SC window that reads and writes x18
+    0xb240'0252,  // 0x2cc orr x18, x18, #1
+    0x8b12'0108,  // 0x2d0 add x8, x8, x18
+    0xc80b'7c28,  // 0x2d4 stxr w11, x8, [x1]
+    0x35ff'ff8b,  // 0x2d8 cbnz w11, 0x2c8
+    0xc85f'7c28,  // 0x2dc ldxr x8, [x1]                 LL/SC window that a CLREX closes alone
+    0x9100'0512,  // 0x2e0 add x18, x8, #1
+    0xd503'3f5f,  // 0x2e4 clrex
+    0x5280'000d,  // 0x2e8 mov w13, #0
+    0xc85f'fc32,  // 0x2ec ldaxr x18, [x1]               cmpxchg: the CLREX right behind the store-exclusive
+    0xeb0c'025f,  // 0x2f0 cmp x18, x12
+    0x5400'0041,  // 0x2f4 b.ne 0x2fc
+    0xc80d'fc29,  // 0x2f8 stlxr w13, x9, [x1]
+    0xd503'3f5f,  // 0x2fc clrex
+    0x35ff'ff6d,  // 0x300 cbnz w13, 0x2ec
+    0xc85f'7d48,  // 0x304 ldxr x8, [x10]                LL/SC window whose cbz can skip its only write of x18
+    0xb400'0048,  // 0x308 cbz x8, 0x310
+    0xaa08'03f2,  // 0x30c mov x18, x8
+    0xc80b'7d48,  // 0x310 stxr w11, x8, [x10]
+    0x35ff'ff8b,  // 0x314 cbnz w11, 0x304
+    0xaa12'03e0,  // 0x318 mov x0, x18                   single, reads
+    0xd65f'03c0,  // 0x31c ret
+    // fault_read(marker)
+    0xaa00'03e1,  // 0x320 mov x1, x0
+    0xf940'0240,  // 0x324 ldr x0, [x18]                 single, reads: x1 holds x18 when it faults
+    0xd65f'03c0,  // 0x328 ret
+    // fault_window(marker)
+    0xc85f'7e48,  // 0x32c ldxr x8, [x18]                LL/SC window that reads x18: x0 holds x18 in it
+    0x9100'0508,  // 0x330 add x8, x8, #1
+    0xc809'7e48,  // 0x334 stxr w9, x8, [x18]
+    0x35ff'ffa9,  // 0x338 cbnz w9, 0x32c
+    0xd65f'03c0,  // 0x33c ret
 };
-constexpr std::int32_t jump_table[] = {0x258 - 0x2c0, 0x260 - 0x2c0, 0x268 - 0x2c0, 0x270 - 0x2c0};
+constexpr std::int32_t jump_table[] = {0x258 - 0x400, 0x260 - 0x400, 0x268 - 0x400, 0x270 - 0x400};
+constexpr std::uint64_t literal = 0x1122'3344'5566'7788;  // what the LDR (literal) of forms() loads
 constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop_at = 0x280, fault_at = 0x2a4,
-                        table_at = 0x2c0;
-constexpr std::uint32_t ldxr_x8_x1 = 0xc85f'7c28;
+                        forms_at = 0x2ac, forms_end = 0x320, cmpxchg_at = 0x2ec, fault_read_at = 0x320,
+                        fault_window_at = 0x32c, table_at = 0x400, literal_at = 0x410, program_end = 0x418;
 
 // The jump table island (rewrite.cpp, emit_jump_table): 13 words up to its BR, a trap of 3, then a
 // landing pad of 4 words for each word from the lowest target on, whose fourth word never runs.
@@ -124,12 +167,14 @@ std::vector<std::byte> program_container() {
     namespace elf = apk::testing;
     elf::ElfBuilder builder;
     builder.put<std::uint64_t>(24, run_at);  // e_entry
-    builder.segments({{elf::pt_load, elf::r | elf::x, 0, 0, 0x2d0, 0x2d0, 0x4000}});
+    builder.bytes.resize(program_end);
+    builder.segments({{elf::pt_load, elf::r | elf::x, 0, 0, program_end, program_end, 0x4000}});
     std::memcpy(builder.bytes.data() + run_at, code, sizeof code);
     std::memcpy(builder.bytes.data() + table_at, jump_table, sizeof jump_table);
+    std::memcpy(builder.bytes.data() + literal_at, &literal, sizeof literal);
     builder.sections({
         {".text", elf::sht_progbits, elf::shf_alloc | elf::shf_execinstr, run_at, run_at, sizeof code},
-        {".rodata", elf::sht_progbits, elf::shf_alloc, table_at, table_at, sizeof jump_table},
+        {".rodata", elf::sht_progbits, elf::shf_alloc, table_at, table_at, program_end - table_at},
     });
     return apk::container::convert(builder.bytes, {.install_name = "@rpath/islands-program.dylib"}).bytes;
 }
@@ -177,19 +222,27 @@ apkrt::GuestContext context_of(const Step &step) {
     return context;
 }
 
-/// How `settled` differs from the state `real` recorded: every register but those in `ignored`, sp,
-/// pc, the flags and x18. Empty when it does not.
-std::string difference(const Settled &settled, const Step &real, std::uint32_t ignored) {
+/// What a comparison leaves out.
+struct Ignored {
+    std::uint32_t registers = 0;
+    bool flags = false;
+};
+
+/// How `settled` differs from the state `real` recorded: every register, sp, pc, the flags and x18,
+/// but what `ignored` names. Empty when it does not.
+std::string difference(const Settled &settled, const Step &real, Ignored ignored) {
     const auto expected = context_of(real);
     for (int index = 0; index < 31; ++index) {
-        if ((ignored >> index) & 1) continue;
+        if ((ignored.registers >> index) & 1) continue;
         if (settled.context.x[index] != expected.x[index]) {
             return std::format("x{} is {:#x}, the guest had {:#x}", index, settled.context.x[index], expected.x[index]);
         }
     }
     if (settled.context.sp != expected.sp) return std::format("sp is {:#x}, the guest had {:#x}", settled.context.sp, expected.sp);
     if (settled.context.pc != expected.pc) return std::format("pc is {:#x}, the guest had {:#x}", settled.context.pc, expected.pc);
-    if (settled.context.nzcv != expected.nzcv) return std::format("the flags are {:#x}, the guest had {:#x}", settled.context.nzcv, expected.nzcv);
+    if (!ignored.flags && settled.context.nzcv != expected.nzcv) {
+        return std::format("the flags are {:#x}, the guest had {:#x}", settled.context.nzcv, expected.nzcv);
+    }
     if (settled.x18 != real.x18) return std::format("x18 is {:#x}, the guest had {:#x}", settled.x18, real.x18);
     return {};
 }
@@ -207,96 +260,171 @@ bool runs(const apk_island &island, unsigned word) {
     return false;
 }
 
+using Covered = std::set<std::pair<const apk_island *, unsigned>>;
+
+/// The free run of an LL/SC window (stepper.h): from its load-exclusive to the word after its commit,
+/// from visit `after_visits` of the load-exclusive on.
+apkrt::testing::FreeRun free_run(const apk_island &window, unsigned after_visits) {
+    CHECK(window.kind == APK_ISLAND_EXCLUSIVE);
+    const auto stub = program().header + window.stub;
+    unsigned word = 0;
+    const auto is_load_exclusive = [](std::uint32_t instruction) { return (instruction & 0x3f40'0000) == 0x0840'0000; };
+    while (word < window.commit && !is_load_exclusive(*reinterpret_cast<const std::uint32_t *>(stub + 4 * word))) ++word;
+    CHECK(word < window.commit);
+    return {stub + 4 * word, stub + 4 * (window.commit + 1u), after_visits};
+}
+
+/// What a window that goes back has already written, which the trace's state at its site does not
+/// show: x8, which the load-exclusives of the program load, or the flags of the cmpxchg's cmp.
+Ignored written_before_going_back(const apk_island &window) {
+    if (program().header + window.site == program().image + cmpxchg_at) return {.flags = true};
+    return {.registers = 1u << 8};
+}
+
+/// Single-steps one call of the program's function at `function_at`, run again when the trace has a
+/// gap; `prepare` sets up the inputs before each try and returns the argument. leave() runs at each
+/// step while the thread waits there. Wherever the thread was inside an island, its result must
+/// equal the state the guest really passed through in the direction the trace shows (see below).
+/// Adds each island word stepped to `covered`, counts the comparisons in `compared`, and returns
+/// what the call returned.
+std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<std::uint64_t()> &prepare,
+                               const std::vector<apkrt::testing::FreeRun> &free_runs, Covered &covered,
+                               int &compared) {
+    const auto &loaded = program();
+    const auto function = reinterpret_cast<std::uint64_t (*)(std::uint64_t)>(loaded.image + function_at);
+    std::vector<std::pair<bool, Settled>> left;  // leave() at each step, while the thread waited there
+    std::vector<Step> steps;
+    std::uint64_t result = 0;
+    for (int attempt = 1;; ++attempt) {
+        const auto argument = prepare();
+        left.clear();
+        try {
+            steps = apkrt::testing::step_through(function, argument, free_runs, result, [&](const Step &step) {
+                auto context = context_of(step);
+                auto x18 = step.x18;
+                const bool inside = apkrt::islands::leave(context, x18);
+                left.push_back({inside, {context, x18}});
+            });
+            break;
+        } catch (const apkrt::testing::LostSteps &) {
+            if (attempt == 5) throw;  // the trace has a gap: run the call again
+        }
+    }
+    for (std::size_t at = 0; at < steps.size(); ++at) {
+        const auto pc = arm_thread_state64_get_pc(steps[at].state);
+        const auto *container = apkrt::islands::container_at(pc);
+        const auto *island = container != nullptr ? apkrt::islands::island_at(*container, pc) : nullptr;
+        if (island == nullptr) {
+            CHECK(!left[at].first);
+            continue;
+        }
+        const auto word = static_cast<unsigned>((pc - (loaded.header + island->stub)) / 4);
+        covered.insert({island, word});
+        const auto site = loaded.header + island->site;
+        const bool forward = island->commit != APK_ISLAND_NO_COMMIT && word > island->commit;
+        std::size_t real = steps.size();
+        if (forward) {
+            const auto after = site + 4 * std::uint64_t{island->resume};
+            for (auto later = at + 1; later < steps.size() && real == steps.size(); ++later) {
+                if (arm_thread_state64_get_pc(steps[later].state) == after) real = later;
+            }
+        } else {
+            for (auto earlier = at; earlier-- > 0 && real == steps.size();) {
+                if (arm_thread_state64_get_pc(steps[earlier].state) == site) real = earlier;
+            }
+        }
+        const auto ignored = !forward && island->kind == APK_ISLAND_EXCLUSIVE ? written_before_going_back(*island)
+                                                                              : Ignored{};
+        const auto location = std::source_location::current();
+        if (!left[at].first) {
+            apk::testing::fail(location, "leave() did not see an island at ", std::format("{:#x}", pc).c_str());
+        } else if (real == steps.size()) {
+            apk::testing::fail(location, "the trace has no state to compare with at ", std::format("{:#x}", pc).c_str());
+        } else if (const auto different = difference(left[at].second, steps[real], ignored); !different.empty()) {
+            const auto detail = std::format("site {:#x}, word {} ({}): {}", island->site, word,
+                                            forward ? "forward" : "back", different);
+            apk::testing::fail(location, "left an island to a state the guest never had: ", detail.c_str());
+        }
+        ++compared;
+    }
+    return result;
+}
+
 // ADR-0020 X4: wherever a signal stops a thread inside an island, the state the runtime computes
 // equals the state the guest really passed through in the direction the trace shows: the state after
 // the island once the commit word has run (for a window: its store-exclusive, which may have failed),
 // else the state at the site. All registers, sp, pc, flags and x18 count; only for a window that goes
-// back, the registers the window writes do not (ADR-0020, X4 item 7).
+// back, what the window has written does not (ADR-0020, X4 item 7).
 TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     const auto &loaded = program();
-    const auto &window = loaded.island_at(window_at);
-    CHECK(window.kind == APK_ISLAND_EXCLUSIVE);
-    // The window is ldxr, add, stxr: its commit, the stxr, comes two words after the ldxr.
-    const auto from = loaded.header + window.stub + 4 * (window.commit - 2u);
-    const auto to = loaded.header + window.stub + 4 * (window.commit + 1u);
-    CHECK(*reinterpret_cast<const std::uint32_t *>(from) == ldxr_x8_x1);
-
-    const auto run = reinterpret_cast<std::uint64_t (*)(std::uint64_t)>(loaded.image + run_at);
-    std::set<std::pair<const apk_island *, unsigned>> covered;
-    std::uint64_t counter = 0;
+    Covered covered;
     int compared = 0;
+    std::uint64_t counter = 0, counter_before = 0;
+
+    // run(): single instructions, a conditional branch taken both ways, an LL/SC window with x18 as
+    // the value it stores, and the jump table with each index. Pass 1: the window runs free. Pass 2:
+    // its first visit is stepped up to the store-exclusive, which then fails; the loop runs the
+    // window again, free.
     for (const std::uint64_t x18 : {std::uint64_t{0}, std::uint64_t{5}}) {
         for (std::uint64_t index = 0; index < std::size(jump_table); ++index) {
-            // Pass 1: the window runs free. Pass 2: its first visit is stepped up to the store-exclusive,
-            // which then fails; the loop runs the window again, free.
             for (const unsigned stepped_visits : {0u, 1u}) {
                 const std::uint64_t inputs[] = {x18, reinterpret_cast<std::uint64_t>(&counter), index};
-                std::uint64_t counter_before = 0;
-                std::vector<std::pair<bool, Settled>> left;  // leave() at each step, while the thread waited there
-                std::uint64_t result = 0;
-                std::vector<Step> steps;
-                for (int attempt = 1;; ++attempt) {
-                    counter_before = counter;
-                    left.clear();
-                    try {
-                        steps = apkrt::testing::step_through(
-                            run, reinterpret_cast<std::uint64_t>(inputs), {{from, to, stepped_visits}}, result,
-                            [&](const Step &step) {
-                                auto context = context_of(step);
-                                auto x18_now = step.x18;
-                                const bool inside = apkrt::islands::leave(context, x18_now);
-                                left.push_back({inside, {context, x18_now}});
-                            });
-                        break;
-                    } catch (const apkrt::testing::LostSteps &) {
-                        if (attempt == 5) throw;  // the trace has a gap: run the call again
-                    }
-                }
+                const auto result = step_and_compare(
+                    run_at,
+                    [&] {
+                        counter_before = counter;
+                        return reinterpret_cast<std::uint64_t>(inputs);
+                    },
+                    {free_run(loaded.island_at(window_at), stepped_visits)}, covered, compared);
                 CHECK(result == 1 + (x18 != 0 ? 1u : 0u) + 10 + index);
                 CHECK(counter == counter_before + 1);  // the window completed exactly once
-                for (std::size_t at = 0; at < steps.size(); ++at) {
-                    const auto pc = arm_thread_state64_get_pc(steps[at].state);
-                    const auto *container = apkrt::islands::container_at(pc);
-                    const auto *island = container != nullptr ? apkrt::islands::island_at(*container, pc) : nullptr;
-                    if (island == nullptr) {
-                        CHECK(!left[at].first);
-                        continue;
-                    }
-                    const auto word = static_cast<unsigned>((pc - (loaded.header + island->stub)) / 4);
-                    covered.insert({island, word});
-                    const auto site = loaded.header + island->site;
-                    const bool forward = island->commit != APK_ISLAND_NO_COMMIT && word > island->commit;
-                    std::size_t real = steps.size();
-                    if (forward) {
-                        const auto after = site + 4 * std::uint64_t{island->resume};
-                        for (auto later = at + 1; later < steps.size() && real == steps.size(); ++later) {
-                            if (arm_thread_state64_get_pc(steps[later].state) == after) real = later;
-                        }
-                    } else {
-                        for (auto earlier = at; earlier-- > 0 && real == steps.size();) {
-                            if (arm_thread_state64_get_pc(steps[earlier].state) == site) real = earlier;
-                        }
-                    }
-                    const std::uint32_t ignored = !forward && island->kind == APK_ISLAND_EXCLUSIVE ? 1u << 8 : 0u;
-                    const auto location = std::source_location::current();
-                    if (!left[at].first) {
-                        apk::testing::fail(location, "leave() did not see an island at ", std::format("{:#x}", pc).c_str());
-                    } else if (real == steps.size()) {
-                        apk::testing::fail(location, "the trace has no state to compare with at ", std::format("{:#x}", pc).c_str());
-                    } else if (const auto different = difference(left[at].second, steps[real], ignored); !different.empty()) {
-                        const auto detail = std::format("site {:#x}, word {} ({}): {}", island->site, word,
-                                                        forward ? "forward" : "back", different);
-                        apk::testing::fail(location, "left an island to a state the guest never had: ", detail.c_str());
-                    }
-                    ++compared;
+            }
+        }
+    }
+
+    // forms(): ADR and LDR (literal); an LL/SC window that loads x18 before it and stores it after
+    // (its write of x18 gives the same when the window runs again, like real code's would);
+    // one that a CLREX closes alone; a cmpxchg with its CLREX right behind the store-exclusive, which
+    // swaps or does not; and one whose cbz can skip its only write of x18, which it does when the
+    // word is zero. Each window with a store-exclusive runs free or is stepped first, as above.
+    std::vector<apkrt::testing::FreeRun> free_runs;
+    for (const unsigned stepped_visits : {0u, 1u}) {
+        free_runs.clear();
+        for (const std::uint64_t at : {std::uint64_t{0x2c8}, cmpxchg_at, std::uint64_t{0x304}}) {
+            free_runs.push_back(free_run(loaded.island_at(at), stepped_visits));
+        }
+        for (const std::uint64_t x18 : {std::uint64_t{2}, std::uint64_t{7}}) {
+            for (const std::uint64_t word_value : {std::uint64_t{0}, std::uint64_t{0x55}}) {
+                for (const bool swaps : {false, true}) {
+                    std::uint64_t word = 0;
+                    std::uint64_t inputs[4] = {};
+                    const auto result = step_and_compare(
+                        forms_at,
+                        [&] {
+                            counter_before = counter;
+                            word = word_value;
+                            const auto sum = counter_before + (x18 | 1);  // the counter after the first window
+                            inputs[0] = x18;
+                            inputs[1] = reinterpret_cast<std::uint64_t>(&counter);
+                            inputs[2] = reinterpret_cast<std::uint64_t>(&word);
+                            inputs[3] = swaps ? sum : sum + 1;
+                            return reinterpret_cast<std::uint64_t>(inputs);
+                        },
+                        free_runs, covered, compared);
+                    const auto sum = counter_before + (x18 | 1);
+                    CHECK(result == (word_value != 0 ? word_value : sum));
+                    CHECK(counter == (swaps ? x18 : sum));
+                    CHECK(word == word_value);
                 }
             }
         }
     }
+
     CHECK(compared > 0);
-    // Every word of every island of run() that can run was stepped.
+    // Every word of every island of run() and forms() that can run was stepped.
     for (const auto &island : loaded.islands) {
-        if (island.site < loaded.image + run_at - loaded.header || island.site >= loaded.image + run_end - loaded.header) continue;
+        const auto site = loaded.header + island.site - loaded.image;
+        if (!(site >= run_at && site < run_end) && !(site >= forms_at && site < forms_end)) continue;
         for (unsigned word = 0; word < island.words; ++word) {
             if (runs(island, word) && !covered.contains({&island, word})) {
                 const auto detail = std::format("site {:#x}, word {}", island.site, word);
@@ -313,7 +441,7 @@ constexpr std::uint64_t sigtrap = 5, sigusr1 = 10, sigsegv = 11;
 constexpr std::uint64_t sa_siginfo = 0x4, sa_restorer = 0x0400'0000;
 constexpr long eagain = 11;
 // The Linux ucontext on arm64: struct sigcontext's pc after regs[31] and sp (signals.cpp).
-constexpr std::size_t linux_pc_offset = 440;
+constexpr std::size_t linux_registers_offset = 184, linux_pc_offset = 440;
 constexpr std::size_t stack_size = 256 * 1024;
 
 void *map_stack() {
@@ -354,40 +482,84 @@ bool in_island(std::uint64_t pc) {
 }
 
 struct FaultView {
-    std::uint64_t pc = 0;       // what the handler's frame said
-    std::uint64_t address = 0;  // the fault address in its siginfo
+    std::uint64_t pc = 0;              // what the handler's frame said
+    std::uint64_t address = 0;         // the fault address in its siginfo
+    std::uint64_t registers[31] = {};  // the frame's x0 to x30
+    std::uint64_t resume_at = 0;       // where the handler sends the thread on, or 0: past the load
+    std::uint64_t result = 0;          // what the call returned
     std::uint64_t x18_after = 0;
 };
 FaultView fault_view;
 constexpr std::uint64_t unmapped = 0x10;  // below 4 GiB: nothing is mapped there for the guest
+constexpr std::uint64_t marker = 0x6d61'726b;
 
 void on_segv(int, void *info, void *ucontext) {
     fault_view.address = static_cast<const apkrt::signals::LinuxSiginfo *>(info)->fields.address;
+    std::memcpy(fault_view.registers, static_cast<const char *>(ucontext) + linux_registers_offset,
+                sizeof fault_view.registers);
     auto &pc = *reinterpret_cast<std::uint64_t *>(static_cast<char *>(ucontext) + linux_pc_offset);
     fault_view.pc = pc;
-    pc += 4;  // on past the load that faulted
+    pc = fault_view.resume_at != 0 ? fault_view.resume_at : pc + 4;
 }
 
-void fault_child(void *) {
-    apkrt_set_guest_x18(0x1818);
-    reinterpret_cast<std::uint64_t (*)(std::uint64_t)>(program().image + fault_at)(unmapped);
+struct FaultCall {
+    std::uint64_t function_at;
+    std::uint64_t argument;
+    std::uint64_t x18;
+};
+
+void fault_child(void *raw) {
+    const auto &call = *static_cast<const FaultCall *>(raw);
+    apkrt_set_guest_x18(call.x18);
+    fault_view.result = reinterpret_cast<std::uint64_t (*)(std::uint64_t)>(program().image + call.function_at)(call.argument);
     fault_view.x18_after = apkrt_get_guest_x18();
+}
+
+/// Runs `call` on a guest thread whose SIGSEGV handler is on_segv, and returns what it saw.
+FaultView fault_in(FaultCall call, std::uint64_t resume_at = 0) {
+    fault_view = {};
+    fault_view.resume_at = resume_at;
+    set_action(sigsegv, on_segv);
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, fault_child, &call) > 0);
+    join(&tid_word);
+    set_default_action(sigsegv);
+    ::munmap(stack, stack_size);
+    return fault_view;
 }
 
 // ADR-0020 X4: a fault inside an island reaches the guest's handler at the site, with the fault
 // address the instruction would have faulted on; the thread goes on from there.
 TEST(a_fault_inside_an_island_shows_the_handler_its_site) {
-    set_action(sigsegv, on_segv);
-    void *stack = map_stack();
-    CHECK(stack != nullptr);
-    int tid_word = 0;
-    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, fault_child, nullptr) > 0);
-    join(&tid_word);
-    set_default_action(sigsegv);
-    ::munmap(stack, stack_size);
-    CHECK(fault_view.pc == program().image + fault_at);
-    CHECK(fault_view.address == unmapped);
-    CHECK(fault_view.x18_after == 0x1818);  // the load never happened
+    const auto seen = fault_in({fault_at, unmapped, 0x1818});
+    CHECK(seen.pc == program().image + fault_at);
+    CHECK(seen.address == unmapped);
+    CHECK(seen.x18_after == 0x1818);  // the load never happened
+}
+
+// The handler sees the guest's registers too, where the island had already loaded x18 into its
+// value register when the instruction faulted (found missing in the review of X4).
+TEST(a_fault_after_the_island_loaded_x18_shows_the_handler_the_guest_registers) {
+    const auto seen = fault_in({fault_read_at, marker, unmapped});
+    CHECK(seen.pc == program().image + fault_read_at + 4);  // the ldr
+    CHECK(seen.address == unmapped);
+    CHECK(seen.registers[1] == marker);  // the value register has the guest's x1 again
+    CHECK(seen.registers[18] == unmapped);
+    CHECK(seen.result == marker && seen.x18_after == unmapped);
+}
+
+// A fault inside an LL/SC window reaches the handler at its load-exclusive, with the guest's
+// registers. The handler sends the thread on to the ret behind the window's loop.
+TEST(a_fault_inside_an_exclusive_window_shows_the_handler_its_load_exclusive) {
+    const auto image = program().image;
+    const auto seen = fault_in({fault_window_at, marker, unmapped}, image + fault_window_at + 16);
+    CHECK(seen.pc == image + fault_window_at);
+    CHECK(seen.address == unmapped);
+    CHECK(seen.registers[0] == marker);  // the window's value register has the guest's x0 again
+    CHECK(seen.registers[18] == unmapped);
+    CHECK(seen.result == marker && seen.x18_after == unmapped);
 }
 
 // ADR-0020 X4f: the message names the br by its library and ELF address, and the target the guest
@@ -474,6 +646,30 @@ TEST(a_jump_to_a_word_without_a_landing_pad_ends_the_process_with_a_message) {
     CHECK(output.find("apkrt: br x18 at islands-program+0x254 jumps to 0x") != std::string::npos);
     CHECK(output.find(" (islands-program+0x25c), which its jump table does not hold (ADR-0020)\n") != std::string::npos);
     CHECK(output.find("the guest's SIGTRAP handler ran") == std::string::npos);
+}
+
+// ADR-0020 X4: the stepper cannot run the jump table's trap (words 13 to 15) without ending the
+// call, so leave() gets a thread there by hand: it goes back to the br with both registers restored,
+// whatever they hold now, and keeps its x18 (found missing in the review of X4).
+TEST(a_thread_in_the_jump_table_trap_leaves_to_the_br) {
+    const auto &loaded = program();
+    const auto &island = loaded.island_at(br_at);
+    const std::uint64_t red_zone[2] = {0x1111, 0x2222};  // what words 0 and 1 saved
+    for (unsigned word = jump_words_to_br; word < jump_pads_at; ++word) {
+        apkrt::GuestContext context{};
+        for (int index = 0; index < 31; ++index) context.x[index] = 0x100 + static_cast<std::uint64_t>(index);
+        context.sp = reinterpret_cast<std::uint64_t>(red_zone) + 128;
+        context.pc = loaded.header + island.stub + 4 * word;
+        auto expected = context;
+        expected.x[island.value] = red_zone[0];
+        expected.x[island.base] = red_zone[1];
+        expected.pc = loaded.image + br_at;
+        std::uint64_t x18 = loaded.image + no_case_at;
+        CHECK(apkrt::islands::leave(context, x18));
+        CHECK(std::memcmp(context.x, expected.x, sizeof context.x) == 0);
+        CHECK(context.sp == expected.sp && context.pc == expected.pc);
+        CHECK(x18 == loaded.image + no_case_at);
+    }
 }
 
 struct Seen {
