@@ -121,24 +121,30 @@ static uint64_t rounds_for(loop function) {
     return rounds;
 }
 
-int main(void) {
-    const uint64_t cycle_rounds = rounds_for(bench_cycles);
-    uint64_t result, fastest = UINT64_MAX;
-    for (int run = 0; run < runs; ++run) {
-        const uint64_t time = timed(bench_cycles, cycle_rounds, &result);
-        if (time < fastest) fastest = time;
-    }
-    const double cycle = (double)fastest / (double)(cycle_rounds * 64);
-    printf("island-bench: one pass of each form and of its twin, the fastest of %d runs; a cycle is %.3f ns\n",
-           runs, cycle);
-    printf("%-42s %9s %9s %9s %7s\n", "form", "twin", "form", "extra", "cycles");
+/// Keeps the core busy for `milliseconds`, so that it runs at its full clock when the measurements
+/// begin.
+static void warm_up(uint64_t milliseconds) {
+    const uint64_t end = nanoseconds() + milliseconds * 1000000u;
+    uint64_t result;
+    while (nanoseconds() < end) timed(bench_cycles, 1024, &result);
+}
 
+int main(void) {
+    enum { count = sizeof forms / sizeof forms[0] };
+    warm_up(200);
+    // The length of a cycle comes from the fastest run of the ADD chain, which runs between the
+    // forms, so that it sees the clock they ran at.
+    const uint64_t cycle_rounds = rounds_for(bench_cycles);
+    uint64_t cycle_time = UINT64_MAX, result;
+    double twins[count], times[count];
     int failed = 0;
-    for (size_t index = 0; index < sizeof forms / sizeof forms[0]; ++index) {
+    for (size_t index = 0; index < count; ++index) {
         const struct form *form = &forms[index];
         const uint64_t rounds = rounds_for(form->island);
         uint64_t twin_time = UINT64_MAX, form_time = UINT64_MAX, twin_result = 0, form_result = 0;
         for (int run = 0; run < runs; ++run) {
+            const uint64_t chain = timed(bench_cycles, cycle_rounds, &result);
+            if (chain < cycle_time) cycle_time = chain;
             const uint64_t twin = timed(form->twin, rounds, &twin_result);
             if (twin < twin_time) twin_time = twin;
             const uint64_t time = timed(form->island, rounds, &form_result);
@@ -151,8 +157,18 @@ int main(void) {
             failed = 1;
         }
         const double passes = (double)(rounds * form->copies);
-        const double twin = (double)twin_time / passes, time = (double)form_time / passes;
-        printf("%-42s %6.2f ns %6.2f ns %6.2f ns %7.1f\n", form->name, twin, time, time - twin, (time - twin) / cycle);
+        twins[index] = (double)twin_time / passes;
+        times[index] = (double)form_time / passes;
+    }
+
+    const double cycle = (double)cycle_time / (double)(cycle_rounds * 64);
+    printf("island-bench: one pass of each form and of its twin, the fastest of %d runs; a cycle is %.3f ns\n",
+           runs, cycle);
+    printf("%-42s %9s %9s %9s %7s\n", "form", "twin", "form", "extra", "cycles");
+    for (size_t index = 0; index < count; ++index) {
+        const double extra = times[index] - twins[index];
+        printf("%-42s %6.2f ns %6.2f ns %6.2f ns %7.1f\n", forms[index].name, twins[index], times[index], extra,
+               extra / cycle);
     }
     return failed;
 }

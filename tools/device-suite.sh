@@ -13,7 +13,7 @@
 # Results: build/device-suite/<test>/ (build/simulator-suite/ for the Simulator) with stdout,
 # stderr, status, traced and, with --sign-on-device, signing; on the iPhone also
 # <test>.launch.json and <test>.console (devicectl's report and messages). The times include
-# starting the app.
+# starting the app. What a benchmark (measures in fixtures/tests.txt) prints is shown, not compared.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -126,8 +126,9 @@ for name in "${tests[@]}"; do
   status=$(tr -d '\n' <"$RESULTS/$name/status" 2>/dev/null || true)
   expected=fixtures/expected/$name
   expected_status=$(field "$name" status)
+  measures=$(field "$name" measures)
   problems=""
-  cmp -s "$expected.out" "$RESULTS/$name/stdout" || problems+=" stdout"
+  [[ "$measures" == yes ]] || cmp -s "$expected.out" "$RESULTS/$name/stdout" || problems+=" stdout"
   if [[ -f "$expected.err" ]]; then
     cmp -s "$expected.err" "$RESULTS/$name/stderr" || problems+=" stderr"
   elif [[ -s "$RESULTS/$name/stderr" ]]; then
@@ -148,12 +149,19 @@ for name in "${tests[@]}"; do
       problems+=" not-signed-on-the-device"
     fi
   fi
-  if [[ -z "$problems" ]]; then
+  if [[ -z "$problems" && "$measures" == yes ]]; then
+    printf 'measured %-26s %5d ms with the launch%s\n' "$name" "$milliseconds" "$signing"
+    sed 's/^/    /' "$RESULTS/$name/stdout"
+  elif [[ -z "$problems" ]]; then
     printf 'same     %-26s %5d ms with the launch%s\n' "$name" "$milliseconds" "$signing"
   else
     failed=1
     echo "DIFFERS  $name:$problems"
-    diff -u "$expected.out" "$RESULTS/$name/stdout" | sed 's/^/    /' || true
+    if [[ "$measures" == yes ]]; then
+      sed 's/^/    /' "$RESULTS/$name/stdout"
+    else
+      diff -u "$expected.out" "$RESULTS/$name/stdout" | sed 's/^/    /' || true
+    fi
     if [[ -f "$expected.err" ]]; then
       diff -u "$expected.err" "$RESULTS/$name/stderr" | sed 's/^/    /' || true
     else
