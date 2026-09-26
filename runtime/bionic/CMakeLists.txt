@@ -117,6 +117,11 @@ include("${CMAKE_BINARY_DIR}/plan.cmake")
 # compiler's outline atomics set themselves up with getauxval and system properties from libc.so.
 target_compile_options(bionic_ld_android PRIVATE -mno-outline-atomics)
 
+# Scudo with our copy of its configuration (ADR-0035): a region of 64 MiB per size class, reserved
+# when the class is first used, instead of 8.25 GiB in one piece at the first malloc. The folder
+# comes before AOSP's config/, so that Scudo's #include "custom_scudo_config.h" finds our copy.
+target_include_directories(bionic_libscudo BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/scudo")
+
 # liblog.so: Minato's own (runtime/bionic/src/liblog.cpp), because Android's needs the logd
 # service. The NDK's API without symbol versions, like the NDK's stub library.
 set(bionic_include "${APK_SOURCES}/bionic/libc/include" "${APK_SOURCES}/bionic/libc/kernel/uapi"

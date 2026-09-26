@@ -134,8 +134,10 @@ static void memory(void) {
     printf("posix_memalign: %d, aligned: %s\n", result, (uintptr_t)aligned % 4096 == 0 ? "yes" : "no");
     free(aligned);
 
-    // Many blocks of many sizes, each filled with its own pattern and checked before it is freed.
-    enum { count = 4000 };
+    // Many blocks of many sizes, each filled with its own pattern and checked before it is freed. At
+    // most 58 MiB of one size class at a time: more than the allocator's region of 64 MiB would spill
+    // over here, with a message, and not on Android, whose regions have 256 MiB (ADR-0035).
+    enum { count = 2000 };
     static unsigned char *blocks[count];
     static size_t sizes[count];
     unsigned long checked = 0;

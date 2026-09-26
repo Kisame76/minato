@@ -40,7 +40,7 @@ ctype: 1 1 1 Q q
 realloc keeps the contents: yes, usable size big enough: yes
 calloc zeroes: yes
 posix_memalign: 0, aligned: yes
-malloc stress: 4333360 bytes checked
+malloc stress: 2165659 bytes checked
 qsort: 0 1 2 3 4 5 6 7 8 9
 bsearch: 7
 gmtime: 2023-11-14 22:13:20 Tue Nov 318, wday 2, yday 317

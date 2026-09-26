@@ -203,6 +203,7 @@ constexpr std::uint64_t geteuid = 175;
 constexpr std::uint64_t getgid = 176;
 constexpr std::uint64_t getegid = 177;
 constexpr std::uint64_t gettid = 178;
+constexpr std::uint64_t socket = 198;
 constexpr std::uint64_t munmap = 215;
 constexpr std::uint64_t clone = 220;
 constexpr std::uint64_t mmap = 222;
@@ -433,6 +434,21 @@ long sys_getrandom(std::uint64_t buffer, std::uint64_t length, unsigned flags) {
     return static_cast<long>(length);
 }
 
+// --- Sockets ----------------------------------------------------------------------------------------
+
+/// No sockets yet. bionic's async_safe_log opens logd's socket with exactly this call before every
+/// message and writes to stderr when it fails. There is no logd here, so the call is refused quietly,
+/// as by a kernel without AF_UNIX: the report would reach the process's stderr past the guest's own
+/// (ADR-0035). Every other socket call is reported.
+long sys_socket(int domain, int type, int protocol) {
+    constexpr int af_unix = 1, sock_dgram = 2, sock_nonblock = 04000, sock_cloexec = 02000000;
+    if (domain == af_unix && type == (sock_dgram | sock_cloexec | sock_nonblock) && protocol == 0) {
+        return -linux_errno::eafnosupport;
+    }
+    report_unsupported(nr::socket);
+    return -linux_errno::enosys;
+}
+
 bool is_write(std::uint64_t number) {
     return number == nr::write || number == nr::writev || number == nr::pwrite64 || number == nr::pwritev;
 }
@@ -487,6 +503,8 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_prlimit64(as_int(x[0]), as_int(x[1]), x[2], x[3]);
         case nr::getrandom:
             return sys_getrandom(x[0], x[1], static_cast<unsigned>(x[2]));
+        case nr::socket:
+            return sys_socket(as_int(x[0]), as_int(x[1]), as_int(x[2]));
 
         case nr::read:
             return sys_read(as_int(x[0]), x[1], x[2]);

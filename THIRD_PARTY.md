@@ -17,6 +17,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 
 **Our changes to Bionic** (`runtime/bionic/`, ADR-0021):
 - `overlay/bionic/libc/arch-arm64/bionic/setjmp.S`: Bionic's file, without saving and restoring `x18` (ADR-0019). License as in the original (BSD, header in the file).
+- `scudo/custom_scudo_config.h`: Scudo's Android configuration (`config/custom_scudo_config.h` of `platform/external/scudo` at `67dd481e24c7`), with regions of 64 MiB, each reserved when its size class is first used, instead of 256 MiB in one piece (`RegionSizeLog` 26, `EnableContiguousRegions` false; ADR-0035). License as in the original: AOSP's BSD header and Apache-2.0 WITH LLVM-exception, both in the file.
 - `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: our own code (Apache-2.0), built with Bionic's private headers.
 - `src/liblog.cpp`, `src/libnetd_client.cpp`: our own small versions of `liblog.so` and `libnetd_client.so` (Apache-2.0), based on the NDK documentation and on what Bionic expects of the library, respectively; no AOSP code adopted.
 

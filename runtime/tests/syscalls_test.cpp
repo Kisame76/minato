@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <set>
@@ -942,6 +943,59 @@ TEST(the_stack_limit_is_androids_and_changes_by_linuxs_rules) {
         CHECK(call(nr_getrlimit, {rlimit_nofile, address(&limits)}) == 0);
         CHECK(limits.soft == 32768 && limits.hard == 32768);
         CHECK(call(nr_getrlimit, {rlimit_as, address(&limits)}) == -enosys);
+    }));
+}
+
+// --- Sockets (ADR-0035) -----------------------------------------------------------------------------
+
+constexpr std::uint64_t nr_socket = 198;
+constexpr std::uint64_t af_unix = 1, af_inet = 2, sock_stream = 1, sock_dgram = 2, sock_nonblock = 04000,
+                        sock_cloexec = 02000000;
+constexpr std::int64_t eafnosupport = 97;
+
+/// What the runtime writes to the process's stderr while `body` runs.
+template <typename Body>
+std::string stderr_of(Body body) {
+    char path[] = "/tmp/apkrt-stderr-XXXXXX";
+    const int file = ::mkstemp(path);
+    const int saved = ::dup(STDERR_FILENO);
+    ::dup2(file, STDERR_FILENO);
+    body();
+    ::dup2(saved, STDERR_FILENO);
+    ::close(saved);
+    std::string text(4096, '\0');
+    const auto length = ::pread(file, text.data(), text.size(), 0);
+    ::close(file);
+    ::unlink(path);
+    text.resize(length > 0 ? static_cast<std::size_t>(length) : 0);
+    return text;
+}
+
+TEST(only_bionics_log_socket_is_refused_quietly) {
+    // bionic's async_safe_log opens logd's socket before every message and writes to stderr when that
+    // fails. There is no logd here, so exactly that call is refused as by a kernel without AF_UNIX, and
+    // without the report, which would reach the process's stderr past the guest's own. Every other
+    // socket call is reported. In a child, since the report comes once per process.
+    CHECK(in_child([] {
+        std::int64_t result = 0;
+        CHECK(stderr_of([&] {
+                  result = call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 0});
+              }).empty());
+        CHECK(result == -eafnosupport);
+        // Linux takes the three as int: the upper halves of the registers do not count.
+        CHECK(stderr_of([&] {
+                  result = call(nr_socket, {af_unix | 0xdead'0000'0000, sock_dgram | sock_cloexec | sock_nonblock |
+                                                                            0xbeef'0000'0000,
+                                            0x1'0000'0000});
+              }).empty());
+        CHECK(result == -eafnosupport);
+        CHECK(stderr_of([&] { result = call(nr_socket, {af_unix, sock_dgram | sock_cloexec, 0}); }) ==
+              "apkrt: Linux syscall 198 is not supported yet\n");
+        CHECK(result == -enosys);
+        CHECK(call(nr_socket, {af_unix, sock_dgram, 0}) == -enosys);
+        CHECK(call(nr_socket, {af_unix, sock_stream | sock_cloexec | sock_nonblock, 0}) == -enosys);
+        CHECK(call(nr_socket, {af_inet, sock_dgram | sock_cloexec | sock_nonblock, 0}) == -enosys);
+        CHECK(call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 1}) == -enosys);
     }));
 }
 
