@@ -142,5 +142,42 @@
       }
     ],
     "cap_bytes": 380000000
+  },
+  "moltenvk": {
+    "comment": "MoltenVK as released by Khronos (ADR-0030, decision 8), fetched by tools/fetch-moltenvk.sh into build/moltenvk/ and checked against the SHA-256 that GitHub's release API states. cap_bytes covers this entry and vulkan-headers together. tools/fetch-sources.py does not read this entry.",
+    "project": "https://github.com/KhronosGroup/MoltenVK",
+    "tag": "v1.4.2",
+    "commit": "db66022459ffb663aa2b50f6b018bc2e124f5edf",
+    "license": "Apache-2.0; inside: SPIRV-Cross and SPIRV-Tools (Apache-2.0), cereal (BSD-3-Clause), SPIRV-Headers (MIT), Vulkan-Headers (Apache-2.0 OR MIT)",
+    "assets": [
+      {
+        "name": "MoltenVK-ios.tar",
+        "url": "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar",
+        "bytes": 34535424,
+        "sha256": "b5d947b1660e6e9fed40b9cd2387e160aaab9e80b775c0cef7e14059405178c1"
+      },
+      {
+        "name": "MoltenVK-macos.tar",
+        "url": "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar",
+        "bytes": 59563008,
+        "sha256": "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
+      }
+    ],
+    "cap_bytes": 100000000
+  },
+  "vulkan-headers": {
+    "comment": "Only vk.xml, for the thunk generator (ADR-0030, decision 9), at the Vulkan-Headers that MoltenVK v1.4.2 was built against; fetched by tools/fetch-moltenvk.sh to build/moltenvk/vk.xml and checked against its Git blob ID.",
+    "project": "https://github.com/KhronosGroup/Vulkan-Headers",
+    "tag": "v1.4.357",
+    "commit": "e3b1eec08173d6b825cd3ac88c885a63b621504a",
+    "license": "Apache-2.0 OR MIT",
+    "files": [
+      {
+        "path": "vk.xml",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/e3b1eec08173d6b825cd3ac88c885a63b621504a/registry/vk.xml",
+        "bytes": 3290524,
+        "git_blob": "107af9f81e0bb9d53f1c26319b35814e1d5c7b52"
+      }
+    ]
   }
 }

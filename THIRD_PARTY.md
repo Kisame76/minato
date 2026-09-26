@@ -44,6 +44,21 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 
 The BSD licenses ask for their notices with every binary: the license texts go into the app bundle when the app embeds the framework (the App chat). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 
+## Graphics: MoltenVK (ADR-0030)
+
+MoltenVK 1.4.2 as Khronos released it (tag `v1.4.2`, commit `db660224`), from `github.com/KhronosGroup/MoltenVK/releases`. `tools/fetch-moltenvk.sh` fetches it into `build/moltenvk/` (not in the repo), checked against the SHA-256 in [`third_party/sources.json`](third_party/sources.json). The app embeds the dynamic framework for the device from `build/MoltenVK.xcframework`; nothing of it is built or changed.
+
+| Part in `MoltenVK.framework` | Version | License |
+|---|---|---|
+| MoltenVK | `v1.4.2` @`db660224` | Apache-2.0 |
+| SPIRV-Cross | `6c09849f` | Apache-2.0 |
+| SPIRV-Tools | `0d6fd73c` | Apache-2.0 |
+| cereal (headers only) | `a56bad8b` | BSD-3-Clause |
+| SPIRV-Headers (headers only) | `29981f65` | MIT |
+| Vulkan-Headers (headers only) | `v1.4.357` @`e3b1eec0` | Apache-2.0 OR MIT |
+
+Only MoltenVK's own license text comes with the release; the texts of its parts are still to be fetched from their repositories at these commits, for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030.
+
 ## Time zones
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.

@@ -33,6 +33,18 @@ foreach(test IN ITEMS fixed_size commit_gate)
   set_tests_properties(graphics.angle_${test} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 endforeach()
 
+# ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
+if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")
+  add_executable(moltenvk-smoke moltenvk_smoke.cpp)
+  target_include_directories(moltenvk-smoke SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(moltenvk-smoke PRIVATE apk_defaults)
+  add_test(NAME graphics.moltenvk_smoke COMMAND moltenvk-smoke "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
+else()
+  add_test(NAME graphics.moltenvk_smoke
+    COMMAND ${CMAKE_COMMAND} -E echo "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
+endif()
+set_tests_properties(graphics.moltenvk_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+
 # Test 3: every GLES and EGL function of the NDK's stubs is exported by the three slices or on the stub list.
 if(DEFINED ENV{ANDROID_NDK})
   set(ndk_default "$ENV{ANDROID_NDK}")
