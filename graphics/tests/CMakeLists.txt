@@ -58,3 +58,10 @@ add_test(NAME graphics.angle_exports
     --angle "${APK_ANGLE_DIR}" --ndk "${APK_ANDROID_NDK}"
     --stubs "${PROJECT_SOURCE_DIR}/third_party/angle/stubs.txt")
 set_tests_properties(graphics.angle_exports PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
+# ADR-0030, test 1: the generator in tools/frontgen/, against the NDK's C headers read by ndk_headers.py.
+add_test(NAME graphics.frontgen
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/frontgen_test.py"
+    --repo "${PROJECT_SOURCE_DIR}" --vk-xml "${APK_MOLTENVK_DIR}/vk.xml" --angle "${APK_ANGLE_DIR}"
+    --ndk "${APK_ANDROID_NDK}" --work "${CMAKE_CURRENT_BINARY_DIR}/frontgen")
+set_tests_properties(graphics.frontgen PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)

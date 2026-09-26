@@ -1,0 +1,57 @@
+# libvulkan for tools/frontgen (ADR-0030, decisions 5, 7, 10 and 11). The functions under "hand" are
+# written in C in graphics/vulkan/; every other name in the table gets a generated stub. Offered
+# extensions are the ones the generator keeps here, cut at run time to those MoltenVK reports
+# (decision 11: never passed through blindly).
+registry vulkan
+library libvulkan.so 35
+
+# Decision 10: the exports written by hand.
+hand vkCreateInstance vkDestroyInstance vkEnumerateInstanceVersion vkEnumerateInstanceExtensionProperties
+hand vkEnumerateInstanceLayerProperties vkEnumerateDeviceExtensionProperties vkEnumerateDeviceLayerProperties
+hand vkGetInstanceProcAddr vkGetDeviceProcAddr vkCreateDevice vkDestroyDevice vkGetDeviceQueue vkGetDeviceQueue2
+hand vkCreateAndroidSurfaceKHR vkDestroySurfaceKHR vkGetPhysicalDeviceSurfaceSupportKHR
+hand vkGetPhysicalDeviceSurfaceCapabilitiesKHR vkGetPhysicalDeviceSurfaceFormatsKHR
+hand vkGetPhysicalDeviceSurfacePresentModesKHR vkGetPhysicalDevicePresentRectanglesKHR
+hand vkGetDeviceGroupPresentCapabilitiesKHR vkGetDeviceGroupSurfacePresentModesKHR
+hand vkCreateSwapchainKHR vkDestroySwapchainKHR vkGetSwapchainImagesKHR vkAcquireNextImageKHR
+hand vkAcquireNextImage2KHR vkQueuePresentKHR
+hand vkQueueSubmit vkQueueSubmit2 vkQueueBindSparse vkQueueWaitIdle vkDeviceWaitIdle vkWaitForFences
+hand vkWaitSemaphores vkGetQueryPoolResults
+hand vkGetAndroidHardwareBufferPropertiesANDROID vkGetMemoryAndroidHardwareBufferANDROID
+# Decision 10: beyond the exports, those of VK_KHR_get_surface_capabilities2 and the debug extensions'
+# callbacks (decision 5).
+hand vkGetPhysicalDeviceSurfaceCapabilities2KHR vkGetPhysicalDeviceSurfaceFormats2KHR
+hand vkCreateDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT
+hand vkCreateDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT
+
+# Decision 11: the extensions libvulkan implements itself.
+own VK_KHR_surface VK_KHR_surface_protected_capabilities VK_KHR_android_surface VK_EXT_swapchain_colorspace
+own VK_KHR_get_surface_capabilities2 VK_GOOGLE_surfaceless_query VK_KHR_swapchain VK_KHR_incremental_present
+
+# Decision 11, never offered: what is Apple's or Metal's,
+exclude VK_EXT_metal_surface VK_EXT_headless_surface VK_EXT_metal_objects VK_EXT_external_memory_metal
+exclude-prefix VK_MVK_
+# what libvulkan enables or pins itself, and what it never asks MoltenVK for,
+exclude VK_KHR_portability_subset VK_EXT_layer_settings VK_KHR_portability_enumeration
+# calibrated timestamps, whose MONOTONIC_RAW clock differs from the guest's (F10),
+exclude VK_EXT_calibrated_timestamps VK_KHR_calibrated_timestamps
+# every extension with a command that takes a swapchain or a surface, since decision 12 puts its own
+# swapchain in between; the same for extensions that add structures or values to what that swapchain
+# creates, presents or answers (VK_KHR_present_id and the surface maintenance ones among them),
+exclude-if-takes VkSwapchainKHR VkSurfaceKHR
+exclude-if-extends VkSwapchainCreateInfoKHR VkPresentInfoKHR VkPhysicalDeviceSurfaceInfo2KHR
+exclude-if-extends VkSurfaceCapabilities2KHR VkSurfaceFormat2KHR VkPresentModeKHR VkSwapchainCreateFlagBitsKHR
+exclude-if-extends VkColorSpaceKHR
+# and what this ADR leaves for later: AHardwareBuffer and file descriptors,
+exclude VK_ANDROID_external_memory_android_hardware_buffer
+exclude VK_KHR_external_memory_fd VK_KHR_external_semaphore_fd VK_KHR_external_fence_fd
+# with the extensions whose structures leave pNext (decision 5).
+exclude VK_EXT_device_memory_report VK_LUNARG_direct_driver_loading
+platform android
+
+# Decision 5: the structures with function pointers and what libvulkan does with each.
+structure VkAllocationCallbacks null
+structure VkDebugUtilsMessengerCreateInfoEXT host-callback
+structure VkDebugReportCallbackCreateInfoEXT host-callback
+structure VkDeviceDeviceMemoryReportCreateInfoEXT removed
+structure VkDirectDriverLoadingInfoLUNARG removed

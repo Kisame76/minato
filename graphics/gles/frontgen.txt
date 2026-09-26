@@ -1,0 +1,12 @@
+# libGLESv2 and libGLESv3 for tools/frontgen (ADR-0029, decisions 13 and 14; ADR-0030, decision 7): one
+# source, one table, two export lists. The functions under "hand" are written in C in graphics/gles/;
+# every other name in the table gets a generated stub. At run time glGetString(GL_EXTENSIONS) and
+# glGetStringi list only extensions whose functions are all in the table (ADR-0029, decision 14).
+registry gl
+library libGLESv2.so 35
+library libGLESv3.so 35
+
+# ADR-0029, decision 14: the extension filter, the debug callback (decision 16), and glClientWaitSync,
+# which waits in slices (ADR-0030, decision 4).
+hand glGetString glGetStringi glDebugMessageCallback glDebugMessageCallbackKHR glGetPointerv glGetPointervKHR
+hand glClientWaitSync
