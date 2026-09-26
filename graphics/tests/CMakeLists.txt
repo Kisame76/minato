@@ -132,8 +132,21 @@ if(TARGET minato_graphics_host)
   add_bind_test(bind_missing bind_test_missing "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-driver>"
     "MINATO_ANGLE=set:$<TARGET_FILE:fake-driver>")
   add_bind_test(bind_no_driver bind_test_no_driver "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
+  # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
+  # logs to stderr in between, so the probe's lines are matched, not the whole output.
+  if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
+    add_executable(graphics-probe graphics_probe.c)
+    target_link_libraries(graphics-probe PRIVATE minato_graphics_host apk_defaults)
+    add_test(NAME graphics.probe COMMAND graphics-probe "${moltenvk}")
+    set_tests_properties(graphics.probe PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION
+      "graphics probe: MoltenVK opened from [^\n]*/libMoltenVK\\.dylib\n.*graphics probe: an instance at Vulkan 1\\.3 with VK_KHR_surface and VK_EXT_metal_surface, MoltenVK offers 1\\.4\\.357\n.*graphics probe: GPU [^\n]+, driver MoltenVK 1\\.4\\.2, device at Vulkan 1\\.3\\.357\n.*graphics probe: a Metal surface on a CAMetalLayer of 64 x 64 points at scale 3, 192 x 192 pixels, presentable from queue family 0\n.*graphics probe: surface and instance destroyed\n")
+  else()
+    add_test(NAME graphics.probe COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
+    set_tests_properties(graphics.probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endif()
 else()
-  foreach(name IN ITEMS bind bind_missing bind_no_driver)
+  foreach(name IN ITEMS bind bind_missing bind_no_driver probe)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

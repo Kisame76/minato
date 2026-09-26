@@ -26,6 +26,7 @@ fi
 
 tools/gen.sh
 tools/build-native.sh --app
+tools/build-graphics-host.sh
 read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Debug \

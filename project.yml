@@ -1,6 +1,7 @@
 # XcodeGen spec. Generate the Xcode project with `xcodegen generate`.
 # Minato.xcodeproj, app/Info.plist and app/Minato.entitlements are generated and not versioned.
 # Before building in Xcode, run tools/build-native.sh --app once: the app links build/APKRuntime.xcframework.
+# It also links build/MinatoGraphics.xcframework from tools/build-graphics-host.sh.
 name: Minato
 
 options:
@@ -52,6 +53,14 @@ targets:
       # Converter and signer (importer/converter/, C++): ELF to signed container on the iPhone (ADR-0022).
       - framework: build/APKConvert.xcframework
         embed: false
+      # The host side of the graphics (graphics/host, ADR-0030). tools/build-graphics-host.sh builds it.
+      - framework: build/MinatoGraphics.xcframework
+        embed: false
+      # MoltenVK (ADR-0030): embedded and signed in device builds, not linked; graphics/host opens it with
+      # dlopen. The framework itself, since Xcode wants a Simulator slice of every xcframework it embeds.
+      - framework: build/MoltenVK.xcframework/ios-arm64/MoltenVK.framework
+        embed: true
+        link: false
     info:
       path: app/Info.plist
       properties:
@@ -112,6 +121,13 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: app/Sources/Minato-Bridging-Header.h
         # YES puts the fixture tests into Debug builds (tools/embed-fixtures.sh); tools/device-suite.sh sets it.
         APK_EMBED_FIXTURES: NO
+        # MoltenVK has no Simulator slice (ADR-0030, decision 8).
+        "EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]": MoltenVK.framework
+      configs:
+        Debug:
+          # graphics/host's probe (ADR-0030 V3), in Debug builds only: with MINATO_GRAPHICS_PROBE set,
+          # it checks the embedded MoltenVK before main and ends the app.
+          OTHER_LDFLAGS: ["$(inherited)", "-Wl,-u,_minato_graphics_probe"]
     postBuildScripts:
       - name: Build spike test dylibs
         script: exec "$SRCROOT/tools/build-spike-dylibs.sh"
