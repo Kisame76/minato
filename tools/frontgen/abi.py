@@ -106,7 +106,11 @@ def signature(result, params):
 
 def check_callback(name, result, params):
     """A callback's arguments are 32-bit or wider, or pointers, and its result 32-bit, a pointer or void
-    (ADR-0030, decision 5): then it needs no conversion either way."""
+    (ADR-0030, decision 5): then it needs no conversion either way. graphics/host calls it through
+    apkrt_call_guest, which passes at most 8 integer and pointer arguments and returns only x0, so it takes
+    no more than 8 arguments and no floating-point value either way."""
+    if len(params) > 8:
+        raise Refused(f"callback {name}: {len(params)} arguments, more than 8 arguments")
     for index, value in [(None, result)] + list(enumerate(params)):
         what = "result" if index is None else f"argument {index + 1}"
         why = refusal(value, what)
@@ -114,3 +118,6 @@ def check_callback(name, result, params):
             raise Refused(f"callback {name}: {why}")
         if value.kind == "int" and value.size < 4:
             raise Refused(f"callback {name}: a {what} under 32 bits ({value.text!r})")
+        if value.kind == "float":
+            kind = "result" if index is None else "argument"
+            raise Refused(f"callback {name}: a floating-point {kind} ({what} {value.text!r})")

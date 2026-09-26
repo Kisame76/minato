@@ -16,6 +16,14 @@ HEADERS = {
     "egl": ["KHR/khrplatform.h", "EGL/eglplatform.h", "EGL/egl.h", "EGL/eglext.h"],
     "vulkan": ["vulkan/vulkan_core.h", "vulkan/vulkan_android.h"],
 }
+# For the names the NDK lacks (ANGLE's extensions, Vulkan's newer commands): the host library's own C
+# headers, below ANGLE's include/ or MoltenVK's include/.
+HOST_HEADERS = {
+    "gles": ["KHR/khrplatform.h", "GLES2/gl2.h", "GLES2/gl2ext.h", "GLES2/gl2ext_angle.h", "GLES3/gl3.h",
+             "GLES3/gl31.h", "GLES3/gl32.h"],
+    "egl": ["KHR/khrplatform.h", "EGL/eglplatform.h", "EGL/egl.h", "EGL/eglext.h", "EGL/eglext_angle.h"],
+    "vulkan": ["vulkan/vulkan_core.h", "vulkan/vulkan_android.h"],
+}
 PROTOTYPE = {
     "gles": re.compile(r"GL_APICALL\s+([^;]*?)\s*GL_APIENTRY\s+(\w+)\s*\(([^;]*?)\)\s*;"),
     "egl": re.compile(r"EGLAPI\s+([^;]*?)\s*EGLAPIENTRY\s+(\w+)\s*\(([^;]*?)\)\s*;"),
@@ -93,13 +101,15 @@ def ndk_exports(ndk, lib, api=35):
 
 
 class Headers:
-    """The prototypes and types of one front lib's headers."""
+    """The prototypes and types of one front lib's headers: the NDK's, or with `include` the host library's
+    (HOST_HEADERS)."""
 
-    def __init__(self, ndk, lib):
-        include = os.path.join(sysroot(ndk), "sysroot", "usr", "include")
+    def __init__(self, ndk, lib, include=None):
+        headers = HOST_HEADERS[lib] if include else HEADERS[lib]
+        include = include or os.path.join(sysroot(ndk), "sysroot", "usr", "include")
         self.typedefs, self.callbacks, self.structs, self.enums, self.handles = {}, set(), set(), set(), set()
         texts = []
-        for header in HEADERS[lib]:
+        for header in headers:
             with open(os.path.join(include, header)) as file:
                 text = COMMENT.sub(" ", file.read())
             texts.append(text)
@@ -168,26 +178,32 @@ class Headers:
         raise KeyError(f"unknown type {name!r} in {text!r}")
 
 
-def stack_places(params):
-    """The offsets of the arguments that go on the stack, in AAPCS64 (an 8-byte slot each) and in
-    Apple's ABI (natural size and alignment), and whether one of them is smaller than 32 bits."""
+def places(params):
+    """Per argument its place: ("x", n) or ("v", n), the same register in both ABIs, or ("stack", aapcs,
+    apple), its offset in AAPCS64's stack area (an 8-byte slot each) and in Apple's (natural size and
+    alignment)."""
     general = floating = 0
-    aapcs, apple, small = [], [], False
-    offset = 0
+    result, offset = [], 0
     for param in params:
-        if param.kind == "float":
-            if floating < 8:
-                floating += 1
-                continue
-        elif general < 8:
+        if param.kind == "float" and floating < 8:
+            result.append(("v", floating))
+            floating += 1
+        elif param.kind != "float" and general < 8:
+            result.append(("x", general))
             general += 1
-            continue
-        aapcs.append(8 * len(aapcs))
-        offset = (offset + param.size - 1) // param.size * param.size
-        apple.append(offset)
-        offset += param.size
-        small = small or (param.kind == "int" and param.size < 4)
-    return aapcs, apple, small
+        else:
+            offset = (offset + param.size - 1) // param.size * param.size
+            result.append(("stack", 8 * sum(place[0] == "stack" for place in result), offset))
+            offset += param.size
+    return result
+
+
+def stack_places(params):
+    """The offsets of the arguments that go on the stack, in AAPCS64 and in Apple's ABI, and whether one
+    of them is smaller than 32 bits."""
+    stack = [(place, param) for place, param in zip(places(params), params) if place[0] == "stack"]
+    return ([place[1] for place, _ in stack], [place[2] for place, _ in stack],
+            any(param.kind == "int" and param.size < 4 for _, param in stack))
 
 
 def classify(prototype):

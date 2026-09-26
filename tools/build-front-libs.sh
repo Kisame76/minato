@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Builds the guest side of Minato's graphics (ADR-0029, ADR-0030) for arm64-v8a with the Android NDK:
+# tools/frontgen's tables, stubs and export lists into build/graphics/gen/, and graphics/guest/'s programs
+# into build/graphics/guest/bin (so far ADR-0030's thunk-test; the front libs follow). Needs vk.xml from
+# tools/fetch-moltenvk.sh and ANGLE's registries from tools/build-angle.sh.
+# Usage: tools/build-front-libs.sh
+# Optional environment:
+#   ANDROID_NDK  NDK to build with, default: r30 in ~/Library/Android/sdk/ndk
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
+if [[ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]]; then
+  echo "No Android NDK at $NDK. Set ANDROID_NDK to its folder." >&2
+  exit 1
+fi
+
+# API level 29, as the fixtures (tools/build-fixtures.sh).
+cmake -S graphics/guest -B build/graphics/guest -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
+cmake --build build/graphics/guest -j 6

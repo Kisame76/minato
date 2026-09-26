@@ -7,11 +7,11 @@ Khronos XML, the NDK's stubs and the front lib's description in graphics/<lib>/f
                              [--vk-xml PATH] [--angle DIR] [--ndk DIR]
   tools/frontgen/frontgen.py --check REGISTRY.xml --dialect vulkan|gl|egl
 
-Writes into --out, never into the repo: <lib>_table.h (the table's layout, for the guest and the host
-build), <lib>_names.inc (the provider's name list, in the table's order), one <library>.map per library
-(its version script) and <lib>_report.json (the sorting, name by name). The stubs themselves (.S) follow
-in step V3. --check reads one registry on its own and says, for each command and callback in it, whether
-it can cross between the two ABIs. Standard library only."""
+Writes into --out, never into the repo: <lib>_stubs.S (the table and a stub per name, guest code),
+<lib>_table.h (the table's layout, for the guest and the host build), <lib>_names.inc (the provider's
+name list, in the table's order), one <library>.map per library (its version script) and
+<lib>_report.json (the sorting, name by name). --check reads one registry on its own and says, for each
+command and callback in it, whether it can cross between the two ABIs. Standard library only."""
 import argparse
 import glob
 import hashlib
@@ -292,6 +292,63 @@ def registry_paths(lib, options):
             os.path.join(options.angle, "scripts", "egl_angle_ext.xml"))
 
 
+COPY = {1: ("ldrb", "strb", "w16"), 2: ("ldrh", "strh", "w16"), 4: ("ldr", "str", "w16"), 8: ("ldr", "str", "x16")}
+
+
+def stub(front, entry, slot):
+    """One stub (decision 2): extend the small arguments, set the allocator to NULL, then branch to the
+    entry with the host function in x16; with stack arguments at other places, a frame of the stub's own
+    copies them into Apple's layout and calls the entry. Only x16 and x17 besides the arguments it changes,
+    and x29 and x30, saved, in a frame."""
+    symbol = f"minato_host_{entry['name']}" if entry["kind"] == "by hand" else entry["name"]
+    params = front.registry.command(entry["name"]).params
+    registers = abi.places(params)
+    if entry["allocator"] and entry["abi"] != "same":
+        raise GeneratorError(f"{front.lib}: {entry['name']} takes an allocator and needs {entry['abi']}")
+    if 8 * slot > 32760:
+        raise GeneratorError(f"{front.lib}: slot {slot} lies beyond what one ldr reaches from the table")
+    lines = ["", f"    .globl {symbol}"]
+    if symbol not in front.exported:
+        lines.append(f"    .hidden {symbol}")
+    lines += [f"    .type {symbol}, %function", "    .p2align 2", f"{symbol}:", "    .cfi_startproc"]
+    lines += [f"    {instruction} {register}, {register}" for register, instruction in entry["extend"]]
+    for index in entry["allocator"]:
+        if registers[index][0] != "x":
+            raise GeneratorError(f"{front.lib}: {entry['name']} passes its allocator on the stack")
+        lines.append(f"    mov x{registers[index][1]}, xzr")
+    table = f"minato_{front.lib}_table"
+    load = [f"    adrp x17, {table}", f"    add x17, x17, :lo12:{table}", f"    ldr x16, [x17, #{8 * slot}]",
+            "    ldr x17, [x17]"]
+    if entry["abi"] != "repack":
+        lines += load + ["    br x17"]
+    else:
+        frame = (max(apple + size for _, apple, size in entry["stack"]) + 15) // 16 * 16
+        lines += ["    stp x29, x30, [sp, #-16]!", "    .cfi_def_cfa_offset 16", "    .cfi_offset w30, -8",
+                  "    .cfi_offset w29, -16", "    mov x29, sp", "    .cfi_def_cfa w29, 16", f"    sub sp, sp, #{frame}"]
+        for aapcs, apple, size in entry["stack"]:
+            read, written, register = COPY[size]
+            lines += [f"    {read} {register}, [x29, #{16 + aapcs}]", f"    {written} {register}, [sp, #{apple}]"]
+        lines += load + ["    blr x17", "    mov sp, x29", "    ldp x29, x30, [sp], #16", "    .cfi_def_cfa sp, 0",
+                         "    .cfi_restore w30", "    .cfi_restore w29", "    ret"]
+    return lines + ["    .cfi_endproc", f"    .size {symbol}, . - {symbol}"]
+
+
+def stubs(front, note):
+    """<lib>_stubs.S: the table, zero until the runtime binds it (decision 3), and a stub per name in the
+    table's order."""
+    table, length = f"minato_{front.lib}_table", len(front.table) + 1
+    lines = [f"// {note}",
+             f"// Guest code. {table} holds the runtime's entry apkrt_host_call in slot 0 and the host functions",
+             "// after it; each stub loads its host function into x16 and the entry into x17 and branches to the",
+             "// entry (decision 2). A name written by hand gets its stub as minato_host_<name>, for the function",
+             "// written by hand to call.", "", "    .bss", "    .p2align 3", f"    .globl {table}",
+             f"    .hidden {table}", f"    .type {table}, %object", f"{table}:", f"    .zero {8 * length}",
+             f"    .size {table}, {8 * length}", "", "    .text"]
+    for slot, entry in enumerate(front.table, 1):
+        lines += stub(front, entry, slot)
+    return "\n".join(lines) + "\n"
+
+
 def write(front, out, inputs):
     os.makedirs(out, exist_ok=True)
     lib, prefix = front.lib, f"MINATO_{front.lib.upper()}"
@@ -306,7 +363,8 @@ def write(front, out, inputs):
     header += [f"    {prefix}_SLOT_{entry['name']} = {index}," for index, entry in enumerate(front.table, 1)]
     header += ["};", "", f"#endif", ""]
     files = {f"{lib}_table.h": "\n".join(header),
-             f"{lib}_names.inc": f"/* {note} */\n" + "".join(f"\"{entry['host']}\",\n" for entry in front.table)}
+             f"{lib}_names.inc": f"/* {note} */\n" + "".join(f"\"{entry['host']}\",\n" for entry in front.table),
+             f"{lib}_stubs.S": stubs(front, note)}
     for soname, names in front.exports.items():
         body = "".join(f"    {name};\n" for name in names)
         files[soname.replace(".so", ".map")] = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"

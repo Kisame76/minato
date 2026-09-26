@@ -65,3 +65,23 @@ add_test(NAME graphics.frontgen
     --repo "${PROJECT_SOURCE_DIR}" --vk-xml "${APK_MOLTENVK_DIR}/vk.xml" --angle "${APK_ANGLE_DIR}"
     --ndk "${APK_ANDROID_NDK}" --work "${CMAKE_CURRENT_BINARY_DIR}/frontgen")
 set_tests_properties(graphics.frontgen PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
+# ADR-0030, test 2: thunk-test, a guest program from tools/build-front-libs.sh, calls every stub with
+# garbage; it runs as the fixtures do (tools/run-fixture.cmake), with bionic's libraries as the system's,
+# and prints "skipped:" while it is not built.
+set(APK_GRAPHICS_GUEST_DIR "${PROJECT_SOURCE_DIR}/build/graphics/guest/bin" CACHE PATH
+  "The guest programs from tools/build-front-libs.sh")
+set(thunk_system_libraries libc libm libdl ld-android liblog libnetd_client)
+list(TRANSFORM thunk_system_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
+add_test(NAME graphics.thunk
+  COMMAND ${CMAKE_COMMAND}
+    -D CONVERT=$<TARGET_FILE:apk-convert>
+    -D RUN=$<TARGET_FILE:apk-run>
+    -D TEST=thunk-test
+    -D FIXTURE=${APK_GRAPHICS_GUEST_DIR}/thunk-test
+    "-D SYSTEM_LIBRARIES=${thunk_system_libraries}"
+    -D WORK=${CMAKE_CURRENT_BINARY_DIR}/thunk_runs
+    -D EXPECTED_OUTPUT=${CMAKE_CURRENT_SOURCE_DIR}/thunk_test.out
+    -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
+    -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
+set_tests_properties(graphics.thunk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)

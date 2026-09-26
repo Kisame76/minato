@@ -5,9 +5,10 @@
   reading of its own): per name, and in the counts that ADR-0029 and ADR-0030 name.
 - Every alias that the XML names for a function written by hand gets that function; every exported name
   is in the table and in the export list; the five structures with function pointers are handled.
-- The table's hash is stable: two runs under other hash seeds write the same files.
-- Small XML samples with a variadic function, a structure by value, a long double, a char by value or a
-  callback with a small result are refused.
+- The table's hash is stable: two runs under other hash seeds write the same files. build/graphics/gen/,
+  from which tools/build-front-libs.sh builds test 2's program, holds the same files when it exists.
+- Small XML samples with a variadic function, a structure by value, a long double, a char by value, a
+  callback with a small result, more than 8 arguments or a floating-point argument or result are refused.
 
 Prints "skipped:" while vk.xml (tools/fetch-moltenvk.sh), ANGLE's registries (tools/build-angle.sh) or
 the NDK is missing, so CTest stays green for everyone else."""
@@ -234,6 +235,16 @@ SAMPLES = {
     "callback with a small result": ("a result under 32 bits", "vulkan", """
         <command><proto><type>void</type> <name>vkSampleCallback</name></proto>
             <param><type>PFN_vkSampleSmall</type> <name>callback</name></param></command>"""),
+    # apkrt_call_guest passes at most 8 integer and pointer arguments and returns x0 (decision 5).
+    "callback with 9 arguments": ("more than 8 arguments", "vulkan", """
+        <command><proto><type>void</type> <name>vkSampleNine</name></proto>
+            <param><type>PFN_vkSampleNine</type> <name>callback</name></param></command>"""),
+    "callback with a floating-point argument": ("a floating-point argument", "vulkan", """
+        <command><proto><type>void</type> <name>vkSampleFloat</name></proto>
+            <param><type>PFN_vkSampleFloat</type> <name>callback</name></param></command>"""),
+    "callback with a floating-point result": ("a floating-point result", "vulkan", """
+        <command><proto><type>void</type> <name>vkSampleFloatResult</name></proto>
+            <param><type>PFN_vkSampleFloatResult</type> <name>callback</name></param></command>"""),
     "GL char by value": ("a char by value", "gl", """
         <command><proto>void <name>glSampleChar</name></proto>
             <param><ptype>GLchar</ptype> <name>value</name></param></command>"""),
@@ -260,6 +271,13 @@ REGISTRY = {
         <type category="struct" name="VkExtent2D"><member><type>uint32_t</type> <name>width</name></member></type>
         <type category="funcpointer"><proto><type>uint8_t</type> <name>PFN_vkSampleSmall</name></proto>
             <param><type>uint32_t</type> <name>value</name></param></type>
+        <type category="funcpointer"><proto><type>void</type> <name>PFN_vkSampleNine</name></proto>
+            """ + "".join(f"<param><type>uint32_t</type> <name>a{n}</name></param>" for n in range(9)) + """</type>
+        <type requires="vk_platform" name="float"/>
+        <type category="funcpointer"><proto><type>void</type> <name>PFN_vkSampleFloat</name></proto>
+            <param><type>uint32_t</type> <name>index</name></param><param><type>float</type> <name>value</name></param></type>
+        <type category="funcpointer"><proto><type>float</type> <name>PFN_vkSampleFloatResult</name></proto>
+            <param><type>uint32_t</type> <name>index</name></param></type>
         </types><commands>{commands}</commands></registry>""",
     "gl": """<registry><types>
         <type>typedef char <name>GLchar</name>;</type><type>typedef unsigned char <name>GLboolean</name>;</type>
@@ -288,6 +306,18 @@ def check_samples(options, work):
         lines = [line for line in output.splitlines() if "refused" in line]
         check(code != 0 and len(lines) == 1 and reason in lines[0],
               f"a sample with a {what} is refused for it ({' | '.join(lines)[:200]})")
+
+
+def check_built(repo, fresh):
+    """Test 2 runs thunk-test as tools/build-front-libs.sh built it from build/graphics/gen/: files there
+    that differ from the generator's own output would let test 2 pass on stale stubs."""
+    built = os.path.join(repo, "build", "graphics", "gen")
+    if not os.path.isdir(built):
+        return
+    stale = [name for name in sorted(os.listdir(fresh)) if not os.path.exists(os.path.join(built, name))
+             or not filecmp.cmp(os.path.join(fresh, name), os.path.join(built, name), shallow=False)]
+    check(not stale, f"build/graphics/gen/ holds the generator's current output; otherwise rerun "
+                     f"tools/build-front-libs.sh ({', '.join(stale[:6])})")
 
 
 def main():
@@ -335,6 +365,7 @@ def main():
         if lib == "vulkan":
             check_structures(report, registry)
     check_samples(options, options.work)
+    check_built(options.repo, first)
 
     print(f"{len(failures)} of the checks failed" if failures else "all checks passed")
     return 1 if failures else 0
