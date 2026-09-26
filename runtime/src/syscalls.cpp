@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -381,24 +382,44 @@ long sys_prctl(int option, std::uint64_t argument) {
     }
 }
 
+/// The guest's RLIMIT_STACK, at first Android's: 8 MiB soft and no hard limit (RLIM_INFINITY)
+/// (ADR-0035). The main thread's stack stays 8 MiB whatever the guest sets (program.cpp), where Linux
+/// would let a higher soft limit grow it.
+std::mutex stack_limit_mutex;
+apkrt::descriptors::Limits stack_limit = {8 << 20, ~std::uint64_t{0}};  // guarded by stack_limit_mutex
+
 /// prlimit64, and getrlimit and setrlimit, which are prlimit64 of the calling process. struct rlimit
-/// and struct rlimit64 are two 64-bit words on arm64. Only RLIMIT_NOFILE so far: the descriptor table's
-/// (ADR-0027).
+/// and struct rlimit64 are two 64-bit words on arm64. RLIMIT_NOFILE is the descriptor table's
+/// (ADR-0027) and RLIMIT_STACK Android's (ADR-0035); the other resources are not supported yet.
 long sys_prlimit64(int pid, int resource, std::uint64_t new_address, std::uint64_t old_address) {
-    constexpr int rlimit_nofile = 7;
+    constexpr int rlimit_stack = 3, rlimit_nofile = 7;
+    using apkrt::descriptors::Limits;
     if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
-    if (resource != rlimit_nofile) {
+    if (resource != rlimit_stack && resource != rlimit_nofile) {
         char message[80];
         std::snprintf(message, sizeof message, "apkrt: resource limit %d is not supported yet\n", resource);
         report(message);
         return -linux_errno::enosys;
     }
-    const auto previous = apkrt::descriptors::limits();
-    if (new_address != 0) {
-        const auto requested = *as_pointer<const apkrt::descriptors::Limits>(new_address);
-        if (const long result = apkrt::descriptors::set_limits(requested); result != 0) return result;
+    std::optional<Limits> requested;
+    if (new_address != 0) requested = *as_pointer<const Limits>(new_address);
+    Limits previous{};
+    if (resource == rlimit_stack) {
+        // setrlimit's rules, as descriptors::set_limits has them for RLIMIT_NOFILE.
+        const std::lock_guard lock(stack_limit_mutex);
+        previous = stack_limit;
+        if (requested) {
+            if (requested->soft > requested->hard) return -linux_errno::einval;
+            if (requested->hard > stack_limit.hard) return -linux_errno::eperm;
+            stack_limit = *requested;
+        }
+    } else {
+        previous = apkrt::descriptors::limits();
+        if (requested) {
+            if (const long result = apkrt::descriptors::set_limits(*requested); result != 0) return result;
+        }
     }
-    if (old_address != 0) *as_pointer<apkrt::descriptors::Limits>(old_address) = previous;
+    if (old_address != 0) *as_pointer<Limits>(old_address) = previous;
     return 0;
 }
 

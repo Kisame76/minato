@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -23,6 +24,7 @@
 #include <initializer_list>
 #include <set>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -871,6 +873,76 @@ TEST(prctl_offers_no_tagged_address_abi) {
     // PR_SET_TAGGED_ADDR_CTRL: with it, bionic would tag heap pointers in the top byte.
     CHECK(call(nr_prctl, {55, 1, 0, 0, 0}) == -einval);
     CHECK(call(nr_prctl, {56, 0, 0, 0, 0}) == -einval);
+}
+
+// --- Resource limits (ADR-0035) ---------------------------------------------------------------------
+
+constexpr std::uint64_t nr_getrlimit = 163, nr_setrlimit = 164, nr_prlimit64 = 261;
+constexpr std::uint64_t rlimit_stack = 3, rlimit_nofile = 7, rlimit_as = 9;
+constexpr std::uint64_t rlim_infinity = ~std::uint64_t{0};
+constexpr std::uint64_t mib = 1 << 20;
+constexpr std::int64_t eperm = 1, enosys = 38;
+
+/// Runs `body` in a child process and returns whether its checks passed there, as descriptors_test.cpp
+/// does: for changes the process cannot take back. It runs on a thread of its own there, with a signal
+/// state of its own.
+template <typename Body>
+bool in_child(Body body) {
+    std::fflush(nullptr);
+    const pid_t child = ::fork();
+    if (child == 0) {
+        std::thread(body).join();
+        std::fflush(nullptr);
+        ::_exit(apk::testing::failures == 0 ? 0 : 1);
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+TEST(the_stack_limit_is_androids_and_changes_by_linuxs_rules) {
+    // bionic's pthread_getattr_np takes the main thread's stack size from RLIMIT_STACK, and ART asks
+    // pthread_getattr_np for every thread it attaches. A hard limit never rises again, so in a child.
+    CHECK(in_child([] {
+        struct Limits {
+            std::uint64_t soft, hard;
+        } limits{};
+        CHECK(call(nr_getrlimit, {rlimit_stack, address(&limits)}) == 0);
+        CHECK(limits.soft == 8 * mib && limits.hard == rlim_infinity);
+        limits = {};
+        CHECK(call(nr_prlimit64, {0, rlimit_stack, 0, address(&limits)}) == 0);
+        CHECK(limits.soft == 8 * mib && limits.hard == rlim_infinity);
+
+        // A lower soft limit is read back; prlimit64 hands out the limits from before the change.
+        const Limits lower{1 * mib, rlim_infinity};
+        limits = {};
+        CHECK(call(nr_prlimit64, {unsigned_of(::getpid()), rlimit_stack, address(&lower), address(&limits)}) == 0);
+        CHECK(limits.soft == 8 * mib && limits.hard == rlim_infinity);
+        CHECK(call(nr_getrlimit, {rlimit_stack, address(&limits)}) == 0);
+        CHECK(limits.soft == 1 * mib && limits.hard == rlim_infinity);
+
+        // The soft limit stays at or below the hard one, and the hard one can fall but not rise.
+        const Limits inverted{16 * mib, 8 * mib};
+        CHECK(call(nr_setrlimit, {rlimit_stack, address(&inverted)}) == -einval);
+        const Limits equal{16 * mib, 16 * mib};
+        CHECK(call(nr_setrlimit, {rlimit_stack, address(&equal)}) == 0);
+        const Limits higher{16 * mib, 32 * mib};
+        CHECK(call(nr_setrlimit, {rlimit_stack, address(&higher)}) == -eperm);
+        const Limits both{64 * mib, 32 * mib};  // Linux checks the soft limit first
+        CHECK(call(nr_setrlimit, {rlimit_stack, address(&both)}) == -einval);
+        // A change that fails hands out nothing.
+        const Limits unlimited{rlim_infinity, rlim_infinity};
+        limits = {};
+        CHECK(call(nr_prlimit64, {0, rlimit_stack, address(&unlimited), address(&limits)}) == -eperm);
+        CHECK(limits.soft == 0 && limits.hard == 0);
+        CHECK(call(nr_getrlimit, {rlimit_stack, address(&limits)}) == 0);
+        CHECK(limits.soft == 16 * mib && limits.hard == 16 * mib);
+
+        // RLIMIT_NOFILE stays the descriptor table's, and other resources are not supported yet.
+        CHECK(call(nr_getrlimit, {rlimit_nofile, address(&limits)}) == 0);
+        CHECK(limits.soft == 32768 && limits.hard == 32768);
+        CHECK(call(nr_getrlimit, {rlimit_as, address(&limits)}) == -enosys);
+    }));
 }
 
 }  // namespace
