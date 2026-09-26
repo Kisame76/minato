@@ -308,7 +308,7 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
         LinuxSiginfo info;
         {
             const SpinLock lock(state.lock);
-            if (!take_locked(state, ~state.mask.load(), signal, info)) return;
+            if (!take_locked(state, ~state.mask.load(), signal, info)) break;
         }
         const auto chosen = action(signal);
         if (ignored(chosen, signal)) continue;
@@ -317,6 +317,13 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
             return;
         }
         setup_frame(state, signal, info, chosen, context, nullptr);
+    }
+    // A wait with a mask of its own (rt_sigsuspend, ppoll, pselect6, epoll_pwait) whose signals got
+    // no handler's frame, dropped as ignored: the thread's own mask holds again, as on Linux when no
+    // handler runs.
+    if (state.frame_mask_set) {
+        state.mask.store(state.frame_mask);
+        state.frame_mask_set = false;
     }
 }
 
@@ -475,6 +482,7 @@ bool restartable(std::uint64_t number, const apkrt_syscall_frame &frame) {
         case 115:  // clock_nanosleep
         case 133:  // rt_sigsuspend
         case 137:  // rt_sigtimedwait
+        case 441:  // epoll_pwait2
             return false;
         case 98:  // futex: FUTEX_WAIT with a timeout comes back through restart_syscall, as EINTR here
             return frame.x[3] == 0;

@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <thread>
 
@@ -48,6 +49,8 @@ long probe_clone(std::uint64_t flags, void *child_stack, int *parent_tid, void *
                  void (*function)(void *), void *argument);
 long probe_syscall(std::uint64_t number, std::uint64_t a0, std::uint64_t a1 = 0, std::uint64_t a2 = 0,
                    std::uint64_t a3 = 0);
+long probe_syscall6(std::uint64_t number, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2, std::uint64_t a3,
+                    std::uint64_t a4, std::uint64_t a5);
 void blocking_sigreturn();
 }
 
@@ -58,9 +61,11 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, asm-generic/signal.h, linux/futex.h,
 // linux/time.h, errno.h.
 constexpr std::uint64_t pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
-constexpr std::uint64_t nr_fcntl = 25, nr_ioctl = 29, nr_close = 57, nr_pipe2 = 59, nr_read = 63, nr_write = 64,
-                        nr_writev = 66, nr_futex = 98, nr_nanosleep = 101, nr_clock_nanosleep = 115, nr_tgkill = 131,
-                        nr_rt_sigaction = 134, nr_rt_sigprocmask = 135, nr_rt_sigtimedwait = 137;
+constexpr std::uint64_t nr_eventfd2 = 19, nr_epoll_create1 = 20, nr_epoll_ctl = 21, nr_epoll_pwait = 22, nr_fcntl = 25,
+                        nr_ioctl = 29, nr_close = 57, nr_pipe2 = 59, nr_read = 63, nr_write = 64, nr_writev = 66,
+                        nr_pselect6 = 72, nr_ppoll = 73, nr_futex = 98, nr_nanosleep = 101, nr_clock_nanosleep = 115,
+                        nr_tgkill = 131, nr_rt_sigaction = 134, nr_rt_sigprocmask = 135, nr_rt_sigtimedwait = 137,
+                        nr_gettid = 178, nr_epoll_pwait2 = 441;
 constexpr std::uint64_t f_setfl = 4, o_nonblock = 04000, fionread = 0x541b;
 constexpr std::uint64_t futex_wait = 0, futex_wake = 1, futex_private = 128;
 constexpr std::uint64_t everyone = 0x7fff'ffff;  // FUTEX_WAKE's count for all waiters
@@ -613,6 +618,184 @@ TEST(a_blocking_write_that_a_signal_ends_after_some_bytes_returns_their_count) {
     CHECK(drain(pipe) == static_cast<std::size_t>(written));
 }
 
+// --- The waits of eventfd, epoll, ppoll and pselect6 (ADR-0027, decisions 8 to 10) ----------------------
+
+/// struct epoll_event on arm64 and struct pollfd.
+struct EpollEvent {
+    std::uint32_t events;
+    std::uint64_t data;
+};
+struct PollFd {
+    std::int32_t fd;
+    std::int16_t events;
+    std::int16_t revents;
+};
+constexpr std::uint32_t epollin = 0x1;
+constexpr std::int16_t pollin = 0x1;
+
+/// An eventfd at 0, an empty pipe, and an epoll with the pipe's read end: what the blocking waits of
+/// eventfd, epoll, ppoll and pselect6 wait for here, until a write comes.
+struct Events {
+    int counter = -1;
+    Pipe pipe;
+    int epoll = -1;
+
+    Events() {
+        counter = static_cast<int>(call(nr_eventfd2, 0, 0));
+        epoll = static_cast<int>(call(nr_epoll_create1, 0));
+        const EpollEvent event{epollin, 0};
+        CHECK(counter >= 0 && epoll >= 0);
+        CHECK(call(nr_epoll_ctl, static_cast<std::uint64_t>(epoll), 1, static_cast<std::uint64_t>(pipe.read_end),
+                   address(&event)) == 0);
+    }
+    ~Events() {
+        call(nr_close, static_cast<std::uint64_t>(counter));
+        call(nr_close, static_cast<std::uint64_t>(epoll));
+    }
+    Events(const Events &) = delete;
+    Events &operator=(const Events &) = delete;
+
+    // Each wait without a timeout; the fifth and sixth arguments of the frame are 0: no mask.
+    long read_counter() const {
+        std::uint64_t value = 0;
+        return call(nr_read, static_cast<std::uint64_t>(counter), address(&value), sizeof value);
+    }
+    long wait_on_epoll() const {
+        EpollEvent events[1];
+        return call(nr_epoll_pwait, static_cast<std::uint64_t>(epoll), address(events), 1, static_cast<std::uint64_t>(-1));
+    }
+    long poll_pipe() const {
+        PollFd fd{pipe.read_end, pollin, 0};
+        return call(nr_ppoll, address(&fd), 1, 0, 0);
+    }
+    long select_pipe() const {
+        std::uint64_t set[16] = {};
+        set[pipe.read_end / 64] |= std::uint64_t{1} << (pipe.read_end % 64);
+        return call(nr_pselect6, static_cast<std::uint64_t>(pipe.read_end + 1), address(set), 0, 0);
+    }
+};
+
+/// Ends a wait on `events` that did not end by itself: with a count for the eventfd and a byte for the pipe.
+auto by_writing_to(const Events &events) {
+    return [&events](Waiter &) {
+        const std::uint64_t one = 1;
+        call(nr_write, static_cast<std::uint64_t>(events.counter), address(&one), sizeof one);
+        write_to(events.pipe.write_end, "x", 1);
+    };
+}
+
+TEST(the_waits_of_eventfd_epoll_ppoll_and_pselect6_end_at_once_while_a_signal_is_deliverable) {
+    const Events events;
+    const std::function<long()> waits[] = {[&] { return events.read_counter(); }, [&] { return events.wait_on_epoll(); },
+                                           [&] { return events.poll_pipe(); }, [&] { return events.select_pipe(); }};
+    for (const auto &wait : waits) {
+        Waiter waiter(mark_pending, wait);
+        CHECK(waiter.finishes_within(2s));
+        CHECK(waiter.result(by_writing_to(events)) == -eintr);
+    }
+}
+
+TEST(a_signal_sent_during_the_waits_of_eventfd_epoll_ppoll_and_pselect6_ends_them_without_the_runtime_signal) {
+    const Events events;
+    const std::function<long()> waits[] = {[&] { return events.read_counter(); }, [&] { return events.wait_on_epoll(); },
+                                           [&] { return events.poll_pipe(); }, [&] { return events.select_pipe(); }};
+    // What each wait watches in the thread's kqueue, and must take out again.
+    const int watched[] = {host_of(events.counter), host_of(events.epoll), host_of(events.pipe.read_end),
+                           host_of(events.pipe.read_end)};
+    for (int index = 0; index < 4; ++index) {
+        Waiter waiter(leave_as_is, waits[index]);
+        CHECK(waiter.sleeps());
+        send_without_runtime_signal(waiter.state(), sigusr1);
+        CHECK(waiter.finishes_within(2s));
+        CHECK(holds_no_filter(waiter.state(), watched[index]));
+        CHECK(waiter.result(by_writing_to(events)) == -eintr);
+    }
+}
+
+TEST(the_waits_of_eventfd_epoll_ppoll_and_pselect6_end_with_a_write_from_another_thread) {
+    const Events events;
+    const std::function<long()> waits[] = {[&] { return events.read_counter(); }, [&] { return events.wait_on_epoll(); },
+                                           [&] { return events.poll_pipe(); }, [&] { return events.select_pipe(); }};
+    const long expected[] = {8, 1, 1, 1};
+    for (int index = 0; index < 4; ++index) {
+        Waiter waiter(leave_as_is, waits[index]);
+        CHECK(waiter.sleeps());
+        const std::uint64_t one = 1;
+        CHECK(call(nr_write, static_cast<std::uint64_t>(events.counter), address(&one), sizeof one) == 8);
+        CHECK(write_to(events.pipe.write_end, "w", 1) == 1);
+        CHECK(waiter.finishes_within(2s));
+        CHECK(waiter.result(by_writing_to(events)) == expected[index]);
+        // What the next wait waits for again: the eventfd at 0 and an empty pipe.
+        std::uint64_t value = 0;
+        CHECK(call(nr_fcntl, static_cast<std::uint64_t>(events.counter), f_setfl, o_nonblock) == 0);
+        call(nr_read, static_cast<std::uint64_t>(events.counter), address(&value), sizeof value);
+        CHECK(call(nr_fcntl, static_cast<std::uint64_t>(events.counter), f_setfl, 0) == 0);
+        drain(events.pipe);
+        CHECK(call(nr_fcntl, static_cast<std::uint64_t>(events.pipe.read_end), f_setfl, 0) == 0);
+    }
+}
+
+TEST(two_threads_waiting_on_one_epoll_do_not_take_each_others_wake_ups) {
+    const Events events;
+    Waiter first(leave_as_is, [&] { return events.wait_on_epoll(); });
+    Waiter second(leave_as_is, [&] { return events.wait_on_epoll(); });
+    CHECK(first.sleeps() && second.sleeps());
+    send_without_runtime_signal(first.state(), sigusr1);
+    CHECK(first.finishes_within(2s));
+    CHECK(second.sleeps());
+    CHECK(first.result(by_writing_to(events)) == -eintr);
+    CHECK(write_to(events.pipe.write_end, "e", 1) == 1);
+    CHECK(second.finishes_within(2s));
+    CHECK(second.result(by_writing_to(events)) == 1);
+}
+
+TEST(a_one_shot_interest_that_reported_leaves_no_filter_that_wakes_the_wait_in_vain) {
+    // Two numbers of one pipe end: the first asks for EPOLLIN, the second only for what always comes,
+    // both one-shot. Once the first has reported the byte, which stays, nothing asks for it any more:
+    // a wait sleeps until the writer goes, and the hangup is the second one's alone.
+    constexpr std::uint64_t nr_dup = 23;
+    constexpr std::uint32_t epolloneshot = 1u << 30;
+    Pipe pipe;
+    const auto epoll = static_cast<std::uint64_t>(call(nr_epoll_create1, 0));
+    const auto copy = static_cast<std::uint64_t>(call(nr_dup, static_cast<std::uint64_t>(pipe.read_end)));
+    const EpollEvent first{epollin | epolloneshot, 1}, second{epolloneshot, 2};
+    CHECK(call(nr_epoll_ctl, epoll, 1, static_cast<std::uint64_t>(pipe.read_end), address(&first)) == 0);
+    CHECK(call(nr_epoll_ctl, epoll, 1, copy, address(&second)) == 0);
+    CHECK(write_to(pipe.write_end, "b", 1) == 1);
+    EpollEvent events[2] = {};
+    CHECK(call(nr_epoll_pwait, epoll, address(events), 2, 0) == 1 && events[0].data == 1);
+    Waiter waiter(leave_as_is, [&] {
+        EpollEvent got[2] = {};
+        const long count = call(nr_epoll_pwait, epoll, address(got), 2, static_cast<std::uint64_t>(-1));
+        return count == 1 && got[0].data == 2 && got[0].events == 0x10 ? 1L : -count - 1;  // EPOLLHUP
+    });
+    CHECK(waiter.sleeps());
+    call(nr_close, static_cast<std::uint64_t>(pipe.write_end));
+    pipe.write_end = -1;
+    CHECK(waiter.finishes_within(2s));
+    CHECK(waiter.result([](Waiter &stuck) { send_without_runtime_signal(stuck.state(), sigusr1); }) == 1);
+    call(nr_close, copy);
+    call(nr_close, epoll);
+}
+
+TEST(a_poll_whose_kqueue_cannot_tell_reports_no_hangup) {
+    // Should the thread's kqueue fail, every filter counts as ready (ADR-0027 b), for the call to find
+    // out, but no pipe's other end as gone.
+    Pipe pipe;
+    Waiter waiter(leave_as_is, [&] {
+        auto &state = apkrt::signals::current();
+        const int gone = ::kqueue();
+        ::close(gone);
+        state.wait_queue.store(gone);
+        PollFd fd{pipe.read_end, 0, 0};
+        Timespec twenty_ms{0, 20'000'000};
+        const long result = call(nr_ppoll, address(&fd), 1, address(&twenty_ms), 0);
+        state.wait_queue.store(-1);  // nothing for the end of the thread to close
+        return result == 0 && fd.revents == 0 ? 0L : -1L;
+    });
+    CHECK(waiter.result([](Waiter &) {}) == 0);
+}
+
 // --- Guest threads ------------------------------------------------------------------------------
 
 std::atomic<int> handled[64];
@@ -686,15 +869,35 @@ private:
     std::int32_t tid_ = 0;
 };
 
+/// An epoll with the read end of a pipe of its own, for guest threads.
+struct EpollOnPipe {
+    int epoll = -1;
+    int pipe[2] = {-1, -1};
+
+    void open() {
+        epoll = static_cast<int>(probe_syscall(nr_epoll_create1, 0));
+        CHECK(epoll >= 0 && probe_syscall(nr_pipe2, address(pipe), 0) == 0);
+        const EpollEvent event{epollin, 0};
+        CHECK(probe_syscall(nr_epoll_ctl, static_cast<std::uint64_t>(epoll), 1, static_cast<std::uint64_t>(pipe[0]),
+                            address(&event)) == 0);
+    }
+    void close() const {
+        for (const int fd : {epoll, pipe[0], pipe[1]}) probe_syscall(nr_close, static_cast<std::uint64_t>(fd));
+    }
+};
+
 /// The rounds of the stress tests: the test's thread starts a round and sends SIGUSR1, and the child
 /// enters its wait at a random moment up to 6 µs after it saw the round begin.
 struct Rounds {
-    enum class Wait { futex, sleep, pipe_read };
-    Wait wait = Wait::futex;    // a futex wait on `word`, nanosleep, or a read of a byte from `pipe`
+    enum class Wait { futex, sleep, pipe_read, epoll };
+    // A futex wait on `word`, nanosleep, a read of a byte from `pipe`, or epoll_pwait on `epoll`, which
+    // watches the pipe, and then the read of the byte.
+    Wait wait = Wait::futex;
     std::atomic<int> round{0};  // -1 ends the child
     std::atomic<int> done{0};   // the last round whose syscall came back
     alignas(4) std::uint32_t word = 0;
-    int pipe[2] = {-1, -1};  // the guest's pipe2, for pipe_read
+    int pipe[2] = {-1, -1};  // the guest's pipe2, for pipe_read and epoll
+    int epoll = -1;
 };
 
 void wait_in_rounds(void *argument) {
@@ -723,6 +926,14 @@ void wait_in_rounds(void *argument) {
                 probe_syscall(nr_read, static_cast<std::uint64_t>(rounds.pipe[0]), address(&byte), 1);
                 break;
             }
+            case Rounds::Wait::epoll: {
+                EpollEvent events[1];
+                probe_syscall6(nr_epoll_pwait, static_cast<std::uint64_t>(rounds.epoll), address(events), 1,
+                               static_cast<std::uint64_t>(-1), 0, 8);
+                char byte = 0;
+                probe_syscall(nr_read, static_cast<std::uint64_t>(rounds.pipe[0]), address(&byte), 1);
+                break;
+            }
         }
         rounds.done.store(next);
     }
@@ -737,12 +948,12 @@ int first_lost_signal(Rounds &rounds, std::uint64_t tid, int count) {
         rounds.round.store(round);
         probe_syscall(nr_tgkill, pid, tid, sigusr1);
         const bool reached = within(500ms, [&] { return handled[sigusr1].load() > before; });
-        // A futex wait ends by its word and a read by its byte; a sleep, whose signal may have come before
-        // it, by more signals.
+        // A futex wait ends by its word, a read and an epoll wait by the byte; a sleep, whose signal may
+        // have come before it, by more signals.
         if (rounds.wait == Rounds::Wait::futex) {
             __atomic_store_n(&rounds.word, 1, __ATOMIC_SEQ_CST);
             probe_syscall(nr_futex, address(&rounds.word), futex_wake | futex_private, everyone);
-        } else if (rounds.wait == Rounds::Wait::pipe_read) {
+        } else if (rounds.wait == Rounds::Wait::pipe_read || rounds.wait == Rounds::Wait::epoll) {
             probe_syscall(nr_write, static_cast<std::uint64_t>(rounds.pipe[1]), address("x"), 1);
         }
         const bool ended = within(5s, [&] {
@@ -785,6 +996,22 @@ TEST(every_signal_reaches_a_thread_on_its_way_into_a_blocking_pipe_read) {
         rounds.round.store(-1);
     }
     for (const int end : rounds.pipe) probe_syscall(nr_close, static_cast<std::uint64_t>(end));
+}
+
+TEST(every_signal_reaches_a_thread_on_its_way_into_an_epoll_wait) {
+    static Rounds rounds;
+    rounds.wait = Rounds::Wait::epoll;
+    static EpollOnPipe events;
+    events.open();
+    rounds.pipe[0] = events.pipe[0];
+    rounds.pipe[1] = events.pipe[1];
+    rounds.epoll = events.epoll;
+    {
+        Child child(wait_in_rounds, &rounds);
+        CHECK(first_lost_signal(rounds, child.tid(), 3000) == 0);
+        rounds.round.store(-1);
+    }
+    events.close();
 }
 
 /// The guest thread of the next test: a futex wait and a sleep with SIGUSR2 blocked.
@@ -942,6 +1169,163 @@ TEST(a_write_whose_reader_goes_after_some_bytes_returns_their_count_and_raises_s
     CHECK(broken.result.load() > 0 && broken.result.load() < static_cast<long>(big_write));
     CHECK(handled[sigpipe].load() == before + 1);
     probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[1]));
+}
+
+/// The guest thread of the next test: epoll_pwait, epoll_pwait2, ppoll and pselect6 in turn, each for up
+/// to 5 s on the pipe, which stays empty.
+struct FourWaits {
+    EpollOnPipe events;
+    std::atomic<int> phase{0};  // the wait under way, 1 to 4; 5 past all of them
+    std::atomic<long> results[4] = {};
+};
+
+void wait_four_ways(void *argument) {
+    auto &waits = *static_cast<FourWaits *>(argument);
+    const auto epoll = static_cast<std::uint64_t>(waits.events.epoll);
+    const int read_end = waits.events.pipe[0];
+    for (int wait = 0; wait < 4; ++wait) {
+        Timespec five_seconds{5, 0};
+        EpollEvent events[1];
+        PollFd fd{read_end, pollin, 0};
+        std::uint64_t set[16] = {};
+        set[read_end / 64] |= std::uint64_t{1} << (read_end % 64);
+        waits.phase.store(wait + 1);
+        long result;
+        switch (wait) {
+            case 0: result = probe_syscall6(nr_epoll_pwait, epoll, address(events), 1, 5000, 0, 8); break;
+            case 1:
+                result = probe_syscall6(nr_epoll_pwait2, epoll, address(events), 1, address(&five_seconds), 0, 8);
+                break;
+            case 2: result = probe_syscall6(nr_ppoll, address(&fd), 1, address(&five_seconds), 0, 8, 0); break;
+            default:
+                result = probe_syscall6(nr_pselect6, static_cast<std::uint64_t>(read_end + 1), address(set), 0, 0,
+                                        address(&five_seconds), 0);
+                break;
+        }
+        waits.results[wait].store(result);
+    }
+    waits.phase.store(5);
+}
+
+TEST(a_handler_with_sa_restart_restarts_none_of_the_waits_of_epoll_ppoll_and_pselect6) {
+    // As on Linux: epoll_pwait and epoll_pwait2 answer EINTR, ppoll and pselect6 ERESTARTNOHAND, which
+    // a handler turns into EINTR, SA_RESTART or not.
+    static FourWaits waits;
+    waits.events.open();
+    Child child(wait_four_ways, &waits);
+    const auto host = child.host();
+    for (int wait = 1; wait <= 4; ++wait) {
+        CHECK(within(2s, [&] { return waits.phase.load() == wait && sleeping(host); }));
+        const int before = handled[sigusr1].load();
+        CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), child.tid(), sigusr1) == 0);
+        CHECK(within(2s, [&] { return waits.phase.load() > wait; }));  // the signal ended it, not its time
+        CHECK(handled[sigusr1].load() == before + 1);
+    }
+    child.join();
+    // A restart would show as the first argument: the probe's veneer has no svc to go back to.
+    for (const auto &result : waits.results) CHECK(result.load() == -eintr);
+    waits.events.close();
+}
+
+/// The guest thread of the next test: epoll_pwait and ppoll of 150 ms each, with SIGUSR2 blocked.
+struct BlockedWaits {
+    EpollOnPipe events;
+    std::atomic<int> phase{0};  // 1: epoll_pwait, 2: ppoll, 3: past both
+    std::atomic<long> results[2] = {1, 1};
+    std::atomic<std::int64_t> waited_ns[2] = {};
+};
+
+void wait_on_events_with_sigusr2_blocked(void *argument) {
+    auto &waits = *static_cast<BlockedWaits *>(argument);
+    const std::uint64_t set = bit(sigusr2);
+    probe_syscall(nr_rt_sigprocmask, sig_block, address(&set), 0, 8);
+    for (int wait = 0; wait < 2; ++wait) {
+        Timespec timeout{0, 150'000'000};
+        EpollEvent events[1];
+        PollFd fd{waits.events.pipe[0], pollin, 0};
+        waits.phase.store(wait + 1);
+        const auto start = now_ns();
+        waits.results[wait].store(
+            wait == 0 ? probe_syscall6(nr_epoll_pwait, static_cast<std::uint64_t>(waits.events.epoll), address(events), 1,
+                                       150, 0, 8)
+                      : probe_syscall6(nr_ppoll, address(&fd), 1, address(&timeout), 0, 8, 0));
+        waits.waited_ns[wait].store(now_ns() - start);
+    }
+    waits.phase.store(3);
+    probe_syscall(nr_rt_sigprocmask, sig_unblock, address(&set), 0, 8);  // the pending SIGUSR2 arrives here
+}
+
+TEST(a_signal_the_thread_blocks_ends_neither_an_epoll_wait_nor_a_ppoll) {
+    static BlockedWaits waits;
+    waits.events.open();
+    const int before = handled[sigusr2].load();
+    Child child(wait_on_events_with_sigusr2_blocked, &waits);
+    const auto host = child.host();
+    for (int wait = 1; wait <= 2; ++wait) {
+        CHECK(within(2s, [&] { return waits.phase.load() == wait && sleeping(host); }));
+        for (int time = 0; time < 3; ++time) {
+            CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), child.tid(), sigusr2) == 0);
+            std::this_thread::sleep_for(5ms);
+        }
+    }
+    child.join();
+    for (int wait = 0; wait < 2; ++wait) {
+        CHECK(waits.results[wait].load() == 0);
+        CHECK(waits.waited_ns[wait].load() >= 150'000'000);
+    }
+    CHECK(handled[sigusr2].load() == before + 1);  // once, when the thread unblocked it
+    waits.events.close();
+}
+
+/// The guest thread of the next tests: SIGUSR2 blocked and pending, then a ppoll of `timeout` whose mask
+/// lets it in, and the thread's mask after it.
+struct MaskedWait {
+    Timespec timeout{5, 0};
+    std::atomic<long> result{1};
+    std::atomic<std::uint64_t> mask_after{0};
+};
+
+void wait_with_a_mask_that_lets_sigusr2_in(void *argument) {
+    auto &wait = *static_cast<MaskedWait *>(argument);
+    const std::uint64_t set = bit(sigusr2), open = 0;
+    probe_syscall(nr_rt_sigprocmask, sig_block, address(&set), 0, 8);
+    const auto tid = static_cast<std::uint64_t>(probe_syscall(nr_gettid, 0));
+    probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), tid, sigusr2);
+    Timespec timeout = wait.timeout;
+    wait.result.store(probe_syscall6(nr_ppoll, 0, 0, address(&timeout), address(&open), 8, 0));
+    std::uint64_t mask = 0;
+    probe_syscall(nr_rt_sigprocmask, sig_block, 0, address(&mask), 8);
+    wait.mask_after.store(mask);
+    probe_syscall(nr_rt_sigprocmask, sig_unblock, address(&set), 0, 8);
+}
+
+TEST(ppolls_mask_lets_a_pending_signal_in_and_the_threads_own_mask_holds_again_after_the_handler) {
+    static MaskedWait wait;
+    const int before = handled[sigusr2].load();
+    {
+        const Child child(wait_with_a_mask_that_lets_sigusr2_in, &wait);
+    }
+    CHECK(wait.result.load() == -eintr);
+    CHECK(handled[sigusr2].load() == before + 1);
+    CHECK((wait.mask_after.load() & bit(sigusr2)) != 0);
+}
+
+TEST(a_signal_that_ends_ppolls_wait_but_is_ignored_leaves_the_threads_own_mask) {
+    // SIG_IGN before it is sent, so that the blocked signal stays pending, and is dropped when delivered:
+    // no handler's frame restores the mask then. Linux restarts the wait instead of EINTR (a remaining
+    // difference, ADR-0027).
+    const struct {
+        std::uint64_t handler, flags, restorer, mask;
+    } ignore{1, 0, 0, 0};  // SIG_IGN
+    CHECK(probe_syscall(nr_rt_sigaction, sigusr2, address(&ignore), 0, 8) == 0);
+    static MaskedWait wait;
+    wait.timeout = {0, 100'000'000};
+    {
+        const Child child(wait_with_a_mask_that_lets_sigusr2_in, &wait);
+    }
+    install_handlers();
+    CHECK(wait.result.load() == -eintr);
+    CHECK((wait.mask_after.load() & bit(sigusr2)) != 0);
 }
 
 // --- The futex queue ----------------------------------------------------------------------------

@@ -59,6 +59,10 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     if (!(flags & linux_map::anonymous)) {
         description = descriptors::get(fd);
         if (!description) return -linux_errno::ebadf;
+        // Neither has an mmap on Linux: pipes, sockets and terminals, which can block, eventfds and epolls.
+        if (description->kind() != descriptors::Description::Kind::file || description->can_block()) {
+            return -linux_errno::enodev;
+        }
     }
     const int host_fd = description ? description->host() : -1;
 

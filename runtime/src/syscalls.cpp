@@ -122,6 +122,10 @@ using namespace apkrt::sys;
 // Linux AArch64 syscall numbers (include/uapi/asm-generic/unistd.h).
 namespace nr {
 constexpr std::uint64_t getcwd = 17;
+constexpr std::uint64_t eventfd2 = 19;
+constexpr std::uint64_t epoll_create1 = 20;
+constexpr std::uint64_t epoll_ctl = 21;
+constexpr std::uint64_t epoll_pwait = 22;
 constexpr std::uint64_t dup = 23;
 constexpr std::uint64_t dup3 = 24;
 constexpr std::uint64_t fcntl = 25;
@@ -154,6 +158,8 @@ constexpr std::uint64_t pread64 = 67;
 constexpr std::uint64_t pwrite64 = 68;
 constexpr std::uint64_t preadv = 69;
 constexpr std::uint64_t pwritev = 70;
+constexpr std::uint64_t pselect6 = 72;
+constexpr std::uint64_t ppoll = 73;
 constexpr std::uint64_t readlinkat = 78;
 constexpr std::uint64_t newfstatat = 79;
 constexpr std::uint64_t fstat = 80;
@@ -206,6 +212,7 @@ constexpr std::uint64_t prlimit64 = 261;
 constexpr std::uint64_t renameat2 = 276;
 constexpr std::uint64_t getrandom = 278;
 constexpr std::uint64_t faccessat2 = 439;
+constexpr std::uint64_t epoll_pwait2 = 441;
 }  // namespace nr
 
 /// Reports each unknown syscall number once, on stderr, without allocating.
@@ -484,6 +491,20 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_dup3(as_int(x[0]), as_int(x[1]), as_int(x[2]));
         case nr::pipe2:
             return sys_pipe2(x[0], as_int(x[1]));
+        case nr::eventfd2:
+            return sys_eventfd2(static_cast<unsigned>(x[0]), as_int(x[1]));
+        case nr::epoll_create1:
+            return sys_epoll_create1(as_int(x[0]));
+        case nr::epoll_ctl:
+            return sys_epoll_ctl(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3]);
+        case nr::epoll_pwait:
+            return sys_epoll_pwait(as_int(x[0]), x[1], as_int(x[2]), as_int(x[3]), x[4], x[5]);
+        case nr::epoll_pwait2:
+            return sys_epoll_pwait2(as_int(x[0]), x[1], as_int(x[2]), x[3], x[4], x[5]);
+        case nr::ppoll:
+            return sys_ppoll(x[0], static_cast<std::uint32_t>(x[1]), x[2], x[3], x[4]);
+        case nr::pselect6:
+            return sys_pselect6(as_int(x[0]), x[1], x[2], x[3], x[4], x[5]);
         case nr::fcntl:
             return sys_fcntl(as_int(x[0]), as_int(x[1]), x[2]);
         case nr::ioctl:

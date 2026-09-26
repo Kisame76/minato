@@ -1,0 +1,120 @@
+read of an eventfd at 0: -1 errno 11 (Try again)
+read after writes of 1 and 2: 8
+  value 3
+read again: -1 errno 11 (Try again)
+read of 4 bytes: -1 errno 22 (Invalid argument)
+write of 4 bytes: -1 errno 22 (Invalid argument)
+write of 16 bytes: 8
+read of 16 bytes: 8
+  value 5
+write of 2^64 - 1: -1 errno 22 (Invalid argument)
+write of 2^64 - 2: 8
+write of 1 more: -1 errno 11 (Try again)
+read at the maximum: 8
+  value is 2^64 - 2: 1
+F_GETFL: access mode 2, O_NONBLOCK 1; FD_CLOEXEC 1
+fstat: mode 600, size 0
+lseek: 0
+read of a semaphore that started at 2: 8
+  value 1
+read of a semaphore that started at 2: 8
+  value 1
+read of a semaphore that started at 2: -1 errno 11 (Try again)
+  value 0
+eventfd with an unknown flag: -1 errno 22 (Invalid argument)
+a blocking read: 8
+  value 42
+add the wake eventfd: 0
+add the request's pipe: 0
+poll once without waiting: 0
+a wake from another thread: 1 [0x1 for 1]
+awoken: 8
+nothing after awoken: 0
+a request and a wake: 2 [0x1 for 1] [0x1 for 2]
+both still there, level-triggered: 2 [0x1 for 1] [0x1 for 2]
+a wait of 20 ms: 0
+a request from another thread: 1 [0x1 for 2]
+the request's writer is gone: 1 [0x10 for 2]
+edge-triggered: 1 [0x1 for 10]
+edge-triggered again: 0
+edge-triggered after another byte: 1 [0x1 for 10]
+one-shot: 1 [0x1 for 11]
+one-shot again: 0
+one-shot after another byte: 0
+one-shot re-armed: 1 [0x1 for 12]
+level-triggered: 1 [0x1 for 13]
+level-triggered again: 1 [0x1 for 13]
+an eventfd at 0: 1 [0x4 for 14]
+an eventfd at 1: 1 [0x5 for 14]
+an empty pipe: 1 [0x4 for 21]
+two bytes, the writer gone: 1 [0x11 for 20]
+empty, the writer gone: 1 [0x10 for 20]
+the reader gone: 1 [0xc for 22]
+add a regular file: -1 errno 1 (Operation not permitted)
+add /dev/null: -1 errno 1 (Operation not permitted)
+add a directory: -1 errno 1 (Operation not permitted)
+add the epoll itself: -1 errno 22 (Invalid argument)
+add a number that is not open: -1 errno 9 (Bad file descriptor)
+add an eventfd: 0
+add it again: -1 errno 17 (File exists)
+change a number not in it: -1 errno 2 (No such file or directory)
+remove a number not in it: -1 errno 2 (No such file or directory)
+an unknown operation: -1 errno 22 (Invalid argument)
+remove the eventfd: 0
+a wait for 0 events: -1 errno 22 (Invalid argument)
+a wait on an eventfd: -1 errno 22 (Invalid argument)
+epoll_create1 with an unknown flag: -1 errno 22 (Invalid argument)
+add the copy: 0
+both numbers: 2 [0x1 for 30] [0x1 for 31]
+the first number closed: 2 [0x1 for 30] [0x1 for 31]
+remove the closed number: -1 errno 9 (Bad file descriptor)
+every number closed: 0
+a new pipe takes the first number: 1
+add the new pipe there: 0
+the new pipe: 1 [0x1 for 32]
+add the inner epoll to the outer: 0
+the outer, the inner has nothing: 0
+the outer, the inner has a byte: 1 [0x1 for 41]
+the inner: 1 [0x1 for 40]
+add the outer epoll to the inner: -1 errno 40 (Too many symbolic links encountered)
+a wait that a handler with SA_RESTART interrupts: -1 errno 4 (Interrupted system call)
+  handled: 1
+a wait of 150 ms while the signal is blocked: 0
+  handled: 0
+  handled once it is unblocked: 1
+epoll_pwait of 150 ms with a mask that blocks the signal: 0
+  handled after it: 1
+epoll_pwait with a mask that lets the pending signal in: -1 errno 4 (Interrupted system call)
+  handled: 1, blocked again after: 1
+epoll_pwait of no time with a mask that lets the pending signal in: 0
+  handled: 0
+  handled once it is unblocked: 1
+poll of a pipe, an eventfd and the pipe's write end: 1 0 0 0x4
+nothing ready: 0 0 0 0
+an eventfd written by another thread: 1 0 0x1 0
+the pipe as well: 2 0x1 0x1 0
+the writer gone: 2 0x11 0x1 0
+empty, and a number that is not open: 2 0x10 0x20 0
+a regular file and /dev/null: 2 0x5 0x5
+ppoll of 50 ms: 0
+  time left: 0.000000000
+ppoll of 5 s on a regular file: 1
+  time left between 4 and 5 s: 1
+ppoll of 5 s that a handler with SA_RESTART interrupts: -1 errno 4 (Interrupted system call)
+  handled: 1, time left between 4 and 5 s: 1
+ppoll with 10^9 ns: -1 errno 22 (Invalid argument)
+ppoll with a mask that lets the pending signal in: -1 errno 4 (Interrupted system call)
+  handled: 1, blocked again after: 1
+ppoll of no time with a mask that lets the pending signal in: -1 errno 4 (Interrupted system call)
+  handled: 1
+pselect of no time with a mask that lets the pending signal in: -1 errno 4 (Interrupted system call)
+  handled: 1
+select: 4
+  read: pipe 1, file 1; write: read end 0, write end 1, file 1; except: pipe 0, file 0
+  time left between 4 and 5 s: 1
+select with a number that is not open: -1 errno 9 (Bad file descriptor)
+select of 50 ms: 0
+  time left: 0.000000
+pselect with a mask that lets the pending signal in: -1 errno 4 (Interrupted system call)
+  handled: 1, blocked again after: 1
+done

@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -60,13 +61,24 @@ Handle place(int fd, Handle description, bool close_on_exec) {
     return previous;
 }
 
+struct Traits {
+    bool can_block = false;
+    Description::PipeEnd pipe_end = Description::PipeEnd::none;
+};
+
 /// Whether a read or write of `host` can wait (ADR-0027, decision 5): pipes, FIFOs, sockets and
-/// terminals can; regular files, directories and devices such as /dev/null cannot.
-bool can_block(int host) {
+/// terminals can; regular files, directories and devices such as /dev/null cannot. And which end a
+/// pipe or FIFO open in one direction is.
+Traits traits_of(int host) {
     struct stat status;
-    if (::fstat(host, &status) != 0) return false;
-    if (S_ISFIFO(status.st_mode) || S_ISSOCK(status.st_mode)) return true;
-    return S_ISCHR(status.st_mode) && ::isatty(host) != 0;
+    if (::fstat(host, &status) != 0) return {};
+    if (S_ISFIFO(status.st_mode)) {
+        const int mode = ::fcntl(host, F_GETFL) & O_ACCMODE;
+        using enum Description::PipeEnd;
+        return {true, mode == O_RDONLY ? reading : mode == O_WRONLY ? writing : none};
+    }
+    if (S_ISSOCK(status.st_mode)) return {true};
+    return {S_ISCHR(status.st_mode) && ::isatty(host) != 0};
 }
 
 /// Lets the host's soft limit of descriptors hold the table and what the app and the runtime open
@@ -96,16 +108,31 @@ Handle get(int fd) {
     return is_open(fd) ? entries[static_cast<std::size_t>(fd)].description : nullptr;
 }
 
+int capacity() {
+    std::size_t size;
+    {
+        const std::lock_guard lock(mutex);
+        size = entries.size();  // the highest number handed out, plus one: the vector never shrinks
+    }
+    if (size <= 64) return 64;
+    return static_cast<int>(128 * std::bit_ceil((size - 1) / 128 + 1));
+}
+
 long add(int host, bool close_on_exec, bool nonblocking) {
     ::fcntl(host, F_SETFD, FD_CLOEXEC);
     // The guest's calls on a descriptor that can block wait in the runtime, never in the host call.
-    const bool blocks = can_block(host);
-    if (blocks) ::fcntl(host, F_SETFL, ::fcntl(host, F_GETFL) | O_NONBLOCK);
-    auto description = std::make_shared<Description>(host, blocks, false, nonblocking);
+    const auto traits = traits_of(host);
+    if (traits.can_block) ::fcntl(host, F_SETFL, ::fcntl(host, F_GETFL) | O_NONBLOCK);
+    return add(std::make_shared<Description>(host, traits.can_block, false, nonblocking, Description::Kind::file,
+                                             traits.pipe_end),
+               close_on_exec);
+}
+
+long add(Handle description, bool close_on_exec) {
     Handle previous;
     const std::lock_guard lock(mutex);
     const int fd = free_number(0);
-    if (fd < 0) return -emfile;  // the description closes `host` on its way out
+    if (fd < 0) return -emfile;  // the description closes its host descriptor on its way out, after the lock
     previous = place(fd, std::move(description), close_on_exec);
     return fd;
 }
@@ -159,7 +186,9 @@ void adopt_standard_descriptors() {
         if (copy < 0) continue;  // closed at the start: closed for the guest as well
         // Its status flags are the starter's too: the guest's O_NONBLOCK starts as theirs and stays apart.
         const bool nonblocking = (::fcntl(copy, F_GETFL) & O_NONBLOCK) != 0;
-        auto description = std::make_shared<Description>(copy, can_block(copy), true, nonblocking);
+        const auto traits = traits_of(copy);
+        auto description = std::make_shared<Description>(copy, traits.can_block, true, nonblocking,
+                                                         Description::Kind::file, traits.pipe_end);
         Handle previous;
         const std::lock_guard lock(mutex);
         previous = place(standard, std::move(description), false);

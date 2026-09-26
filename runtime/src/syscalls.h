@@ -3,9 +3,11 @@
 // in, Darwin calls out.
 #pragma once
 
+#include "descriptors.h"
 #include "signals.h"
 #include "syscall_frame.h"
 
+#include <sys/uio.h>
 #include <time.h>
 
 #include <cstdint>
@@ -28,6 +30,7 @@ constexpr long eacces = 13;
 constexpr long efault = 14;
 constexpr long eexist = 17;
 constexpr long exdev = 18;
+constexpr long enodev = 19;
 constexpr long enotdir = 20;
 constexpr long eisdir = 21;
 constexpr long einval = 22;
@@ -118,7 +121,8 @@ std::int64_t deadline_after(std::int64_t nanoseconds);
 
 /// Why a wait ended: its own condition came true, the deadline passed, or a signal the thread takes is
 /// pending, checked in this order. As on Linux, a wait whose time is up ends as timed out even when a
-/// signal came as well; the signal is delivered at the end of the syscall all the same.
+/// signal came as well; the signal is delivered at the end of the syscall all the same. ppoll and
+/// pselect6 look for the signal before the time, as Linux's do_poll and do_select do (sys_events.cpp).
 enum class WaitEnd { done, timeout, signal };
 
 constexpr std::int64_t no_deadline = -1;
@@ -154,6 +158,7 @@ struct Watched {
     std::int16_t filter;
     bool ready = false;           // the kqueue reported it at the last probe or sleep
     bool armed = false;           // its filter is in the thread's kqueue
+    bool end = false;             // when ready: the other side is gone (EV_EOF)
     std::int64_t available = -1;  // when ready: the bytes to read or the room to write; -1 unknown
 };
 
@@ -193,6 +198,24 @@ WaitEnd wait_for_descriptors(signals::ThreadSignals &state, Watched *watched, in
     stop_watching(state, watched, count);
     return end;
 }
+
+/// The signal mask that ppoll, pselect6, epoll_pwait and epoll_pwait2 take for their wait: in force from
+/// the construction, when `address` holds one. At end(), the thread's own comes back, unless a signal
+/// ended the wait: then, as in rt_sigsuspend, the temporary mask holds until the delivery at the end of
+/// the syscall, and the handler's frame returns to the thread's own.
+class WaitMask {
+public:
+    WaitMask(signals::ThreadSignals &state, std::uint64_t address);
+    WaitMask(const WaitMask &) = delete;
+    WaitMask &operator=(const WaitMask &) = delete;
+
+    void end(WaitEnd end);
+
+private:
+    signals::ThreadSignals &state_;
+    const std::uint64_t own_;
+    bool applied_ = false;
+};
 
 // --- futex (sys_futex.cpp, ADR-0026) ------------------------------------------------------------------
 
@@ -277,5 +300,26 @@ long sys_fsync(int fd);
 long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument);
 long sys_statfs(std::uint64_t path, std::uint64_t buffer);
 long sys_fstatfs(int fd, std::uint64_t buffer);
+
+// --- eventfd, epoll, ppoll and pselect6 (sys_events.cpp, ADR-0027) -----------------------------------
+
+long sys_eventfd2(unsigned initial, int flags);
+
+/// read, write, readv and writev of an eventfd (Description::Kind::eventfd), with at least one vector.
+long transfer_count(descriptors::Description &counter, bool writing, const iovec *vectors, int count);
+
+long sys_epoll_create1(int flags);
+long sys_epoll_ctl(int epoll, int operation, int fd, std::uint64_t event);
+/// epoll_pwait: `timeout` in milliseconds, negative for none.
+long sys_epoll_pwait(int epoll, std::uint64_t events, int maximum, int timeout, std::uint64_t mask,
+                     std::uint64_t mask_size);
+/// epoll_pwait2: `timeout` a timespec, 0 for none.
+long sys_epoll_pwait2(int epoll, std::uint64_t events, int maximum, std::uint64_t timeout, std::uint64_t mask,
+                      std::uint64_t mask_size);
+long sys_ppoll(std::uint64_t fds, std::uint64_t count, std::uint64_t timeout, std::uint64_t mask,
+               std::uint64_t mask_size);
+/// pselect6: `mask` the address of a pair of the mask's address and its size.
+long sys_pselect6(int count, std::uint64_t read_set, std::uint64_t write_set, std::uint64_t except_set,
+                  std::uint64_t timeout, std::uint64_t mask);
 
 }  // namespace apkrt::sys

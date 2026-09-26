@@ -4,7 +4,8 @@ enable_language(ASM)
 # (ADR-0021), and the Linux personality their test suite needs: files, threads, signals. The
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
-  src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp src/islands.cpp src/process_exit.cpp)
+  src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
+  src/islands.cpp src/process_exit.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -69,6 +70,13 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.descriptors COMMAND descriptors_test)
   # A read that waits for good, instead of answering EAGAIN, fails the test within a minute.
   set_tests_properties(runtime.descriptors PROPERTIES TIMEOUT 60)
+
+  # eventfd, epoll, ppoll and pselect6 (ADR-0027).
+  add_executable(events_test tests/events_test.cpp)
+  target_include_directories(events_test PRIVATE src)
+  target_link_libraries(events_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.events COMMAND events_test)
+  set_tests_properties(runtime.events PROPERTIES TIMEOUT 60)
 
   add_executable(apk-run tools/apk_run.cpp)
   target_link_libraries(apk-run PRIVATE apkrt apk_defaults)

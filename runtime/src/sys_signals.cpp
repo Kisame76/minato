@@ -73,6 +73,7 @@ bool collect(signals::ThreadSignals &state, Watched *watched, int count, const t
         for (int index = 0; index < count; ++index) {
             watched[index].ready = true;
             watched[index].armed = false;
+            watched[index].end = false;
             watched[index].available = -1;
         }
         return false;
@@ -85,6 +86,7 @@ bool collect(signals::ThreadSignals &state, Watched *watched, int count, const t
         Watched &entry = watched[index];
         EV_SET(&changes[static_cast<std::size_t>(index)], entry.host, entry.filter, EV_ADD | EV_ONESHOT, 0, 0, &entry);
         entry.ready = false;
+        entry.end = false;
         entry.armed = true;
     }
     const int got = ::kevent(queue, changes.data(), count, events.data(), count + 1, timeout);
@@ -96,7 +98,9 @@ bool collect(signals::ThreadSignals &state, Watched *watched, int count, const t
         auto &entry = *static_cast<Watched *>(event.udata);
         entry.armed = false;  // a one-shot filter goes as it fires, and a refused one never came in
         entry.ready = true;
-        entry.available = (event.flags & (EV_ERROR | EV_EOF)) != 0 ? -1 : static_cast<std::int64_t>(event.data);
+        // With EV_EOF the data is still what there is to read, or 0 room.
+        entry.end = (event.flags & EV_EOF) != 0;
+        entry.available = (event.flags & EV_ERROR) != 0 ? -1 : static_cast<std::int64_t>(event.data);
         if ((event.flags & EV_ERROR) != 0) watching = false;
     }
     return watching;
@@ -142,6 +146,23 @@ void stop_watching(signals::ThreadSignals &state, Watched *watched, int count) {
     std::vector<struct kevent> receipts(changes.size());
     ::kevent(queue, changes.data(), static_cast<int>(changes.size()), receipts.data(), static_cast<int>(receipts.size()),
              nullptr);
+}
+
+WaitMask::WaitMask(signals::ThreadSignals &state, std::uint64_t address) : state_(state), own_(state.mask.load()) {
+    if (address == 0) return;
+    state.mask.store(*as_pointer<const std::uint64_t>(address) & ~unblockable);
+    applied_ = true;
+}
+
+void WaitMask::end(WaitEnd end) {
+    if (!applied_) return;
+    applied_ = false;
+    if (end == WaitEnd::signal) {
+        state_.frame_mask = own_;
+        state_.frame_mask_set = true;
+        return;
+    }
+    state_.mask.store(own_);
 }
 
 long sys_rt_sigprocmask(int how, std::uint64_t new_address, std::uint64_t old_address, std::uint64_t size) {

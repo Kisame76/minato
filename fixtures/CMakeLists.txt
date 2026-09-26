@@ -86,6 +86,8 @@ add_executable(dl-lock-test suite/dl-lock-test.c)
 target_link_libraries(dl-lock-test PRIVATE dl)
 # fd-test: descriptor numbers as Linux hands them out, whatever the process holds on the host (ADR-0027).
 add_executable(fd-test suite/fd-test.c)
+# poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
+add_executable(poll-test suite/poll-test.c)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

@@ -30,6 +30,8 @@
 namespace apkrt::sys {
 namespace {
 
+using descriptors::Description;
+
 // Linux fcntl commands and status flags (include/uapi/asm-generic/fcntl.h, arm64 fcntl.h).
 namespace linux_fcntl {
 constexpr int dupfd = 0;
@@ -51,6 +53,16 @@ template <typename HostCall>
 long with_host(int fd, HostCall host_call) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    return host_call(description->host());
+}
+
+/// with_host for a call only files take: an eventfd or an epoll answers EINVAL, as Linux's anonymous
+/// files have no such operation.
+template <typename HostCall>
+long with_file(int fd, HostCall host_call) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (description->kind() != Description::Kind::file) return -linux_errno::einval;
     return host_call(description->host());
 }
 
@@ -76,8 +88,10 @@ long sys_fcntl(int fd, int command, std::uint64_t argument) {
         case linux_fcntl::getfl: {
             const auto description = descriptors::get(fd);
             if (!description) return -linux_errno::ebadf;
-            const int flags = ::fcntl(description->host(), F_GETFL);
+            int flags = ::fcntl(description->host(), F_GETFL);
             if (flags < 0) return -to_linux_errno(errno);
+            // An eventfd or an epoll is open for reading and writing, as Linux's anonymous files are.
+            if (description->kind() != Description::Kind::file) flags = (flags & ~O_ACCMODE) | O_RDWR;
             // O_NONBLOCK is the guest's own (descriptors.h), whatever the host descriptor has.
             return to_linux_status_flags(flags & ~O_NONBLOCK) | (description->nonblocking() ? linux_fcntl::nonblock : 0);
         }
@@ -160,15 +174,31 @@ LinuxStat to_linux_stat(const struct stat &host) {
     return result;
 }
 
+/// What Linux shows for an eventfd or an epoll: its anonymous inode, one for all of them, which has
+/// no file type, belongs to root and has the size of a page for its blocks.
+LinuxStat anonymous_inode() {
+    LinuxStat result{};
+    result.dev = 14;  // 0:14, where Android 15 has the anonymous inodes' file system
+    result.ino = 1;
+    result.mode = 0600;
+    result.nlink = 1;
+    result.blksize = 4096;
+    return result;
+}
+
 }  // namespace
 
 long sys_fstat(int fd, std::uint64_t buffer) {
-    return with_host(fd, [&](int host) {
-        struct stat status;
-        if (::fstat(host, &status) != 0) return -to_linux_errno(errno);
-        *as_pointer<LinuxStat>(buffer) = to_linux_stat(status);
-        return 0L;
-    });
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (description->kind() != Description::Kind::file) {
+        *as_pointer<LinuxStat>(buffer) = anonymous_inode();
+        return 0;
+    }
+    struct stat status;
+    if (::fstat(description->host(), &status) != 0) return -to_linux_errno(errno);
+    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status);
+    return 0;
 }
 
 namespace {
@@ -510,6 +540,8 @@ long sys_lseek(int fd, std::int64_t offset, int whence) {
     constexpr int linux_seek_data = 3, linux_seek_hole = 4;  // the other way round on Darwin
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    // An eventfd's and an epoll's lseek is Linux's noop_llseek: the position, which stays 0.
+    if (description->kind() != Description::Kind::file) return 0;
     if (const auto result = seek_stream(*description, offset, whence)) return *result;
     int host_whence;
     switch (whence) {
@@ -700,7 +732,9 @@ template <typename Plain>
 long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain plain) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    if (description->kind() == Description::Kind::epoll) return -linux_errno::einval;  // it has no read or write
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
+    if (description->kind() == Description::Kind::eventfd) return transfer_count(*description, writing, vectors, count);
     if (!description->can_block()) return result_or_error(plain(description->host()));
     return transfer(*description, writing, Buffers(vectors, count));
 }
@@ -762,11 +796,11 @@ long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group) {
 }
 
 long sys_ftruncate(int fd, std::int64_t length) {
-    return with_host(fd, [&](int host) { return result_or_error(::ftruncate(host, length)); });
+    return with_file(fd, [&](int host) { return result_or_error(::ftruncate(host, length)); });
 }
 
 long sys_fsync(int fd) {
-    return with_host(fd, [](int host) { return result_or_error(::fsync(host)); });
+    return with_file(fd, [](int host) { return result_or_error(::fsync(host)); });
 }
 
 namespace {
@@ -835,6 +869,8 @@ long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument) {
         case tiocgwinsz:  // struct winsize: four unsigned shorts on both systems
             return result_or_error(::ioctl(host, TIOCGWINSZ, as_pointer<winsize>(argument)));
         case fionread:
+            // Linux answers it for regular files and for what implements it, not an eventfd or an epoll.
+            if (description->kind() != Description::Kind::file) return -linux_errno::enotty;
             return result_or_error(::ioctl(host, FIONREAD, as_pointer<int>(argument)));
         case fionbio:  // the guest's O_NONBLOCK (descriptors.h)
             description->set_nonblocking(*as_pointer<const int>(argument) != 0);

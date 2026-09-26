@@ -729,6 +729,16 @@ TEST(vector_calls_with_no_vectors_answer_0) {
     CHECK(table.holds_its_own());
 }
 
+TEST(mmap_of_a_pipe_answers_enodev) {
+    // Linux's pipes have no mmap; Darwin answers EINVAL.
+    constexpr std::int64_t enodev = 19;
+    Table table;
+    int ends[2] = {-1, -1};
+    CHECK(call(nr_pipe2, {address(ends), 0}) == 0);
+    for (const int end : ends) CHECK(call(nr_mmap, {0, 16384, prot_read, map_private, unsigned_of(end), 0}) == -enodev);
+    CHECK(table.holds_its_own());
+}
+
 }  // namespace
 
 int main() {
