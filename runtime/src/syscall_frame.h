@@ -3,6 +3,8 @@
 // that change registers of the guest (clone, rt_sigreturn) will change the frame the same way.
 #pragma once
 
+#include "APKRuntime/apkrt.h"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -51,10 +53,20 @@ extern const std::uint32_t apkrt_loader_stubs[];
 extern const std::uint32_t apkrt_loader_back[];
 extern const std::uint32_t apkrt_loader_end[];
 
-/// syscall_entry.S: calls guest code at `function` from the runtime with up to three arguments and
-/// returns its x0; the thread counts as in guest code while it runs (ADR-0025).
-std::uint64_t apkrt_call_guest(std::uint64_t function, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2);
+/// syscall_entry.S: apkrt_call_guest (APKRuntime/apkrt.h) calls guest code as guest code
+/// (ADR-0025); its words up to here are runtime code.
 extern const std::uint32_t apkrt_call_guest_end[];
+
+/// syscall_entry.S: the entry for calls from guest code into host code (ADR-0030, decision 1), which
+/// the front libs' stubs reach through slot 0 of their tables, with the host function in x16. Not
+/// callable from C. Its labels, for the runtime signal's handler: in host code from
+/// apkrt_host_call_entered on; from apkrt_host_call_returning up to apkrt_host_call_returned the exit
+/// counts as returned, with apkrt_host_call_return its final ret.
+void apkrt_host_call(void);
+extern const std::uint32_t apkrt_host_call_entered[];
+extern const std::uint32_t apkrt_host_call_returning[];
+extern const std::uint32_t apkrt_host_call_return[];
+extern const std::uint32_t apkrt_host_call_returned[];
 
 
 /// syscall_entry.S: _setjmp and _longjmp for the host side of guest threads.

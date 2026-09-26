@@ -206,13 +206,15 @@ _apkrt_loader_end:
 1:
 .endm
 
-// uint64_t apkrt_call_guest(uint64_t function, uint64_t a0, uint64_t a1, uint64_t a2)
+// uint64_t apkrt_call_guest(uint64_t function, uint64_t a0, ..., uint64_t a7)
 //   On a guest thread, the call goes through the runtime signal, as clone's start does: resume()
 //   switches to the guest code and clears in_runtime in one step, and delivers what became pending
-//   while the runtime worked before the guest code's first word. The guest code returns to 2:, which
-//   sets the flag again; a runtime signal treats these words as runtime code. On a host thread it is
-//   a plain call.
+//   while the caller worked before the guest code's first word. The guest code returns to 2:, which
+//   gives in_runtime back the value it found (ADR-0030, A2): runtime code, or host code once no
+//   runtime signal is on its way (A3). A runtime signal treats these words as runtime code. On a host
+//   thread it is a plain call. a7 comes on the caller's stack.
 #define CONTEXT_SIZE 800  // sizeof(apkrt::GuestContext)
+#define HOST_CODE 2       // signals::host_code
     .p2align 2
     .globl _apkrt_call_guest
 _apkrt_call_guest:
@@ -225,13 +227,21 @@ _apkrt_call_guest:
     mov     x0, x1
     mov     x1, x2
     mov     x2, x3
+    mov     x3, x4
+    mov     x4, x5
+    mov     x5, x6
+    mov     x6, x7
+    ldr     x7, [x29, #32]
     blr     x16
     b       3f
-1:  sub     sp, sp, #CONTEXT_SIZE           // the GuestContext to resume
-    stp     x1, x2, [sp, #0]                // x0-x2: the arguments, the other argument registers 0
-    stp     x3, xzr, [sp, #16]
-    stp     xzr, xzr, [sp, #32]
-    stp     xzr, xzr, [sp, #48]
+1:  ldrb    w9, [x19, #IN_RUNTIME]          // the caller's side, for the return
+    str     x9, [sp, #24]
+    sub     sp, sp, #CONTEXT_SIZE           // the GuestContext to resume
+    stp     x1, x2, [sp, #0]                // x0-x7: the arguments, x8-x18 0
+    stp     x3, x4, [sp, #16]
+    stp     x5, x6, [sp, #32]
+    ldr     x9, [x29, #32]
+    stp     x7, x9, [sp, #48]
     stp     xzr, xzr, [sp, #64]
     stp     xzr, xzr, [sp, #80]
     stp     xzr, xzr, [sp, #96]
@@ -268,13 +278,213 @@ _apkrt_call_guest:
     stp     q30, q31, [sp, #768]
     mov     x0, sp
     bl      _apkrt_call_guest_enter         // resumes the context, never returns
-2:  mov     w9, #1                          // the guest code returned, with sp above the context
-    strb    w9, [x19, #IN_RUNTIME]
+2:  ldr     x9, [sp, #24]                   // the guest code returned, with sp above the context
+    cmp     w9, #HOST_CODE
+    b.eq    4f
+    strb    w9, [x19, #IN_RUNTIME]          // back to the caller's side: runtime code
 3:  ldr     x19, [sp, #16]
     ldp     x29, x30, [sp], #32
     ret
+4:  mov     w9, #1                          // runtime code while it makes sure that no runtime
+    strb    w9, [x19, #IN_RUNTIME]          // signal is on its way, then host code
+    str     x0, [sp, #24]
+    mov     x0, x19
+    bl      _apkrt_settle_runtime_signals
+    ldr     x0, [sp, #24]
+    b       3b
     .globl _apkrt_call_guest_end
 _apkrt_call_guest_end:
+
+// apkrt_host_call: calls from guest code into host code (ADR-0030, decision 1). A front lib's stub
+// branches here from slot 0 of its table with the host function in x16 and the arguments where Apple's
+// ABI puts them: x0-x7, v0-v7 and the stack, whose pointer stays as it is. On a guest thread the entry
+//   - sets in_runtime to host code with a store that the look after it cannot pass, and when another
+//     thread may be on its way with a runtime signal, waits for it and takes the signal first, so that
+//     none reaches host code (A3, apkrt_settle_runtime_signals);
+//   - when other host calls are on its stack of host calls, drops those that a longjmp out of a
+//     callback left behind (apkrt_drop_stale_host_calls), and pushes the return address and the stack
+//     pointer;
+//   - calls the host function;
+//   - pops its entry, and every entry above it, left behind by a longjmp inside one of its callbacks;
+//     clears in_runtime and delivers what became pending on the state right after the call, like a
+//     syscall's exit (ADR-0025, decisions 2 and 3) but without its SA_RESTART rule (A1): from
+//     apkrt_host_call_returning to apkrt_host_call_returned the thread counts as returned, pc = x30,
+//     and the slow path builds its GuestContext below the stack pointer.
+// On its way in it changes only what a call may change besides the arguments; on its way out it keeps
+// the results in x0, x1 and v0-v3. A fault inside it or the host function is the runtime's. On a host
+// thread it is a plain tail call.
+#define NUDGING 20             // offsetof(ThreadSignals, nudging); nudged and nudges_seen follow it
+#define NUDGED 24
+#define HOST_CALLS 32          // offsetof(ThreadSignals, host_calls)
+#define HOST_CALL_STACK 40     // offsetof(ThreadSignals, host_call_stack), 16 bytes an entry
+#define HOST_CALL_CAPACITY 16  // ThreadSignals::host_call_capacity
+#define HOST_CALL_SAVE 224     // what SAVE_HOST_CALL keeps
+
+// Keeps a host call's arguments (x0-x8, v0-v7), its host function (x16), its return address (x30) and
+// the thread (x9) below the stack pointer across a call into C++; stack arguments stay in place.
+.macro SAVE_HOST_CALL
+    sub     sp, sp, #HOST_CALL_SAVE
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x16, x30, [sp, #80]
+    stp     q0, q1, [sp, #96]
+    stp     q2, q3, [sp, #128]
+    stp     q4, q5, [sp, #160]
+    stp     q6, q7, [sp, #192]
+.endm
+
+.macro RESTORE_HOST_CALL
+    ldp     q6, q7, [sp, #192]
+    ldp     q4, q5, [sp, #160]
+    ldp     q2, q3, [sp, #128]
+    ldp     q0, q1, [sp, #96]
+    ldp     x16, x30, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #HOST_CALL_SAVE
+.endm
+
+    .p2align 2
+    .globl _apkrt_host_call
+_apkrt_host_call:
+    hint    #34                             // bti c: reached with br x17 or blr x17
+    adrp    x9, _apkrt_guest_thread_key@PAGE
+    ldr     x9, [x9, _apkrt_guest_thread_key@PAGEOFF]
+    add     x10, x9, #1
+    cbz     x10, Lhost_plain                // no guest thread exists yet
+    mrs     x10, TPIDRRO_EL0
+    and     x10, x10, #~7
+    ldr     x9, [x10, x9, lsl #3]
+    cbz     x9, Lhost_plain                 // a host thread
+    mov     w10, #HOST_CODE
+    add     x11, x9, #IN_RUNTIME
+    stlrb   w10, [x11]
+    .globl _apkrt_host_call_entered
+_apkrt_host_call_entered:
+    add     x11, x9, #NUDGING
+    ldar    w10, [x11]                      // other threads on their way with a runtime signal
+    ldp     w11, w12, [x9, #NUDGED]         // the runtime signals they sent, those the handler saw
+    cmp     w11, w12
+    ccmp    w10, #0, #0, eq
+    b.ne    Lhost_settle
+Lhost_push:
+    ldr     w10, [x9, #HOST_CALLS]
+    cbnz    w10, Lhost_nested
+Lhost_pushing:
+    cmp     w10, #HOST_CALL_CAPACITY
+    b.hs    Lhost_too_deep
+    mov     x12, sp
+    add     x13, x9, #HOST_CALL_STACK
+    add     x14, x13, x10, lsl #4
+    stp     x30, x12, [x14]
+    add     w10, w10, #1
+    str     w10, [x9, #HOST_CALLS]
+    blr     x16
+    // Back from host code, which kept x19-x29, d8-d15 and sp; the results are in x0, x1 and v0-v3.
+    adrp    x9, _apkrt_guest_thread_key@PAGE
+    ldr     x9, [x9, _apkrt_guest_thread_key@PAGEOFF]
+    mrs     x10, TPIDRRO_EL0
+    and     x10, x10, #~7
+    ldr     x9, [x10, x9, lsl #3]
+    ldr     w10, [x9, #HOST_CALLS]
+    mov     x12, sp
+    add     x13, x9, #HOST_CALL_STACK
+3:  cbz     w10, Lhost_lost
+    sub     w10, w10, #1
+    add     x14, x13, x10, lsl #4
+    ldr     x15, [x14, #8]
+    cmp     x15, x12
+    b.ne    3b                              // above its own: left behind by a longjmp in a callback
+    ldr     x30, [x14]
+    str     w10, [x9, #HOST_CALLS]
+    // Guest code again, with a store that the look at the pending signals cannot pass: a sender that
+    // still found host code sent no runtime signal, and the look finds what it added (A3).
+    add     x11, x9, #IN_RUNTIME
+    stlrb   wzr, [x11]
+    .globl _apkrt_host_call_returning
+_apkrt_host_call_returning:
+    ldar    x10, [x9]                       // mask, and after it pending
+    ldr     x11, [x9, #8]
+    bic     x11, x11, x10
+    cbnz    x11, 4f
+    .globl _apkrt_host_call_return
+_apkrt_host_call_return:
+    ret
+4:  mov     w10, #1                         // a signal to deliver: back in the runtime first
+    strb    w10, [x9, #IN_RUNTIME]
+    .globl _apkrt_host_call_returned
+_apkrt_host_call_returned:
+    sub     sp, sp, #CONTEXT_SIZE           // the state after the call
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    add     x10, sp, #CONTEXT_SIZE
+    stp     x30, x10, [sp, #240]            // x30; sp: the caller's, above this context
+    mrs     x11, nzcv
+    stp     x30, x11, [sp, #256]            // pc: the return address; NZCV
+    mrs     x10, fpsr
+    mrs     x11, fpcr
+    stp     x10, x11, [sp, #272]
+    stp     q0, q1, [sp, #288]
+    stp     q2, q3, [sp, #320]
+    stp     q4, q5, [sp, #352]
+    stp     q6, q7, [sp, #384]
+    stp     q8, q9, [sp, #416]
+    stp     q10, q11, [sp, #448]
+    stp     q12, q13, [sp, #480]
+    stp     q14, q15, [sp, #512]
+    stp     q16, q17, [sp, #544]
+    stp     q18, q19, [sp, #576]
+    stp     q20, q21, [sp, #608]
+    stp     q22, q23, [sp, #640]
+    stp     q24, q25, [sp, #672]
+    stp     q26, q27, [sp, #704]
+    stp     q28, q29, [sp, #736]
+    stp     q30, q31, [sp, #768]
+    mov     x0, sp
+    bl      _apkrt_host_call_deliver        // delivers and resumes the guest, never returns
+    brk     #1
+
+// A runtime signal may be on its way (A3): wait for it and take it before host code runs, keeping the
+// arguments, the host function and the return address.
+Lhost_settle:
+    SAVE_HOST_CALL
+    mov     x0, x9
+    bl      _apkrt_settle_runtime_signals
+    RESTORE_HOST_CALL
+    b       Lhost_push
+Lhost_nested:
+    SAVE_HOST_CALL
+    mov     x0, x9
+    add     x1, sp, #HOST_CALL_SAVE         // the stack pointer the call is made with
+    bl      _apkrt_drop_stale_host_calls
+    RESTORE_HOST_CALL
+    ldr     w10, [x9, #HOST_CALLS]
+    b       Lhost_pushing
+Lhost_too_deep:
+    bl      _apkrt_host_calls_too_deep      // reports it and faults, in host code: the runtime's fault
+Lhost_lost:
+    brk     #1                              // its own entry is gone: a fault of the runtime
+Lhost_plain:
+    br      x16
 
 // int apkrt_save_host(uint64_t context[22]): callee-saved registers, sp and lr; returns 0, and 1
 // when apkrt_return_to_host comes back to it.

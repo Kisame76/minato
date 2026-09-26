@@ -73,16 +73,39 @@ constexpr std::int32_t ss_onstack = 1;
 constexpr std::int32_t ss_disable = 2;
 constexpr std::int32_t ss_autodisarm = std::int32_t(1u << 31);
 
+/// The values of ThreadSignals::in_runtime (ADR-0030, A2).
+enum Side : std::uint8_t {
+    guest_code = 0,
+    runtime_code = 1,
+    host_code = 2,  // inside a call from guest code into host code (ADR-0030, decision 1)
+};
+
 /// The signal state of one guest thread. Its own host signal handler reads and changes it; other
 /// threads only add signals, under `lock`.
 struct ThreadSignals {
     std::atomic<std::uint64_t> mask{0};
     std::atomic<std::uint64_t> pending{0};  // signals waiting, standard and real-time
-    // Whether the thread runs the runtime's code rather than guest code: signals wait until it goes
-    // back to guest code. It changes exactly where the code changes sides (ADR-0025): the syscall
-    // entry sets it, the syscall exit and the resume of a context clear it. A new thread starts in
+    // Which code the thread runs (Side): in runtime or host code, signals wait until it goes back to
+    // guest code, and a fault is the runtime's. It changes exactly where the code changes sides
+    // (ADR-0025): the syscall entry sets it, the syscall exit and the resume of a context clear it;
+    // the host call entry sets host_code and its exit clears it (ADR-0030). A new thread starts in
     // the runtime.
-    std::atomic<bool> in_runtime{true};
+    std::atomic<std::uint8_t> in_runtime{runtime_code};
+    // ADR-0030, A3: no runtime signal reaches host code. Other threads count themselves in `nudging`
+    // from before they look at in_runtime until their runtime signal is sent, and count what they
+    // sent in `nudged`; the runtime signal's handler notes in `nudges_seen` what it found in `nudged`.
+    std::atomic<std::uint32_t> nudging{0};
+    std::atomic<std::uint32_t> nudged{0};
+    std::atomic<std::uint32_t> nudges_seen{0};
+    // ADR-0030, decision 1: the host calls the thread is inside, the innermost last, each with where
+    // it returns to and the stack pointer it was made with.
+    std::uint32_t host_calls = 0;
+    struct HostCall {
+        std::uint64_t return_address;
+        std::uint64_t stack_pointer;
+    };
+    static constexpr std::uint32_t host_call_capacity = 16;
+    HostCall host_call_stack[host_call_capacity] = {};
     LinuxSiginfo info[signal_count + 1] = {};  // what came with each pending standard signal
     struct Queued {
         int signal;
@@ -111,7 +134,10 @@ struct ThreadSignals {
     ThreadSignals &operator=(const ThreadSignals &) = delete;
 };
 static_assert(offsetof(ThreadSignals, mask) == 0 && offsetof(ThreadSignals, pending) == 8 &&
-                  offsetof(ThreadSignals, in_runtime) == 16 && sizeof(std::atomic<bool>) == 1,
+                  offsetof(ThreadSignals, in_runtime) == 16 && sizeof(std::atomic<std::uint8_t>) == 1 &&
+                  offsetof(ThreadSignals, nudging) == 20 && offsetof(ThreadSignals, nudged) == 24 &&
+                  offsetof(ThreadSignals, nudges_seen) == 28 && offsetof(ThreadSignals, host_calls) == 32 &&
+                  offsetof(ThreadSignals, host_call_stack) == 40 && sizeof(ThreadSignals::HostCall) == 16,
               "layout used by syscall_entry.S");
 
 /// The signal state of the calling thread: its guest thread's, or a state of its own for a host
@@ -181,6 +207,7 @@ enum class Stopped {
     in_guest_code,  // the signal context is the guest's
     returning,      // the syscall exit after it cleared in_runtime: counts as returned
     leaving_loader,  // a loader stub after its call returned: counts as back at the caller
+    host_returning,  // the host call exit after it cleared in_runtime: counts as returned (ADR-0030)
 };
 Stopped where_stopped(std::uint64_t pc, bool in_runtime);
 
@@ -192,6 +219,14 @@ GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable)
 /// to its end.
 GuestContext after_loader_call(const ucontext_t &uc);
 
+/// Switches the calling guest thread to host code (ADR-0030, A2) such that no runtime signal reaches
+/// it there (A3): waits for the other threads that are on their way with one and takes it first.
+void enter_host_code(ThreadSignals &state);
+
+/// Switches the calling guest thread from host code back to `side` such that its next look at its
+/// pending signals finds those that came while no runtime signal was sent to it.
+void leave_host_code(ThreadSignals &state, std::uint8_t side);
+
 /// A signal frame's ucontext for rt_sigreturn: restores the mask, the alternate stack and the
 /// guest's x18 (Darwin TSD slot 11, ADR-0020) of the calling thread and returns the registers to
 /// resume. False when `address` holds no frame the syscall layer can read.
@@ -202,3 +237,10 @@ bool read_frame(std::uint64_t address, GuestContext &context);
 /// Called by apkrt_call_guest in syscall_entry.S on a guest thread: resumes `context`, the guest
 /// function's entry.
 extern "C" [[noreturn]] void apkrt_call_guest_enter(const apkrt::GuestContext *context);
+
+/// Called by apkrt_host_call's exit when it found a deliverable signal: resumes `context`, the state
+/// after the host call, and delivers the signals first (ADR-0030, decision 1 and A1).
+extern "C" [[noreturn]] void apkrt_host_call_deliver(const apkrt::GuestContext *context);
+
+/// Called by apkrt_host_call and apkrt_call_guest on their way into host code: enter_host_code.
+extern "C" void apkrt_settle_runtime_signals(apkrt::signals::ThreadSignals *state);

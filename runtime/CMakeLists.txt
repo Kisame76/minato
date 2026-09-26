@@ -5,7 +5,7 @@ enable_language(ASM)
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
-  src/islands.cpp src/process_exit.cpp)
+  src/islands.cpp src/process_exit.cpp src/host_calls.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -101,6 +101,18 @@ if(APK_HOST_BUILD)
   endif()
   add_test(NAME runtime.transitions COMMAND transitions_test)
   set_tests_properties(runtime.transitions PROPERTIES TIMEOUT 60)
+
+  # Calls from guest code into host code (ADR-0030, test 3): the entry, binding host tables and
+  # callbacks, on clone children.
+  add_executable(host_call_test tests/host_call_test.cpp tests/host_call_probe.S tests/transitions_probe.S
+    tests/threads_probe.S)
+  target_include_directories(host_call_test PRIVATE src)
+  target_link_libraries(host_call_test PRIVATE apkrt apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/host_call_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.host_call COMMAND host_call_test)
+  set_tests_properties(runtime.host_call PROPERTIES TIMEOUT 60)
 
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)

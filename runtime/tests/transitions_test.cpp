@@ -728,7 +728,7 @@ void call_child(void *) {
     view.tid = probe_syscall(nr_gettid, 0);
     auto &state = apkrt::signals::current();
     state.in_runtime = true;  // as in the runtime's own code, where it calls guest code
-    view.result = apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_function), 1, 20, 300);
+    view.result = apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_function), 1, 20, 300, 0, 0, 0, 0, 0);
     view.in_runtime_after = static_cast<int>(state.in_runtime.load());
     state.in_runtime = false;  // back in the test's code, guest code again
 }
@@ -856,7 +856,7 @@ void pending_call_child(void *) {
     apkrt::signals::LinuxSiginfo info{};
     info.signo = static_cast<std::int32_t>(sigusr1);
     apkrt::signals::send_to_thread(tid, static_cast<int>(sigusr1), info);  // own thread: pending
-    apkrt_call_guest(reinterpret_cast<std::uint64_t>(&count_on_entry), 0, 0, 0);
+    apkrt_call_guest(reinterpret_cast<std::uint64_t>(&count_on_entry), 0, 0, 0, 0, 0, 0, 0, 0);
     state.in_runtime = false;
 }
 
@@ -874,7 +874,7 @@ TEST(a_pending_signal_arrives_when_the_runtime_calls_guest_code) {
 
 // On a host thread (this test's own), apkrt_call_guest is a plain call.
 TEST(a_host_thread_calls_guest_code_directly) {
-    CHECK(apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_sum), 4, 50, 600) == 654);
+    CHECK(apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_sum), 4, 50, 600, 0, 0, 0, 0, 0) == 654);
 }
 
 }  // namespace

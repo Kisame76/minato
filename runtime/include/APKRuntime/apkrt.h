@@ -79,6 +79,31 @@ int apkrt_run_program(const char *container_path, const char *const argv[], cons
 /// cannot wait for its own process: whoever started it reads the status afterwards.
 void apkrt_report_exit_status(int descriptor);
 
+// MARK: - Host code on guest threads (ADR-0030)
+
+/// 1 when the calling thread is a guest thread, else 0.
+int apkrt_is_guest_thread(void);
+
+/// Calls the guest function at `function` with up to eight integer or pointer arguments and returns
+/// its x0. On a guest thread the function runs as guest code, and the caller's side (host code, or
+/// the runtime's own code) holds again once it returns (ADR-0025, decision 5; ADR-0030, A2). On a
+/// host thread it is a plain call. graphics/host calls the app's callbacks this way, on guest
+/// threads only (ADR-0030, decision 5).
+uint64_t apkrt_call_guest(uint64_t function, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
+                          uint64_t a5, uint64_t a6, uint64_t a7);
+
+/// Fills a front lib's host table (ADR-0030, decision 3): slot n, from 1 to `length` - 1, gets the
+/// host function of the n-th name in tools/frontgen's list for the lib. Returns 0, or nonzero when it
+/// cannot: a `hash` or `length` other than its list's, a host library that does not load. Slot 0 is
+/// the runtime's entry, which the runtime writes after a provider succeeded. The provider runs on the
+/// guest thread whose front lib binds its table, as host code: no runtime signal interrupts it.
+typedef int (*apkrt_host_provider)(void *context, void **table, size_t length, uint64_t hash);
+
+/// Sets the provider of the front lib `name` (tools/frontgen's names: "vulkan", "gles", "egl"), before
+/// the program starts; a NULL `provider` removes it. Returns 0, or -1 when `name` is empty or longer
+/// than 63 bytes, or 8 providers are set already.
+int apkrt_set_host_provider(const char *name, apkrt_host_provider provider, void *context);
+
 #ifdef __cplusplus
 }
 #endif

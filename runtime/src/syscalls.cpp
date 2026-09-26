@@ -4,9 +4,11 @@
 // futex have files of their own (sys_*.cpp, syscalls.h). At the end of each syscall, guest signals that
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
+#include "APKRuntime/guest_interface.h"
 #include "descriptors.h"
 #include "dl.h"
 #include "guest_context.h"
+#include "host_calls.h"
 #include "loader_syscalls.h"
 #include "process_exit.h"
 #include "signals.h"
@@ -662,6 +664,8 @@ long dispatch(const apkrt_syscall_frame &frame) {
         case APKRT_NR_DLERROR:
         case APKRT_NR_DLADDR:
             return apkrt::dl::loader_syscall(frame);  // ld-android.so's calls into the loader (ADR-0025)
+        case APKRT_NR_BIND_HOST_TABLE:
+            return apkrt::host_calls::bind_host_table(x[0], x[1], x[2], x[3]);  // a front lib (ADR-0030)
 
         default:
             report_unsupported(x[8]);

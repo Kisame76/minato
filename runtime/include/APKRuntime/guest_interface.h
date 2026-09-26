@@ -82,6 +82,20 @@ struct apkrt_loader {
 };
 #define APKRT_LOADER "apkrt_loader"
 
+/// The private syscall "bind host table" (ADR-0030, decision 3; ADR-0028, decision 11), which a front
+/// lib's first constructor makes once, through the veneer like every syscall: x0 the lib's name
+/// (tools/frontgen's: "vulkan", "gles", "egl"), x1 its table, x2 the table's length in slots, slot 0
+/// included, x3 the hash of the generator's name list. It returns 0 once the provider graphics/host set
+/// for the name (apkrt_set_host_provider) has filled slots 1 to length - 1 and the runtime has put its
+/// entry apkrt_host_call into slot 0; -ENOENT (-2) without a provider; -EINVAL (-22) when the provider
+/// refuses, the length is 0, the name or the table is NULL or the name is longer than 63 bytes. Any
+/// other invalid pointer is a fault of the runtime, as with the loader's syscalls.
+///
+/// A stub reaches the entry with the host function in x16 and the arguments where Apple's ABI puts
+/// them, the stack pointer as it is, by a branch to slot 0. The entry calls the host function as host
+/// code, and guest signals wait for its return (ADR-0030, decision 1).
+#define APKRT_NR_BIND_HOST_TABLE 4101
+
 #ifdef __cplusplus
 }
 #endif

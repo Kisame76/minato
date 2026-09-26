@@ -17,6 +17,7 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <thread>
 
 namespace apkrt::signals {
 namespace {
@@ -420,6 +421,14 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     apply(context, uc);
 }
 
+/// For a thread stopped `host_returning`: the guest's state after the host call, as if the exit had
+/// run to its end, without the SA_RESTART rule: a host call is never made again (ADR-0030, A1).
+GuestContext after_host_call(const ucontext_t &uc) {
+    auto context = context_from(uc);
+    context.pc = context.x[30];  // the return address the exit popped
+    return context;
+}
+
 /// The runtime signal: resume a context the thread asked for, or deliver guest signals that
 /// another thread sent while this one ran guest code. Runtime code finishes first: in the syscall
 /// entry the exit delivers them, and in the exit the thread counts as returned (ADR-0025).
@@ -427,6 +436,9 @@ void handle_runtime_signal(int, siginfo_t *, void *raw) {
     auto &uc = *static_cast<ucontext_t *>(raw);
     const auto *request = static_cast<const GuestContext *>(::pthread_getspecific(request_key));
     threads::GuestThread *thread = threads::current();
+    // Every runtime signal sent before this one arrived has arrived with it: they do not queue, and one
+    // sent while this handler runs arrives when it returns (ADR-0030, A3).
+    if (thread != nullptr) thread->signals.nudges_seen.store(thread->signals.nudged.load());
     GuestContext context;
     if (request != nullptr) {
         context = *request;
@@ -441,16 +453,34 @@ void handle_runtime_signal(int, siginfo_t *, void *raw) {
             context = after_syscall_exit(uc, state.pending.load() & ~state.mask.load());
         } else if (stopped == Stopped::leaving_loader) {
             context = after_loader_call(uc);
+        } else if (stopped == Stopped::host_returning) {
+            context = after_host_call(uc);
         } else {
             context = context_from(uc);
         }
     }
     if (thread != nullptr) {
-        deliver_pending(thread->signals, context);
-        // Back to guest code, the context asked for or a handler, when this handler returns.
-        thread->signals.in_runtime.store(false);
+        auto &state = thread->signals;
+        deliver_pending(state, context);
+        // Back to guest code, the context asked for or a handler, when this handler returns. A sender
+        // that still found the thread in host code sent no runtime signal; a look after the store finds
+        // what it added (ADR-0030, A3).
+        state.in_runtime.store(guest_code);
+        if ((state.pending.load() & ~state.mask.load()) != 0) deliver_pending(state, context);
     }
     apply(context, uc);
+}
+
+/// Sends the runtime signal to another guest thread, unless it runs host code (ADR-0030, decision 1):
+/// counted while this thread looks and sends, so that the thread's way into host code can wait for it
+/// (A3, enter_host_code).
+void nudge(ThreadSignals &state) {
+    state.nudging.fetch_add(1);
+    if (state.in_runtime.load() != host_code) {
+        ::pthread_kill(state.host, runtime_signal);
+        state.nudged.fetch_add(1);
+    }
+    state.nudging.fetch_sub(1);
 }
 
 void install_handlers() {
@@ -611,10 +641,9 @@ long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info) {
         if (result != 0) return;
         notify(thread.signals);
         // The calling thread takes it at the end of this syscall; another one gets the runtime
-        // signal, which also interrupts a blocking call it might be in.
-        if (&thread != threads::current() && thread.signals.host != pthread_t{}) {
-            ::pthread_kill(thread.signals.host, runtime_signal);
-        }
+        // signal, which also interrupts a blocking call it might be in, unless it runs host code:
+        // then the host call's exit finds the signal.
+        if (&thread != threads::current() && thread.signals.host != pthread_t{}) nudge(thread.signals);
     });
     return result;
 }
@@ -651,14 +680,39 @@ bool within(std::uint64_t pc, const void *begin, const void *end) {
 Stopped where_stopped(std::uint64_t pc, bool in_runtime) {
     if (within(pc, apkrt_syscall_returning, apkrt_syscall_returned)) return Stopped::returning;
     if (within(pc, apkrt_loader_back, apkrt_loader_end)) return Stopped::leaving_loader;
-    // The entry before its store, a loader stub on its way into the loader, and apkrt_call_guest's
+    if (within(pc, apkrt_host_call_returning, apkrt_host_call_returned)) return Stopped::host_returning;
+    // The entries before their stores, a loader stub on its way into the loader, and apkrt_call_guest's
     // words after the guest code returned, before it sets the flag again.
     if (in_runtime || within(pc, reinterpret_cast<const void *>(&apkrt_syscall_entry), apkrt_syscall_entered) ||
+        within(pc, reinterpret_cast<const void *>(&apkrt_host_call), apkrt_host_call_entered) ||
         within(pc, apkrt_loader_stubs, apkrt_loader_back) ||
         within(pc, reinterpret_cast<const void *>(&apkrt_call_guest), apkrt_call_guest_end)) {
         return Stopped::in_runtime;
     }
     return Stopped::in_guest_code;
+}
+
+void enter_host_code(ThreadSignals &state) {
+    state.in_runtime.store(host_code);
+    // Another thread that looked at in_runtime before this store sends its runtime signal: wait for it.
+    // One that looks after it finds host code and sends none.
+    while (state.nudging.load() != 0) std::this_thread::yield();
+    const auto sent = state.nudged.load();
+    if (sent == state.nudges_seen.load()) return;  // the handler ran after the last of them
+    // The last may still be pending: unblocking the runtime signal delivers what is pending on the
+    // thread before pthread_sigmask returns (XNU sets the thread's AST).
+    sigset_t runtime;
+    sigemptyset(&runtime);
+    sigaddset(&runtime, runtime_signal);
+    ::pthread_sigmask(SIG_UNBLOCK, &runtime, nullptr);
+    state.nudges_seen.store(sent);
+}
+
+void leave_host_code(ThreadSignals &state, std::uint8_t side) {
+    state.in_runtime.store(side);
+    // A sender that still found host code sent no runtime signal: the thread's next look at its pending
+    // signals must find what it added (ADR-0030, A3).
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
 GuestContext after_syscall_exit(const ucontext_t &uc, std::uint64_t deliverable) {
@@ -736,4 +790,12 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
 
 extern "C" void apkrt_call_guest_enter(const apkrt::GuestContext *context) {
     apkrt::signals::resume(*context);
+}
+
+extern "C" void apkrt_host_call_deliver(const apkrt::GuestContext *context) {
+    apkrt::signals::resume(*context);
+}
+
+extern "C" void apkrt_settle_runtime_signals(apkrt::signals::ThreadSignals *state) {
+    apkrt::signals::enter_host_code(*state);
 }
