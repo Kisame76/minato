@@ -327,8 +327,8 @@ void *address_of(State &state, const Library &library, const linker::Symbol &sym
 // ld-android.so takes a lock of its own before it calls in, as linker64 takes g_dl_mutex, so guest
 // threads wait for each other there, in guest code, where signals reach them (ADR-0025, decision 8).
 // The runtime's lock only keeps them apart from start-up work, which waits for no guest thread and
-// runs guest code under the lock only before the first guest thread starts (the ifunc resolvers of
-// load_program): a plain lock is enough here (decision 9).
+// runs guest code under the lock only on the program's thread before it starts any other (the ifunc
+// resolvers of load_program, ADR-0028): a plain lock is enough here (decision 9).
 
 void *guest_dlopen(const char *name, int flags, const void *, int *error_number) {
     auto &state = ::apkrt::dl::state();
@@ -495,7 +495,7 @@ int guest_dladdr(const void *address, void *raw_info) {
     const auto text = std::format("CANNOT LINK EXECUTABLE \"{}\": {}", state().program_name, message);
     const auto lines = std::format("{}\nF/{:<8}: {}\n", text, "linker", text);
     static_cast<void>(::write(STDERR_FILENO, lines.data(), lines.size()));
-    process::exit(EXIT_FAILURE);
+    process::end(EXIT_FAILURE);
 }
 
 }  // namespace
@@ -540,20 +540,21 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
     state.program_name = argv != nullptr && argv[0] != nullptr ? argv[0] : "";
-    const auto path = vfs::absolute(state.program_name, vfs::working_directory());
-    // The containers next to the program's are the library files in its directory.
-    const auto slash = path.rfind('/');
-    state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
-    state.library_path = library_path(state, envp);
-
-    auto &program = state.libraries.emplace_back();
-    program.object = Object{.name = container.stem().string(), .image = image, .dynamic = linker::read_dynamic(image),
-                            .path = path};
-    program.container = container;
-    std::vector<Library *> added;
+    // On the program's thread (ADR-0028), with nobody to return to: whatever keeps the program from
+    // linking ends it, the reading of its own dynamic section and of bionic's symbols included.
     try {
+        const auto path = vfs::absolute(state.program_name, vfs::working_directory());
+        // The containers next to the program's are the library files in its directory.
+        const auto slash = path.rfind('/');
+        state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
+        state.library_path = library_path(state, envp);
+
+        auto &program = state.libraries.emplace_back();
+        program.object = Object{.name = container.stem().string(), .image = image,
+                                .dynamic = linker::read_dynamic(image), .path = path};
+        program.container = container;
         bool missed = false;  // libc.so's start sets errno to 0 anyway
-        added = load_needed(state, program, true, missed);
+        const auto added = load_needed(state, program, true, missed);
         for (auto *library : added) {
             library->global = true;
             library->group_root = &program;
@@ -561,40 +562,40 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         const auto scope = lookup_scope(state, program, added);
         for (auto *library : added) linker::relocate(library->object, scope);
         for (std::size_t index = 0; index < added.size(); ++index) entry_for(state, *added[index], index);
+        state.listed = added.size();
+
+        // bionic's parts: libc.so's start function, TLS resolvers and registration, and the table in
+        // ld-android.so through which libdl reaches this file.
+        for (auto *library : added) {
+            const auto &object = library->object;
+            const auto at = [&](const linker::Symbol *symbol) { return object.image.bias + symbol->value; };
+            if (const auto *symbol = linker::find_symbol(object, APKRT_START_MAIN_THREAD, "APKRT_PRIVATE")) {
+                state.start_main_thread = reinterpret_cast<apkrt_start_main_thread_function>(at(symbol));
+            }
+            if (const auto *symbol = linker::find_symbol(object, APKRT_REGISTER_TLS_MODULE, "APKRT_PRIVATE")) {
+                state.register_tls = reinterpret_cast<apkrt_register_tls_module_function>(at(symbol));
+            }
+            if (const auto *symbol = linker::find_symbol(object, APKRT_SIGRETURN, "APKRT_PRIVATE")) {
+                signals::set_default_restorer(at(symbol));
+            }
+            if (const auto *symbol = linker::find_symbol(object, "__tls_get_addr", "LIBC_R")) {
+                state.tls_get_addr = reinterpret_cast<void *(*)(const std::uint64_t *)>(at(symbol));
+            }
+            if (const auto *symbol = linker::find_symbol(object, APKRT_TLSDESC_RESOLVERS, "APKRT_PRIVATE")) {
+                const auto *resolvers = reinterpret_cast<const std::uint64_t *>(at(symbol));
+                state.tls_resolvers = {.static_resolver = resolvers[APKRT_TLSDESC_STATIC],
+                                       .dynamic_resolver = resolvers[APKRT_TLSDESC_DYNAMIC],
+                                       .unresolved_weak_resolver = resolvers[APKRT_TLSDESC_UNRESOLVED_WEAK]};
+            }
+            if (const auto *symbol = linker::find_symbol(object, APKRT_LOADER, "APKRT_PRIVATE")) {
+                auto &loader = *reinterpret_cast<apkrt_loader *>(at(symbol));
+                loader.objects = state.entries;
+                set_loader_functions(loader);
+                state.loader = &loader;
+            }
+        }
     } catch (const std::exception &failure) {
         fail(failure.what());
-    }
-    state.listed = added.size();
-
-    // bionic's parts: libc.so's start function, TLS resolvers and registration, and the table in
-    // ld-android.so through which libdl reaches this file.
-    for (auto *library : added) {
-        const auto &object = library->object;
-        const auto at = [&](const linker::Symbol *symbol) { return object.image.bias + symbol->value; };
-        if (const auto *symbol = linker::find_symbol(object, APKRT_START_MAIN_THREAD, "APKRT_PRIVATE")) {
-            state.start_main_thread = reinterpret_cast<apkrt_start_main_thread_function>(at(symbol));
-        }
-        if (const auto *symbol = linker::find_symbol(object, APKRT_REGISTER_TLS_MODULE, "APKRT_PRIVATE")) {
-            state.register_tls = reinterpret_cast<apkrt_register_tls_module_function>(at(symbol));
-        }
-        if (const auto *symbol = linker::find_symbol(object, APKRT_SIGRETURN, "APKRT_PRIVATE")) {
-            signals::set_default_restorer(at(symbol));
-        }
-        if (const auto *symbol = linker::find_symbol(object, "__tls_get_addr", "LIBC_R")) {
-            state.tls_get_addr = reinterpret_cast<void *(*)(const std::uint64_t *)>(at(symbol));
-        }
-        if (const auto *symbol = linker::find_symbol(object, APKRT_TLSDESC_RESOLVERS, "APKRT_PRIVATE")) {
-            const auto *resolvers = reinterpret_cast<const std::uint64_t *>(at(symbol));
-            state.tls_resolvers = {.static_resolver = resolvers[APKRT_TLSDESC_STATIC],
-                                   .dynamic_resolver = resolvers[APKRT_TLSDESC_DYNAMIC],
-                                   .unresolved_weak_resolver = resolvers[APKRT_TLSDESC_UNRESOLVED_WEAK]};
-        }
-        if (const auto *symbol = linker::find_symbol(object, APKRT_LOADER, "APKRT_PRIVATE")) {
-            auto &loader = *reinterpret_cast<apkrt_loader *>(at(symbol));
-            loader.objects = state.entries;
-            set_loader_functions(loader);
-            state.loader = &loader;
-        }
     }
 }
 

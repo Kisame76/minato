@@ -68,7 +68,7 @@ void finish(GuestThread &thread) {
         code = first_thread_exit_code;
     }
     // On Linux the process ends with its last thread and reports the first thread's exit code.
-    if (last) process::exit(code);
+    if (last) process::end(code);
 }
 
 }  // namespace

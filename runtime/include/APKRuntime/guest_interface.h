@@ -96,6 +96,15 @@ struct apkrt_loader {
 /// code, and guest signals wait for its return (ADR-0030, decision 1).
 #define APKRT_NR_BIND_HOST_TABLE 4101
 
+/// The private syscalls of ADR-0028 (decision 11) for activity-host, libandroid and the front libs,
+/// through the veneer like every syscall: the session's connect, answers and requests (decisions 2 to
+/// 4) and the window's gate (decision 7). Their arguments and records come with the session (ADR-0028,
+/// step c); until then the runtime answers -ENOSYS.
+#define APKRT_NR_SESSION_CONNECT 4102
+#define APKRT_NR_SESSION_ANSWER 4103
+#define APKRT_NR_SESSION_REQUEST 4104
+#define APKRT_NR_WINDOW_GATE 4105
+
 #ifdef __cplusplus
 }
 #endif

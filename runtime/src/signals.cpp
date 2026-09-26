@@ -311,6 +311,8 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
             const SpinLock lock(state.lock);
             if (!take_locked(state, ~state.mask.load(), signal, info)) break;
         }
+        // After the program's end nothing is delivered; its SIGKILL comes after the mark (ADR-0028).
+        if (process::ended()) process::stop();
         const auto chosen = action(signal);
         if (ignored(chosen, signal)) continue;
         if (chosen.handler == sig_dfl) {
@@ -319,6 +321,8 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
         }
         setup_frame(state, signal, info, chosen, context, nullptr);
     }
+    // Every way back into guest code comes by here: after the program's end the thread stops instead.
+    if (process::ended()) process::stop();
     // A wait with a mask of its own (rt_sigsuspend, ppoll, pselect6, epoll_pwait) whose signals got
     // no handler's frame, dropped as ignored: the thread's own mask holds again, as on Linux when no
     // handler runs.
@@ -393,6 +397,8 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
         }
         return;
     }
+    // A fault of a thread that has yet to stop after the program's end: it stops now (ADR-0028).
+    if (process::ended()) process::stop();
     if (host_signal == SIGTRAP) {
         if (const auto trap = islands::jump_table_trap(uc.uc_mcontext->__ss.__pc, apkrt_get_guest_x18())) {
             // The guest's handler would return to the same brk forever (ADR-0020 X2d): stop here.
@@ -646,6 +652,19 @@ long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info) {
         if (&thread != threads::current() && thread.signals.host != pthread_t{}) nudge(thread.signals);
     });
     return result;
+}
+
+void stop_other_threads() {
+    const threads::GuestThread *self = threads::current();
+    LinuxSiginfo info{};
+    info.signo = sigkill;
+    threads::for_each([&](threads::GuestThread &thread) {
+        if (&thread == self) return;
+        enqueue(thread.signals, sigkill, info);
+        notify(thread.signals);
+        // A thread that has yet to start finds the end on its way into guest code.
+        if (thread.signals.host != pthread_t{}) nudge(thread.signals);
+    });
 }
 
 long send_to_process(int signal, const LinuxSiginfo &info) {

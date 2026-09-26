@@ -91,6 +91,8 @@ add_executable(poll-test suite/poll-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
 # (ADR-0035).
 add_executable(memory-test suite/memory-test.c)
+# start-test: ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
+add_executable(start-test suite/start-test.c)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

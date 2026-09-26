@@ -8,6 +8,7 @@
 #include "signals.h"
 #include "syscall_frame.h"
 
+#include <atomic>
 #include <functional>
 
 #include <cstdint>
@@ -28,6 +29,7 @@ struct GuestThread {
     std::uint64_t deferred_unmap_start = 0;
     std::uint64_t deferred_unmap_length = 0;
     void *host_signal_stack = nullptr;  // where the runtime's signal handlers run for this thread
+    std::atomic<bool> stopped{false};   // for good, at the program's end (ADR-0028, decision 5)
 };
 static_assert(offsetof(GuestThread, signals) == 0, "syscall_entry.S");
 

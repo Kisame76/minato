@@ -45,6 +45,8 @@ fd-test system
 poll-test system
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).
 memory-test system
+# ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
+start-test system
 # What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
 island-bench system measures
 # The address space a program has left, and where the allocator spills (ADR-0035).

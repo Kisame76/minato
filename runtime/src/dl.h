@@ -37,7 +37,8 @@ void add_library_directory(std::string_view guest_directory, const std::filesyst
 /// against the working directory, and the containers next to the program's are the library files in
 /// that directory. linker64 looks for a library in LD_LIBRARY_PATH of `envp`, then in /system/lib64
 /// and the other default directories of a program in /data/local/tmp. A program that cannot be linked
-/// ends the process as with linker64: "CANNOT LINK EXECUTABLE" on stderr, exit status 1.
+/// ends as with linker64: "CANNOT LINK EXECUTABLE" on stderr, exit status 1 (process::end). On the
+/// program's thread: the ifunc resolvers are guest code.
 void load_program(const std::filesystem::path &container, const loader::Image &image, const char *const argv[],
                   const char *const envp[]);
 

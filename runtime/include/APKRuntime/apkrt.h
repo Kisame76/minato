@@ -61,15 +61,23 @@ int apkrt_set_working_directory(const char *guest_path, char *error, size_t erro
 /// system's libraries. Returns 0, or -1 with the reason in `error`.
 int apkrt_add_library_directory(const char *guest_directory, const char *host_path, char *error, size_t error_size);
 
-/// Runs the program in a signed container dylib the way Linux runs an executable: loads it and,
-/// for a dynamic program, the libraries it needs, links them as Android's linker64 does, builds the
-/// Linux start stack (argv, envp, auxv) and starts it on a thread of its own. The program ends the
-/// whole process through exit_group or with its last thread, with its own exit status, so this
-/// returns only when the program could not start; `error` then says why. `argv` and `envp` end with
-/// NULL. argv[0] is the program as it was started, e.g. ./name; against the working directory it is
-/// the program's guest path, and the containers next to the program's are the library files in
-/// that directory. The linker looks for libraries in LD_LIBRARY_PATH of `envp`, then in
-/// /system/lib64; one that cannot link the program ends the process as linker64 does.
+/// Starts the program in a signed container dylib the way Linux runs an executable, on a thread of its
+/// own, which becomes the program's first guest thread (ADR-0028, decision 5). The calling thread maps
+/// the program's container and builds the Linux start stack (argv, envp, auxv); the program's thread
+/// loads the libraries a dynamic program needs, links them as Android's linker64 does, runs their ifunc
+/// resolvers and constructors, and then the program. So no guest code runs on the calling thread, which
+/// gets its thread back: 0 once the program runs, or -1 when it cannot start; `error` then says why. The
+/// program ends through exit_group or with its last thread, with its own exit status: with a session
+/// (apkrt_session_begin) its end handler is called, otherwise the process ends. One program per
+/// process: every call after the first returns -1. `argv` and `envp` end with NULL. argv[0] is the program as it was started, e.g. ./name;
+/// against the working directory it is the program's guest path, and the containers next to the
+/// program's are the library files in that directory. The linker looks for libraries in LD_LIBRARY_PATH
+/// of `envp`, then in /system/lib64; one that cannot link the program ends it as linker64 does, with
+/// exit status 1.
+int apkrt_start_program(const char *container_path, const char *const argv[], const char *const envp[],
+                        char *error, size_t error_size);
+
+/// apkrt_start_program, and then waits for good: returns only when the program could not start.
 int apkrt_run_program(const char *container_path, const char *const argv[], const char *const envp[],
                       char *error, size_t error_size);
 
@@ -78,6 +86,33 @@ int apkrt_run_program(const char *container_path, const char *const argv[], cons
 /// signal number when a signal ends it, as a shell shows it. -1 turns this off. For the app, which
 /// cannot wait for its own process: whoever started it reads the status afterwards.
 void apkrt_report_exit_status(int descriptor);
+
+// MARK: - Session (ADR-0028)
+
+/// Called at the program's end (ADR-0028, decision 5), once, on the thread that ends it (exit_group, or
+/// its last thread, or linker64's failure), after the exit status went to the report descriptor and
+/// every other guest thread was told to stop: each stops on its next way back into guest code, one
+/// inside a host call once that call returns, so they may still finish host code meanwhile. `status` is
+/// the exit status as reported. A stopped thread may hold locks, the
+/// loader's or those of ANGLE and MoltenVK: so the handler uses neither the loader nor the graphics
+/// libraries, and ends the process with _exit, never with exit, whose destructors would meet the
+/// stopped threads. It runs on the stack that thread had, which the guest chose and which may be small
+/// (an alternate signal stack): a handler that needs more hands its work to another thread. If it
+/// returns, its thread sleeps for good. A signal that ends the program (a crash) ends the process
+/// without it, after the report of 128 + the signal.
+typedef void (*apkrt_end_handler)(void *context, int status);
+
+/// How the host describes the app before the program starts (ADR-0028, decision 3). The configuration
+/// and the handler for the guest's requests come with ADR-0028's step c.
+struct apkrt_session {
+    void *context;          // passed to the handlers
+    apkrt_end_handler end;  // required
+};
+
+/// Begins the process's session: from now on the program's end calls its end handler instead of ending
+/// the process. Returns 0, or -1 when `session` or its end handler is NULL or a session has begun
+/// already.
+int apkrt_session_begin(const struct apkrt_session *session);
 
 // MARK: - Host code on guest threads (ADR-0030)
 

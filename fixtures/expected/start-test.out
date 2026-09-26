@@ -1,0 +1,3 @@
+the ifunc answers 42
+the ifunc resolver ran on the main thread: yes
+the constructor ran on the main thread: yes

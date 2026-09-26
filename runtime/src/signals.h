@@ -126,7 +126,7 @@ struct ThreadSignals {
     // sigsuspend: the mask the handler's frame returns to, instead of the temporary one.
     bool frame_mask_set = false;
     std::uint64_t frame_mask = 0;
-    pthread_t host{};
+    std::atomic<pthread_t> host{};  // set once the thread runs; other threads read it to signal it
 
     ThreadSignals() = default;
     ~ThreadSignals();
@@ -170,6 +170,12 @@ long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info);
 /// Sends a signal to the process: to the calling thread unless it blocks it, else to a thread
 /// that does not.
 long send_to_process(int signal, const LinuxSiginfo &info);
+
+/// At the program's end (ADR-0028, decision 5), as Linux's exit_group does: makes SIGKILL, which no
+/// mask blocks, pending on every guest thread but the calling one and wakes it, with the runtime signal
+/// unless it runs host code. So its waits end, and wherever it would go back to guest code it stops
+/// instead (process::ended), inside a host call once the call returns.
+void stop_other_threads();
 
 /// Raises the thread's signal word and triggers the user event in its kqueue: a blocking syscall of
 /// the thread wakes up, whether it sleeps on the word or in the kqueue.

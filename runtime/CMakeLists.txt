@@ -5,7 +5,7 @@ enable_language(ASM)
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
-  src/islands.cpp src/process_exit.cpp src/host_calls.cpp)
+  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -113,6 +113,20 @@ if(APK_HOST_BUILD)
   endif()
   add_test(NAME runtime.host_call COMMAND host_call_test)
   set_tests_properties(runtime.host_call PROPERTIES TIMEOUT 60)
+
+  # The program's start on a thread of its own and its end with the session's handler and the stopped
+  # threads (ADR-0028, test 1): each case in a child process, on a static program the converter makes
+  # and on clone children.
+  add_executable(program_test tests/program_test.cpp tests/threads_probe.S tests/blocking_probe.S
+    tests/host_call_probe.S)
+  target_include_directories(program_test PRIVATE src "${PROJECT_SOURCE_DIR}/importer/converter/tests")
+  target_link_libraries(program_test PRIVATE apkrt apkconv apk_defaults apk_testing)
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/program_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.program COMMAND program_test "${CMAKE_CURRENT_BINARY_DIR}/program_test_scratch"
+    "${APK_FIXTURES_DIR}")
+  set_tests_properties(runtime.program PROPERTIES TIMEOUT 120)
 
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
