@@ -8,8 +8,13 @@
 #   M2b (--sign-on-device): the app converts and signs the program and its own libraries itself,
 #       with the certificate imported in the app on an iPhone, ad hoc in the Simulator (ADR-0022).
 #       The costs per file are then shown, from output/signing.
+#   --without-increased-memory: the iPhone build is signed without its entitlements file, so without
+#       com.apple.developer.kernel.increased-memory-limit, as a SideStore install with a free account
+#       is (ADR-0012, ADR-0035). Its results go to build/device-suite-without-increased-memory/. The
+#       next tools/deploy.sh installs the app with the entitlement again.
 # The iPhone must be paired, unlocked and connected, with Developer Mode on (see tools/deploy.sh).
-# Usage: tools/device-suite.sh [--simulator] [--sign-on-device] [--device <name or identifier>] [test ...]
+# Usage: tools/device-suite.sh [--simulator] [--sign-on-device] [--without-increased-memory]
+#                              [--device <name or identifier>] [test ...]
 # Results: build/device-suite/<test>/ (build/simulator-suite/ for the Simulator) with stdout,
 # stderr, status, traced and, with --sign-on-device, signing; on the iPhone also
 # <test>.launch.json and <test>.console (devicectl's report and messages). The times include
@@ -20,17 +25,26 @@ cd "$(dirname "$0")/.."
 BUNDLE_ID="io.github.kisame76.minato"
 SIMULATOR=0
 SIGN_ON_DEVICE=0
+WITHOUT_INCREASED_MEMORY=0
 WANTED_DEVICE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --simulator) SIMULATOR=1; shift ;;
     --sign-on-device) SIGN_ON_DEVICE=1; shift ;;
+    --without-increased-memory) WITHOUT_INCREASED_MEMORY=1; shift ;;
     --device) WANTED_DEVICE="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+if [[ "$SIMULATOR" == 1 && "$WITHOUT_INCREASED_MEMORY" == 1 ]]; then
+  echo "--without-increased-memory is for the iPhone: the Simulator has no memory limit." >&2
+  exit 2
+fi
 RESULTS=build/device-suite
 [[ "$SIMULATOR" == 0 ]] || RESULTS=build/simulator-suite
+[[ "$WITHOUT_INCREASED_MEMORY" == 0 ]] || RESULTS=build/device-suite-without-increased-memory
+BUILD_SETTINGS="APK_EMBED_FIXTURES=YES"
+[[ "$WITHOUT_INCREASED_MEMORY" == 0 ]] || BUILD_SETTINGS+=" CODE_SIGN_ENTITLEMENTS="
 APP_ARGUMENTS=()
 [[ "$SIGN_ON_DEVICE" == 0 ]] || APP_ARGUMENTS=(-signOnDevice)
 
@@ -61,11 +75,20 @@ tools/build-bionic.sh >/dev/null
 cmake --preset macos >/dev/null
 cmake --build --preset macos --target apk-convert
 if [[ "$SIMULATOR" == 1 ]]; then
-  BUILD_SETTINGS="APK_EMBED_FIXTURES=YES" INSTALL_ONLY=1 tools/sim.sh --headless ${WANTED_DEVICE:+"$WANTED_DEVICE"}
+  BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/sim.sh --headless ${WANTED_DEVICE:+"$WANTED_DEVICE"}
   read -r DEVICE_ID _ < <(python3 tools/find-simulator.py "$WANTED_DEVICE") || true
 else
-  BUILD_SETTINGS="APK_EMBED_FIXTURES=YES" INSTALL_ONLY=1 tools/deploy.sh ${WANTED_DEVICE:+"$WANTED_DEVICE"}
+  BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/deploy.sh ${WANTED_DEVICE:+"$WANTED_DEVICE"}
   read -r DEVICE_ID _ < <(python3 tools/find-device.py "$WANTED_DEVICE") || true
+  # Whether the installed build has the entitlement, from its signature, as tools/spikes.sh shows it.
+  entitlements=$(codesign -d --entitlements - --xml build/DerivedData/Build/Products/Debug-iphoneos/Minato.app \
+    2>/dev/null || true)
+  ENTITLEMENT=without
+  [[ "$entitlements" != *com.apple.developer.kernel.increased-memory-limit* ]] || ENTITLEMENT=with
+  if [[ "$WITHOUT_INCREASED_MEMORY" == 1 && "$ENTITLEMENT" == with ]]; then
+    echo "The build still has increased-memory-limit." >&2
+    exit 1
+  fi
 fi
 if [[ -z "${DEVICE_ID:-}" ]]; then
   echo "No device found." >&2
@@ -169,8 +192,8 @@ for name in "${tests[@]}"; do
     fi
   fi
 done
-where="on the iPhone"
-[[ "$SIMULATOR" == 0 ]] || where="in the Simulator"
+where="in the Simulator"
+[[ "$SIMULATOR" == 1 ]] || where="on the iPhone, $ENTITLEMENT increased-memory-limit"
 how="signed on the Mac (M2a)"
 [[ "$SIGN_ON_DEVICE" == 0 ]] || how="converted and signed by the app (M2b)"
 echo "${#tests[@]} tests $where, $how, in $(($(date +%s) - started)) s"

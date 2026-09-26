@@ -88,6 +88,9 @@ target_link_libraries(dl-lock-test PRIVATE dl)
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 add_executable(poll-test suite/poll-test.c)
+# memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
+# (ADR-0035).
+add_executable(memory-test suite/memory-test.c)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
@@ -96,6 +99,8 @@ add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
 # island-bench: what one pass through an island costs, against a twin the converter leaves alone
 # (ADR-0020 X6).
 add_executable(island-bench bench/island-bench.c bench/island-bench.S)
+# address-space: the address space a guest program has left, and the allocator's spill (ADR-0035).
+add_executable(address-space bench/address-space.c)
 # lld relaxes ADRP and ADD into NOP and ADR when the target lies within 1 MiB, and the converter
 # knows a jump table's base only from ADRP and ADD, as the toolchains that use x18 left it.
 target_link_options(x18-test PRIVATE -Wl,--no-relax)

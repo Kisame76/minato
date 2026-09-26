@@ -1,0 +1,6 @@
+blocks of 16 to 65536 bytes, 108 sizes: 0 not allocated, 0 changed
+blocks of 65537 bytes to 16 MiB, 4 sizes: 0 not allocated, 0 changed
+a 2 GiB window without access at a 4 GiB boundary, while the blocks are in use: yes
+blocks changed by the window: 0
+112 blocks freed
+RLIMIT_STACK: soft 8388608, hard unlimited

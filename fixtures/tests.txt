@@ -43,5 +43,9 @@ x18-stress system
 fd-test system
 # eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 poll-test system
+# Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).
+memory-test system
 # What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
 island-bench system measures
+# The address space a program has left, and where the allocator spills (ADR-0035).
+address-space system measures
