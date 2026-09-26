@@ -14,6 +14,25 @@ else()
 endif()
 set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
+# Tests 2 and 4 need Core Animation and Metal objects: Objective-C++ with ARC.
+# Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003).
+enable_language(OBJCXX)
+foreach(test IN ITEMS fixed_size commit_gate)
+  string(REPLACE "_" "-" program "angle-${test}")
+  if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
+    add_executable(${program} angle_${test}.mm)
+    target_include_directories(${program} SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
+    target_compile_options(${program} PRIVATE -fobjc-arc)
+    target_link_libraries(${program} PRIVATE apk_defaults
+      "-framework Foundation" "-framework QuartzCore" "-framework Metal")
+    add_test(NAME graphics.angle_${test} COMMAND ${program} "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
+  else()
+    add_test(NAME graphics.angle_${test}
+      COMMAND ${CMAKE_COMMAND} -E echo "skipped: no ANGLE checkout in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
+  endif()
+  set_tests_properties(graphics.angle_${test} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+endforeach()
+
 # Test 3: every GLES and EGL function of the NDK's stubs is exported by the three slices or on the stub list.
 if(DEFINED ENV{ANDROID_NDK})
   set(ndk_default "$ENV{ANDROID_NDK}")

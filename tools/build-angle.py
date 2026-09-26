@@ -54,8 +54,8 @@ def pins():
         return json.load(handle)["angle"]
 
 
-def inside(path, base=BUILD):
-    real, base = os.path.realpath(path), os.path.realpath(base)
+def inside(path, base=None):
+    real, base = os.path.realpath(path), os.path.realpath(BUILD if base is None else base)
     return real == base or real.startswith(base + os.sep)
 
 
@@ -640,7 +640,14 @@ def main():
     parser.add_argument("--build", nargs="*", metavar="slice", help="build these slices (all without a name)")
     parser.add_argument("--licenses", metavar="slice", help="list the licenses of what a built slice holds")
     parser.add_argument("--self-test", action="store_true", help="check the script's guards (no network)")
+    parser.add_argument("--root", help="a copy of build/angle/ to work in instead, for mutation checks")
     options = parser.parse_args()
+    if options.root:
+        global BUILD, CHECKOUT, STAMP, STRIPPED
+        BUILD = os.path.abspath(options.root)
+        CHECKOUT = os.path.join(BUILD, "angle")
+        STAMP = os.path.join(BUILD, "stamp.json")
+        STRIPPED = os.path.join(BUILD, "stripped")
     actions = (options.fetch, options.gen is not None, options.build is not None, options.licenses, options.self_test)
     if not any(actions):
         parser.error("nothing to do: --self-test, --fetch, --gen, --build or --licenses")

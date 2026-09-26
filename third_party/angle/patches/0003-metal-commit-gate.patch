@@ -1,0 +1,196 @@
+A commit gate and a wait until scheduled for the Metal backend (ADR-0029, decisions 8 and 15).
+
+Why: iOS refuses GPU work in the background, and Minato promises that no app reaches the GPU there,
+whatever it does (ADR-0032, decision 6). Every command buffer ANGLE commits (presents, glFlush,
+glFinish, reads, its own flushes) now first calls a function that the embedder sets with
+ANGLEMetalSetCommitGate(void (*)(void)); Minato's graphics/host holds the commit there while the app is
+in the background. ANGLEMetalWaitUntilScheduled(double seconds) returns 1 once every command buffer
+committed so far, on every display's queue, is scheduled, and 0 after the timeout. It takes only the
+queues' own locks, so a host thread can call it while a guest thread waits at the gate inside ANGLE.
+Upstream: no; it serves one embedder's lifecycle.
+Remove: not while Minato keeps apps off the GPU in the background.
+
+diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.h b/src/libANGLE/renderer/metal/mtl_command_buffer.h
+index 2221ba0..6a1b063 100644
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.h
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.h
+@@ -72,6 +72,7 @@ class AtomicCommandBufferError : angle::NonCopyable
+ class CommandQueue final : public WrappedObject<id<MTLCommandQueue>>, angle::NonCopyable
+ {
+   public:
++    ~CommandQueue();
+     void reset();
+     void set(id<MTLCommandQueue> metalQueue);
+ 
+@@ -104,6 +105,10 @@ class CommandQueue final : public WrappedObject<id<MTLCommandQueue>>, angle::Non
+     bool isSerialScheduled(uint64_t serial) const;
+     void addCommandBufferScheduledCallback(uint64_t serial, std::function<void()> callback);
+ 
++    // Minato (patch 0003): waits until every command buffer committed on this queue so far is
++    // scheduled; false after the timeout.
++    bool waitUntilCommittedScheduled(uint64_t timeoutNs) const;
++
+     CommandQueue &operator=(id<MTLCommandQueue> metalQueue)
+     {
+         set(metalQueue);
+@@ -170,6 +175,10 @@ class CommandQueue final : public WrappedObject<id<MTLCommandQueue>>, angle::Non
+     mutable std::mutex mLock;
+     mutable std::condition_variable mCompletedBufferSerialCv;
+ 
++    // Minato (patch 0003): command buffers committed and not scheduled yet.
++    uint64_t mCommittedNotScheduled = 0;
++    mutable std::condition_variable mScheduledCv;
++
+     AtomicCommandBufferError mCmdBufferError;
+ 
+     angle::HashMap<uint64_t, std::vector<std::function<void()>>> mCommandBufferScheduledCallbacks;
+diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+index 1dd725d..93e5bf1 100644
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+@@ -25,6 +25,12 @@
+ #include "libANGLE/renderer/metal/mtl_resources.h"
+ #include "libANGLE/renderer/metal/mtl_utils.h"
+ 
++#include <export.h>
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <vector>
++
+ // Use to compare the new values with the values already set in the command encoder:
+ static inline bool operator==(const MTLViewport &lhs, const MTLViewport &rhs)
+ {
+@@ -44,6 +50,27 @@
+ namespace
+ {
+ 
++// Minato (patch 0003): the embedder's gate, called before every commit, and every queue that
++// ANGLEMetalWaitUntilScheduled waits for.
++std::atomic<void (*)(void)> gCommitGate{nullptr};
++std::mutex gQueuesLock;
++std::vector<const CommandQueue *> gQueues;
++
++void RegisterQueue(const CommandQueue *queue)
++{
++    std::lock_guard<std::mutex> lg(gQueuesLock);
++    if (std::find(gQueues.begin(), gQueues.end(), queue) == gQueues.end())
++    {
++        gQueues.push_back(queue);
++    }
++}
++
++void UnregisterQueue(const CommandQueue *queue)
++{
++    std::lock_guard<std::mutex> lg(gQueuesLock);
++    gQueues.erase(std::remove(gQueues.begin(), gQueues.end(), queue), gQueues.end());
++}
++
+ #define ANGLE_MTL_CMD_X(PROC)                        \
+     PROC(Invalid)                                    \
+     PROC(SetRenderPipelineState)                     \
+@@ -482,8 +509,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+ }
+ 
+ // CommandQueue implementation
++CommandQueue::~CommandQueue()
++{
++    UnregisterQueue(this);
++}
++
+ void CommandQueue::reset()
+ {
++    UnregisterQueue(this);
+     finishAllCommands();
+     ParentClass::reset();
+ }
+@@ -493,6 +526,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+     finishAllCommands();
+ 
+     ParentClass::set(metalQueue);
++    if (metalQueue)
++    {
++        RegisterQueue(this);
++    }
++    else
++    {
++        UnregisterQueue(this);
++    }
+ }
+ 
+ void CommandQueue::finishAllCommands()
+@@ -655,6 +696,17 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+     ANGLE_MTL_LOG("Committed MTLCommandBuffer %llu:%p", serial, buf);
+ 
+     mCommittedBufferSerial.storeMaxValue(serial);
++    {
++        std::lock_guard<std::mutex> lg(mLock);
++        ++mCommittedNotScheduled;
++    }
++}
++
++bool CommandQueue::waitUntilCommittedScheduled(uint64_t timeoutNs) const
++{
++    std::unique_lock<std::mutex> lk(mLock);
++    return mScheduledCv.wait_for(lk, std::chrono::nanoseconds(timeoutNs),
++                                 [&]() { return mCommittedNotScheduled == 0; });
+ }
+ 
+ void CommandQueue::onCommandBufferScheduled(uint64_t serial)
+@@ -669,6 +721,11 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+             mCommandBufferScheduledCallbacks.erase(it);
+         }
+         mScheduledBufferSerial.storeMaxValue(serial);
++        if (mCommittedNotScheduled > 0)
++        {
++            --mCommittedNotScheduled;
++        }
++        mScheduledCv.notify_all();
+     }
+     for (const auto &callback : callbacks)
+     {
+@@ -1151,6 +1208,13 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+     // Encoding any pending event's signalling.
+     setPendingEvents();
+ 
++    // Minato (patch 0003): the embedder's gate may hold the commit, e.g. while the app is in the
++    // background.
++    if (void (*gate)(void) = gCommitGate.load(std::memory_order_acquire))
++    {
++        gate();
++    }
++
+     // Notify command queue
+     mCmdQueue.onCommandBufferCommitted(get(), mQueueSerial);
+ 
+@@ -2774,3 +2838,30 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+ }
+ }  // namespace mtl
+ }  // namespace rx
++
++// Minato (patch 0003): the embedder's gate before every commit, and its wait until everything
++// committed is scheduled (Minato's ADR-0029, decision 15).
++extern "C" ANGLE_EXPORT void ANGLEMetalSetCommitGate(void (*gate)(void))
++{
++    rx::mtl::gCommitGate.store(gate, std::memory_order_release);
++}
++
++// 1 once every command buffer committed so far, on every queue, is scheduled; 0 after the timeout.
++extern "C" ANGLE_EXPORT int ANGLEMetalWaitUntilScheduled(double timeoutSeconds)
++{
++    using Clock = std::chrono::steady_clock;
++    const Clock::time_point deadline =
++        Clock::now() +
++        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeoutSeconds));
++    std::lock_guard<std::mutex> lg(rx::mtl::gQueuesLock);
++    for (const rx::mtl::CommandQueue *queue : rx::mtl::gQueues)
++    {
++        const Clock::duration left = std::max(deadline - Clock::now(), Clock::duration::zero());
++        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(left).count();
++        if (!queue->waitUntilCommittedScheduled(static_cast<uint64_t>(ns)))
++        {
++            return 0;
++        }
++    }
++    return 1;
++}

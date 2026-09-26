@@ -1,0 +1,91 @@
+EGL_ANGLE_window_fixed_size on the Metal backend (ADR-0029, decision 8).
+
+Why: Android apps choose their buffer size with ANativeWindow_setBuffersGeometry, and SurfaceFlinger
+scales the buffers onto the window. On Metal, WindowSurfaceMtl sets the CAMetalLayer's drawableSize to
+the layer's bounds times its scale at every frame, so such a size cannot be kept. With
+EGL_FIXED_SIZE_ANGLE the drawable keeps the surface's fixed size, eglSurfaceAttrib(EGL_WIDTH/EGL_HEIGHT)
+changes it from the next drawable on (ANGLE's front end already validates both), and Core Animation
+scales it onto the layer. DisplayMtl announces the extension.
+Upstream: could go upstream; the extension exists for other backends.
+Remove: when upstream implements EGL_ANGLE_window_fixed_size for Metal.
+
+diff --git a/src/libANGLE/renderer/metal/DisplayMtl.mm b/src/libANGLE/renderer/metal/DisplayMtl.mm
+index 71f0c61..b1bc909 100644
+--- a/src/libANGLE/renderer/metal/DisplayMtl.mm
++++ b/src/libANGLE/renderer/metal/DisplayMtl.mm
+@@ -467,6 +467,7 @@ bool IsMetalDisplayAvailable()
+ {
+     outExtensions->createContextRobustness    = true;
+     outExtensions->iosurfaceClientBuffer      = true;
++    outExtensions->windowFixedSize            = true;
+     outExtensions->surfacelessContext         = true;
+     outExtensions->noConfigContext            = true;
+     outExtensions->displayTextureShareGroup   = true;
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.h b/src/libANGLE/renderer/metal/SurfaceMtl.h
+index 004de33..8208194 100644
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.h
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.h
+@@ -157,6 +157,10 @@ class WindowSurfaceMtl : public SurfaceMtl
+     egl::Error detachFromFramebuffer(const gl::Context *context,
+                                      gl::Framebuffer *framebuffer) override;
+ 
++    // EGL_ANGLE_window_fixed_size: the new size takes effect with the next drawable.
++    void setFixedWidth(EGLint width) override;
++    void setFixedHeight(EGLint height) override;
++
+     angle::Result ensureCurrentDrawableObtained(const gl::Context *context);
+ 
+     // Ensure the the texture returned from getColorTexture() is ready for glReadPixels(). This
+@@ -182,6 +186,11 @@ class WindowSurfaceMtl : public SurfaceMtl
+     // metal runtime.
+     CGSize mCurrentKnownDrawableSize;
+ 
++    // EGL_FIXED_SIZE_ANGLE: the drawable keeps this size instead of following the layer's bounds,
++    // and Core Animation scales it onto the layer.
++    bool mFixedSize           = false;
++    CGSize mFixedDrawableSize = CGSizeMake(0, 0);
++
+     bool mRetainBuffer = false;
+ };
+ 
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.mm b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+index 1f41ff5..65029ac 100644
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.mm
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+@@ -415,6 +415,24 @@
+ {
+     // NOTE(hqle): Width and height attributes is ignored for now.
+     mCurrentKnownDrawableSize = CGSizeMake(0, 0);
++
++    // Unless EGL_FIXED_SIZE_ANGLE asks for a fixed size.
++    mFixedSize = attribs.get(EGL_FIXED_SIZE_ANGLE, EGL_FALSE) == EGL_TRUE;
++    if (mFixedSize)
++    {
++        mFixedDrawableSize = CGSizeMake(static_cast<CGFloat>(attribs.get(EGL_WIDTH, 0)),
++                                        static_cast<CGFloat>(attribs.get(EGL_HEIGHT, 0)));
++    }
++}
++
++void WindowSurfaceMtl::setFixedWidth(EGLint width)
++{
++    mFixedDrawableSize.width = static_cast<CGFloat>(width);
++}
++
++void WindowSurfaceMtl::setFixedHeight(EGLint height)
++{
++    mFixedDrawableSize.height = static_cast<CGFloat>(height);
+ }
+ 
+ WindowSurfaceMtl::~WindowSurfaceMtl() {}
+@@ -584,6 +602,11 @@
+ 
+ CGSize WindowSurfaceMtl::calcExpectedDrawableSize() const
+ {
++    if (mFixedSize)
++    {
++        return mFixedDrawableSize;
++    }
++
+     CGSize currentLayerSize           = mMetalLayer.get().bounds.size;
+     CGFloat currentLayerContentsScale = mMetalLayer.get().contentsScale;
+     CGSize expectedDrawableSize = CGSizeMake(currentLayerSize.width * currentLayerContentsScale,
