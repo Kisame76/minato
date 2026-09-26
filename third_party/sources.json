@@ -67,5 +67,80 @@
       ],
       "digest": "579c68b6515583a5c1fd8c4f291fad7422d18a3c2aa8e93ff988937df55510b3"
     }
-  ]
+  ],
+  "angle": {
+    "comment": "ANGLE for GLES through Metal (ADR-0029), fetched and built by tools/build-angle.sh into build/angle/. The repositories are pinned by commit (ANGLE's DEPS pins the others), the files the script fetches itself by SHA-256 or Git blob ID. tools/fetch-sources.py does not read this entry.",
+    "project": "https://chromium.googlesource.com/angle/angle",
+    "branch": "chromium/8037",
+    "commit": "b4cbb0a8e0aa39ec9088a9d26e8ce42bf7e5b2e6",
+    "license": "BSD-3-Clause",
+    "depot_tools": {
+      "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "commit": "08c69adf568036ad43af828fa900f3469dac6313",
+      "path": "third_party/depot_tools",
+      "license": "BSD-3-Clause"
+    },
+    "gclient": {
+      "target_os": ["ios", "mac"],
+      "custom_vars": {
+        "checkout_angle_cl_deps": false,
+        "checkout_angle_dawn_deps": false
+      },
+      "keep": [
+        "build",
+        "buildtools",
+        "testing",
+        "tools/clang",
+        "third_party/abseil-cpp",
+        "third_party/zlib",
+        "third_party/jsoncpp",
+        "third_party/jsoncpp/source",
+        "third_party/libc++/src",
+        "third_party/libc++abi/src",
+        "third_party/llvm-libc/src"
+      ],
+      "left_out_recursed": [
+        "buildtools/win-format",
+        "buildtools/mac-format",
+        "buildtools/mac_arm64-format",
+        "buildtools/linux64-format"
+      ],
+      "suppressed_hooks": ["rust", "dsymutil_mac_arm64", "mac_flex_bison", "mac_toolchain"]
+    },
+    "files": [
+      {
+        "path": "third_party/llvm-build/Release+Asserts",
+        "url": "https://commondatastorage.googleapis.com/chromium-browser-clang/Mac_arm64/clang-llvmorg-24-init-3796-g20e97c4b-4.tar.xz",
+        "bytes": 47226204,
+        "sha256": "264d803970f9b58ddbdc90464ad82e54cef642c58ec371ba5356dfa7342ece4d",
+        "unpack": "tar",
+        "license": "Apache-2.0 WITH LLVM-exception"
+      },
+      {
+        "path": "buildtools/mac",
+        "url": "https://chrome-infra-packages.appspot.com/dl/gn/gn/mac-arm64/+/git_revision:d71c4a70bd2ece461a09cbd6321970b9247fdab2",
+        "bytes": 1050937,
+        "sha256": "a569786bcf0129890ebd7326b7b07cd1206904564cae55ab58a0e7391f8f3d53",
+        "unpack": "zip",
+        "license": "BSD-3-Clause"
+      },
+      {
+        "path": "third_party/OpenGL-Registry/src/xml/gl.xml",
+        "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/OpenGL-Registry/+/9cb90ca4902d588bef3c830fbb1da484893bd5fb/xml/gl.xml?format=TEXT",
+        "bytes": 2772823,
+        "git_blob": "326bddab1cad089ec2bf5b06dc3813dd88632e76",
+        "unpack": "base64",
+        "license": "Apache-2.0"
+      },
+      {
+        "path": "third_party/EGL-Registry/src/api/egl.xml",
+        "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/EGL-Registry/+/7dea2ed79187cd13f76183c4b9100159b9e3e071/api/egl.xml?format=TEXT",
+        "bytes": 191460,
+        "git_blob": "9ced66d5c1e411a1e4f0c9158aecb520484f9b1a",
+        "unpack": "base64",
+        "license": "Apache-2.0"
+      }
+    ],
+    "cap_bytes": 380000000
+  }
 }

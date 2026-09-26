@@ -1,0 +1,4 @@
+# The macOS slice, libGLESv2.dylib for the tests on the Mac (ADR-0029, decision 4).
+
+target_os = "mac"
+target_cpu = "arm64"

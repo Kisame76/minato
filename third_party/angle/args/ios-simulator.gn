@@ -1,0 +1,7 @@
+# The iOS Simulator slice of build/ANGLE.xcframework (ADR-0029, decision 4). The app's Simulator
+# build embeds the framework too, and gles-test has to run there; graphics are not judged (R15).
+
+target_os = "ios"
+target_environment = "simulator"
+target_cpu = "arm64"
+ios_enable_code_signing = false

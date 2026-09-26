@@ -1,0 +1,32 @@
+# GN arguments of every slice of Minato's ANGLE build (ADR-0029, decision 4).
+# tools/build-angle.py writes this file and the slice's own file into <output directory>/args.gn.
+
+is_debug = false
+is_component_build = false
+symbol_level = 1
+
+# New SDKs bring new warnings in code that is not ours.
+treat_warnings_as_errors = false
+
+# Only the Metal backend.
+angle_enable_metal = true
+angle_enable_gl = false
+angle_enable_vulkan = false
+angle_enable_swiftshader = false
+angle_enable_null = false
+angle_enable_wgpu = false
+angle_build_vulkan_system_info = false
+angle_enable_perfetto = false
+
+# No tests, samples or frame capture, so gn gen needs none of their dependencies.
+angle_build_tests = false
+build_angle_deqp_tests = false
+angle_has_rapidjson = false
+
+# ASTC is native on Apple GPUs.
+angle_has_astc_encoder = false
+
+# ANGLE's .gn turns these on; the Rust toolchain and siso are not fetched.
+enable_rust = false
+enable_rust_cxx = false
+use_siso = false
