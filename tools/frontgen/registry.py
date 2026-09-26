@@ -103,6 +103,16 @@ class Registry:
             if alias is not None:
                 self.aliases[name] = alias.get("name")
             self.commands[name] = self._command(name, element)
+        # The enumerants with a number, for the answers of a description (ADR-0030, decision 3), each with
+        # its own API's value.
+        self.values = {}
+        for element in root.iter("enum"):
+            if element.get("api") and self.api not in element.get("api").split(","):
+                continue
+            try:
+                self.values[element.get("name")] = int(element.get("value") or "", 0)
+            except ValueError:
+                pass
         self.versions = {}
         for feature in root.iter("feature"):
             if self.api not in feature.get("api", "").split(","):

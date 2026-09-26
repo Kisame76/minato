@@ -1,5 +1,6 @@
 # Minato's graphics (ADR-0029, ADR-0030): the host side of the front libs and their tests. The guest
 # front libs themselves are built with the NDK by tools/build-front-libs.sh.
+add_subdirectory(host)
 if(APK_HOST_BUILD)
   # ANGLE's checkout from tools/build-angle.sh, with its builds in out/<slice>. Tests that need it are
   # skipped while it is missing.

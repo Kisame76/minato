@@ -3,6 +3,10 @@
 registry egl
 library libEGL.so 35
 
+# ADR-0030, decision 3: without a driver every function fails, so eglGetError says EGL_NOT_INITIALIZED;
+# every other result answers 0 (EGL_FALSE, EGL_NO_*) then and when ANGLE lacks the function.
+answer eglGetError EGL_SUCCESS EGL_NOT_INITIALIZED
+
 # ADR-0029, decision 14: displays, window surfaces, configs, swaps, eglGetProcAddress, the extension
 # string and eglPresentationTimeANDROID; ADR-0030, decision 4: the waits in slices.
 hand eglGetDisplay eglGetPlatformDisplay eglCreateWindowSurface eglCreatePlatformWindowSurface

@@ -1,7 +1,7 @@
 # The guest side of Minato's graphics (ADR-0029, ADR-0030), built with the Android NDK for arm64-v8a by
-# tools/build-front-libs.sh: tools/frontgen's tables, stubs and export lists in build/graphics/gen/, and
-# so far the guest program of ADR-0030's test 2, thunk-test. The front libs follow (ADR-0030 V4,
-# ADR-0029 B1).
+# tools/build-front-libs.sh: tools/frontgen's tables, stubs, constructors and export lists in
+# build/graphics/gen/, the binding the front libs share, and so far the guest programs of ADR-0030's
+# tests 2 and 4, thunk-test and bind-test. The front libs follow (ADR-0030 V4, ADR-0029 B1).
 cmake_minimum_required(VERSION 4.0)
 project(MinatoGraphicsGuest LANGUAGES C ASM)
 
@@ -31,8 +31,8 @@ endforeach()
 # and the report (ADR-0030, decision 7).
 set(generated "")
 foreach(lib IN ITEMS vulkan gles egl)
-  list(APPEND generated "${gen}/${lib}_stubs.S" "${gen}/${lib}_table.h" "${gen}/${lib}_names.inc"
-    "${gen}/${lib}_report.json")
+  list(APPEND generated "${gen}/${lib}_stubs.S" "${gen}/${lib}_bind.c" "${gen}/${lib}_table.h"
+    "${gen}/${lib}_names.inc" "${gen}/${lib}_report.json")
 endforeach()
 set(stubs "")
 foreach(library IN ITEMS libvulkan libGLESv2 libGLESv3 libEGL)
@@ -62,3 +62,16 @@ add_executable(thunk-test "${tests}/thunk_test.c" "${tests}/thunk_test.S" "${CMA
   "${gen}/vulkan_stubs.S" "${gen}/gles_stubs.S" "${gen}/egl_stubs.S")
 target_include_directories(thunk-test PRIVATE "${tests}" "${gen}")
 target_compile_options(thunk-test PRIVATE -Wall -Wextra)
+
+# The binding every front lib shares (ADR-0030, decision 3): minato_bind.h and bind.c, with the runtime's
+# guest interface for the syscall's number.
+add_library(minato_bind OBJECT bind.c)
+target_include_directories(minato_bind PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE "${repo}/runtime/include")
+target_compile_options(minato_bind PRIVATE -Wall -Wextra)
+
+# ADR-0030, test 4: bind-test has its tables bound by <lib>_bind.c's constructors.
+add_executable(bind-test "${tests}/bind_test.c" "${gen}/vulkan_stubs.S" "${gen}/gles_stubs.S" "${gen}/egl_stubs.S"
+  "${gen}/vulkan_bind.c" "${gen}/gles_bind.c" "${gen}/egl_bind.c")
+target_include_directories(bind-test PRIVATE "${gen}")
+target_link_libraries(bind-test PRIVATE minato_bind)
+target_compile_options(bind-test PRIVATE -Wall -Wextra)

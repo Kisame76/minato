@@ -8,10 +8,14 @@ Khronos XML, the NDK's stubs and the front lib's description in graphics/<lib>/f
   tools/frontgen/frontgen.py --check REGISTRY.xml --dialect vulkan|gl|egl
 
 Writes into --out, never into the repo: <lib>_stubs.S (the table and a stub per name, guest code),
-<lib>_table.h (the table's layout, for the guest and the host build), <lib>_names.inc (the provider's
-name list, in the table's order), one <library>.map per library (its version script) and
-<lib>_report.json (the sorting, name by name). --check reads one registry on its own and says, for each
-command and callback in it, whether it can cross between the two ABIs. Standard library only."""
+<lib>_bind.c (the front lib's first constructor, which binds the table, and each slot's answer without a
+driver; guest code), <lib>_table.h (the table's layout, for the guest and the host build),
+<lib>_names.inc (the provider's list in the table's order: each name with its host function's name, its
+kind of result and its answer when the host library lacks it), one <library>.map per library (its
+version script) and <lib>_report.json (the sorting, name by name). The answers (decision 3) are 0 unless
+the description's "answer" names others for a result type or a name. --check reads one registry on its
+own and says, for each command and callback in it, whether it can cross between the two ABIs. Standard
+library only."""
 import argparse
 import glob
 import hashlib
@@ -39,7 +43,7 @@ class Description:
     LISTS = ("hand", "own", "exclude", "exclude-prefix", "exclude-if-takes", "exclude-if-extends", "platform")
 
     def __init__(self, path):
-        self.path, self.dialect, self.libraries, self.structures = path, None, [], {}
+        self.path, self.dialect, self.libraries, self.structures, self.answers = path, None, [], {}, {}
         self.lists = {keyword: set() for keyword in self.LISTS}
         with open(path) as file:
             for number, line in enumerate(file, 1):
@@ -55,6 +59,8 @@ class Description:
                     self.lists[keyword].update(values)
                 elif keyword == "structure" and len(values) == 2 and values[1] in HANDLINGS:
                     self.structures[values[0]] = values[1]
+                elif keyword == "answer" and len(values) == 3:
+                    self.answers[values[0]] = (values[1], values[2])
                 else:
                     raise GeneratorError(f"{path}:{number}: cannot read {line.strip()!r}")
         if not self.dialect or not self.libraries:
@@ -120,7 +126,11 @@ class FrontLib:
         missing = sorted(self.hand - names)
         if missing:
             raise GeneratorError(f"{lib}: written by hand, but neither exported nor offered: {', '.join(missing)}")
+        self.answers, self.answered = self._answers(), set()
         self.table = [self._entry(name) for name in sorted(names)]
+        unused = sorted(set(self.answers) - self.answered)
+        if unused:
+            raise GeneratorError(f"{lib}: answer for neither a result type nor a name of the table: {', '.join(unused)}")
         self.structures = self._structures()
         self._check_callbacks()
         self.hash = hashlib.sha256("".join(entry["name"] + "\n" for entry in self.table).encode()).hexdigest()[:16]
@@ -224,9 +234,25 @@ class FrontLib:
                 offered.append(name)
         return offered, left_out
 
+    def _answers(self):
+        """Decision 3: the description's answers, per result type or name, as the registry's numbers."""
+        answers = {}
+        for key, words in self.description.answers.items():
+            unknown = [word for word in words if word not in self.registry.values]
+            if unknown:
+                raise GeneratorError(f"{self.lib}: answer {key}: no enumerant of the registry: {', '.join(unknown)}")
+            answers[key] = [self.registry.values[word] for word in words]
+        return answers
+
     def _entry(self, name):
         command = self.registry.command(name)
         hand = self._hand_for(name)
+        result = {"void": "VOID", "float": "FLOAT"}.get(command.result.kind, "INT")
+        key = name if name in self.answers else command.result.base
+        if key in self.answers:
+            if result != "INT":
+                raise GeneratorError(f"{self.lib}: {name}: an answer for a result that is no integer or pointer")
+            self.answered.add(key)
         try:
             layout = abi.classify(command.result, command.params)
         except abi.Refused as why:
@@ -255,6 +281,7 @@ class FrontLib:
             "version": ".".join(map(str, number)) if number else None,
             "extensions": sorted(self.required.get(name, ())),
             "host": "EGL_" + name[3:] if self.registry.dialect == "egl" else name,
+            "result": result, "answers": self.answers.get(key, [0, 0]),
         }
 
     def _structures(self):
@@ -349,6 +376,33 @@ def stubs(front, note):
     return "\n".join(lines) + "\n"
 
 
+def number(value):
+    """An answer as C source: enumerants of EGL and GL read better in hexadecimal."""
+    return f"{value:#x}" if value > 0 else str(value)
+
+
+def binding(front, note):
+    """<lib>_bind.c: the front lib's first constructor binds its table (decision 3); without a driver, each
+    slot answers what the list here says, through minato_no_driver (graphics/guest/minato_bind.h)."""
+    lib, prefix = front.lib, f"MINATO_{front.lib.upper()}"
+    lines = [f"/* {note}",
+             f"   The front lib's first constructor binds its table through the runtime's syscall \"bind host "
+             f"table\"", f"   (ADR-0030, decision 3). Without a driver, slot n answers minato_{lib}_no_driver[n]. */",
+             '#include "minato_bind.h"', f'#include "{lib}_table.h"', "",
+             f"extern void *minato_{lib}_table[{prefix}_TABLE_LENGTH] MINATO_HIDDEN;", "",
+             "/* The slots not named here answer 0. */",
+             f"MINATO_HIDDEN const int64_t minato_{lib}_no_driver[{prefix}_TABLE_LENGTH] = {{",
+             "    [0] = 0,  /* the entry's slot, which gets minato_no_driver */"]
+    lines += [f"    [{prefix}_SLOT_{entry['name']}] = {number(entry['answers'][1])}," for entry in front.table
+              if entry["answers"][1]]
+    lines += ["};", "", "/* 0 once the constructor bound the table, else the syscall's negative error. */",
+              f"MINATO_HIDDEN int minato_{lib}_binding;", "",
+              f"__attribute__((constructor(101))) static void bind_{lib}(void) {{",
+              f"    minato_{lib}_binding = minato_bind_host_table(\"{lib}\", minato_{lib}_table, {prefix}_TABLE_LENGTH,",
+              f"{' ' * (len(lib) + 45)}{prefix}_TABLE_HASH, minato_{lib}_no_driver);", "}", ""]
+    return "\n".join(lines)
+
+
 def write(front, out, inputs):
     os.makedirs(out, exist_ok=True)
     lib, prefix = front.lib, f"MINATO_{front.lib.upper()}"
@@ -362,9 +416,13 @@ def write(front, out, inputs):
               f"    {prefix}_SLOT_ENTRY = 0,"]
     header += [f"    {prefix}_SLOT_{entry['name']} = {index}," for index, entry in enumerate(front.table, 1)]
     header += ["};", "", f"#endif", ""]
+    names = [f"MINATO_NAME({entry['name']}, \"{entry['host']}\", {entry['result']}, {number(entry['answers'][0])})\n"
+             for entry in front.table]
     files = {f"{lib}_table.h": "\n".join(header),
-             f"{lib}_names.inc": f"/* {note} */\n" + "".join(f"\"{entry['host']}\",\n" for entry in front.table),
-             f"{lib}_stubs.S": stubs(front, note)}
+             f"{lib}_names.inc": (f"/* {note}\n   Slot 1 on: MINATO_NAME(the table's name, the host function's name, "
+                                  f"its kind of result, its answer\n   when the host library lacks it). */\n"
+                                  + "".join(names)),
+             f"{lib}_stubs.S": stubs(front, note), f"{lib}_bind.c": binding(front, note)}
     for soname, names in front.exports.items():
         body = "".join(f"    {name};\n" for name in names)
         files[soname.replace(".so", ".map")] = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"

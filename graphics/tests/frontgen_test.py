@@ -7,6 +7,8 @@
   is in the table and in the export list; the five structures with function pointers are handled.
 - The table's hash is stable: two runs under other hash seeds write the same files. build/graphics/gen/,
   from which tools/build-front-libs.sh builds test 2's program, holds the same files when it exists.
+- Every slot answers as the C headers' result type says (decision 3), when the host library lacks its
+  function (<lib>_names.inc, for graphics/host) and without a driver (<lib>_bind.c, for the front lib).
 - Small XML samples with a variadic function, a structure by value, a long double, a char by value, a
   callback with a small result, more than 8 arguments or a floating-point argument or result are refused.
 
@@ -44,6 +46,10 @@ FUNCTION_POINTER_STRUCTURES = {
     "VkDeviceDeviceMemoryReportCreateInfoEXT", "VkDirectDriverLoadingInfoLUNARG",
 }
 LIBS = ["vulkan", "gles", "egl"]
+# Decision 3, per result type or name: the answer when the host library lacks the function, and the one
+# without a driver. VK_ERROR_FEATURE_NOT_PRESENT and VK_ERROR_INCOMPATIBLE_DRIVER; EGL_SUCCESS and
+# EGL_NOT_INITIALIZED. Everything else answers 0 both times.
+ANSWERS = {"VkResult": (-8, -9), "eglGetError": (0x3000, 0x3001)}
 
 failures = []
 
@@ -308,6 +314,46 @@ def check_samples(options, work):
               f"a sample with a {what} is refused for it ({' | '.join(lines)[:200]})")
 
 
+def check_answers(lib, report, prototypes):
+    """Decision 3: graphics/host's list per slot (the table's name, the host function's name, the kind of
+    result and the answer when the host library lacks the function) and the front lib's answers without a
+    driver, against the result types of the NDK's and the host library's C headers."""
+    with open(os.path.join(report["out"], f"{lib}_names.inc")) as file:
+        listed = re.findall(r'^MINATO_NAME\((\w+), "(\w+)", (VOID|INT|FLOAT), (-?\w+)\)$', file.read(), re.M)
+    bind = os.path.join(report["out"], f"{lib}_bind.c")
+    check(os.path.exists(bind), f"{lib}: the generator writes {lib}_bind.c")
+    with open(bind if os.path.exists(bind) else os.devnull) as file:
+        no_driver = {name: int(value, 0) for name, value in
+                     re.findall(rf"^    \[MINATO_{lib.upper()}_SLOT_(\w+)\] = (-?\w+),$", file.read(), re.M)}
+    check([(name, host) for name, host, _, _ in listed] == [(entry["name"], entry["host"]) for entry in report["table"]],
+          f"{lib}: {lib}_names.inc lists the table's {len(report['table'])} names in its order, each with its host "
+          f"function's name")
+    wrong = []
+    for name, _, result, answer in listed:
+        prototype = prototypes.get(name)
+        if prototype is None:
+            wrong.append(f"{name} is in no C header")
+            continue
+        kind = {"void": "VOID", "float": "FLOAT"}.get(prototype.result.kind, "INT")
+        expected = (kind,) + (ANSWERS.get(name) or ANSWERS.get(prototype.result.text) or (0, 0))
+        got = (result, int(answer, 0), no_driver.pop(name, 0))
+        if got != expected:
+            wrong.append(f"{name}: {got} != {expected}")
+    wrong += [f"{name} is not in the table" for name in no_driver]
+    check(not wrong, f"{lib}: every slot answers as its C result type says, when the host library lacks its "
+                     f"function and without a driver ({len(wrong)} differ{': ' + '; '.join(wrong[:6]) if wrong else ''})")
+
+
+def check_values(repo, registries):
+    """The answers name enumerants, which the generator reads with the value of its own API: gl.xml gives
+    GL_ACTIVE_PROGRAM_EXT 0x8259 for GLES and 0x8B8D for desktop GL."""
+    sys.path.insert(0, os.path.join(repo, "tools", "frontgen"))
+    from registry import Registry
+    values = Registry(registries["gles"][0], "gl", registries["gles"][1]).values
+    check(values.get("GL_ACTIVE_PROGRAM_EXT") == 0x8259, f"the generator reads GLES's value of an enumerant that "
+                                                        f"desktop GL numbers otherwise ({values.get('GL_ACTIVE_PROGRAM_EXT')})")
+
+
 def check_built(repo, fresh):
     """Test 2 runs thunk-test as tools/build-front-libs.sh built it from build/graphics/gen/: files there
     that differ from the generator's own output would let test 2 pass on stale stubs."""
@@ -364,7 +410,13 @@ def main():
                   registry)
         if lib == "vulkan":
             check_structures(report, registry)
+        include = os.path.join(os.path.dirname(options.vk_xml), "include") if lib == "vulkan" else \
+            os.path.join(options.angle, "include")
+        prototypes = ndk_headers.Headers(options.ndk, lib, include=include).prototypes
+        prototypes.update(ndk_headers.Headers(options.ndk, lib).prototypes)
+        check_answers(lib, report, prototypes)
     check_samples(options, options.work)
+    check_values(options.repo, registries)
     check_built(options.repo, first)
 
     print(f"{len(failures)} of the checks failed" if failures else "all checks passed")

@@ -5,6 +5,10 @@
 registry vulkan
 library libvulkan.so 35
 
+# Decision 3: a VkResult answers "not supported" when MoltenVK lacks the function, and the other
+# without a driver; every other result answers 0.
+answer VkResult VK_ERROR_FEATURE_NOT_PRESENT VK_ERROR_INCOMPATIBLE_DRIVER
+
 # Decision 10: the exports written by hand.
 hand vkCreateInstance vkDestroyInstance vkEnumerateInstanceVersion vkEnumerateInstanceExtensionProperties
 hand vkEnumerateInstanceLayerProperties vkEnumerateDeviceExtensionProperties vkEnumerateDeviceLayerProperties

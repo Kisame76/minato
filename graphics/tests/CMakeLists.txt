@@ -85,3 +85,57 @@ add_test(NAME graphics.thunk
     -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
     -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
 set_tests_properties(graphics.thunk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
+# ADR-0030, test 4: bind-test, a guest program from tools/build-front-libs.sh, has its tables bound by the
+# providers of graphics/host, which graphics-run (apk-run with them) sets from MINATO_MOLTENVK and
+# MINATO_ANGLE. Three runs, each with its own expected output: with ANGLE and MoltenVK, with fake-driver
+# (one function per lib) as both, and without providers.
+if(TARGET minato_graphics_host)
+  add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c)
+  target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults)
+  add_library(fake-driver MODULE fake_driver.c)
+  target_link_libraries(fake-driver PRIVATE apk_defaults)
+  if(APK_SANITIZE)  # its functions run on guest stacks, as graphics/host's do
+    set_source_files_properties(fake_driver.c PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  set(moltenvk "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
+  set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
+  # One run: its name, its expected output (<expected>.out, and <expected>.err when it exists) and the
+  # changes of the environment that set the providers (ENVIRONMENT_MODIFICATION).
+  function(add_bind_test name expected)
+    set(error "")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
+      set(error "-D EXPECTED_ERROR=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
+    endif()
+    add_test(NAME graphics.${name}
+      COMMAND ${CMAKE_COMMAND}
+        -D CONVERT=$<TARGET_FILE:apk-convert>
+        -D RUN=$<TARGET_FILE:graphics-run>
+        -D TEST=bind-test
+        -D FIXTURE=${APK_GRAPHICS_GUEST_DIR}/bind-test
+        "-D SYSTEM_LIBRARIES=${thunk_system_libraries}"
+        -D WORK=${CMAKE_CURRENT_BINARY_DIR}/${name}_runs
+        -D EXPECTED_OUTPUT=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.out
+        ${error}
+        -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
+        -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
+    set_tests_properties(graphics.${name} PROPERTIES ENVIRONMENT_MODIFICATION "${ARGN}"
+      SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+  endfunction()
+  if(EXISTS "${moltenvk}" AND EXISTS "${angle}")
+    add_bind_test(bind bind_test "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=set:${angle}")
+  else()
+    add_test(NAME graphics.bind COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: MoltenVK or ANGLE is missing, see tools/fetch-moltenvk.sh and tools/build-angle.sh")
+    set_tests_properties(graphics.bind PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endif()
+  add_bind_test(bind_missing bind_test_missing "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-driver>"
+    "MINATO_ANGLE=set:$<TARGET_FILE:fake-driver>")
+  add_bind_test(bind_no_driver bind_test_no_driver "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
+else()
+  foreach(name IN ITEMS bind bind_missing bind_no_driver)
+    add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
+    set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endforeach()
+endif()

@@ -1,0 +1,16 @@
+vulkan: bound
+gles: bound
+egl: bound
+  vkEnumerateInstanceVersion 0 (1.3), vkEnumerateInstanceLayerProperties -8 (count 7)
+  eglQueryAPI 0x30a1, eglGetError 0x3000
+  glGetError 0x505, glGetString NULL, glGetPathLengthNV 0
+  vkEnumerateInstanceVersion 0 (1.3), vkEnumerateInstanceLayerProperties -8 (count 7)
+  eglQueryAPI 0x30a1, eglGetError 0x3000
+  glGetError 0x505, glGetString NULL, glGetPathLengthNV 0
+bound again with a wrong hash: vulkan -22, gles -22, egl -22; with a slot less: vulkan -22
+  vkEnumerateInstanceVersion -9 (0.0), vkEnumerateInstanceLayerProperties -9 (count 7)
+  eglQueryAPI 0x0, eglGetError 0x3001
+  glGetError 0x0, glGetString NULL, glGetPathLengthNV 0
+  vkEnumerateInstanceVersion -9 (0.0), vkEnumerateInstanceLayerProperties -9 (count 7)
+  eglQueryAPI 0x0, eglGetError 0x3001
+  glGetError 0x0, glGetString NULL, glGetPathLengthNV 0
