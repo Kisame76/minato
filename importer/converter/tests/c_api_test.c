@@ -77,13 +77,31 @@ int main(int argc, char **argv) {
         // Converting again replaces the file.
         expect(apkconv_convert(signer, fixture, container, NULL, error, sizeof error) == 0,
                "apkconv_convert replaces an existing container");
+
+        // A valid ELF file for another machine: e_machine, at offset 18, set to EM_X86_64 (62).
+        char foreign[1024];
+        snprintf(foreign, sizeof foreign, "%s/foreign-machine.so", scratch);
+        FILE *source = fopen(fixture, "rb");
+        FILE *copy = fopen(foreign, "wb");
+        long offset = 0;
+        for (int byte; (byte = fgetc(source)) != EOF; ++offset) {
+            fputc(offset == 18 ? 62 : offset == 19 ? 0 : byte, copy);
+        }
+        fclose(source);
+        fclose(copy);
+        error[0] = '\0';
+        expect(apkconv_convert(signer, foreign, container, NULL, error, sizeof error) == -1 &&
+                   strncmp(error, "incompatible: ", 14) == 0 && strstr(error, "AArch64") != NULL,
+               "apkconv_convert refuses code for another machine as incompatible");
     } else {
         printf("     (fixtures missing, conversion skipped)\n");
     }
 
+    // "incompatible: " marks a file that cannot run on iOS, which the app shows as incompatible (ADR-0032);
+    // a file it cannot open is no such case.
     error[0] = '\0';
     expect(apkconv_convert(signer, "/nonexistent/libgame.so", container, NULL, error, sizeof error) == -1 &&
-               strstr(error, "/nonexistent/libgame.so") != NULL,
+               strstr(error, "/nonexistent/libgame.so") != NULL && strncmp(error, "incompatible: ", 14) != 0,
            "apkconv_convert names a file it cannot open");
     char not_elf[1024];
     snprintf(not_elf, sizeof not_elf, "%s/not-elf.so", scratch);
@@ -91,8 +109,16 @@ int main(int argc, char **argv) {
     fputs("definitely not an ELF file, but long enough to be looked at by the reader.", file);
     fclose(file);
     error[0] = '\0';
-    expect(apkconv_convert(signer, not_elf, container, NULL, error, sizeof error) == -1 && error[0] != '\0',
-           "apkconv_convert refuses a file that is not ELF");
+    expect(apkconv_convert(signer, not_elf, container, NULL, error, sizeof error) == -1 &&
+               strncmp(error, "incompatible: ", 14) == 0,
+           "apkconv_convert refuses a file that is not ELF as incompatible");
+    char empty[1024];
+    snprintf(empty, sizeof empty, "%s/empty.so", scratch);
+    fclose(fopen(empty, "w"));
+    error[0] = '\0';
+    expect(apkconv_convert(signer, empty, container, NULL, error, sizeof error) == -1 &&
+               strncmp(error, "incompatible: ", 14) == 0 && strstr(error, "empty") != NULL,
+           "apkconv_convert refuses an empty file as incompatible");
     error[0] = '\0';
     expect(apkconv_check_signature(not_elf, error, sizeof error) == -1 && strstr(error, "Mach-O") != NULL,
            "apkconv_check_signature refuses a file that is not Mach-O");

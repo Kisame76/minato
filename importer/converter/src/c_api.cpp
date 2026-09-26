@@ -60,9 +60,15 @@ public:
         const int descriptor = ::open(path, O_RDONLY | O_CLOEXEC);
         if (descriptor < 0) throw std::system_error(errno, std::generic_category(), std::format("cannot open {}", path));
         struct stat status {};
-        if (::fstat(descriptor, &status) != 0 || status.st_size <= 0) {
+        if (::fstat(descriptor, &status) != 0) {
+            const int failure = errno;
             ::close(descriptor);
-            throw std::runtime_error(std::format("{} is empty or cannot be read", path));
+            throw std::system_error(failure, std::generic_category(), std::format("cannot read {}", path));
+        }
+        if (status.st_size <= 0) {
+            ::close(descriptor);
+            // The file's own fault, not the reader's: an empty library cannot run either (ADR-0032).
+            throw apk::container::Incompatible(std::format("{} is empty", path));
         }
         size_ = static_cast<std::size_t>(status.st_size);
         data_ = ::mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, descriptor, 0);
@@ -294,8 +300,18 @@ extern "C" int apkconv_convert(const apkconv_signer *signer, const char *elf_pat
         auto start = std::chrono::steady_clock::now();
         auto container = [&] {
             const MappedFile elf(elf_path);
-            return apk::container::convert(elf.bytes(), {.install_name = "@rpath/" + output.filename().string(),
-                                                         .platform = platform});
+            try {
+                return apk::container::convert(elf.bytes(), {.install_name = "@rpath/" + output.filename().string(),
+                                                             .platform = platform});
+            } catch (const std::bad_alloc &) {
+                throw;
+            } catch (const apk::container::Incompatible &) {
+                throw;
+            } catch (const std::exception &failure) {
+                // Whatever else the conversion finds is the file's too (elf::FormatError, RewriteError,
+                // macho::FormatError): it cannot run on iOS as it is, however often it is tried (ADR-0032).
+                throw apk::container::Incompatible(failure.what());
+            }
         }();
         const auto convert_time = milliseconds_since(start);
         start = std::chrono::steady_clock::now();

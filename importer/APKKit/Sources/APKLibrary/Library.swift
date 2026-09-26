@@ -60,17 +60,20 @@ public actor Library {
     }
 
     /// Analyses one APK and installs it, updates the installed app of its package, or leaves that app as
-    /// it is (ADR-0034). Never throws for a bad APK: that becomes an `.invalid` entry.
+    /// it is (ADR-0034). A NativeActivity app's libraries are converted and signed with `signing`; without
+    /// it only their originals are kept (ADR-0032). Never throws for a bad APK: that becomes an `.invalid` entry.
     @discardableResult
-    public func importFile(_ url: URL, progress: @Sendable (Double) -> Void = { _ in }) throws -> ImportResult {
+    public func importFile(_ url: URL, signing: ImportSigning? = nil,
+                           progress: @Sendable (Double) -> Void = { _ in }) throws -> ImportResult {
         let fileManager = FileManager.default
         var source = try Self.sourceFile(for: url)
         progress(0)
 
-        let report: APKReport
+        let archive: ZipArchive
+        var report: APKReport
         let icon: Data?
         do {
-            let archive = try ZipArchive(url: url)
+            archive = try ZipArchive(url: url)
             report = try APKAnalyzer.analyze(archive, preferredLanguages: preferredLanguages)
             guard Self.isSafePackageName(report.packageName) else { throw LibraryError.unsafePackageName(report.packageName) }
             icon = try? APKAnalyzer.iconData(for: report, in: archive)
@@ -86,7 +89,7 @@ public actor Library {
         progress(0.2)
 
         let package = report.packageName
-        let state: LibraryEntry.State = switch report.compatibility.status {
+        var state: LibraryEntry.State = switch report.compatibility.status {
         case .ready: .ready
         case .needsSplits: .needsSplits
         case .incompatible: .incompatible
@@ -94,7 +97,7 @@ public actor Library {
         let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
         source.sha256 = digest
         let installed = entries.first { $0.id == package }
-        let decision = UpdatePolicy.decide(
+        var decision = UpdatePolicy.decide(
             installed: installed.flatMap(AppVersion.init(entry:)),
             new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest))
         switch (decision, installed) {
@@ -116,6 +119,31 @@ public actor Library {
         guard installed?.folder != folder else { throw LibraryError.versionFolderInUse(folder) }
         try? fileManager.removeItem(at: versionDirectory) // left over from an interrupted import of this file
         try fileManager.createDirectory(at: versionDirectory, withIntermediateDirectories: true)
+
+        // A ready NativeActivity app's native code goes into the version's lib/, converted and signed when a
+        // certificate is at hand (ADR-0032, decision 4). Apps with Java code get theirs with M4.
+        var signedWith: String?
+        if state == .ready, case .nativeActivity = report.runtime {
+            do {
+                signedWith = try installNativeCode(of: report, from: archive, into: versionDirectory, signing: signing)
+            } catch let refusal as RefusedLibrary {
+                // This version cannot run, so it keeps no code and counts as incompatible: a ready
+                // installed version then stays (ADR-0034, decision 1).
+                state = .incompatible
+                report.compatibility.status = .incompatible
+                report.compatibility.issues.append(.conversionFailed(library: refusal.library, reason: refusal.reason))
+                try? fileManager.removeItem(at: versionDirectory.appendingPathComponent("lib"))
+                decision = UpdatePolicy.decide(
+                    installed: installed.flatMap(AppVersion.init(entry:)),
+                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest))
+                if case .reject = decision, let installed {
+                    try? fileManager.removeItem(at: versionDirectory)
+                    discardPickedCopy(url)
+                    progress(1)
+                    return ImportResult(entry: installed, decision: decision, report: report)
+                }
+            }
+        }
         var base: PackageFile?
         if state != .incompatible {
             // On APFS the copy is a clone and takes no extra space.
@@ -149,7 +177,7 @@ public actor Library {
         entry.source = source
         entry.iconFile = iconFile
         entry.folder = folder
-        entry.signedWith = nil
+        entry.signedWith = signedWith
         entry.updatedAt = installed == nil ? nil : Date()
         try store(entry)
         removeEverything(in: appDirectory, except: folder)

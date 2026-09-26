@@ -281,4 +281,15 @@ struct APKAnalyzerTests {
             _ = try APKAnalyzer.analyze(ZipArchive(data: zip.build().data), preferredLanguages: [])
         }
     }
+
+    @Test func reportsTheLaunchersScreenOrientation() throws {
+        // What game mode holds the screen in (ADR-0032).
+        let landscape = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true, screenOrientation: 6)),
+                                                preferredLanguages: [])
+        let unset = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true)), preferredLanguages: [])
+
+        #expect(landscape.runtime == .nativeActivity(library: "game"))
+        #expect(landscape.screenOrientation == 6)
+        #expect(unset.screenOrientation == nil)
+    }
 }

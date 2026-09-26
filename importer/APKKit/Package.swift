@@ -19,6 +19,9 @@ let package = Package(
         .testTarget(name: "APKLibraryTests", dependencies: ["APKLibrary", "APKKit", "APKSigning", "APKTestSupport"]),
         .target(name: "APKSigning"),
         .testTarget(name: "APKSigningTests", dependencies: ["APKSigning"]),
+        // Game mode's pure logic (ADR-0032), tested on the Mac: so far the orientation of a session.
+        .target(name: "APKSession"),
+        .testTarget(name: "APKSessionTests", dependencies: ["APKSession"]),
         // Development tool: prints what APKKit reads from a real APK.
         .executableTarget(name: "apk-inspect", dependencies: ["APKKit"]),
         // Writes APKs for our test apps (make-apk, ADR-0031): ZIP, binary XML and string pools,

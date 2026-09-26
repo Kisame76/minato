@@ -2,8 +2,11 @@ import Foundation
 
 /// Complete synthetic APKs for import tests.
 public enum SampleAPK {
+    /// With `nativeActivity` the app starts android.app.NativeActivity with its libgame.so and has no
+    /// Java code; otherwise it declares no activity, as a Java app that needs ART.
     public static func make(package: String = "org.example.game", versionCode: Int32 = 1, label: String = "Sample Game",
-                            abis: [String] = ["arm64-v8a"], splitRequired: Bool = false) -> Data {
+                            abis: [String] = ["arm64-v8a"], splitRequired: Bool = false, nativeActivity: Bool = false,
+                            screenOrientation: Int32? = nil) -> Data {
         var resources = ARSCBuilder()
         resources.packageName = package
         let icon = resources.add("mipmap", "ic_launcher", [
@@ -15,11 +18,29 @@ public enum SampleAPK {
             .android("icon", 0x0101_0002, .reference(icon)),
         ]
         if splitRequired { applicationAttributes.append(.android("isSplitRequired", 0x0101_0591, .bool(true))) }
+        var activities: [AXMLBuilder.Element] = []
+        if nativeActivity {
+            applicationAttributes.append(.android("hasCode", 0x0101_000C, .bool(false)))
+            var activityAttributes: [AXMLBuilder.Attribute] = [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))]
+            if let screenOrientation {
+                activityAttributes.append(.android("screenOrientation", 0x0101_001E, .int(screenOrientation)))
+            }
+            activities.append(AXMLBuilder.Element("activity", activityAttributes, [
+                AXMLBuilder.Element("meta-data", [
+                    .android("name", 0x0101_0003, .string("android.app.lib_name")),
+                    .android("value", 0x0101_0024, .string("game")),
+                ]),
+                AXMLBuilder.Element("intent-filter", [], [
+                    AXMLBuilder.Element("action", [.android("name", 0x0101_0003, .string("android.intent.action.MAIN"))]),
+                    AXMLBuilder.Element("category", [.android("name", 0x0101_0003, .string("android.intent.category.LAUNCHER"))]),
+                ]),
+            ]))
+        }
         let manifest = AXMLBuilder.Element("manifest", [
             .plain("package", .string(package)),
             .android("versionCode", 0x0101_021B, .int(versionCode)),
             .android("versionName", 0x0101_021C, .string("\(versionCode).0")),
-        ], [AXMLBuilder.Element("application", applicationAttributes)])
+        ], [AXMLBuilder.Element("application", applicationAttributes, activities)])
 
         var zip = ZipBuilder()
         zip.add("AndroidManifest.xml", AXMLBuilder().build(manifest))

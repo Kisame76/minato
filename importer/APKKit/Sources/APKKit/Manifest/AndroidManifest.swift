@@ -26,6 +26,8 @@ public struct AndroidManifest: Sendable, Equatable {
 
     /// Fully qualified class started from the launcher (the target of an activity-alias).
     public var launcherActivity: String?
+    /// The launcher activity's `android:screenOrientation`, one of ActivityInfo's constants; nil when unset.
+    public var screenOrientation: Int?
     public var usesNativeActivity: Bool
     /// Library that NativeActivity loads (`android.app.lib_name`, default "main").
     public var nativeLibraryName: String?
@@ -104,6 +106,7 @@ public struct AndroidManifest: Sendable, Equatable {
 
         let launcher = application.flatMap { Self.launcher(in: $0, package: package) }
         launcherActivity = launcher?.className
+        screenOrientation = launcher?.element.android(.screenOrientation)?.integer
         usesNativeActivity = launcher?.className == "android.app.NativeActivity"
         if usesNativeActivity {
             let libraryName = launcher?.element.children(named: "meta-data")

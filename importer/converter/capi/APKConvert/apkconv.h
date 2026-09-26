@@ -44,7 +44,10 @@ typedef struct {
 /// Converts the ELF file `elf_path` into the container dylib `container_path`, for the platform
 /// this library is built for, and signs it with `signer`. The container is written to a new file
 /// that then replaces any old one, because the kernel remembers signatures per file (ADR-0008).
-/// `statistics` may be NULL. Returns 0, or -1 with the reason in `error`.
+/// `statistics` may be NULL. Returns 0, or -1 with the reason in `error`. The reason starts with
+/// "incompatible: " when the file cannot run on iOS as it is, for whatever the conversion finds wrong
+/// with it (an empty or broken file included), which makes the app incompatible (ADR-0032); a file
+/// that cannot be opened or read, a signing failure and a lack of memory are no such case.
 int apkconv_convert(const apkconv_signer *signer, const char *elf_path, const char *container_path,
                     apkconv_statistics *statistics, char *error, size_t error_size);
 

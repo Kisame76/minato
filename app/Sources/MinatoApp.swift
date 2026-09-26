@@ -10,8 +10,11 @@ struct MinatoApp: App {
 
     init() {
         let library = LibraryModel()
+        let signing = SigningCoordinator(library: library)
+        // The import converts and signs native code while the certificate is valid (ADR-0032).
+        library.importSigning = { [weak signing] in signing?.importSigning() }
         _library = State(initialValue: library)
-        _signing = State(initialValue: SigningCoordinator(library: library))
+        _signing = State(initialValue: signing)
         Logger(subsystem: "io.github.kisame76.minato", category: "runtime")
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG

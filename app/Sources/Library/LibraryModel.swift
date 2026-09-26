@@ -37,6 +37,9 @@ final class LibraryModel {
     /// Entries whose converted code is being signed again, shown as "Updating".
     private(set) var resigningIDs: Set<String> = []
     var errorMessage: String?
+    /// The signer for native code at import (ADR-0032), which the signing coordinator provides; nil
+    /// while the certificate is not valid, and then the import keeps the originals only.
+    @ObservationIgnored var importSigning: @MainActor () -> ImportSigning? = { nil }
 
     @ObservationIgnored private let library: Library?
     @ObservationIgnored private let paths: LibraryPaths?
@@ -177,7 +180,7 @@ final class LibraryModel {
             let start = ContinuousClock.now
             // Read first: the import discards the picked copy.
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            let result = try await library.importFile(url) { [weak self] value in
+            let result = try await library.importFile(url, signing: importSigning()) { [weak self] value in
                 Task { @MainActor in
                     guard let self, self.pending.contains(url) else { return }
                     self.progress[url] = value

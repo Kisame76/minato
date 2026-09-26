@@ -50,7 +50,7 @@ enum Texts {
 
     static func isBlocking(_ issue: Compatibility.Issue) -> Bool {
         switch issue {
-        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture: true
+        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed: true
         default: false
         }
     }
@@ -65,6 +65,8 @@ enum Texts {
             "No ARM code, only \(abis.joined(separator: ", "))"
         case .wrongArchitecture(let library):
             "\(library) is in the arm64 folder but is not ARM64 code"
+        case .conversionFailed(let library, let reason):
+            "\(library) cannot run: \(reason)"
         case .needsART:
             "Contains Java/Kotlin code and needs ART (milestone M4)"
         case .requiresGLES(let version):

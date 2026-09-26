@@ -41,6 +41,7 @@ public enum APKAnalyzer {
             minSdk: manifest.minSdk,
             targetSdk: manifest.targetSdk,
             launcherActivity: manifest.launcherActivity,
+            screenOrientation: manifest.screenOrientation,
             runtime: runtime,
             abis: abis,
             selectedABI: selectedABI,

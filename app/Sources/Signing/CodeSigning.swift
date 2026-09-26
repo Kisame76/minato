@@ -188,13 +188,19 @@ func converterMessage(in buffer: [CChar]) -> String {
     String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
-/// The signer as the library's converter for signing converted code again (ADR-0023). The library
-/// calls it from its actor, one file after the other, never at the same time.
+/// The signer as the library's converter, at import (ADR-0032) and for signing converted code again
+/// (ADR-0023). The library calls it from its actor, one file after the other, never at the same time.
 struct SignerConverter: ContainerConverting, @unchecked Sendable {
     let signer: ContainerSigner
 
     func convert(_ elf: URL, to container: URL) throws {
-        try signer.convert(elf, to: container)
+        do {
+            try signer.convert(elf, to: container)
+        } catch CodeSigningError.converter(let message) {
+            // Code that cannot run on iOS as it is, which APKConvert marks (apkconv.h).
+            if let refusal = ConversionRefused(apkConvertMessage: message) { throw refusal }
+            throw CodeSigningError.converter(message)
+        }
     }
 }
 

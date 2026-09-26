@@ -24,6 +24,9 @@ public struct APKReport: Sendable, Equatable, Codable {
     public var minSdk: Int
     public var targetSdk: Int
     public var launcherActivity: String?
+    /// The launcher activity's `android:screenOrientation`, one of ActivityInfo's constants; nil when
+    /// unset. Game mode holds the screen by it (ADR-0032).
+    public var screenOrientation: Int?
     public var runtime: Runtime
     /// ABIs with native libraries, sorted.
     public var abis: [String]
@@ -75,6 +78,8 @@ public struct Compatibility: Sendable, Equatable, Codable {
         case noARM64([String])
         /// A library in lib/arm64-v8a is not AArch64 code.
         case wrongArchitecture(String)
+        /// The converter refuses a library: it cannot run on iOS as it is (ADR-0010, ADR-0032).
+        case conversionFailed(library: String, reason: String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART

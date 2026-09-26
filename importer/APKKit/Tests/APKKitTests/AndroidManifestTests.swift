@@ -123,6 +123,37 @@ struct AndroidManifestTests {
         #expect(manifest.nativeLibraryName == "game")
     }
 
+    @Test func readsTheLaunchersScreenOrientation() throws {
+        // The launcher's own, another activity's does not count.
+        let direct = try Self.parse(Self.manifest([], [
+            E("application", [], [
+                E("activity", [.android("name", 0x0101_0003, .string(".Other")), .android("screenOrientation", 0x0101_001E, .int(1))]),
+                E("activity", [.android("name", 0x0101_0003, .string(".Main")), .android("screenOrientation", 0x0101_001E, .int(6))],
+                  [Self.launcherFilter]),
+            ]),
+        ]))
+        // An alias has none of its own: the activity it names decides. Found by its resource ID alone.
+        let aliased = try Self.parse(Self.manifest([], [
+            E("application", [], [
+                E("activity", [
+                    .android("name", 0x0101_0003, .string("org.example.game.RealActivity")),
+                    A(namespace: AXMLBuilder.androidNamespace, name: "", resourceID: 0x0101_001E, value: .int(0)),
+                ]),
+                E("activity-alias", [
+                    .android("name", 0x0101_0003, .string(".Launcher")),
+                    .android("targetActivity", 0x0101_0202, .string("RealActivity")),
+                ], [Self.launcherFilter]),
+            ]),
+        ]))
+        let unset = try Self.parse(Self.manifest([], [
+            E("application", [], [E("activity", [.android("name", 0x0101_0003, .string(".Main"))], [Self.launcherFilter])]),
+        ]))
+
+        #expect(direct.screenOrientation == 6)
+        #expect(aliased.screenOrientation == 0)
+        #expect(unset.screenOrientation == nil)
+    }
+
     @Test func defaultsNativeLibraryNameToMain() throws {
         let manifest = try Self.parse(Self.manifest([], [
             E("application", [], [

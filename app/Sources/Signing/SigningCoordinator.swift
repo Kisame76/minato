@@ -340,6 +340,25 @@ final class SigningCoordinator {
         }
     }
 
+    // MARK: - Signing at import
+
+    /// The converter for native code at import (ADR-0032). It signs with the certificate once that is
+    /// valid and passed its self-test, as signing again waits for (ADR-0023), recording the fingerprint that
+    /// signing again compares with. Until then, at launch before the first look too, it converts ad hoc
+    /// only to learn whether the code can run; the import keeps the originals and the first tap signs them.
+    func importSigning() -> ImportSigning? {
+        do {
+            if case .valid(let certificate) = state, let own = environment.own,
+               let selfTest = records.load().selfTest, selfTest.sha256 == certificate.sha256, selfTest.passed {
+                return ImportSigning(converter: SignerConverter(signer: try CodeSigning.signer()), fingerprint: own.sha256)
+            }
+            return ImportSigning(converter: SignerConverter(signer: try ContainerSigner(identity: nil)), fingerprint: nil)
+        } catch {
+            log.error("Cannot convert at import: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     // MARK: - Signing again
 
     private func resign(_ count: Int, with library: LibraryModel, fingerprint: String) async {
