@@ -157,11 +157,11 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | Area | Implementation |
 |---|---|
 | Memory | our own address space manager: `mmap`/`munmap`/`mprotect`, `MADV_DONTNEED` by remapping, `mremap` reimplemented; never an executable mapping |
-| Files | VFS with path mapping (table below, `vfs.cpp`); `openat`, `read`/`write`, `getdents64`, the `stat` family and the other file syscalls with Linux flags, structures and error codes (implemented in M2 step 5c) |
+| Files | VFS with path mapping (table below, `vfs.cpp`); `openat`, `read`/`write`, `getdents64`, the `stat` family and the other file syscalls with Linux flags, structures and error codes (implemented in M2 step 5c). The guest's own descriptor table with Linux's numbers, whatever the process holds on the host, and RLIMIT_NOFILE 32,768 as on Android 15; waits on descriptors in the thread's kqueue, which a signal always ends; `eventfd`, `epoll`, `ppoll` and `pselect6` on host pipes and kqueues (ADR-0027, M3 step 1) |
 | Threads | `clone` creates a Darwin pthread that starts in the parent's register state at the `svc`; the kernel loads the state via a signal that the thread sends to itself. `exit` returns to the host stack; only there is the thread ID cleared and a stack that the thread freed itself actually released. futex with the runtime's own wait queue; every blocking syscall sleeps with `os_sync_wait_on_address` (public, iOS 17.4+) on the thread's signal word, so that a signal always ends it (ADR-0026) |
 | Signals | Guest signals fully emulated (`signals.cpp`): dispositions, masks, pending and queued signals, altstack. Delivery with a Linux `rt_sigframe` (siginfo, ucontext, FPSIMD, ESR) on the guest stack or guest altstack, `rt_sigreturn` restores the context. Host signals only for hardware faults (translated), for nudging other threads (SIGURG) and for terminating with a default action |
 | Time | Clock mapping from F10 |
-| Network | Sockets on BSD sockets; `epoll`/`eventfd`/`pipe2` via kqueue |
+| Network | Sockets on BSD sockets: not implemented yet; the descriptor table has room for them (`epoll` and `eventfd` are in the "Files" row) |
 | System | `/proc/self/{maps,cmdline,exe,auxv}`, `/proc/cpuinfo` synthetic; `AT_PAGESZ = 16384`; property area (`ro.build.version.sdk` and others) matching the shipped Bionic |
 
 | Android path | Target on the iPhone |
@@ -169,7 +169,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | `/data/data/<pkg>`, `/data/user/0/<pkg>` | `Library/Application Support/data/<pkg>/data` |
 | `/sdcard/Android/data/<pkg>` | `…/data/<pkg>/external` |
 | `/sdcard/Android/obb/<pkg>` | `…/data/<pkg>/obb` |
-| `/data/app/<pkg>-*/base.apk` (read-only) | `…/apps/<pkg>/base.apk` |
+| `/data/app/<pkg>-*/base.apk` (read-only) | `…/apps/<pkg>/<version>/base.apk`, the installed version's folder (ADR-0034); `…/apps/<pkg>/base.apk` for an app installed before version folders |
 | `/system/lib64` | Guest system libraries as containers in the app bundle (`apkrt_add_library_directory`); `libc.so`, `libm.so` and `libdl.so` are named, as on Android 15, after their real path in `/apex/com.android.runtime/lib64/bionic/` |
 | `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom` | the host's devices (`/dev/random` never blocks, as since Linux 5.6) |
 | `/system/usr/share/zoneinfo/tzdata` | Bionic's time zone file, packed from the Mac's IANA data at build time |
