@@ -29,6 +29,21 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `crtbegin_so.o`, `crtend_so.o` | BSD (Bionic) | Start and end of `libm.so`, `libdl.so`, `ld-android.so` |
 | `android/log.h` | Apache-2.0 | Header for the libc (liblog) |
 
+## Graphics: ANGLE (ADR-0029)
+
+ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend only. The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
+
+| Part in `libGLESv2` | Version | License |
+|---|---|---|
+| ANGLE | `chromium/8037` @`b4cbb0a8` | BSD-3-Clause |
+| Chromium's base helpers (`src/common/base`) | with ANGLE | BSD-3-Clause |
+| xxHash (`src/common/third_party/xxhash`) | with ANGLE | BSD-2-Clause |
+| Abseil (`third_party/abseil-cpp`) | `435e7d97` | Apache-2.0 |
+| Chromium's libc++, libc++abi and llvm-libc, linked in and hidden | `97b436da`, `fc1897a2`, `32082418` | Apache-2.0 WITH LLVM-exception |
+| zlib (`third_party/zlib`) | `5eb4d7ed` | Zlib |
+
+The BSD licenses ask for their notices with every binary: the license texts go into the app bundle when the app embeds the framework (the App chat). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
+
 ## Time zones
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.

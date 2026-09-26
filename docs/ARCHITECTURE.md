@@ -182,14 +182,15 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 - **errno and time:** Host errors are translated into Linux errno. Time values follow the clock mapping from F10.
 
 ### 4.7 Graphics (ADR-0005, ADR-0013)
-- **`ANativeWindow`:** a UIView with `CAMetalLayer`. `setBuffersGeometry` sets `drawableSize`; this is later the starting point for MetalFX upscaling (M6).
-- **EGL/GLES:** The front libs go to ANGLE-Metal (ES ≤ 3.0). ANGLE gets a small patch for `eglPresentationTimeANDROID` (for Swappy), `OES_EGL_image_external` follows later. ES 3.1 comes as a prototype via ANGLE-Vulkan on MoltenVK.
-- **Vulkan:**
-  - In release builds, the front lib `libvulkan` goes directly to MoltenVK. The Khronos loader with validation layers exists only in the debug build.
-  - `VK_KHR_android_surface` becomes `VK_EXT_metal_surface`. `VK_KHR_portability_subset` is enabled automatically.
-  - Swapchain: blit RGBA8 → BGRA8, `currentTransform = IDENTITY`, at most 3 images.
-  - `AHardwareBuffer` is mapped to IOSurface, the fd extensions are emulated.
-- **Background:** iOS forbids GPU work in the background. `onPause` and `APP_CMD_TERM_WINDOW` therefore run synchronously, and the game's render thread must confirm before the app goes into the background.
+- **`ANativeWindow`:** a UIView with `CAMetalLayer` (ADR-0032). The window's size in pixels is the layer's bounds × `contentsScale` (ADR-0030); the front libs set the drawable size to the buffer size of `setBuffersGeometry`, or to the window's size while none is set, and Core Animation scales it onto the layer, as SurfaceFlinger does. This is later the starting point for MetalFX upscaling (M6).
+- **Calls into host code** (ADR-0030): every call of a front lib goes through the runtime's entry `apkrt_host_call`, so no guest signal is delivered inside ANGLE or MoltenVK; the front libs cut waits into slices of at most 10 ms. The generator `tools/frontgen/` makes the stubs from `vk.xml`, `gl.xml` and `egl.xml`: plain, with small integers extended, or with stack arguments repacked (refines ADR-0011).
+- **EGL/GLES** (ADR-0029): the front libs go to our own ANGLE build with the Metal backend only (ES ≤ 3.0), pinned to `chromium/8037`. Only `libGLESv2` is built, which carries EGL too; the app embeds it as a framework (4.43 MB installed) and opens it with `dlopen` when a guest first loads a GLES library. Patches: a fixed window size (0001), Metal's internal shaders compiled at runtime on macOS too (0002), a gate before every command buffer commit (0003), a build fix (0004). Later: `eglPresentationTimeANDROID` for Swappy (M4), `OES_EGL_image_external`. ES 3.1 comes as a prototype via ANGLE-Vulkan on MoltenVK (M4).
+- **Vulkan** (ADR-0030):
+  - `libvulkan` goes to MoltenVK 1.4.2 as released, only on the device: no Vulkan in the Simulator. No Khronos loader and no layers.
+  - It answers as Android 15's loader does: version 1.3, Android's extension lists and formats. `VK_KHR_android_surface` becomes `VK_EXT_metal_surface`, and `libvulkan` enables `VK_KHR_portability_subset` itself.
+  - Swapchains: FIFO, 3 to 4 images, the identity transform; RGBA8 is copied to BGRA8 with a blit at every present, BGRA8 goes straight to MoltenVK.
+  - `AHardwareBuffer` and the fd extensions come later.
+- **Background:** iOS forbids GPU work in the background. From the start of the host's background handling, a gate holds every commit of ANGLE and every Vulkan submit, present and acquire; the host waits at most 1 s until everything committed is scheduled, then the window's gate becomes "gone", and only then does the app get onPause and the other callbacks (ADR-0029 decision 15, ADR-0032).
 
 ### 4.8 Frame pacing, input, audio
 - **Choreographer:**
@@ -251,8 +252,8 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | Android emulator, platform tools, system image Android 15 (without Android Studio) | M2, reference (ADR-0014) | Download 1.2 GB, unpacked 2.9 GB; installed 2026-09-22 | Apache-2.0 and others |
 | ~~zsign + OpenSSL~~ | M2b | dropped: our own signer with Security.framework (ADR-0022) | – |
 | AOSP Bionic (pinned tag) | M2 | Source archive, build with the NDK | BSD/Apache |
-| MoltenVK 1.4.2 | M3 | Khronos release, packed: iOS 32.9 MiB, macOS 56.8 MiB (for the tests on the Mac); or our own build | Apache-2.0 |
-| ANGLE | M3 | depot_tools + GN, checkout several GB, first build a few tens of minutes | BSD-3 |
+| MoltenVK 1.4.2 | M3 | Khronos release as it is (ADR-0030): iOS tar 34.5 MB, macOS tar 59.6 MB (for the tests on the Mac), download approved 2026-09-25 | Apache-2.0 |
+| ANGLE `chromium/8037` | M3 | our own build (ADR-0029): about 113 MB fetched, 866 MB in `build/angle/`, about 48 s per slice with 6 cores; `libGLESv2.framework` 4.43 MB installed on iOS | BSD-3 and its parts (`THIRD_PARTY.md`) |
 | ART + libcore + ICU | M4 | approx. 1,150 C++ units (ARTBox count), JDK 17 + D8, `libart` approx. 14 MB, ICU data approx. 28 MB | Apache-2.0; libcore GPL-2.0+CE |
 
 ## 7. Risks

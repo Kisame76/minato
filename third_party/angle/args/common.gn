@@ -26,6 +26,11 @@ angle_has_rapidjson = false
 # ASTC is native on Apple GPUs.
 angle_has_astc_encoder = false
 
+# Xcode 27's SDKs list the architecture arm64e.x1 in their .tbd files, which the pin's LLD (LLVM 24)
+# cannot read ("unknown target"); Xcode's own linker can. //build supports the Apple linker on Apple
+# silicon Macs as an opt-in (crbug.com/502338406).
+use_lld = false
+
 # ANGLE's .gn turns these on; the Rust toolchain and siso are not fetched.
 enable_rust = false
 enable_rust_cxx = false

@@ -1,0 +1,27 @@
+Compile Metal's internal shaders at runtime on macOS too (ADR-0029, decision 7).
+
+Why: a macOS build on a Mac precompiles ANGLE's internal Metal shaders with `xcrun metal`, which needs
+Xcode's Metal Toolchain, a separate download of about 700 MB that this Mac does not have. iOS builds
+already compile them at runtime from the MSL source embedded in the library; this makes the macOS slice
+do the same, so the tests on the Mac take the iPhone's path. `angle_metal_toolchain_dir` still turns
+precompiling on.
+Upstream: no; it only serves Minato's build without the Metal Toolchain.
+Remove: if Minato installs the Metal Toolchain and precompiles the shaders (measured in B3).
+
+diff --git a/src/libANGLE/renderer/metal/metal_backend.gni b/src/libANGLE/renderer/metal/metal_backend.gni
+index d8ab289..fe8fc73 100644
+--- a/src/libANGLE/renderer/metal/metal_backend.gni
++++ b/src/libANGLE/renderer/metal/metal_backend.gni
+@@ -101,9 +101,10 @@ declare_args() {
+ # explicit Metal toolchain via "angle_metal_toolchain_dir" opts in to
+ # precompiling the internal shaders anyway, which enables prebuilt internal
+ # shaders for iOS as well.
++# Minato: without an explicit toolchain the internal shaders are compiled at runtime on every
++# platform, as on iOS, so a macOS build needs no Metal Toolchain.
+ metal_internal_shader_compilation_supported =
+-    angle_has_build &&
+-    (angle_metal_toolchain_dir != "" || (!is_ios && target_os == host_os))
++    angle_has_build && angle_metal_toolchain_dir != ""
+ 
+ metal_internal_shaders_header =
+     "$root_gen_dir/angle/mtl_internal_shaders_metallib.h"

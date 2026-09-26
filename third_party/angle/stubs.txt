@@ -1,0 +1,42 @@
+# Functions that Android's libEGL.so, libGLESv2.so and libGLESv3.so export (NDK r30 stubs, API 35) and
+# ANGLE's libGLESv2 does not (ADR-0029, decision 14). The front libs give them a stub that does nothing
+# and logs once, returning 0 or EGL_FALSE; their extensions are never announced. Test 3
+# (graphics.angle_exports) keeps this list exact: every name here is missing from all three slices,
+# and every other name is exported by all of them.
+
+# EGL_KHR_stream_cross_process_fd
+eglCreateStreamFromFileDescriptorKHR
+eglGetStreamFileDescriptorKHR
+# EGL_KHR_stream_producer_eglsurface
+eglCreateStreamProducerSurfaceKHR
+# EGL_KHR_stream_fifo
+eglQueryStreamTimeKHR
+# EGL_NV_system_time
+eglGetSystemTimeFrequencyNV
+eglGetSystemTimeNV
+
+# GL_NV_coverage_sample
+glCoverageMaskNV
+glCoverageOperationNV
+# GL_QCOM_driver_control
+glDisableDriverControlQCOM
+glEnableDriverControlQCOM
+glGetDriverControlStringQCOM
+glGetDriverControlsQCOM
+# GL_QCOM_extended_get
+glExtGetBufferPointervQCOM
+glExtGetBuffersQCOM
+glExtGetFramebuffersQCOM
+glExtGetRenderbuffersQCOM
+glExtGetTexLevelParameterivQCOM
+glExtGetTexSubImageQCOM
+glExtGetTexturesQCOM
+glExtTexObjectStateOverrideiQCOM
+# GL_QCOM_extended_get2
+glExtGetProgramBinarySourceQCOM
+glExtGetProgramsQCOM
+glExtGetShadersQCOM
+glExtIsProgramBinaryQCOM
+# GL_IMG_multisampled_render_to_texture (ANGLE has the EXT form)
+glFramebufferTexture2DMultisampleIMG
+glRenderbufferStorageMultisampleIMG

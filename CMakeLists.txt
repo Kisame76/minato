@@ -42,6 +42,7 @@ endif()
 
 add_subdirectory(runtime)
 add_subdirectory(importer/converter)
+add_subdirectory(graphics)
 
 if(APK_HOST_BUILD)
   # End to end (M2 steps 4 and 5, ADR-0019, ADR-0021): each fixture is converted, signed ad hoc and

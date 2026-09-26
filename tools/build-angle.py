@@ -4,6 +4,8 @@
 Usage: tools/build-angle.sh --self-test          check the script's guards (no network; needs the checkout's depot_tools)
        tools/build-angle.sh --fetch              fetch the pinned checkout (the only step that uses the network)
        tools/build-angle.sh --gen [slice...]     gn gen for the slices (ios, ios-simulator, macos; all by default)
+       tools/build-angle.sh --build [slice...]   patches, gn gen, ninja, the checks and build/ANGLE.xcframework
+       tools/build-angle.sh --licenses slice     the licenses of what a built slice holds (decision 11)
 
 The pins are the "angle" entry of third_party/sources.json. ANGLE and depot_tools come as single commits
 through plain git. gclient.py of that depot_tools, run with this Python rather than through vpython3, so
@@ -34,6 +36,12 @@ STAMP = os.path.join(BUILD, "stamp.json")
 MANIFEST = os.path.join(ROOT, "third_party", "sources.json")
 ARGUMENTS = os.path.join(ROOT, "third_party", "angle", "args")
 PATCHES = os.path.join(ROOT, "third_party", "angle", "patches")
+STRIPPED = os.path.join(BUILD, "stripped")
+# The one output outside build/angle/ (ADR-0029, decision 5), which the app build embeds.
+XCFRAMEWORK = os.path.join(ROOT, "build", "ANGLE.xcframework")
+# Each slice's library in its output directory.
+LIBRARIES = {"ios": "libGLESv2.framework", "ios-simulator": "libGLESv2.framework", "macos": "libGLESv2.dylib"}
+APP_DEPLOYMENT_TARGET = (26, 0)
 SLICES = ["ios", "ios-simulator", "macos"]
 
 # No self-update and no usage reports (ADR-0029, decision 2). depot_tools stays off PATH, so that
@@ -52,8 +60,8 @@ def inside(path, base=BUILD):
 
 
 def require_inside(path):
-    if not inside(path):
-        raise SystemExit(f"build-angle: refusing to write outside {BUILD}: {path}")
+    if not (inside(path) or inside(path, XCFRAMEWORK)):
+        raise SystemExit(f"build-angle: refusing to write outside {BUILD} and {XCFRAMEWORK}: {path}")
 
 
 def require_nested(repository):
@@ -476,23 +484,179 @@ def gen(slices):
         write_stamp(stamp)
 
 
+def binary(directory, name):
+    """The Mach-O file of a slice's library below `directory`."""
+    library = os.path.join(directory, LIBRARIES[name])
+    return os.path.join(library, "libGLESv2") if library.endswith(".framework") else library
+
+
+def minimum_os(path):
+    """The minimum OS version of LC_BUILD_VERSION."""
+    words = output(["otool", "-l", path]).split()
+    for index, word in enumerate(words):
+        if word == "minos":
+            return tuple(int(part) for part in words[index + 1].split("."))
+    raise SystemExit(f"build-angle: no LC_BUILD_VERSION in {path}")
+
+
+def check_slice(name, path):
+    """ADR-0029, decision 9: no private framework linked, and an iOS slice not above the app's target."""
+    private = [line.strip() for line in output(["otool", "-L", path]).splitlines() if "/PrivateFrameworks/" in line]
+    if private:
+        raise SystemExit(f"build-angle: {name} links private frameworks: " + ", ".join(private))
+    minos = minimum_os(path)
+    if name != "macos" and minos > APP_DEPLOYMENT_TARGET:
+        raise SystemExit(f"build-angle: {name} needs iOS {minos}, above the app's {APP_DEPLOYMENT_TARGET}")
+    return ".".join(str(part) for part in minos)
+
+
+def zipped_bytes(path):
+    """What the library adds to a compressed app archive (an IPA is a ZIP)."""
+    with tempfile.TemporaryDirectory(dir=BUILD) as scratch:
+        archive = os.path.join(scratch, "library.zip")
+        run(["ditto", "-c", "-k", "--keepParent", path, archive])
+        return os.path.getsize(archive)
+
+
+def package(stamp):
+    """The stripped iOS slices, packed into build/ANGLE.xcframework; the unstripped ones stay in out/."""
+    frameworks = []
+    for name in ("ios", "ios-simulator"):
+        source = os.path.join(CHECKOUT, "out", name, LIBRARIES[name])
+        target = os.path.join(STRIPPED, name, LIBRARIES[name])
+        require_inside(target)
+        if os.path.isdir(target):
+            shutil.rmtree(target)
+        shutil.copytree(source, target, symlinks=True)
+        run(["xcrun", "strip", "-x", binary(os.path.dirname(target), name)])
+        sizes = stamp["build"][name]["bytes"]
+        sizes["stripped"] = os.path.getsize(binary(os.path.dirname(target), name))
+        sizes["installed"] = 1024 * kilobytes(target)
+        sizes["zipped"] = zipped_bytes(target)
+        frameworks += ["-framework", target]
+    require_inside(XCFRAMEWORK)
+    if os.path.isdir(XCFRAMEWORK):
+        shutil.rmtree(XCFRAMEWORK)
+    run(["xcodebuild", "-create-xcframework", *frameworks, "-output", XCFRAMEWORK])
+
+
+# //build's Apple toolchain writes a library's table of contents with llvm-otool and llvm-nm from the
+# compiler's folder. The pin's clang archive has neither (they come with the llvm-objdump archive of
+# DEPS, which the download left out), so the two names point to Xcode's otool and nm, both LLVM's.
+XCODE_TOOLS = {"llvm-otool": "otool", "llvm-nm": "nm"}
+
+
+def link_xcode_tools():
+    folder = os.path.join(CHECKOUT, "third_party", "llvm-build", "Release+Asserts", "bin")
+    require_inside(folder)  # not the link itself, whose real path is Xcode's tool
+    linked = {}
+    for name, tool in XCODE_TOOLS.items():
+        path = os.path.join(folder, name)
+        if not os.path.lexists(path):
+            os.symlink(output(["xcrun", "--find", tool]), path)
+        if os.path.islink(path):
+            linked[name] = os.readlink(path)
+    return linked
+
+
+def build(slices):
+    """ADR-0029, step A2: patches, gn gen and ninja per slice, the checks, and the XCFramework once both
+    iOS slices are built."""
+    gen(slices)
+    xcode_tools = link_xcode_tools()
+    stamp = read_stamp()
+    record = stamp.setdefault("build", {})
+    record["xcode"] = " ".join(output(["xcodebuild", "-version"]).split())
+    record["low_power_mode"] = low_power_mode()
+    record["xcode_tools"] = xcode_tools
+    for name in slices:
+        out = os.path.join(CHECKOUT, "out", name)
+        start = time.monotonic()
+        run(["ninja", "-C", out, "-j", "6", "libGLESv2"])
+        seconds = round(time.monotonic() - start, 1)
+        path = binary(out, name)
+        record[name] = {"seconds": seconds, "minos": check_slice(name, path),
+                        "bytes": {"unstripped": os.path.getsize(path)},
+                        "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+        if name == "macos":
+            record[name]["install_name"] = output(["otool", "-D", path]).splitlines()[-1].strip()
+        write_stamp(stamp)
+    if all(name in record for name in ("ios", "ios-simulator")):
+        package(stamp)
+        write_stamp(stamp)
+    print(json.dumps(record, indent=2, sort_keys=True))
+
+
+LICENSE_FILES = ("README.chromium", "LICENSE", "LICENSE.TXT", "LICENSE.txt", "LICENSE.md", "COPYING")
+
+
+def licenses(name):
+    """ADR-0029, decision 11: every file a slice's libGLESv2 was built from (the sources ninja compiled and
+    the headers they read), grouped by the nearest directory with its own README.chromium or LICENSE.
+    The compiler's own headers and those of the SDK are not code of the library."""
+    out = os.path.join(CHECKOUT, "out", name)
+    files = set()
+    for line in output(["ninja", "-C", out, "-t", "deps"]).splitlines():
+        if line.startswith("    "):
+            files.add(os.path.normpath(os.path.join(out, line.strip())))
+    groups = {}
+    for path in files:
+        if not inside(path, CHECKOUT) or inside(path, out) or inside(path, os.path.join(CHECKOUT, "third_party", "llvm-build")):
+            continue
+        # Up to the nearest license file, but never past the root of a repository of its own: Chromium's
+        # //build has no license file and must not count as ANGLE's.
+        folder = os.path.dirname(path)
+        while inside(folder, CHECKOUT) and not any(os.path.exists(os.path.join(folder, candidate))
+                                                   for candidate in LICENSE_FILES + (".git",)):
+            folder = os.path.dirname(folder)
+        key = os.path.relpath(folder, CHECKOUT)
+        groups.setdefault(key, 0)
+        groups[key] += 1
+    report = {}
+    for key, count in sorted(groups.items()):
+        folder = os.path.join(CHECKOUT, key)
+        found = [candidate for candidate in LICENSE_FILES if os.path.exists(os.path.join(folder, candidate))]
+        entry = {"files": count, "license_files": found}
+        if "README.chromium" in found:
+            with open(os.path.join(folder, "README.chromium"), errors="replace") as handle:
+                for line in handle:
+                    field, _, value = line.partition(":")
+                    if field in ("Name", "License", "Version"):
+                        entry[field.lower()] = value.strip()
+        report[key] = entry
+    path = os.path.join(BUILD, f"licenses-{name}.json")
+    with open(path, "w") as handle:
+        json.dump(report, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    for key, entry in report.items():
+        print(f"{key}: {entry['files']} files, {entry.get('name', '')} {entry.get('license', '')} {entry['license_files']}")
+    print(f"written to {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fetch", action="store_true", help="fetch the pinned checkout (network)")
     parser.add_argument("--gen", nargs="*", metavar="slice", help="gn gen for these slices (all without a name)")
+    parser.add_argument("--build", nargs="*", metavar="slice", help="build these slices (all without a name)")
+    parser.add_argument("--licenses", metavar="slice", help="list the licenses of what a built slice holds")
     parser.add_argument("--self-test", action="store_true", help="check the script's guards (no network)")
     options = parser.parse_args()
-    if not options.fetch and options.gen is None and not options.self_test:
-        parser.error("nothing to do: --self-test, --fetch or --gen")
+    actions = (options.fetch, options.gen is not None, options.build is not None, options.licenses, options.self_test)
+    if not any(actions):
+        parser.error("nothing to do: --self-test, --fetch, --gen, --build or --licenses")
+    for chosen in (options.gen or []) + (options.build or []) + ([options.licenses] if options.licenses else []):
+        if chosen not in SLICES:
+            parser.error("unknown slice: " + chosen)
     if options.self_test:
         self_test()
     if options.fetch:
         fetch()
     if options.gen is not None:
-        unknown = [name for name in options.gen if name not in SLICES]
-        if unknown:
-            parser.error("unknown slice: " + ", ".join(unknown))
         gen(options.gen or SLICES)
+    if options.build is not None:
+        build(options.build or SLICES)
+    if options.licenses:
+        licenses(options.licenses)
 
 
 if __name__ == "__main__":
