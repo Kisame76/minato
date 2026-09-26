@@ -38,5 +38,8 @@ cmake-build-*/
 __pycache__/
 
 # graphify's knowledge graph of the code, built locally (.graphifyignore)
-graphify-out/
+graphify-out/*
+!graphify-out/graph.html
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/graph.json
 .claude/
