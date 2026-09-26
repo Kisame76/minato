@@ -57,7 +57,7 @@ MoltenVK 1.4.2 as Khronos released it (tag `v1.4.2`, commit `db660224`), from `g
 | SPIRV-Headers (headers only) | `29981f65` | MIT |
 | Vulkan-Headers (headers only) | `v1.4.357` @`e3b1eec0` | Apache-2.0 OR MIT |
 
-Only MoltenVK's own license text comes with the release; the texts of its parts are still to be fetched from their repositories at these commits, for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030.
+Only MoltenVK's own license text comes with the release. The texts of SPIRV-Cross, SPIRV-Tools, SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/) (`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030.
 
 ## Time zones
 

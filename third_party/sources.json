@@ -179,5 +179,47 @@
         "git_blob": "107af9f81e0bb9d53f1c26319b35814e1d5c7b52"
       }
     ]
+  },
+  "moltenvk-licenses": {
+    "comment": "The license texts of the projects inside MoltenVK v1.4.2's binary that its release does not carry (ADR-0030, V1 finding 3), at the commits of MoltenVK's ExternalRevisions/ for v1.4.2; fetched only by tools/fetch-moltenvk.sh --licenses into third_party/moltenvk/licenses/, checked against their Git blob IDs, and kept in the repo.",
+    "cap_bytes": 50000,
+    "files": [
+      {
+        "path": "SPIRV-Cross-LICENSE",
+        "project": "https://github.com/KhronosGroup/SPIRV-Cross",
+        "commit": "6c09849fe88c48eaed08413aa022aaa136a3a057",
+        "license": "Apache-2.0",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Cross/6c09849fe88c48eaed08413aa022aaa136a3a057/LICENSE",
+        "bytes": 11358,
+        "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+      },
+      {
+        "path": "SPIRV-Tools-LICENSE",
+        "project": "https://github.com/KhronosGroup/SPIRV-Tools",
+        "commit": "0d6fd73ca73830ccab5fa1f00ed5ed40124e2c55",
+        "license": "Apache-2.0",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Tools/0d6fd73ca73830ccab5fa1f00ed5ed40124e2c55/LICENSE",
+        "bytes": 11358,
+        "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+      },
+      {
+        "path": "SPIRV-Headers-LICENSE",
+        "project": "https://github.com/KhronosGroup/SPIRV-Headers",
+        "commit": "29981f65241605e08b0ede4cfeb999fe3b723c6a",
+        "license": "MIT (the headers; other files as the text says)",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/29981f65241605e08b0ede4cfeb999fe3b723c6a/LICENSE",
+        "bytes": 23503,
+        "git_blob": "a63e9c620ee123267192113ab0be3814782ba909"
+      },
+      {
+        "path": "cereal-LICENSE",
+        "project": "https://github.com/USCiLab/cereal",
+        "commit": "a56bad8bbb770ee266e930c95d37fff2a5be7fea",
+        "license": "BSD-3-Clause",
+        "url": "https://raw.githubusercontent.com/USCiLab/cereal/a56bad8bbb770ee266e930c95d37fff2a5be7fea/LICENSE",
+        "bytes": 1542,
+        "git_blob": "e3efbec440095e2a566493b3afc1f87a1236fa5e"
+      }
+    ]
   }
 }

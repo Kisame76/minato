@@ -2,15 +2,18 @@
 """Fetches MoltenVK as released by Khronos, and vk.xml, for Minato (ADR-0030, decision 8), below build/moltenvk/.
 
 Usage: tools/fetch-moltenvk.sh --self-test   check the script's guards (no network)
-       tools/fetch-moltenvk.sh --fetch       fetch, check and unpack (the only step that uses the network)
+       tools/fetch-moltenvk.sh --fetch       fetch, check and unpack (network)
+       tools/fetch-moltenvk.sh --licenses    fetch the license texts the release lacks (network)
 
-The pins are the entries "moltenvk" and "vulkan-headers" of third_party/sources.json. Nothing is built:
-the two release archives are checked against their SHA-256 and unpacked with Python's "data" filter,
-which refuses absolute paths, ".." and links that leave the archive; vk.xml is checked against its Git
-blob ID. The dynamic framework of the iOS archive, device only, becomes build/MoltenVK.xcframework, which
-the app build embeds in device builds; the macOS archive's dylib and the headers go to fixed places in
-build/moltenvk/ for CTest and graphics/host. The script writes only below build/moltenvk/ and to
-build/MoltenVK.xcframework.
+The pins are the entries "moltenvk", "vulkan-headers" and "moltenvk-licenses" of third_party/sources.json.
+Nothing is built: the two release archives are checked against their SHA-256 and unpacked with Python's
+"data" filter, which refuses absolute paths, ".." and links that leave the archive; vk.xml and the
+license texts are checked against their Git blob IDs. The dynamic framework of the iOS archive, device
+only, becomes build/MoltenVK.xcframework, which the app build embeds in device builds; the macOS
+archive's dylib and the headers go to fixed places in build/moltenvk/ for CTest and graphics/host. The
+license texts of what MoltenVK's binary holds besides its own code go to third_party/moltenvk/licenses/,
+which the repo keeps. The script writes only below build/moltenvk/, to build/MoltenVK.xcframework and
+below third_party/moltenvk/licenses/.
 """
 import argparse
 import hashlib
@@ -27,6 +30,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(ROOT, "build", "moltenvk")
 XCFRAMEWORK = os.path.join(ROOT, "build", "MoltenVK.xcframework")
+LICENSES = os.path.join(ROOT, "third_party", "moltenvk", "licenses")
 MANIFEST = os.path.join(ROOT, "third_party", "sources.json")
 MARKER = ".minato-unpacked.json"
 APP_DEPLOYMENT_TARGET = (26, 0)
@@ -38,14 +42,19 @@ def manifest():
     return data["moltenvk"], data["vulkan-headers"]
 
 
+def license_manifest():
+    with open(MANIFEST) as handle:
+        return json.load(handle)["moltenvk-licenses"]
+
+
 def inside(path, base=None):
     real, base = os.path.realpath(path), os.path.realpath(BUILD if base is None else base)
     return real == base or real.startswith(base + os.sep)
 
 
 def require_inside(path):
-    if not (inside(path) or inside(path, XCFRAMEWORK)):
-        raise SystemExit(f"fetch-moltenvk: refusing to write outside {BUILD} and {XCFRAMEWORK}: {path}")
+    if not (inside(path) or inside(path, XCFRAMEWORK) or inside(path, LICENSES)):
+        raise SystemExit(f"fetch-moltenvk: refusing to write outside {BUILD}, {XCFRAMEWORK} and {LICENSES}: {path}")
 
 
 def run(command, **options):
@@ -106,9 +115,10 @@ def fetch_asset(asset):
     return transferred
 
 
-def fetch_file(item):
-    """A single file of Vulkan-Headers into build/moltenvk/; returns the bytes fetched, 0 when it was there."""
-    path = os.path.join(BUILD, item["path"])
+def fetch_file(item, base=BUILD):
+    """A single file, checked against its Git blob, into `base` (vk.xml into build/moltenvk/, the license
+    texts into third_party/moltenvk/licenses/); returns the bytes fetched, 0 when it was there."""
+    path = os.path.join(base, item["path"])
     if os.path.exists(path):
         with open(path, "rb") as handle:
             if git_blob(handle.read()) == item["git_blob"]:
@@ -118,6 +128,7 @@ def fetch_file(item):
     try:
         with open(temporary, "rb") as handle:
             check_blob(handle.read(), item["git_blob"], item["path"])
+        os.chmod(temporary, 0o644)
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -260,6 +271,17 @@ def fetch():
     print(json.dumps(stamp, indent=2, sort_keys=True))
 
 
+def licenses():
+    """The license texts of the projects inside MoltenVK's binary that its release does not carry, at the
+    commits of MoltenVK's ExternalRevisions/, into third_party/moltenvk/licenses/."""
+    entry = license_manifest()
+    fetched = {item["path"]: fetch_file(item, LICENSES) for item in entry["files"]}
+    if sum(fetched.values()) > entry["cap_bytes"]:
+        raise SystemExit(f"fetch-moltenvk: {sum(fetched.values())} bytes fetched, above the approved "
+                         f"{entry['cap_bytes']}")
+    print(json.dumps({"fetched_bytes": fetched}, indent=2, sort_keys=True))
+
+
 def expect(condition, what):
     if not condition:
         raise SystemExit("fetch-moltenvk: self-test failed: " + what)
@@ -286,6 +308,9 @@ def self_test():
     try:
         expect(refused(lambda: require_inside(os.path.join(ROOT, "runtime"))),
                "a write outside build/moltenvk/ and build/MoltenVK.xcframework is refused")
+        expect(refused(lambda: require_inside(MANIFEST)) and
+               not refused(lambda: require_inside(os.path.join(LICENSES, "sample"))),
+               "in third_party/ only a write below third_party/moltenvk/licenses/ is taken")
 
         for member, kind in (("../outside", "a member with '..'"), ("/tmp/absolute", "an absolute member")):
             archive = os.path.join(directory, "bad.tar")
@@ -324,13 +349,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fetch", action="store_true", help="fetch, check and unpack (network)")
     parser.add_argument("--self-test", action="store_true", help="check the script's guards (no network)")
+    parser.add_argument("--licenses", action="store_true", help="fetch the license texts the release lacks (network)")
     options = parser.parse_args()
-    if not options.fetch and not options.self_test:
-        parser.error("nothing to do: --self-test or --fetch")
+    if not options.fetch and not options.self_test and not options.licenses:
+        parser.error("nothing to do: --self-test, --fetch or --licenses")
     if options.self_test:
         self_test()
     if options.fetch:
         fetch()
+    if options.licenses:
+        licenses()
 
 
 if __name__ == "__main__":
