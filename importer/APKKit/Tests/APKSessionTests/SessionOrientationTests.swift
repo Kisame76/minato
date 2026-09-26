@@ -33,4 +33,22 @@ struct SessionOrientationTests {
     @Test func keepsTheOrientationAtStartWithoutAValue() {
         #expect(SessionOrientation(screenOrientation: nil) == .atStart)
     }
+
+    /// The guest starts with the window's final size: game mode waits for a layout in the orientation it
+    /// holds, since iOS turns the window only after the request.
+    @Test func aWindowFitsTheOrientationItIsLaidOutIn() {
+        #expect(SessionOrientation.landscape.fits(width: 2868, height: 1320))
+        #expect(!SessionOrientation.landscape.fits(width: 1320, height: 2868))
+        #expect(SessionOrientation.portrait.fits(width: 1320, height: 2868))
+        #expect(!SessionOrientation.portrait.fits(width: 2868, height: 1320))
+        // The orientation at start is the one the window has; iOS refused to turn it.
+        #expect(SessionOrientation.atStart.fits(width: 2868, height: 1320))
+        #expect(SessionOrientation.atStart.fits(width: 1320, height: 2868))
+    }
+
+    @Test(arguments: [SessionOrientation.landscape, .portrait, .atStart])
+    func aWindowWithoutASizeFitsNone(orientation: SessionOrientation) {
+        #expect(!orientation.fits(width: 0, height: 0))
+        #expect(!orientation.fits(width: 1320, height: 0))
+    }
 }

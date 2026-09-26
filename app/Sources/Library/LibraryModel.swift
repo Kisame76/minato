@@ -1,5 +1,6 @@
 import APKKit
 import APKLibrary
+import APKSession
 import APKSigning
 import Foundation
 import Observation
@@ -36,15 +37,25 @@ final class LibraryModel {
     private(set) var progress: [URL: Double] = [:]
     /// Entries whose converted code is being signed again, shown as "Updating".
     private(set) var resigningIDs: Set<String> = []
+    /// Entries whose native code is being signed before they start (ADR-0032), shown as "Updating" too.
+    private(set) var signingBeforeStart: Set<String> = []
+    /// The app whose restart into game mode did not work: the user opens Minato again, and its launch
+    /// request is still there (ADR-0032, decision 2).
+    var restartFailedFor: LibraryEntry?
     var errorMessage: String?
     /// The signer for native code at import (ADR-0032), which the signing coordinator provides; nil
     /// while the certificate is not valid, and then the import keeps the originals only.
     @ObservationIgnored var importSigning: @MainActor () -> ImportSigning? = { nil }
+    /// What signs native code now, and its converter; the signing coordinator provides both.
+    @ObservationIgnored var currentSigner: @MainActor () -> CurrentSigner = { .none }
+    @ObservationIgnored var converter: @MainActor (CurrentSigner) -> (any ContainerConverting)? = { _ in nil }
 
     @ObservationIgnored private let library: Library?
     @ObservationIgnored private let paths: LibraryPaths?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var needsAnotherScan = false
+    /// A tap is being handled: until it ends, and after it started an app, taps do nothing.
+    @ObservationIgnored private var isLaunching = false
 
     init() {
         var openedPaths: LibraryPaths?
@@ -75,7 +86,7 @@ final class LibraryModel {
                 LibraryItem(
                     id: entry.id,
                     title: entry.displayName,
-                    status: resigningIDs.contains(entry.id) ? .updating : Texts.status(of: entry),
+                    status: isUpdating(entry) ? .updating : Texts.status(of: entry),
                     entry: entry,
                     iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) })
             }
@@ -131,6 +142,79 @@ final class LibraryModel {
             }
         }
         await refresh()
+    }
+
+    // MARK: - Starting an app (ADR-0032)
+
+    /// Why a tap did not start an app, for the view to show.
+    enum LaunchBlock {
+        case openSigning
+        case explain(LibraryEntry, LaunchDecision.Reason)
+    }
+
+    func isUpdating(_ entry: LibraryEntry) -> Bool {
+        resigningIDs.contains(entry.id) || signingBeforeStart.contains(entry.id)
+    }
+
+    /// One tap on an installed app (decision 3): starts it, after signing its native code when the current
+    /// signer did not sign it; nil once it starts or an error message says why not. A tap while another
+    /// is handled does nothing: the app that tap starts would be left behind anyway.
+    func launch(_ tapped: LibraryEntry) async -> LaunchBlock? {
+        guard !isLaunching, !Restart.isUnderway else { return nil }
+        isLaunching = true
+        defer { isLaunching = false }
+        let entry = entries.first { $0.id == tapped.id } ?? tapped
+        let signer = currentSigner()
+        let decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+        #if DEBUG
+        SessionCheck.event("decision \(decision) signer \(signer.fingerprint ?? "none")")
+        #endif
+        switch decision {
+        case .start:
+            start(entry)
+        case .signFirst:
+            guard let library, let fingerprint = signer.fingerprint, let converter = converter(signer) else {
+                errorMessage = "“\(entry.displayName)” could not be signed. Check the signing certificate."
+                return nil
+            }
+            signingBeforeStart.insert(entry.id)
+            defer { signingBeforeStart.remove(entry.id) }
+            do {
+                try await library.prepareNativeCode(id: entry.id)
+                let files = try await library.resign(id: entry.id, fingerprint: fingerprint, with: converter)
+                entries = await library.entries
+                #if DEBUG
+                SessionCheck.event("signed \(entry.id) \(files) \(entries.first { $0.id == entry.id }?.signedWith ?? "none")")
+                #endif
+            } catch is ConversionRefused {
+                // Its code cannot run: the app is incompatible now, with the converter's reason.
+                entries = await library.entries
+                return .explain(entries.first { $0.id == entry.id } ?? entry, .incompatible)
+            } catch {
+                errorMessage = "“\(entry.displayName)” could not be signed: \(error.localizedDescription)"
+                entries = await library.entries
+                return nil
+            }
+            start(entry)
+        case .openSigning:
+            return .openSigning
+        case .explain(let reason):
+            return .explain(entry, reason)
+        }
+        return nil
+    }
+
+    /// Writes the launch request, then restarts Minato into game mode for `entry` (decisions 1 and 2).
+    private func start(_ entry: LibraryEntry) {
+        guard let paths else { return }
+        do {
+            try LaunchRequestStore(folder: paths.applicationSupport).write(LaunchRequest(package: entry.id, time: .now))
+        } catch {
+            errorMessage = "“\(entry.displayName)” could not be started: \(error.localizedDescription)"
+            return
+        }
+        log.info("Starting \(entry.id, privacy: .public)")
+        Restart.now { [weak self] in self?.restartFailedFor = entry }
     }
 
     // MARK: - Signing again (ADR-0023)

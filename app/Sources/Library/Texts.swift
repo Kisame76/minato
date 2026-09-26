@@ -1,5 +1,6 @@
 import APKKit
 import APKLibrary
+import APKSession
 import Foundation
 
 /// User-facing wording for everything APKKit reports.
@@ -30,21 +31,39 @@ enum Texts {
         }
     }
 
-    /// Why tapping an app does not start it (yet).
+    /// Why tapping an app does not start it (ADR-0032, decision 3).
+    static func launchProblem(of entry: LibraryEntry, reason: LaunchDecision.Reason) -> (title: String, message: String) {
+        reason == .updating ? updating(entry) : launchProblem(of: entry)
+    }
+
+    /// Why a launch request led to the library instead of game mode (ADR-0032, decision 1).
+    static func launchProblem(_ problem: LaunchMode.Problem) -> (title: String, message: String) {
+        switch problem {
+        case .appNotFound:
+            ("Can’t Open the App", "It is no longer in the library.")
+        case .appNotReady(let entry):
+            launchProblem(of: entry)
+        }
+    }
+
+    private static func updating(_ entry: LibraryEntry) -> (title: String, message: String) {
+        ("“\(entry.displayName)” Is Updating", "Minato is signing this app’s code with your new certificate. Try again in a moment.")
+    }
+
+    /// Why an app cannot start, by its state.
     static func launchProblem(of entry: LibraryEntry) -> (title: String, message: String) {
         switch Texts.status(of: entry) {
         case .ready where entry.report?.runtime == .art:
             ("Can’t Open “\(entry.displayName)” Yet", "This app contains Java/Kotlin code and needs ART, which comes in milestone M4.")
-        case .ready, .new, .installing:
-            ("Can’t Open “\(entry.displayName)” Yet", "Launching apps comes with the native loader (M2) and graphics (M3).")
-        case .updating:
-            ("“\(entry.displayName)” Is Updating", "Minato is signing this app’s code with your new certificate. Try again in a moment.")
         case .needsSplits:
             ("Can’t Open “\(entry.displayName)”", "This app needs its split APKs. Importing split sets comes in milestone M5.")
         case .incompatible(let reason):
             ("Can’t Open “\(entry.displayName)”", reason + ".")
         case .invalid(let reason):
             ("Can’t Open “\(entry.displayName)”", "This is not a valid APK: \(reason).")
+        case .ready, .new, .installing, .updating:
+            // A ready app without a report; an entry's status is never one of the other three.
+            ("Can’t Open “\(entry.displayName)”", "Import it again.")
         }
     }
 

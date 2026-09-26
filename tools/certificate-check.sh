@@ -5,6 +5,8 @@
 # app/Sources/Signing/CertificateCheck.swift; the Simulator app is signed ad hoc, so the app is told
 # which certificate to take as its own (-simulatedOwnCertificate).
 # Usage: tools/certificate-check.sh [simulator name or UDID]
+# Optional environment:
+#   SKIP_BUILD  when set, installs the app built last instead of building it first
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,7 +20,11 @@ fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 python3 tools/make-test-certificates.py "$WORK/files"
-INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
+if [[ -n "${SKIP_BUILD:-}" ]]; then
+  xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
+else
+  INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
+fi
 CONTAINER=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data)
 CHECK="$CONTAINER/tmp/certificate-check"
 rm -rf "$CHECK"
@@ -82,6 +88,10 @@ expect "SideStore's embedded certificate is taken without a tap" "valid sideStor
 # 2. A certificate change: fetched again the same way.
 expect "a changed certificate is fetched again by itself" "valid sideStoreEmbedded $OWN" \
   "$(ask "${own[@]}" "${sidestore[@]}" -certificateCheckSimulateChange -certificateCheckStatus)"
+# A tap in the library can come before the coordinator's first look ends, which waits for the library:
+# the coordinator starts with the state that look will find (ADR-0032, decision 3).
+expect "the state is known at launch, before the first look" "valid sideStoreEmbedded $OWN" \
+  "$(ask "${own[@]}" "${sidestore[@]}" -certificateCheckStatusAtLaunch)"
 # 3. Installed by AltStore: the app opens AltStore's export link by itself (the Simulator has no
 #    AltStore, so opening fails), and the callback the store would send is accepted.
 altstore=(-simulatedInstaller altStore -simulatedReachableStores altStore)

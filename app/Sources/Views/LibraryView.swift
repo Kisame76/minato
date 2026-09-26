@@ -1,4 +1,5 @@
 import APKLibrary
+import APKSession
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -11,8 +12,9 @@ extension UTType {
 /// Tapping an app starts it; touch and hold offers Get Info and Delete.
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var model
+    @Environment(SigningCoordinator.self) private var signing
     @State private var shownEntry: LibraryEntry?
-    @State private var blockedLaunch: LibraryEntry?
+    @State private var blockedLaunch: BlockedLaunch?
     @State private var isImporting = false
     @State private var query = ""
     @State private var isSelecting = false
@@ -39,11 +41,16 @@ struct LibraryView: View {
                 .sheet(isPresented: $showsSigning) {
                     SigningCertificateView()
                 }
-                .alert(launchAlertTitle, isPresented: launchAlertShown, presenting: blockedLaunch) { entry in
-                    Button("Get Info") { shownEntry = entry }
+                .alert(launchAlertTitle, isPresented: launchAlertShown, presenting: blockedLaunch) { blocked in
+                    Button("Get Info") { shownEntry = blocked.entry }
                     Button("OK", role: .cancel) {}
-                } message: { entry in
-                    Text(Texts.launchProblem(of: entry).message)
+                } message: { blocked in
+                    Text(Texts.launchProblem(of: blocked.entry, reason: blocked.reason).message)
+                }
+                // The restart did not work (ADR-0032, decision 2): the launch request stays, so opening
+                // Minato again starts the app.
+                .alert(restartAlertTitle, isPresented: restartAlertShown) {
+                    Button("OK") { exit(0) }
                 }
                 .alert("Error", isPresented: errorShown) {
                     Button("OK") { model.errorMessage = nil }
@@ -180,9 +187,23 @@ struct LibraryView: View {
         }
     }
 
-    /// There is no runtime yet (M2, M3), so for now this explains why the app cannot start.
+    /// Starts the app, or explains why not, or opens the signing flow when no certificate signs yet
+    /// (ADR-0032, decision 3).
     private func launch(_ entry: LibraryEntry) {
-        blockedLaunch = entry
+        Task {
+            switch await model.launch(entry) {
+            case nil:
+                break
+            case .openSigning:
+                if signing.fetchesCertificate {
+                    signing.showsSetup = true
+                } else {
+                    showsSigning = true
+                }
+            case .explain(let entry, let reason):
+                blockedLaunch = BlockedLaunch(entry: entry, reason: reason)
+            }
+        }
     }
 
     private func toggleAll() {
@@ -222,12 +243,26 @@ struct LibraryView: View {
         Binding(get: { deletion?.origin == origin }, set: { if !$0 { deletion = nil } })
     }
 
+    /// An app that a tap did not start, and why.
+    private struct BlockedLaunch {
+        let entry: LibraryEntry
+        let reason: LaunchDecision.Reason
+    }
+
     private var launchAlertTitle: String {
-        blockedLaunch.map { Texts.launchProblem(of: $0).title } ?? ""
+        blockedLaunch.map { Texts.launchProblem(of: $0.entry, reason: $0.reason).title } ?? ""
     }
 
     private var launchAlertShown: Binding<Bool> {
         Binding(get: { blockedLaunch != nil }, set: { if !$0 { blockedLaunch = nil } })
+    }
+
+    private var restartAlertTitle: String {
+        model.restartFailedFor.map { "Open Minato again to start “\($0.displayName)”." } ?? ""
+    }
+
+    private var restartAlertShown: Binding<Bool> {
+        Binding(get: { model.restartFailedFor != nil }, set: { if !$0 { model.restartFailedFor = nil } })
     }
 
     private var errorShown: Binding<Bool> {

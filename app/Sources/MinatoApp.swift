@@ -1,20 +1,33 @@
+import APKLibrary
 import APKRuntime
+import APKSession
 import SwiftUI
 import os
 
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "session")
+
 @main
 struct MinatoApp: App {
-    @State private var library: LibraryModel
-    @State private var signing: SigningCoordinator
-    @Environment(\.scenePhase) private var scenePhase
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    /// Game mode or the library, chosen once before anything else (ADR-0032, decision 1).
+    private let mode: LaunchMode
+    @State private var library: LibraryModel?
+    @State private var signing: SigningCoordinator?
 
     init() {
-        let library = LibraryModel()
-        let signing = SigningCoordinator(library: library)
-        // The import converts and signs native code while the certificate is valid (ADR-0032).
-        library.importSigning = { [weak signing] in signing?.importSigning() }
-        _library = State(initialValue: library)
-        _signing = State(initialValue: signing)
+        mode = Self.chooseMode()
+        // Game mode creates no signing coordinator, scans no imports and shows no sheet.
+        if case .library = mode {
+            let library = LibraryModel()
+            let signing = SigningCoordinator(library: library)
+            // The import converts and signs native code while the certificate is valid, and a tap signs
+            // what it did not (ADR-0032).
+            library.importSigning = { [weak signing] in signing?.importSigning() }
+            library.currentSigner = { [weak signing] in signing?.currentSigner() ?? .none }
+            library.converter = { [weak signing] in signing?.converter(for: $0) }
+            _library = State(initialValue: library)
+            _signing = State(initialValue: signing)
+        }
         Logger(subsystem: "io.github.kisame76.minato", category: "runtime")
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG
@@ -27,26 +40,47 @@ struct MinatoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryView()
-                .environment(library)
-                .environment(signing)
-                .onOpenURL { url in
-                    // The stores' certificate export answers with minato://; anything else is a file.
-                    if !signing.handle(url) {
-                        Task { await library.open(url) }
-                    }
+            switch mode {
+            case .gameMode(let entry):
+                GameModeView(entry: entry)
+                    .onOpenURL { url in Self.takeOverDuringSession(url) }
+            case .library(let problem):
+                if let library, let signing {
+                    LibraryScene(library: library, signing: signing, problem: problem)
                 }
-                .sheet(isPresented: $signing.showsSetup) {
-                    CertificateSetupView()
-                        .environment(signing)
-                }
+            }
         }
-        // Finish imports that were interrupted, e.g. because the app was closed while installing, and
-        // check the signing certificate, which a store may have changed while the app was away.
-        .onChange(of: scenePhase, initial: true) { _, phase in
-            if phase == .active {
-                Task { await library.refresh() }
-                Task { await signing.refresh() }
+    }
+
+    /// Reads and deletes the launch request, then looks for its app in the library's index.
+    private static func chooseMode() -> LaunchMode {
+        guard let paths = try? LibraryPaths.standard() else { return .library(nil) }
+        let request = LaunchRequestStore(folder: paths.applicationSupport).take()
+        let mode = LaunchMode(request: request, entries: (try? Library.entries(in: paths)) ?? [])
+        if let request {
+            let seconds = Date.now.timeIntervalSince(request.time)
+            let chosen = if case .gameMode = mode { "game mode" } else { "the library" }
+            log.info("Launch request for \(request.package, privacy: .public), \(seconds, format: .fixed(precision: 3)) s after the tap: \(chosen, privacy: .public)")
+        }
+        #if DEBUG
+        SessionCheck.processStarted(mode, request: request)
+        #endif
+        return mode
+    }
+
+    /// "Open with" during a session only takes the file into incoming/; the library installs it at its
+    /// next launch (ADR-0018).
+    private static func takeOverDuringSession(_ url: URL) {
+        guard !Restart.isRestart(url) else { return }
+        Task {
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                _ = try await Library(paths: .standard()).adopt(url)
+            } catch {
+                log.error("“\(url.lastPathComponent, privacy: .public)” could not be taken over: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

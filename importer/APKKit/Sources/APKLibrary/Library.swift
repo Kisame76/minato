@@ -19,12 +19,15 @@ public actor Library {
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages) throws {
         self.paths = paths
         self.preferredLanguages = preferredLanguages
-        if FileManager.default.fileExists(atPath: paths.indexFile.path) {
-            entries = try Self.decoder.decode(Index.self, from: Data(contentsOf: paths.indexFile)).entries
-                .map { Self.findingFolder(of: $0, in: paths) }
-        } else {
-            entries = []
-        }
+        entries = try Self.entries(in: paths)
+    }
+
+    /// The entries the index holds, read without the actor: at launch, game mode or the library is chosen
+    /// from them before anything else (ADR-0032, decision 1).
+    public static func entries(in paths: LibraryPaths) throws -> [LibraryEntry] {
+        guard FileManager.default.fileExists(atPath: paths.indexFile.path) else { return [] }
+        return try decoder.decode(Index.self, from: Data(contentsOf: paths.indexFile)).entries
+            .map { findingFolder(of: $0, in: paths) }
     }
 
     /// Picked files that are not installed yet: normally the ones `adopt` just took over, after an

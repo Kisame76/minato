@@ -1,4 +1,5 @@
 import APKLibrary
+import APKSession
 import APKSigning
 import Foundation
 import Observation
@@ -75,6 +76,12 @@ final class SigningCoordinator {
                                                  date: .now)
             }
         }
+        // The state the first look will find: a tap in the library can come before that look ends, which
+        // waits for the library, busy with an import maybe (ADR-0032, decision 3).
+        state = assess(certificateInputs()).state
+        #if DEBUG
+        CertificateCheck.reportAtLaunchIfRequested(self)
+        #endif
     }
 
     /// Looks again and does what is needed; at launch and on every return to the foreground.
@@ -248,12 +255,18 @@ final class SigningCoordinator {
         }
     }
 
-    private func gatherInputs() async -> SigningInputs {
+    /// What the state depends on, which is read at once: the certificates and the record.
+    private func certificateInputs() -> SigningInputs {
         let record = records.load()
         var inputs = SigningInputs(own: environment.own, imported: CodeSigning.storedCertificateInfo(), now: .now)
         inputs.ownCertificateProblem = environment.ownSignature.problem
         inputs.markedStale = record.markedStale
         inputs.selfTest = record.selfTest
+        return inputs
+    }
+
+    private func gatherInputs() async -> SigningInputs {
+        var inputs = certificateInputs()
         inputs.hasEmbeddedCertificate = environment.embeddedCertificate != nil
         inputs.embeddedCertificateFailed = embeddedCertificateFailed
         inputs.installer = environment.installer
@@ -340,22 +353,52 @@ final class SigningCoordinator {
         }
     }
 
-    // MARK: - Signing at import
+    // MARK: - Signing native code (ADR-0032)
 
-    /// The converter for native code at import (ADR-0032). It signs with the certificate once that is
-    /// valid and passed its self-test, as signing again waits for (ADR-0023), recording the fingerprint that
-    /// signing again compares with. Until then, at launch before the first look too, it converts ad hoc
-    /// only to learn whether the code can run; the import keeps the originals and the first tap signs them.
-    func importSigning() -> ImportSigning? {
+    /// What signs native code now: ad hoc when the app itself is signed ad hoc (Simulator), the certificate
+    /// once it is valid and passed its self-test, as signing again waits for (ADR-0023), and nothing
+    /// otherwise. Its fingerprint is the one signing again compares with.
+    func currentSigner() -> CurrentSigner {
+        if environment.ownSignature == .adHoc { return .adHoc }
+        guard case .valid(let certificate) = state, let own = environment.own,
+              let selfTest = records.load().selfTest, selfTest.sha256 == certificate.sha256, selfTest.passed
+        else { return .none }
+        return .certificate(sha256: own.sha256)
+    }
+
+    /// The converter that signs as `signer` does; nil for no signer, or when the certificate cannot be
+    /// taken from the keychain.
+    func converter(for signer: CurrentSigner) -> SignerConverter? {
         do {
-            if case .valid(let certificate) = state, let own = environment.own,
-               let selfTest = records.load().selfTest, selfTest.sha256 == certificate.sha256, selfTest.passed {
-                return ImportSigning(converter: SignerConverter(signer: try CodeSigning.signer()), fingerprint: own.sha256)
+            switch signer {
+            case .certificate: return SignerConverter(signer: try CodeSigning.signer())
+            case .adHoc: return SignerConverter(signer: try ContainerSigner(identity: nil))
+            case .none: return nil
             }
-            return ImportSigning(converter: SignerConverter(signer: try ContainerSigner(identity: nil)), fingerprint: nil)
         } catch {
-            log.error("Cannot convert at import: \(error.localizedDescription, privacy: .public)")
+            log.error("Cannot sign native code: \(error.localizedDescription, privacy: .public)")
             return nil
+        }
+    }
+
+    /// The converter for native code at import. It signs with the certificate that `currentSigner`
+    /// names. Otherwise, and when that certificate cannot be used, it converts ad hoc only to learn
+    /// whether the code can run; the import keeps the originals and the first tap signs them.
+    func importSigning() -> ImportSigning? {
+        let signer = currentSigner()
+        if case .certificate(let sha256) = signer, let converter = converter(for: signer) {
+            return ImportSigning(converter: converter, fingerprint: sha256)
+        }
+        guard let checking = converter(for: .adHoc) else { return nil }
+        return ImportSigning(converter: checking, fingerprint: nil)
+    }
+
+    /// A tap on an app while nothing signs (ADR-0032, decision 3) opens the setup when the certificate
+    /// has to be fetched; the Signing Certificate screen explains every other state.
+    var fetchesCertificate: Bool {
+        switch state {
+        case .missing, .changed: true
+        default: false
         }
     }
 

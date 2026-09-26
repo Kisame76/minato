@@ -119,6 +119,26 @@ extension Library {
             && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "+,-.=_".contains($0)) }
     }
 
+    /// Makes sure the originals of a ready NativeActivity app's native code are in its version's lib/,
+    /// extracting them from its base.apk for an entry imported before the import did; the first tap signs
+    /// them (ADR-0032, decision 3). Returns how many there are. A library that cannot run makes the app
+    /// incompatible, as at import.
+    @discardableResult
+    public func prepareNativeCode(id: String) throws -> Int {
+        guard let entry = entries.first(where: { $0.id == id }), let report = entry.report else { return 0 }
+        let originals = libraryFiles(of: id)
+        guard originals.isEmpty, entry.state == .ready, case .nativeActivity = report.runtime else { return originals.count }
+        let version = paths.versionDirectory(for: entry)
+        do {
+            _ = try installNativeCode(of: report, from: ZipArchive(url: version.appendingPathComponent("base.apk")),
+                                      into: version, signing: nil)
+        } catch let refusal as RefusedLibrary {
+            try refuse(id: id, library: refusal.library, reason: refusal.reason)
+            throw ConversionRefused(reason: refusal.reason)
+        }
+        return libraryFiles(of: id).count
+    }
+
     /// Marks the entry as incompatible because the converter refuses one of its libraries, as the import
     /// does: its version keeps neither the APK nor the code (ADR-0032).
     func refuse(id: String, library: String, reason: String) throws {

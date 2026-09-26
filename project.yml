@@ -43,6 +43,9 @@ targets:
       # What the app decides about its signing certificate (ADR-0023).
       - package: APKKit
         product: APKSigning
+      # Game mode's launch request, launch decision and lifecycle (ADR-0032).
+      - package: APKKit
+        product: APKSession
       # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
       - framework: build/APKRuntime.xcframework
         embed: false
@@ -106,7 +109,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
-        SWIFT_OBJC_BRIDGING_HEADER: app/Spikes/Spikes-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: app/Sources/Minato-Bridging-Header.h
         # YES puts the fixture tests into Debug builds (tools/embed-fixtures.sh); tools/device-suite.sh sets it.
         APK_EMBED_FIXTURES: NO
     postBuildScripts:

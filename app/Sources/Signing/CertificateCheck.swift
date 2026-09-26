@@ -11,6 +11,8 @@ import Foundation
 ///       passed" or "failed <reason>".
 ///   -certificateCheckStatus <answer>  once the SigningCoordinator has settled: "<state> <source> <sha256>"
 ///       for a valid certificate, "<state> <next step> ..." otherwise (see `line`).
+///   -certificateCheckStatusAtLaunch <answer>  the same for the state the coordinator starts with, before
+///       its first look, which a tap in the library may meet (ADR-0032, decision 3).
 ///   -certificateCheckAwaitCallback  with -certificateCheckStatus: the coordinator does not open the
 ///       store by itself and answers only after a certificate callback, which the script sends.
 ///   -certificateCheckOpenCallback <file>  with -certificateCheckAwaitCallback: the app opens the URL
@@ -48,6 +50,14 @@ enum CertificateCheck {
             CodeSigning.removeIdentity()
             try? FileManager.default.removeItem(at: SigningRecordFile.standard.url)
         }
+    }
+
+    /// Called by the coordinator when it is made, before its first look; answers when asked to.
+    @MainActor
+    static func reportAtLaunchIfRequested(_ coordinator: SigningCoordinator) {
+        guard let index = arguments.firstIndex(of: "-certificateCheckStatusAtLaunch"), arguments.indices.contains(index + 1)
+        else { return }
+        finish(line(state: coordinator.state, next: coordinator.next, record: coordinator.records.load()), in: arguments[index + 1])
     }
 
     /// Called by the coordinator whenever it has settled; answers once, when asked to.

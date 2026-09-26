@@ -383,6 +383,95 @@ struct NativeCodeTests {
         #expect(ConversionRefused(reason: "the file has text relocations").localizedDescription == "the file has text relocations")
     }
 
+    // MARK: - Before the first tap (ADR-0032, decision 3)
+
+    @Test func extractsTheCodeOfAnEntryImportedWithoutIt() async throws {
+        // Entries imported before step a) kept only their base.apk; the first tap needs the originals.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await library.importFile(sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk")).entry
+        let lib = sandbox.paths.libraryDirectory(for: entry)
+        try FileManager.default.removeItem(at: lib)
+
+        #expect(try await library.prepareNativeCode(id: entry.id) == 2)
+
+        #expect(Self.names(in: lib) == ["libactivity-test.so", "libhelper.so"])
+        #expect(try Data(contentsOf: lib.appendingPathComponent("libhelper.so")) == Self.library("libhelper.so"))
+        #expect(await library.resignCandidates() == [ResignCandidate(id: entry.id, signedWith: nil, containerCount: 2)])
+    }
+
+    @Test func aDamagedLibraryFoundAtTheFirstTapMakesTheAppIncompatible() async throws {
+        // Its data in base.apk no longer matches the CRC: the tap explains why the app cannot run.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await library.importFile(sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk")).entry
+        let lib = sandbox.paths.libraryDirectory(for: entry)
+        try FileManager.default.removeItem(at: lib)
+        let base = sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")
+        var apk = try Data(contentsOf: base)
+        let archive = try ZipArchive(data: apk)
+        let helper = try #require(archive.entry(named: "lib/arm64-v8a/libhelper.so"))
+        apk[try Int(archive.dataOffset(of: helper) + helper.compressedSize) - 1] ^= 0xFF
+        try apk.write(to: base)
+
+        await #expect(throws: ConversionRefused(reason: "its data in the APK is damaged")) {
+            try await library.prepareNativeCode(id: entry.id)
+        }
+
+        let refused = try #require(await library.entries.first)
+        #expect(refused.state == .incompatible)
+        #expect(refused.report?.compatibility.issues.contains(
+            .conversionFailed(library: "libhelper.so", reason: "its data in the APK is damaged")) == true)
+        #expect(!sandbox.exists(base))
+        #expect(!sandbox.exists(lib))
+    }
+
+    @Test func leavesCodeThatIsThereAsItIs() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await library.importFile(
+            sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk"), signing: Self.signing()).entry
+        let lib = sandbox.paths.libraryDirectory(for: entry)
+        // Not extracted again: the originals stay whatever they are.
+        let helper = lib.appendingPathComponent("libhelper.so")
+        try Data("kept".utf8).write(to: helper)
+
+        #expect(try await library.prepareNativeCode(id: entry.id) == 2)
+
+        #expect(Self.names(in: lib).count == 4)
+        #expect(try Data(contentsOf: helper) == Data("kept".utf8))
+        #expect(await library.entries.first?.signedWith == "aa")
+    }
+
+    @Test(arguments: [false, true])
+    func extractsNothingForAnAppThatDoesNotStart(needsSplits: Bool) async throws {
+        // A Java app gets its code with M4; one that needs its splits cannot start before M5.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let apk = needsSplits ? SampleAPK.make(splitRequired: true, nativeActivity: true) : SampleAPK.make()
+        let entry = try await library.importFile(sandbox.file(apk, named: "game.apk")).entry
+
+        #expect(try await library.prepareNativeCode(id: entry.id) == 0)
+
+        #expect(!sandbox.exists(sandbox.paths.libraryDirectory(for: entry)))
+    }
+
+    @Test func readsTheEntriesBeforeTheLibraryOpens() async throws {
+        // At launch, before anything else, to choose between game mode and the library (ADR-0032, decision 1).
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(
+            sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk")).entry
+
+        #expect(try Library.entries(in: sandbox.paths).map(\.id) == [entry.id])
+        #expect(try Library.entries(in: sandbox.paths).first?.folder == entry.folder)
+        #expect(try Library.entries(in: LibraryTests.Sandbox().paths).isEmpty)
+    }
+
     // MARK: - Removal
 
     @Test func deletingRemovesItAll() async throws {

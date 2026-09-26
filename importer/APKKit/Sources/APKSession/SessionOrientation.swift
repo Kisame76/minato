@@ -20,4 +20,15 @@ public enum SessionOrientation: Sendable, Equatable {
         default: self = .atStart
         }
     }
+
+    /// Whether a window of this size is laid out in the orientation: wider than high for landscape, not
+    /// for portrait, and any laid-out window for the orientation at start, the one the window has.
+    public func fits(width: Double, height: Double) -> Bool {
+        guard width > 0, height > 0 else { return false }
+        switch self {
+        case .landscape: return width > height
+        case .portrait: return height >= width
+        case .atStart: return true
+        }
+    }
 }
