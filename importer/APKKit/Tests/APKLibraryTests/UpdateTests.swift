@@ -146,18 +146,124 @@ struct UpdateTests {
         #expect(Self.appFolder(sandbox) == [Self.folder(of: SampleAPK.make(label: "After"))])
     }
 
-    @Test func anOlderVersionStillReplacesTheInstalledOneUntilStepBAsks() async throws {
-        // The policy asks; the question and the waiting file come with step b).
+    // MARK: - Questions (step b)
+
+    /// A file the user picked, taken over into incoming/ as the app does.
+    static func picked(_ sandbox: Sandbox, _ library: Library, _ data: Data, named name: String) async throws -> URL {
+        try await library.adopt(sandbox.file(data, named: name))
+    }
+
+    static let olderVersion = SampleAPK.make(versionCode: 1)
+    static let otherSigner = SampleAPK.make(versionCode: 3, signers: [TestCertificates.rotatedSigner])
+
+    @Test(arguments: [(olderVersion, Set([UpdateWarning.olderVersion])), (otherSigner, Set([UpdateWarning.otherSigner]))])
+    func aQuestionChangesNothingAndTheFileWaits(file: Data, warnings: Set<UpdateWarning>) async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        _ = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))
+        let installed = try await library.importFile(Self.picked(sandbox, library, SampleAPK.make(versionCode: 2), named: "v2.apk")).entry
+        let url = try await Self.picked(sandbox, library, file, named: "new.apk")
 
-        let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 1), named: "v1.apk"))
+        let result = try await library.importFile(url)
 
-        #expect(result.decision == .ask([.olderVersion]))
-        #expect(result.entry.report?.versionCode == 1)
-        #expect(Self.appFolder(sandbox) == [Self.folder(of: SampleAPK.make(versionCode: 1))])
+        #expect(result.decision == .ask(warnings))
+        #expect(result.entry == installed)
+        #expect(result.report?.versionCode == (file == Self.olderVersion ? 1 : 3))
+        #expect(await library.entries == [installed])
+        #expect(Self.appFolder(sandbox) == [Self.folder(of: SampleAPK.make(versionCode: 2))])
+        #expect(sandbox.exists(url))
+        // Minato quit without an answer: the next launch finds the file again, and the question comes again.
+        let relaunched = try Library(paths: sandbox.paths)
+        #expect(LibraryTests.resolved(try await relaunched.scan()) == LibraryTests.resolved([url]))
+        #expect(try await relaunched.importFile(url).decision == .ask(warnings))
+        #expect(sandbox.exists(url))
+    }
+
+    @Test(arguments: [olderVersion, otherSigner])
+    func replaceUpdatesAndKeepsTheData(file: Data) async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(Self.picked(sandbox, library, SampleAPK.make(versionCode: 2), named: "v2.apk")).entry
+        let save = sandbox.paths.dataDirectory(for: installed.id).appendingPathComponent("data/save.dat")
+        try Data("progress".utf8).write(to: save)
+        let url = try await Self.picked(sandbox, library, file, named: "new.apk")
+        _ = try await library.importFile(url)
+
+        let result = try await library.importFile(url, replacing: true)
+
+        #expect(result.decision == .update)
+        #expect(result.entry.report?.versionCode == (file == Self.olderVersion ? 1 : 3))
+        #expect(result.entry.importedAt == installed.importedAt)
+        #expect(result.entry.updatedAt != nil)
+        #expect(try Self.installedAPK(sandbox, result.entry) == file)
+        #expect(Self.appFolder(sandbox) == [Self.folder(of: file)])
+        #expect(try Data(contentsOf: save) == Data("progress".utf8))
+        #expect(!sandbox.exists(url))
+        #expect(try await library.scan().isEmpty)
+    }
+
+    @Test(arguments: [olderVersion, otherSigner])
+    func keepInstalledDiscardsTheFile(file: Data) async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(Self.picked(sandbox, library, SampleAPK.make(versionCode: 2), named: "v2.apk")).entry
+        let url = try await Self.picked(sandbox, library, file, named: "new.apk")
+        _ = try await library.importFile(url)
+
+        await library.keepInstalled(discarding: url)
+
+        #expect(!sandbox.exists(url))
+        #expect(try await library.scan().isEmpty)
+        #expect(await library.entries == [installed])
+        #expect(Self.appFolder(sandbox) == [Self.folder(of: SampleAPK.make(versionCode: 2))])
+    }
+
+    @Test func replacingChangesNothingWithoutAQuestion() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk")).entry
+
+        let same = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "again.apk"), replacing: true)
+        let unusable = try await library.importFile(
+            sandbox.file(SampleAPK.make(versionCode: 3, abis: ["armeabi-v7a"], signers: [TestCertificates.rotatedSigner]), named: "v3.apk"),
+            replacing: true)
+
+        #expect(same.decision == .unchanged)
+        #expect(unusable.decision == .reject(.incompatible))
+        #expect(await library.entries == [installed])
+    }
+
+    @Test func anEntryFromBeforeTheSignerReadsItFromItsBaseAPK() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        // A rotated key: v2 carries the old key, v3 the new one with the old one in its lineage.
+        func rotated(_ versionCode: Int32, lineage: [Data]) -> Data {
+            SampleAPK.make(versionCode: versionCode, signingBlock: SigningBlockBuilder.block([
+                (SigningBlockBuilder.v2ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v2Signer(certificates: [TestCertificates.signer])])),
+                (SigningBlockBuilder.v3ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v3Signer(
+                    certificates: [TestCertificates.rotatedSigner], lineage: lineage)])),
+            ]))
+        }
+        let imported = try await Library(paths: sandbox.paths).importFile(sandbox.file(rotated(1, lineage: [TestCertificates.signer, TestCertificates.rotatedSigner]), named: "v1.apk")).entry
+        #expect(imported.report?.signature.signer == SignerIdentity(current: [TestCertificates.rotatedSignerSHA256], lineage: [TestCertificates.signerSHA256]))
+        // Written before the signer: the report lists both certificates, the old and the new key, and no signer.
+        var old = imported
+        old.report?.signature.signer = nil
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let index = try encoder.encode(OldIndex(entries: [old]))
+        #expect(!String(decoding: index, as: UTF8.self).contains("lineage"))
+        try index.write(to: sandbox.paths.indexFile)
+        let library = try Library(paths: sandbox.paths)
+
+        // Only the new key now, without the lineage: its base.apk shows the installed signer is that key.
+        let result = try await library.importFile(sandbox.file(
+            SampleAPK.make(versionCode: 2, signers: [TestCertificates.rotatedSigner]), named: "v2.apk"))
+
+        #expect(result.decision == .update)
     }
 
     // MARK: - Files that change nothing

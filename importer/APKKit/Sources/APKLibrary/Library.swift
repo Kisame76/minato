@@ -63,10 +63,12 @@ public actor Library {
     }
 
     /// Analyses one APK and installs it, updates the installed app of its package, or leaves that app as
-    /// it is (ADR-0034). A NativeActivity app's libraries are converted and signed with `signing`; without
-    /// it only their originals are kept (ADR-0032). Never throws for a bad APK: that becomes an `.invalid` entry.
+    /// it is (ADR-0034). When the policy asks, nothing changes and the file waits where it is, so the
+    /// question comes again at the next scan; `replacing` is the answer "Replace", `keepInstalled` the
+    /// other. A NativeActivity app's libraries are converted and signed with `signing`; without it only
+    /// their originals are kept (ADR-0032). Never throws for a bad APK: that becomes an `.invalid` entry.
     @discardableResult
-    public func importFile(_ url: URL, signing: ImportSigning? = nil,
+    public func importFile(_ url: URL, replacing: Bool = false, signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> ImportResult {
         let fileManager = FileManager.default
         var source = try Self.sourceFile(for: url)
@@ -100,16 +102,22 @@ public actor Library {
         let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
         source.sha256 = digest
         let installed = entries.first { $0.id == package }
+        let installedVersion = installed.flatMap(version(of:))
+        let signer = report.signature.signer ?? SignerIdentity(current: [])
         var decision = UpdatePolicy.decide(
-            installed: installed.flatMap(AppVersion.init(entry:)),
-            new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest))
+            installed: installedVersion,
+            new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer))
         switch (decision, installed) {
         case (.unchanged, let installed?), (.reject, let installed?):
             discardPickedCopy(url)
             progress(1)
             return ImportResult(entry: installed, decision: decision, report: report)
+        case (.ask, let installed?) where !replacing:
+            progress(1)
+            return ImportResult(entry: installed, decision: decision, report: report)
+        case (.ask, _):
+            decision = .update
         default:
-            // Until step b) asks first, an older version replaces the installed one, as before ADR-0034.
             break
         }
 
@@ -137,8 +145,8 @@ public actor Library {
                 report.compatibility.issues.append(.conversionFailed(library: refusal.library, reason: refusal.reason))
                 try? fileManager.removeItem(at: versionDirectory.appendingPathComponent("lib"))
                 decision = UpdatePolicy.decide(
-                    installed: installed.flatMap(AppVersion.init(entry:)),
-                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest))
+                    installed: installedVersion,
+                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer))
                 if case .reject = decision, let installed {
                     try? fileManager.removeItem(at: versionDirectory)
                     discardPickedCopy(url)
@@ -187,6 +195,23 @@ public actor Library {
         discardPickedCopy(url)
         progress(1)
         return ImportResult(entry: entry, decision: decision, report: report)
+    }
+
+    /// The answer "Keep Installed" to a question: the waiting file goes, the installed version stays.
+    public func keepInstalled(discarding url: URL) {
+        discardPickedCopy(url)
+    }
+
+    /// The version an entry holds, with the signer read from its base.apk when its report is from before
+    /// the signer was recorded (ADR-0034, decision 2).
+    private func version(of entry: LibraryEntry) -> AppVersion? {
+        guard var version = AppVersion(entry: entry) else { return nil }
+        if entry.report?.signature.signer == nil, let base = entry.base,
+           let archive = try? ZipArchive(url: paths.versionDirectory(for: entry).appendingPathComponent(base.fileName)),
+           let signer = APKSignatures.read(archive).signer {
+            version.signer = signer
+        }
+        return version
     }
 
     /// Runs right before an import's switch; a test throws from it to stand for an interruption.

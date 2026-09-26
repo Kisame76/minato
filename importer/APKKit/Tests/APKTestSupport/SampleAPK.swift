@@ -3,10 +3,12 @@ import Foundation
 /// Complete synthetic APKs for import tests.
 public enum SampleAPK {
     /// With `nativeActivity` the app starts android.app.NativeActivity with its libgame.so and has no
-    /// Java code; otherwise it declares no activity, as a Java app that needs ART.
+    /// Java code; otherwise it declares no activity, as a Java app that needs ART. It carries a v2 block
+    /// with one signer per certificate of `signers` (none: unsigned), or `signingBlock` when given.
     public static func make(package: String = "org.example.game", versionCode: Int32 = 1, label: String = "Sample Game",
                             abis: [String] = ["arm64-v8a"], splitRequired: Bool = false, nativeActivity: Bool = false,
-                            screenOrientation: Int32? = nil) -> Data {
+                            screenOrientation: Int32? = nil, signers: [Data] = [TestCertificates.signer],
+                            signingBlock: Data? = nil) -> Data {
         var resources = ARSCBuilder()
         resources.packageName = package
         let icon = resources.add("mipmap", "ic_launcher", [
@@ -50,7 +52,14 @@ public enum SampleAPK {
             let elf = ELFBuilder(segments: [.load(align: 0x4000), .load(align: 0x4000)])
             zip.add("lib/\(abi)/libgame.so", elf.build() + Data(repeating: 0x11, count: 2_000))
         }
+        if let block = signingBlock ?? v2Block(signers) { zip.beforeCentralDirectory = block }
         return zip.build().data
+    }
+
+    static func v2Block(_ signers: [Data]) -> Data? {
+        guard !signers.isEmpty else { return nil }
+        let value = SigningBlockBuilder.schemeValue(signers.map { SigningBlockBuilder.v2Signer(certificates: [$0]) })
+        return SigningBlockBuilder.block([(SigningBlockBuilder.v2ID, value)])
     }
 
     public static let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])

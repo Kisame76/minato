@@ -54,11 +54,19 @@ struct NativeCodeTests {
         return try ManifestCompiler.compile(Data(text.utf8), file: "AndroidManifest.xml")
     }
 
-    /// A NativeActivity app as make-apk packs it (ADR-0031): the manifest compiled and the APK laid out by APKPack.
+    /// make-apk's debug key, made once in a temporary folder that the next run uses again.
+    static let key: DebugKey = {
+        try! DebugKey.load(from: URL.temporaryDirectory.appending(path: "native-code-test-key", directoryHint: .isDirectory))
+    }()
+
+    /// A NativeActivity app as make-apk packs it (ADR-0031): the manifest compiled, the APK laid out by
+    /// APKPack and signed with the debug key, so that its versions update each other (ADR-0034).
     static func madeAPK(extractNativeLibs: Bool, versionCode: Int = 1,
                         libraries: [String] = ["libactivity-test.so", "libhelper.so"]) throws -> Data {
-        try APKLayout.build(manifest: manifest(extractNativeLibs: extractNativeLibs, versionCode: versionCode),
-                            libraries: libraries.map { PackFile(name: $0, contents: library($0)) }, assets: [])
+        try APKSigner.sign(
+            APKLayout.build(manifest: manifest(extractNativeLibs: extractNativeLibs, versionCode: versionCode),
+                            libraries: libraries.map { PackFile(name: $0, contents: library($0)) }, assets: []),
+            with: key)
     }
 
     /// A NativeActivity app with these entries in lib/arm64-v8a/, zipped by hand: names and duplicates
@@ -326,7 +334,8 @@ struct NativeCodeTests {
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
         let installed = try await library.importFile(
-            sandbox.file(SampleAPK.make(package: "io.github.kisame76.minato.test.activity", splitRequired: true, nativeActivity: true),
+            sandbox.file(SampleAPK.make(package: "io.github.kisame76.minato.test.activity", splitRequired: true, nativeActivity: true,
+                                        signers: [Self.key.certificate]),
                          named: "v1.apk"), signing: Self.signing()).entry
         #expect(installed.state == .needsSplits)
 

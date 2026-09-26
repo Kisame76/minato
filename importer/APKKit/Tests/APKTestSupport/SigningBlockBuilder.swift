@@ -21,13 +21,25 @@ public enum SigningBlockBuilder {
         return signer.data
     }
 
-    public static func v3Signer(certificates: [Data], minSdk: UInt32 = 24, maxSdk: UInt32 = 0x7FFF_FFFF) -> Data {
+    public static let proofOfRotationID: UInt32 = 0x3BA0_6F8C
+
+    /// With a `lineage`, the signer carries a proof of rotation: the key's certificates, oldest first,
+    /// the last one being the signer's own.
+    public static func v3Signer(certificates: [Data], minSdk: UInt32 = 24, maxSdk: UInt32 = 0x7FFF_FFFF,
+                                lineage: [Data] = []) -> Data {
         var signedData = ByteWriter()
         signedData.bytes(prefixed(placeholderDigests()))
         signedData.bytes(prefixed(certificates.map(prefixed).reduce(Data(), +)))
         signedData.u32(minSdk)
         signedData.u32(maxSdk)
-        signedData.bytes(prefixed(Data()))
+        var attributes = Data()
+        if !lineage.isEmpty {
+            var attribute = ByteWriter()
+            attribute.u32(proofOfRotationID)
+            attribute.bytes(proofOfRotation(lineage))
+            attributes = prefixed(attribute.data)
+        }
+        signedData.bytes(prefixed(attributes))
 
         var signer = ByteWriter()
         signer.bytes(prefixed(signedData.data))
@@ -36,6 +48,25 @@ public enum SigningBlockBuilder {
         signer.bytes(prefixed(placeholderSignatures()))
         signer.bytes(prefixed(Data(repeating: 0x42, count: 16)))
         return signer.data
+    }
+
+    /// The proof-of-rotation struct: a version, then one level per certificate, each with the certificate
+    /// in its signed data, flags, an algorithm and a placeholder signature by the level before.
+    public static func proofOfRotation(_ certificates: [Data]) -> Data {
+        var value = ByteWriter()
+        value.u32(1)
+        for certificate in certificates {
+            var signedData = ByteWriter()
+            signedData.bytes(prefixed(certificate))
+            signedData.u32(0x0103)
+            var level = ByteWriter()
+            level.bytes(prefixed(signedData.data))
+            level.u32(0x1F)
+            level.u32(0x0103)
+            level.bytes(prefixed(Data(repeating: 0x5A, count: 64)))
+            value.bytes(prefixed(level.data))
+        }
+        return value.data
     }
 
     /// Value of a v2/v3/v3.1 block: a length-prefixed sequence of length-prefixed signers.

@@ -82,10 +82,101 @@ struct APKSignaturesTests {
         #expect(!info.hasGooglePlayStamp)
     }
 
+    // MARK: - The signer as Android 15 decides it (ADR-0034, decision 2)
+
+    static let old = TestCertificates.signer
+    static let oldSHA256 = TestCertificates.signerSHA256
+    static let new = TestCertificates.rotatedSigner
+    static let newSHA256 = TestCertificates.rotatedSignerSHA256
+    /// Any other certificate: only its SHA-256 counts here.
+    static let third = TestCertificates.googlePlayStamp
+    static let thirdSHA256 = SigningCertificate(der: TestCertificates.googlePlayStamp).sha256
+
+    static func scheme(_ id: UInt32, _ signers: [Data]) -> (id: UInt32, value: Data) {
+        (id, SigningBlockBuilder.schemeValue(signers))
+    }
+
+    @Test func theSignerOfV2() throws {
+        let block = SigningBlockBuilder.block([Self.scheme(SigningBlockBuilder.v2ID, [SigningBlockBuilder.v2Signer(certificates: [Self.old])])])
+        let signer = APKSignatures.read(try Self.apk(block: block, v1: TestCertificates.signerPKCS7)).signer
+
+        #expect(signer == SignerIdentity(current: [Self.oldSHA256], lineage: []))
+    }
+
+    @Test func theSignerOfV1Only() throws {
+        #expect(APKSignatures.read(try Self.apk(v1: TestCertificates.signerPKCS7)).signer == SignerIdentity(current: [Self.oldSHA256]))
+    }
+
+    @Test func anUnsignedAPKHasNoCurrentCertificate() throws {
+        #expect(APKSignatures.read(try Self.apk()).signer == SignerIdentity(current: []))
+    }
+
+    @Test func v3WithItsLineage() throws {
+        // A rotated key: v2 still carries the old key, v3 the new one with the old one in its lineage.
+        let block = SigningBlockBuilder.block([
+            Self.scheme(SigningBlockBuilder.v2ID, [SigningBlockBuilder.v2Signer(certificates: [Self.old])]),
+            Self.scheme(SigningBlockBuilder.v3ID, [SigningBlockBuilder.v3Signer(certificates: [Self.new], lineage: [Self.old, Self.new])]),
+        ])
+        let info = APKSignatures.read(try Self.apk(block: block, v1: TestCertificates.signerPKCS7))
+
+        #expect(info.signer == SignerIdentity(current: [Self.newSHA256], lineage: [Self.oldSHA256]))
+        // The list of every certificate stays as it was.
+        #expect(info.certificates.map(\.sha256) == [Self.newSHA256, Self.oldSHA256])
+    }
+
+    @Test func aLineageOfThreeKeysOldestFirst() throws {
+        let block = SigningBlockBuilder.block([
+            Self.scheme(SigningBlockBuilder.v3ID, [SigningBlockBuilder.v3Signer(certificates: [Self.new], lineage: [Self.third, Self.old, Self.new])]),
+        ])
+
+        #expect(APKSignatures.read(try Self.apk(block: block)).signer
+            == SignerIdentity(current: [Self.newSHA256], lineage: [Self.thirdSHA256, Self.oldSHA256]))
+    }
+
+    @Test func v31BeforeV3() throws {
+        // Rotation for Android 13 and later: v3 keeps the old key for older versions, v3.1 has the new one.
+        let block = SigningBlockBuilder.block([
+            Self.scheme(SigningBlockBuilder.v3ID, [SigningBlockBuilder.v3Signer(certificates: [Self.old], maxSdk: 32)]),
+            Self.scheme(SigningBlockBuilder.v31ID, [SigningBlockBuilder.v3Signer(certificates: [Self.new], minSdk: 33, lineage: [Self.old, Self.new])]),
+        ])
+
+        #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.newSHA256], lineage: [Self.oldSHA256]))
+    }
+
+    @Test func aV3SignerForOtherAndroidVersionsDoesNotCount() throws {
+        // A v3.1 signer only for versions after Android 15, and v3 signers per range: Android 15 (API 35)
+        // takes the v3 signer whose range holds it.
+        let block = SigningBlockBuilder.block([
+            Self.scheme(SigningBlockBuilder.v2ID, [SigningBlockBuilder.v2Signer(certificates: [Self.third])]),
+            Self.scheme(SigningBlockBuilder.v3ID, [
+                SigningBlockBuilder.v3Signer(certificates: [Self.third], maxSdk: 34),
+                SigningBlockBuilder.v3Signer(certificates: [Self.old], minSdk: 35),
+            ]),
+            Self.scheme(SigningBlockBuilder.v31ID, [SigningBlockBuilder.v3Signer(certificates: [Self.new], minSdk: 36)]),
+        ])
+
+        #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.oldSHA256]))
+    }
+
+    @Test func severalSignersOfV2() throws {
+        let block = SigningBlockBuilder.block([Self.scheme(SigningBlockBuilder.v2ID, [
+            SigningBlockBuilder.v2Signer(certificates: [Self.new]),
+            SigningBlockBuilder.v2Signer(certificates: [Self.old, Self.third]), // a chain: the first is the signer's
+        ])])
+
+        #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.newSHA256, Self.oldSHA256].sorted()))
+    }
+
+    @Test func aReportFromBeforeTheSignerDecodes() throws {
+        let json = #"{"schemes":["v2"],"certificates":[{"sha256":"aa"}],"hasGooglePlayStamp":false}"#
+        #expect(try JSONDecoder().decode(SignatureInfo.self, from: Data(json.utf8)).signer == nil)
+    }
+
     @Test func survivesCorruptedSigningBlock() throws {
         let valid = SigningBlockBuilder.block([
             (SigningBlockBuilder.v2ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v2Signer(certificates: [TestCertificates.signer])])),
-            (SigningBlockBuilder.v3ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v3Signer(certificates: [TestCertificates.rotatedSigner])])),
+            (SigningBlockBuilder.v3ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v3Signer(
+                certificates: [TestCertificates.rotatedSigner], lineage: [TestCertificates.signer, TestCertificates.rotatedSigner])])),
         ])
         var generator = SplitMix64(seed: 0xC0FFEE)
         for _ in 0..<1_000 {

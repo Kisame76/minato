@@ -8,7 +8,7 @@ public struct SigningCertificate: Sendable, Equatable, Hashable, Codable {
     /// Subject summary, usually the common name.
     public let subject: String?
 
-    init(der: Data) {
+    public init(der: Data) {
         sha256 = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
         subject = SecCertificateCreateWithData(nil, der as CFData)
             .flatMap { SecCertificateCopySubjectSummary($0) as String? }
@@ -28,6 +28,32 @@ public struct SignatureInfo: Sendable, Equatable, Codable {
     public var certificates: [SigningCertificate]
     /// The APK carries Google Play's source stamp, i.e. it was distributed through Play.
     public var hasGooglePlayStamp: Bool
+    /// Who signed the APK, as Android 15 decides it; nil in a report written before it was recorded.
+    public var signer: SignerIdentity?
+}
+
+/// Who signed an APK, as Android 15 decides it (ADR-0034, decision 2): the signers of the newest scheme
+/// present, and for a rotated key its older certificates.
+public struct SignerIdentity: Sendable, Equatable, Hashable, Codable {
+    /// SHA-256 of each signer's certificate, sorted; empty for an unsigned APK.
+    public var current: [String]
+    /// SHA-256 of a rotated key's older certificates, oldest first (v3 and v3.1 with one signer only).
+    public var lineage: [String]
+
+    public init(current: [String], lineage: [String] = []) {
+        self.current = current.sorted()
+        self.lineage = lineage
+    }
+
+    /// The same signer, as Android decides an update: the same certificates, or one signer's current
+    /// certificate in the other's lineage, a key rotated forward or back. Several signers must all match
+    /// and none may rotate; an unsigned APK is nobody's.
+    public func isSame(as other: SignerIdentity) -> Bool {
+        guard !current.isEmpty, !other.current.isEmpty else { return false }
+        if current == other.current { return true }
+        guard current.count == 1, other.current.count == 1 else { return false }
+        return other.lineage.contains(current[0]) || lineage.contains(other.current[0])
+    }
 }
 
 /// Reads signing certificates. Signatures are not verified cryptographically here; this is about
@@ -36,18 +62,26 @@ public enum APKSignatures {
     private static let blockIDs: [UInt32: SignatureInfo.Scheme] = [0x7109_871A: .v2, 0xF053_68C0: .v3, 0x1B93_AD61: .v31]
     private static let sourceStampIDs: Set<UInt32> = [0x6DFF_800D, 0x2B09_189E]
     private static let googlePlayStampSHA256 = "3257d599a49d2c961a471ca9843f59d341a405884583fc087df4237b733bbd6d"
+    private static let proofOfRotationID: UInt32 = 0x3BA0_6F8C
+    /// The Android version whose choice of signer counts: Android 15.
+    static let platformSDK: UInt32 = 35
 
     public static func read(_ archive: ZipArchive) -> SignatureInfo {
         var found: [SignatureInfo.Scheme: [Data]] = [:]
+        var signers: [SignatureInfo.Scheme: [Signer]] = [:]
         var hasPlayStamp = false
 
         for entry in archive.entries where isV1SignatureFile(entry.name) {
-            found[.v1, default: []] += (try? PKCS7.certificates(in: archive.data(for: entry, maxSize: 1 << 20))) ?? []
+            let certificates = (try? PKCS7.certificates(in: archive.data(for: entry, maxSize: 1 << 20))) ?? []
+            found[.v1, default: []] += certificates
+            if let first = certificates.first { signers[.v1, default: []].append(Signer(certificates: [first])) }
         }
 
         for (id, value) in (try? signingBlockPairs(archive)) ?? [] {
             if let scheme = blockIDs[id] {
-                found[scheme, default: []] += (try? signerCertificates(value)) ?? []
+                let parsed = (try? parseSigners(value, isV3: scheme != .v2)) ?? []
+                found[scheme, default: []] += parsed.flatMap(\.certificates)
+                signers[scheme, default: []] += parsed
             } else if sourceStampIDs.contains(id), let certificate = try? stampCertificate(value) {
                 hasPlayStamp = hasPlayStamp || SigningCertificate(der: certificate).sha256 == googlePlayStampSHA256
             }
@@ -65,7 +99,39 @@ public enum APKSignatures {
         return SignatureInfo(
             schemes: SignatureInfo.Scheme.allCases.filter { found[$0] != nil },
             certificates: certificates,
-            hasGooglePlayStamp: hasPlayStamp)
+            hasGooglePlayStamp: hasPlayStamp,
+            signer: identity(signers))
+    }
+
+    /// One signer of a scheme: its certificate chain, and for v3 and v3.1 the Android versions it is
+    /// for and its lineage.
+    struct Signer {
+        var certificates: [Data]
+        var minSdk: UInt32 = 0
+        var maxSdk: UInt32 = .max
+        var lineage: [Data] = []
+
+        init(certificates: [Data]) {
+            self.certificates = certificates
+        }
+
+        func isFor(sdk: UInt32) -> Bool { minSdk <= sdk && sdk <= maxSdk }
+    }
+
+    /// The newest scheme with a signer for Android 15 decides: v3.1, v3, v2, then v1.
+    private static func identity(_ signers: [SignatureInfo.Scheme: [Signer]]) -> SignerIdentity {
+        for scheme in SignatureInfo.Scheme.allCases.reversed() {
+            let chosen = (signers[scheme] ?? []).filter { $0.isFor(sdk: platformSDK) && !$0.certificates.isEmpty }
+            guard !chosen.isEmpty else { continue }
+            let current = chosen.map { SigningCertificate(der: $0.certificates[0]).sha256 }
+            var lineage: [String] = []
+            if chosen.count == 1 {
+                // The lineage ends with the signer's own certificate.
+                lineage = chosen[0].lineage.map { SigningCertificate(der: $0).sha256 }.filter { $0 != current[0] }
+            }
+            return SignerIdentity(current: current, lineage: lineage)
+        }
+        return SignerIdentity(current: [])
     }
 
     private static func isV1SignatureFile(_ name: String) -> Bool {
@@ -98,20 +164,56 @@ public enum APKSignatures {
         return result
     }
 
-    /// Certificates of every signer in a v2/v3/v3.1 block. v3 signed data starts like v2's:
-    /// digests, then certificates.
-    private static func signerCertificates(_ value: Data) throws -> [Data] {
+    /// Every signer in a v2/v3/v3.1 block. v3 signed data starts like v2's, digests, then certificates,
+    /// and goes on with the Android versions and the additional attributes, among them the lineage.
+    private static func parseSigners(_ value: Data, isV3: Bool) throws -> [Signer] {
         var outer = ByteReader(value, context: "signers")
         var signers = ByteReader(try prefixed(&outer), context: "signers")
-        var certificates: [Data] = []
+        var result: [Signer] = []
         while signers.remaining >= 4 {
             var signer = ByteReader(try prefixed(&signers), context: "signer")
             var signedData = ByteReader(try prefixed(&signer), context: "signed data")
             _ = try prefixed(&signedData) // digests
             var encoded = ByteReader(try prefixed(&signedData), context: "certificates")
+            var certificates: [Data] = []
             while encoded.remaining >= 4 {
                 certificates.append(try prefixed(&encoded))
             }
+            var parsed = Signer(certificates: certificates)
+            if isV3 {
+                // A damaged rest keeps the certificates, as before the lineage was read.
+                parsed.minSdk = (try? signer.u32()) ?? 0
+                parsed.maxSdk = (try? signer.u32()) ?? .max
+                parsed.lineage = (try? lineage(afterCertificates: &signedData)) ?? []
+            }
+            result.append(parsed)
+        }
+        return result
+    }
+
+    /// The lineage among a v3 signer's additional attributes; empty without one.
+    private static func lineage(afterCertificates signedData: inout ByteReader) throws -> [Data] {
+        _ = try signedData.u32() // the Android versions, as in the signer
+        _ = try signedData.u32()
+        var attributes = ByteReader(try prefixed(&signedData), context: "additional attributes")
+        while attributes.remaining >= 4 {
+            var attribute = ByteReader(try prefixed(&attributes), context: "attribute")
+            if try attribute.u32() == proofOfRotationID {
+                return try proofOfRotation(&attribute)
+            }
+        }
+        return []
+    }
+
+    /// The certificates of a proof of rotation, oldest first: a version, then one level per key, each
+    /// with the certificate in its signed data.
+    private static func proofOfRotation(_ reader: inout ByteReader) throws -> [Data] {
+        _ = try reader.u32() // version
+        var certificates: [Data] = []
+        while reader.remaining >= 4 {
+            var level = ByteReader(try prefixed(&reader), context: "rotation level")
+            var signedData = ByteReader(try prefixed(&level), context: "rotation signed data")
+            certificates.append(try prefixed(&signedData))
         }
         return certificates
     }
