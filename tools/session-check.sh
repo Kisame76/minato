@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks game mode in the Simulator (ADR-0032, test 6). For each way of decision 2, our own URL, the
+# Checks game mode in the Simulator or on the iPhone (ADR-0032, test 6). For each way of decision 2, our own URL, the
 # workspace and none (the fallback), one tap in the library starts a NativeActivity test app in game mode
 # in a new process, and Quit in its menu returns to the library in another; it prints the time from the
 # tap and from the restart to the new process. A restart ends the old process itself, before the new one
@@ -9,20 +9,36 @@
 # lifecycle callbacks follow decision 7. The fallback's alert comes up in both modes, also right after the
 # menu, and game mode restarts once, also after Home and back; a restart whose request goes unanswered
 # ends in the fallback after 3 s. The Debug build answers through app/Sources/Session/SessionCheck.swift.
-# The library is restored afterwards, and the hint counts as not shown yet.
+# The test app is removed afterwards, and the hint counts as not shown yet.
+# On the iPhone (--device), devicectl sends the requests and fetches the events, and the app must stay
+# unlocked. BY_HAND=1 runs one round there in which the user taps the test app, swipes down from the top
+# edge and taps Quit; the script waits for each step.
 # Usage: tools/session-check.sh [simulator name or UDID]
+#        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
 #   SHOTS       a folder for screenshots of game mode, its menu and the fallback's alerts
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
+#   BY_HAND     with --device: only the round by hand
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
 PKG="io.github.kisame76.minato.check.session"
-read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${1:-}") || true
-if [[ -z "${SIM_UDID:-}" ]]; then
-  echo "No matching iPhone simulator found." >&2
-  exit 1
+ON_DEVICE=no
+if [[ "${1:-}" == "--device" ]]; then
+  ON_DEVICE=yes
+  shift
+  read -r DEVICE_ID _ < <(python3 tools/find-device.py "${1:-}") || true
+  if [[ -z "${DEVICE_ID:-}" ]]; then
+    echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
+    exit 1
+  fi
+else
+  read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${1:-}") || true
+  if [[ -z "${SIM_UDID:-}" ]]; then
+    echo "No matching iPhone simulator found." >&2
+    exit 1
+  fi
 fi
 
 WORK=$(mktemp -d)
@@ -49,34 +65,117 @@ EOF
 tools/make-apk.sh --manifest "$WORK/AndroidManifest.xml" --lib build/fixtures/bin/libraw-dyn.so \
   --out "$WORK/session-check.apk" >/dev/null
 
-if [[ -n "${SKIP_BUILD:-}" ]]; then
-  xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
+# The app's container: in the Simulator the folder itself, on the iPhone a copy of the files the check
+# uses, which the helpers below fetch and send.
+SUPPORT_REL="Library/Application Support"
+CHECK_REL="tmp/session-check"
+REQUEST_REL="$SUPPORT_REL/launch-request.json"
+if [[ "$ON_DEVICE" == yes ]]; then
+  if [[ -n "${SKIP_BUILD:-}" ]]; then
+    xcrun devicectl device install app --device "$DEVICE_ID" -q build/DerivedData/Build/Products/Debug-iphoneos/Minato.app >/dev/null
+  else
+    INSTALL_ONLY=1 tools/deploy.sh "$DEVICE_ID" >/dev/null
+  fi
+  CONTAINER="$WORK/container"
 else
-  INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
+  if [[ -n "${SKIP_BUILD:-}" ]]; then
+    xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
+  else
+    INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
+  fi
+  CONTAINER=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data)
 fi
-xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-DATA=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data)
-SUPPORT="$DATA/Library/Application Support"
-CHECK="$DATA/tmp/session-check"
+SUPPORT="$CONTAINER/$SUPPORT_REL"
+CHECK="$CONTAINER/$CHECK_REL"
 EVENTS="$CHECK/events"
-REQUEST="$SUPPORT/launch-request.json"
+REQUEST="$CONTAINER/$REQUEST_REL"
+
+devicectl_copy() {
+  local direction=$1
+  shift
+  xcrun devicectl device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
+    --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1
+}
+# Starts app $1, Minato when none, or brings it to the front when it runs.
+launch() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    xcrun devicectl device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
+  else
+    xcrun simctl launch "$SIM_UDID" "${1:-$BUNDLE_ID}" >/dev/null
+  fi
+}
+terminate() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    xcrun devicectl device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
+    for pid in $(python3 -c 'import json,sys; print(" ".join(str(p["processIdentifier"]) for p in json.load(open(sys.argv[1]))["result"]["runningProcesses"] if p.get("executable", "").endswith("/Minato.app/Minato")))' "$WORK/processes.json"); do
+      xcrun devicectl device process terminate --device "$DEVICE_ID" -q --kill --pid "$pid" >/dev/null 2>&1 || true
+    done
+  else
+    xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  fi
+}
+# Every request of app/Sources/Session/SessionCheck.swift, and the events.
+REQUESTS="way tap quit confirm orientation unanswered forget-hint end events"
+# On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
+# the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
+# file, and its --remove-existing-content empties the app's whole container, not just the folder.
+send_requests() {
+  [[ "$ON_DEVICE" == yes ]] || return 0
+  rm -rf "$WORK/sent"
+  mkdir "$WORK/sent"
+  for name in $REQUESTS; do
+    if [[ -f "$CHECK/$name" ]]; then cp "$CHECK/$name" "$WORK/sent/"; else : > "$WORK/sent/$name"; fi
+  done
+  devicectl_copy to --source "$WORK/sent" --destination "$CHECK_REL"
+}
+# On the iPhone: the folder as the app has it, without the requests it took or emptied. False when there
+# is none.
+fetch_requests() {
+  [[ "$ON_DEVICE" == yes ]] || { [[ -d "$CHECK" ]]; return; }
+  rm -rf "$WORK/fetched"
+  mkdir "$WORK/fetched"
+  devicectl_copy from --source "$CHECK_REL" --destination "$WORK/fetched" || return 1
+  find "$WORK/fetched" -type f -empty ! -name events -delete
+  rm -rf "$CHECK"
+  mv "$WORK/fetched" "$CHECK"
+}
+fetch_events() {
+  [[ "$ON_DEVICE" == yes ]] || return 0
+  if devicectl_copy from --source "$CHECK_REL/events" --destination "$WORK/events"; then mv "$WORK/events" "$EVENTS"; fi
+}
+# Whether the container has the file $1, a path in it; on the iPhone it is fetched.
+has() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    mkdir -p "$(dirname "$CONTAINER/$1")"
+    devicectl_copy from --source "$1" --destination "$CONTAINER/$1" || { rm -f "$CONTAINER/$1"; return 1; }
+  else
+    [[ -f "$CONTAINER/$1" ]]
+  fi
+}
+
 mkdir -p "$SUPPORT/incoming"
-cp "$SUPPORT/library.json" "$WORK/library.json.saved" 2>/dev/null || true
-had_data=no
-[[ -d "$SUPPORT/data" ]] && had_data=yes
+if [[ "$ON_DEVICE" == no ]]; then
+  cp "$SUPPORT/library.json" "$WORK/library.json.saved" 2>/dev/null || true
+  had_data=no
+  [[ -d "$SUPPORT/data" ]] && had_data=yes
+fi
 
 restore() {
-  xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  # The hint counts as not shown yet, as before the first session.
+  terminate
+  # The hint counts as not shown yet, as before the first session, and the test app goes.
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
-  touch "$CHECK/forget-hint"
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  for _ in $(seq 1 50); do [[ -f "$CHECK/forget-hint" ]] || break; sleep 0.2; done
-  xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$REQUEST"
-  if [[ "$had_data" == no ]]; then rmdir "$SUPPORT/data" 2>/dev/null || true; fi
-  if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi
+  echo yes > "$CHECK/forget-hint"
+  echo "$PKG" > "$CHECK/end"
+  send_requests || true
+  launch || true
+  for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
+  terminate
+  if [[ "$ON_DEVICE" == no ]]; then
+    rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$REQUEST"
+    if [[ "$had_data" == no ]]; then rmdir "$SUPPORT/data" 2>/dev/null || true; fi
+    if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi
+  fi
   rm -rf "$WORK"
 }
 trap restore EXIT
@@ -99,17 +198,21 @@ expect() {
 # The events the app appended, "<seconds> <pid> <event>"; `seen` counts the lines already taken.
 seen=0
 EVENT=""
+# Seconds to wait for the menu and for Quit: longer when the user opens it.
+PATIENCE=20
 # Waits up to $2 seconds (default 20) for the next event that matches the extended regex $1 and puts it
 # into EVENT; events before it are passed over.
 await_event() {
-  local pattern=$1 limit=${2:-20} found
-  for _ in $(seq 1 $((limit * 5))); do
+  local pattern=$1 end=$((SECONDS + ${2:-20})) found
+  while true; do
+    fetch_events
     found=$(tail -n +$((seen + 1)) "$EVENTS" 2>/dev/null | grep -n -E -m 1 "^[0-9.]+ [0-9]+ ($pattern)" || true)
     if [[ -n "$found" ]]; then
       seen=$((seen + ${found%%:*}))
       EVENT=${found#*:}
       return 0
     fi
+    (( SECONDS < end )) || break
     sleep 0.2
   done
   EVENT=""
@@ -127,9 +230,14 @@ shot() {
   [[ -n "${SHOTS:-}" ]] || return 0
   mkdir -p "$SHOTS"
   sleep "${2:-0.8}"
-  xcrun simctl io "$SIM_UDID" screenshot --type=png "$SHOTS/$1.png" >/dev/null 2>&1 || true
+  if [[ "$ON_DEVICE" == yes ]]; then
+    xcrun devicectl device capture screenshot --device "$DEVICE_ID" -q --destination "$SHOTS/$1.png" >/dev/null 2>&1 || true
+  else
+    xcrun simctl io "$SIM_UDID" screenshot --type=png "$SHOTS/$1.png" >/dev/null 2>&1 || true
+  fi
 }
 field() {
+  has "$SUPPORT_REL/library.json" || true
   python3 -c 'import json,sys; e={e["id"]:e for e in json.load(open(sys.argv[1]))["entries"]}.get(sys.argv[2]); print(None if e is None else e.get(sys.argv[3]))' \
     "$SUPPORT/library.json" "$PKG" "$1" 2>/dev/null || echo None
 }
@@ -156,6 +264,11 @@ check_window() {
   if [[ "$orientation" == landscape ]]; then
     [[ "$turned" == 3 || "$turned" == 4 ]] && (( w > h )) && ok "  landscape, as held" \
       || fail "  landscape, as held: orientation $turned, ${w}x${h}"
+  elif [[ "$ON_DEVICE" == yes ]]; then
+    # The iPhone's orientation at start is the one it has, which lying flat stays the last app's.
+    { [[ "$turned" == 1 ]] && (( h > w )) || { [[ "$turned" == 3 || "$turned" == 4 ]] && (( w > h )); }; } \
+      && ok "  the orientation at start (no screenOrientation): $turned" \
+      || fail "  the orientation at start (no screenOrientation): orientation $turned, ${w}x${h}"
   else
     expect "  portrait, the orientation at start (no screenOrientation)" "1" "$turned"
   fi
@@ -186,27 +299,38 @@ check_game_mode() {
   else
     fail "  no window event"
   fi
-  if await_event "menu opened"; then
+  if await_event "menu opened" "$PATIENCE"; then
     ok "  the menu opens"
     shot "$way-2-menu"
   else
     fail "  the menu did not open"
   fi
-  if await_event "quit"; then
+  if await_event "quit" "$PATIENCE"; then
     QUIT_TIME=$(time_of "$EVENT")
     ok "  Quit"
   else
     fail "  no Quit"
   fi
   await_event "restart $way" || fail "  game mode did not restart through $way"
-  expect "  the callbacks in game mode" "$START $MENU $QUIT" "$(callbacks_of "$pid")"
+  local callbacks
+  callbacks=$(callbacks_of "$pid")
+  if (( PATIENCE > 20 )); then
+    # By hand, iOS may take the focus or the foreground in between, each with its own callbacks.
+    [[ "$callbacks" == "$START "* && "$callbacks" == *" $MENU $QUIT" ]] \
+      && ok "  the callbacks in game mode start and end as decision 7 says" \
+      || fail "  the callbacks in game mode: \"$callbacks\""
+    echo "      $callbacks"
+  else
+    expect "  the callbacks in game mode" "$START $MENU $QUIT" "$callbacks"
+  fi
 }
 
 # Ends the library the last round restarted into before the new round's requests are written: while it
 # still starts up, it would take the tap meant for the new round.
 begin_round() {
   echo "== $1"
-  xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  terminate
+  fetch_requests || mkdir -p "$CHECK"
   : > "$EVENTS"
   seen=0
 }
@@ -228,10 +352,11 @@ run_way() {
   begin_round "$way, $orientation"
   echo "$way" > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
-  touch "$CHECK/quit"
+  echo yes > "$CHECK/quit"
   rm -f "$CHECK/confirm" "$CHECK/orientation"
   if [[ "$orientation" == landscape ]]; then echo landscape > "$CHECK/orientation"; fi
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  send_requests
+  launch
   await_event "process library" || { abort_round "the library did not start"; return; }
   library_pid=$(pid_of "$EVENT")
   await_event "tap $PKG" || { abort_round "the library did not tap $PKG"; return; }
@@ -262,7 +387,7 @@ run_way() {
   else
     fail "no library after Quit through $way"
   fi
-  [[ -f "$REQUEST" ]] && fail "a launch request is left" || ok "no launch request left"
+  has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
   rm -f "$CHECK/orientation"
 }
 
@@ -276,15 +401,16 @@ check_alert() {
 }
 
 # The fallback: neither way restarts, the alert asks the user to open Minato again, and its OK ends the
-# process; opening Minato then (here: simctl launch) goes on.
+# process; opening Minato then (here: launch) goes on.
 run_fallback() {
   local library_pid game_pid restarts
   begin_round "none (the fallback)"
   echo none > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
   echo 1 > "$CHECK/confirm"
-  touch "$CHECK/quit"
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  echo yes > "$CHECK/quit"
+  send_requests
+  launch
   await_event "process library" || { abort_round "the library did not start"; return; }
   library_pid=$(pid_of "$EVENT")
   await_event "restartFailed none" 60 || { abort_round "the library's restart did not fail"; return; }
@@ -293,10 +419,12 @@ run_fallback() {
   shot "none-1-alert-start" 0.2
   await_event "fallback confirmed" || fail "the alert was not confirmed"
   sleep 1
-  [[ -f "$REQUEST" ]] && ok "the launch request stays" || fail "the launch request is gone"
-  # Long enough for Home and back below.
+  has "$REQUEST_REL" && ok "the launch request stays" || fail "the launch request is gone"
+  # Long enough for Home and back below; the process has ended, so the requests can be replaced.
+  fetch_requests
   echo 8 > "$CHECK/confirm"
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  send_requests
+  launch
   if ! await_event "process gameMode $PKG .*"; then
     abort_round "opening Minato again did not start game mode"
     return
@@ -309,16 +437,16 @@ run_fallback() {
   check_alert "Open Minato again to return to the library."
   shot "none-3-alert-library" 0.2
   # Home and back while the alert waits: every change of the scene reaches the ended session.
-  xcrun simctl launch "$SIM_UDID" com.apple.Preferences >/dev/null
+  launch com.apple.Preferences
   sleep 1.5
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  launch
   await_event "fallback confirmed" || fail "the alert was not confirmed"
   restarts=$(head -n "$seen" "$EVENTS" | awk -v pid="$game_pid" '$2 == pid && $3 == "restart"' | wc -l | tr -d ' ')
   expect "  game mode restarts once, also after Home and back" "1" "$restarts"
   sleep 1
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  launch
   await_event "process library" && ok "opening Minato again shows the library" || fail "no library after the fallback"
-  [[ -f "$REQUEST" ]] && fail "a launch request is left" || ok "no launch request left"
+  has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
 }
 
 # A restart whose first request goes unanswered: after 3 s the alert asks the user to open Minato again,
@@ -329,8 +457,10 @@ run_timeout() {
   echo url > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
   echo 1 > "$CHECK/confirm"
-  touch "$CHECK/quit" "$CHECK/unanswered"
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  echo yes > "$CHECK/quit"
+  echo yes > "$CHECK/unanswered"
+  send_requests
+  launch
   await_event "process library" || { abort_round "the library did not start"; return; }
   library_pid=$(pid_of "$EVENT")
   await_event "restart url" 60 || { abort_round "the library did not restart through url"; return; }
@@ -346,8 +476,8 @@ run_timeout() {
   check_alert "Open Minato again to start “Session Check”."
   await_event "fallback confirmed" || fail "the alert was not confirmed"
   sleep 1
-  [[ -f "$REQUEST" ]] && ok "the launch request stays" || fail "the launch request is gone"
-  xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+  has "$REQUEST_REL" && ok "the launch request stays" || fail "the launch request is gone"
+  launch
   if ! await_event "process gameMode $PKG .*"; then
     abort_round "opening Minato again did not start game mode"
     return
@@ -357,27 +487,86 @@ run_timeout() {
   check_game_mode url "$game_pid" "not shown" portrait
   check_exit "$game_pid" "game mode"
   await_event "process library" && ok "Quit returns to the library" || fail "no library after Quit"
-  [[ -f "$REQUEST" ]] && fail "a launch request is left" || ok "no launch request left"
+  has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
+}
+
+# By hand, on the iPhone: the user taps the test app, swipes down from the top edge and taps Quit. Only the
+# hint is requested; the restarts take the default way, our own URL.
+run_by_hand() {
+  local library_pid game_pid
+  PATIENCE=180
+  begin_round "by hand: tap “Session Check”, then swipe down from the top edge and tap Quit"
+  echo yes > "$CHECK/forget-hint"
+  send_requests
+  launch
+  await_event "process library" || { abort_round "the library did not start"; return; }
+  library_pid=$(pid_of "$EVENT")
+  echo "      waiting for the tap on “Session Check”"
+  await_event "decision .*" 180 || { abort_round "no tap on “Session Check”"; return; }
+  ok "decision: $(event_of "$EVENT")"
+  await_event "restart url" 60 || { abort_round "the library did not restart through url"; return; }
+  check_exit "$library_pid" "the library"
+  if ! await_event "process gameMode $PKG .*"; then
+    abort_round "no game mode after the restart"
+    return
+  fi
+  game_pid=$(pid_of "$EVENT")
+  echo "      waiting for the swipe down from the top edge, then Quit"
+  check_game_mode url "$game_pid" shown portrait
+  check_exit "$game_pid" "game mode"
+  await_event "process library" && ok "Quit returns to the library" || fail "no library after Quit"
+  has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
 }
 
 # Import the test app; the first session shows the hint.
-rm -rf "$CHECK" "$REQUEST"
+if [[ "$ON_DEVICE" == yes ]]; then
+  terminate
+  if has "$REQUEST_REL"; then
+    echo "A launch request is left in Minato on the iPhone: open Minato once, then run this again." >&2
+    exit 1
+  fi
+else
+  rm -f "$REQUEST"
+fi
+rm -rf "$CHECK"
 mkdir -p "$CHECK"
-touch "$CHECK/forget-hint"
+echo yes > "$CHECK/forget-hint"
 : > "$EVENTS"
-cp "$WORK/session-check.apk" "$SUPPORT/incoming/"
-xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
+send_requests
+if [[ "$ON_DEVICE" == yes ]]; then
+  devicectl_copy to --source "$WORK/session-check.apk" --destination "$SUPPORT_REL/incoming/session-check.apk"
+else
+  cp "$WORK/session-check.apk" "$SUPPORT/incoming/"
+fi
+launch
 for _ in $(seq 1 100); do
   [[ "$(field state)" == "{'ready': {}}" ]] && break
   sleep 0.2
 done
 expect "the test app is ready" "{'ready': {}}" "$(field state)"
-expect "not signed yet" "None" "$(field signedWith)"
+# The Simulator signs ad hoc at the first tap; the iPhone with the certificate Minato has, at the import.
+signer=$(field signedWith)
+if [[ "$ON_DEVICE" == yes ]]; then
+  [[ "$signer" != None && "$signer" != "ad hoc" ]] && ok "signed with the certificate at the import" \
+    || fail "signed with the certificate at the import: $signer"
+else
+  expect "not signed yet" "None" "$signer"
+fi
+
+if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
+  run_by_hand
+  echo "session check: $failures failed"
+  exit $((failures > 0))
+fi
 
 run_way url shown portrait
-expect "signed ad hoc at the first tap" "ad hoc" "$(field signedWith)"
+if [[ "$ON_DEVICE" == yes ]]; then
+  expect "still signed with the certificate after the tap" "$signer" "$(field signedWith)"
+else
+  expect "signed ad hoc at the first tap" "ad hoc" "$(field signedWith)"
+fi
 folder=$(field folder)
-[[ -f "$SUPPORT/apps/$PKG/$folder/lib/libraw-dyn.so.dylib" ]] && ok "its container is in lib/" || fail "no container in lib/"
+has "$SUPPORT_REL/apps/$PKG/$folder/lib/libraw-dyn.so.dylib" && ok "its container is in lib/" || fail "no container in lib/"
 run_way workspace "not shown" landscape
 run_fallback
 run_timeout

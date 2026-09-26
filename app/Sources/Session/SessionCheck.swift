@@ -5,8 +5,8 @@ import Darwin
 import Foundation
 import UIKit
 
-/// Answers tools/session-check.sh in the Simulator (ADR-0032, test 6). A restarted process gets no
-/// launch arguments, so the script leaves its requests as files in tmp/session-check/, which every process
+/// Answers tools/session-check.sh in the Simulator and on the iPhone (ADR-0032, test 6). A restarted process
+/// gets no launch arguments, so the script leaves its requests as files in tmp/session-check/, which every process
 /// reads; nothing happens without that folder. Each process appends what it does to
 /// tmp/session-check/events, one line per event: "<seconds since 1970> <pid> <event>".
 ///   way      "url", "workspace" or "none": how both modes restart (Restart.way).
@@ -17,18 +17,23 @@ import UIKit
 ///   orientation  "landscape" or "portrait": game mode holds that instead of the app's own.
 ///   unanswered   the next restart's first request goes unanswered, so it times out; the file is removed.
 ///   forget-hint  the next process forgets that game mode showed its hint, and removes the file.
+///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
+///            iPhone the script cannot delete files in the app's container itself.
+/// A request's file says "yes" when it names nothing; an empty file is none.
 enum SessionCheck {
     static let folder = URL.temporaryDirectory.appending(path: "session-check", directoryHint: .isDirectory)
 
     private static var isOn: Bool { FileManager.default.fileExists(atPath: folder.path) }
 
+    /// An empty file is no request: on the iPhone the script cannot delete one, only empty it.
     private static func requested(_ name: String) -> Bool {
-        isOn && FileManager.default.fileExists(atPath: folder.appending(path: name).path)
+        text(of: name) != nil
     }
 
     private static func text(of name: String) -> String? {
         guard isOn, let text = try? String(contentsOf: folder.appending(path: name), encoding: .utf8) else { return nil }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// The way the script asks for.
@@ -92,6 +97,16 @@ enum SessionCheck {
         case .openSigning: event("blocked openSigning")
         case .explain(_, let reason): event("blocked \(reason)")
         }
+    }
+
+    /// The check is over: the library removes the requested app, then the folder.
+    @MainActor
+    static func endIfRequested(in library: LibraryModel) async {
+        guard let package = text(of: "end") else { return }
+        if let entry = library.entries.first(where: { $0.id == package }) {
+            await library.remove([entry])
+        }
+        try? FileManager.default.removeItem(at: folder)
     }
 
     /// Game mode's guest starts: the window's size in pixels it starts with, the window's facts, then the

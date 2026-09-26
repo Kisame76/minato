@@ -44,6 +44,7 @@ struct LibraryScene: View {
                         await library.refresh()
                         #if DEBUG
                         await SessionCheck.tapIfRequested(in: library)
+                        await SessionCheck.endIfRequested(in: library)
                         #endif
                     }
                     Task { await signing.refresh() }
