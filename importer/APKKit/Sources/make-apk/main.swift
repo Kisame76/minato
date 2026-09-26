@@ -1,5 +1,5 @@
 // make-apk: packs one of our test apps into an APK signed with the debug key (ADR-0031).
-// Usage: make-apk --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--assets <folder>] --out <file.apk>
+// Usage: make-apk --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--assets <folder>] [--key <folder>] --out <file.apk>
 // Build and run it through tools/make-apk.sh.
 import APKPack
 import Foundation

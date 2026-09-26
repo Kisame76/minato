@@ -67,6 +67,57 @@ enum Texts {
         }
     }
 
+    // MARK: - Updates (ADR-0034, decision 5)
+
+    /// The note after an import that changed an installed app or found it installed already; nil otherwise.
+    static func updateNote(_ result: ImportResult) -> String? {
+        let name = result.entry.displayName
+        let version = versionName(result.report)
+        return switch result.decision {
+        case .update: "Updated “\(name)” to \(version)."
+        case .unchanged: "“\(name)” \(version) is already installed."
+        case .reinstall: "Installed “\(name)” \(version) again."
+        case .install, .reject, .ask: nil
+        }
+    }
+
+    /// The note after "Replace".
+    static func replacedNote(_ entry: LibraryEntry) -> String {
+        "Replaced “\(entry.displayName)” with \(versionName(entry.report))."
+    }
+
+    /// A file the installed app keeps its version against: it needs splits or cannot run.
+    static func updateRejected(installed: LibraryEntry, report: APKReport?, state: LibraryEntry.State) -> (title: String, message: String) {
+        let reason = switch state {
+        case .needsSplits: "needs its split APKs"
+        default: report?.compatibility.issues.first(where: isBlocking).map { "cannot run: " + issue($0) } ?? "cannot run"
+        }
+        return ("Can’t Update “\(installed.displayName)”",
+                "\(versionName(report)) \(reason). Version \(versionName(installed.report)) stays installed.")
+    }
+
+    /// The question before an older version or another signer replaces the installed app; both warnings together.
+    static func updateQuestion(installed: LibraryEntry, report: APKReport, warnings: Set<UpdateWarning>) -> (title: String, message: String) {
+        let name = installed.displayName
+        var message: [String] = []
+        if warnings.contains(.olderVersion) {
+            message.append("\(versionName(report)) is older than the installed \(versionName(installed.report)). "
+                + "The data stays, but the older version may not be able to read it.")
+        }
+        if warnings.contains(.otherSigner) {
+            message.append("The new file is signed by someone else, for example as a modified version. Replacing it "
+                + "gives it the data of the installed app. To start without that data, delete the app first.")
+        }
+        let title = warnings.contains(.olderVersion) ? "Replace “\(name)” with an Older Version?" : "Replace “\(name)”?"
+        return (title, message.joined(separator: " "))
+    }
+
+    /// A version's name, or its code when the manifest names none.
+    static func versionName(_ report: APKReport?) -> String {
+        guard let report else { return "?" }
+        return report.versionName.flatMap { $0.isEmpty ? nil : $0 } ?? "version \(report.versionCode)"
+    }
+
     static func isBlocking(_ issue: Compatibility.Issue) -> Bool {
         switch issue {
         case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed: true

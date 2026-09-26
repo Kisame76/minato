@@ -12,17 +12,17 @@ struct MakeAPKTests {
     @Test func readsEveryOption() throws {
         let options = try MakeAPKOptions.parse([
             "--manifest", "app/AndroidManifest.xml", "--lib", "build/liba.so", "--assets", "app/assets",
-            "--lib", "build/libb.so", "--out", "build/app.apk",
+            "--lib", "build/libb.so", "--out", "build/app.apk", "--key", "keys/other",
         ])
 
         #expect(options == MakeAPKOptions(manifest: "app/AndroidManifest.xml", libraries: ["build/liba.so", "build/libb.so"],
-                                          assets: "app/assets", output: "build/app.apk"))
+                                          assets: "app/assets", output: "build/app.apk", key: "keys/other"))
     }
 
     @Test func needsNeitherLibrariesNorAssets() throws {
         let options = try MakeAPKOptions.parse(["--out", "a.apk", "--manifest", "m.xml"])
 
-        #expect(options == MakeAPKOptions(manifest: "m.xml", libraries: [], assets: nil, output: "a.apk"))
+        #expect(options == MakeAPKOptions(manifest: "m.xml", libraries: [], assets: nil, output: "a.apk", key: nil))
     }
 
     @Test(arguments: [
@@ -36,6 +36,8 @@ struct MakeAPKTests {
         ["--manifest", "m.xml", "--out", "a.apk", "extra"],
         ["--manifest", "m.xml", "--out", "a.apk", "--out", "b.apk"],
         ["--manifest", "m.xml", "--out", "a.apk", "--lib"],
+        ["--manifest", "m.xml", "--out", "a.apk", "--key"],
+        ["--manifest", "m.xml", "--key", "a", "--key", "b", "--out", "a.apk"],
         ["--manifest", "--out", "--out", "a.apk"],
         ["--manifest", "", "--out", "a.apk"],
         [],
@@ -103,6 +105,28 @@ struct MakeAPKTests {
         // Written through a temporary file and renamed: nothing else is left in the folder.
         #expect(try FileManager.default.contentsOfDirectory(atPath: apk.deletingLastPathComponent().path) == ["activity-test.apk"])
         #expect(try SigningTests.apkCheck(data).contains("RESULT: signatures valid"))
+    }
+
+    /// `--key` signs with the key in another folder, made there on first use: a test app of another signer
+    /// (ADR-0034, test 4).
+    @Test func signsWithTheKeyItNames() throws {
+        let project = try Self.project()
+        let other = project.appending(path: "other-key", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let apk = project.appending(path: "other.apk")
+
+        var errors: [String] = []
+        let status = MakeAPK.run([
+            "--manifest", project.appending(path: "AndroidManifest.xml").path,
+            "--lib", project.appending(path: "libactivity-test.so").path, "--out", apk.path, "--key", other.path,
+        ], keyFolder: Self.keyFolder, output: { _ in }, errors: { errors.append($0) })
+
+        #expect(status == 0)
+        #expect(errors.isEmpty)
+        let signer = APKSignatures.read(try ZipArchive(data: Data(contentsOf: apk))).signer
+        let certificate = try DebugKey.load(from: other).certificate
+        #expect(signer?.current == [SigningCertificate(der: certificate).sha256])
+        #expect(try DebugKey.load(from: Self.keyFolder).certificate != certificate)
     }
 
     @Test func namesTheFileAndLineOfAProblemAndWritesNothing() throws {

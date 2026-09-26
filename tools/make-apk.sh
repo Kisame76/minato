@@ -3,7 +3,7 @@
 # SwiftPM in release into build/make-apk, a scratch path of its own that never waits for the .build of
 # `swift test`, and runs it with the arguments; SwiftPM rebuilds only what changed. The debug key is
 # ~/.android/minato-debug-key, made on first use.
-# Usage: tools/make-apk.sh --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--assets <folder>] --out <file.apk>
+# Usage: tools/make-apk.sh --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--assets <folder>] [--key <folder>] --out <file.apk>
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

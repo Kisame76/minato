@@ -52,6 +52,19 @@ struct LibraryView: View {
                 .alert(restartAlertTitle, isPresented: restartAlertShown) {
                     Button("OK") { exit(0) }
                 }
+                // ADR-0034, decision 5: a file that would not run, and the question before an older version or
+                // another signer replaces the installed app.
+                .alert(model.updateRejected?.title ?? "", isPresented: rejectionShown) {
+                    Button("OK") {}
+                } message: {
+                    Text(model.updateRejected?.message ?? "")
+                }
+                .alert(questionTitle, isPresented: questionShown, presenting: model.questions.first) { question in
+                    Button("Replace", role: .destructive) { Task { await model.answer(question, replace: true) } }
+                    Button("Keep Installed", role: .cancel) { Task { await model.answer(question, replace: false) } }
+                } message: { question in
+                    Text(Texts.updateQuestion(installed: question.installed, report: question.report, warnings: question.warnings).message)
+                }
                 .alert("Error", isPresented: errorShown) {
                     Button("OK") { model.errorMessage = nil }
                 } message: {
@@ -76,6 +89,19 @@ struct LibraryView: View {
             // Like Files: content scrolls under a frosted bar with a clear edge.
             .scrollEdgeEffectStyle(.hard, for: .top)
             .refreshable { await model.refresh() }
+            .overlay(alignment: .bottom) {
+                if let note = model.note {
+                    Text(note)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .glassEffect()
+                        .padding()
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.default, value: model.note)
             .overlay {
                 if visibleItems.isEmpty {
                     ContentUnavailableView.search(text: query)
@@ -263,6 +289,19 @@ struct LibraryView: View {
 
     private var restartAlertShown: Binding<Bool> {
         Binding(get: { model.restartFailedFor != nil }, set: { if !$0 { model.restartFailedFor = nil } })
+    }
+
+    private var rejectionShown: Binding<Bool> {
+        Binding(get: { model.updateRejected != nil }, set: { if !$0 { model.updateRejected = nil } })
+    }
+
+    private var questionTitle: String {
+        model.questions.first.map { Texts.updateQuestion(installed: $0.installed, report: $0.report, warnings: $0.warnings).title } ?? ""
+    }
+
+    /// Dismissing it without a button leaves the question: the file waits, and the next launch asks again.
+    private var questionShown: Binding<Bool> {
+        Binding(get: { !model.questions.isEmpty }, set: { _ in })
     }
 
     private var errorShown: Binding<Bool> {

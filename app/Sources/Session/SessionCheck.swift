@@ -157,8 +157,9 @@ enum SessionCheck {
         topmost().map { String(describing: type(of: $0)) } ?? "nothing"
     }
 
+    /// The view controller on top of the key window; UpdateCheck reads alerts through it too.
     @MainActor
-    private static func topmost() -> UIViewController? {
+    static func topmost() -> UIViewController? {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first
         else { return nil }
