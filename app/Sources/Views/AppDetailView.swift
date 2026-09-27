@@ -51,19 +51,25 @@ struct AppDetailView: View {
                             ForEach(report.playDependencies, id: \.self) { Text(Texts.playDependency($0)) }
                         }
                     }
-                    Section("Signature") {
+                    let signer = report.signature.signerDetails
+                    Section {
                         LabeledContent("Schemes", value: report.signature.schemes.map(\.rawValue).joined(separator: ", ").nonEmpty ?? "unsigned")
-                        ForEach(report.signature.certificates, id: \.sha256) { certificate in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(certificate.subject ?? "Unknown signer")
-                                Text(certificate.sha256)
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                            }
+                        LabeledContent("Check", value: Texts.signatureCheck(report.signature.check))
+                        ForEach(signer.certificates, id: \.sha256) { certificate in
+                            CertificateRow(role: "Signer", certificate: certificate, isProven: signer.isProven)
+                        }
+                        ForEach(signer.earlier, id: \.sha256) { certificate in
+                            CertificateRow(role: "Earlier key", certificate: certificate, isProven: signer.isProven)
                         }
                         if report.signature.hasGooglePlayStamp {
-                            Label("Distributed through Google Play", systemImage: "checkmark.seal")
+                            Label("Google Play source stamp, not verified", systemImage: "seal")
+                                .foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text("Signature")
+                    } footer: {
+                        if !signer.isProven, !signer.certificates.isEmpty {
+                            Text("The check did not prove these certificates; the file only names them.")
                         }
                     }
                 }
@@ -100,6 +106,32 @@ struct AppDetailView: View {
     private var iconURL: URL? {
         entry.iconFile.flatMap { file in
             (try? LibraryPaths.standard()).map { $0.applicationSupport.appendingPathComponent(file) }
+        }
+    }
+}
+
+/// A certificate of the signer, marked when the signature check did not prove it (ADR-0034, step d).
+private struct CertificateRow: View {
+    let role: String
+    let certificate: SigningCertificate
+    let isProven: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(role)
+                if !isProven {
+                    Label("Not proven", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Text(certificate.subject ?? "Unknown")
+            Text(certificate.sha256)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
     }
 }

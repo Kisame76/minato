@@ -162,6 +162,17 @@ enum Texts {
         }
     }
 
+    /// What the signature check found, for the details (ADR-0034, step d).
+    static func signatureCheck(_ check: SignatureCheck?) -> String {
+        switch check {
+        case .verified: "Verified"
+        case .unsigned: "Unsigned"
+        case .unverified(let reason): "Not verified: \(reason)"
+        case .failed(let failure): failure.kind == .damaged ? "Failed: the file is damaged" : "Failed: the signature does not match"
+        case nil: "Not checked"
+        }
+    }
+
     static func invalidReason(_ raw: String) -> String {
         if raw.contains("notAZipArchive") { return "not a ZIP file" }
         if raw.contains("AndroidManifest.xml") { return "no AndroidManifest.xml" }

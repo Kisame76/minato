@@ -203,4 +203,52 @@ struct APKSignaturesTests {
             _ = APKSignatures.read(try Self.apk(block: corrupted, v1: TestCertificates.signerPKCS7.prefix(Int.random(in: 0...300, using: &generator))))
         }
     }
+
+    // MARK: The signer as the details show it (ADR-0034, step d)
+
+    /// v2 signed by `signer` with `rsaSigner` in its chain, v3 by `rotatedSigner`, rotated from `signer`.
+    static func rotatedInfo(check: SignatureCheck?) throws -> SignatureInfo {
+        let block = SigningBlockBuilder.block([
+            (SigningBlockBuilder.v2ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v2Signer(
+                certificates: [TestCertificates.signer, TestCertificates.rsaSigner])])),
+            (SigningBlockBuilder.v3ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v3Signer(
+                certificates: [TestCertificates.rotatedSigner], lineage: [TestCertificates.signer, TestCertificates.rotatedSigner])])),
+        ])
+        var info = APKSignatures.read(try apk(block: block))
+        info.check = check
+        return info
+    }
+
+    @Test func aVerifiedCheckShowsTheSignerItProvedAndNoOtherCertificate() throws {
+        let details = try Self.rotatedInfo(check: .verified).signerDetails
+
+        #expect(details.isProven)
+        #expect(details.certificates.map(\.sha256) == [TestCertificates.rotatedSignerSHA256])
+        #expect(details.certificates.first?.subject != nil)
+        #expect(details.earlier.map(\.sha256) == [TestCertificates.signerSHA256])
+    }
+
+    @Test(arguments: [nil, SignatureCheck.unverified("DSA"), .failed(SignatureFailure(.damaged, "x"))])
+    func aSignerTheCheckDidNotProveIsMarked(check: SignatureCheck?) throws {
+        let details = try Self.rotatedInfo(check: check).signerDetails
+
+        #expect(!details.isProven)
+        #expect(details.certificates.map(\.sha256) == [TestCertificates.rotatedSignerSHA256])
+        #expect(details.earlier.map(\.sha256) == [TestCertificates.signerSHA256])
+    }
+
+    @Test func aReportWithoutItsSignerShowsItsCertificatesUnproven() throws {
+        var info = try Self.rotatedInfo(check: nil)
+        info.signer = nil
+
+        #expect(!info.signerDetails.isProven)
+        #expect(info.signerDetails.certificates == info.certificates)
+        #expect(info.signerDetails.earlier.isEmpty)
+    }
+
+    @Test func anUnsignedFileShowsNoSigner() throws {
+        let info = APKSignatures.read(try Self.apk())
+
+        #expect(info.signerDetails == SignerDetails(isProven: false, certificates: [], earlier: []))
+    }
 }

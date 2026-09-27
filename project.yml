@@ -141,4 +141,8 @@ targets:
       - name: Embed fixture containers
         script: exec "$SRCROOT/tools/embed-fixtures.sh"
         basedOnDependencyAnalysis: false
+      # The license texts of what the app embeds (THIRD_PARTY.md), after the frameworks are in the bundle.
+      - name: Bundle license texts
+        script: exec python3 "$SRCROOT/tools/bundle-licenses.py"
+        basedOnDependencyAnalysis: false
     scheme: {}

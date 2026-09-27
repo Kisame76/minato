@@ -1,0 +1,224 @@
+{
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary.",
+  "sections": {
+    "Guest libc": "always",
+    "Graphics: ANGLE": "libGLESv2.framework",
+    "Graphics: MoltenVK": "MoltenVK.framework",
+    "References without adopted code": "never"
+  },
+  "components": [
+    {
+      "name": "bionic",
+      "section": "Guest libc",
+      "license": "BSD-style and Apache-2.0, per file",
+      "rows": [
+        "platform/bionic"
+      ],
+      "texts": [
+        {
+          "from": "sources:bionic/libc/NOTICE",
+          "as": "libc-NOTICE"
+        },
+        {
+          "from": "sources:bionic/libm/NOTICE",
+          "as": "libm-NOTICE"
+        },
+        {
+          "from": "sources:bionic/libdl/NOTICE",
+          "as": "libdl-NOTICE"
+        },
+        {
+          "from": "sources:bionic/linker/NOTICE",
+          "as": "linker-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "scudo",
+      "section": "Guest libc",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "platform/external/scudo"
+      ],
+      "texts": [
+        {
+          "from": "sources:scudo/LICENSE.TXT",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "gwp_asan",
+      "section": "Guest libc",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "platform/external/gwp_asan"
+      ],
+      "texts": [
+        {
+          "from": "sources:gwp_asan/LICENSE.TXT",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "arm-optimized-routines",
+      "section": "Guest libc",
+      "license": "MIT OR Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "platform/external/arm-optimized-routines"
+      ],
+      "texts": [
+        {
+          "from": "sources:arm-optimized-routines/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "system_core",
+      "section": "Guest libc",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/core"
+      ],
+      "texts": [
+        {
+          "from": "sources:system_core/libcutils/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "build_make",
+      "section": "Guest libc",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/build"
+      ],
+      "none": "fs_config_generator.py only runs at build time and writes the table of Android UIDs; none of its code is in the binary."
+    },
+    {
+      "name": "llvm",
+      "section": "Guest libc",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "LLVM libunwind (libunwind.a)",
+        "compiler-rt builtins"
+      ],
+      "texts": [
+        {
+          "from": "ndk:toolchains/llvm/prebuilt/darwin-x86_64/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "ndk-sysroot",
+      "section": "Guest libc",
+      "license": "BSD (Bionic) and Apache-2.0",
+      "rows": [
+        "crtbegin_so.o, crtend_so.o",
+        "android/log.h"
+      ],
+      "texts": [
+        {
+          "from": "ndk:toolchains/llvm/prebuilt/darwin-x86_64/sysroot/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "MoltenVK",
+      "section": "Graphics: MoltenVK",
+      "license": "Apache-2.0",
+      "rows": [
+        "MoltenVK"
+      ],
+      "texts": [
+        {
+          "from": "moltenvk:MoltenVK-ios/MoltenVK/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "SPIRV-Cross",
+      "section": "Graphics: MoltenVK",
+      "license": "Apache-2.0",
+      "rows": [
+        "SPIRV-Cross"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/moltenvk/licenses/SPIRV-Cross-LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "SPIRV-Tools",
+      "section": "Graphics: MoltenVK",
+      "license": "Apache-2.0",
+      "rows": [
+        "SPIRV-Tools"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/moltenvk/licenses/SPIRV-Tools-LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "cereal",
+      "section": "Graphics: MoltenVK",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "cereal (headers only)"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/moltenvk/licenses/cereal-LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "SPIRV-Headers",
+      "section": "Graphics: MoltenVK",
+      "license": "MIT",
+      "rows": [
+        "SPIRV-Headers (headers only)"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/moltenvk/licenses/SPIRV-Headers-LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "Vulkan-Headers",
+      "section": "Graphics: MoltenVK",
+      "license": "Apache-2.0 OR MIT, used under Apache-2.0",
+      "rows": [
+        "Vulkan-Headers (headers only)"
+      ],
+      "texts": [
+        {
+          "from": "moltenvk:include/vulkan/vulkan_core.h",
+          "lines": [
+            5,
+            7
+          ],
+          "as": "NOTICE"
+        },
+        {
+          "from": "moltenvk:MoltenVK-ios/MoltenVK/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    }
+  ]
+}

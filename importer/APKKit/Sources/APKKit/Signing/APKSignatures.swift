@@ -13,6 +13,11 @@ public struct SigningCertificate: Sendable, Equatable, Hashable, Codable {
         subject = SecCertificateCreateWithData(nil, der as CFData)
             .flatMap { SecCertificateCopySubjectSummary($0) as String? }
     }
+
+    init(sha256: String, subject: String?) {
+        self.sha256 = sha256
+        self.subject = subject
+    }
 }
 
 public struct SignatureInfo: Sendable, Equatable, Codable {
@@ -26,12 +31,34 @@ public struct SignatureInfo: Sendable, Equatable, Codable {
     public var schemes: [Scheme]
     /// Certificates of all signers, the newest scheme's signer first (after key rotation that is the current key).
     public var certificates: [SigningCertificate]
-    /// The APK carries Google Play's source stamp, i.e. it was distributed through Play.
+    /// The APK carries a source stamp with Google Play's certificate. The stamp's signature is not
+    /// verified, so it does not prove that the file came through Play.
     public var hasGooglePlayStamp: Bool
     /// Who signed the APK, as Android 15 decides it; nil in a report written before it was recorded.
     public var signer: SignerIdentity?
     /// What the cryptographic check found; nil in a report written before it (ADR-0034, step d).
     public var check: SignatureCheck?
+
+    /// The signer as the details show it (ADR-0034, step d): proven only when the check verified.
+    public var signerDetails: SignerDetails {
+        guard let signer else {
+            return SignerDetails(isProven: false, certificates: certificates, earlier: [])
+        }
+        let known = Dictionary(certificates.map { ($0.sha256, $0) }, uniquingKeysWith: { first, _ in first })
+        let certificate = { (sha256: String) in known[sha256] ?? SigningCertificate(sha256: sha256, subject: nil) }
+        return SignerDetails(isProven: check == .verified, certificates: signer.current.map(certificate),
+                             earlier: signer.lineage.map { certificate($0.sha256) })
+    }
+}
+
+/// An APK's signer for the details (ADR-0034, step d).
+public struct SignerDetails: Sendable, Equatable {
+    /// The signature check verified the signer; otherwise the certificates are only named by the file.
+    public var isProven: Bool
+    /// The signer's certificates, one per signer of the newest scheme.
+    public var certificates: [SigningCertificate]
+    /// A rotated key's older certificates, oldest first.
+    public var earlier: [SigningCertificate]
 }
 
 /// Who signed an APK, as Android 15 decides it (ADR-0034, decision 2): the signers of the newest scheme

@@ -2,6 +2,8 @@
 
 What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted.
 
+The app carries the license texts of what it embeds in `Licenses/`: `tools/bundle-licenses.py` copies them at build time as [`third_party/licenses.json`](third_party/licenses.json) lists them, and `tools/license-check.py` fails a built app that lacks a text for a table row of an embedded section below.
+
 ## Guest libc (ADR-0009, ADR-0021)
 
 AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in [`third_party/sources.json`](third_party/sources.json). From them, `tools/build-bionic.sh` builds `libc.so`, `libm.so`, `libdl.so` and `ld-android.so` with the NDK. These libraries run as guest code in the process.
@@ -43,7 +45,7 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 | Chromium's libc++, libc++abi and llvm-libc, linked in and hidden | `97b436da`, `fc1897a2`, `32082418` | Apache-2.0 WITH LLVM-exception |
 | zlib (`third_party/zlib`) | `5eb4d7ed` | Zlib |
 
-The BSD licenses ask for their notices with every binary: the license texts go into the app bundle when the app embeds the framework (the App chat). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
+The BSD licenses ask for their notices with every binary: once the app embeds the framework, `tools/license-check.py` fails until [`third_party/licenses.json`](third_party/licenses.json) names ANGLE's texts. Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 
 ## Graphics: MoltenVK (ADR-0030)
 
