@@ -3,6 +3,7 @@ import APKLibrary
 import APKSession
 import Darwin
 import Foundation
+import Synchronization
 import UIKit
 
 /// Answers tools/session-check.sh in the Simulator and on the iPhone (ADR-0032, test 6). A restarted process
@@ -21,6 +22,8 @@ import UIKit
 ///   crash    an exit status: game mode ends at its start as the runtime ends a program, reporting that
 ///            status, and removes the file.
 ///   start-failed  a reason: game mode's app reports that it cannot start, and the file is removed.
+///   tone     game mode plays a test tone through the audio host for the seconds the file names (2 when it
+///            names none), then logs the frames its render block read.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -134,6 +137,7 @@ enum SessionCheck {
             event("start failed \(reason)")
             session.received(.startFailed(reason))
         }
+        if requested("tone") { playTone(session.audio, seconds: text(of: "tone").flatMap(Double.init) ?? 2) }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))
             recordWindow()
@@ -143,6 +147,26 @@ enum SessionCheck {
             try? await Task.sleep(for: .seconds(1.5))
             session.quit()
         }
+    }
+
+    /// A 440 Hz tone at 44.1 kHz, so the mixer converts it to the hardware's rate, in a LOW_LATENCY stream.
+    @MainActor
+    private static func playTone(_ audio: AudioHost, seconds: Double) {
+        let tone = ToneSource(sampleRate: 44_100, frequency: 440)
+        guard let (id, stream, hardware) = audio.open(sampleRate: 44_100, channels: 2, mode: .lowLatency, source: tone)
+        else { return event("audio tone failed") }
+        event("audio tone opened \(id) rate \(Int(hardware.sampleRate)) burst \(hardware.burstFrames)")
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(seconds))
+            audio.close(id)
+            event("audio tone frames \(tone.frames.load(ordering: .relaxed)) expected \(Int(44_100 * seconds)) xruns \(stream.xruns)")
+        }
+    }
+
+    /// What the audio host did, with the hardware after it: rate, IO buffer in ms, burst in frames.
+    static func audio(_ action: AudioOutput.Action, hardware: AudioHardware) {
+        event("audio \(action) rate \(Int(hardware.sampleRate)) ioBuffer "
+            + String(format: "%.2f", hardware.ioBufferDuration * 1000) + " burst \(hardware.burstFrames)")
     }
 
     /// A motion event that reached the sink: its action, its pointers' IDs and its history's rows.
@@ -247,6 +271,29 @@ enum SessionCheck {
             if let found = metalLayerView(in: subview) { return found }
         }
         return nil
+    }
+}
+
+/// session-check's test tone, a render source that never runs dry. Its phase is only touched on the
+/// real-time thread.
+private final class ToneSource: AudioRenderSource, @unchecked Sendable {
+    let frames = Atomic<Int>(0)
+    private let step: Double
+    private var phase = 0.0
+
+    init(sampleRate: Double, frequency: Double) {
+        step = 2 * .pi * frequency / sampleRate
+    }
+
+    func read(into buffer: UnsafeMutablePointer<Float>, frames count: Int, channels: Int, hostTime: UInt64) -> Int {
+        for frame in 0..<count {
+            let value = Float(sin(phase)) * 0.2
+            for channel in 0..<channels { buffer[frame * channels + channel] = value }
+            phase += step
+            if phase >= 2 * .pi { phase -= 2 * .pi }
+        }
+        frames.add(count, ordering: .relaxed)
+        return count
     }
 }
 #endif

@@ -39,6 +39,8 @@ final class GameSession {
     @ObservationIgnored private let motionSink: MotionEventSink
     /// Ticks while the gate is open (ADR-0036, decision 2).
     @ObservationIgnored private let frameClock = DisplayLinkClock(sink: NoChannelFrameSink())
+    /// The guest's audio output (ADR-0036, decision 4).
+    @ObservationIgnored let audio = AudioHost(sink: NoChannelAudioSink())
 
     /// The session of this process, for the runtime's request handler.
     private(set) weak static var current: GameSession?

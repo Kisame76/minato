@@ -18,7 +18,11 @@
 # uptime clock and on CLOCK_MONOTONIC_RAW. FRAMES=1 runs one round in which game mode stays 5 s before its
 # menu and Quit (ADR-0036, decision 2): the frame clock runs while the gate is open, off the main thread, and
 # pauses with the menu; it prints the intervals between ticks. ENDS=1 runs the rounds of decision 8: a crash and
-# an app that cannot start show once at the library's next start, and a Quit shows nothing.
+# an app that cannot start show once at the library's next start, and a Quit shows nothing. AUDIO=1 runs one
+# round in which game mode plays a 2 s test tone at 44.1 kHz through the audio host (ADR-0036, decision 4): the
+# session activates and asks for a 5 ms IO buffer, the engine runs, the render block reads about as many frames as 2 s
+# hold without an xrun, and the engine stops and the session deactivates once the stream closes; a second round
+# goes Home and back during the tone, and the engine starts again at the foreground.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -28,6 +32,7 @@
 #   TOUCH       only the round of touches by hand
 #   FRAMES      only the round of the frame clock
 #   ENDS        only the rounds of ends that go wrong
+#   AUDIO       only the round of the test tone
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -124,7 +129,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -580,6 +585,54 @@ run_frames() {
   tail -n +$((seen + 1)) "$EVENTS" | grep -q " frames " && fail "  ticks after the pause" || ok "  no ticks after the pause"
 }
 
+# ADR-0036, decision 4: a test tone through the audio host's session, engine and render block.
+run_audio() {
+  local line frames expected xruns
+  begin_round "the test tone"
+  echo "$PKG" > "$CHECK/tap"
+  echo 2 > "$CHECK/tone"
+  echo 3 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "audio activate .*" && ok "  the session activates" || fail "  the session did not activate"
+  await_event "audio startEngine .*" && ok "  the engine starts" || fail "  the engine did not start"
+  await_event "audio tone opened .*" && ok "  the stream opens" || fail "  the stream did not open"
+  await_event "audio tone frames .*" 10 || { abort_round "the tone did not end"; return; }
+  line=$(head -n "$seen" "$EVENTS" | grep " audio tone frames " | tail -n 1)
+  read -r frames expected xruns < <(echo "$line" | awk '{ print $6, $8, $10 }')
+  head -n "$seen" "$EVENTS" | awk '$3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }' | sed 's/^/      /'
+  (( frames * 10 >= expected * 9 && frames * 10 <= expected * 11 )) \
+    && ok "  the render block read $frames frames, 2 s hold $expected" || fail "  the render block read $frames frames, 2 s hold $expected"
+  [[ "$xruns" == 0 ]] && ok "  no xrun" || fail "  $xruns xruns"
+  # The Simulator keeps the Mac's IO buffer; the lines above show the one the session gave.
+  head -n "$seen" "$EVENTS" | grep -q " audio preferIOBuffer(0.005) " \
+    && ok "  the session asks for a 5 ms IO buffer for LOW_LATENCY" || fail "  the session did not ask for 5 ms"
+  head -n "$seen" "$EVENTS" | grep -q " audio deactivate " \
+    && ok "  the engine stops and the session deactivates" || fail "  the session stayed active"
+  head -n "$seen" "$EVENTS" | grep -q " audio .* failed" && fail "  an audio step failed" || ok "  no audio step failed"
+  await_event "quit" && ok "  Quit" || fail "  no Quit"
+
+  # iOS stops the engine in the background: .ambient has no background audio.
+  begin_round "the test tone across Home and back"
+  echo "$PKG" > "$CHECK/tap"
+  echo 8 > "$CHECK/tone"
+  echo 10 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "audio tone opened .*" || { abort_round "the stream did not open"; return; }
+  sleep 1
+  launch com.apple.Preferences
+  sleep 2
+  launch
+  await_event "audio foreground .*" && ok "  the host sees the foreground ($EVENT)" || fail "  the host did not see the foreground"
+  await_event "audio startEngine .*" 5 && ok "  the engine starts again" || fail "  the engine did not start again"
+  await_event "audio tone frames .*" 15 || { abort_round "the tone did not end"; return; }
+  head -n "$seen" "$EVENTS" | grep -q " audio .* failed" && fail "  an audio step failed" || ok "  no audio step failed"
+  await_event "quit" 10 && ok "  Quit" || fail "  no Quit"
+}
+
 # Decision 8: game mode ends as the runtime ends a crashed program, or its app cannot start, or it quits; the
 # library's next start shows the first two once, and the Quit not at all.
 run_ends() {
@@ -662,10 +715,11 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" ]]; then
+if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
+  [[ -n "${AUDIO:-}" ]] && run_audio
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi
