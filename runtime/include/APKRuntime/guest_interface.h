@@ -105,6 +105,28 @@ struct apkrt_loader {
 #define APKRT_NR_SESSION_REQUEST 4104
 #define APKRT_NR_WINDOW_GATE 4105
 
+/// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the
+/// window's layer.
+struct minato_window_info {
+    uint64_t id;            // the host window's ID
+    int32_t width;          // the window's size in pixels
+    int32_t height;
+    int32_t buffer_width;   // those of ANativeWindow_setBuffersGeometry, 0 while none is set
+    int32_t buffer_height;
+    int32_t buffer_format;
+};
+
+struct ANativeWindow;
+
+/// In libnativewindow.so, version APKRT_PRIVATE: fills `info` and returns 0, or returns EINVAL for
+/// anything that is not a window.
+int minato_ANativeWindow_getInfo(struct ANativeWindow *window, struct minato_window_info *info);
+
+/// In libnativewindow.so, version APKRT_PRIVATE: a new window of the host window `id`, `width` × `height`
+/// pixels in the format WINDOW_FORMAT_RGB_565, as NativeActivity's window starts, with one reference
+/// for the caller (activity-host, at NATIVE_WINDOW_CREATED). NULL without memory.
+struct ANativeWindow *minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height);
+
 #ifdef __cplusplus
 }
 #endif

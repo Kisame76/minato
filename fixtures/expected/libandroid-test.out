@@ -1,0 +1,50 @@
+a new window: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 0
+  getters: width 1080, height 2340, format 4
+setBuffersGeometry(640, 360, RGBA_8888): 0
+  getters: width 1080, height 2340, format 1
+  getInfo: 0, id 7, size 1080 x 2340, buffers 640 x 360, format 1
+setBuffersGeometry(0, 0, RGBX_8888): 0
+  getters: width 1080, height 2340, format 2
+setBuffersGeometry(640, 0, RGBA_8888): -22
+  getters: width 1080, height 2340, format 1
+  getInfo: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 1
+setBuffersGeometry(-1, 360, 0): 0
+  getters: width 1080, height 2340, format 4
+  getInfo: 0, id 7, size 1080 x 2340, buffers -1 x 360, format 0
+setBuffersGeometry(0, 0, 0): 0
+  getters: width 1080, height 2340, format 4
+  getInfo: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 0
+after acquire and release: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 0
+getInfo of NULL: 22
+getInfo of something else: 22
+getters of something else: width -22, height -22, format -22
+setBuffersGeometry of something else: -22
+setFrameRate: 0
+setFrameRate(-1): -22
+setFrameRate(nan): -22
+setFrameRate(60, compatibility 7): -22
+setFrameRateWithChangeStrategy: 0
+setFrameRateWithChangeStrategy(60, default, 9): -22
+setBuffersTransform: 0
+setBuffersTransform(0x100): -22
+setBuffersDataSpace: 0
+getBuffersDataSpace: 142671872
+getBuffersDefaultDataSpace: 0
+  getters: width 1080, height 2340, format 4
+lock: -38
+lock again: -38
+unlockAndPost: -38
+AHardwareBuffer_isSupported: 0
+AHardwareBuffer_allocate: -22
+libandroid's ANativeWindow_getWidth: its own
+  answers: 1080
+after libandroid's acquire and release: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 0
+AThermal_acquireManager: null
+AThermal_acquireManager again: null
+AThermal_getCurrentThermalStatus: -1
+AThermal_getThermalHeadroom: nan
+APerformanceHint_getManager: null
+ASensorManager_getInstanceForPackage: null
+ASensor_getResolution: 0
+ATrace_isEnabled: 0
+ATrace_beginSection and ATrace_endSection: done

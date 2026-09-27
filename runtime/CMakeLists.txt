@@ -128,6 +128,13 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}")
   set_tests_properties(runtime.program PROPERTIES TIMEOUT 120)
 
+  # The NDK libraries Minato writes itself (ADR-0028): every generated stub has its value, and the built
+  # libandroid.so, libnativewindow.so and libz.so export exactly the names of their NDK stubs.
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME runtime.android_libraries
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/android/stubgen.py" check --built "${APK_BIONIC_DIR}")
+  set_tests_properties(runtime.android_libraries PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:")
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

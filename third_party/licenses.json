@@ -116,10 +116,11 @@
     {
       "name": "ndk-sysroot",
       "section": "Guest libc",
-      "license": "BSD (Bionic) and Apache-2.0",
+      "license": "BSD (Bionic), Apache-2.0 and Zlib",
       "rows": [
         "crtbegin_so.o, crtend_so.o",
-        "android/log.h"
+        "android/log.h",
+        "zlib (libz.a)"
       ],
       "texts": [
         {

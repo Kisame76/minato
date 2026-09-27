@@ -1,0 +1,5 @@
+W/Looper  : Looper already prepared for this thread with a different value for the LOOPER_PREPARE_ALLOW_NON_CALLBACKS option.
+E/Looper  : Invalid attempt to set NULL callback but not allowed for this looper.
+E/Looper  : Error adding epoll events for fd 1000: Bad file descriptor
+E/ALooper : ALooper_pollOnce: No looper for this thread!
+E/Looper  : Invalid attempt to set NULL callback with ident < 0.

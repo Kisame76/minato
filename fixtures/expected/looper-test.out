@@ -1,0 +1,68 @@
+forThread before prepare: null
+prepare(0): a looper
+forThread after prepare: the same
+prepare(0) again: the same
+prepare(ALLOW_NON_CALLBACKS) again: the same
+nothing ready, timeout 0: -3, fd 0, events 0, data null
+nothing ready, timeout 20 ms: -3, fd 0, events 0, data null
+after a wake, timeout -1: -1, fd 0, events 0, data null
+after two wakes: -1, fd 0, events 0, data null
+and then: -3, fd 0, events 0, data null
+addFd without a callback: -1
+addFd of a descriptor that is not open: -1
+addFd with a callback, ident 99: 1
+its descriptor is ready: -2, fd 0, events 0, data null
+  callback: calls 1, fd the one expected, events 1, data a
+after the callback read the byte: -3, fd 0, events 0, data null
+a callback that answers 0: -2, fd 0, events 0, data null
+  callback calls: 2
+after it answered 0: -3, fd 0, events 0, data null
+  callback calls: 2
+removeFd after it answered 0: 0
+addFd: 1
+removeFd: 1
+removeFd again: 0
+a removed descriptor is ready: -3, fd 0, events 0, data null
+  callback calls: 2
+addFd, data a: 1
+addFd again, data b: 1
+after the second addFd: -2, fd 0, events 0, data null
+  callback: calls 3, fd the one expected, events 1, data b
+removeFd: 1
+removeFd again: 0
+the write end is writable: -2, fd 0, events 0, data null
+  callback: calls 4, fd the one expected, events 2, data b
+the write end was closed: -2, fd 0, events 0, data null
+  callback: calls 5, fd the one expected, events 8, data a
+closed with a byte left: -2, fd 0, events 0, data null
+  callback: calls 6, fd the one expected, events 9, data a
+a callback that closes its descriptor: -2, fd 0, events 0, data null
+then: -1, fd 0, events 0, data null
+then: -1, fd 0, events 0, data null
+then: -3, fd 0, events 0, data null
+  callback calls: 1
+pollAll with a callback ready, timeout 0: -3, fd 0, events 0, data null
+  callback calls: 1
+pollAll after a wake: -1
+forThread on a thread without a looper: null
+pollOnce on a thread without a looper: -4, fd unchanged, events -77, data unchanged
+prepare(ALLOW_NON_CALLBACKS) on another thread: a looper of its own
+addFd without a callback, ident 7: 1
+addFd without a callback, ident -5: -1
+an ident's descriptor is ready: 7, fd the one expected, events 1, data b
+its byte is still there: 7, fd the one expected, events 1, data b
+after the byte was read: -3, fd 0, events 0, data null
+an ident and a callback ready together: 7, fd the one expected, events 1, data b
+  callback ran before: yes
+after both: -3, fd 0, events 0, data null
+two idents ready: 7 and 8, one per poll
+after both were read: -3, fd 0, events 0, data null
+an ident of 0: 0, fd the one expected, events 1, data a
+a wake from another thread: -1, fd 0, events 0, data null
+the looper of a thread that ended, acquired before: woken and released
+the looper of a thread that ended closes its descriptors: yes
+acquire and release: still the thread's looper
+a signal while it waits: -1, fd 0, events 0, data null
+  handler ran: yes
+a signal with SA_RESTART while it waits: -1, fd 0, events 0, data null
+  handler ran: yes

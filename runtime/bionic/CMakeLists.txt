@@ -135,3 +135,58 @@ apk_bionic_library(liblog UNITS apk_liblog NEEDED libc)
 apk_bionic_unit(apk_netd_client SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/libnetd_client.cpp" INCLUDES ${bionic_include}
   CFLAGS -Wall -Wextra -Werror)
 apk_bionic_library(libnetd_client UNITS apk_netd_client NEEDED libc)
+
+# The NDK libraries Minato writes itself (ADR-0028, decisions 7, 9 and 12, runtime/android): libz.so,
+# libnativewindow.so and libandroid.so. Each exports exactly the names of its NDK stub, with a version
+# script that runtime/android/stubgen.py writes from the stub, and a generated stub for every function
+# not written by hand. Only the NDK headers of the APIs they implement are copied, since the NDK's other
+# headers would shadow bionic's.
+set(android_sources "${CMAKE_CURRENT_SOURCE_DIR}/../android")
+set(android_generated "${APK_BIONIC_GENERATED}/android")
+file(MAKE_DIRECTORY "${android_generated}")
+foreach(header IN ITEMS asset_manager configuration data_space hardware_buffer looper native_window rect)
+  file(COPY "${ndk_sysroot_include}/android/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/android")
+endforeach()
+set(android_includes ${bionic_include} "${CMAKE_BINARY_DIR}/ndk_android/include" "${APK_ROOT}/runtime/include")
+set(stubgen ${Python3_EXECUTABLE} "${android_sources}/stubgen.py" generate)
+set(stubgen_tools --sysroot "${CMAKE_SYSROOT}" --clang "${CMAKE_C_COMPILER}" --nm "${ANDROID_TOOLCHAIN_ROOT}/bin/llvm-nm")
+set(ndk_stubs "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-android/35")
+
+# libz.so: the NDK's libz.a, zlib as AOSP ships it, linked whole (decision 12). The archive hides the
+# internal names that the stub lists (_tr_init and others): llvm-objcopy gives every name of the stub
+# default visibility, and -Bsymbolic keeps the archive's own references to them direct, as compiled.
+set(libz_map "${android_generated}/libz.map")
+set(libz_names "${android_generated}/libz.names")
+set(libz_exported "${CMAKE_BINARY_DIR}/libz-exported.a")
+set(ndk_libz "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-android/libz.a")
+add_custom_command(OUTPUT "${libz_map}" "${libz_names}"
+  COMMAND ${stubgen} libz ${stubgen_tools} --map "${libz_map}" --names "${libz_names}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libz.so" VERBATIM)
+add_custom_command(OUTPUT "${libz_exported}"
+  COMMAND "${ANDROID_TOOLCHAIN_ROOT}/bin/llvm-objcopy" "--set-symbols-visibility=${libz_names}=default"
+    "${ndk_libz}" "${libz_exported}"
+  DEPENDS "${ndk_libz}" "${libz_names}" VERBATIM)
+add_custom_target(libz_exported DEPENDS "${libz_exported}")
+apk_bionic_library(libz NEEDED libc LDFLAGS -Wl,-Bsymbolic VERSION_SCRIPTS "${libz_map}")
+add_dependencies(guest_libz libz_exported)
+target_link_libraries(guest_libz PRIVATE "-Wl,--whole-archive" "${libz_exported}" "-Wl,--no-whole-archive")
+
+# libnativewindow.so: the window (runtime/android/native_window.cpp), version LIBNATIVEWINDOW.
+set(nativewindow_map "${android_generated}/libnativewindow.map")
+set(nativewindow_stubs "${android_generated}/libnativewindow_stubs.c")
+add_custom_command(OUTPUT "${nativewindow_map}" "${nativewindow_stubs}"
+  COMMAND ${stubgen} libnativewindow ${stubgen_tools} --map "${nativewindow_map}" --stubs "${nativewindow_stubs}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libnativewindow.so" VERBATIM)
+apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp" "${nativewindow_stubs}"
+  INCLUDES ${android_includes} CFLAGS -Wall -Wextra -Werror)
+apk_bionic_library(libnativewindow UNITS apk_nativewindow NEEDED libc liblog VERSION_SCRIPTS "${nativewindow_map}")
+
+# libandroid.so: ALooper, AConfiguration and the forwards to libnativewindow (runtime/android).
+set(android_map "${android_generated}/libandroid.map")
+set(android_stubs "${android_generated}/libandroid_stubs.c")
+add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
+  COMMAND ${stubgen} libandroid ${stubgen_tools} --map "${android_map}" --stubs "${android_stubs}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libandroid.so" VERBATIM)
+apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
+  "${android_sources}/window_forwards.cpp" "${android_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra -Werror)
+apk_bionic_library(libandroid UNITS apk_android NEEDED libc liblog libnativewindow VERSION_SCRIPTS "${android_map}")

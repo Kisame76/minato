@@ -93,6 +93,22 @@ add_executable(poll-test suite/poll-test.c)
 add_executable(memory-test suite/memory-test.c)
 # start-test: ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
 add_executable(start-test suite/start-test.c)
+# looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
+# The configuration's newest getters came with API 34.
+add_executable(looper-test suite/looper-test.c)
+target_link_libraries(looper-test PRIVATE android)
+add_executable(configuration-test suite/configuration-test.c)
+target_compile_options(configuration-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(configuration-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(configuration-test PRIVATE android)
+# libandroid-test: the window of libnativewindow.so as activity-host makes it, libandroid's forwards and
+# its generated stubs (ADR-0028, decisions 7 and 9). libnativewindow comes first, so that the program's
+# ANativeWindow and AHardwareBuffer functions are its own.
+add_executable(libandroid-test suite/libandroid-test.c)
+target_include_directories(libandroid-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include")
+target_compile_options(libandroid-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(libandroid-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(libandroid-test PRIVATE nativewindow android dl)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

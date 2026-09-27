@@ -1,0 +1,58 @@
+new: Mcc 0 Mnc 0 Orientation 0 Touchscreen 0 Density 0 Keyboard 0 Navigation 0 KeysHidden 0 NavHidden 0 SdkVersion 0 ScreenSize 0 ScreenLong 0 ScreenRound 0 UiModeType 0 UiModeNight 0 ScreenWidthDp 0 ScreenHeightDp 0 SmallestScreenWidthDp 0 LayoutDirection 0 GrammaticalGender 0
+ language 00 00 3f 3f, country 00 00 3f 3f
+setMcc(310): 310, setMcc(74565): 9029
+setMnc(65535): 65535, setMnc(-2): 65534
+setOrientation(2): 2, setOrientation(511): 255
+setTouchscreen(3): 3, setTouchscreen(300): 44
+setDensity(480): 480, setDensity(65537): 1
+setKeyboard(2): 2, setKeyboard(258): 2
+setNavigation(4): 4, setNavigation(260): 4
+setKeysHidden(3): 3, setKeysHidden(7): 3
+setNavHidden(2): 2, setNavHidden(7): 3
+setSdkVersion(35): 35, setSdkVersion(65571): 35
+setScreenSize(4): 4, setScreenSize(31): 15
+setScreenLong(2): 2, setScreenLong(7): 3
+setUiModeType(7): 7, setUiModeType(31): 15
+setUiModeNight(2): 2, setUiModeNight(7): 3
+setScreenWidthDp(411): 411, setScreenWidthDp(65541): 5
+setScreenHeightDp(891): 891, setScreenHeightDp(70000): 4464
+setSmallestScreenWidthDp(411): 411, setSmallestScreenWidthDp(65536): 0
+setLayoutDirection(2): 2, setLayoutDirection(7): 3
+setGrammaticalGender(3): 3, setGrammaticalGender(7): 3
+after every setter: Mcc 9029 Mnc 65534 Orientation 255 Touchscreen 44 Density 1 Keyboard 2 Navigation 4 KeysHidden 3 NavHidden 3 SdkVersion 35 ScreenSize 15 ScreenLong 3 ScreenRound 0 UiModeType 15 UiModeNight 3 ScreenWidthDp 5 ScreenHeightDp 4464 SmallestScreenWidthDp 0 LayoutDirection 3 GrammaticalGender 3
+ language 00 00 3f 3f, country 00 00 3f 3f
+setLanguage("de"): 64 65 3f 3f
+setLanguage("fil"): 66 69 3f 3f
+setLanguage("en-US"): 65 6e 3f 3f
+setLanguage(""): 00 00 3f 3f
+setCountry("AT"): 41 54 3f 3f
+setCountry("419"): 34 31 3f 3f
+setCountry("US"): 55 53 3f 3f
+setCountry(""): 00 00 3f 3f
+copy: Mcc 9029 Mnc 65534 Orientation 255 Touchscreen 44 Density 1 Keyboard 2 Navigation 4 KeysHidden 3 NavHidden 3 SdkVersion 35 ScreenSize 15 ScreenLong 3 ScreenRound 0 UiModeType 15 UiModeNight 3 ScreenWidthDp 5 ScreenHeightDp 4464 SmallestScreenWidthDp 0 LayoutDirection 3 GrammaticalGender 3
+ language 64 65 3f 3f, country 41 54 3f 3f
+diff of the copy: 0x0
+diff of two new ones: 0x0
+diff for Mcc: 0x1
+diff for Mnc: 0x2
+diff for Orientation: 0x80
+diff for Touchscreen: 0x8
+diff for Density: 0x100
+diff for Keyboard: 0x10
+diff for Navigation: 0x40
+diff for KeysHidden: 0x20
+diff for NavHidden: 0x20
+diff for SdkVersion: 0x400
+diff for ScreenSize: 0x800
+diff for ScreenLong: 0x800
+diff for UiModeType: 0x1000
+diff for UiModeNight: 0x1000
+diff for ScreenWidthDp: 0x200
+diff for ScreenHeightDp: 0x200
+diff for SmallestScreenWidthDp: 0x2000
+diff for LayoutDirection: 0x4000
+diff for GrammaticalGender: 0x20000
+diff for Language: 0x4
+diff for Country: 0x4
+diff the other way round: 0x4
+diff for Country, Density and UiModeNight: 0x1104

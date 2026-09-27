@@ -47,6 +47,11 @@ poll-test system
 memory-test system
 # ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
 start-test system
+# ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
+looper-test system
+configuration-test system
+# Android has neither minato_ANativeWindow_create nor our generated stubs (ADR-0028, decisions 7 and 9).
+libandroid-test system runtime-only
 # What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
 island-bench system measures
 # The address space a program has left, and where the allocator spills (ADR-0035).
