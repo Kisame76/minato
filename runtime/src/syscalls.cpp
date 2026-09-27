@@ -11,9 +11,11 @@
 #include "host_calls.h"
 #include "loader_syscalls.h"
 #include "process_exit.h"
+#include "session.h"
 #include "signals.h"
 #include "syscalls.h"
 #include "threads.h"
+#include "windows.h"
 
 #include <pthread.h>
 #include <sched.h>
@@ -667,6 +669,15 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return apkrt::dl::loader_syscall(frame);  // ld-android.so's calls into the loader (ADR-0025)
         case APKRT_NR_BIND_HOST_TABLE:
             return apkrt::host_calls::bind_host_table(x[0], x[1], x[2], x[3]);  // a front lib (ADR-0030)
+        // The session and the window's gate (ADR-0028, decision 11).
+        case APKRT_NR_SESSION_CONNECT:
+            return apkrt::session::connect(x[0]);
+        case APKRT_NR_SESSION_ANSWER:
+            return apkrt::session::answer(x[0]);
+        case APKRT_NR_SESSION_REQUEST:
+            return apkrt::session::request(x[0], x[1], x[2]);
+        case APKRT_NR_WINDOW_GATE:
+            return apkrt::windows::gate(x[0], x[1]);
 
         default:
             report_unsupported(x[8]);

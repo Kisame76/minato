@@ -28,6 +28,7 @@ constexpr long eagain = 11;
 constexpr long enomem = 12;
 constexpr long eacces = 13;
 constexpr long efault = 14;
+constexpr long ebusy = 16;
 constexpr long eexist = 17;
 constexpr long exdev = 18;
 constexpr long enodev = 19;

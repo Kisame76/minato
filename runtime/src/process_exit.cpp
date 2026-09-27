@@ -59,6 +59,7 @@ void end(int status) {
     if (program_ended.exchange(true)) stop();
     report(status & 0xff);
     signals::stop_other_threads();
+    session::end();  // the host's waits for answers end, and its posts fail
     // The handler's host calls must not end with EINTR: a runtime signal to this thread waits.
     sigset_t runtime;
     sigemptyset(&runtime);

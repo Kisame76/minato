@@ -96,13 +96,95 @@ struct apkrt_loader {
 /// code, and guest signals wait for its return (ADR-0030, decision 1).
 #define APKRT_NR_BIND_HOST_TABLE 4101
 
+// MARK: - The session (ADR-0028, decisions 2 to 4 and 7)
+//
+// The host posts events (apkrt_session_post in apkrt.h), activity-host reads them from the event pipe,
+// calls the NativeActivity callback of each and answers it; libandroid and activity-host report what the
+// guest asks of the host; the front libs pass the window's gate. These layouts are the same on both
+// sides, and apkrt.h includes this header for the app.
+
+/// The events, one per NativeActivity callback, with their arguments (struct apkrt_event).
+enum apkrt_event_type {
+    APKRT_EVENT_CREATE = 1,
+    APKRT_EVENT_START,
+    APKRT_EVENT_RESUME,
+    APKRT_EVENT_PAUSE,
+    APKRT_EVENT_STOP,
+    APKRT_EVENT_DESTROY,
+    APKRT_EVENT_SAVE_INSTANCE_STATE,
+    APKRT_EVENT_WINDOW_FOCUS_CHANGED,     // a0: 1 when the window has the focus, else 0
+    APKRT_EVENT_NATIVE_WINDOW_CREATED,    // a0: the window's ID (apkrt_window_add); a1, a2: width, height in pixels
+    APKRT_EVENT_NATIVE_WINDOW_RESIZED,    // as NATIVE_WINDOW_CREATED; not sent in M3, where a window's size is fixed
+    APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED,  // a0: the window's ID
+    APKRT_EVENT_NATIVE_WINDOW_DESTROYED,  // a0: the window's ID
+    APKRT_EVENT_INPUT_QUEUE_CREATED,      // a0: the input channel's ID (ADR-0036), 0 until the channel exists
+    APKRT_EVENT_INPUT_QUEUE_DESTROYED,    // a0: as INPUT_QUEUE_CREATED
+    APKRT_EVENT_CONTENT_RECT_CHANGED,     // a0: left | top << 32; a1: right | bottom << 32 (32 bits each)
+    APKRT_EVENT_CONFIGURATION_CHANGED,
+    APKRT_EVENT_LOW_MEMORY,
+};
+
+/// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
+/// pipe's order.
+struct apkrt_event {
+    uint32_t type;  // enum apkrt_event_type
+    uint32_t serial;
+    uint64_t arguments[3];
+};
+
+/// The app as the host describes it at the session's begin (struct apkrt_session in apkrt.h), for
+/// AConfiguration (ADR-0028, decision 9).
+struct apkrt_configuration {
+    double scale;          // the screen's native scale (the layer's contentsScale), e.g. 3
+    int32_t width;         // the screen's size in pixels, in the session's orientation
+    int32_t height;
+    int32_t orientation;   // ACONFIGURATION_ORIENTATION_PORT (1) or ACONFIGURATION_ORIENTATION_LAND (2)
+    int32_t night;         // ACONFIGURATION_UI_MODE_NIGHT_NO (1) or ACONFIGURATION_UI_MODE_NIGHT_YES (2)
+    int32_t refresh_rate;  // the display's highest rate in frames per second, e.g. 120
+    char language[4];      // ISO 639, e.g. "de"; NUL-terminated
+    char country[4];       // ISO 3166, e.g. "DE"; empty when there is none
+};
+
+/// What the guest asks of the host (ADR-0028, decision 4).
+enum apkrt_request_type {
+    APKRT_REQUEST_FINISH = 1,      // ANativeActivity_finish; the host then sends the quit sequence
+    APKRT_REQUEST_WINDOW_FLAGS,    // guest only: a0 the flags to add, a1 those to remove (setWindowFlags)
+    APKRT_REQUEST_KEEP_SCREEN_ON,  // host only: the argument is 1 or 0, reported when the flag changes
+    APKRT_REQUEST_START_FAILED,    // a0: activity-host's text (dlerror's) about why the app cannot start,
+                                   // NUL-terminated; the host gets at most 1023 bytes of it
+};
+
+/// The kinds of the window's gate.
+enum apkrt_gate_kind {
+    APKRT_GATE_PRESENT = 1,     // at every present
+    APKRT_GATE_BACKGROUND = 2,  // at every call that commits GPU work
+};
+
 /// The private syscalls of ADR-0028 (decision 11) for activity-host, libandroid and the front libs,
-/// through the veneer like every syscall: the session's connect, answers and requests (decisions 2 to
-/// 4) and the window's gate (decision 7). Their arguments and records come with the session (ADR-0028,
-/// step c); until then the runtime answers -ENOSYS.
+/// through the veneer like every syscall.
+///
+/// session_connect, activity-host's, once: x0 a struct apkrt_configuration, which the runtime fills with
+/// the session's. Returns the event pipe's read end as a new guest descriptor (close-on-exec), whose
+/// records are struct apkrt_event; -ENOENT without a session, -EFAULT for NULL, -EMFILE when the guest's
+/// table is full, which closes the pipe's end for good: every connect after one that got that far answers
+/// -EBUSY.
 #define APKRT_NR_SESSION_CONNECT 4102
+/// session_answer, activity-host's: x0 the serial number of the event whose callback returned. Returns 0;
+/// -ENOENT without a session, -EINVAL for 0 or a serial not posted yet.
 #define APKRT_NR_SESSION_ANSWER 4103
+/// session_request: x0 an enum apkrt_request_type, x1 and x2 its arguments. Returns 0; -ENOENT without a
+/// session, -EFAULT for APKRT_REQUEST_START_FAILED without a text, -EINVAL for another type. The runtime
+/// keeps the window flags and reports only APKRT_REQUEST_KEEP_SCREEN_ON to the host, when
+/// AWINDOW_FLAG_KEEP_SCREEN_ON (0x80) changes, in the order of the changes.
 #define APKRT_NR_SESSION_REQUEST 4104
+/// window_gate, the front libs': x0 the window's ID, x1 an enum apkrt_gate_kind. Returns 0 to go on and
+/// 1 when the window is gone, or waits:
+///   - present: 0 while the window's gate is open, a wait while it is closed, 1 once the window is gone
+///     or for an ID the host never gave; -EINVAL for ID 0;
+///   - background: 1 for a window that is gone or unknown, else 0 in the foreground and a wait in the
+///     background; ID 0 for calls without a window, such as a queue submit, which only wait.
+/// Every change the host makes ends a wait's round. A deliverable signal ends the wait with -EINTR once
+/// its handler ran; with SA_RESTART the runtime makes the call again. -EINVAL for another kind.
 #define APKRT_NR_WINDOW_GATE 4105
 
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the

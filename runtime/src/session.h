@@ -1,9 +1,11 @@
-// The session (ADR-0028, decision 3): what the host tells the runtime about the app before the program
-// starts, once per process (apkrt_session_begin). So far its end handler (decision 5); the
-// configuration, the events and the requests come with ADR-0028's step c.
+// The session (ADR-0028, decisions 2 to 5): what the host tells the runtime about the app before the
+// program starts, once per process (apkrt_session_begin): the end handler, the configuration and the
+// handler for the guest's requests; and the channel between them, the event pipe with its answers.
 #pragma once
 
 #include "APKRuntime/apkrt.h"
+
+#include <cstdint>
 
 namespace apkrt::session {
 
@@ -13,5 +15,15 @@ struct EndHandler {
     void *context;
 };
 EndHandler end_handler();
+
+/// At the program's end, before the end handler: posts fail from now on, and the host's waits for answers
+/// end with -1.
+void end();
+
+/// The private syscalls (guest_interface.h): session_connect with the guest's struct apkrt_configuration,
+/// session_answer and session_request.
+long connect(std::uint64_t configuration);
+long answer(std::uint64_t serial);
+long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1);
 
 }  // namespace apkrt::session

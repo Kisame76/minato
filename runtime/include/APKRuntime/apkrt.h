@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// The session's events, configuration and requests, whose layouts the guest shares.
+#include "guest_interface.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -102,17 +105,110 @@ void apkrt_report_exit_status(int descriptor);
 /// without it, after the report of 128 + the signal.
 typedef void (*apkrt_end_handler)(void *context, int status);
 
-/// How the host describes the app before the program starts (ADR-0028, decision 3). The configuration
-/// and the handler for the guest's requests come with ADR-0028's step c.
+/// Called for each request of the guest (ADR-0028, decision 4) on the guest thread that makes it, at once:
+/// it must not block (the app hands the request to its main queue). `type` is an enum apkrt_request_type:
+/// APKRT_REQUEST_FINISH; APKRT_REQUEST_KEEP_SCREEN_ON with `argument` 1 or 0, only when the flag changes
+/// (the runtime keeps the window flags, so APKRT_REQUEST_WINDOW_FLAGS never comes here); or
+/// APKRT_REQUEST_START_FAILED with `text`, which lives until the handler returns. `text` is NULL for the
+/// others. The KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate. The
+/// handler runs with the runtime signal blocked, on that thread's stack, which the guest chose and which
+/// may be small (an alternate signal stack): a handler that needs more hands its work to another thread.
+typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument, const char *text);
+
+/// How the host describes the app before the program starts (ADR-0028, decision 3).
 struct apkrt_session {
-    void *context;          // passed to the handlers
-    apkrt_end_handler end;  // required
+    void *context;                             // passed to the handlers
+    apkrt_end_handler end;                     // required
+    apkrt_request_handler request;             // NULL: the requests go nowhere
+    struct apkrt_configuration configuration;  // what activity-host gets when it connects
 };
 
 /// Begins the process's session: from now on the program's end calls its end handler instead of ending
-/// the process. Returns 0, or -1 when `session` or its end handler is NULL or a session has begun
-/// already.
+/// the process, and the host can post events. Returns 0, or -1 when `session` or its end handler is NULL
+/// or a session has begun already.
 int apkrt_session_begin(const struct apkrt_session *session);
+
+/// Posts an event to activity-host (ADR-0028, decision 2): a record in the event pipe, which activity-host
+/// reads once it runs; `type` is an enum apkrt_event_type, and `a0` to `a2` are its arguments. Returns the
+/// event's serial number, from 1, or 0 when it cannot: no session, the program has ended, or the pipe is
+/// full because the guest stopped reading. A full pipe is final: every later post fails too, so the guest
+/// never sees an event without the ones before it. Posts never block.
+uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2);
+
+/// Waits until activity-host has answered the event `serial`, that is, its callback returned, at most
+/// `seconds` (none below 0 or for NaN; at most 10^9, so INFINITY waits for good). Answers come in the
+/// pipe's order, so the answer to a later event counts as well. Returns 1 once answered, 0 when the time is
+/// up, -1 when the channel broke or the program has ended, and at once for serial 0 (a failed post) or a
+/// serial not posted yet. Never on the main thread (ADR-0032: 2 s for onNativeWindowDestroyed and onDestroy).
+int apkrt_session_wait(uint32_t serial, double seconds);
+
+// MARK: - The window, host side (ADR-0028, decision 6)
+//
+// A registry of the host's windows, whose IDs the guest's ANativeWindow carries. Every function may be
+// called from any thread; graphics/host's also from guest threads inside a host call.
+//
+// The order the app keeps (ADR-0029, decision 15; ADR-0032):
+//   - at background: apkrt_set_background(1); apkrt_wait_scheduled (at most 1 s); apkrt_window_remove;
+//     only then the events from APKRT_EVENT_PAUSE on;
+//   - at Quit and after APKRT_REQUEST_FINISH: apkrt_window_remove, then the events from APKRT_EVENT_PAUSE on
+//     (native_app_glue's onPause waits for an app thread that may wait at the closed gate);
+//   - at foreground: apkrt_set_background(0), a new window with apkrt_window_add, the events, and the gate
+//     opened once the scene is active.
+
+/// For the app: a new window on `layer` (a CAMetalLayer, which the registry retains until the window is
+/// removed; NULL in the tests on the Mac), `width` × `height` pixels (the layer's bounds × contentsScale).
+/// Returns its ID, from 1, never reused; 0 without memory. Its size stays as it is (M3 fixes the
+/// orientation): another size is another window. Its gate starts closed.
+uint64_t apkrt_window_add(void *layer, int32_t width, int32_t height);
+
+/// For the app: opens (`open` nonzero) or closes the window's gate. Returns 0, or -1 for a window that is
+/// removed or unknown.
+int apkrt_window_set_gate(uint64_t id, int open);
+
+/// For the app: the window is gone for good. Its waiters wake and answer "gone", and its layer is released.
+/// Returns 0, or -1 for a window that is removed or unknown. A window that comes back is a new ID.
+int apkrt_window_remove(uint64_t id);
+
+/// For the app: the window's presents so far, for the FPS label; 0 once it is removed.
+uint64_t apkrt_window_presents(uint64_t id);
+
+/// For the app: the process goes into the background (`on` nonzero) or comes back. A sequentially consistent
+/// store, which must come before apkrt_wait_scheduled (ADR-0030's count-then-flag, decision 13). Coming back
+/// wakes every wait of the background kind and every apkrt_wait_foreground.
+void apkrt_set_background(int on);
+
+/// For the app: asks every provider of "scheduled" (apkrt_add_scheduled_provider), one after another on the
+/// calling thread, with one deadline `seconds` from now (none below 0 or for NaN; at most 10^9). Returns 1
+/// when all of them answered yes in time (also without providers), else 0: a yes after the deadline is late.
+int apkrt_wait_scheduled(double seconds);
+
+/// For graphics/host: the window's layer, retained (+1) for the caller, who releases it; NULL once the
+/// window is removed, which the app may do while a render thread creates its surface.
+void *apkrt_window_layer(uint64_t id);
+
+/// For graphics/host: the window's size in pixels as apkrt_window_add gave it (never the drawable size).
+/// Returns 0, or -1 for a window that is removed or unknown.
+int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height);
+
+/// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.
+void apkrt_window_presented(uint64_t id);
+
+/// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
+int apkrt_is_background(void);
+
+/// For graphics/host: waits until the process is in the foreground, without signals: a wait of host code,
+/// for ANGLE's commit gate (ADR-0029, decision 15). Returns at once in the foreground.
+void apkrt_wait_foreground(void);
+
+/// A provider of "scheduled": returns 1 once every GPU command its libraries committed so far is scheduled,
+/// 0 when `deadline` passes first. `deadline` is in nanoseconds of CLOCK_UPTIME_RAW
+/// (clock_gettime_nsec_np), shared by all providers. It runs on the thread of apkrt_wait_scheduled, the
+/// main thread, so it must not need the main thread.
+typedef int (*apkrt_scheduled_provider)(void *context, uint64_t deadline);
+
+/// For graphics/host: adds a provider of "scheduled", at any time. Returns 0, or -1 when `provider` is NULL
+/// or 4 are set already.
+int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *context);
 
 // MARK: - Host code on guest threads (ADR-0030)
 

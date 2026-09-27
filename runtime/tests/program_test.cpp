@@ -76,8 +76,8 @@ using namespace std::chrono_literals;
 
 // Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, eventpoll.h, futex.h.
 constexpr Word pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
-constexpr Word nr_epoll_create1 = 20, nr_epoll_ctl = 21, nr_epoll_pwait = 22, nr_pipe2 = 59, nr_read = 63,
-               nr_write = 64, nr_exit_group = 94, nr_futex = 98, nr_rt_sigprocmask = 135;
+constexpr Word nr_epoll_create1 = 20, nr_epoll_ctl = 21, nr_epoll_pwait = 22, nr_close = 57, nr_pipe2 = 59,
+               nr_read = 63, nr_write = 64, nr_exit_group = 94, nr_futex = 98, nr_rt_sigprocmask = 135;
 constexpr Word epoll_ctl_add = 1, epollin = 1, futex_wait = 0, futex_wake = 1, sig_block = 0;
 
 /// struct epoll_event on arm64: not packed, 16 bytes.
@@ -273,6 +273,53 @@ void exit_group_at_go(void *argument) {
     finish_case();
 }
 
+/// Guest code: a present at the window `argument`, whose gate is closed (ADR-0028, decision 7).
+void present_at_the_gate(void *argument) {
+    probe_syscall(APKRT_NR_WINDOW_GATE, reinterpret_cast<Word>(argument), APKRT_GATE_PRESENT);
+}
+
+/// The session at the program's end (ADR-0028, decisions 2 and 7): a host thread's wait for an answer that
+/// will not come ends with -1, every post from then on fails, and a guest thread that waits at a gate
+/// stops.
+[[noreturn]] void run_session_ends() {
+    begin_session();
+    const auto serial = apkrt_session_post(APKRT_EVENT_CREATE, 0, 0, 0);
+    CHECK(serial == 1);
+    static std::atomic<int> waited{2};
+    std::thread host([serial] { waited.store(apkrt_session_wait(serial, 30.0)); });
+    std::this_thread::sleep_for(50ms);
+    CHECK(waited.load() == 2);
+    Child presenting;
+    presenting.start(present_at_the_gate, reinterpret_cast<void *>(apkrt_window_add(nullptr, 1080, 2340)));
+    CHECK(wait_for([&] { return presenting.sleeps_in_syscall(); }));
+    Child child;
+    child.start(exit_group_at_go, reinterpret_cast<void *>(5));
+    CHECK(wait_for([] { return race.ready.load() == 1; }));
+    race.go.store(true);
+    check_end(5);
+    CHECK(wait_for([] { return waited.load() == -1; }, 2s));
+    CHECK(apkrt_session_post(APKRT_EVENT_DESTROY, 0, 0, 0) == 0);
+    CHECK(wait_for([&] { return presenting.stopped(); }, 2s));
+    host.join();
+    finish_case();
+}
+
+/// The channel when activity-host closes its end (ADR-0028, decision 2): posts fail from then on, and the
+/// host gets no SIGPIPE, which this case does not ignore.
+[[noreturn]] void run_reader_goes() {
+    ::signal(SIGPIPE, SIG_DFL);
+    begin_session();
+    apkrt_configuration configuration{};
+    const long events = probe_syscall(APKRT_NR_SESSION_CONNECT, address(&configuration));
+    CHECK(events >= 0);
+    CHECK(apkrt_session_post(APKRT_EVENT_CREATE, 0, 0, 0) == 1);
+    CHECK(probe_syscall(nr_close, static_cast<Word>(events)) == 0);
+    CHECK(apkrt_session_post(APKRT_EVENT_START, 0, 0, 0) == 0);
+    CHECK(apkrt_session_post(APKRT_EVENT_RESUME, 0, 0, 0) == 0);
+    CHECK(apkrt_session_wait(1, 5.0) == -1);
+    finish_case();
+}
+
 /// Guest code: returns at go, and the probe ends the thread with exit(0).
 void return_at_go(void *) {
     race.ready.fetch_add(1);
@@ -463,6 +510,8 @@ void exit_group_once_inside(void *) {
     if (mode == "--start-returns") run_start_returns(argument);
     if (mode == "--exit-group") run_exit_group();
     if (mode == "--last-thread") run_last_thread();
+    if (mode == "--session-ends") run_session_ends();
+    if (mode == "--reader-goes") run_reader_goes();
     if (mode == "--stop") run_stop();
     if (mode == "--host-call") run_host_call();
     if (mode == "--cannot-link") run_cannot_link(argument);
@@ -605,6 +654,17 @@ TEST(exit_group_calls_the_end_handler_once_after_the_report) {
 // Decision 5: the last thread's end is the program's end as well.
 TEST(the_last_thread_s_end_calls_the_end_handler) {
     CHECK(succeeded(run_child("--last-thread")));
+}
+
+// Decisions 2 and 7: the program's end ends the host's waits for answers, posts fail from then on, and a
+// thread at a window's gate stops.
+TEST(the_program_s_end_ends_the_waits_for_answers_and_the_posts) {
+    CHECK(succeeded(run_child("--session-ends")));
+}
+
+// Decision 2: a reader that goes away breaks the channel for good, and the host gets no SIGPIPE.
+TEST(a_reader_that_goes_away_breaks_the_channel_without_sigpipe) {
+    CHECK(succeeded(run_child("--reader-goes")));
 }
 
 // Decision 5: the other guest threads stop, whether they spin in guest code or wait in a pipe read, in

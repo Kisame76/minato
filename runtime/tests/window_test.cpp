@@ -1,0 +1,563 @@
+// Checks the host's window registry and the window's gate (ADR-0028, decisions 6 and 7): a new window's
+// gate is closed; the layer comes back retained, and NULL once the window is removed; an open gate answers
+// at once and a closed one waits; a signal ends the wait with EINTR after its handler ran, and an
+// SA_RESTART handler makes the runtime wait on; opening wakes the wait; removal answers "gone" at once,
+// also to a thread that waits; the background kind waits until the foreground, and ID 0 ignores windows;
+// "scheduled" gives every provider the one deadline and says when one misses it. Host threads call the
+// dispatcher directly, as blocking_test.cpp does; the guest threads are clone children that make their
+// syscalls through the veneer's instructions (threads_probe.S), the gate's at a site as the converter lays
+// it out, which a restart runs again (window_probe.S), and the test's own thread plays the host.
+#include "signals.h"
+#include "syscall_frame.h"
+#include "threads.h"
+
+#include "APKRuntime/apkrt.h"
+#include "check.h"
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <mach/mach.h>
+#include <pthread.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <thread>
+#include <vector>
+
+extern "C" {
+// threads_probe.S loads and stores these around a clone; here they only have to exist.
+struct ProbeRegisters {
+    std::uint64_t x[10];
+    __uint128_t q[8];
+    std::uint64_t sp;
+};
+ProbeRegisters probe_marks;
+ProbeRegisters probe_child_registers;
+
+long probe_clone(std::uint64_t flags, void *child_stack, int *parent_tid, void *tls, int *child_tid,
+                 void (*function)(void *), void *argument);
+long probe_syscall(std::uint64_t number, std::uint64_t a0, std::uint64_t a1 = 0, std::uint64_t a2 = 0,
+                   std::uint64_t a3 = 0);
+long probe_site_syscall(std::uint64_t number, std::uint64_t a0, std::uint64_t a1);
+void blocking_sigreturn();
+}
+
+namespace {
+
+using namespace std::chrono_literals;
+
+// Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, asm-generic/signal.h, errno.h.
+constexpr std::uint64_t pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
+constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134;
+constexpr std::uint64_t futex_wait = 0;
+constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
+constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
+constexpr long eintr = 4, eagain = 11, einval = 22, etimedout = 110;
+
+constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND;
+constexpr long go_on = 0, gone = 1;
+
+template <typename T>
+std::uint64_t address(T *pointer) {
+    return reinterpret_cast<std::uint64_t>(pointer);
+}
+
+/// Waits up to `limit` for `condition`; whether it came true.
+template <typename Condition>
+bool within(std::chrono::nanoseconds limit, Condition condition) {
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    while (!condition()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::yield();
+    }
+    return true;
+}
+
+/// Whether a host thread sleeps in the kernel, as a blocking syscall leaves it.
+bool sleeping(pthread_t thread) {
+    thread_basic_info_data_t info;
+    mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+    return ::thread_info(::pthread_mach_thread_np(thread), THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&info),
+                         &count) == KERN_SUCCESS &&
+           info.run_state == TH_STATE_WAITING;
+}
+
+/// A syscall of the calling host thread, straight into the dispatcher.
+long call(std::uint64_t number, std::uint64_t a0, std::uint64_t a1 = 0) {
+    apkrt_syscall_frame frame{};
+    frame.x[0] = a0;
+    frame.x[1] = a1;
+    frame.x[8] = number;
+    apkrt_syscall_dispatch(&frame);
+    return static_cast<long>(frame.x[0]);
+}
+
+long gate(std::uint64_t id, std::uint64_t kind) {
+    return call(APKRT_NR_WINDOW_GATE, id, kind);
+}
+
+/// A blocking call on a host thread of its own, which the test watches.
+class Waiter {
+public:
+    template <typename Call>
+    explicit Waiter(Call function)
+        : thread_([this, function] {
+              apkrt::signals::current();  // the thread's signal state, before the call
+              started_.store(true);
+              result_.store(function());
+              finished_.store(true);
+          }) {}
+    Waiter(const Waiter &) = delete;
+    Waiter &operator=(const Waiter &) = delete;
+    ~Waiter() {
+        if (thread_.joinable()) thread_.join();
+    }
+
+    /// Whether the thread sleeps in its call within two seconds, and still a moment later.
+    bool sleeps() {
+        return within(2s, [&] {
+            if (!started_.load() || finished_.load() || !sleeping(thread_.native_handle())) return false;
+            std::this_thread::sleep_for(2ms);
+            return !finished_.load() && sleeping(thread_.native_handle());
+        });
+    }
+
+    bool finishes_within(std::chrono::nanoseconds limit) {
+        return within(limit, [&] { return finished_.load(); });
+    }
+
+    /// The call's result once it came back within two seconds; otherwise the test gives up.
+    long result() {
+        if (!finishes_within(2s)) {
+            std::fprintf(stderr, "window_test: a call does not come back, giving up\n");
+            std::_Exit(1);
+        }
+        thread_.join();
+        return result_.load();
+    }
+
+private:
+    std::atomic<bool> started_{false};
+    std::atomic<bool> finished_{false};
+    std::atomic<long> result_{-1};
+    std::thread thread_;  // last: it starts once the members above exist
+};
+
+// --- The window, host side ----------------------------------------------------------------------
+
+TEST(a_new_window_has_an_id_of_its_own_its_size_and_no_presents) {
+    const auto first = apkrt_window_add(nullptr, 1080, 2340);
+    const auto second = apkrt_window_add(nullptr, 1280, 720);
+    CHECK(first >= 1);
+    CHECK(second > first);
+    std::int32_t width = 0, height = 0;
+    CHECK(apkrt_window_size(first, &width, &height) == 0);
+    CHECK(width == 1080 && height == 2340);
+    CHECK(apkrt_window_size(second, &width, &height) == 0);
+    CHECK(width == 1280 && height == 720);
+    CHECK(apkrt_window_presents(first) == 0);
+    apkrt_window_remove(first);
+    apkrt_window_remove(second);
+}
+
+TEST(the_layer_comes_back_retained_and_null_once_the_window_is_removed) {
+    // Any CoreFoundation object stands in for the CAMetalLayer: the registry only retains it.
+    CFMutableArrayRef layer = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+    CHECK(CFGetRetainCount(layer) == 1);
+    const auto id = apkrt_window_add(const_cast<void *>(static_cast<const void *>(layer)), 1080, 2340);
+    CHECK(CFGetRetainCount(layer) == 2);
+    void *taken = apkrt_window_layer(id);
+    CHECK(taken == layer);
+    CHECK(CFGetRetainCount(layer) == 3);
+    if (taken != nullptr) CFRelease(taken);
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(CFGetRetainCount(layer) == 1);
+    CHECK(apkrt_window_layer(id) == nullptr);
+    CFRelease(layer);
+    // The tests on the Mac have no layer.
+    const auto without = apkrt_window_add(nullptr, 64, 64);
+    CHECK(without >= 1);
+    CHECK(apkrt_window_layer(without) == nullptr);
+    apkrt_window_remove(without);
+}
+
+TEST(a_removed_window_is_gone_for_good) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(apkrt_window_remove(id) == -1);
+    CHECK(apkrt_window_set_gate(id, 1) == -1);
+    std::int32_t width = 7, height = 7;
+    CHECK(apkrt_window_size(id, &width, &height) == -1);
+    CHECK(apkrt_window_presents(id) == 0);
+    CHECK(gate(id, present) == gone);
+    CHECK(gate(id, background) == gone);
+    // A window that comes back is a new ID.
+    const auto again = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(again > id);
+    apkrt_window_remove(again);
+}
+
+TEST(presents_are_counted_for_the_fps_label) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    for (int time = 0; time < 3; ++time) apkrt_window_presented(id);
+    CHECK(apkrt_window_presents(id) == 3);
+    apkrt_window_presented(id + 1000);  // unknown: nothing happens
+    apkrt_window_remove(id);
+    CHECK(apkrt_window_presents(id) == 0);
+}
+
+// --- The gate -----------------------------------------------------------------------------------
+
+TEST(a_new_window_s_gate_is_closed_and_opening_it_wakes_the_present) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    Waiter waiter([id] { return gate(id, present); });
+    CHECK(waiter.sleeps());
+    CHECK(apkrt_window_set_gate(id, 1) == 0);
+    CHECK(waiter.result() == go_on);
+    apkrt_window_remove(id);
+}
+
+TEST(an_open_gate_answers_at_once_and_a_closed_one_waits_again) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(apkrt_window_set_gate(id, 1) == 0);
+    CHECK(gate(id, present) == go_on);
+    CHECK(apkrt_window_set_gate(id, 0) == 0);
+    Waiter waiter([id] { return gate(id, present); });
+    CHECK(waiter.sleeps());
+    CHECK(apkrt_window_set_gate(id, 1) == 0);
+    CHECK(waiter.result() == go_on);
+    apkrt_window_remove(id);
+}
+
+TEST(removal_answers_gone_at_once_also_to_a_thread_that_waits) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    Waiter waiter([id] { return gate(id, present); });
+    CHECK(waiter.sleeps());
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(waiter.result() == gone);
+    CHECK(gate(id, present) == gone);
+}
+
+TEST(an_unknown_window_is_gone_and_a_present_needs_a_window) {
+    CHECK(gate(1'000'000, present) == gone);
+    CHECK(gate(1'000'000, background) == gone);
+    CHECK(gate(0, present) == -einval);
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(gate(id, 0) == -einval);
+    CHECK(gate(id, 3) == -einval);
+    apkrt_window_remove(id);
+}
+
+// --- The background -----------------------------------------------------------------------------
+
+TEST(the_background_kind_waits_until_the_foreground) {
+    CHECK(apkrt_is_background() == 0);
+    CHECK(gate(0, background) == go_on);
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(gate(id, background) == go_on);  // the window's gate does not matter here
+    apkrt_set_background(1);
+    CHECK(apkrt_is_background() == 1);
+    Waiter without_window([] { return gate(0, background); });
+    Waiter with_window([id] { return gate(id, background); });
+    CHECK(without_window.sleeps());
+    CHECK(with_window.sleeps());
+    apkrt_set_background(0);
+    CHECK(apkrt_is_background() == 0);
+    CHECK(without_window.result() == go_on);
+    CHECK(with_window.result() == go_on);
+    apkrt_window_remove(id);
+}
+
+TEST(in_the_background_a_removed_window_answers_gone_and_id_0_waits_on) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    apkrt_set_background(1);
+    Waiter without_window([] { return gate(0, background); });
+    Waiter with_window([id] { return gate(id, background); });
+    Waiter presenting([id] { return gate(id, present); });
+    CHECK(without_window.sleeps());
+    CHECK(with_window.sleeps());
+    CHECK(presenting.sleeps());
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(with_window.result() == gone);
+    CHECK(presenting.result() == gone);
+    CHECK(without_window.sleeps());  // ID 0 ignores windows
+    apkrt_set_background(0);
+    CHECK(without_window.result() == go_on);
+}
+
+TEST(the_foreground_wait_of_host_code_returns_in_the_foreground) {
+    apkrt_wait_foreground();  // at once
+    apkrt_set_background(1);
+    std::atomic<bool> returned{false};
+    std::thread host([&] {
+        apkrt_wait_foreground();
+        returned.store(true);
+    });
+    std::this_thread::sleep_for(50ms);
+    CHECK(!returned.load());
+    apkrt_set_background(0);
+    CHECK(within(2s, [&] { return returned.load(); }));
+    host.join();
+}
+
+// --- Guest threads: signals at the gate ---------------------------------------------------------
+
+std::atomic<int> handled[64];
+
+/// The guest handler: counts.
+void on_signal(int signal) {
+    if (signal > 0 && signal < 64) handled[signal].fetch_add(1);
+}
+
+/// SIGUSR1 goes to on_signal without SA_RESTART, SIGUSR2 with it.
+void install_handlers() {
+    struct Action {
+        std::uint64_t handler, flags, restorer, mask;
+    };
+    const Action plain{address(&on_signal), sa_restorer, address(&blocking_sigreturn), 0};
+    const Action restarting{address(&on_signal), sa_restart | sa_restorer, address(&blocking_sigreturn), 0};
+    CHECK(probe_syscall(nr_rt_sigaction, sigusr1, address(&plain), 0, 8) == 0);
+    CHECK(probe_syscall(nr_rt_sigaction, sigusr2, address(&restarting), 0, 8) == 0);
+}
+
+constexpr std::size_t stack_size = 256 * 1024;
+
+/// A clone child that runs `function(argument)` as guest code on a stack of its own, the way bionic's
+/// pthread_create starts a thread.
+class Child {
+public:
+    Child(void (*function)(void *), void *argument)
+        : stack_(::mmap(nullptr, stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) {
+        CHECK(stack_ != MAP_FAILED);
+        tid_ = static_cast<std::int32_t>(probe_clone(pthread_flags, static_cast<char *>(stack_) + stack_size,
+                                                     &tid_word_, nullptr, &tid_word_, function, argument));
+        CHECK(tid_ > 0);
+    }
+    Child(const Child &) = delete;
+    Child &operator=(const Child &) = delete;
+    ~Child() {
+        join();
+        ::munmap(stack_, stack_size);
+    }
+
+    std::uint64_t tid() const { return static_cast<std::uint64_t>(tid_); }
+
+    /// The host thread it runs on.
+    pthread_t host() const {
+        pthread_t found = nullptr;
+        CHECK(within(2s, [&] {
+            apkrt::threads::find(tid_, [&](apkrt::threads::GuestThread &thread) { found = thread.signals.host; });
+            return found != nullptr;
+        }));
+        return found;
+    }
+
+    /// pthread_join's wait: until the kernel clears the thread ID word at the thread's exit.
+    void join() {
+        struct {
+            std::int64_t seconds, nanoseconds;
+        } const slice{0, 100'000'000};
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        for (int value; (value = __atomic_load_n(&tid_word_, __ATOMIC_ACQUIRE)) != 0;) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                std::fprintf(stderr, "window_test: a guest thread does not end, giving up\n");
+                std::_Exit(1);
+            }
+            const long result = probe_syscall(nr_futex, address(&tid_word_), futex_wait,
+                                              static_cast<std::uint64_t>(value), address(&slice));
+            CHECK(result == 0 || result == -eagain || result == -etimedout);
+        }
+    }
+
+private:
+    void *stack_;
+    int tid_word_ = 0;
+    std::int32_t tid_ = 0;
+};
+
+/// The guest thread of the next tests: one call of the gate.
+struct GuestGate {
+    std::uint64_t id = 0;
+    std::uint64_t kind = present;
+    std::atomic<int> phase{0};  // 1: in the call, 2: past it
+    std::atomic<long> result{-1};
+};
+
+void pass_the_gate(void *argument) {
+    auto &guest = *static_cast<GuestGate *>(argument);
+    guest.phase.store(1);
+    guest.result.store(probe_site_syscall(APKRT_NR_WINDOW_GATE, guest.id, guest.kind));
+    guest.phase.store(2);
+}
+
+TEST(a_signal_ends_the_wait_at_the_gate_with_eintr_after_its_handler_ran) {
+    for (const auto kind : {present, background}) {
+        static GuestGate guest;
+        guest.phase.store(0);
+        guest.kind = kind;
+        guest.id = apkrt_window_add(nullptr, 1080, 2340);
+        if (kind == background) apkrt_set_background(1);
+        const int before = handled[sigusr1].load();
+        {
+            Child child(pass_the_gate, &guest);
+            const auto host = child.host();
+            CHECK(within(2s, [&] { return guest.phase.load() == 1 && sleeping(host); }));
+            CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), child.tid(), sigusr1) == 0);
+            CHECK(within(2s, [&] { return guest.phase.load() == 2; }));
+            if (guest.phase.load() != 2) apkrt_window_remove(guest.id);  // lets a thread that waits on go
+        }
+        CHECK(guest.result.load() == -eintr);
+        CHECK(handled[sigusr1].load() == before + 1);
+        apkrt_set_background(0);
+        apkrt_window_remove(guest.id);
+    }
+}
+
+TEST(an_sa_restart_handler_makes_the_runtime_wait_on_at_the_gate) {
+    for (const auto kind : {present, background}) {
+        static GuestGate guest;
+        guest.phase.store(0);
+        guest.kind = kind;
+        guest.id = apkrt_window_add(nullptr, 1080, 2340);
+        if (kind == background) apkrt_set_background(1);
+        const int before = handled[sigusr2].load();
+        {
+            Child child(pass_the_gate, &guest);
+            const auto host = child.host();
+            CHECK(within(2s, [&] { return guest.phase.load() == 1 && sleeping(host); }));
+            CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), child.tid(), sigusr2) == 0);
+            CHECK(within(2s, [&] { return handled[sigusr2].load() == before + 1; }));
+            // The handler ran, and the thread waits again.
+            CHECK(within(2s, [&] { return sleeping(host); }));
+            std::this_thread::sleep_for(20ms);
+            CHECK(guest.phase.load() == 1);
+            if (kind == present) {
+                CHECK(apkrt_window_set_gate(guest.id, 1) == 0);
+            } else {
+                apkrt_set_background(0);
+            }
+            CHECK(within(2s, [&] { return guest.phase.load() == 2; }));
+            if (guest.phase.load() != 2) apkrt_window_remove(guest.id);
+        }
+        CHECK(guest.result.load() == go_on);
+        apkrt_set_background(0);
+        apkrt_window_remove(guest.id);
+    }
+}
+
+TEST(the_host_s_calls_come_from_a_host_thread_while_guest_threads_wait) {
+    static GuestGate presenting, submitting;
+    presenting.id = apkrt_window_add(nullptr, 1080, 2340);
+    presenting.kind = present;
+    submitting.id = 0;
+    submitting.kind = background;
+    apkrt_set_background(1);
+    {
+        Child first(pass_the_gate, &presenting);
+        Child second(pass_the_gate, &submitting);
+        const auto first_host = first.host(), second_host = second.host();
+        CHECK(within(2s, [&] { return presenting.phase.load() == 1 && sleeping(first_host); }));
+        CHECK(within(2s, [&] { return submitting.phase.load() == 1 && sleeping(second_host); }));
+        std::thread app([&] {
+            apkrt_window_remove(presenting.id);
+            apkrt_set_background(0);
+        });
+        app.join();
+        CHECK(within(2s, [&] { return presenting.phase.load() == 2 && submitting.phase.load() == 2; }));
+    }
+    CHECK(presenting.result.load() == gone);
+    CHECK(submitting.result.load() == go_on);
+}
+
+// --- "Scheduled" --------------------------------------------------------------------------------
+
+/// A provider of "scheduled" that the tests steer.
+struct Provider {
+    std::atomic<int> answer{1};
+    std::atomic<std::int64_t> sleep_ns{0};  // before it answers
+    std::atomic<std::uint64_t> deadline{0};
+    std::atomic<int> calls{0};
+    std::atomic<pthread_t> thread{nullptr};
+};
+
+int provide(void *context, std::uint64_t deadline) {
+    auto &provider = *static_cast<Provider *>(context);
+    provider.deadline.store(deadline);
+    provider.thread.store(::pthread_self());
+    provider.calls.fetch_add(1);
+    std::this_thread::sleep_for(std::chrono::nanoseconds(provider.sleep_ns.load()));
+    return provider.answer.load();
+}
+
+Provider providers[2];
+
+std::uint64_t uptime_ns() {
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+}
+
+TEST(scheduled_without_providers_answers_in_time) {
+    CHECK(apkrt_wait_scheduled(1.0) == 1);
+}
+
+TEST(every_provider_gets_the_one_deadline_on_the_calling_thread) {
+    CHECK(apkrt_add_scheduled_provider(provide, &providers[0]) == 0);
+    CHECK(apkrt_add_scheduled_provider(provide, &providers[1]) == 0);
+    providers[0].sleep_ns.store(20'000'000);  // the second one still gets the first one's deadline
+    const auto before = uptime_ns();
+    CHECK(apkrt_wait_scheduled(1.0) == 1);
+    const auto after = uptime_ns();
+    for (auto &provider : providers) {
+        CHECK(provider.calls.load() == 1);
+        CHECK(provider.thread.load() == ::pthread_self());
+        CHECK(provider.deadline.load() >= before + 1'000'000'000 && provider.deadline.load() <= after + 1'000'000'000);
+    }
+    CHECK(providers[0].deadline.load() == providers[1].deadline.load());
+    providers[0].sleep_ns.store(0);
+}
+
+TEST(a_provider_that_misses_the_deadline_makes_the_call_say_so) {
+    providers[0].answer.store(0);
+    CHECK(apkrt_wait_scheduled(0.2) == 0);
+    CHECK(providers[1].calls.load() == 2);  // the others are asked all the same
+    providers[0].answer.store(1);
+    // An answer after the deadline is too late, even a yes.
+    providers[1].sleep_ns.store(300'000'000);
+    CHECK(apkrt_wait_scheduled(0.1) == 0);
+    providers[1].sleep_ns.store(0);
+    CHECK(apkrt_wait_scheduled(1.0) == 1);
+}
+
+TEST(there_are_at_most_four_providers) {
+    static Provider more[3];
+    CHECK(apkrt_add_scheduled_provider(nullptr, &more[0]) == -1);
+    CHECK(apkrt_add_scheduled_provider(provide, &more[0]) == 0);
+    CHECK(apkrt_add_scheduled_provider(provide, &more[1]) == 0);
+    CHECK(apkrt_add_scheduled_provider(provide, &more[2]) == -1);
+    CHECK(apkrt_wait_scheduled(1.0) == 1);
+    CHECK(more[0].calls.load() == 1 && more[1].calls.load() == 1 && more[2].calls.load() == 0);
+}
+
+TEST(scheduled_without_a_time_limit_gives_a_deadline_far_ahead) {
+    const auto before = uptime_ns();
+    CHECK(apkrt_wait_scheduled(INFINITY) == 1);
+    CHECK(providers[0].deadline.load() > before + 3'600'000'000'000);  // more than an hour: nothing wrapped
+}
+
+}  // namespace
+
+int main() {
+    // The test's own thread is the program's first thread: the process lives as long as it does.
+    static apkrt::threads::GuestThread first{};
+    first.tid = ::getpid();
+    apkrt::threads::add(first);
+    // The runtime signal's handler, which the waits of host threads need before any clone installs it.
+    apkrt::signals::install();
+    install_handlers();
+    return apk::testing::run_all();
+}

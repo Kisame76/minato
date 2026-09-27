@@ -5,12 +5,14 @@ enable_language(ASM)
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
-  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp)
+  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(apkrt PRIVATE apk_defaults)
+# The window registry retains the host's layers (ADR-0028, decision 6).
+target_link_libraries(apkrt PUBLIC "-framework CoreFoundation")
 # The syscall layer runs on the guest's stack, which AddressSanitizer does not know as a thread
 # stack; instrumented, every exit_group would print a false "stack switching" warning.
 # So does libdl's work (dl.cpp and the linker and loader under it), which guest code calls on its
@@ -144,6 +146,22 @@ if(APK_HOST_BUILD)
   endif()
   add_test(NAME runtime.blocking COMMAND blocking_test)
   set_tests_properties(runtime.blocking PROPERTIES TIMEOUT 120)
+
+  # The session's channel and the window registry with its gate (ADR-0028, test 1), on host threads and,
+  # for the signals at the gate, on clone children.
+  add_executable(session_test tests/session_test.cpp)
+  target_include_directories(session_test PRIVATE src)
+  target_link_libraries(session_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.session COMMAND session_test)
+  set_tests_properties(runtime.session PROPERTIES TIMEOUT 60)
+  add_executable(window_test tests/window_test.cpp tests/window_probe.S tests/blocking_probe.S tests/threads_probe.S)
+  target_include_directories(window_test PRIVATE src)
+  target_link_libraries(window_test PRIVATE apkrt apk_defaults apk_testing "-framework CoreFoundation")
+  if(APK_SANITIZE)
+    set_source_files_properties(tests/window_test.cpp PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  endif()
+  add_test(NAME runtime.window COMMAND window_test)
+  set_tests_properties(runtime.window PROPERTIES TIMEOUT 120)
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)
