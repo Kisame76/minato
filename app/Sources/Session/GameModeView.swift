@@ -5,7 +5,8 @@ import UIKit
 
 /// Game mode's full-screen window (ADR-0032, decisions 5 and 9): the app's layer over the whole screen,
 /// without status bar and home indicator, the system gestures deferred on every edge, and the menu behind
-/// a swipe down from the top edge. Nothing lies on the layer while the menu is closed.
+/// a swipe down from the top edge. Nothing lies on the layer while the menu is closed, unless the FPS label
+/// is on.
 struct GameModeView: View {
     @State private var session: GameSession
     @Environment(\.scenePhase) private var scenePhase
@@ -35,6 +36,19 @@ struct GameModeView: View {
                 }
             }
             .animation(.default, value: session.showsHint)
+            .overlay(alignment: .topLeading) {
+                // Only while it is on: any view on the layer makes Core Animation composite it.
+                if session.showsFPS, let fps = session.fps {
+                    Text("\(fps) FPS")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+            }
             .background(.black)
             .statusBarHidden(true)
             .persistentSystemOverlays(.hidden)
@@ -43,6 +57,10 @@ struct GameModeView: View {
                 // Not the cancel role: iOS leaves that button out of the dialog, and a tap beside it closes
                 // the menu anyway.
                 Button("Continue") { session.closeMenu() }
+                Button(session.showsFPS ? "Hide FPS" : "Show FPS") {
+                    session.showFPS(!session.showsFPS)
+                    session.closeMenu()
+                }
                 Button("Quit") { session.quit() }
             }
             .alert("Open Minato again to return to the library.", isPresented: $session.restartFailed) {

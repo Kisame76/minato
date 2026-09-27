@@ -22,7 +22,10 @@
 # round in which game mode plays a 2 s test tone at 44.1 kHz through the audio host (ADR-0036, decision 4): the
 # session activates and asks for a 5 ms IO buffer, the engine runs, the render block reads about as many frames as 2 s
 # hold without an xrun, and the engine stops and the session deactivates once the stream closes; a second round
-# goes Home and back during the tone, and the engine starts again at the foreground.
+# goes Home and back during the tone, and the engine starts again at the foreground. FPS=1 runs the rounds of the
+# FPS label (ADR-0032, decision 9): with fake presents at 60 a second, "Show FPS" in the menu turns it on, the label
+# counts 60 in the first window and again in the next one after Home and back; the setting holds at the next
+# start, and "Hide FPS" turns it off.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -33,6 +36,7 @@
 #   FRAMES      only the round of the frame clock
 #   ENDS        only the rounds of ends that go wrong
 #   AUDIO       only the round of the test tone
+#   FPS         only the rounds of the FPS label
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -129,7 +133,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -633,6 +637,46 @@ run_audio() {
   await_event "quit" 10 && ok "  Quit" || fail "  no Quit"
 }
 
+# ADR-0032, decision 9: the FPS label, from the presents of the guest's window sampled once a second. Nothing draws
+# without a guest, so the Debug build counts 60 fake presents a second for every window.
+run_fps() {
+  begin_round "the FPS label"
+  echo "$PKG" > "$CHECK/tap"
+  echo 60 > "$CHECK/fps"
+  echo 9 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "fps at start .*" && expect "  off by default" "fps at start hidden" "$(event_of "$EVENT")" \
+    || fail "  no FPS request at the start"
+  await_event "fps shown" && ok "  \"Show FPS\" turns it on" || fail "  \"Show FPS\" did not turn it on"
+  await_event "fps window 1 presents [0-9]+ value (59|60|61)" 5 && ok "  it counts 60 in window 1 ($(event_of "$EVENT"))" \
+    || fail "  it did not count 60 in window 1"
+  shot "fps-label"
+  launch com.apple.Preferences
+  sleep 2
+  launch
+  await_event "fps window 2 presents [0-9]+ value none" 5 && ok "  window 2 starts its own count" \
+    || fail "  window 2 did not start its own count"
+  await_event "fps window 2 presents [0-9]+ value (59|60|61)" 5 && ok "  it counts 60 in window 2 ($(event_of "$EVENT"))" \
+    || fail "  it did not count 60 in window 2"
+  await_event "quit" 15 && ok "  Quit" || fail "  no Quit"
+
+  begin_round "the FPS label at the next start"
+  echo "$PKG" > "$CHECK/tap"
+  echo hide > "$CHECK/fps"
+  echo 3 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "fps at start .*" && expect "  the setting holds" "fps at start shown" "$(event_of "$EVENT")" \
+    || fail "  no FPS request at the start"
+  await_event "fps hidden" && ok "  \"Hide FPS\" turns it off" || fail "  \"Hide FPS\" did not turn it off"
+  await_event "quit" 10 || fail "  no Quit"
+  head -n "$seen" "$EVENTS" | sed -n '/ fps hidden$/,$p' | grep -q " fps window " \
+    && fail "  it still counts after \"Hide FPS\"" || ok "  no count after \"Hide FPS\""
+}
+
 # Decision 8: game mode ends as the runtime ends a crashed program, or its app cannot start, or it quits; the
 # library's next start shows the first two once, and the Quit not at all.
 run_ends() {
@@ -715,11 +759,12 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" ]]; then
+if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" || -n "${FPS:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
   [[ -n "${AUDIO:-}" ]] && run_audio
+  [[ -n "${FPS:-}" ]] && run_fps
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi

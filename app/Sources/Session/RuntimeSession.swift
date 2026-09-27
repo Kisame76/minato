@@ -44,6 +44,11 @@ final class RuntimeSessionHost: SessionHost {
         apkrt_session_wait(serial, seconds)
     }
 
+    /// The frames presented through the window's gate so far, for the FPS label; 0 once it is removed.
+    static func presents(_ window: UInt64) -> UInt64 {
+        apkrt_window_presents(window)
+    }
+
     /// The event's type and arguments (`guest_interface.h`).
     static func record(_ event: SessionEvent) -> (apkrt_event_type, UInt64, UInt64, UInt64) {
         switch event {
@@ -105,6 +110,15 @@ final class NoGuestSessionHost: SessionHost {
     func waitScheduled(seconds: Double) -> Bool { true }
 
     static func wait(serial: UInt32, seconds: Double) -> Int32 { 1 }
+
+    /// Nothing draws without a guest; session-check has the Debug build count presents of its own.
+    static func presents(_ window: UInt64) -> UInt64 {
+        #if DEBUG
+        return SessionCheck.presents(window)
+        #else
+        return 0
+        #endif
+    }
 }
 
 /// The motion events until Runtime's input channel exists (ADR-0036, step b): the Debug build shows

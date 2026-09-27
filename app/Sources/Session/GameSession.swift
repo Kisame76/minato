@@ -16,6 +16,11 @@ final class GameSession {
     let entry: LibraryEntry
     private(set) var menuIsOpen = false
     private(set) var showsHint: Bool
+    /// The FPS label is on (ADR-0032, decision 9); off by default, since it makes Core Animation composite
+    /// the layer. One setting for every app, kept across sessions.
+    private(set) var showsFPS: Bool
+    /// The label's number: the frames presented in the last second, nil until there are two samples.
+    private(set) var fps: Int?
     /// The restart back to the library failed: the user opens Minato again.
     var restartFailed = false
 
@@ -29,6 +34,10 @@ final class GameSession {
     /// `apkrt_session_wait` or its stand-in, run off the main thread.
     @ObservationIgnored private let waitForAnswer: @Sendable (UInt32, Double) -> Int32
     @ObservationIgnored private var started = false
+    /// `apkrt_window_presents` or its stand-in.
+    @ObservationIgnored private let presents: @Sendable (UInt64) -> UInt64
+    @ObservationIgnored private var frameRate = FrameRateMeter()
+    @ObservationIgnored private var frameRateTask: Task<Void, Never>?
     /// Why activity-host could not start the app, as it reported it.
     @ObservationIgnored private(set) var startFailure: String?
 
@@ -46,6 +55,7 @@ final class GameSession {
     private(set) weak static var current: GameSession?
 
     nonisolated static let hintShownKey = "sessionMenuHintShown"
+    nonisolated static let showsFPSKey = "sessionShowsFPS"
 
     init(entry: LibraryEntry) {
         self.entry = entry
@@ -53,8 +63,10 @@ final class GameSession {
         bridge = SessionBridge(lifecycle: Lifecycle(targetSdk: entry.report?.targetSdk ?? 35))
         host = NoGuestSessionHost()
         waitForAnswer = { NoGuestSessionHost.wait(serial: $0, seconds: $1) }
+        presents = { NoGuestSessionHost.presents($0) }
         motionSink = NoChannelMotionSink()
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
+        showsFPS = UserDefaults.standard.bool(forKey: Self.showsFPSKey)
         Self.current = self
         SessionEndReport.begin(entry)
         // The GPU work must be scheduled before the background (ADR-0032, decision 6): the notification
@@ -64,6 +76,7 @@ final class GameSession {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.enteredBackground() }
         }
+        countFrames()
     }
 
     /// The orientation the session is to hold (ADR-0032, decision 5).
@@ -167,6 +180,39 @@ final class GameSession {
         SessionCheck.event("menu closed")
         #endif
         deliver(.menuClosed)
+    }
+
+    /// "Show FPS" or "Hide FPS" in the menu.
+    func showFPS(_ on: Bool) {
+        showsFPS = on
+        UserDefaults.standard.set(on, forKey: Self.showsFPSKey)
+        #if DEBUG
+        SessionCheck.event(on ? "fps shown" : "fps hidden")
+        #endif
+        countFrames()
+    }
+
+    /// While the label is on, samples the presents of the guest's window about once a second.
+    private func countFrames() {
+        frameRateTask?.cancel()
+        frameRate = FrameRateMeter()
+        fps = nil
+        guard showsFPS else { return }
+        frameRateTask = Task { [weak self] in
+            while !Task.isCancelled, self != nil {
+                self?.sampleFrameRate()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func sampleFrameRate() {
+        let window = bridge.window
+        let count = presents(window)
+        fps = frameRate.sample(window: window, presents: count, at: Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9)
+        #if DEBUG
+        SessionCheck.event("fps window \(window) presents \(count) value \(fps.map(String.init) ?? "none")")
+        #endif
     }
 
     /// Quit in the menu: the guest ends, then Minato restarts into the library.

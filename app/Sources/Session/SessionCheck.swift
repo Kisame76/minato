@@ -24,6 +24,8 @@ import UIKit
 ///   start-failed  a reason: game mode's app reports that it cannot start, and the file is removed.
 ///   tone     game mode plays a test tone through the audio host for the seconds the file names (2 when it
 ///            names none), then logs the frames its render block read.
+///   fps      a rate, or "hide": without a guest, every window presents that many frames a second, and game
+///            mode turns the FPS label on through its menu; "hide" turns it off there.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -141,12 +143,37 @@ enum SessionCheck {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))
             recordWindow()
+            if let fps = text(of: "fps") {
+                event("fps at start \(session.showsFPS ? "shown" : "hidden")")
+                // As the user would: the menu, then its button, which closes it.
+                if (fps == "hide") == session.showsFPS {
+                    session.openMenu()
+                    try? await Task.sleep(for: .seconds(0.5))
+                    session.showFPS(!session.showsFPS)
+                    session.closeMenu()
+                }
+            }
             guard requested("quit") else { return }
             try? await Task.sleep(for: .seconds(text(of: "quit").flatMap(Double.init) ?? 1))
             session.openMenu()
             try? await Task.sleep(for: .seconds(1.5))
             session.quit()
         }
+    }
+
+    /// Where each window's fake presents started counting.
+    private static let presentsStart = Mutex<[UInt64: Double]>([:])
+
+    /// The presents of `window` so far when the script asks for a rate: that rate since the first look.
+    static func presents(_ window: UInt64) -> UInt64 {
+        guard window != 0, let rate = text(of: "fps").flatMap(Double.init) else { return 0 }
+        let now = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let start = presentsStart.withLock { starts in
+            if let start = starts[window] { return start }
+            starts[window] = now
+            return now
+        }
+        return UInt64((now - start) * rate)
     }
 
     /// A 440 Hz tone at 44.1 kHz, so the mixer converts it to the hardware's rate, in a LOW_LATENCY stream.

@@ -85,6 +85,19 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
     }
 
+    /// The FPS label samples the presents of the window the guest has (ADR-0032, decision 9).
+    @Test func theWindowIsTheOneTheGuestHas() {
+        let host = FakeHost()
+        var bridge = Self.bridge()
+        #expect(bridge.window == 0)
+
+        bridge.handle(.start, host: host)
+        #expect(bridge.window == 1)
+        bridge.handle(.inactive, host: host)
+        bridge.handle(.background, host: host)
+        #expect(bridge.window == 0)
+    }
+
     @Test func startWhenAlreadyActiveOpensTheGateAfterTheEvents() {
         let host = FakeHost()
         var bridge = Self.bridge()

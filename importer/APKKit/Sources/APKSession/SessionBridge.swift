@@ -85,7 +85,7 @@ public struct SessionBridge: Sendable {
     public private(set) var isBroken = false
 
     /// The host's window the guest has, 0 for none.
-    private var window: UInt64 = 0
+    public private(set) var window: UInt64 = 0
     private var gateIsOpen = false
     /// Whether the runtime was told of the background.
     private var isInBackground = false
