@@ -17,7 +17,8 @@
 # checks what reaches the motion sink and prints how far each new touch's time lies before now on the
 # uptime clock and on CLOCK_MONOTONIC_RAW. FRAMES=1 runs one round in which game mode stays 5 s before its
 # menu and Quit (ADR-0036, decision 2): the frame clock runs while the gate is open, off the main thread, and
-# pauses with the menu; it prints the intervals between ticks.
+# pauses with the menu; it prints the intervals between ticks. ENDS=1 runs the rounds of decision 8: a crash and
+# an app that cannot start show once at the library's next start, and a Quit shows nothing.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -26,6 +27,7 @@
 #   BY_HAND     with --device: only the round by hand
 #   TOUCH       only the round of touches by hand
 #   FRAMES      only the round of the frame clock
+#   ENDS        only the rounds of ends that go wrong
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -122,7 +124,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -578,6 +580,47 @@ run_frames() {
   tail -n +$((seen + 1)) "$EVENTS" | grep -q " frames " && fail "  ticks after the pause" || ok "  no ticks after the pause"
 }
 
+# Decision 8: game mode ends as the runtime ends a crashed program, or its app cannot start, or it quits; the
+# library's next start shows the first two once, and the Quit not at all.
+run_ends() {
+  begin_round "a crash (SIGSEGV)"
+  echo "$PKG" > "$CHECK/tap"
+  echo 139 > "$CHECK/crash"
+  send_requests
+  launch
+  await_event "crash 139" 60 || { abort_round "game mode did not crash"; return; }
+  sleep 1
+  launch
+  await_event "process library.*" && expect "  the library shows the signal" \
+    "process library quitUnexpectedly Session Check signal 11" "$(event_of "$EVENT")" || fail "  no library after the crash"
+  shot "ends-1-crash"
+  terminate
+  launch
+  await_event "process library.*" && expect "  and only once" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library at the second start"
+
+  begin_round "an app that cannot start"
+  echo "$PKG" > "$CHECK/tap"
+  echo "libmain.so is missing" > "$CHECK/start-failed"
+  echo yes > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "start failed .*" 60 || { abort_round "no start failure"; return; }
+  await_event "process library.*" 30 && expect "  the library shows the reason" \
+    "process library quitUnexpectedly Session Check failure libmain.so is missing" "$(event_of "$EVENT")" \
+    || fail "  no library after Quit"
+  shot "ends-2-start-failed"
+
+  begin_round "a Quit"
+  echo "$PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "quit" 60 || { abort_round "no Quit"; return; }
+  await_event "process library.*" 30 && expect "  the library shows nothing" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after Quit"
+}
+
 # Import the test app; the first session shows the hint.
 if [[ "$ON_DEVICE" == yes ]]; then
   terminate
@@ -619,9 +662,10 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" ]]; then
+if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
+  [[ -n "${ENDS:-}" ]] && run_ends
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi

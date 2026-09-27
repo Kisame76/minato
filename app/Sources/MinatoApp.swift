@@ -57,7 +57,11 @@ struct MinatoApp: App {
     private static func chooseMode() -> LaunchMode {
         guard let paths = try? LibraryPaths.standard() else { return .library(nil) }
         let request = LaunchRequestStore(folder: paths.applicationSupport).take()
-        let mode = LaunchMode(request: request, entries: (try? Library.entries(in: paths)) ?? [])
+        var mode = LaunchMode(request: request, entries: (try? Library.entries(in: paths)) ?? [])
+        // An end of game mode that went wrong shows once, at the library's next start without a request.
+        if case .library(nil) = mode, let notice = LastSessionStore(folder: paths.applicationSupport).take() {
+            mode = .library(.quitUnexpectedly(notice))
+        }
         if let request {
             let seconds = Date.now.timeIntervalSince(request.time)
             let chosen = if case .gameMode = mode { "game mode" } else { "the library" }

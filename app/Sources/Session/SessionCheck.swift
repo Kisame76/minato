@@ -18,6 +18,9 @@ import UIKit
 ///   orientation  "landscape" or "portrait": game mode holds that instead of the app's own.
 ///   unanswered   the next restart's first request goes unanswered, so it times out; the file is removed.
 ///   forget-hint  the next process forgets that game mode showed its hint, and removes the file.
+///   crash    an exit status: game mode ends at its start as the runtime ends a program, reporting that
+///            status, and removes the file.
+///   start-failed  a reason: game mode's app reports that it cannot start, and the file is removed.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -83,6 +86,11 @@ enum SessionCheck {
         case .library(nil): event("process library\(seconds)")
         case .library(.appNotFound(let package)): event("process library appNotFound \(package)\(seconds)")
         case .library(.appNotReady(let entry)): event("process library appNotReady \(entry.id)\(seconds)")
+        case .library(.quitUnexpectedly(let notice)):
+            switch notice.cause {
+            case .signal(let number): event("process library quitUnexpectedly \(notice.name) signal \(number)\(seconds)")
+            case .failure(let reason): event("process library quitUnexpectedly \(notice.name) failure \(reason)\(seconds)")
+            }
         }
     }
 
@@ -116,6 +124,16 @@ enum SessionCheck {
     static func gameModeStarted(_ session: GameSession) {
         guard isOn else { return }
         event("start window \(Int(session.windowPixels.width))x\(Int(session.windowPixels.height))")
+        if let status = text(of: "crash").flatMap(Int32.init) {
+            try? FileManager.default.removeItem(at: folder.appending(path: "crash"))
+            event("crash \(status)")
+            SessionEndReport.endAsTheRuntimeWould(status)
+        }
+        if let reason = text(of: "start-failed") {
+            try? FileManager.default.removeItem(at: folder.appending(path: "start-failed"))
+            event("start failed \(reason)")
+            session.received(.startFailed(reason))
+        }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))
             recordWindow()

@@ -50,10 +50,12 @@ public struct LaunchRequestStore: Sendable {
 
 /// How the process runs: the library, or game mode for one app (ADR-0032, decision 1).
 public enum LaunchMode: Equatable, Sendable {
-    /// Why a request led to the library instead.
+    /// Why a request led to the library instead, or how game mode's last session went wrong.
     public enum Problem: Equatable, Sendable {
         case appNotFound(String)
         case appNotReady(LibraryEntry)
+        /// Only without a request (ADR-0032, decision 8).
+        case quitUnexpectedly(LastSessionNotice)
     }
 
     case library(Problem?)

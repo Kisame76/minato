@@ -43,6 +43,18 @@ enum Texts {
             ("Can’t Open the App", "It is no longer in the library.")
         case .appNotReady(let entry):
             launchProblem(of: entry)
+        case .quitUnexpectedly(let notice):
+            ("“\(notice.name)” quit unexpectedly.", lastSessionCause(notice.cause))
+        }
+    }
+
+    /// The signal that ended the app, or why it could not start (ADR-0032, decision 8).
+    private static func lastSessionCause(_ cause: LastSessionNotice.Cause) -> String {
+        switch cause {
+        case .signal(let number):
+            "It ended with signal \(number)" + (LastSessionNotice.signalName(number).map { " (\($0))" } ?? "") + "."
+        case .failure(let reason):
+            "It could not start: \(reason)"
         }
     }
 

@@ -54,6 +54,7 @@ final class GameSession {
         motionSink = NoChannelMotionSink()
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
         Self.current = self
+        SessionEndReport.begin(entry)
         // The GPU work must be scheduled before the background (ADR-0032, decision 6): the notification
         // comes on the main thread as the scene enters it, and SwiftUI's scene phase only later.
         backgroundObserver = NotificationCenter.default.addObserver(
@@ -199,6 +200,7 @@ final class GameSession {
         case .startFailed(let reason):
             log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
             startFailure = reason
+            SessionEndReport.startFailed(reason)
         }
     }
 
