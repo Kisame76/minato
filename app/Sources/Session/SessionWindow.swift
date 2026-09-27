@@ -51,8 +51,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 /// The host side of the app's ANativeWindow (ADR-0032, decision 5): a view whose layer is a
 /// CAMetalLayer, black until the guest's first frame. ADR-0028 hands the layer to the guest in step c).
-/// It also takes the swipe down from the top edge that opens the menu (decision 9); the guest's own
-/// touch comes with M3 step 6.
+/// It also takes the swipe down from the top edge that opens the menu (decision 9), and hands every touch
+/// to the guest (ADR-0036, decision 3).
 final class MetalLayerHostView: UIView {
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
@@ -65,6 +65,8 @@ final class MetalLayerHostView: UIView {
     var onTopEdgeSwipe: () -> Void = {}
     /// Runs after every layout, with the window's size in pixels.
     var onLayout: (CGSize) -> Void = { _ in }
+    /// Runs for every touch callback, with the touches that changed and the window's pixels per point.
+    var onTouches: (TouchPhase, [TouchChange], Double) -> Void = { _, _, _ in }
     private var swipeOpenedMenu = false
 
     var metalLayer: CAMetalLayer {
@@ -76,8 +78,13 @@ final class MetalLayerHostView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         isOpaque = true
+        isMultipleTouchEnabled = true
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swipe.maximumNumberOfTouches = 1
+        // The guest gets the swipe's touch at once, and a cancel once it is the menu's (ADR-0036,
+        // decision 3).
+        swipe.cancelsTouchesInView = true
+        swipe.delaysTouchesBegan = false
         addGestureRecognizer(swipe)
     }
 
@@ -113,6 +120,39 @@ final class MetalLayerHostView: UIView {
         return start < Self.topEdge && velocity.y > abs(velocity.x)
     }
 
+    // Every callback of its own, none handed on: the view is the guest's whole screen.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        hand(.began, touches, event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        hand(.moved, touches, event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        hand(.ended, touches, event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        hand(.cancelled, touches, event)
+    }
+
+    /// Each touch with its coalesced samples, oldest first; a touch is known by its object while it lasts.
+    private func hand(_ phase: TouchPhase, _ touches: Set<UITouch>, _ event: UIEvent?) {
+        let changes = touches.map { touch in
+            let coalesced = event?.coalescedTouches(for: touch) ?? []
+            return TouchChange(touch: UInt(bitPattern: ObjectIdentifier(touch)),
+                               samples: (coalesced.isEmpty ? [touch] : coalesced).map(sample))
+        }
+        onTouches(phase, changes, metalLayer.contentsScale)
+    }
+
+    private func sample(_ touch: UITouch) -> TouchSample {
+        let place = touch.preciseLocation(in: self)
+        return TouchSample(x: place.x, y: place.y, force: touch.force, maximumForce: touch.maximumPossibleForce,
+                           majorRadius: touch.majorRadius, timestamp: touch.timestamp)
+    }
+
     @objc private func swiped(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
         case .began:
@@ -131,6 +171,8 @@ struct MetalLayerView: UIViewRepresentable {
     var onTopEdgeSwipe: () -> Void
     /// A layout, with the window's size in pixels.
     var onLayout: (CGSize) -> Void
+    /// A touch callback, with the window's pixels per point (ADR-0036, decision 3).
+    var onTouches: (TouchPhase, [TouchChange], Double) -> Void
 
     func makeUIView(context: Context) -> MetalLayerHostView {
         let view = MetalLayerHostView(frame: .zero)
@@ -141,5 +183,6 @@ struct MetalLayerView: UIViewRepresentable {
     func updateUIView(_ view: MetalLayerHostView, context: Context) {
         view.onTopEdgeSwipe = onTopEdgeSwipe
         view.onLayout = onLayout
+        view.onTouches = onTouches
     }
 }

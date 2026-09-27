@@ -12,13 +12,20 @@
 # The test app is removed afterwards, and the hint counts as not shown yet.
 # On the iPhone (--device), devicectl sends the requests and fetches the events, and the app must stay
 # unlocked. BY_HAND=1 runs one round there in which the user taps the test app, swipes down from the top
-# edge and taps Quit; the script waits for each step.
+# edge and taps Quit; the script waits for each step. TOUCH=1 runs one round in which the touches come by hand
+# (ADR-0036, decision 3): a tap, two fingers down and up, then the swipe down from the top edge and Quit; it
+# checks what reaches the motion sink and prints how far each new touch's time lies before now on the
+# uptime clock and on CLOCK_MONOTONIC_RAW. FRAMES=1 runs one round in which game mode stays 5 s before its
+# menu and Quit (ADR-0036, decision 2): the frame clock runs while the gate is open, off the main thread, and
+# pauses with the menu; it prints the intervals between ticks.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
 #   SHOTS       a folder for screenshots of game mode, its menu and the fallback's alerts
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
 #   BY_HAND     with --device: only the round by hand
+#   TOUCH       only the round of touches by hand
+#   FRAMES      only the round of the frame clock
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -518,6 +525,59 @@ run_by_hand() {
   has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
 }
 
+# By hand: the touches in game mode reach the motion sink as ADR-0036's decision 3 says, and each new
+# touch's time counts on the uptime clock.
+run_touch() {
+  local clocks
+  PATIENCE=180
+  begin_round "touches by hand: tap once, touch with two fingers and lift them, then swipe down from the top edge and tap Quit"
+  echo "$PKG" > "$CHECK/tap"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "start window .*" || { abort_round "the guest did not start"; return; }
+  echo "      waiting for a tap"
+  await_event "motion down ids 0 history 0" 180 && ok "  a tap: DOWN with pointer 0" || fail "  no DOWN"
+  await_event "motion up ids 0 history 0" && ok "  and UP with pointer 0" || fail "  no UP"
+  echo "      waiting for two fingers"
+  await_event "motion pointerDown\\(1\\) ids 0,1 history 0" 180 && ok "  a second finger: POINTER_DOWN(1) with pointers 0,1" \
+    || fail "  no POINTER_DOWN(1)"
+  await_event "motion pointerUp\\([01]\\) ids 0,1 history 0" && ok "  $(event_of "$EVENT")" || fail "  no POINTER_UP"
+  await_event "motion up ids [01] history 0" && ok "  $(event_of "$EVENT")" || fail "  no UP after POINTER_UP"
+  echo "      waiting for the swipe down from the top edge, then Quit"
+  await_event "motion down ids 0 history 0" 180 && ok "  the swipe: DOWN" || fail "  the swipe: no DOWN"
+  await_event "motion cancel ids 0 history 0" && ok "  the swipe: CANCEL once it is the menu's" || fail "  the swipe: no CANCEL"
+  await_event "menu opened" && ok "  the menu opens" || fail "  the menu did not open"
+  await_event "quit" "$PATIENCE" && ok "  Quit" || fail "  no Quit"
+  # UITouch.timestamp: a few ms before now on the uptime clock; CLOCK_MONOTONIC_RAW also counts sleep.
+  clocks=$(head -n "$seen" "$EVENTS" | awk '$3 == "touch" && $4 == "clock" { printf "%s%s/%s", sep, $6, $8; sep = " " }')
+  echo "      touch clock, ms before now (uptime/monotonic): $clocks"
+  [[ -n "$clocks" ]] && awk -v c="$clocks" 'BEGIN { n = split(c, a, " "); for (i = 1; i <= n; i++) { split(a[i], t, "/"); if (t[1] < 0 || t[1] > 100) exit 1 } }' \
+    && ok "  every touch's time lies 0 to 100 ms before now on the uptime clock" \
+    || fail "  a touch's time is not on the uptime clock: $clocks"
+  echo "      moves with history: $(head -n "$seen" "$EVENTS" | grep -c -E 'motion move .* history [1-9]' || true)"
+}
+
+# The frame clock ticks while the gate is open, off the main thread, and pauses when the menu takes the focus.
+run_frames() {
+  local summaries
+  begin_round "the frame clock"
+  echo "$PKG" > "$CHECK/tap"
+  echo 5 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "frame clock running" && ok "  the clock runs once the gate opens" || fail "  the clock did not run"
+  await_event "menu opened" 20 || { abort_round "the menu did not open"; return; }
+  summaries=$(head -n "$seen" "$EVENTS" | awk '$3 == "frames" { $1 = $2 = ""; sub(/^ +/, ""); print }')
+  echo "$summaries" | sed 's/^/      /'
+  [[ -n "$summaries" ]] && ok "  the ticks reached the sink" || fail "  no ticks reached the sink"
+  echo "$summaries" | grep -q "main true" && fail "  a tick came on the main thread" || ok "  no tick came on the main thread"
+  await_event "frame clock paused" && ok "  the clock pauses with the menu" || fail "  the clock did not pause"
+  await_event "quit" && ok "  Quit" || fail "  no Quit"
+  tail -n +$((seen + 1)) "$EVENTS" | grep -q " frames " && fail "  ticks after the pause" || ok "  no ticks after the pause"
+}
+
 # Import the test app; the first session shows the hint.
 if [[ "$ON_DEVICE" == yes ]]; then
   terminate
@@ -555,6 +615,13 @@ fi
 
 if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   run_by_hand
+  echo "session check: $failures failed"
+  exit $((failures > 0))
+fi
+
+if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" ]]; then
+  [[ -n "${TOUCH:-}" ]] && run_touch
+  [[ -n "${FRAMES:-}" ]] && run_frames
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi

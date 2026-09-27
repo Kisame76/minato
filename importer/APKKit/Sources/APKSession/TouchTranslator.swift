@@ -32,6 +32,17 @@ public struct TouchChange: Sendable, Equatable {
     }
 }
 
+/// UIKit's touch callbacks.
+public enum TouchPhase: Sendable {
+    case began, moved, ended, cancelled
+}
+
+/// Where the motion events go: the input channel's queue (ADR-0036, decision 3). The app implements it.
+public protocol MotionEventSink: AnyObject {
+    /// The events in order; never empty.
+    func post(_ events: [MotionEvent])
+}
+
 /// An Android motion event from the touchscreen (`AMotionEvent`). Tool, source and device are the same
 /// for every event and come with the input channel's record.
 public struct MotionEvent: Sendable, Equatable {
@@ -127,6 +138,16 @@ public struct TouchTranslator: Sendable {
                                       eventTime: time, pointers: ordered))
         }
         return events
+    }
+
+    /// The callback of `phase`.
+    public mutating func translate(_ phase: TouchPhase, _ changes: [TouchChange]) -> [MotionEvent] {
+        switch phase {
+        case .began: began(changes)
+        case .moved: moved(changes)
+        case .ended: ended(changes)
+        case .cancelled: cancelled(changes)
+        }
     }
 
     /// One MOVE with every pointer; the coalesced samples before the last become its history.

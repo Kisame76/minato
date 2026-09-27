@@ -11,7 +11,8 @@ import UIKit
 /// tmp/session-check/events, one line per event: "<seconds since 1970> <pid> <event>".
 ///   way      "url", "workspace" or "none": how both modes restart (Restart.way).
 ///   tap      a package: the library taps that app once its entries are loaded, and removes the file.
-///   quit     game mode opens its menu 1.5 s after its start and chooses Quit 1.5 s later.
+///   quit     game mode opens its menu 1.5 s after its start, or 0.5 s plus the seconds the file names,
+///            and chooses Quit 1.5 s later.
 ///   confirm  the fallback's alert, once it is up, answers OK by itself after the seconds the file names
 ///            (1 when it names none), which ends the process.
 ///   orientation  "landscape" or "portrait": game mode holds that instead of the app's own.
@@ -119,11 +120,36 @@ enum SessionCheck {
             try? await Task.sleep(for: .seconds(0.5))
             recordWindow()
             guard requested("quit") else { return }
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(text(of: "quit").flatMap(Double.init) ?? 1))
             session.openMenu()
             try? await Task.sleep(for: .seconds(1.5))
             session.quit()
         }
+    }
+
+    /// A motion event that reached the sink: its action, its pointers' IDs and its history's rows.
+    static func motion(_ motion: MotionEvent) {
+        event("motion \(motion.action) ids \(motion.pointers.map { String($0.id) }.joined(separator: ",")) history \(motion.history.count)")
+    }
+
+    /// ADR-0036's guess that `UITouch.timestamp` counts on CLOCK_UPTIME_RAW, the guest's CLOCK_MONOTONIC:
+    /// a new touch's time before now on that clock and on CLOCK_MONOTONIC_RAW, which also counts sleep, in
+    /// ms. Once the machine has slept, only the uptime clock's gap is small.
+    static func touchClock(_ timestamp: TimeInterval) {
+        let uptime = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let monotonic = Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1e9
+        event(String(format: "touch clock uptime %.3f monotonic %.3f", (uptime - timestamp) * 1000,
+                     (monotonic - timestamp) * 1000))
+    }
+
+    /// 120 intervals between ticks of the frame clock, in ms: smallest, median and largest, the period
+    /// the last tick had, how many were late, longer than 1.5 periods, and whether they came on the main thread.
+    static func frames(_ intervals: [Int64], period: Int64, onMain: Bool) -> String {
+        let sorted = intervals.sorted()
+        let late = intervals.count { $0 * 2 > period * 3 }
+        func ms(_ ns: Int64) -> String { String(format: "%.2f", Double(ns) / 1e6) }
+        return "frames \(intervals.count) interval \(ms(sorted.first ?? 0))/\(ms(sorted[sorted.count / 2]))/\(ms(sorted.last ?? 0)) "
+            + "period \(ms(period)) late \(late) main \(onMain)"
     }
 
     /// The restart failed: whether the fallback's alert comes up, with its title, and with the request

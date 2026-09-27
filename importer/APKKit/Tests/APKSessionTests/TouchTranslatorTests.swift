@@ -197,6 +197,17 @@ struct TouchTranslatorTests {
         #expect(translator.ended([Self.touch(16, 5, 5, at: 3)]) == [])
     }
 
+    /// The view hands every callback over with its phase.
+    @Test func eachPhaseGoesToItsCallback() {
+        var translator = TouchTranslator(scale: Self.scale)
+
+        #expect(translator.translate(.began, [Self.touch(1, 10, 10, at: 1)]).map(\.action) == [.down])
+        #expect(translator.translate(.moved, [Self.touch(1, 20, 20, at: 2)]).map(\.action) == [.move])
+        #expect(translator.translate(.ended, [Self.touch(1, 20, 20, at: 3)]).map(\.action) == [.up])
+        _ = translator.translate(.began, [Self.touch(2, 10, 10, at: 4)])
+        #expect(translator.translate(.cancelled, [Self.touch(2, 10, 10, at: 5)]).map(\.action) == [.cancel])
+    }
+
     /// A touch whose object address UIKit reuses is a new touch.
     @Test func aTouchThatBeginsAgainIsNew() {
         var translator = TouchTranslator(scale: Self.scale)

@@ -68,6 +68,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        # The display link may run at 120 Hz on ProMotion iPhones (ADR-0036, decision 2).
+        CADisableMinimumFrameDurationOnPhone: true
         # Required for apps built with the iOS 27 SDK.
         UILaunchScreen: {}
         UIApplicationSceneManifest:

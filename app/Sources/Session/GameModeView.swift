@@ -19,6 +19,8 @@ struct GameModeView: View {
         // menu, and a second one the Notification Center.
         MetalLayerView(onTopEdgeSwipe: { session.openMenu() }, onLayout: { pixels in
             Task { @MainActor in session.windowLaidOut(pixels) }
+        }, onTouches: { phase, changes, scale in
+            session.touched(phase, changes, scale: scale)
         })
             .ignoresSafeArea()
             .overlay(alignment: .top) {
