@@ -91,18 +91,30 @@ set_tests_properties(graphics.thunk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped
 # MINATO_ANGLE. Three runs, each with its own expected output: with ANGLE and MoltenVK, with fake-driver
 # (one function per lib) as both, and without providers.
 if(TARGET minato_graphics_host)
-  add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c)
-  target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults)
+  # With the Metal hook of test 6 (metal_hook.m), which does nothing unless MINATO_METAL_HOOK is set.
+  add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m)
+  target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework Metal")
   add_library(fake-driver MODULE fake_driver.c)
   target_link_libraries(fake-driver PRIVATE apk_defaults)
-  if(APK_SANITIZE)  # its functions run on guest stacks, as graphics/host's do
-    set_source_files_properties(fake_driver.c PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+  # Test 6's MoltenVK stand-in, with MoltenVK's Vulkan headers.
+  add_library(fake-vulkan MODULE fake_vulkan.c)
+  target_include_directories(fake-vulkan SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(fake-vulkan PRIVATE apk_defaults)
+  # Their functions run on guest stacks, as graphics/host's do.
+  set(on_guest_stacks "")
+  if(APK_SANITIZE)
+    set(on_guest_stacks -fno-sanitize=address)
   endif()
+  set(hook_options -fobjc-arc ${on_guest_stacks})
+  set_source_files_properties(fake_driver.c fake_vulkan.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
+  set_source_files_properties(metal_hook.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
   set(moltenvk "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
   set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
-  # One run: its name, its expected output (<expected>.out, and <expected>.err when it exists) and the
-  # changes of the environment that set the providers (ENVIRONMENT_MODIFICATION).
-  function(add_bind_test name expected)
+  # One run of a guest program from tools/build-front-libs.sh: its name, the program, its expected output
+  # (<expected>.out, and <expected>.err when it exists), the system's libraries and the changes of the
+  # environment that set the providers (ENVIRONMENT_MODIFICATION).
+  function(add_guest_test name program expected libraries)
     set(error "")
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
       set(error "-D EXPECTED_ERROR=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
@@ -111,9 +123,9 @@ if(TARGET minato_graphics_host)
       COMMAND ${CMAKE_COMMAND}
         -D CONVERT=$<TARGET_FILE:apk-convert>
         -D RUN=$<TARGET_FILE:graphics-run>
-        -D TEST=bind-test
-        -D FIXTURE=${APK_GRAPHICS_GUEST_DIR}/bind-test
-        "-D SYSTEM_LIBRARIES=${thunk_system_libraries}"
+        -D TEST=${program}
+        -D FIXTURE=${APK_GRAPHICS_GUEST_DIR}/${program}
+        "-D SYSTEM_LIBRARIES=${libraries}"
         -D WORK=${CMAKE_CURRENT_BINARY_DIR}/${name}_runs
         -D EXPECTED_OUTPUT=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.out
         ${error}
@@ -121,6 +133,9 @@ if(TARGET minato_graphics_host)
         -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
     set_tests_properties(graphics.${name} PROPERTIES ENVIRONMENT_MODIFICATION "${ARGN}"
       SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+  endfunction()
+  function(add_bind_test name expected)
+    add_guest_test(${name} bind-test ${expected} "${thunk_system_libraries}" ${ARGN})
   endfunction()
   if(EXISTS "${moltenvk}" AND EXISTS "${angle}")
     add_bind_test(bind bind_test "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=set:${angle}")
@@ -132,6 +147,23 @@ if(TARGET minato_graphics_host)
   add_bind_test(bind_missing bind_test_missing "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-driver>"
     "MINATO_ANGLE=set:$<TARGET_FILE:fake-driver>")
   add_bind_test(bind_no_driver bind_test_no_driver "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
+  # ADR-0030, test 6 without the window: libvulkan.so among the system's libraries, against the fake
+  # MoltenVK, then against MoltenVK with its environment variables set against what libvulkan pins, with
+  # the Metal hook, and without the log level, which graphics/host sets before it opens MoltenVK.
+  set(vulkan_system_libraries ${thunk_system_libraries} "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
+  add_guest_test(vulkan_fake vulkan-fake-test vulkan_fake_test "${vulkan_system_libraries}"
+    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:")
+  if(EXISTS "${moltenvk}")
+    add_guest_test(vulkan_moltenvk vulkan-moltenvk-test vulkan_moltenvk_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:1"
+      "MVK_CONFIG_LOG_LEVEL=unset:" "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=set:0"
+      "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS=set:1" "MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE=set:3"
+      "MVK_CONFIG_API_VERSION_TO_ADVERTISE=set:10")
+  else()
+    add_test(NAME graphics.vulkan_moltenvk COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
+    set_tests_properties(graphics.vulkan_moltenvk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endif()
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -146,7 +178,7 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
   endif()
 else()
-  foreach(name IN ITEMS bind bind_missing bind_no_driver probe)
+  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_moltenvk probe)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

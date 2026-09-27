@@ -1,7 +1,7 @@
 # The guest side of Minato's graphics (ADR-0029, ADR-0030), built with the Android NDK for arm64-v8a by
 # tools/build-front-libs.sh: tools/frontgen's tables, stubs, constructors and export lists in
-# build/graphics/gen/, the binding the front libs share, and so far the guest programs of ADR-0030's
-# tests 2 and 4, thunk-test and bind-test. The front libs follow (ADR-0030 V4, ADR-0029 B1).
+# build/graphics/gen/, the binding the front libs share, libvulkan.so, and the guest programs of ADR-0030's
+# tests 2, 4 and 6. The other front libs follow (ADR-0029 B1).
 cmake_minimum_required(VERSION 4.0)
 project(MinatoGraphicsGuest LANGUAGES C ASM)
 
@@ -29,7 +29,7 @@ endforeach()
 
 # tools/frontgen: per front lib its stubs and table, its layout, the provider's names, the export lists
 # and the report (ADR-0030, decision 7).
-set(generated "")
+set(generated "${gen}/vulkan_procs.inc" "${gen}/vulkan_extensions.inc" "${gen}/vulkan_structs.inc")
 foreach(lib IN ITEMS vulkan gles egl)
   list(APPEND generated "${gen}/${lib}_stubs.S" "${gen}/${lib}_bind.c" "${gen}/${lib}_table.h"
     "${gen}/${lib}_names.inc" "${gen}/${lib}_report.json")
@@ -75,3 +75,27 @@ add_executable(bind-test "${tests}/bind_test.c" "${gen}/vulkan_stubs.S" "${gen}/
 target_include_directories(bind-test PRIVATE "${gen}")
 target_link_libraries(bind-test PRIVATE minato_bind)
 target_compile_options(bind-test PRIVATE -Wall -Wextra)
+
+# ADR-0030, decision 10: libvulkan.so, the Vulkan front lib: tools/frontgen's stubs and binding with the
+# functions written by hand in graphics/vulkan/. Those compile against MoltenVK's Vulkan headers, the ones
+# of the vk.xml the table comes from, which define every structure its names take. It exports exactly the
+# NDK's names and binds its own references to itself.
+set(vulkan "${graphics}/vulkan")
+add_library(vulkan SHARED "${vulkan}/common.c" "${vulkan}/instance.c" "${vulkan}/device.c" "${vulkan}/procs.c"
+  "${vulkan}/later.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
+target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}")
+target_link_libraries(vulkan PRIVATE minato_bind)
+target_link_options(vulkan PRIVATE "-Wl,--version-script=${gen}/libvulkan.map" -Wl,-Bsymbolic)
+set_target_properties(vulkan PROPERTIES LINK_DEPENDS "${gen}/libvulkan.map"
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+target_compile_options(vulkan PRIVATE -Wall -Wextra)
+
+# ADR-0030, test 6 without the window: vulkan-fake-test against graphics/tests/fake_vulkan.c in MoltenVK's
+# place, vulkan-moltenvk-test against MoltenVK itself.
+foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test)
+  string(REPLACE "_" "-" program ${test})
+  add_executable(${program} "${tests}/${test}.c")
+  target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(${program} PRIVATE vulkan dl)
+  target_compile_options(${program} PRIVATE -Wall -Wextra)
+endforeach()

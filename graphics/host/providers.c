@@ -9,6 +9,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "APKRuntime/apkrt.h"
@@ -16,6 +17,9 @@
 #include "egl_table.h"
 #include "gles_table.h"
 #include "vulkan_table.h"
+
+/* MVK_CONFIG_LOG_LEVEL_WARNING (MoltenVK/mvk_private_api.h). */
+#define MOLTENVK_LOG_LEVEL "2"
 
 static void report(const char *driver, const char *name, const char *answer, atomic_flag *logged) {
     if (!atomic_flag_test_and_set_explicit(logged, memory_order_relaxed)) {
@@ -120,6 +124,11 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
         if (paths[index] != NULL && strlen(paths[index]) >= sizeof libs[index].path) {
             return -1;
         }
+    }
+    /* MoltenVK logs at its info level unless told otherwise, 173 lines per instance: errors and warnings
+       only, unless the environment names a level. It reads the variable when first used, after this. */
+    if (moltenvk != NULL && moltenvk[0] != '\0' && setenv("MVK_CONFIG_LOG_LEVEL", MOLTENVK_LOG_LEVEL, 0) != 0) {
+        return -1;
     }
     int result = 0;
     for (size_t index = 0; index < sizeof libs / sizeof *libs; index++) {

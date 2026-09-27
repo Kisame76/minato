@@ -11,6 +11,9 @@
   function (<lib>_names.inc, for graphics/host) and without a driver (<lib>_bind.c, for the front lib).
 - Small XML samples with a variadic function, a structure by value, a long double, a char by value, a
   callback with a small result, more than 8 arguments or a floating-point argument or result are refused.
+- libvulkan's lists (decisions 10 and 11), against vk.xml: vkGet*ProcAddr's names with each one's
+  function, level and own extensions; the offered extensions with their kind; the structures that may
+  extend the create infos whose pNext chains libvulkan copies, with their sType.
 
 Prints "skipped:" while vk.xml (tools/fetch-moltenvk.sh), ANGLE's registries (tools/build-angle.sh) or
 the NDK is missing, so CTest stays green for everyone else."""
@@ -50,6 +53,24 @@ LIBS = ["vulkan", "gles", "egl"]
 # without a driver. VK_ERROR_FEATURE_NOT_PRESENT and VK_ERROR_INCOMPATIBLE_DRIVER; EGL_SUCCESS and
 # EGL_NOT_INITIALIZED. Everything else answers 0 both times.
 ANSWERS = {"VkResult": (-8, -9), "eglGetError": (0x3000, 0x3001)}
+# Decision 11: the extensions libvulkan implements itself. And the structures whose pNext chains libvulkan
+# copies, for which it needs the size of every structure that may extend them.
+OWN_EXTENSIONS = {
+    "VK_KHR_surface", "VK_KHR_surface_protected_capabilities", "VK_KHR_android_surface",
+    "VK_EXT_swapchain_colorspace", "VK_KHR_get_surface_capabilities2", "VK_GOOGLE_surfaceless_query",
+    "VK_KHR_swapchain", "VK_KHR_incremental_present",
+}
+CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo"}
+# Decision 11's extensions left out by name: Apple's and Metal's, what libvulkan pins or enables itself,
+# and those that take or extend the swapchain and the surface, which libvulkan puts its own in front of.
+LEFT_OUT = {
+    "VK_EXT_metal_surface", "VK_EXT_headless_surface", "VK_EXT_metal_objects", "VK_EXT_external_memory_metal",
+    "VK_KHR_portability_subset", "VK_EXT_layer_settings", "VK_KHR_portability_enumeration",
+    "VK_GOOGLE_display_timing", "VK_KHR_present_id", "VK_KHR_present_id2", "VK_KHR_present_wait",
+    "VK_KHR_present_wait2", "VK_EXT_swapchain_maintenance1", "VK_KHR_swapchain_maintenance1",
+    "VK_EXT_surface_maintenance1", "VK_KHR_surface_maintenance1", "VK_KHR_swapchain_mutable_format",
+    "VK_EXT_hdr_metadata", "VK_EXT_calibrated_timestamps", "VK_KHR_calibrated_timestamps",
+}
 
 failures = []
 
@@ -223,6 +244,133 @@ def check_structures(report, registry):
     handled = report.get("structures", {})
     check(set(handled) == found and all(handled.values()),
           f"vulkan: the generator handles each of them ({handled})")
+
+
+def ours(element):
+    return element.get("api") is None or "vulkan" in element.get("api").split(",")
+
+
+def vulkan_levels(root):
+    """Per command, where vkGet*ProcAddr may find it (decision 10): DEVICE when its first parameter is a
+    dispatchable handle that belongs to a VkDevice, INSTANCE when one that belongs to a VkInstance, GLOBAL
+    otherwise. Aliases take their command's level."""
+    parents, dispatchable = {}, set()
+    for kind in root.find("types"):
+        if kind.get("category") == "handle" and not kind.get("alias"):
+            parents[kind.findtext("name")] = (kind.get("parent") or "").split(",")[0] or None
+            if kind.findtext("type") == "VK_DEFINE_HANDLE":
+                dispatchable.add(kind.findtext("name"))
+
+    def owner(handle):
+        while handle not in (None, "VkInstance", "VkDevice"):
+            handle = parents.get(handle)
+        return handle
+
+    levels, aliases = {}, {}
+    for command in root.find("commands"):
+        if command.get("alias"):
+            aliases[command.get("name")] = command.get("alias")
+            continue
+        if not ours(command):
+            continue
+        params = [param for param in command.findall("param") if ours(param)]
+        first = params[0].findtext("type") if params else None
+        levels[command.findtext("proto/name")] = \
+            ("DEVICE" if owner(first) == "VkDevice" else "INSTANCE") if first in dispatchable else "GLOBAL"
+    for name in aliases:
+        target = name
+        while target in aliases:
+            target = aliases[target]
+        levels[name] = levels.get(target)
+    return levels
+
+
+def check_vulkan_lists(report, root):
+    """Decisions 10 and 11: vulkan_procs.inc (for vkGetInstanceProcAddr and vkGetDeviceProcAddr),
+    vulkan_extensions.inc (what libvulkan may offer) and vulkan_structs.inc (for its copies of pNext
+    chains), each against vk.xml."""
+    table = {entry["name"]: entry for entry in report["table"]}
+
+    def read(name, pattern):
+        path = os.path.join(report["out"], name)
+        check(os.path.exists(path), f"vulkan: the generator writes {name}")
+        with open(path if os.path.exists(path) else os.devnull) as file:
+            return re.findall(pattern, file.read(), re.M)
+
+    versions, owners, kinds = {}, collections.defaultdict(set), {}
+    for feature in root.iter("feature"):
+        if "vulkan" in feature.get("api", "").split(","):
+            number = tuple(int(part) for part in feature.get("number").split("."))
+            for part in feature.findall("require"):
+                for command in part.findall("command") if ours(part) else []:
+                    versions[command.get("name")] = min(versions.get(command.get("name"), number), number)
+    for extension in root.find("extensions"):
+        kinds[extension.get("name")] = (extension.get("type") or "").upper()
+        if extension.get("name") in OWN_EXTENSIONS:
+            for part in extension.findall("require"):
+                owners.update({command.get("name"): owners[command.get("name")] | {extension.get("name")}
+                               for command in part.findall("command")})
+
+    # The names, each once, in the table's order; the functions of 1.4 give NULL, so they are left out.
+    levels = vulkan_levels(root)
+    listed = read("vulkan_procs.inc", r"^MINATO_PROC\((\w+), (\w+), (\w+), (.+)\)$")
+    expected = [name for name in table if versions.get(name) != (1, 4)]
+    check([name for name, _, _, _ in listed] == expected,
+          f"vulkan: vulkan_procs.inc lists the {len(expected)} names of the table below Vulkan 1.4, in its order "
+          f"({len(listed)} listed)")
+    wrong = []
+    for name, function, level, text in listed:
+        entry = table.get(name, {})
+        named = set(re.findall(r"MINATO_OWNER\((\w+)\)", text))
+        if function != (entry.get("hand") or name):
+            wrong.append(f"{name}: function {function}")
+        if level != levels.get(name):
+            wrong.append(f"{name}: {level} != {levels.get(name)}")
+        if named != owners.get(name, set()) or (not named and text != "0"):
+            wrong.append(f"{name}: owned by {text}, expected {sorted(owners.get(name, set()))}")
+    check(not wrong, f"vulkan: each name of vulkan_procs.inc has its function (the one written by hand, else its "
+                     f"stub), its level from its first parameter and the own extensions that bring it "
+                     f"({len(wrong)} differ{': ' + '; '.join(wrong[:6]) if wrong else ''})")
+    check(sum(1 for *_, text in listed if text != "0") == 17,
+          "vulkan: the 17 functions of the surface, the swapchain and VK_KHR_get_surface_capabilities2 have owners")
+
+    # The offered extensions, sorted, each with its kind, the own ones marked.
+    listed = read("vulkan_extensions.inc", r"^MINATO_EXTENSION\((\w+), (\w+), (MINATO_OWNER\(\w+\)|0)\)$")
+    expected = [(name, kinds.get(name), f"MINATO_OWNER({name})" if name in OWN_EXTENSIONS else "0")
+                for name in sorted(report["extensions"]["offered"])]
+    check(listed == expected, f"vulkan: vulkan_extensions.inc lists the {len(expected)} offered extensions with "
+                              f"their kind from vk.xml ({len(listed)} listed)")
+    check(OWN_EXTENSIONS <= set(report["extensions"]["offered"]), "vulkan: the own extensions are offered")
+    offered = sorted(LEFT_OUT & set(report["extensions"]["offered"]))
+    check(not offered, f"vulkan: none of the {len(LEFT_OUT)} extensions decision 11 leaves out by name is offered "
+                       f"({offered})")
+
+    # The structures that may extend the chains' heads: Vulkan's, from core or from an extension that is
+    # neither provisional nor another platform's than Android's (those are in no header of libvulkan's),
+    # required for Vulkan, not only for Vulkan SC.
+    required = collections.defaultdict(set)
+    for feature in root.iter("feature"):
+        if "vulkan" in feature.get("api", "").split(","):
+            for part in filter(ours, feature.iter("require")):
+                required.update({kind.get("name"): required[kind.get("name")] | {None}
+                                 for kind in part.findall("type")})
+    for extension in root.find("extensions"):
+        if "vulkan" in (extension.get("supported") or "").split(",") and extension.get("provisional") != "true":
+            for part in filter(ours, extension.iter("require")):
+                required.update({kind.get("name"): required[kind.get("name")] | {extension.get("platform")}
+                                 for kind in part.findall("type")})
+    expected = sorted(
+        (kind.get("name"), next(member.get("values") for member in kind.findall("member")
+                                if member.findtext("name") == "sType"))
+        for kind in root.find("types")
+        if kind.get("category") == "struct" and not kind.get("alias") and ours(kind)
+        and CHAINS & set((kind.get("structextends") or "").split(","))
+        and required[kind.get("name")] & {None, "android"})
+    listed = read("vulkan_structs.inc", r"^MINATO_STRUCT\((\w+), (\w+)\)$")
+    check(sorted(listed) == expected and len(listed) == len(set(listed)),
+          f"vulkan: vulkan_structs.inc names the {len(expected)} structures that may extend "
+          f"{' and '.join(sorted(CHAINS))} with their sType ({len(listed)} listed; missing "
+          f"{sorted(set(expected) - set(listed))[:4]}, extra {sorted(set(listed) - set(expected))[:4]})")
 
 
 SAMPLES = {
@@ -410,6 +558,7 @@ def main():
                   registry)
         if lib == "vulkan":
             check_structures(report, registry)
+            check_vulkan_lists(report, registry)
         include = os.path.join(os.path.dirname(options.vk_xml), "include") if lib == "vulkan" else \
             os.path.join(options.angle, "include")
         prototypes = ndk_headers.Headers(options.ndk, lib, include=include).prototypes

@@ -287,6 +287,41 @@ class Registry:
         element = self.types.get(name)
         return set((element.get("structextends") or "").split(",")) - {""} if element is not None else set()
 
+    def level(self, name):
+        """Where vkGetInstanceProcAddr and vkGetDeviceProcAddr may find a command (ADR-0030, decision 10):
+        "DEVICE" when its first parameter is a dispatchable handle that belongs to a VkDevice, "INSTANCE"
+        when one that belongs to a VkInstance, "GLOBAL" otherwise."""
+        command = self.command(name)
+        handle = command.params[0].base if command.params else None
+        element = self.types.get(handle)
+        if element is None or element.get("category") != "handle" or element.findtext("type") != "VK_DEFINE_HANDLE":
+            return "GLOBAL"
+        while handle not in (None, "VkInstance", "VkDevice"):
+            element = self.types.get(handle)
+            handle = ((element.get("parent") if element is not None else None) or "").split(",")[0] or None
+        return "DEVICE" if handle == "VkDevice" else "INSTANCE"
+
+    def chain_structures(self, heads, platforms):
+        """The structures that may extend one of heads in a pNext chain, each with its sType: the API's own,
+        required by a version or by an extension of one of platforms (None standing for no platform)."""
+        required = {}
+        for feature in self.root.iter("feature"):
+            if self.api in feature.get("api", "").split(","):
+                for part in feature.findall("require"):
+                    for kind in part.findall("type"):
+                        required.setdefault(kind.get("name"), set()).add(None)
+        for extension in self.extensions.values():
+            for kind in extension.types:
+                required.setdefault(kind, set()).add(extension.platform)
+        result = []
+        for name, element in sorted(self.types.items()):
+            if element.get("category") != "struct" or element.get("alias") or not self.extends(name) & heads \
+                    or not required.get(name, set()) & platforms:
+                continue
+            result.append((name, next(member.get("values") for member in element.findall("member")
+                                      if member.findtext("name") == "sType")))
+        return result
+
     def required_by(self):
         """Per type, the APIs of the features and extensions that require it, Vulkan SC's included."""
         result = {}

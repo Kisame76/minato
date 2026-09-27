@@ -9,6 +9,11 @@ library libvulkan.so 35
 # without a driver; every other result answers 0.
 answer VkResult VK_ERROR_FEATURE_NOT_PRESENT VK_ERROR_INCOMPATIBLE_DRIVER
 
+# Decision 11: the version libvulkan offers; vkGet*ProcAddr give NULL for the functions of later ones.
+version 1.3
+# The create infos whose pNext chains libvulkan copies to take structures out (decisions 5 and 8).
+chain VkInstanceCreateInfo VkDeviceCreateInfo
+
 # Decision 10: the exports written by hand.
 hand vkCreateInstance vkDestroyInstance vkEnumerateInstanceVersion vkEnumerateInstanceExtensionProperties
 hand vkEnumerateInstanceLayerProperties vkEnumerateDeviceExtensionProperties vkEnumerateDeviceLayerProperties
@@ -46,6 +51,9 @@ exclude-if-takes VkSwapchainKHR VkSurfaceKHR
 exclude-if-extends VkSwapchainCreateInfoKHR VkPresentInfoKHR VkPhysicalDeviceSurfaceInfo2KHR
 exclude-if-extends VkSurfaceCapabilities2KHR VkSurfaceFormat2KHR VkPresentModeKHR VkSwapchainCreateFlagBitsKHR
 exclude-if-extends VkColorSpaceKHR
+# VK_EXT_surface_maintenance1 by name: promoted to VK_KHR_surface_maintenance1, it requires only aliases of
+# the KHR structures, which the rule above does not follow.
+exclude VK_EXT_surface_maintenance1
 # and what this ADR leaves for later: AHardwareBuffer and file descriptors,
 exclude VK_ANDROID_external_memory_android_hardware_buffer
 exclude VK_KHR_external_memory_fd VK_KHR_external_semaphore_fd VK_KHR_external_fence_fd

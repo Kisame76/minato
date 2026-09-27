@@ -11,7 +11,8 @@ extern "C" {
    program starts: "vulkan" opens MoltenVK at `moltenvk`, "gles" and "egl" open ANGLE's libGLESv2 at
    `angle`, which holds EGL's functions as EGL_<name>. A provider fills its table from the library's
    exports; a name the library lacks gets a function that logs once and answers "not supported". A NULL
-   path leaves its libs without a provider, so they answer "no driver" (the Simulator for Vulkan).
+   path leaves its libs without a provider, so they answer "no driver" (the Simulator for Vulkan). With
+   MoltenVK, it also sets MVK_CONFIG_LOG_LEVEL to warnings unless the environment has it.
    Returns 0, or -1 when a path is longer than 1023 bytes or the runtime refused a provider. */
 int minato_graphics_set_providers(const char *moltenvk, const char *angle);
 

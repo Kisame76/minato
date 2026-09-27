@@ -12,7 +12,9 @@ Writes into --out, never into the repo: <lib>_stubs.S (the table and a stub per 
 driver; guest code), <lib>_table.h (the table's layout, for the guest and the host build),
 <lib>_names.inc (the provider's list in the table's order: each name with its host function's name, its
 kind of result and its answer when the host library lacks it), one <library>.map per library (its
-version script) and <lib>_report.json (the sorting, name by name). The answers (decision 3) are 0 unless
+version script) and <lib>_report.json (the sorting, name by name); for Vulkan also libvulkan's lists,
+vulkan_procs.inc (vkGet*ProcAddr's names), vulkan_extensions.inc (what it may offer) and
+vulkan_structs.inc (the structures in the pNext chains it copies). The answers (decision 3) are 0 unless
 the description's "answer" names others for a result type or a name. --check reads one registry on its
 own and says, for each command and callback in it, whether it can cross between the two ABIs. Standard
 library only."""
@@ -40,10 +42,12 @@ class GeneratorError(Exception):
 class Description:
     """graphics/<lib>/frontgen.txt: one keyword per line with its words; "#" starts a comment."""
 
-    LISTS = ("hand", "own", "exclude", "exclude-prefix", "exclude-if-takes", "exclude-if-extends", "platform")
+    LISTS = ("hand", "own", "exclude", "exclude-prefix", "exclude-if-takes", "exclude-if-extends", "platform",
+             "chain")
 
     def __init__(self, path):
         self.path, self.dialect, self.libraries, self.structures, self.answers = path, None, [], {}, {}
+        self.version = None
         self.lists = {keyword: set() for keyword in self.LISTS}
         with open(path) as file:
             for number, line in enumerate(file, 1):
@@ -53,6 +57,8 @@ class Description:
                 keyword, values = words[0], words[1:]
                 if keyword == "registry" and len(values) == 1 and values[0] in ("vulkan", "gl", "egl"):
                     self.dialect = values[0]
+                elif keyword == "version" and len(values) == 1 and all(part.isdigit() for part in values[0].split(".")):
+                    self.version = tuple(int(part) for part in values[0].split("."))
                 elif keyword == "library" and len(values) == 2 and values[1].isdigit():
                     self.libraries.append((values[0], int(values[1])))
                 elif keyword in self.lists and values:
@@ -134,6 +140,25 @@ class FrontLib:
         self.structures = self._structures()
         self._check_callbacks()
         self.hash = hashlib.sha256("".join(entry["name"] + "\n" for entry in self.table).encode()).hexdigest()[:16]
+        self.procs = self._procs() if registry.dialect == "vulkan" else None
+
+    def _procs(self):
+        """libvulkan's lists (decisions 10 and 11): for vkGet*ProcAddr, each name up to the description's
+        version with the function to hand out, its level and the own extensions that bring it; the offered
+        extensions with their kind; the structures that may extend the description's "chain" heads."""
+        own, version = self.description.lists["own"], self.description.version
+        if version is None:
+            raise GeneratorError(f"{self.lib}: the description names no version")
+        procs = []
+        for entry in self.table:
+            if entry["version"] and tuple(int(part) for part in entry["version"].split(".")) > version:
+                continue
+            owners = sorted({requirement.split(" with ")[0] for requirement in entry["extensions"]} & own)
+            procs.append((entry["name"], entry["hand"] or entry["name"], self.registry.level(entry["name"]), owners))
+        kinds = [(name, self.registry.extensions[name].kind.upper(), name in own) for name in self.offered]
+        structures = self.registry.chain_structures(self.description.lists["chain"],
+                                                    {None} | self.description.lists["platform"])
+        return {"procs": procs, "extensions": kinds, "structures": structures}
 
     def _alias_groups(self):
         parent = {}
@@ -427,6 +452,26 @@ def write(front, out, inputs):
         body = "".join(f"    {name};\n" for name in names)
         files[soname.replace(".so", ".map")] = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"
                                                 f"{{\n  global:\n{body}  local:\n    *;\n}};\n")
+    if front.procs is not None:
+        version = ".".join(map(str, front.description.version))
+        procs = "".join(f"MINATO_PROC({name}, {function}, {level}, "
+                        f"{' | '.join(f'MINATO_OWNER({owner})' for owner in owners) or '0'})\n"
+                        for name, function, level, owners in front.procs["procs"])
+        files[f"{lib}_procs.inc"] = (
+            f"/* {note}\n   For vkGetInstanceProcAddr and vkGetDeviceProcAddr (ADR-0030, decision 10): the table's "
+            f"names up to Vulkan {version},\n   in its order: MINATO_PROC(name, the function handed out, which is the "
+            f"one written by hand or\n   else the stub, the level it is found at, the own extensions that bring it "
+            f"or 0). */\n" + procs)
+        extensions = "".join(f"MINATO_EXTENSION({name}, {kind}, {f'MINATO_OWNER({name})' if own else '0'})\n"
+                             for name, kind, own in front.procs["extensions"])
+        files[f"{lib}_extensions.inc"] = (
+            f"/* {note}\n   The extensions the lib may offer (ADR-0030, decision 11), sorted: "
+            f"MINATO_EXTENSION(name, INSTANCE or\n   DEVICE, MINATO_OWNER(name) for one it implements itself, else 0). "
+            f"It lists only those the host library\n   reports too. */\n" + extensions)
+        structures = "".join(f"MINATO_STRUCT({name}, {kind})\n" for name, kind in front.procs["structures"])
+        files[f"{lib}_structs.inc"] = (
+            f"/* {note}\n   The structures that may extend {' or '.join(sorted(front.description.lists['chain']))}, "
+            f"whose pNext chains the lib\n   copies: MINATO_STRUCT(type, its sType). */\n" + structures)
     kinds = {}
     for entry in front.table:
         kinds[entry["kind"]] = kinds.get(entry["kind"], 0) + 1

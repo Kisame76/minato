@@ -1,0 +1,47 @@
+fake: vkCreateInstance, allocator NULL, flags 0x0
+fake:   application vulkan-fake-test 7, engine NULL 0, API 1.3.0
+fake:   layers: none
+fake:   extensions: VK_EXT_debug_utils VK_KHR_surface VK_EXT_metal_surface VK_EXT_layer_settings
+fake:   chain:
+fake:     layer settings, 4:
+fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
+fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake:     validation features, 1 enabled, 0 disabled
+fake:     validation flags, 2 disabled
+fake: vkCreateInstance, allocator NULL, flags 0x0
+fake:   application NULL 0, engine NULL 0, API 1.3.0
+fake:   layers: none
+fake:   extensions: VK_EXT_layer_settings
+fake:   chain:
+fake:     layer settings, 4:
+fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
+fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake: vkCreateInstance, allocator NULL, flags 0x0
+fake:   application NULL 0, engine NULL 0, API 1.3.0
+fake:   layers: none
+fake:   extensions: VK_KHR_surface VK_EXT_layer_settings
+fake:   chain:
+fake:     layer settings, 4:
+fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
+fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake:     validation flags, 1 disabled
+fake: vkCreateDevice, allocator NULL, 1 queue families, features NULL
+fake:   layers: none
+fake:   extensions: VK_KHR_swapchain VK_KHR_16bit_storage VK_KHR_draw_indirect_count VK_KHR_portability_subset VK_EXT_metal_objects
+fake:   chain:
+fake:     16-bit storage features, storageBuffer16BitAccess 1
+fake: vkCreateDevice, allocator NULL, 1 queue families, features NULL
+fake:   layers: none
+fake:   extensions: VK_KHR_portability_subset VK_EXT_metal_objects
+fake:   chain: empty
+fake: vkDestroyDevice, allocator NULL
+fake: vkDestroyDevice, allocator NULL
+fake: vkDestroyInstance, allocator NULL
+fake: vkDestroyInstance, allocator NULL
+fake: vkDestroyInstance, allocator NULL
