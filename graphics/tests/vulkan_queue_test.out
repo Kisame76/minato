@@ -1,0 +1,9 @@
+the hook let the program go on: yes, the batch done: yes
+vkWaitForFences: 2; the signal handled within 40 ms: yes; at least 300 ms: yes
+vkWaitSemaphores: 2; the signal handled within 40 ms: yes; at least 300 ms: yes
+vkQueueWaitIdle: 0; the signal handled within 40 ms: yes; at least 150 ms: yes
+vkDeviceWaitIdle: 0; the signal handled within 40 ms: yes; at least 150 ms: yes
+vkGetQueryPoolResults: 0; the signal handled within 40 ms: yes; at least 150 ms: yes
+the timestamp available: yes
+the app's messenger: "a message of the app", on the app's thread: yes, its context: yes
+done

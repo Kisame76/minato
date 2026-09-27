@@ -1,14 +1,6 @@
-/* The functions written by hand that later steps of ADR-0030 fill in, for now straight to MoltenVK: the
-   queue's submits and waits (V4a2), the surfaces and swapchains (V4b). The debug callbacks (V4a2) never
-   reach MoltenVK (decision 5): until graphics/host passes their messages on, they get handles of their
-   own and no message. */
+/* The functions written by hand that a later step of ADR-0030 fills in, for now straight to MoltenVK: the
+   surfaces and swapchains (V4b). */
 #include "libvulkan.h"
-
-static uint64_t last_handle;
-
-static uint64_t new_handle(void) {
-    return __atomic_add_fetch(&last_handle, 1, __ATOMIC_RELAXED);
-}
 
 #define PASS(result, name, parameters, arguments) \
     MINATO_HOST(name);                            \
@@ -16,54 +8,6 @@ static uint64_t new_handle(void) {
 #define PASS_VOID(name, parameters, arguments) \
     MINATO_HOST(name);                         \
     void name parameters { minato_host_##name arguments; }
-
-/* The queue (V4a2). */
-PASS(VkResult, vkQueueSubmit, (VkQueue queue, uint32_t count, const VkSubmitInfo *submits, VkFence fence),
-     (queue, count, submits, fence))
-PASS(VkResult, vkQueueSubmit2, (VkQueue queue, uint32_t count, const VkSubmitInfo2 *submits, VkFence fence),
-     (queue, count, submits, fence))
-PASS(VkResult, vkQueueBindSparse, (VkQueue queue, uint32_t count, const VkBindSparseInfo *binds, VkFence fence),
-     (queue, count, binds, fence))
-PASS(VkResult, vkQueueWaitIdle, (VkQueue queue), (queue))
-PASS(VkResult, vkDeviceWaitIdle, (VkDevice device), (device))
-PASS(VkResult, vkWaitForFences,
-     (VkDevice device, uint32_t count, const VkFence *fences, VkBool32 all, uint64_t timeout),
-     (device, count, fences, all, timeout))
-PASS(VkResult, vkWaitSemaphores, (VkDevice device, const VkSemaphoreWaitInfo *info, uint64_t timeout),
-     (device, info, timeout))
-PASS(VkResult, vkGetQueryPoolResults,
-     (VkDevice device, VkQueryPool pool, uint32_t first, uint32_t count, size_t size, void *data,
-      VkDeviceSize stride, VkQueryResultFlags flags),
-     (device, pool, first, count, size, data, stride, flags))
-PASS_VOID(vkGetDeviceQueue, (VkDevice device, uint32_t family, uint32_t index, VkQueue *queue),
-          (device, family, index, queue))
-PASS_VOID(vkGetDeviceQueue2, (VkDevice device, const VkDeviceQueueInfo2 *info, VkQueue *queue),
-          (device, info, queue))
-
-/* The debug callbacks (V4a2). */
-VkResult vkCreateDebugReportCallbackEXT(VkInstance instance, const VkDebugReportCallbackCreateInfoEXT *info,
-                                        const VkAllocationCallbacks *allocator, VkDebugReportCallbackEXT *callback) {
-    (void)instance, (void)info, (void)allocator;
-    *callback = (VkDebugReportCallbackEXT)new_handle();
-    return VK_SUCCESS;
-}
-
-void vkDestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT callback,
-                                     const VkAllocationCallbacks *allocator) {
-    (void)instance, (void)callback, (void)allocator;
-}
-
-VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *info,
-                                        const VkAllocationCallbacks *allocator, VkDebugUtilsMessengerEXT *messenger) {
-    (void)instance, (void)info, (void)allocator;
-    *messenger = (VkDebugUtilsMessengerEXT)new_handle();
-    return VK_SUCCESS;
-}
-
-void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT messenger,
-                                     const VkAllocationCallbacks *allocator) {
-    (void)instance, (void)messenger, (void)allocator;
-}
 
 /* Surfaces and swapchains (V4b). */
 PASS(VkResult, vkCreateAndroidSurfaceKHR,

@@ -1,5 +1,5 @@
 /* libvulkan's shared pieces: its extension list, handing out lists, copies of pNext chains and what it keeps
-   per instance and device; see libvulkan.h. */
+   per instance, device and queue; see libvulkan.h. */
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +52,7 @@ static size_t size_of(VkStructureType type) {
     return 0;
 }
 
-static int left_out(const VkBaseInStructure *structure, const VkStructureType *types, size_t count) {
+static int listed(const VkBaseInStructure *structure, const VkStructureType *types, size_t count) {
     for (size_t index = 0; index < count; index++) {
         if (structure->sType == types[index]) {
             return 1;
@@ -61,22 +61,24 @@ static int left_out(const VkBaseInStructure *structure, const VkStructureType *t
     return 0;
 }
 
-VkResult minato_chain_without(const void *chain, const VkStructureType *types, size_t count, const void **head,
-                              void **copy) {
-    /* The last structure left out, the room for copies of the ones kept before it, and whether one of
-       those has a size unknown here. */
+VkResult minato_chain_edit(const void *chain, const VkStructureType *removed, size_t removed_count,
+                           const VkStructureType *changed, size_t changed_count, const void **head, void **copy) {
+    /* The last structure removed or changed, the room for copies of the ones kept up to it, and whether one
+       of those has a size unknown here. */
     const VkBaseInStructure *last = NULL;
     size_t room = 0, kept = 0;
     int unknown = 0, unknown_before_last = 0;
     for (const VkBaseInStructure *structure = chain; structure != NULL; structure = structure->pNext) {
-        if (left_out(structure, types, count)) {
-            last = structure;
-            room = kept;
-            unknown_before_last = unknown;
-        } else {
+        const int left_out = listed(structure, removed, removed_count);
+        if (!left_out) {
             const size_t size = size_of(structure->sType);
             unknown |= size == 0;
             kept += size;
+        }
+        if (left_out || listed(structure, changed, changed_count)) {
+            last = structure;
+            room = kept;
+            unknown_before_last = unknown;
         }
     }
     *head = chain;
@@ -91,12 +93,12 @@ VkResult minato_chain_without(const void *chain, const VkStructureType *types, s
     if (room != 0 && (memory = malloc(room)) == NULL) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
-    /* Copies of the kept structures up to the last one left out, linked in their order, then the rest of
-       the chain as it is. The sizes are multiples of 8, so every copy stays aligned. */
+    /* Copies of the kept structures up to the last one removed or changed, linked in their order, then the
+       rest of the chain as it is. The sizes are multiples of 8, so every copy stays aligned. */
     VkBaseOutStructure *previous = NULL;
     char *next = memory;
     for (const VkBaseInStructure *structure = chain; structure != last->pNext; structure = structure->pNext) {
-        if (left_out(structure, types, count)) {
+        if (listed(structure, removed, removed_count)) {
             continue;
         }
         const size_t size = size_of(structure->sType);
@@ -118,22 +120,33 @@ VkResult minato_chain_without(const void *chain, const VkStructureType *types, s
     return VK_SUCCESS;
 }
 
+void *minato_chain_find(const void *chain, VkStructureType type) {
+    for (const VkBaseInStructure *structure = chain; structure != NULL; structure = structure->pNext) {
+        if (structure->sType == type) {
+            return (void *)structure;
+        }
+    }
+    return NULL;
+}
+
 /* The handles libvulkan knows, few in any app: a list under a lock. */
 struct known {
     struct known *next;
     const void *handle;
     uint32_t owned;
+    struct minato_queues *queues;  /* a device's, else NULL */
 };
 static struct known *known;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
-int minato_remember(const void *handle, uint32_t owned) {
+int minato_remember(const void *handle, uint32_t owned, struct minato_queues *queues) {
     struct known *entry = malloc(sizeof *entry);
     if (entry == NULL) {
         return -1;
     }
     entry->handle = handle;
     entry->owned = owned;
+    entry->queues = queues;
     pthread_mutex_lock(&lock);
     entry->next = known;
     known = entry;
@@ -141,14 +154,32 @@ int minato_remember(const void *handle, uint32_t owned) {
     return 0;
 }
 
-int minato_recall(const void *handle, uint32_t *owned) {
+int minato_recall(const void *handle, uint32_t *owned, struct minato_queues **queues) {
     int found = 0;
     pthread_mutex_lock(&lock);
     for (const struct known *entry = known; entry != NULL; entry = entry->next) {
         if (entry->handle == handle) {
             *owned = entry->owned;
+            if (queues != NULL) {
+                *queues = entry->queues;
+            }
             found = 1;
             break;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return found;
+}
+
+struct minato_queue *minato_queue(VkQueue queue) {
+    struct minato_queue *found = NULL;
+    pthread_mutex_lock(&lock);
+    for (const struct known *entry = known; entry != NULL && found == NULL; entry = entry->next) {
+        for (uint32_t index = 0; entry->queues != NULL && index < entry->queues->count; index++) {
+            if (entry->queues->queue[index].queue == queue) {
+                found = &entry->queues->queue[index];
+                break;
+            }
         }
     }
     pthread_mutex_unlock(&lock);

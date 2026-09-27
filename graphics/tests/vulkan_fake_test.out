@@ -20,15 +20,23 @@ vkCreateInstance with a layer: -6
 vkCreateInstance with VK_MVK_macos_surface: -7
 vkCreateInstance with VK_KHR_swapchain: -7
 vkCreateInstance with a structure of unknown size before a debug messenger: -3
+the app's messenger: "a message from vkCreateInstance", severity 0x1000, types 0x2, id fake 7, its context: yes
+the app's report callback: "a report from vkCreateInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
 vkCreateInstance: 0
+  the app's callbacks as they were: yes
 vkCreateInstance without application info or extensions: 0
+the app's report callback: "a report from vkCreateInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
 vkCreateInstance with the surface only: 0
 vkGetInstanceProcAddr without an instance: vkCreateInstance ours vkEnumerateInstanceVersion ours vkEnumerateInstanceExtensionProperties ours vkEnumerateInstanceLayerProperties ours vkGetInstanceProcAddr ours vkCreateDevice NULL vkNotAFunction NULL
-vkGetInstanceProcAddr: vkGetInstanceProcAddr ours vkCreateInstance NULL vkEnumeratePhysicalDevices ours vkCmdDraw NULL vkCmdPushDescriptorSet NULL vkCreateAndroidSurfaceKHR ours vkDestroySurfaceKHR ours vkGetPhysicalDeviceSurfaceCapabilities2KHR ours vkCreateSwapchainKHR ours vkGetPhysicalDevicePresentRectanglesKHR ours vkCreateDebugUtilsMessengerEXT ours vkCreateDebugReportCallbackEXT NULL
-vkGetInstanceProcAddr of the instance with nothing: vkCreateAndroidSurfaceKHR NULL vkDestroySurfaceKHR NULL vkGetPhysicalDeviceSurfaceCapabilities2KHR NULL vkCreateSwapchainKHR ours vkCreateDebugUtilsMessengerEXT NULL
+vkGetInstanceProcAddr: vkGetInstanceProcAddr ours vkCreateInstance NULL vkEnumeratePhysicalDevices ours vkCmdDraw NULL vkCmdPushDescriptorSet NULL vkCreateAndroidSurfaceKHR ours vkDestroySurfaceKHR ours vkGetPhysicalDeviceSurfaceCapabilities2KHR ours vkCreateSwapchainKHR ours vkGetPhysicalDevicePresentRectanglesKHR ours vkCreateDebugUtilsMessengerEXT ours vkCreateDebugReportCallbackEXT ours
+vkGetInstanceProcAddr of the instance with nothing: vkCreateAndroidSurfaceKHR NULL vkDestroySurfaceKHR NULL vkGetPhysicalDeviceSurfaceCapabilities2KHR NULL vkCreateSwapchainKHR ours vkCreateDebugUtilsMessengerEXT NULL vkCreateDebugReportCallbackEXT NULL
 vkGetInstanceProcAddr of the instance with the surface only: vkDestroySurfaceKHR ours vkCreateAndroidSurfaceKHR NULL vkGetPhysicalDeviceSurfaceCapabilities2KHR NULL
 vkGetInstanceProcAddr of an instance libvulkan did not make: vkEnumeratePhysicalDevices NULL
+the debug functions: ours ours ours ours ours ours
 vkCreateDebugUtilsMessengerEXT: 0, a handle
+the app's messenger: "a message of the app", severity 0x1000, types 0x2, id fake 7, its context: yes
+vkCreateDebugReportCallbackEXT: 0, a handle
+the app's report callback: "a report of the app", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
 vkEnumeratePhysicalDevices: 0, 1: Minato's fake Vulkan at Vulkan 1.3 for an app that asked for 1.0
 vkEnumerateDeviceLayerProperties: 0, 0 layers
 vkEnumerateDeviceExtensionProperties of a layer: -6
@@ -42,8 +50,37 @@ vkCreateDevice with VK_KHR_portability_subset: -7
 vkCreateDevice with VK_EXT_debug_utils: -7
 vkCreateDevice: 0
 vkCreateDevice with nothing: 0
+vkCreateDevice with the app's timeline semaphore features off: 0
+  the app's features as they were: yes
 vkGetDeviceProcAddr: vkGetDeviceProcAddr ours vkQueueSubmit ours vkCmdDraw NULL vkCmdPushDescriptorSet NULL vkGetPhysicalDeviceProperties NULL vkGetInstanceProcAddr NULL vkCreateInstance NULL vkCreateSwapchainKHR ours vkAcquireNextImage2KHR ours vkCmdDrawIndirectCountKHR ours
 vkGetDeviceProcAddr of the device with nothing: vkCreateSwapchainKHR NULL vkQueuePresentKHR NULL vkQueueSubmit ours vkCmdDrawIndirectCountKHR NULL
 vkGetDeviceProcAddr of a device libvulkan did not make: vkQueueSubmit NULL
+vkQueueSubmit with two batches: 0
+  the app's batches as they were: yes
+vkQueueSubmit with a fence only: 0
+vkQueueSubmit with nothing: 0
+vkQueueSubmit with binary semaphores only: 0
+vkQueueSubmit that fails: -2
+vkQueueSubmit after it: 0
+vkQueueSubmit2KHR: ours
+vkQueueSubmit2KHR with a batch: 0
+vkQueueSubmit2 with a fence only: 0
+vkQueueBindSparse: 0
+while graphics/host is asked for "scheduled": vkQueueSubmit 0, vkQueueSubmit2 0, vkQueueBindSparse 0
+vkQueueWaitIdle: 0
+vkQueueWaitIdle of a queue without submits: 0
+vkQueueSubmit on the other family: 0
+vkDeviceWaitIdle: 0
+vkWaitForFences without a timeout: 0
+vkWaitForFences for 0 ns: 2
+vkWaitForFences for 5 ms: 2
+vkWaitSemaphoresKHR: ours
+vkWaitSemaphoresKHR without a timeout: 0
+vkWaitSemaphores for 0 ns: 2
+vkGetQueryPoolResults, waiting: 0
+vkGetQueryPoolResults: 1
 vkGetAndroidHardwareBufferPropertiesANDROID: -1000072003, vkGetMemoryAndroidHardwareBufferANDROID: -1000072003
+the app's messenger: "a message from vkDestroyInstance", severity 0x1000, types 0x2, id fake 7, its context: yes
+the app's report callback: "a report from vkDestroyInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
+the app's report callback: "a report from vkDestroyInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
 done

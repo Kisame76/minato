@@ -3,5 +3,6 @@ vulkan-moltenvk-test: vkEndCommandBuffer
 vulkan-moltenvk-test: vkQueueSubmit
 metal: a command buffer made on a guest thread
 metal: an event signal encoded on a guest thread
+metal: an event signal encoded on a guest thread
 metal: a commit on a guest thread
 vulkan-moltenvk-test: vkQueueSubmit returned

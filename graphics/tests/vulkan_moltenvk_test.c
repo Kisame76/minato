@@ -5,8 +5,9 @@
    none of what they hide (decision 11), a device at Vulkan 1.3 for an app that asks for 1.0, and a few
    answers of vkGet*ProcAddr (decision 10). Then it submits one fill with a semaphore to signal, with
    markers on stderr, between which graphics-run's Metal hook prints what Metal sees: the settings hold
-   when the command buffer is made, signaled with an MTLEvent and committed inside vkQueueSubmit, on the
-   calling thread, a guest thread. */
+   when the command buffer is made, signaled with MTLEvents (the app's semaphore, then libvulkan's timeline
+   semaphore of the queue, decision 13) and committed inside vkQueueSubmit, on the calling thread, a guest
+   thread. */
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 

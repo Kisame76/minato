@@ -3,6 +3,8 @@
 #ifndef MINATO_GRAPHICS_H
 #define MINATO_GRAPHICS_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,7 +14,9 @@ extern "C" {
    `angle`, which holds EGL's functions as EGL_<name>. A provider fills its table from the library's
    exports; a name the library lacks gets a function that logs once and answers "not supported". A NULL
    path leaves its libs without a provider, so they answer "no driver" (the Simulator for Vulkan). With
-   MoltenVK, it also sets MVK_CONFIG_LOG_LEVEL to warnings unless the environment has it.
+   MoltenVK, it also sets MVK_CONFIG_LOG_LEVEL to warnings unless the environment has it, and
+   graphics/host's own functions stand in front of the MoltenVK functions that libvulkan's submits, devices
+   and debug callbacks reach (ADR-0030, decisions 5 and 13).
    Returns 0, or -1 when a path is longer than 1023 bytes or the runtime refused a provider. */
 int minato_graphics_set_providers(const char *moltenvk, const char *angle);
 
@@ -23,6 +27,14 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle);
    only, and there, with MINATO_GRAPHICS_PROBE set, it runs before main on the MoltenVK in the app's
    Frameworks and the app exits with its result. */
 int minato_graphics_probe(const char *moltenvk);
+
+/* "Scheduled" for Vulkan (ADR-0030, decision 13), from a host thread, which need not be the main thread:
+   waits until no call of libvulkan that makes MoltenVK commit is in flight, then commits one empty command
+   buffer on each queue of every device libvulkan made and waits until Metal has scheduled them, which it
+   does in each queue's order, after every command buffer committed there before. `deadline` is in
+   nanoseconds of CLOCK_UPTIME_RAW (clock_gettime_nsec_np). Returns 1 once all are scheduled, 0 when the
+   deadline came first. */
+int minato_graphics_vulkan_scheduled(uint64_t deadline);
 
 #ifdef __cplusplus
 }

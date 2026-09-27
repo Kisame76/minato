@@ -1,5 +1,5 @@
-/* libvulkan's device: its layers and extensions, vkCreateDevice and AHardwareBuffer's two functions
-   (ADR-0030, decisions 5, 10, 11 and 13). */
+/* libvulkan's device: its layers and extensions, vkCreateDevice with the queues' timeline semaphores, and
+   AHardwareBuffer's two functions (ADR-0030, decisions 5, 10, 11 and 13). */
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,8 +10,11 @@ MINATO_HOST(vkCreateDevice);
 MINATO_HOST(vkDestroyDevice);
 
 /* Taken out of vkCreateDevice's chain: the memory report's callback, whose extension is not offered
-   (decision 5). */
+   (decision 5). Copied, to enable timeline semaphores there: the app's features of Vulkan 1.2 or of
+   timeline semaphores (decisions 11 and 13). */
 static const VkStructureType taken_out[] = {VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT};
+static const VkStructureType features[] = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
 
 VkResult vkEnumerateDeviceLayerProperties(VkPhysicalDevice physical, uint32_t *count, VkLayerProperties *properties) {
     (void)physical, (void)properties;
@@ -81,10 +84,26 @@ VkResult vkCreateDevice(VkPhysicalDevice physical, const VkDeviceCreateInfo *inf
 
     const void *chain;
     void *copy;
-    VkResult result = minato_chain_without(info->pNext, taken_out, sizeof taken_out / sizeof *taken_out, &chain, &copy);
+    VkResult result = minato_chain_edit(info->pNext, taken_out, sizeof taken_out / sizeof *taken_out, features,
+                                        sizeof features / sizeof *features, &chain, &copy);
     if (result != VK_SUCCESS) {
         free(names);
         return result;
+    }
+    /* Timeline semaphores, for the queues' own (decision 13): in the app's features, else in libvulkan's. */
+    VkPhysicalDeviceVulkan12Features *vulkan12 =
+        minato_chain_find(chain, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES);
+    VkPhysicalDeviceTimelineSemaphoreFeatures *timeline =
+        minato_chain_find(chain, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES);
+    VkPhysicalDeviceTimelineSemaphoreFeatures own = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES, .pNext = (void *)chain,
+        .timelineSemaphore = VK_TRUE};
+    if (vulkan12 != NULL) {
+        vulkan12->timelineSemaphore = VK_TRUE;
+    } else if (timeline != NULL) {
+        timeline->timelineSemaphore = VK_TRUE;
+    } else {
+        chain = &own;
     }
     VkDeviceCreateInfo ours = *info;
     ours.pNext = chain;
@@ -95,17 +114,30 @@ VkResult vkCreateDevice(VkPhysicalDevice physical, const VkDeviceCreateInfo *inf
     result = minato_host_vkCreateDevice(physical, &ours, NULL, device);
     free(copy);
     free(names);
-    if (result == VK_SUCCESS && minato_remember(*device, owned) != 0) {
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+    struct minato_queues *queues = NULL;
+    result = minato_queues_create(*device, info, &queues);
+    if (result == VK_SUCCESS && minato_remember(*device, owned, queues) != 0) {
+        result = VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    if (result != VK_SUCCESS) {
+        minato_queues_destroy(queues);
         minato_host_vkDestroyDevice(*device, NULL);
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     return result;
 }
 
 void vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator) {
     (void)allocator;
+    uint32_t owned;
+    struct minato_queues *queues = NULL;
     if (device != VK_NULL_HANDLE) {
-        minato_forget(device);
+        if (minato_recall(device, &owned, &queues)) {
+            minato_forget(device);
+            minato_queues_destroy(queues);
+        }
         minato_host_vkDestroyDevice(device, NULL);
     }
 }

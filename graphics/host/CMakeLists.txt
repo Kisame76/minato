@@ -1,24 +1,26 @@
-# graphics/host (ADR-0030, decision 3): the providers of the front libs' host tables, for the app and the
-# tests on the Mac. They need tools/frontgen's lists from tools/build-front-libs.sh and are left out
-# while those are missing. tools/build-graphics-host.sh packs this library for the app.
+# graphics/host (ADR-0030, decisions 3, 5 and 13): the providers of the front libs' host tables and
+# graphics/host's functions in front of MoltenVK's, for the app and the tests on the Mac. They need
+# tools/frontgen's lists from tools/build-front-libs.sh and MoltenVK's headers from tools/fetch-moltenvk.sh
+# and are left out while those are missing. tools/build-graphics-host.sh packs this library for the app.
 set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
   "tools/frontgen's outputs from tools/build-front-libs.sh")
 if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
-    AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc")
-  add_library(minato_graphics_host STATIC providers.c)
+    AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
+  add_library(minato_graphics_host STATIC providers.c vulkan.m probe.m)
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}")
+  target_include_directories(minato_graphics_host SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
   target_link_libraries(minato_graphics_host PUBLIC apkrt PRIVATE apk_defaults)
-  # The providers and the functions for missing names run on guest threads' stacks, which
-  # AddressSanitizer does not know (as the runtime's syscall layer, runtime/CMakeLists.txt).
+  # The providers, the functions for missing names and those in front of MoltenVK's run on guest threads'
+  # stacks, which AddressSanitizer does not know (as the runtime's syscall layer, runtime/CMakeLists.txt).
   # A source file's options come after apk_defaults' -fsanitize=address, so this one wins.
+  set(on_guest_stacks "")
   if(APK_SANITIZE)
-    set_source_files_properties(providers.c PROPERTIES COMPILE_OPTIONS "-fno-sanitize=address")
+    set(on_guest_stacks -fno-sanitize=address)
   endif()
-  # V3's check for the iPhone (minato_graphics.h), in an object file of its own, which only debug
-  # builds of the app link. With modules, the object file names Foundation and QuartzCore for the link.
-  if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
-    target_sources(minato_graphics_host PRIVATE probe.m)
-    target_include_directories(minato_graphics_host SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
-    set_source_files_properties(probe.m PROPERTIES COMPILE_OPTIONS "-fmodules")
-  endif()
+  # With modules, the object files of vulkan.m and of V3's check for the iPhone (probe.m, which only
+  # debug builds of the app link) name their frameworks for the link: Foundation, Metal and QuartzCore.
+  set(vulkan_options -fmodules ${on_guest_stacks})
+  set_source_files_properties(providers.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
+  set_source_files_properties(vulkan.m PROPERTIES COMPILE_OPTIONS "${vulkan_options}")
+  set_source_files_properties(probe.m PROPERTIES COMPILE_OPTIONS "-fmodules")
 endif()

@@ -82,7 +82,7 @@ target_compile_options(bind-test PRIVATE -Wall -Wextra)
 # NDK's names and binds its own references to itself.
 set(vulkan "${graphics}/vulkan")
 add_library(vulkan SHARED "${vulkan}/common.c" "${vulkan}/instance.c" "${vulkan}/device.c" "${vulkan}/procs.c"
-  "${vulkan}/later.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
+  "${vulkan}/queue.c" "${vulkan}/later.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
 target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}")
 target_link_libraries(vulkan PRIVATE minato_bind)
 target_link_options(vulkan PRIVATE "-Wl,--version-script=${gen}/libvulkan.map" -Wl,-Bsymbolic)
@@ -92,7 +92,7 @@ target_compile_options(vulkan PRIVATE -Wall -Wextra)
 
 # ADR-0030, test 6 without the window: vulkan-fake-test against graphics/tests/fake_vulkan.c in MoltenVK's
 # place, vulkan-moltenvk-test against MoltenVK itself.
-foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test)
+foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")

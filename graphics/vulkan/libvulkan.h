@@ -41,18 +41,45 @@ MINATO_HIDDEN const struct minato_extension *minato_extension(const char *name);
 MINATO_HIDDEN VkResult minato_hand_out(const VkExtensionProperties *list, uint32_t length, uint32_t *count,
                                        VkExtensionProperties *properties);
 
-/* A pNext chain without the structures of `types` (decisions 5 and 8): the app's structures up to the
-   last one left out are copied into *copy, which the caller frees (NULL when nothing is left out); the
-   rest stays the app's. Returns VK_SUCCESS with the new head in *head, VK_ERROR_OUT_OF_HOST_MEMORY, or
-   VK_ERROR_INITIALIZATION_FAILED when a structure before one left out has a type of unknown size
+/* A pNext chain without the structures of the types in `removed` and with copies of those in `changed`,
+   which the caller may change (decisions 5, 8, 11 and 13): the app's structures up to the last of either
+   are copied into *copy, which the caller frees (NULL when the chain has neither); the rest stays the
+   app's. Returns VK_SUCCESS with the new head in *head, VK_ERROR_OUT_OF_HOST_MEMORY, or
+   VK_ERROR_INITIALIZATION_FAILED when a structure before the last of them has a type of unknown size
    (vulkan_structs.inc). */
-MINATO_HIDDEN VkResult minato_chain_without(const void *chain, const VkStructureType *types, size_t count,
-                                            const void **head, void **copy);
+MINATO_HIDDEN VkResult minato_chain_edit(const void *chain, const VkStructureType *removed, size_t removed_count,
+                                         const VkStructureType *changed, size_t changed_count, const void **head,
+                                         void **copy);
+
+/* The first structure of `type` in a chain, or NULL. The caller changes only the copies minato_chain_edit
+   made. */
+MINATO_HIDDEN void *minato_chain_find(const void *chain, VkStructureType type);
+
+/* A queue of a device libvulkan made (decision 13): MoltenVK's handle, its device, and the timeline
+   semaphore whose signal libvulkan adds to every submit, at `last` for the last submit that succeeded. */
+struct minato_queue {
+    VkQueue queue;
+    VkDevice device;
+    VkSemaphore timeline;
+    uint64_t last;  /* read and written atomically */
+};
+struct minato_queues {
+    uint32_t count;
+    struct minato_queue queue[];
+};
+
+/* The queues of a device MoltenVK made from `info`, each with its timeline semaphore: VK_SUCCESS with
+   *queues, or the error of the semaphore that failed. minato_queues_destroy destroys the semaphores. */
+MINATO_HIDDEN VkResult minato_queues_create(VkDevice device, const VkDeviceCreateInfo *info,
+                                            struct minato_queues **queues);
+MINATO_HIDDEN void minato_queues_destroy(struct minato_queues *queues);
 
 /* What libvulkan keeps per VkInstance and per VkDevice, MoltenVK's handles: the own extensions the app
-   enabled. minato_recall returns 1 and sets *owned for a handle it knows, else 0. */
-MINATO_HIDDEN int minato_remember(const void *handle, uint32_t owned);
-MINATO_HIDDEN int minato_recall(const void *handle, uint32_t *owned);
+   enabled, and a device's queues. minato_recall returns 1 and sets *owned and, when `queues` is not NULL,
+   *queues for a handle it knows, else 0. minato_queue finds a queue of the devices libvulkan knows. */
+MINATO_HIDDEN int minato_remember(const void *handle, uint32_t owned, struct minato_queues *queues);
+MINATO_HIDDEN int minato_recall(const void *handle, uint32_t *owned, struct minato_queues **queues);
 MINATO_HIDDEN void minato_forget(const void *handle);
+MINATO_HIDDEN struct minato_queue *minato_queue(VkQueue queue);
 
 #endif

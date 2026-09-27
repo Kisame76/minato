@@ -1,5 +1,5 @@
-/* libvulkan's instance: its version, layers and extensions, and vkCreateInstance with the pinned settings
-   (ADR-0030, decisions 5, 8 and 11). */
+/* libvulkan's instance: its version, layers and extensions, vkCreateInstance with the pinned settings, and the
+   debug callbacks' functions (ADR-0030, decisions 5, 8 and 11). */
 #include <stdlib.h>
 #include <string.h>
 
@@ -8,6 +8,10 @@
 MINATO_HOST(vkEnumerateInstanceExtensionProperties);
 MINATO_HOST(vkCreateInstance);
 MINATO_HOST(vkDestroyInstance);
+MINATO_HOST(vkCreateDebugUtilsMessengerEXT);
+MINATO_HOST(vkDestroyDebugUtilsMessengerEXT);
+MINATO_HOST(vkCreateDebugReportCallbackEXT);
+MINATO_HOST(vkDestroyDebugReportCallbackEXT);
 
 /* Android's own instance extensions, in its loader's order (decision 11). */
 static const VkExtensionProperties own[] = {
@@ -33,13 +37,16 @@ static const VkLayerSettingEXT pinned[] = {
     {"MoltenVK", "MVK_CONFIG_API_VERSION_TO_ADVERTISE", VK_LAYER_SETTING_TYPE_UINT32_EXT, 1, &version_1_3},
 };
 
-/* Taken out of vkCreateInstance's chain: the app's own settings (decision 8), its callbacks, which never
-   reach MoltenVK (decision 5), and the direct driver loading, whose extension is not offered. */
+/* Taken out of vkCreateInstance's chain: the app's own settings (decision 8) and the direct driver loading,
+   whose extension is not offered. The app's debug callbacks stay, as libvulkan's copies, which
+   graphics/host's vkCreateInstance points at its own functions: the app's never reach MoltenVK (decision 5). */
 static const VkStructureType taken_out[] = {
     VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+    VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_LIST_LUNARG,
+};
+static const VkStructureType callbacks[] = {
     VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
     VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-    VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_LIST_LUNARG,
 };
 
 VkResult vkEnumerateInstanceVersion(uint32_t *version) {
@@ -127,7 +134,8 @@ VkResult vkCreateInstance(const VkInstanceCreateInfo *info, const VkAllocationCa
 
     const void *chain;
     void *copy;
-    VkResult result = minato_chain_without(info->pNext, taken_out, sizeof taken_out / sizeof *taken_out, &chain, &copy);
+    VkResult result = minato_chain_edit(info->pNext, taken_out, sizeof taken_out / sizeof *taken_out, callbacks,
+                                        sizeof callbacks / sizeof *callbacks, &chain, &copy);
     if (result != VK_SUCCESS) {
         free(names);
         return result;
@@ -150,7 +158,7 @@ VkResult vkCreateInstance(const VkInstanceCreateInfo *info, const VkAllocationCa
     result = minato_host_vkCreateInstance(&ours, NULL, instance);
     free(copy);
     free(names);
-    if (result == VK_SUCCESS && minato_remember(*instance, owned) != 0) {
+    if (result == VK_SUCCESS && minato_remember(*instance, owned, NULL) != 0) {
         minato_host_vkDestroyInstance(*instance, NULL);
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
@@ -163,4 +171,30 @@ void vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocat
         minato_forget(instance);
         minato_host_vkDestroyInstance(instance, NULL);
     }
+}
+
+/* The debug callbacks' functions reach graphics/host's, which registers a function of its own with MoltenVK
+   that calls the app's on the app's threads only (decision 5). */
+VkResult vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *info,
+                                        const VkAllocationCallbacks *allocator, VkDebugUtilsMessengerEXT *messenger) {
+    (void)allocator;
+    return minato_host_vkCreateDebugUtilsMessengerEXT(instance, info, NULL, messenger);
+}
+
+void vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT messenger,
+                                     const VkAllocationCallbacks *allocator) {
+    (void)allocator;
+    minato_host_vkDestroyDebugUtilsMessengerEXT(instance, messenger, NULL);
+}
+
+VkResult vkCreateDebugReportCallbackEXT(VkInstance instance, const VkDebugReportCallbackCreateInfoEXT *info,
+                                        const VkAllocationCallbacks *allocator, VkDebugReportCallbackEXT *callback) {
+    (void)allocator;
+    return minato_host_vkCreateDebugReportCallbackEXT(instance, info, NULL, callback);
+}
+
+void vkDestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT callback,
+                                     const VkAllocationCallbacks *allocator) {
+    (void)allocator;
+    minato_host_vkDestroyDebugReportCallbackEXT(instance, callback, NULL);
 }

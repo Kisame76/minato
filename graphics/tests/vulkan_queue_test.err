@@ -1,0 +1,35 @@
+vulkan-queue-test: vkQueueSubmit, waiting for 1000
+metal: a command buffer made on a guest thread
+metal: an event wait encoded on a guest thread
+metal: an event signal encoded on a guest thread
+metal: a commit on a guest thread
+metal: a command buffer made on another thread
+metal: a commit on another thread
+metal: a command buffer made on another thread
+metal: a commit on another thread
+metal: "scheduled" while the guest's command buffer waited: 0, after its event: 1; the guest's command buffer scheduled before graphics/host's first: yes
+vulkan-queue-test: vkWaitForFences
+vulkan-queue-test: vkWaitForFences returned
+vulkan-queue-test: vkWaitSemaphores
+vulkan-queue-test: vkWaitSemaphores returned
+vulkan-queue-test: vkQueueSubmit, waiting for 1
+metal: a command buffer made on a guest thread
+metal: an event wait encoded on a guest thread
+metal: an event signal encoded on a guest thread
+metal: a commit on a guest thread
+vulkan-queue-test: vkQueueWaitIdle
+vulkan-queue-test: vkQueueWaitIdle returned
+vulkan-queue-test: vkQueueSubmit, waiting for 1
+metal: a command buffer made on a guest thread
+metal: an event wait encoded on a guest thread
+metal: an event signal encoded on a guest thread
+metal: a commit on a guest thread
+vulkan-queue-test: vkDeviceWaitIdle
+vulkan-queue-test: vkDeviceWaitIdle returned
+vulkan-queue-test: vkQueueSubmit, waiting for 1
+metal: a command buffer made on a guest thread
+metal: an event wait encoded on a guest thread
+metal: an event signal encoded on a guest thread
+metal: a commit on a guest thread
+vulkan-queue-test: vkGetQueryPoolResults
+vulkan-queue-test: vkGetQueryPoolResults returned

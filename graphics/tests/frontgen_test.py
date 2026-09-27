@@ -60,7 +60,7 @@ OWN_EXTENSIONS = {
     "VK_EXT_swapchain_colorspace", "VK_KHR_get_surface_capabilities2", "VK_GOOGLE_surfaceless_query",
     "VK_KHR_swapchain", "VK_KHR_incremental_present",
 }
-CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo"}
+CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo", "VkSubmitInfo", "VkBindSparseInfo"}
 # Decision 11's extensions left out by name: Apple's and Metal's, what libvulkan pins or enables itself,
 # and those that take or extend the swapchain and the surface, which libvulkan puts its own in front of.
 LEFT_OUT = {

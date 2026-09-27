@@ -4,7 +4,8 @@
    code. It takes only the table of the lists it was built with (the same length and hash), opens the host
    library, which stays open for the process's life, and fills slot n with the library's function for the
    n-th name of tools/frontgen's list. A name the library lacks gets its function from here: it logs once
-   and answers the API's "not supported", the answer tools/frontgen put next to the name. */
+   and answers the API's "not supported", the answer tools/frontgen put next to the name. For libvulkan,
+   graphics/host's own functions then stand in front of some of MoltenVK's (vulkan.m). */
 #include <dlfcn.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -16,6 +17,7 @@
 #include "minato_graphics.h"
 #include "egl_table.h"
 #include "gles_table.h"
+#include "vulkan_host.h"
 #include "vulkan_table.h"
 
 /* MVK_CONFIG_LOG_LEVEL_WARNING (MoltenVK/mvk_private_api.h). */
@@ -89,13 +91,15 @@ struct lib {
     uint64_t hash;
     const char *const *hosts;
     void *const *missing;
+    void (*wrap)(void **table);  /* graphics/host's functions in front of the library's, or NULL */
     char path[1024];
 };
 
 static struct lib libs[] = {
-    {"vulkan", "MoltenVK", MINATO_VULKAN_TABLE_LENGTH, MINATO_VULKAN_TABLE_HASH, vulkan_hosts, vulkan_missing, ""},
-    {"gles", "ANGLE", MINATO_GLES_TABLE_LENGTH, MINATO_GLES_TABLE_HASH, gles_hosts, gles_missing, ""},
-    {"egl", "ANGLE", MINATO_EGL_TABLE_LENGTH, MINATO_EGL_TABLE_HASH, egl_hosts, egl_missing, ""},
+    {"vulkan", "MoltenVK", MINATO_VULKAN_TABLE_LENGTH, MINATO_VULKAN_TABLE_HASH, vulkan_hosts, vulkan_missing,
+     minato_graphics_vulkan_wrap, ""},
+    {"gles", "ANGLE", MINATO_GLES_TABLE_LENGTH, MINATO_GLES_TABLE_HASH, gles_hosts, gles_missing, NULL, ""},
+    {"egl", "ANGLE", MINATO_EGL_TABLE_LENGTH, MINATO_EGL_TABLE_HASH, egl_hosts, egl_missing, NULL, ""},
 };
 
 static int provide(void *context, void **table, size_t length, uint64_t hash) {
@@ -114,6 +118,9 @@ static int provide(void *context, void **table, size_t length, uint64_t hash) {
     for (size_t slot = 1; slot < length; slot++) {
         void *function = dlsym(library, lib->hosts[slot - 1]);
         table[slot] = function != NULL ? function : lib->missing[slot - 1];
+    }
+    if (lib->wrap != NULL) {
+        lib->wrap(table);
     }
     return 0;
 }

@@ -48,7 +48,7 @@ PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char *name) 
     if (instance == VK_NULL_HANDLE || proc->level == LEVEL_GLOBAL) {
         return instance == VK_NULL_HANDLE && proc->level == LEVEL_GLOBAL ? proc->function : NULL;
     }
-    if (!minato_recall(instance, &owned)) {
+    if (!minato_recall(instance, &owned, NULL)) {
         return NULL;
     }
     if (proc->owners != 0) {
@@ -60,7 +60,7 @@ PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char *name) 
 PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice device, const char *name) {
     const struct proc *proc = find(name);
     uint32_t owned;
-    if (proc == NULL || proc->level != LEVEL_DEVICE || !minato_recall(device, &owned)) {
+    if (proc == NULL || proc->level != LEVEL_DEVICE || !minato_recall(device, &owned, NULL)) {
         return NULL;
     }
     if (proc->owners != 0) {

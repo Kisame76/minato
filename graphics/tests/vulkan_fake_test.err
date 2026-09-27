@@ -1,7 +1,7 @@
 fake: vkCreateInstance, allocator NULL, flags 0x0
 fake:   application vulkan-fake-test 7, engine NULL 0, API 1.3.0
 fake:   layers: none
-fake:   extensions: VK_EXT_debug_utils VK_KHR_surface VK_EXT_metal_surface VK_EXT_layer_settings
+fake:   extensions: VK_EXT_debug_utils VK_EXT_debug_report VK_KHR_surface VK_EXT_metal_surface VK_EXT_layer_settings
 fake:   chain:
 fake:     layer settings, 4:
 fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
@@ -9,7 +9,11 @@ fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, 
 fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
 fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
 fake:     validation features, 1 enabled, 0 disabled
+fake:     debug utils messenger, severities 0x1000, types 0x1, callback graphics/host's, user data given
+fake:     debug report callback, flags 0x8, callback graphics/host's, user data given
 fake:     validation flags, 2 disabled
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a message from vkCreateInstance, from another thread
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a report from vkCreateInstance, from another thread
 fake: vkCreateInstance, allocator NULL, flags 0x0
 fake:   application NULL 0, engine NULL 0, API 1.3.0
 fake:   layers: none
@@ -30,18 +34,114 @@ fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, firs
 fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
 fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
 fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake:     debug report callback, flags 0x8, callback graphics/host's, user data given
 fake:     validation flags, 1 disabled
-fake: vkCreateDevice, allocator NULL, 1 queue families, features NULL
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a report from vkCreateInstance, from another thread
+fake: vkCreateDebugUtilsMessengerEXT, allocator NULL, severities 0x1000, types 0x1, callback graphics/host's, user data given
+fake: vkSubmitDebugUtilsMessageEXT, severity 0x1000, types 0x1
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a message of the app, from another thread
+fake: vkDestroyDebugUtilsMessengerEXT, allocator NULL
+fake: vkCreateDebugReportCallbackEXT, allocator NULL, flags 0x8, callback graphics/host's, user data given
+fake: vkDebugReportMessageEXT, flags 0x8, object type 3, prefix app
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a report of the app, from another thread
+fake: vkDestroyDebugReportCallbackEXT, allocator NULL
+fake: vkSubmitDebugUtilsMessageEXT, severity 0x1000, types 0x1
+fake: vkCreateDevice, allocator NULL, 2 queue families, features NULL
 fake:   layers: none
 fake:   extensions: VK_KHR_swapchain VK_KHR_16bit_storage VK_KHR_draw_indirect_count VK_KHR_portability_subset VK_EXT_metal_objects
 fake:   chain:
+fake:     Vulkan 1.2 features, timelineSemaphore 1, drawIndirectCount 1
 fake:     16-bit storage features, storageBuffer16BitAccess 1
+fake: vkExportMetalObjectsEXT, the command queue of queue 0.0
+fake: vkExportMetalObjectsEXT, the command queue of queue 0.1
+fake: vkExportMetalObjectsEXT, the command queue of queue 1.0
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s1
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s2
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s3
 fake: vkCreateDevice, allocator NULL, 1 queue families, features NULL
 fake:   layers: none
 fake:   extensions: VK_KHR_portability_subset VK_EXT_metal_objects
-fake:   chain: empty
+fake:   chain:
+fake:     timeline semaphore features, timelineSemaphore 1
+fake: vkExportMetalObjectsEXT, the command queue of queue 0.0
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s4
+fake: vkCreateDevice, allocator NULL, 1 queue families, features NULL
+fake:   layers: none
+fake:   extensions: VK_KHR_portability_subset VK_EXT_metal_objects
+fake:   chain:
+fake:     timeline semaphore features, timelineSemaphore 1
+fake: vkExportMetalObjectsEXT, the command queue of queue 0.0
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s5
+fake: vkDestroySemaphore s5, allocator NULL
 fake: vkDestroyDevice, allocator NULL
+fake: vkCreateSemaphore, allocator NULL, binary: s6
+fake: vkCreateSemaphore, allocator NULL, binary: s7
+fake: vkCreateSemaphore, allocator NULL, binary: s8
+fake: vkCreateSemaphore, allocator NULL, a timeline from 4: s9
+fake: vkQueueSubmit on queue 0.0, 2 batches, fence given
+fake:   0: waits s6, 1 command buffers, signals s7
+fake:   1: waits none, 1 command buffers, signals s8=0 s9=5 s1=1, on devices 0 0 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence given
+fake:   0: waits none, 0 command buffers, signals s1=2
+fake: vkQueueSubmit on queue 0.0, 0 batches, fence none
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s6, 1 command buffers, signals s7=0 s1=3
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence failing
+fake:   0: waits s6, 1 command buffers, signals s7=0 s1=4
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s6, 1 command buffers, signals s7=0 s1=4
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 1 command buffers, signals s9=6 at 0x8000 on device 0 s1=5 at 0x10000 on device 0
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence given
+fake:   0: waits none, 0 command buffers, signals s1=6 at 0x10000 on device 0
+fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
+fake:   0: waits s6, 0 command buffers, signals s7=0 s1=7
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence scheduled
+fake:   0: waits s6, 1 command buffers, signals s7=0 s1=8
+fake: "scheduled" answered 1, after the submit left
+fake: vkWaitForFences, 1 fences, all, timeout 0
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence scheduled
+fake:   0: waits none, 1 command buffers, signals s9=6 at 0x8000 on device 0 s1=9 at 0x10000 on device 0
+fake: "scheduled" answered 1, after the submit left
+fake: vkWaitForFences, 1 fences, all, timeout 0
+fake: vkQueueBindSparse on queue 0.0, 1 batches, fence scheduled
+fake:   0: waits s6, 0 command buffers, signals s7=0 s1=10
+fake: "scheduled" answered 1, after the submit left
+fake: vkWaitForFences, 1 fences, all, timeout 0
+fake: vkWaitSemaphores, all: s1=10, timeout 10000000
+fake: vkWaitSemaphores, all: s1=10, timeout 10000000
+fake: vkWaitSemaphores, all: s1=10, timeout 10000000
+fake: vkQueueSubmit on queue 1.0, 1 batches, fence none
+fake:   0: waits s6, 1 command buffers, signals s7=0 s3=1
+fake: vkWaitSemaphores, all: s1=10 s3=1, timeout 10000000
+fake: vkWaitSemaphores, all: s1=10 s3=1, timeout 10000000
+fake: vkWaitSemaphores, all: s1=10 s3=1, timeout 10000000
+fake: vkWaitForFences, 2 fences, all, timeout 10000000
+fake: vkWaitForFences, 2 fences, all, timeout 10000000
+fake: vkWaitForFences, 2 fences, all, timeout 10000000
+fake: vkWaitForFences, 2 fences, any, timeout 0
+fake: vkWaitForFences, 1 fences, all, timeout 5000000
+fake: vkWaitSemaphores, any: s9=5, timeout 10000000
+fake: vkWaitSemaphores, any: s9=5, timeout 10000000
+fake: vkWaitSemaphores, any: s9=5, timeout 10000000
+fake: vkWaitSemaphores, any: s9=5, timeout 0
+fake: vkGetQueryPoolResults, queries 0 to 1, flags 0x5
+fake: vkGetQueryPoolResults, queries 0 to 1, flags 0x5
+fake: vkGetQueryPoolResults, queries 0 to 1, flags 0x5
+fake: vkGetQueryPoolResults, queries 0 to 1, flags 0x1
+fake: vkDestroySemaphore s6, allocator NULL
+fake: vkDestroySemaphore s7, allocator NULL
+fake: vkDestroySemaphore s8, allocator NULL
+fake: vkDestroySemaphore s9, allocator NULL
+fake: vkDestroySemaphore s1, allocator NULL
+fake: vkDestroySemaphore s2, allocator NULL
+fake: vkDestroySemaphore s3, allocator NULL
+fake: vkDestroyDevice, allocator NULL
+fake: vkDestroySemaphore s4, allocator NULL
 fake: vkDestroyDevice, allocator NULL
 fake: vkDestroyInstance, allocator NULL
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a message from vkDestroyInstance, from another thread
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a report from vkDestroyInstance, from another thread
 fake: vkDestroyInstance, allocator NULL
 fake: vkDestroyInstance, allocator NULL
+minato graphics: a Vulkan debug message on a host thread, logged instead of calling the app: a report from vkDestroyInstance, from another thread

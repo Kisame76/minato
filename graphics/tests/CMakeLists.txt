@@ -148,8 +148,9 @@ if(TARGET minato_graphics_host)
     "MINATO_ANGLE=set:$<TARGET_FILE:fake-driver>")
   add_bind_test(bind_no_driver bind_test_no_driver "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
   # ADR-0030, test 6 without the window: libvulkan.so among the system's libraries, against the fake
-  # MoltenVK, then against MoltenVK with its environment variables set against what libvulkan pins, with
-  # the Metal hook, and without the log level, which graphics/host sets before it opens MoltenVK.
+  # MoltenVK; then against MoltenVK with its environment variables set against what libvulkan pins, with
+  # the Metal hook, and without the log level, which graphics/host sets before it opens MoltenVK; then the
+  # queue's part against MoltenVK, with the Metal hook asking for "scheduled".
   set(vulkan_system_libraries ${thunk_system_libraries} "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
   add_guest_test(vulkan_fake vulkan-fake-test vulkan_fake_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:")
@@ -159,10 +160,14 @@ if(TARGET minato_graphics_host)
       "MVK_CONFIG_LOG_LEVEL=unset:" "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=set:0"
       "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS=set:1" "MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE=set:3"
       "MVK_CONFIG_API_VERSION_TO_ADVERTISE=set:10")
+    add_guest_test(vulkan_queue vulkan-queue-test vulkan_queue_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:scheduled")
   else()
-    add_test(NAME graphics.vulkan_moltenvk COMMAND ${CMAKE_COMMAND} -E echo
-      "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
-    set_tests_properties(graphics.vulkan_moltenvk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue)
+      add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
+        "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
+      set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    endforeach()
   endif()
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
@@ -178,7 +183,7 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
   endif()
 else()
-  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_moltenvk probe)
+  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_moltenvk vulkan_queue probe)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
