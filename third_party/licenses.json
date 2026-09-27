@@ -1,5 +1,5 @@
 {
-  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary.",
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary.",
   "sections": {
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
@@ -126,6 +126,126 @@
         {
           "from": "ndk:toolchains/llvm/prebuilt/darwin-x86_64/sysroot/NOTICE",
           "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "ANGLE",
+      "section": "Graphics: ANGLE",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "ANGLE"
+      ],
+      "texts": [
+        {
+          "from": "angle:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "chromium-base",
+      "section": "Graphics: ANGLE",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "Chromium's base helpers (src/common/base)"
+      ],
+      "texts": [
+        {
+          "from": "angle:src/common/base/README.chromium",
+          "as": "README.chromium"
+        },
+        {
+          "from": "angle:LICENSE",
+          "as": "LICENSE"
+        },
+        {
+          "from": "repo:third_party/angle/licenses/chromium-base-NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "xxHash",
+      "section": "Graphics: ANGLE",
+      "license": "BSD-2-Clause",
+      "rows": [
+        "xxHash (src/common/third_party/xxhash)"
+      ],
+      "texts": [
+        {
+          "from": "angle:src/common/third_party/xxhash/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "abseil-cpp",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0",
+      "rows": [
+        "Abseil (third_party/abseil-cpp)"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/abseil-cpp/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libc++",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "Chromium's libc++, libc++abi and llvm-libc, linked in and hidden"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/libc++/src/LICENSE.TXT",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libc++abi",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "Chromium's libc++, libc++abi and llvm-libc, linked in and hidden"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/libc++abi/src/LICENSE.TXT",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "llvm-libc",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "rows": [
+        "Chromium's libc++, libc++abi and llvm-libc, linked in and hidden"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/llvm-libc/src/LICENSE.TXT",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "zlib",
+      "section": "Graphics: ANGLE",
+      "license": "Zlib",
+      "rows": [
+        "zlib (third_party/zlib)"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/zlib/LICENSE",
+          "as": "LICENSE"
         }
       ]
     },

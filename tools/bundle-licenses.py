@@ -3,9 +3,9 @@
 
 Reads third_party/licenses.json. A component goes in when its section of THIRD_PARTY.md is embedded
 always, or with a framework the build has put into the bundle's Frameworks/. Its texts are copied from
-where the build fetched them (build/sources, build/moltenvk, the NDK, the repository) into
-Licenses/<component>/, and Licenses/licenses.json lists what is there. A missing text fails the build:
-the notices must travel with every binary. tools/license-check.py checks the result.
+where the build fetched them (build/sources, build/moltenvk, ANGLE's checkout in build/angle, the NDK,
+the repository) into Licenses/<component>/, and Licenses/licenses.json lists what is there. A missing
+text fails the build: the notices must travel with every binary. tools/license-check.py checks the result.
 """
 import json
 import os
@@ -19,7 +19,7 @@ def main():
     frameworks = os.path.join(os.environ["TARGET_BUILD_DIR"], os.environ["FRAMEWORKS_FOLDER_PATH"])
     ndk = os.environ.get("ANDROID_NDK") or os.path.expanduser("~/Library/Android/sdk/ndk/30.0.16248370")
     roots = {"sources": os.path.join(root, "build", "sources"), "moltenvk": os.path.join(root, "build", "moltenvk"),
-             "repo": root, "ndk": ndk}
+             "angle": os.path.join(root, "build", "angle", "angle"), "repo": root, "ndk": ndk}
     with open(os.path.join(root, "third_party", "licenses.json")) as handle:
         config = json.load(handle)
 
@@ -53,8 +53,8 @@ def main():
             entry["files"].append(text["as"])
         index.append(entry)
     for source in missing:
-        print(f"error: license text {source} is missing; tools/fetch-sources.py, tools/fetch-moltenvk.sh "
-              "and the NDK of tools/build-bionic.sh provide the texts", file=sys.stderr)
+        print(f"error: license text {source} is missing; tools/fetch-sources.py, tools/fetch-moltenvk.sh, "
+              "tools/build-angle.sh --fetch and the NDK of tools/build-bionic.sh provide the texts", file=sys.stderr)
     if missing:
         return 1
     with open(os.path.join(out, "licenses.json"), "w") as handle:

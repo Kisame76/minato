@@ -4,8 +4,9 @@
 THIRD_PARTY.md lists what Minato adopts, in one table or more per section. third_party/licenses.json says
 for each such section when the app embeds it: always, with a framework in the bundle, or never. For every
 table row of an embedded section, the bundle's Licenses/licenses.json must name a component that covers
-it, and each of that component's texts must be in Licenses/ and not empty. A component of
-third_party/licenses.json may instead give the reason why nothing of it is in the binary.
+it, and each of that component's texts must be in Licenses/ and not empty. So must every component
+third_party/licenses.json lists for an embedded section, since a row may need several (libc++, libc++abi
+and llvm-libc). A component may instead give the reason why nothing of it is in the binary.
 
 Usage: tools/license-check.py <path to Minato.app> [...]
 """
@@ -66,6 +67,22 @@ def check(app, config, markdown):
                     path = os.path.join(app, "Licenses", component["name"], name)
                     if not os.path.isfile(path) or os.path.getsize(path) == 0:
                         problems.append(f"'{row}': Licenses/{component['name']}/{name} is missing or empty")
+    # A row may need the texts of several components (libc++, libc++abi and llvm-libc): each one of an
+    # embedded section must be there with all of its texts, not only one that covers the row.
+    for component in config["components"]:
+        rule = embedding.get(component["section"])
+        if component.get("none") or rule in (None, "never") or (
+                rule != "always" and not os.path.isdir(os.path.join(frameworks, rule))):
+            continue
+        listed = next((entry["files"] for entry in components if entry["name"] == component["name"]), None)
+        if listed is None:
+            problems.append(f"{component['name']} ({component['section']}) is not in Licenses/licenses.json")
+            continue
+        for text in component.get("texts", []):
+            path = os.path.join(app, "Licenses", component["name"], text["as"])
+            if text["as"] not in listed or not os.path.isfile(path) or os.path.getsize(path) == 0:
+                problems.append(f"{component['name']} ({component['section']}): Licenses/{component['name']}/"
+                                f"{text['as']} is missing or empty")
     return problems
 
 

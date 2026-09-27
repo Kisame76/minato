@@ -61,6 +61,12 @@ targets:
       - framework: build/MoltenVK.xcframework/ios-arm64/MoltenVK.framework
         embed: true
         link: false
+      # ANGLE's libGLESv2 (ADR-0029, decision 6): embedded and signed in device and Simulator builds, not
+      # linked; graphics/host opens it with dlopen when the loader first loads a GLES front lib.
+      # tools/build-angle.sh builds it, stripped.
+      - framework: build/ANGLE.xcframework
+        embed: true
+        link: false
     info:
       path: app/Info.plist
       properties:

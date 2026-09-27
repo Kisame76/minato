@@ -1,0 +1,17 @@
+ANGLE's src/common/base (ANGLE chromium/8037 at b4cbb0a8) holds helper classes that ANGLE took from
+Chromium's base/ and one file from V8. ANGLE ships them under the BSD license in its LICENSE file, which
+the files name ("can be found in the LICENSE file") and which is in this folder as LICENSE. The files at
+that commit carry these copyright notices besides The ANGLE Project Authors':
+
+Copyright (c) 2011 The Chromium Authors. All rights reserved.
+    anglebase/sha1.h, anglebase/sha1.cc, anglebase/containers/mru_cache.h
+Copyright 2014 The Chromium Authors. All rights reserved.
+    anglebase/numerics/safe_conversions.h, anglebase/numerics/safe_conversions_impl.h
+Copyright 2017 The Chromium Authors. All rights reserved.
+    anglebase/numerics/: checked_math.h, checked_math_impl.h, clamped_math.h, clamped_math_impl.h,
+    math_constants.h, ranges.h, safe_conversions_arm_impl.h, safe_math.h, safe_math_arm_impl.h,
+    safe_math_clang_gcc_impl.h, safe_math_shared_impl.h
+Copyright 2018 The Chromium Authors. All rights reserved.
+    anglebase/no_destructor.h
+Copyright 2020 the V8 project authors. All rights reserved.
+    anglebase/trace_event/trace_categories.cc

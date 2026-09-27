@@ -46,7 +46,7 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 | Chromium's libc++, libc++abi and llvm-libc, linked in and hidden | `97b436da`, `fc1897a2`, `32082418` | Apache-2.0 WITH LLVM-exception |
 | zlib (`third_party/zlib`) | `5eb4d7ed` | Zlib |
 
-The BSD licenses ask for their notices with every binary: once the app embeds the framework, `tools/license-check.py` fails until [`third_party/licenses.json`](third_party/licenses.json) names ANGLE's texts. Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
+The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from [`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 
 ## Graphics: MoltenVK (ADR-0030)
 
