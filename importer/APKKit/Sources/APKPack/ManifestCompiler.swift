@@ -13,7 +13,16 @@ public enum ManifestCompiler {
         case integer
         /// `android:value` of `<meta-data>`: boolean, then integer, otherwise string, as aapt2 infers it.
         case inferred
+        /// An enum attribute: one of its names, written as its value in decimal (aapt2's `TryParseEnumSymbol`).
+        case enumeration([String: Int32])
     }
+
+    /// `screenOrientation`'s enum in AOSP's attrs_manifest.xml (read 2026-09-26).
+    static let screenOrientations: [String: Int32] = [
+        "unspecified": -1, "landscape": 0, "portrait": 1, "user": 2, "behind": 3, "sensor": 4, "nosensor": 5,
+        "sensorLandscape": 6, "sensorPortrait": 7, "reverseLandscape": 8, "reversePortrait": 9, "fullSensor": 10,
+        "userLandscape": 11, "userPortrait": 12, "fullUser": 13, "locked": 14,
+    ]
 
     struct Definition: Sendable {
         let id: UInt32
@@ -27,6 +36,7 @@ public enum ManifestCompiler {
         "name": Definition(id: 0x0101_0003, encoding: .string),
         "hasCode": Definition(id: 0x0101_000C, encoding: .boolean),
         "exported": Definition(id: 0x0101_0010, encoding: .boolean),
+        "screenOrientation": Definition(id: 0x0101_001E, encoding: .enumeration(screenOrientations)),
         "value": Definition(id: 0x0101_0024, encoding: .inferred),
         "minSdkVersion": Definition(id: 0x0101_020C, encoding: .integer),
         "versionCode": Definition(id: 0x0101_021B, encoding: .integer),
@@ -192,6 +202,11 @@ public enum ManifestCompiler {
                     throw fail(line, "\(name) \"\(value)\" would be a color or a number other than an integer, which make-apk does not write")
                 }
                 return .string(value)
+            case .enumeration(let values):
+                guard let number = values[value] else {
+                    throw fail(line, "\(name) must be one of \(values.keys.sorted().joined(separator: ", ")), not \"\(value)\"")
+                }
+                return .int(number)
             }
         }
 

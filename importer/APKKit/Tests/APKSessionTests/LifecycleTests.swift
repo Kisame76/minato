@@ -8,6 +8,9 @@ import Testing
 struct LifecycleTests {
     typealias Event = Lifecycle.Event
 
+    /// Android 15's API level: the app targets a current Android.
+    static let targetSdk = 35
+
     /// The callbacks for each event, in turn.
     static func run(_ events: [Event], on lifecycle: inout Lifecycle) -> [[Lifecycle.Callback]] {
         events.map { lifecycle.handle($0) }
@@ -15,13 +18,13 @@ struct LifecycleTests {
 
     /// Started, active and focused.
     static func running() -> Lifecycle {
-        var lifecycle = Lifecycle()
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
         _ = run([.start, .active], on: &lifecycle)
         return lifecycle
     }
 
     @Test func startsAndGainsTheFocus() {
-        var lifecycle = Lifecycle()
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
         #expect(lifecycle.gate == .gone)
 
         #expect(lifecycle.handle(.start) == [.onCreate, .onStart, .onResume, .onNativeWindowCreated])
@@ -31,7 +34,7 @@ struct LifecycleTests {
     }
 
     @Test func startsWhenAlreadyActive() {
-        var lifecycle = Lifecycle()
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
 
         #expect(lifecycle.handle(.active) == [])
         #expect(lifecycle.handle(.start) == [.onCreate, .onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
@@ -57,16 +60,45 @@ struct LifecycleTests {
         #expect(lifecycle.handle(.background) == [.onPause, .onNativeWindowDestroyed])
         #expect(lifecycle.awaits == .onNativeWindowDestroyed)
         #expect(lifecycle.gate == .gone)
-        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onSaveInstanceState, .onStop])
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState])
         #expect(lifecycle.awaits == nil)
         #expect(lifecycle.gate == .gone)
+    }
+
+    /// Where onSaveInstanceState falls depends on the app's targetSdk, as in AOSP's ActivityThread:
+    /// after onStop from P (28) on, before onStop below it, and before onPause below Honeycomb (11).
+    @Test(arguments: [
+        (35, [Lifecycle.Callback.onPause, .onNativeWindowDestroyed], [Lifecycle.Callback.onStop, .onSaveInstanceState]),
+        (28, [.onPause, .onNativeWindowDestroyed], [.onStop, .onSaveInstanceState]),
+        (27, [.onPause, .onNativeWindowDestroyed], [.onSaveInstanceState, .onStop]),
+        (11, [.onPause, .onNativeWindowDestroyed], [.onSaveInstanceState, .onStop]),
+        (10, [.onSaveInstanceState, .onPause, .onNativeWindowDestroyed], [.onStop]),
+    ])
+    func savesItsStateWhereItsTargetSdkWantsIt(targetSdk: Int, background: [Lifecycle.Callback], answer: [Lifecycle.Callback]) {
+        var lifecycle = Lifecycle(targetSdk: targetSdk)
+        _ = Self.run([.start, .active, .inactive], on: &lifecycle)
+
+        #expect(lifecycle.handle(.background) == background)
+        #expect(lifecycle.awaits == .onNativeWindowDestroyed)
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == answer)
+        #expect(lifecycle.handle(.foreground) == [.onStart, .onResume, .onNativeWindowCreated])
+    }
+
+    @Test(arguments: [35, 27, 10])
+    func neverSavesTheStateOfAnAppThatEnds(targetSdk: Int) {
+        // ActivityThread saves no state once the activity is finishing (mFinished).
+        var lifecycle = Lifecycle(targetSdk: targetSdk)
+        _ = Self.run([.start, .active], on: &lifecycle)
+
+        #expect(lifecycle.handle(.quit) == [.onWindowFocusChanged(false), .onPause, .onNativeWindowDestroyed])
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onDestroy])
     }
 
     @Test func aWaitAlsoEndsAfterTwoSeconds() {
         var lifecycle = Self.running()
         _ = Self.run([.inactive, .background], on: &lifecycle)
 
-        #expect(lifecycle.handle(.timedOut(.onNativeWindowDestroyed)) == [.onSaveInstanceState, .onStop])
+        #expect(lifecycle.handle(.timedOut(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState])
         #expect(lifecycle.gate == .gone)
         #expect(Lifecycle.answerTimeout == .seconds(2))
     }
@@ -90,7 +122,7 @@ struct LifecycleTests {
         _ = Self.run([.inactive, .background], on: &lifecycle)
         #expect(Self.run([.answered(.onDestroy), .timedOut(.onDestroy)], on: &lifecycle) == [[], []])
         #expect(lifecycle.awaits == .onNativeWindowDestroyed)
-        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onSaveInstanceState, .onStop])
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState])
     }
 
     @Test func comesBackFromTheBackground() {
@@ -111,7 +143,7 @@ struct LifecycleTests {
         #expect(lifecycle.handle(.foreground) == [])
         #expect(lifecycle.handle(.active) == [])
         #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed))
-            == [.onSaveInstanceState, .onStop, .onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
+            == [.onStop, .onSaveInstanceState, .onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
         #expect(lifecycle.gate == .open)
     }
 
@@ -120,7 +152,7 @@ struct LifecycleTests {
         _ = Self.run([.menuOpened, .background], on: &lifecycle)
 
         #expect(Self.run([.memoryWarning, .menuClosed, .finish], on: &lifecycle) == [[], [], []])
-        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onSaveInstanceState, .onStop, .onLowMemory, .onDestroy])
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState, .onLowMemory, .onDestroy])
         #expect(lifecycle.awaits == .onDestroy)
         #expect(lifecycle.gate == .gone)
         #expect(lifecycle.handle(.answered(.onDestroy)) == [])
@@ -129,7 +161,7 @@ struct LifecycleTests {
 
     @Test func ignoresWhatComesBeforeTheStart() {
         // iOS may report the scene's phases before the window is there; the guest starts with the window.
-        var lifecycle = Lifecycle()
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
 
         #expect(Self.run([.memoryWarning, .background, .foreground], on: &lifecycle) == [[], [], []])
         #expect(lifecycle.awaits == nil)
@@ -140,7 +172,7 @@ struct LifecycleTests {
     @Test func startsOnlyInTheForeground() {
         // A window that is there while the scene is in the background waits: the guest starts with the
         // foreground, never in the background.
-        var lifecycle = Lifecycle()
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
 
         #expect(Self.run([.inactive, .background, .start], on: &lifecycle) == [[], [], []])
         #expect(lifecycle.gate == .gone)
@@ -155,7 +187,7 @@ struct LifecycleTests {
 
         #expect(lifecycle.handle(.foreground) == [])
         #expect(Self.run([.inactive, .background, .answered(.onNativeWindowDestroyed)], on: &lifecycle)
-            == [[.onWindowFocusChanged(false)], [.onPause, .onNativeWindowDestroyed], [.onSaveInstanceState, .onStop]])
+            == [[.onWindowFocusChanged(false)], [.onPause, .onNativeWindowDestroyed], [.onStop, .onSaveInstanceState]])
         #expect(lifecycle.handle(.background) == [])
         #expect(lifecycle.awaits == nil)
         #expect(lifecycle.gate == .gone)
@@ -220,7 +252,7 @@ struct LifecycleTests {
         #expect(Self.run([.inactive, .background], on: &lifecycle) == [[], [.onPause, .onNativeWindowDestroyed]])
         #expect(lifecycle.gate == .gone)
         #expect(Self.run([.answered(.onNativeWindowDestroyed), .foreground, .active], on: &lifecycle)
-            == [[.onSaveInstanceState, .onStop], [.onStart, .onResume, .onNativeWindowCreated], []])
+            == [[.onStop, .onSaveInstanceState], [.onStart, .onResume, .onNativeWindowCreated], []])
         #expect(lifecycle.gate == .closed)
         #expect(lifecycle.handle(.menuClosed) == [.onWindowFocusChanged(true)])
         #expect(lifecycle.gate == .open)

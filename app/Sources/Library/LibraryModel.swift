@@ -67,6 +67,8 @@ final class LibraryModel {
     /// What signs native code now, and its converter; the signing coordinator provides both.
     @ObservationIgnored var currentSigner: @MainActor () -> CurrentSigner = { .none }
     @ObservationIgnored var converter: @MainActor (CurrentSigner) -> (any ContainerConverting)? = { _ in nil }
+    /// Returns once the signing coordinator's first look at the certificate after launch has ended.
+    @ObservationIgnored var firstSigningLook: @MainActor () async -> Void = {}
 
     @ObservationIgnored private let library: Library?
     @ObservationIgnored private let paths: LibraryPaths?
@@ -184,9 +186,19 @@ final class LibraryModel {
         guard !isLaunching, !Restart.isUnderway else { return nil }
         isLaunching = true
         defer { isLaunching = false }
-        let entry = entries.first { $0.id == tapped.id } ?? tapped
-        let signer = currentSigner()
-        let decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+        var entry = entries.first { $0.id == tapped.id } ?? tapped
+        var signer = currentSigner()
+        var decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+        if decision == .waitForSigner {
+            // A tap right after launch: the first look may still bring a signer without a tap, so the
+            // setup sheet opens only if it does not. Meanwhile the app shows "Updating…".
+            signingBeforeStart.insert(entry.id)
+            await firstSigningLook()
+            signingBeforeStart.remove(entry.id)
+            entry = entries.first { $0.id == tapped.id } ?? entry
+            signer = currentSigner()
+            decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+        }
         #if DEBUG
         SessionCheck.event("decision \(decision) signer \(signer.fingerprint ?? "none")")
         #endif
@@ -217,7 +229,7 @@ final class LibraryModel {
                 return nil
             }
             start(entry)
-        case .openSigning:
+        case .openSigning, .waitForSigner:
             return .openSigning
         case .explain(let reason):
             return .explain(entry, reason)

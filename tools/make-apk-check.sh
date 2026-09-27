@@ -4,11 +4,13 @@
 # Android emulator, compares what `dumpsys package` read with their manifests, and uninstalls them.
 #   manifest-only     a manifest without code and without a library
 #   stored-library    a NativeActivity with extractNativeLibs="false": a stored library aligned to
-#                     16 KiB, which Android refuses when it is compressed or not page-aligned, and assets
-#   deflated-library  a NativeActivity with extractNativeLibs="true": a deflated library, and assets
+#                     16 KiB, which Android refuses when it is compressed or not page-aligned, assets,
+#                     and screenOrientation="sensorLandscape"
+#   deflated-library  a NativeActivity with extractNativeLibs="true": a deflated library, assets, and
+#                     screenOrientation="reversePortrait"
 # The library is build/fixtures/bin/libraw-dyn.so from tools/build-fixtures.sh; Android only installs it.
 # Usage: tools/make-apk-check.sh [--android]
-# Results: build/make-apk-check/<sample>.apk, and with --android <sample>.dumpsys
+# Results: build/make-apk-check/<sample>.apk, and with --android <sample>.dumpsys and <sample>.resolve
 # Optional environment:
 #   ANDROID_HOME  SDK with platform-tools, default: ~/Library/Android/sdk
 set -euo pipefail
@@ -55,13 +57,15 @@ mkdir -p "$OUT"
 failed=0
 
 # sample <name> <package> <versionCode> <extractNativeLibs, or empty> <library: yes or no>
+#        [<screenOrientation> <its value in ActivityInfo>]
 sample() {
-  local name=$1 package=$2 version=$3 extract=$4 library=$5
+  local name=$1 package=$2 version=$3 extract=$4 library=$5 orientation=${6:-} orientation_value=${7:-}
   local folder="$OUT/$name" apk="$OUT/$name.apk" attribute="" activity=""
   mkdir -p "$folder/assets/sub"
   [[ -z "$extract" ]] || attribute=" android:extractNativeLibs=\"$extract\""
   if [[ "$library" == yes ]]; then
-    activity='    <activity android:name="android.app.NativeActivity" android:exported="true">
+    activity="    <activity android:name=\"android.app.NativeActivity\" android:exported=\"true\" android:screenOrientation=\"$orientation\">"
+    activity+='
       <meta-data android:name="android.app.lib_name" android:value="raw-dyn"/>
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
@@ -125,6 +129,15 @@ EOF
   elif [[ "$flags" == *HAS_CODE* ]]; then
     problems+=" dumpsys package shows HAS_CODE, although hasCode is false;"
   fi
+  # ActivityInfo.dump prints screenOrientation when it is not unspecified.
+  if [[ "$library" == yes ]]; then
+    local resolved
+    resolved=$(device shell cmd package resolve-activity -a android.intent.action.MAIN \
+      -c android.intent.category.LAUNCHER "$package" | tr -d '\r') || true
+    printf '%s\n' "$resolved" >"$OUT/$name.resolve"
+    [[ "$resolved" == *"screenOrientation=$orientation_value "* ]] \
+      || problems+=" the launcher activity lacks screenOrientation=$orientation_value;"
+  fi
   local uninstalled
   uninstalled=$(device uninstall "$package" 2>&1 | tr -d '\r') || true
   [[ "$uninstalled" == *Success* ]] || problems+=" adb uninstall says: $uninstalled;"
@@ -137,8 +150,8 @@ EOF
 }
 
 sample manifest-only io.github.kisame76.minato.check.manifest 1 "" no
-sample stored-library io.github.kisame76.minato.check.stored 2 false yes
-sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes
+sample stored-library io.github.kisame76.minato.check.stored 2 false yes sensorLandscape 6
+sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes reversePortrait 9
 
 if [[ $failed -gt 0 ]]; then
   echo "make-apk check: $failed of 3 samples failed"

@@ -24,13 +24,15 @@ final class GameSession {
     /// The orientation iOS was asked to hold the window in.
     @ObservationIgnored private var heldOrientation: SessionOrientation?
 
-    @ObservationIgnored private var lifecycle = Lifecycle()
+    @ObservationIgnored private var lifecycle: Lifecycle
     @ObservationIgnored private var started = false
 
     nonisolated static let hintShownKey = "sessionMenuHintShown"
 
     init(entry: LibraryEntry) {
         self.entry = entry
+        // Game mode starts only ready apps, which have a report; activity-host reports API level 35.
+        lifecycle = Lifecycle(targetSdk: entry.report?.targetSdk ?? 35)
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
     }
 

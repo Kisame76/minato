@@ -86,7 +86,16 @@ public struct Lifecycle: Sendable, Equatable {
         return hasFocus ? .open : .closed
     }
 
-    public init() {}
+    /// The app's targetSdk, which decides where onSaveInstanceState falls, as in AOSP's
+    /// `ActivityThread.callActivityOnStop` and `performPauseActivity`: after onStop from P on, before
+    /// onStop below P, and before onPause below Honeycomb. An app that ends saves no state.
+    private let targetSdk: Int
+    private static let honeycomb = 11
+    private static let pie = 28
+
+    public init(targetSdk: Int) {
+        self.targetSdk = targetSdk
+    }
 
     /// The callbacks for `event`, in order.
     public mutating func handle(_ event: Event) -> [Callback] {
@@ -156,7 +165,13 @@ public struct Lifecycle: Sendable, Equatable {
             awaits = nil
             switch waited {
             case .onNativeWindowDestroyed:
-                guard isEnding else { return [.onSaveInstanceState, .onStop] }
+                guard isEnding else {
+                    switch targetSdk {
+                    case ..<Self.honeycomb: return [.onStop]
+                    case ..<Self.pie: return [.onSaveInstanceState, .onStop]
+                    default: return [.onStop, .onSaveInstanceState]
+                    }
+                }
                 awaits = .onDestroy
                 return [.onStop, .onDestroy]
             case .onDestroy:
@@ -184,6 +199,9 @@ public struct Lifecycle: Sendable, Equatable {
         if hasFocus {
             hasFocus = false
             callbacks.append(.onWindowFocusChanged(false))
+        }
+        if !isEnding, targetSdk < Self.honeycomb {
+            callbacks.append(.onSaveInstanceState)
         }
         phase = .stopped
         awaits = .onNativeWindowDestroyed

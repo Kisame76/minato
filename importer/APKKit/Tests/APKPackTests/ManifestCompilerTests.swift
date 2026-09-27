@@ -71,7 +71,7 @@ struct ManifestCompilerTests {
             <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
             <uses-feature android:name="f" android:required="true" android:glEsVersion="0x00030000" android:version="1"/>
             <application android:label="L" android:hasCode="false" android:extractNativeLibs="false">
-            <activity android:name="a" android:exported="true"><meta-data android:name="k" android:value="v"/></activity>
+            <activity android:name="a" android:exported="true" android:screenOrientation="landscape"><meta-data android:name="k" android:value="v"/></activity>
             </application>
             """).replacingOccurrences(of: #"package="org.example.app""#,
                                       with: #"package="org.example.app" android:versionCode="1" android:versionName="1.0""#)
@@ -87,6 +87,7 @@ struct ManifestCompilerTests {
             "name": 16_842_755,
             "hasCode": 16_842_764,
             "exported": 16_842_768,
+            "screenOrientation": 16_842_782,
             "value": 16_842_788,
             "minSdkVersion": 16_843_276,
             "versionCode": 16_843_291,
@@ -122,6 +123,28 @@ struct ManifestCompilerTests {
         #expect(package?.namespace == nil)
         #expect(package?.type == 0x03)
         #expect(package?.rawValue == "io.github.kisame76.minato.test.activity")
+    }
+
+    /// The names of `screenOrientation`'s enum in AOSP's attrs_manifest.xml, with their values; aapt2
+    /// writes the value as a decimal integer (`TryParseEnumSymbol`), which APKKit reads back.
+    @Test(arguments: [
+        ("unspecified", -1), ("landscape", 0), ("portrait", 1), ("user", 2), ("behind", 3), ("sensor", 4),
+        ("nosensor", 5), ("sensorLandscape", 6), ("sensorPortrait", 7), ("reverseLandscape", 8),
+        ("reversePortrait", 9), ("fullSensor", 10), ("userLandscape", 11), ("userPortrait", 12),
+        ("fullUser", 13), ("locked", 14),
+    ])
+    func encodesEveryScreenOrientation(name: String, value: Int32) throws {
+        let text = Self.nativeActivity.replacingOccurrences(
+            of: #"android:name="android.app.NativeActivity""#,
+            with: #"android:name="android.app.NativeActivity" android:screenOrientation="\#(name)""#)
+        let data = try Self.compile(text)
+
+        let attribute = try RawXML(data).element("activity")?.attribute("screenOrientation")
+        #expect(attribute?.resourceID == 0x0101_001E)
+        #expect(attribute?.type == 0x10)
+        #expect(attribute?.data == UInt32(bitPattern: value))
+        #expect(attribute?.rawValue == nil)
+        #expect(try AndroidManifest(xml: BinaryXML.parse(data)).screenOrientation == Int(value))
     }
 
     @Test(arguments: [
@@ -185,6 +208,9 @@ struct ManifestCompilerTests {
         (##"<meta-data android:name="key" android:value="#ff0000"/>"##, "#ff0000"),
         (#"<meta-data android:name="key" android:value="1.5"/>"#, "1.5"),
         (#"<application android:hasCode="no"/>"#, "android:hasCode"),
+        (#"<activity android:screenOrientation="sideways"/>"#, "android:screenOrientation"),
+        (#"<activity android:screenOrientation="0"/>"#, "android:screenOrientation"),
+        (#"<activity android:screenOrientation="Landscape"/>"#, "android:screenOrientation"),
         (#"<uses-sdk android:minSdkVersion="Baklava"/>"#, "android:minSdkVersion"),
         (#"<uses-sdk android:minSdkVersion="4294967296"/>"#, "android:minSdkVersion"),
         (#"<application android:hasCode=" true"/>"#, "android:hasCode"),

@@ -7,13 +7,16 @@ public enum CurrentSigner: Equatable, Sendable {
     case certificate(sha256: String)
     case adHoc
     case none
+    /// Nothing yet, and the first look at the certificate after launch has not ended: it may still
+    /// bring a signer without a tap, e.g. from the certificate SideStore embeds.
+    case pending
 
     /// What `signedWith` records for code this signer signed.
     public var fingerprint: String? {
         switch self {
         case .certificate(let sha256): sha256
         case .adHoc: "ad hoc"
-        case .none: nil
+        case .none, .pending: nil
         }
     }
 }
@@ -33,6 +36,8 @@ public enum LaunchDecision: Equatable, Sendable {
     /// Sign the app's native code with the current signer, then start without another tap.
     case signFirst
     case openSigning
+    /// Wait until the first look at the certificate ends, then decide again.
+    case waitForSigner
     case explain(Reason)
 
     /// An app that cannot start says why before anything else, so it needs no certificate; a ready
@@ -54,6 +59,8 @@ public enum LaunchDecision: Equatable, Sendable {
                 self = .explain(.updating)
             } else if let fingerprint = signer.fingerprint {
                 self = entry.signedWith == fingerprint ? .start : .signFirst
+            } else if signer == .pending {
+                self = .waitForSigner
             } else {
                 self = .openSigning
             }

@@ -45,6 +45,9 @@ final class SigningCoordinator {
     /// One look at a time: a refresh during a look asks for one more look afterwards.
     @ObservationIgnored private var isLooking = false
     @ObservationIgnored private var needsAnotherLook = false
+    /// Whether the first look after launch has ended, and the taps that wait for it (ADR-0032, decision 3).
+    @ObservationIgnored private var hasLooked = false
+    @ObservationIgnored private var waitingForFirstLook: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var openedStoreThisLaunch = false
     @ObservationIgnored private var embeddedCertificateFailed = false
     /// Each automatic step runs at most once per launch, even if its outcome cannot be saved or some
@@ -96,7 +99,18 @@ final class SigningCoordinator {
             await look()
         } while needsAnotherLook
         isLooking = false
+        if !hasLooked {
+            hasLooked = true
+            waitingForFirstLook.forEach { $0.resume() }
+            waitingForFirstLook = []
+        }
         reportForCheck()
+    }
+
+    /// Returns once the first look after launch has ended.
+    func firstLookEnded() async {
+        guard !hasLooked else { return }
+        await withCheckedContinuation { waitingForFirstLook.append($0) }
     }
 
     /// Opens the store's export link; the store answers through `handle(_:)`.
@@ -357,12 +371,13 @@ final class SigningCoordinator {
 
     /// What signs native code now: ad hoc when the app itself is signed ad hoc (Simulator), the certificate
     /// once it is valid and passed its self-test, as signing again waits for (ADR-0023), and nothing
-    /// otherwise. Its fingerprint is the one signing again compares with.
+    /// otherwise; `pending` until the first look after launch has ended, which may still bring one.
+    /// Its fingerprint is the one signing again compares with.
     func currentSigner() -> CurrentSigner {
         if environment.ownSignature == .adHoc { return .adHoc }
         guard case .valid(let certificate) = state, let own = environment.own,
               let selfTest = records.load().selfTest, selfTest.sha256 == certificate.sha256, selfTest.passed
-        else { return .none }
+        else { return hasLooked ? .none : .pending }
         return .certificate(sha256: own.sha256)
     }
 
@@ -373,7 +388,7 @@ final class SigningCoordinator {
             switch signer {
             case .certificate: return SignerConverter(signer: try CodeSigning.signer())
             case .adHoc: return SignerConverter(signer: try ContainerSigner(identity: nil))
-            case .none: return nil
+            case .none, .pending: return nil
             }
         } catch {
             log.error("Cannot sign native code: \(error.localizedDescription, privacy: .public)")

@@ -25,6 +25,7 @@ struct MinatoApp: App {
             library.importSigning = { [weak signing] in signing?.importSigning() }
             library.currentSigner = { [weak signing] in signing?.currentSigner() ?? .none }
             library.converter = { [weak signing] in signing?.converter(for: $0) }
+            library.firstSigningLook = { [weak signing] in await signing?.firstLookEnded() }
             _library = State(initialValue: library)
             _signing = State(initialValue: signing)
         }

@@ -33,6 +33,19 @@ struct LaunchDecisionTests {
         #expect(LaunchDecision(entry: try Entry.entry(), isUpdating: false, signer: .none) == .openSigning)
     }
 
+    @Test func waitsForTheFirstLookAtTheCertificateBeforeAskingForOne() throws {
+        // A tap right after launch, before the first look ended: that look may still bring a signer
+        // without a tap (SideStore's embedded certificate), so the tap waits and is decided again.
+        #expect(LaunchDecision(entry: try Entry.entry(), isUpdating: false, signer: .pending) == .waitForSigner)
+        #expect(LaunchDecision(entry: try Entry.entry(signedWith: "aa"), isUpdating: false, signer: .pending) == .waitForSigner)
+    }
+
+    @Test func explainsWithoutWaitingForTheFirstLook() throws {
+        #expect(LaunchDecision(entry: try Entry.entry(nativeActivity: false), isUpdating: false, signer: .pending) == .explain(.needsART))
+        #expect(LaunchDecision(entry: try Entry.entry(), isUpdating: true, signer: .pending) == .explain(.updating))
+        #expect(LaunchDecision(entry: try Entry.entry(state: .incompatible), isUpdating: false, signer: .pending) == .explain(.incompatible))
+    }
+
     @Test func explainsWhyOtherAppsDoNotStart() throws {
         #expect(LaunchDecision(entry: try Entry.entry(nativeActivity: false), isUpdating: false, signer: .certificate(sha256: "aa"))
             == .explain(.needsART))
@@ -55,5 +68,6 @@ struct LaunchDecisionTests {
         #expect(CurrentSigner.certificate(sha256: "aa").fingerprint == "aa")
         #expect(CurrentSigner.adHoc.fingerprint == "ad hoc")
         #expect(CurrentSigner.none.fingerprint == nil)
+        #expect(CurrentSigner.pending.fingerprint == nil)
     }
 }
