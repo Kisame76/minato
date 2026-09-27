@@ -1,0 +1,208 @@
+import Testing
+
+@testable import APKSession
+
+/// ADR-0036, decision 3: UIKit's touches as Android's motion events, with the pointer IDs and the order
+/// of AOSP's TouchInputMapper (`dispatchTouches`, `dispatchMotion`) and MultiTouchInputMapper.
+@Suite("TouchTranslator")
+struct TouchTranslatorTests {
+    static let scale = 3.0
+
+    static func sample(
+        _ x: Double, _ y: Double, at time: Double, force: Double = 0, maximumForce: Double = 0,
+        radius: Double = 10
+    ) -> TouchSample {
+        TouchSample(x: x, y: y, force: force, maximumForce: maximumForce, majorRadius: radius, timestamp: time)
+    }
+
+    static func touch(_ key: UInt, _ x: Double, _ y: Double, at time: Double) -> TouchChange {
+        TouchChange(touch: key, samples: [sample(x, y, at: time)])
+    }
+
+    /// A pointer at (x, y) in points, with no force and a radius of 10 points.
+    static func pointer(_ id: Int32, _ x: Double, _ y: Double) -> MotionEvent.Pointer {
+        MotionEvent.Pointer(id: id, x: Float(x * scale), y: Float(y * scale), pressure: 1, touchMajor: Float(20 * scale))
+    }
+
+    static func ns(_ seconds: Double) -> Int64 { Int64((seconds * 1e9).rounded()) }
+
+    @Test func aTapIsDownAndUpInPixelsAndNanoseconds() {
+        var translator = TouchTranslator(scale: Self.scale)
+
+        #expect(translator.began([Self.touch(7, 10, 20, at: 100.5)]) == [
+            MotionEvent(action: .down, downTime: Self.ns(100.5), eventTime: Self.ns(100.5),
+                        pointers: [Self.pointer(0, 10, 20)]),
+        ])
+        #expect(translator.ended([Self.touch(7, 11, 21, at: 100.6)]) == [
+            MotionEvent(action: .up, downTime: Self.ns(100.5), eventTime: Self.ns(100.6),
+                        pointers: [Self.pointer(0, 11, 21)]),
+        ])
+    }
+
+    @Test func aSecondFingerIsPointerDownAndItsLiftPointerUpWithTheIndex() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+
+        #expect(translator.began([Self.touch(2, 50, 50, at: 2)]) == [
+            MotionEvent(action: .pointerDown(1), downTime: Self.ns(1), eventTime: Self.ns(2),
+                        pointers: [Self.pointer(0, 10, 10), Self.pointer(1, 50, 50)]),
+        ])
+        #expect(translator.ended([Self.touch(1, 10, 10, at: 3)]) == [
+            MotionEvent(action: .pointerUp(0), downTime: Self.ns(1), eventTime: Self.ns(3),
+                        pointers: [Self.pointer(0, 10, 10), Self.pointer(1, 50, 50)]),
+        ])
+        #expect(translator.ended([Self.touch(2, 50, 50, at: 4)]) == [
+            MotionEvent(action: .up, downTime: Self.ns(1), eventTime: Self.ns(4), pointers: [Self.pointer(1, 50, 50)]),
+        ])
+    }
+
+    /// MultiTouchInputMapper takes the lowest free ID; dispatchMotion orders the pointers by ID.
+    @Test func aNewFingerTakesTheLowestFreeIDAndItsPlaceInTheOrder() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.began([Self.touch(2, 50, 50, at: 2)])
+        _ = translator.ended([Self.touch(1, 10, 10, at: 3)])
+
+        #expect(translator.began([Self.touch(3, 30, 30, at: 4)]) == [
+            MotionEvent(action: .pointerDown(0), downTime: Self.ns(1), eventTime: Self.ns(4),
+                        pointers: [Self.pointer(0, 30, 30), Self.pointer(1, 50, 50)]),
+        ])
+    }
+
+    @Test func aMoveCarriesEveryPointer() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.began([Self.touch(2, 50, 50, at: 2)])
+
+        #expect(translator.moved([Self.touch(2, 60, 70, at: 3)]) == [
+            MotionEvent(action: .move, downTime: Self.ns(1), eventTime: Self.ns(3),
+                        pointers: [Self.pointer(0, 10, 10), Self.pointer(1, 60, 70)]),
+        ])
+    }
+
+    @Test func theCoalescedSamplesBecomeTheHistory() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        let change = TouchChange(touch: 1, samples: [
+            Self.sample(11, 10, at: 1.004), Self.sample(12, 10, at: 1.008), Self.sample(13, 10, at: 1.012),
+        ])
+
+        #expect(translator.moved([change]) == [
+            MotionEvent(action: .move, downTime: Self.ns(1), eventTime: Self.ns(1.012),
+                        pointers: [Self.pointer(0, 13, 10)],
+                        history: [
+                            .init(time: Self.ns(1.004), pointers: [Self.pointer(0, 11, 10)]),
+                            .init(time: Self.ns(1.008), pointers: [Self.pointer(0, 12, 10)]),
+                        ]),
+        ])
+    }
+
+    /// Each historical sample holds every pointer, as Android's; a pointer without a sample at that time
+    /// keeps the place it had.
+    @Test func theHistoryOfSeveralPointersHoldsEveryPointer() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.began([Self.touch(2, 50, 50, at: 1)])
+        _ = translator.began([Self.touch(3, 90, 90, at: 1)])
+        let first = TouchChange(touch: 1, samples: [
+            Self.sample(11, 10, at: 2.004), Self.sample(12, 10, at: 2.008), Self.sample(13, 10, at: 2.012),
+        ])
+        let second = TouchChange(touch: 2, samples: [Self.sample(51, 50, at: 2.008), Self.sample(52, 50, at: 2.012)])
+
+        #expect(translator.moved([second, first]) == [
+            MotionEvent(action: .move, downTime: Self.ns(1), eventTime: Self.ns(2.012),
+                        pointers: [Self.pointer(0, 13, 10), Self.pointer(1, 52, 50), Self.pointer(2, 90, 90)],
+                        history: [
+                            .init(time: Self.ns(2.004),
+                                  pointers: [Self.pointer(0, 11, 10), Self.pointer(1, 50, 50), Self.pointer(2, 90, 90)]),
+                            .init(time: Self.ns(2.008),
+                                  pointers: [Self.pointer(0, 12, 10), Self.pointer(1, 51, 50), Self.pointer(2, 90, 90)]),
+                        ]),
+        ])
+    }
+
+    @Test func pressureIsTheShareOfTheMaximumForceAndOneWithoutForce() {
+        var translator = TouchTranslator(scale: 2)
+        let pressed = TouchChange(touch: 1, samples: [Self.sample(0, 0, at: 1, force: 3, maximumForce: 6, radius: 15)])
+
+        let pointer = translator.began([pressed]).first?.pointers.first
+        #expect(pointer?.pressure == 0.5)
+        #expect(pointer?.touchMajor == 60)
+        #expect(translator.began([Self.touch(2, 0, 0, at: 2)]).first?.pointers.last?.pressure == 1)
+    }
+
+    /// dispatchTouches sends one event per pointer that goes down or up, in the order of the IDs.
+    @Test func fingersThatComeOrGoTogetherGetAnEventEach() {
+        var translator = TouchTranslator(scale: Self.scale)
+
+        #expect(translator.began([Self.touch(1, 10, 10, at: 1), Self.touch(2, 50, 50, at: 1)]).map(\.action) == [
+            .down, .pointerDown(1),
+        ])
+        let events = translator.ended([Self.touch(2, 50, 50, at: 2), Self.touch(1, 10, 10, at: 2)])
+        #expect(events.map(\.action) == [.pointerUp(0), .up])
+        #expect(events.map(\.pointers.count) == [2, 1])
+        #expect(events.last?.pointers.first?.id == 1)
+    }
+
+    /// At the top-edge pan UIKit cancels the pan's touches; the whole gesture ends with one CANCEL, and the
+    /// other fingers are ignored until they lift.
+    @Test func aCancelledTouchCancelsTheWholeGesture() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.began([Self.touch(2, 50, 50, at: 2)])
+
+        #expect(translator.cancelled([Self.touch(1, 10, 5, at: 3)]) == [
+            MotionEvent(action: .cancel, downTime: Self.ns(1), eventTime: Self.ns(3),
+                        pointers: [Self.pointer(0, 10, 10), Self.pointer(1, 50, 50)]),
+        ])
+        #expect(translator.moved([Self.touch(2, 60, 60, at: 4)]) == [])
+        #expect(translator.ended([Self.touch(2, 60, 60, at: 5)]) == [])
+        #expect(translator.began([Self.touch(3, 30, 30, at: 6)]) == [
+            MotionEvent(action: .down, downTime: Self.ns(6), eventTime: Self.ns(6), pointers: [Self.pointer(0, 30, 30)]),
+        ])
+    }
+
+    @Test func aFingerThatStaysDownAfterACancelStartsNothingNew() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.began([Self.touch(2, 50, 50, at: 2)])
+        _ = translator.cancelled([Self.touch(1, 10, 10, at: 3)])
+
+        #expect(translator.began([Self.touch(3, 30, 30, at: 4)]) == [
+            MotionEvent(action: .down, downTime: Self.ns(4), eventTime: Self.ns(4), pointers: [Self.pointer(0, 30, 30)]),
+        ])
+        #expect(translator.moved([Self.touch(2, 60, 60, at: 5)]) == [])
+    }
+
+    @Test func losingTheFocusCancelsAnOpenGesture() {
+        var translator = TouchTranslator(scale: Self.scale)
+        #expect(translator.focusLost(at: 1) == [])
+
+        _ = translator.began([Self.touch(1, 10, 10, at: 2)])
+        #expect(translator.focusLost(at: 3) == [
+            MotionEvent(action: .cancel, downTime: Self.ns(2), eventTime: Self.ns(3), pointers: [Self.pointer(0, 10, 10)]),
+        ])
+        #expect(translator.ended([Self.touch(1, 10, 10, at: 4)]) == [])
+    }
+
+    /// Android's MAX_POINTERS is 16; further fingers are ignored.
+    @Test func fingersBeyondSixteenAreIgnored() {
+        var translator = TouchTranslator(scale: Self.scale)
+        let touches = (0..<17).map { Self.touch(UInt($0), Double($0), 0, at: 1) }
+
+        let events = translator.began(touches)
+        #expect(events.count == 16)
+        #expect(events.last?.action == .pointerDown(15))
+        #expect(translator.moved([Self.touch(16, 5, 5, at: 2)]) == [])
+        #expect(translator.ended([Self.touch(16, 5, 5, at: 3)]) == [])
+    }
+
+    /// A touch whose object address UIKit reuses is a new touch.
+    @Test func aTouchThatBeginsAgainIsNew() {
+        var translator = TouchTranslator(scale: Self.scale)
+        _ = translator.began([Self.touch(1, 10, 10, at: 1)])
+        _ = translator.focusLost(at: 2)
+
+        #expect(translator.began([Self.touch(1, 20, 20, at: 3)]).map(\.action) == [.down])
+    }
+}
