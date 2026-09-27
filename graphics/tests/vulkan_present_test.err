@@ -1,0 +1,9 @@
+metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 b6dc3819
+metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 1dddd7a3
+metal: drawable 3: 64 x 48, BGRA8Unorm_sRGB, CRC-32 1dddd7a3
+metal: drawable 4: 32 x 24, BGRA8Unorm, CRC-32 993284fb
+host: in the background
+host: "scheduled": 1, command buffers committed meanwhile by other threads than the guest's: 1
+host: the window removed: 0
+host: guest commits after "scheduled": 0
+host: in the foreground

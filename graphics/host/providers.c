@@ -146,5 +146,9 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
             result = -1;
         }
     }
+    /* The app asks for "scheduled" at background (ADR-0030, decision 13). */
+    if (moltenvk != NULL && moltenvk[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_vulkan_provider, NULL) != 0) {
+        result = -1;
+    }
     return result;
 }

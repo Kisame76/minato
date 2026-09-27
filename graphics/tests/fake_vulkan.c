@@ -12,10 +12,19 @@
      vkDestroyInstance, the others when the app sends a message.
    - Its fences are markers (it makes none): FAILING fails a submit; SCHEDULED keeps a submit here while a
      thread of the fake's own asks graphics/host for "scheduled", and the next wait prints its answer and
-     whether it came after the submit left. */
+     whether it came after the submit left.
+   - For graphics.vulkan_window it has Metal surfaces, swapchains, images, memory and command buffers, which
+     print what they get; its acquires and presents answer VK_SUBOPTIMAL_KHR for another size than the
+     window's. It plays the app's host side on the runtime's window registry, which it finds in graphics-run,
+     when vkResetFences gets a marker: CLOSE_THEN_OPEN closes the window's gate and opens it 150 ms later;
+     BACKGROUND puts the process into the background, asks for "scheduled" and comes back after 150 ms;
+     BACKGROUND_THEN_GONE removes the window after 100 ms of background and comes back after 200 ms;
+     BACKGROUND_IN_WAIT does what BACKGROUND does when the next wait of the fake's succeeds, so from inside
+     the call that waits. */
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <pthread.h>
@@ -30,6 +39,10 @@
 
 #define FAILING ((VkFence)(uintptr_t)0xfa11)
 #define SCHEDULED ((VkFence)(uintptr_t)0x5c4ed)
+#define CLOSE_THEN_OPEN ((VkFence)(uintptr_t)0x6a7e0001)
+#define BACKGROUND ((VkFence)(uintptr_t)0x6a7e0002)
+#define BACKGROUND_THEN_GONE ((VkFence)(uintptr_t)0x6a7e0003)
+#define BACKGROUND_IN_WAIT ((VkFence)(uintptr_t)0x6a7e0004)
 #define SLICE 10000000u /* ns */
 
 /* Its lists, in no particular order, with names libvulkan offers and names it hides, each with a name of the
@@ -558,6 +571,8 @@ EXPORTED VkResult vkDeviceWaitIdle(VkDevice device) {
 
 /* A wait's answer: a slice of 10 ms times out twice, then succeeds; any other timeout times out at once. */
 static unsigned slices;
+static atomic_int background_in_wait;
+static void background_now(VkFence step);
 
 static VkResult waited(uint64_t timeout) {
     if (timeout != SLICE) {
@@ -567,6 +582,9 @@ static VkResult waited(uint64_t timeout) {
         return VK_TIMEOUT;
     }
     slices = 0;
+    if (atomic_exchange(&background_in_wait, 0)) {
+        background_now(BACKGROUND);
+    }
     return VK_SUCCESS;
 }
 
@@ -657,6 +675,364 @@ EXPORTED void vkDebugReportMessageEXT(VkInstance instance, VkDebugReportFlagsEXT
     (void)object, (void)location, (void)code;
     fprintf(stderr, "fake: vkDebugReportMessageEXT, flags 0x%x, object type %d, prefix %s\n", flags, type, prefix);
     send(instance, 1, 0, message);
+}
+
+/* The runtime's window registry in graphics-run (APKRuntime/apkrt.h), for the window of graphics.vulkan_window,
+   ID 1. */
+static void *runtime(const char *name) {
+    void *function = dlsym(RTLD_DEFAULT, name);
+    if (function == NULL) {
+        fprintf(stderr, "fake: graphics-run has no %s\n", name);
+        exit(2);
+    }
+    return function;
+}
+
+static int window_size(int32_t *width, int32_t *height) {
+    return ((int (*)(uint64_t, int32_t *, int32_t *))runtime("apkrt_window_size"))(1, width, height);
+}
+
+static const char *yes(int condition) {
+    return condition ? "yes" : "no";
+}
+
+static unsigned surfaces, images, memories, pools, command_buffers;
+
+EXPORTED VkResult vkCreateMetalSurfaceEXT(VkInstance instance, const VkMetalSurfaceCreateInfoEXT *info,
+                                          const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) {
+    (void)instance;
+    void *window_layer = ((void *(*)(uint64_t))runtime("apkrt_window_layer"))(1);
+    fprintf(stderr, "fake: vkCreateMetalSurfaceEXT, allocator %s, the window's layer: %s: surface %u\n",
+            allocator != NULL ? "given" : "NULL", yes(window_layer != NULL && info->pLayer == window_layer), ++surfaces);
+    chain(info->pNext);
+    if (window_layer != NULL) {
+        CFRelease(window_layer);
+    }
+    *surface = (VkSurfaceKHR)(uintptr_t)(0x50000000u + surfaces);
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks *allocator) {
+    (void)instance;
+    fprintf(stderr, "fake: vkDestroySurfaceKHR surface %u, allocator %s\n", (unsigned)((uintptr_t)surface - 0x50000000u),
+            allocator != NULL ? "given" : "NULL");
+}
+
+EXPORTED VkResult vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physical, VkSurfaceKHR surface,
+                                                            VkSurfaceCapabilitiesKHR *capabilities) {
+    (void)physical;
+    fprintf(stderr, "fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface %u\n",
+            (unsigned)((uintptr_t)surface - 0x50000000u));
+    *capabilities = (VkSurfaceCapabilitiesKHR){
+        .minImageCount = 2, .maxImageCount = 3, .currentExtent = {64, 48}, .minImageExtent = {1, 1},
+        .maxImageExtent = {16384, 16384}, .maxImageArrayLayers = 1,
+        .supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR, .currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+        .supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR | VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR |
+                                   VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        .supportedUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                               VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT};
+    return VK_SUCCESS;
+}
+
+/* A swapchain: its number, extent and images, which its acquires hand out in turn. */
+struct swapchain {
+    unsigned number;
+    VkExtent2D extent;
+    uint32_t count, next;
+};
+static unsigned swapchains;
+
+static unsigned swapchain_number(VkSwapchainKHR swapchain) {
+    return swapchain != VK_NULL_HANDLE ? ((const struct swapchain *)(const void *)swapchain)->number : 0;
+}
+
+/* Another size than the window's, while the window is there. */
+static int suboptimal(const struct swapchain *swapchain) {
+    int32_t width, height;
+    return window_size(&width, &height) == 0 &&
+           (swapchain->extent.width != (uint32_t)width || swapchain->extent.height != (uint32_t)height);
+}
+
+EXPORTED VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
+                                       const VkAllocationCallbacks *allocator, VkSwapchainKHR *made) {
+    (void)device;
+    struct swapchain *swapchain = calloc(1, sizeof *swapchain);
+    *swapchain = (struct swapchain){++swapchains, info->imageExtent, info->minImageCount, 0};
+    fprintf(stderr, "fake: vkCreateSwapchainKHR on surface %u, allocator %s: format %d, colors %d, %u images, "
+            "%u x %u, %u layers, usage 0x%x, sharing %d, transform 0x%x, alpha 0x%x, mode %d, clipped %u, old ",
+            (unsigned)((uintptr_t)info->surface - 0x50000000u), allocator != NULL ? "given" : "NULL",
+            info->imageFormat, info->imageColorSpace, info->minImageCount, info->imageExtent.width,
+            info->imageExtent.height, info->imageArrayLayers, info->imageUsage, info->imageSharingMode,
+            info->preTransform, info->compositeAlpha, info->presentMode, info->clipped);
+    if (info->oldSwapchain == VK_NULL_HANDLE) {
+        fprintf(stderr, "none");
+    } else {
+        fprintf(stderr, "swapchain %u", swapchain_number(info->oldSwapchain));
+    }
+    fprintf(stderr, ": swapchain %u\n", swapchain->number);
+    chain(info->pNext);
+    *made = (VkSwapchainKHR)(uintptr_t)swapchain;
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *allocator) {
+    (void)device;
+    fprintf(stderr, "fake: vkDestroySwapchainKHR swapchain %u, allocator %s\n", swapchain_number(swapchain),
+            allocator != NULL ? "given" : "NULL");
+    free((void *)swapchain);
+}
+
+/* A swapchain's images are 0x70000000 + 16 x its number + their index; the images it makes, 0x60000000 + n. */
+static const char *image_name(VkImage image) {
+    static char name[64];
+    const uintptr_t handle = (uintptr_t)image;
+    if (handle >= 0x70000000u) {
+        snprintf(name, sizeof name, "swapchain %u image %u", (unsigned)((handle - 0x70000000u) / 16),
+                 (unsigned)(handle % 16));
+    } else {
+        snprintf(name, sizeof name, "image %u", (unsigned)(handle - 0x60000000u));
+    }
+    return name;
+}
+
+EXPORTED VkResult vkGetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain, uint32_t *count, VkImage *given) {
+    (void)device;
+    const struct swapchain *fake = (const void *)swapchain;
+    VkImage images_of[16];
+    for (uint32_t index = 0; index < fake->count; index++) {
+        images_of[index] = (VkImage)(uintptr_t)(0x70000000u + 16 * fake->number + index);
+    }
+    return list(images_of, sizeof *images_of, fake->count, count, given);
+}
+
+static const char *semaphore_name(VkSemaphore semaphore) {
+    static char name[16];
+    snprintf(name, sizeof name, semaphore == VK_NULL_HANDLE ? "none" : "s%u", (unsigned)(uintptr_t)semaphore);
+    return name;
+}
+
+EXPORTED VkResult vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
+                                        VkSemaphore semaphore, VkFence fence, uint32_t *index) {
+    (void)device;
+    struct swapchain *fake = (void *)swapchain;
+    *index = fake->next;
+    fake->next = (fake->next + 1) % fake->count;
+    fprintf(stderr, "fake: vkAcquireNextImageKHR swapchain %u, timeout %llu, semaphore %s, fence %s: %u\n",
+            fake->number, (unsigned long long)timeout, semaphore_name(semaphore), fenced(fence), *index);
+    return suboptimal(fake) ? VK_SUBOPTIMAL_KHR : VK_SUCCESS;
+}
+
+EXPORTED VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info) {
+    VkResult result = VK_SUCCESS;
+    fprintf(stderr, "fake: vkQueuePresentKHR on %s: waits", named(queue));
+    for (uint32_t index = 0; index < info->waitSemaphoreCount; index++) {
+        fprintf(stderr, " %s", semaphore_name(info->pWaitSemaphores[index]));
+    }
+    fprintf(stderr, "%s;", info->waitSemaphoreCount == 0 ? " none" : "");
+    for (uint32_t index = 0; index < info->swapchainCount; index++) {
+        const struct swapchain *fake = (const void *)info->pSwapchains[index];
+        const VkResult own = suboptimal(fake) ? VK_SUBOPTIMAL_KHR : VK_SUCCESS;
+        fprintf(stderr, " swapchain %u image %u", fake->number, info->pImageIndices[index]);
+        if (info->pResults != NULL) {
+            info->pResults[index] = own;
+        }
+        result = own != VK_SUCCESS ? own : result;
+    }
+    fprintf(stderr, "%s\n", info->pResults != NULL ? ", with results" : "");
+    chain(info->pNext);
+    return result;
+}
+
+/* Memory type 0 is the host's only, type 1 the device's. */
+EXPORTED void vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice physical,
+                                                  VkPhysicalDeviceMemoryProperties *properties) {
+    (void)physical;
+    memset(properties, 0, sizeof *properties);
+    properties->memoryTypeCount = 2;
+    properties->memoryTypes[0].propertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    properties->memoryTypes[1].propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    properties->memoryHeapCount = 1;
+    properties->memoryHeaps[0] = (VkMemoryHeap){1u << 30, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT};
+}
+
+EXPORTED VkResult vkCreateImage(VkDevice device, const VkImageCreateInfo *info, const VkAllocationCallbacks *allocator,
+                                VkImage *image) {
+    (void)device;
+    fprintf(stderr, "fake: vkCreateImage, allocator %s: type %d, format %d, %u x %u x %u, %u levels, %u layers, "
+            "%d samples, tiling %d, usage 0x%x, sharing %d, flags 0x%x, layout %d: image %u\n",
+            allocator != NULL ? "given" : "NULL", info->imageType, info->format, info->extent.width,
+            info->extent.height, info->extent.depth, info->mipLevels, info->arrayLayers, info->samples, info->tiling,
+            info->usage, info->sharingMode, info->flags, info->initialLayout, ++images);
+    chain(info->pNext);
+    *image = (VkImage)(uintptr_t)(0x60000000u + images);
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkDestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks *allocator) {
+    (void)device;
+    fprintf(stderr, "fake: vkDestroyImage %s, allocator %s\n", image_name(image), allocator != NULL ? "given" : "NULL");
+}
+
+EXPORTED void vkGetImageMemoryRequirements(VkDevice device, VkImage image, VkMemoryRequirements *requirements) {
+    (void)device, (void)image;
+    *requirements = (VkMemoryRequirements){.size = 65536, .alignment = 16384, .memoryTypeBits = 0x3};
+}
+
+EXPORTED VkResult vkAllocateMemory(VkDevice device, const VkMemoryAllocateInfo *info,
+                                   const VkAllocationCallbacks *allocator, VkDeviceMemory *memory) {
+    (void)device;
+    fprintf(stderr, "fake: vkAllocateMemory, allocator %s: %llu bytes, type %u: memory %u\n",
+            allocator != NULL ? "given" : "NULL", (unsigned long long)info->allocationSize, info->memoryTypeIndex,
+            ++memories);
+    chain(info->pNext);
+    *memory = (VkDeviceMemory)(uintptr_t)(0x62000000u + memories);
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkFreeMemory(VkDevice device, VkDeviceMemory memory, const VkAllocationCallbacks *allocator) {
+    (void)device;
+    fprintf(stderr, "fake: vkFreeMemory memory %u, allocator %s\n", (unsigned)((uintptr_t)memory - 0x62000000u),
+            allocator != NULL ? "given" : "NULL");
+}
+
+EXPORTED VkResult vkBindImageMemory(VkDevice device, VkImage image, VkDeviceMemory memory, VkDeviceSize offset) {
+    (void)device;
+    fprintf(stderr, "fake: vkBindImageMemory %s, memory %u, offset %llu\n", image_name(image),
+            (unsigned)((uintptr_t)memory - 0x62000000u), (unsigned long long)offset);
+    return VK_SUCCESS;
+}
+
+EXPORTED VkResult vkCreateCommandPool(VkDevice device, const VkCommandPoolCreateInfo *info,
+                                      const VkAllocationCallbacks *allocator, VkCommandPool *pool) {
+    (void)device;
+    fprintf(stderr, "fake: vkCreateCommandPool, allocator %s: family %u, flags 0x%x: pool %u\n",
+            allocator != NULL ? "given" : "NULL", info->queueFamilyIndex, info->flags, ++pools);
+    *pool = (VkCommandPool)(uintptr_t)(0x63000000u + pools);
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkDestroyCommandPool(VkDevice device, VkCommandPool pool, const VkAllocationCallbacks *allocator) {
+    (void)device;
+    fprintf(stderr, "fake: vkDestroyCommandPool pool %u, allocator %s\n", (unsigned)((uintptr_t)pool - 0x63000000u),
+            allocator != NULL ? "given" : "NULL");
+}
+
+EXPORTED VkResult vkAllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo *info,
+                                           VkCommandBuffer *buffers) {
+    (void)device;
+    fprintf(stderr, "fake: vkAllocateCommandBuffers pool %u, level %d: command buffers %u to %u\n",
+            (unsigned)((uintptr_t)info->commandPool - 0x63000000u), info->level, command_buffers + 1,
+            command_buffers + info->commandBufferCount);
+    for (uint32_t index = 0; index < info->commandBufferCount; index++) {
+        buffers[index] = (VkCommandBuffer)(uintptr_t)(0x64000000u + ++command_buffers);
+    }
+    return VK_SUCCESS;
+}
+
+static unsigned buffer_number(VkCommandBuffer buffer) {
+    return (unsigned)((uintptr_t)buffer - 0x64000000u);
+}
+
+EXPORTED VkResult vkBeginCommandBuffer(VkCommandBuffer buffer, const VkCommandBufferBeginInfo *info) {
+    fprintf(stderr, "fake: vkBeginCommandBuffer command buffer %u, flags 0x%x\n", buffer_number(buffer), info->flags);
+    return VK_SUCCESS;
+}
+
+EXPORTED VkResult vkEndCommandBuffer(VkCommandBuffer buffer) {
+    fprintf(stderr, "fake: vkEndCommandBuffer command buffer %u\n", buffer_number(buffer));
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkCmdPipelineBarrier(VkCommandBuffer buffer, VkPipelineStageFlags from, VkPipelineStageFlags to,
+                                   VkDependencyFlags dependencies, uint32_t memory_count,
+                                   const VkMemoryBarrier *memory, uint32_t buffer_count,
+                                   const VkBufferMemoryBarrier *buffers, uint32_t image_count,
+                                   const VkImageMemoryBarrier *barriers) {
+    (void)memory, (void)buffers;
+    fprintf(stderr, "fake: vkCmdPipelineBarrier on command buffer %u, stages 0x%x to 0x%x, dependencies 0x%x, "
+            "%u memory, %u buffers, %u images:\n", buffer_number(buffer), from, to, dependencies, memory_count,
+            buffer_count, image_count);
+    for (uint32_t index = 0; index < image_count; index++) {
+        const VkImageMemoryBarrier *barrier = &barriers[index];
+        fprintf(stderr, "fake:   %s, layout %d to %d, access 0x%x to 0x%x, families %d to %d, aspect 0x%x, "
+                "levels %u+%u, layers %u+%u\n", image_name(barrier->image), barrier->oldLayout, barrier->newLayout,
+                barrier->srcAccessMask, barrier->dstAccessMask, (int)barrier->srcQueueFamilyIndex,
+                (int)barrier->dstQueueFamilyIndex, barrier->subresourceRange.aspectMask,
+                barrier->subresourceRange.baseMipLevel, barrier->subresourceRange.levelCount,
+                barrier->subresourceRange.baseArrayLayer, barrier->subresourceRange.layerCount);
+    }
+}
+
+EXPORTED void vkCmdBlitImage(VkCommandBuffer buffer, VkImage source, VkImageLayout source_layout, VkImage target,
+                             VkImageLayout target_layout, uint32_t count, const VkImageBlit *regions, VkFilter filter) {
+    fprintf(stderr, "fake: vkCmdBlitImage on command buffer %u: %s", buffer_number(buffer), image_name(source));
+    fprintf(stderr, " (layout %d) to %s (layout %d), filter %d, %u regions:", source_layout, image_name(target),
+            target_layout, filter, count);
+    for (uint32_t index = 0; index < count; index++) {
+        const VkImageBlit *region = &regions[index];
+        fprintf(stderr, " %d,%d-%d,%d to %d,%d-%d,%d, aspects 0x%x 0x%x, layers %u+%u", region->srcOffsets[0].x,
+                region->srcOffsets[0].y, region->srcOffsets[1].x, region->srcOffsets[1].y, region->dstOffsets[0].x,
+                region->dstOffsets[0].y, region->dstOffsets[1].x, region->dstOffsets[1].y,
+                region->srcSubresource.aspectMask, region->dstSubresource.aspectMask,
+                region->srcSubresource.baseArrayLayer, region->srcSubresource.layerCount);
+    }
+    fprintf(stderr, "\n");
+}
+
+/* The script's steps on a thread of the fake's own. */
+static void *script(void *context) {
+    const uintptr_t step = (uintptr_t)context;
+    if (step == (uintptr_t)CLOSE_THEN_OPEN) {
+        usleep(150000);
+        fprintf(stderr, "fake: the gate opens\n");
+        ((int (*)(uint64_t, int))runtime("apkrt_window_set_gate"))(1, 1);
+        return NULL;
+    }
+    if (step == (uintptr_t)BACKGROUND) {
+        fprintf(stderr, "fake: \"scheduled\": %d\n", ((int (*)(double))runtime("apkrt_wait_scheduled"))(1.0));
+        usleep(150000);
+    } else {
+        usleep(100000);
+        fprintf(stderr, "fake: the window's presents: %llu\n",
+                (unsigned long long)((uint64_t (*)(uint64_t))runtime("apkrt_window_presents"))(1));
+        fprintf(stderr, "fake: the window is gone\n");
+        ((int (*)(uint64_t))runtime("apkrt_window_remove"))(1);
+        usleep(100000);
+    }
+    fprintf(stderr, "fake: foreground\n");
+    ((void (*)(int))runtime("apkrt_set_background"))(0);
+    return NULL;
+}
+
+static void background_now(VkFence step) {
+    fprintf(stderr, "fake: background\n");
+    ((void (*)(int))runtime("apkrt_set_background"))(1);
+    pthread_t thread;
+    pthread_create(&thread, NULL, script, (void *)(uintptr_t)step);
+    pthread_detach(thread);
+}
+
+EXPORTED VkResult vkResetFences(VkDevice device, uint32_t count, const VkFence *fences) {
+    (void)device;
+    for (uint32_t index = 0; index < count; index++) {
+        const VkFence step = fences[index];
+        if (step == CLOSE_THEN_OPEN) {
+            fprintf(stderr, "fake: the gate closes\n");
+            ((int (*)(uint64_t, int))runtime("apkrt_window_set_gate"))(1, 0);
+            pthread_t thread;
+            pthread_create(&thread, NULL, script, (void *)(uintptr_t)step);
+            pthread_detach(thread);
+        } else if (step == BACKGROUND || step == BACKGROUND_THEN_GONE) {
+            background_now(step);
+        } else if (step == BACKGROUND_IN_WAIT) {
+            fprintf(stderr, "fake: the background at the next wait\n");
+            atomic_store(&background_in_wait, 1);
+        } else {
+            fprintf(stderr, "fake: vkResetFences, a fence\n");
+        }
+    }
+    return VK_SUCCESS;
 }
 
 EXPORTED void vkCmdDrawIndirectCountKHR(VkCommandBuffer buffer, VkBuffer draws, VkDeviceSize offset, VkBuffer counts,

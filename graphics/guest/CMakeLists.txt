@@ -82,20 +82,21 @@ target_compile_options(bind-test PRIVATE -Wall -Wextra)
 # NDK's names and binds its own references to itself.
 set(vulkan "${graphics}/vulkan")
 add_library(vulkan SHARED "${vulkan}/common.c" "${vulkan}/instance.c" "${vulkan}/device.c" "${vulkan}/procs.c"
-  "${vulkan}/queue.c" "${vulkan}/later.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
-target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}")
-target_link_libraries(vulkan PRIVATE minato_bind)
+  "${vulkan}/queue.c" "${vulkan}/surface.c" "${vulkan}/swapchain.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
+target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}" "${repo}/runtime/include")
+# The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
+target_link_libraries(vulkan PRIVATE minato_bind nativewindow dl)
 target_link_options(vulkan PRIVATE "-Wl,--version-script=${gen}/libvulkan.map" -Wl,-Bsymbolic)
 set_target_properties(vulkan PROPERTIES LINK_DEPENDS "${gen}/libvulkan.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 target_compile_options(vulkan PRIVATE -Wall -Wextra)
 
-# ADR-0030, test 6 without the window: vulkan-fake-test against graphics/tests/fake_vulkan.c in MoltenVK's
-# place, vulkan-moltenvk-test against MoltenVK itself.
-foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test)
+# ADR-0030, test 6: vulkan-fake-test and vulkan-window-test against graphics/tests/fake_vulkan.c in
+# MoltenVK's place, the others against MoltenVK itself.
+foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vulkan_window_test vulkan_present_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")
-  target_link_libraries(${program} PRIVATE vulkan dl)
+  target_link_libraries(${program} PRIVATE vulkan nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()

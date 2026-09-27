@@ -1,0 +1,331 @@
+fake: vkCreateInstance, allocator NULL, flags 0x0
+fake:   application window 0, engine NULL 0, API 1.3.0
+fake:   layers: none
+fake:   extensions: VK_KHR_surface VK_EXT_metal_surface VK_EXT_layer_settings
+fake:   chain:
+fake:     layer settings, 4:
+fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
+fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake: vkCreateDevice, allocator NULL, 2 queue families, features NULL
+fake:   layers: none
+fake:   extensions: VK_KHR_swapchain VK_KHR_synchronization2 VK_KHR_portability_subset VK_EXT_metal_objects
+fake:   chain:
+fake:     timeline semaphore features, timelineSemaphore 1
+fake: vkExportMetalObjectsEXT, the command queue of queue 0.0
+fake: vkExportMetalObjectsEXT, the command queue of queue 1.0
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s1
+fake: vkCreateSemaphore, allocator NULL, a timeline from 0: s2
+vulkan-window-test: the surface
+fake: vkCreateMetalSurfaceEXT, allocator NULL, the window's layer: yes: surface 1
+fake:   chain: empty
+vulkan-window-test: swapchains
+fake: vkCreateSemaphore, allocator NULL, binary: s3
+fake: vkCreateSemaphore, allocator NULL, binary: s4
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 1
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 1, timeout 10000000, semaphore s3, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x12, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 1: swapchain 2
+fake:   chain: empty
+fake: vkCreateSemaphore, allocator NULL, binary: s5
+fake: vkCreateSemaphore, allocator NULL, binary: s6
+fake: vkCreateSemaphore, allocator NULL, binary: s7
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 1
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 1
+fake:   chain: empty
+fake: vkBindImageMemory image 1, memory 1, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 2
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 2
+fake:   chain: empty
+fake: vkBindImageMemory image 2, memory 2, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 3
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 3
+fake:   chain: empty
+fake: vkBindImageMemory image 3, memory 3, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 4
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 4
+fake:   chain: empty
+fake: vkBindImageMemory image 4, memory 4, offset 0
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=2
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 1
+fake: vkCreateCommandPool, allocator NULL: family 0, flags 0x2: pool 1
+fake: vkAllocateCommandBuffers pool 1, level 0: command buffers 1 to 4
+fake: vkBeginCommandBuffer command buffer 2, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 2, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 2, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 1, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 2: image 2 (layout 6) to swapchain 2 image 1 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 2, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 2, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 1, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s6=0 s1=3
+fake: vkQueuePresentKHR on queue 0.0: waits s6; swapchain 2 image 1, with results
+fake:   chain: empty
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=4
+fake: vkBeginCommandBuffer command buffer 1, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 1, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 1, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 0, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 1: image 1 (layout 6) to swapchain 2 image 0 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 1, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 1, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 0, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s5=0 s1=5
+fake: vkQueuePresentKHR on queue 0.0: waits s5; swapchain 2 image 0, with results
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=6
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 0
+fake: vkBeginCommandBuffer command buffer 4, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 4, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 4, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 0, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 4: image 4 (layout 6) to swapchain 2 image 0 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 4, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 4, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 0, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 4
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s5=0 s1=7
+fake: vkQueuePresentKHR on queue 0.0: waits s5; swapchain 2 image 0, with results
+fake:   chain: empty
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=8
+fake: vkBeginCommandBuffer command buffer 3, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 3, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 3, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 2, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 3: image 3 (layout 6) to swapchain 2 image 2 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 3, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 3, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 2, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 3
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s7=0 s1=9
+fake: vkQueuePresentKHR on queue 0.0: waits s7; swapchain 2 image 2, with results
+fake:   chain: empty
+fake: the background at the next wait
+fake: vkWaitSemaphores, all: s1=3, timeout 10000000
+fake: vkWaitSemaphores, all: s1=3, timeout 10000000
+fake: vkWaitSemaphores, all: s1=3, timeout 10000000
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=10
+fake: vkBeginCommandBuffer command buffer 2, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 2, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 2, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 1, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 2: image 2 (layout 6) to swapchain 2 image 1 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 2, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 2, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 1, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s6=0 s1=11
+fake: vkQueuePresentKHR on queue 0.0: waits s6; swapchain 2 image 1, with results
+fake:   chain: empty
+fake: vkWaitSemaphores, all: s1=5, timeout 10000000
+fake: vkWaitSemaphores, all: s1=5, timeout 10000000
+fake: vkWaitSemaphores, all: s1=5, timeout 10000000
+fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=12
+fake: vkWaitSemaphores, all: s1=11, timeout 10000000
+fake: vkWaitSemaphores, all: s1=11, timeout 10000000
+fake: vkWaitSemaphores, all: s1=11, timeout 10000000
+fake: vkDestroyCommandPool pool 1, allocator NULL
+fake: vkCreateCommandPool, allocator NULL: family 1, flags 0x2: pool 2
+fake: vkAllocateCommandBuffers pool 2, level 0: command buffers 5 to 8
+fake: vkBeginCommandBuffer command buffer 5, flags 0x1
+fake: vkCmdPipelineBarrier on command buffer 5, stages 0x10000 to 0x1000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 1, layout 1000001002 to 6, access 0x10000 to 0x800, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 2, layout 0 to 7, access 0x0 to 0x1000, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkCmdBlitImage on command buffer 5: image 1 (layout 6) to swapchain 2 image 2 (layout 7), filter 0, 1 regions: 0,0-64,48 to 0,0-64,48, aspects 0x1 0x1, layers 0+1
+fake: vkCmdPipelineBarrier on command buffer 5, stages 0x1000 to 0x2000, dependencies 0x0, 0 memory, 0 buffers, 2 images:
+fake:   image 1, layout 6 to 1000001002, access 0x800 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   swapchain 2 image 2, layout 7 to 1000001002, access 0x1000 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake: vkEndCommandBuffer command buffer 5
+fake: vkQueueSubmit on queue 1.0, 1 batches, fence none
+fake:   0: waits s4, 1 command buffers, signals s7=0 s2=1
+fake: vkQueuePresentKHR on queue 1.0: waits s7; swapchain 2 image 2, with results
+fake:   chain: empty
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 32 x 24, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 2: swapchain 3
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 3, timeout 10000000, semaphore s3, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s3, 0 command buffers, signals s4=0 s1=13
+fake: vkQueuePresentKHR on queue 0.0: waits s4; swapchain 3 image 0, with results
+fake:   chain: empty
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x12, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 3: swapchain 4
+fake:   chain: empty
+fake: vkCreateSemaphore, allocator NULL, binary: s8
+fake: vkCreateSemaphore, allocator NULL, binary: s9
+fake: vkCreateSemaphore, allocator NULL, binary: s10
+fake: vkCreateImage, allocator NULL: type 1, format 44, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x91, sharing 0, flags 0x0, layout 0: image 5
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 5
+fake:   chain: empty
+fake: vkBindImageMemory image 5, memory 5, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 44, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x91, sharing 0, flags 0x0, layout 0: image 6
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 6
+fake:   chain: empty
+fake: vkBindImageMemory image 6, memory 6, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 44, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x91, sharing 0, flags 0x0, layout 0: image 7
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 7
+fake:   chain: empty
+fake: vkBindImageMemory image 7, memory 7, offset 0
+fake: vkAcquireNextImageKHR swapchain 4, timeout 10000000, semaphore s3, fence none: 0
+fake: vkAcquireNextImageKHR swapchain 4, timeout 0, semaphore s3, fence none: 1
+fake: vkAcquireNextImageKHR swapchain 4, timeout 0, semaphore s3, fence none: 2
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 97, colors 0, 3 images, 64 x 48, 1 layers, usage 0x12, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 4: swapchain 5
+fake:   chain: empty
+fake: vkCreateSemaphore, allocator NULL, binary: s11
+fake: vkCreateSemaphore, allocator NULL, binary: s12
+fake: vkCreateSemaphore, allocator NULL, binary: s13
+fake: vkCreateImage, allocator NULL: type 1, format 97, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 8
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 8
+fake:   chain: empty
+fake: vkBindImageMemory image 8, memory 8, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 97, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 9
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 9
+fake:   chain: empty
+fake: vkBindImageMemory image 9, memory 9, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 97, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 10
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 10
+fake:   chain: empty
+fake: vkBindImageMemory image 10, memory 10, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 97, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 11
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 11
+fake:   chain: empty
+fake: vkBindImageMemory image 11, memory 11, offset 0
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 50, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 5: swapchain 6
+fake:   chain: empty
+fake: vkDestroySwapchainKHR swapchain 1, allocator NULL
+fake: vkWaitSemaphores, all: s2=1 s1=11, timeout 10000000
+fake: vkWaitSemaphores, all: s2=1 s1=11, timeout 10000000
+fake: vkWaitSemaphores, all: s2=1 s1=11, timeout 10000000
+fake: vkDestroyCommandPool pool 2, allocator NULL
+fake: vkDestroyImage image 1, allocator NULL
+fake: vkFreeMemory memory 1, allocator NULL
+fake: vkDestroyImage image 2, allocator NULL
+fake: vkFreeMemory memory 2, allocator NULL
+fake: vkDestroyImage image 3, allocator NULL
+fake: vkFreeMemory memory 3, allocator NULL
+fake: vkDestroyImage image 4, allocator NULL
+fake: vkFreeMemory memory 4, allocator NULL
+fake: vkDestroySemaphore s5, allocator NULL
+fake: vkDestroySemaphore s6, allocator NULL
+fake: vkDestroySemaphore s7, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 2, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 3, allocator NULL
+fake: vkDestroyImage image 5, allocator NULL
+fake: vkFreeMemory memory 5, allocator NULL
+fake: vkDestroyImage image 6, allocator NULL
+fake: vkFreeMemory memory 6, allocator NULL
+fake: vkDestroyImage image 7, allocator NULL
+fake: vkFreeMemory memory 7, allocator NULL
+fake: vkDestroySemaphore s8, allocator NULL
+fake: vkDestroySemaphore s9, allocator NULL
+fake: vkDestroySemaphore s10, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 4, allocator NULL
+fake: vkDestroyImage image 8, allocator NULL
+fake: vkFreeMemory memory 8, allocator NULL
+fake: vkDestroyImage image 9, allocator NULL
+fake: vkFreeMemory memory 9, allocator NULL
+fake: vkDestroyImage image 10, allocator NULL
+fake: vkFreeMemory memory 10, allocator NULL
+fake: vkDestroyImage image 11, allocator NULL
+fake: vkFreeMemory memory 11, allocator NULL
+fake: vkDestroySemaphore s11, allocator NULL
+fake: vkDestroySemaphore s12, allocator NULL
+fake: vkDestroySemaphore s13, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 5, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 6, allocator NULL
+fake: vkDestroySemaphore s3, allocator NULL
+fake: vkDestroySemaphore s4, allocator NULL
+vulkan-window-test: the gates
+fake: vkCreateSemaphore, allocator NULL, binary: s14
+fake: vkCreateSemaphore, allocator NULL, binary: s15
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 7
+fake:   chain: empty
+fake: the gate closes
+fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=14
+fake: the gate opens
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 0, with results
+fake:   chain: empty
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=15
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=16 at 0x10000 on device 0
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=17
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=18
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 1, with results
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=19
+fake: background
+fake: the window's presents: 9
+fake: the window is gone
+fake: foreground
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=20
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkDestroySwapchainKHR swapchain 7, allocator NULL
+fake: vkDestroySemaphore s14, allocator NULL
+fake: vkDestroySemaphore s15, allocator NULL
+vulkan-window-test: the end
+fake: vkDestroySurfaceKHR surface 1, allocator NULL
+fake: vkDestroySemaphore s1, allocator NULL
+fake: vkDestroySemaphore s2, allocator NULL
+fake: vkDestroyDevice, allocator NULL
+fake: vkDestroyInstance, allocator NULL

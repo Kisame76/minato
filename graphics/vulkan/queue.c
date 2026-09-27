@@ -2,7 +2,8 @@
    own timeline semaphore last, so vkQueueWaitIdle and vkDeviceWaitIdle wait for its value instead of
    MoltenVK's functions, which commit; every wait goes to MoltenVK in slices of at most 10 ms, with a return
    to guest code between them, so a guest signal waits about 10 ms at most. The submits go through
-   graphics/host's functions, which count the calls in MoltenVK for "scheduled". */
+   graphics/host's functions, which count the calls in MoltenVK for "scheduled" and back out in the
+   background, where the submit waits at the window's gate until the foreground. */
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -22,7 +23,8 @@ MINATO_HOST(vkGetQueryPoolResults);
 
 #define SLICE 10000000u /* ns */
 
-VkResult minato_queues_create(VkDevice device, const VkDeviceCreateInfo *info, struct minato_queues **queues) {
+VkResult minato_queues_create(VkDevice device, VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
+                              struct minato_queues **queues) {
     uint32_t count = 0;
     for (uint32_t family = 0; family < info->queueCreateInfoCount; family++) {
         count += info->pQueueCreateInfos[family].queueCount;
@@ -31,6 +33,7 @@ VkResult minato_queues_create(VkDevice device, const VkDeviceCreateInfo *info, s
     if (*queues == NULL) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
+    (*queues)->physical = physical;
     const VkSemaphoreTypeCreateInfo type = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
                                             .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE};
     const VkSemaphoreCreateInfo semaphore = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &type};
@@ -42,6 +45,7 @@ VkResult minato_queues_create(VkDevice device, const VkDeviceCreateInfo *info, s
             struct minato_queue *queue = &(*queues)->queue[(*queues)->count];
             minato_host_vkGetDeviceQueue2(device, &which, &queue->queue);
             queue->device = device;
+            queue->family = created->queueFamilyIndex;
             const VkResult result = vkCreateSemaphore(device, &semaphore, NULL, &queue->timeline);
             if (result != VK_SUCCESS) {
                 return result;
@@ -132,11 +136,13 @@ static uint64_t next_value(const struct minato_queue *queue) {
 }
 
 /* A submit to MoltenVK that signals the queue's timeline semaphore last, in the last batch or in a batch of
-   its own when there is none or its chain cannot be copied. */
-#define SUBMIT_WITH_SIGNAL(host, Batch, kind)                                                                 \
+   its own when there is none or its chain cannot be copied, through the background gate for `window`. */
+#define SUBMIT_WITH_SIGNAL(host, Batch, kind, window)                                                         \
     struct minato_queue *ours = minato_queue(queue);                                                          \
+    VkResult result;                                                                                          \
     if (ours == NULL || (count == 0 && fence == VK_NULL_HANDLE)) {                                            \
-        return host(queue, count, batches, fence);                                                            \
+        MINATO_GATED(result, window, host(queue, count, batches, fence));                                     \
+        return result;                                                                                        \
     }                                                                                                         \
     const uint64_t value = next_value(ours);                                                                  \
     struct signal signal = {0};                                                                               \
@@ -148,7 +154,7 @@ static uint64_t next_value(const struct minato_queue *queue) {
         memcpy(copies, batches, count * sizeof *copies);                                                      \
     }                                                                                                         \
     uint32_t total = count;                                                                                   \
-    VkResult result = VK_ERROR_INITIALIZATION_FAILED;                                                         \
+    result = VK_ERROR_INITIALIZATION_FAILED;                                                                  \
     if (count > 0) {                                                                                          \
         Batch *last = &copies[count - 1];                                                                     \
         result = add_signal(&signal, &last->pNext, &last->signalSemaphoreCount, &last->pSignalSemaphores,     \
@@ -161,7 +167,7 @@ static uint64_t next_value(const struct minato_queue *queue) {
         total++;                                                                                              \
     }                                                                                                         \
     if (result == VK_SUCCESS) {                                                                               \
-        result = host(queue, total, copies, fence);                                                           \
+        MINATO_GATED(result, window, host(queue, total, copies, fence));                                      \
     }                                                                                                         \
     if (result == VK_SUCCESS) {                                                                               \
         __atomic_store_n(&ours->last, value, __ATOMIC_RELAXED);                                               \
@@ -171,25 +177,31 @@ static uint64_t next_value(const struct minato_queue *queue) {
     free(copies);                                                                                             \
     return result;
 
+VkResult minato_queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence,
+                             uint64_t window) {
+    SUBMIT_WITH_SIGNAL(minato_host_vkQueueSubmit, VkSubmitInfo, VK_STRUCTURE_TYPE_SUBMIT_INFO, window)
+}
+
 VkResult vkQueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence) {
-    SUBMIT_WITH_SIGNAL(minato_host_vkQueueSubmit, VkSubmitInfo, VK_STRUCTURE_TYPE_SUBMIT_INFO)
+    return minato_queue_submit(queue, count, batches, fence, 0);
 }
 
 VkResult vkQueueBindSparse(VkQueue queue, uint32_t count, const VkBindSparseInfo *batches, VkFence fence) {
-    SUBMIT_WITH_SIGNAL(minato_host_vkQueueBindSparse, VkBindSparseInfo, VK_STRUCTURE_TYPE_BIND_SPARSE_INFO)
+    SUBMIT_WITH_SIGNAL(minato_host_vkQueueBindSparse, VkBindSparseInfo, VK_STRUCTURE_TYPE_BIND_SPARSE_INFO, 0)
 }
 
 VkResult vkQueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2 *batches, VkFence fence) {
     struct minato_queue *ours = minato_queue(queue);
+    VkResult result = VK_ERROR_OUT_OF_HOST_MEMORY;
     if (ours == NULL || (count == 0 && fence == VK_NULL_HANDLE)) {
-        return minato_host_vkQueueSubmit2(queue, count, batches, fence);
+        MINATO_GATED(result, 0, minato_host_vkQueueSubmit2(queue, count, batches, fence));
+        return result;
     }
     const uint64_t value = next_value(ours);
     const uint32_t total = count > 0 ? count : 1;
     const uint32_t signals = count > 0 ? batches[count - 1].signalSemaphoreInfoCount : 0;
     VkSubmitInfo2 *copies = malloc(total * sizeof *copies);
     VkSemaphoreSubmitInfo *infos = malloc((signals + 1) * sizeof *infos);
-    VkResult result = VK_ERROR_OUT_OF_HOST_MEMORY;
     if (copies != NULL && infos != NULL) {
         if (count > 0) {
             memcpy(copies, batches, count * sizeof *copies);
@@ -205,7 +217,7 @@ VkResult vkQueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2 *batc
                                                  .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
         last->signalSemaphoreInfoCount = signals + 1;
         last->pSignalSemaphoreInfos = infos;
-        result = minato_host_vkQueueSubmit2(queue, total, copies, fence);
+        MINATO_GATED(result, 0, minato_host_vkQueueSubmit2(queue, total, copies, fence));
     }
     if (result == VK_SUCCESS) {
         __atomic_store_n(&ours->last, value, __ATOMIC_RELAXED);
@@ -221,9 +233,7 @@ static uint64_t now(void) {
     return (uint64_t)time.tv_sec * 1000000000u + (uint64_t)time.tv_nsec;
 }
 
-/* A host wait in slices of at most 10 ms until it answers other than VK_TIMEOUT or `timeout` ns passed
-   (decision 4). A timeout of one slice or less goes as it is. */
-static VkResult sliced(VkResult (*wait)(const void *arguments, uint64_t timeout), const void *arguments,
+VkResult minato_sliced(VkResult (*wait)(const void *arguments, uint64_t timeout), const void *arguments,
                        uint64_t timeout) {
     if (timeout <= SLICE) {
         return wait(arguments, timeout);
@@ -253,7 +263,7 @@ static VkResult wait_fences(const void *arguments, uint64_t timeout) {
 
 VkResult vkWaitForFences(VkDevice device, uint32_t count, const VkFence *fences, VkBool32 all, uint64_t timeout) {
     const struct fences arguments = {device, count, fences, all};
-    return sliced(wait_fences, &arguments, timeout);
+    return minato_sliced(wait_fences, &arguments, timeout);
 }
 
 struct semaphores {
@@ -268,7 +278,7 @@ static VkResult wait_semaphores(const void *arguments, uint64_t timeout) {
 
 VkResult vkWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo *info, uint64_t timeout) {
     const struct semaphores arguments = {device, info};
-    return sliced(wait_semaphores, &arguments, timeout);
+    return minato_sliced(wait_semaphores, &arguments, timeout);
 }
 
 /* Until the timeline semaphores reach their values, without a timeout. */

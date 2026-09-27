@@ -7,7 +7,9 @@ set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
 if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
   add_library(minato_graphics_host STATIC providers.c vulkan.m probe.m)
-  target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}")
+  # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
+  target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
+    "${PROJECT_SOURCE_DIR}/graphics/vulkan")
   target_include_directories(minato_graphics_host SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
   target_link_libraries(minato_graphics_host PUBLIC apkrt PRIVATE apk_defaults)
   # The providers, the functions for missing names and those in front of MoltenVK's run on guest threads'

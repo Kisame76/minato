@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "APKRuntime/guest_interface.h"
+#include "host_protocol.h"
 #include "minato_bind.h"
 
 /* The host function of a name written by hand: its stub in vulkan_stubs.S, which takes what the name
@@ -55,22 +57,27 @@ MINATO_HIDDEN VkResult minato_chain_edit(const void *chain, const VkStructureTyp
    made. */
 MINATO_HIDDEN void *minato_chain_find(const void *chain, VkStructureType type);
 
-/* A queue of a device libvulkan made (decision 13): MoltenVK's handle, its device, and the timeline
-   semaphore whose signal libvulkan adds to every submit, at `last` for the last submit that succeeded. */
+/* A queue of a device libvulkan made (decision 13): MoltenVK's handle, its device and family, and the
+   timeline semaphore whose signal libvulkan adds to every submit, at `last` for the last submit that
+   succeeded. */
 struct minato_queue {
     VkQueue queue;
     VkDevice device;
+    uint32_t family;
     VkSemaphore timeline;
     uint64_t last;  /* read and written atomically */
 };
+/* A device's queues, with its physical device. */
 struct minato_queues {
+    VkPhysicalDevice physical;
     uint32_t count;
     struct minato_queue queue[];
 };
 
-/* The queues of a device MoltenVK made from `info`, each with its timeline semaphore: VK_SUCCESS with
-   *queues, or the error of the semaphore that failed. minato_queues_destroy destroys the semaphores. */
-MINATO_HIDDEN VkResult minato_queues_create(VkDevice device, const VkDeviceCreateInfo *info,
+/* The queues of a device MoltenVK made on `physical` from `info`, each with its timeline semaphore:
+   VK_SUCCESS with *queues, or the error of the semaphore that failed. minato_queues_destroy destroys the
+   semaphores. */
+MINATO_HIDDEN VkResult minato_queues_create(VkDevice device, VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
                                             struct minato_queues **queues);
 MINATO_HIDDEN void minato_queues_destroy(struct minato_queues *queues);
 
@@ -81,5 +88,40 @@ MINATO_HIDDEN int minato_remember(const void *handle, uint32_t owned, struct min
 MINATO_HIDDEN int minato_recall(const void *handle, uint32_t *owned, struct minato_queues **queues);
 MINATO_HIDDEN void minato_forget(const void *handle);
 MINATO_HIDDEN struct minato_queue *minato_queue(VkQueue queue);
+
+/* A host wait in slices of at most 10 ms until it answers other than VK_TIMEOUT or `timeout` ns passed
+   (decision 4). A timeout of one slice or less goes as it is. */
+MINATO_HIDDEN VkResult minato_sliced(VkResult (*wait)(const void *arguments, uint64_t timeout),
+                                     const void *arguments, uint64_t timeout);
+
+/* The window's gate (ADR-0028, decision 11): the syscall window_gate of `kind` for the host window
+   `window`, made again after a signal's handler ran. Returns 1 once the window is gone, else 0 (also for an
+   answer this runtime does not give): at the present kind once the gate is open, at the background kind in
+   the foreground, where window 0, for calls without a window, only waits. */
+MINATO_HIDDEN int minato_gate(uint64_t window, int kind);
+
+/* `result = call` through graphics/host's background gate (decision 13): while graphics/host backs out,
+   waits at the window's gate of the background kind and calls again. VK_ERROR_SURFACE_LOST_KHR once
+   `window` is gone. */
+#define MINATO_GATED(result, window, call)                                                                         do {                                                                                                               (result) = (call);                                                                                         } while ((result) == MINATO_VK_BACKGROUND &&                                                                            ((result) = minato_gate((window), APKRT_GATE_BACKGROUND) ? VK_ERROR_SURFACE_LOST_KHR : VK_SUCCESS) ==                  VK_SUCCESS)
+
+/* vkQueueSubmit with the queue's own timeline signal, through the background gate for `window` (0 for the
+   app's submits). */
+MINATO_HIDDEN VkResult minato_queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence,
+                                           uint64_t window);
+
+/* A surface libvulkan made (decision 12), the app's VkSurfaceKHR: MoltenVK's surface on the window's layer,
+   a reference to the app's window of its own, the host window's ID, and the swapchain made on it last,
+   which alone is not replaced (read and written atomically). */
+struct minato_surface {
+    VkSurfaceKHR metal;
+    struct ANativeWindow *window;
+    uint64_t id;
+    VkSwapchainKHR swapchain;
+};
+
+static inline struct minato_surface *minato_surface(VkSurfaceKHR surface) {
+    return (struct minato_surface *)(uintptr_t)surface;
+}
 
 #endif

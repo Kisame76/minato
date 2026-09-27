@@ -118,7 +118,7 @@ VkResult vkCreateDevice(VkPhysicalDevice physical, const VkDeviceCreateInfo *inf
         return result;
     }
     struct minato_queues *queues = NULL;
-    result = minato_queues_create(*device, info, &queues);
+    result = minato_queues_create(*device, physical, info, &queues);
     if (result == VK_SUCCESS && minato_remember(*device, owned, queues) != 0) {
         result = VK_ERROR_OUT_OF_HOST_MEMORY;
     }

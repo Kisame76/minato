@@ -1,7 +1,12 @@
-/* graphics/host's functions in front of MoltenVK's for libvulkan (ADR-0030, decisions 5 and 13); see
+/* graphics/host's functions in front of MoltenVK's for libvulkan (ADR-0030, decisions 5, 12 and 13); see
    minato_graphics.h. The "vulkan" provider puts them into their slots of libvulkan's table, so they run as
    host code on the guest threads that call libvulkan:
-   - the submits count the calls in MoltenVK, until which "scheduled" waits;
+   - the submits, acquires and presents count the calls in MoltenVK, until which "scheduled" waits, and
+     back out in the background (host_protocol.h), where libvulkan waits at the window's gate;
+   - vkCreateAndroidSurfaceKHR, which MoltenVK lacks, makes MoltenVK's surface on the layer of the window
+     libvulkan names; a swapchain takes a window that is there, and Core Animation gets MoltenVK's changes
+     to the layer, made on a thread without a run loop, when it is created or destroyed; presents are
+     counted per window for the FPS label;
    - vkCreateDevice keeps each queue's MTLCommandQueue for "scheduled", and vkDestroyDevice lets them go;
    - the app's debug callbacks, from vkCreateInstance's chain or their create functions, reach MoltenVK as
      graphics/host's functions, which call the app's through apkrt_call_guest on guest threads only and log
@@ -9,6 +14,8 @@
    Manual reference counting: the queues live in plain C structures. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
+#define VK_USE_PLATFORM_ANDROID_KHR
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
@@ -21,11 +28,12 @@
 #include <unistd.h>
 
 #include "APKRuntime/apkrt.h"
+#include "host_protocol.h"
 #include "minato_graphics.h"
 #include "vulkan_host.h"
 #include "vulkan_table.h"
 
-/* MoltenVK's functions that graphics/host's stand in front of, and two they use. */
+/* MoltenVK's functions that graphics/host's stand in front of, and three they use. */
 static PFN_vkCreateInstance create_instance;
 static PFN_vkDestroyInstance destroy_instance;
 static PFN_vkCreateDevice create_device;
@@ -33,35 +41,141 @@ static PFN_vkDestroyDevice destroy_device;
 static PFN_vkQueueSubmit queue_submit;
 static PFN_vkQueueSubmit2 queue_submit2;
 static PFN_vkQueueBindSparse queue_bind_sparse;
+static PFN_vkAcquireNextImageKHR acquire_image;
+static PFN_vkQueuePresentKHR queue_present;
+static PFN_vkCreateSwapchainKHR create_swapchain;
+static PFN_vkDestroySwapchainKHR destroy_swapchain;
 static PFN_vkCreateDebugUtilsMessengerEXT create_messenger;
 static PFN_vkDestroyDebugUtilsMessengerEXT destroy_messenger;
 static PFN_vkCreateDebugReportCallbackEXT create_report;
 static PFN_vkDestroyDebugReportCallbackEXT destroy_report;
 static PFN_vkGetDeviceQueue2 get_queue;
 static PFN_vkGetDeviceProcAddr device_function;
+static PFN_vkGetInstanceProcAddr instance_function;
 
-/* libvulkan's calls in MoltenVK that make it commit (decision 13), counted sequentially consistent. */
+/* libvulkan's calls in MoltenVK that make it commit (decision 13): each counts itself, then reads the
+   background flag and backs out if it is set; the app sets the flag, then "scheduled" reads the count. Both
+   sides sequentially consistent, so either the call sees the flag or "scheduled" sees the call. */
 static atomic_uint in_flight;
 
-static VkResult submitted(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence) {
+static int entered(void) {
     atomic_fetch_add(&in_flight, 1);
-    const VkResult result = queue_submit(queue, count, batches, fence);
+    if (apkrt_is_background()) {
+        atomic_fetch_sub(&in_flight, 1);
+        return 0;
+    }
+    return 1;
+}
+
+static void left(void) {
     atomic_fetch_sub(&in_flight, 1);
+}
+
+static VkResult submitted(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence) {
+    if (!entered()) {
+        return MINATO_VK_BACKGROUND;
+    }
+    const VkResult result = queue_submit(queue, count, batches, fence);
+    left();
     return result;
 }
 
 static VkResult submitted2(VkQueue queue, uint32_t count, const VkSubmitInfo2 *batches, VkFence fence) {
-    atomic_fetch_add(&in_flight, 1);
+    if (!entered()) {
+        return MINATO_VK_BACKGROUND;
+    }
     const VkResult result = queue_submit2(queue, count, batches, fence);
-    atomic_fetch_sub(&in_flight, 1);
+    left();
     return result;
 }
 
 static VkResult bound_sparse(VkQueue queue, uint32_t count, const VkBindSparseInfo *batches, VkFence fence) {
-    atomic_fetch_add(&in_flight, 1);
+    if (!entered()) {
+        return MINATO_VK_BACKGROUND;
+    }
     const VkResult result = queue_bind_sparse(queue, count, batches, fence);
-    atomic_fetch_sub(&in_flight, 1);
+    left();
     return result;
+}
+
+static VkResult acquired(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore,
+                         VkFence fence, uint32_t *index) {
+    if (!entered()) {
+        return MINATO_VK_BACKGROUND;
+    }
+    const VkResult result = acquire_image(device, swapchain, timeout, semaphore, fence, index);
+    left();
+    return result;
+}
+
+/* The windows libvulkan names first in a chain (host_protocol.h). */
+static const struct minato_windows *windows_of(const void *chain) {
+    const struct minato_windows *windows = chain;
+    return windows != NULL && windows->sType == MINATO_STRUCTURE_TYPE_WINDOWS ? windows : NULL;
+}
+
+static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
+    if (!entered()) {
+        return MINATO_VK_BACKGROUND;
+    }
+    const struct minato_windows *windows = windows_of(info->pNext);
+    VkPresentInfoKHR ours = *info;
+    ours.pNext = windows != NULL ? windows->pNext : info->pNext;
+    const VkResult result = queue_present(queue, &ours);
+    left();
+    /* Each window's presents, for the FPS label. */
+    for (uint32_t index = 0; windows != NULL && index < windows->count && index < info->swapchainCount; index++) {
+        const VkResult own = info->pResults != NULL ? info->pResults[index] : result;
+        if (own == VK_SUCCESS || own == VK_SUBOPTIMAL_KHR) {
+            apkrt_window_presented(windows->windows[index]);
+        }
+    }
+    return result;
+}
+
+/* In the slot of vkCreateAndroidSurfaceKHR, which MoltenVK lacks: MoltenVK's surface on the layer of the
+   window libvulkan names. The layer comes retained for this call, and MoltenVK's surface retains it for its
+   own life; a window that is gone answers as Android does when it cannot connect to one. */
+static VkResult surface_created(VkInstance instance, const VkAndroidSurfaceCreateInfoKHR *info,
+                                const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) {
+    const struct minato_windows *windows = windows_of(info->pNext);
+    const PFN_vkCreateMetalSurfaceEXT create =
+        (PFN_vkCreateMetalSurfaceEXT)instance_function(instance, "vkCreateMetalSurfaceEXT");
+    if (windows == NULL || windows->count != 1 || create == NULL) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    CAMetalLayer *layer = (CAMetalLayer *)apkrt_window_layer(windows->windows[0]);
+    if (layer == nil) {
+        return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
+    }
+    const VkMetalSurfaceCreateInfoEXT metal = {.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
+                                               .pLayer = layer};
+    const VkResult result = create(instance, &metal, allocator, surface);
+    [layer release];
+    return result;
+}
+
+/* A window that is gone takes no swapchain, as on Android. MoltenVK changes the layer on the calling
+   thread, which has no run loop to commit it, so Core Animation gets the changes here. */
+static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKHR *info,
+                                  const VkAllocationCallbacks *allocator, VkSwapchainKHR *swapchain) {
+    const struct minato_windows *windows = windows_of(info->pNext);
+    int32_t width, height;
+    if (windows != NULL && windows->count == 1 && apkrt_window_size(windows->windows[0], &width, &height) != 0) {
+        return VK_ERROR_SURFACE_LOST_KHR;
+    }
+    VkSwapchainCreateInfoKHR ours = *info;
+    ours.pNext = windows != NULL ? windows->pNext : info->pNext;
+    const VkResult result = create_swapchain(device, &ours, allocator, swapchain);
+    if (result == VK_SUCCESS) {
+        [CATransaction flush];
+    }
+    return result;
+}
+
+static void swapchain_destroyed(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *allocator) {
+    destroy_swapchain(device, swapchain, allocator);
+    [CATransaction flush];
 }
 
 /* A device libvulkan made, with its queues' MTLCommandQueues, retained. */
@@ -135,6 +249,11 @@ static void device_destroyed(VkDevice device, const VkAllocationCallbacks *alloc
     }
     free(gone);
     destroy_device(device, allocator);
+}
+
+int minato_graphics_vulkan_provider(void *context, uint64_t deadline) {
+    (void)context;
+    return minato_graphics_vulkan_scheduled(deadline);
 }
 
 int minato_graphics_vulkan_scheduled(uint64_t deadline) {
@@ -377,11 +496,17 @@ void minato_graphics_vulkan_wrap(void **table) {
     WRAP(vkQueueSubmit, queue_submit, submitted)
     WRAP(vkQueueSubmit2, queue_submit2, submitted2)
     WRAP(vkQueueBindSparse, queue_bind_sparse, bound_sparse)
+    WRAP(vkAcquireNextImageKHR, acquire_image, acquired)
+    WRAP(vkQueuePresentKHR, queue_present, presented)
+    WRAP(vkCreateSwapchainKHR, create_swapchain, swapchain_created)
+    WRAP(vkDestroySwapchainKHR, destroy_swapchain, swapchain_destroyed)
     WRAP(vkCreateDebugUtilsMessengerEXT, create_messenger, messenger_created)
     WRAP(vkDestroyDebugUtilsMessengerEXT, destroy_messenger, messenger_destroyed)
     WRAP(vkCreateDebugReportCallbackEXT, create_report, report_created)
     WRAP(vkDestroyDebugReportCallbackEXT, destroy_report, report_destroyed)
 #undef WRAP
+    table[MINATO_VULKAN_SLOT_vkCreateAndroidSurfaceKHR] = (void *)surface_created;
     get_queue = (PFN_vkGetDeviceQueue2)table[MINATO_VULKAN_SLOT_vkGetDeviceQueue2];
     device_function = (PFN_vkGetDeviceProcAddr)table[MINATO_VULKAN_SLOT_vkGetDeviceProcAddr];
+    instance_function = (PFN_vkGetInstanceProcAddr)table[MINATO_VULKAN_SLOT_vkGetInstanceProcAddr];
 }

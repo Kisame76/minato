@@ -1,8 +1,10 @@
-/* libvulkan's shared pieces: its extension list, handing out lists, copies of pNext chains and what it keeps
-   per instance, device and queue; see libvulkan.h. */
+/* libvulkan's shared pieces: its extension list, handing out lists, copies of pNext chains, what it keeps
+   per instance, device and queue, and the window's gate; see libvulkan.h. */
+#include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "libvulkan.h"
 
@@ -197,4 +199,12 @@ void minato_forget(const void *handle) {
         }
     }
     pthread_mutex_unlock(&lock);
+}
+
+int minato_gate(uint64_t window, int kind) {
+    long answer;
+    do {
+        answer = syscall(APKRT_NR_WINDOW_GATE, window, kind);
+    } while (answer == -1 && errno == EINTR);
+    return answer == 1;
 }

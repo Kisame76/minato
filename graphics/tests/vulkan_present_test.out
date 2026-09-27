@@ -1,0 +1,8 @@
+direct: acquire 0, present 0, its result 0; the drawable's CRC-32 b6dc3819
+copy from UNORM: acquire 0, present 0, its result 0; the drawable's CRC-32 1dddd7a3
+copy from SRGB: acquire 0, present 0, its result 0; the drawable's CRC-32 1dddd7a3
+32 x 24: acquire 0, present 0, its result 0; the drawable's CRC-32 993284fb
+60 presents: all VK_SUCCESS: yes, within 3 s: yes
+then the window went: VK_ERROR_SURFACE_LOST_KHR: yes, within 5 s: yes
+the present's semaphore used again: 0
+done

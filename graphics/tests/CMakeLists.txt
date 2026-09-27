@@ -91,16 +91,18 @@ set_tests_properties(graphics.thunk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped
 # MINATO_ANGLE. Three runs, each with its own expected output: with ANGLE and MoltenVK, with fake-driver
 # (one function per lib) as both, and without providers.
 if(TARGET minato_graphics_host)
-  # With the Metal hook of test 6 (metal_hook.m), which does nothing unless MINATO_METAL_HOOK is set.
-  add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m)
+  # With test 6's Metal hook (metal_hook.m) and window (window_host.m), which do nothing unless
+  # MINATO_METAL_HOOK and MINATO_WINDOW are set.
+  add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m
+    window_host.m)
   target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
-    "-framework Foundation" "-framework Metal")
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   add_library(fake-driver MODULE fake_driver.c)
   target_link_libraries(fake-driver PRIVATE apk_defaults)
   # Test 6's MoltenVK stand-in, with MoltenVK's Vulkan headers.
   add_library(fake-vulkan MODULE fake_vulkan.c)
   target_include_directories(fake-vulkan SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
-  target_link_libraries(fake-vulkan PRIVATE apk_defaults)
+  target_link_libraries(fake-vulkan PRIVATE apk_defaults "-framework CoreFoundation")
   # Their functions run on guest stacks, as graphics/host's do.
   set(on_guest_stacks "")
   if(APK_SANITIZE)
@@ -108,7 +110,7 @@ if(TARGET minato_graphics_host)
   endif()
   set(hook_options -fobjc-arc ${on_guest_stacks})
   set_source_files_properties(fake_driver.c fake_vulkan.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
-  set_source_files_properties(metal_hook.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
+  set_source_files_properties(metal_hook.m window_host.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
   set(moltenvk "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
   set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
   # One run of a guest program from tools/build-front-libs.sh: its name, the program, its expected output
@@ -147,13 +149,18 @@ if(TARGET minato_graphics_host)
   add_bind_test(bind_missing bind_test_missing "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-driver>"
     "MINATO_ANGLE=set:$<TARGET_FILE:fake-driver>")
   add_bind_test(bind_no_driver bind_test_no_driver "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
-  # ADR-0030, test 6 without the window: libvulkan.so among the system's libraries, against the fake
+  # ADR-0030, test 6: libvulkan.so among the system's libraries with libnativewindow.so, against the fake
   # MoltenVK; then against MoltenVK with its environment variables set against what libvulkan pins, with
   # the Metal hook, and without the log level, which graphics/host sets before it opens MoltenVK; then the
-  # queue's part against MoltenVK, with the Metal hook asking for "scheduled".
-  set(vulkan_system_libraries ${thunk_system_libraries} "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
+  # queue's part against MoltenVK, with the Metal hook asking for "scheduled". The window's part: against
+  # the fake, which plays the app's host side, and against MoltenVK, with the Metal hook reading drawables
+  # back and the window host's background script.
+  set(vulkan_system_libraries ${thunk_system_libraries} "${APK_BIONIC_DIR}/libnativewindow.so"
+    "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
   add_guest_test(vulkan_fake vulkan-fake-test vulkan_fake_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:")
+  add_guest_test(vulkan_window vulkan-window-test vulkan_window_test "${vulkan_system_libraries}"
+    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_WINDOW=set:64x48")
   if(EXISTS "${moltenvk}")
     add_guest_test(vulkan_moltenvk vulkan-moltenvk-test vulkan_moltenvk_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:1"
@@ -162,8 +169,11 @@ if(TARGET minato_graphics_host)
       "MVK_CONFIG_API_VERSION_TO_ADVERTISE=set:10")
     add_guest_test(vulkan_queue vulkan-queue-test vulkan_queue_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:scheduled")
+    add_guest_test(vulkan_present vulkan-present-test vulkan_present_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:present"
+      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:background:70")
   else()
-    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue)
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -183,7 +193,8 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
   endif()
 else()
-  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_moltenvk vulkan_queue probe)
+  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
+      vulkan_present probe)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

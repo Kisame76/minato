@@ -1,0 +1,32 @@
+support: 1 1 1 1
+capabilities: 3 to 4 images, current 64 x 48, extents 1 x 1 to 4096 x 4096, 1 layers, transforms 0x1, current 0x1, alpha 0x8, usage 0x9f
+with a buffer geometry of 32 x 24: 3 to 4 images, current 32 x 24, extents 1 x 1 to 4096 x 4096, 1 layers, transforms 0x1, current 0x1, alpha 0x8, usage 0x9f
+after the app released the window: 3 to 4 images, current 64 x 48, extents 1 x 1 to 4096 x 4096, 1 layers, transforms 0x1, current 0x1, alpha 0x8, usage 0x9f
+formats: 6: 37/0 43/0 97/0 64/0 44/0 50/0
+formats with room for 2: 5, 2: 37/0 43/0
+present modes: 1: 2
+rectangles: 1: 0,0 64 x 48
+device group: present mask 0x1 0x0, modes 0x1; the surface's modes 0x1
+capabilities 2: current 64 x 48, 3 to 4 images, protected 0
+formats 2: 6: 37/0 43/0 97/0 64/0 44/0 50/0
+formats 2 with room for 2: 5, 2: 37 43
+formats without a surface: 6: 37/0 43/0 97/0 64/0 44/0 50/0
+present modes without a surface: 1: 2
+direct: 3 images, acquired 0
+the replaced swapchain: present -1000001004, its result -1000001004, acquire -1000001004
+copy: 4 images; acquired 0 1, presented 1 0 (result 0), acquired 2 3, presented 3 2, acquired 1
+copy: presented 0 on another family's queue: 0
+32 x 24: acquire 0, present 0, its result 0
+input attachment: 3 images; the app holds 0 1 2, then acquire 1, with a timeout 2
+4 images of R16G16B16A16_SFLOAT: 4 images
+B8G8R8A8_SRGB: 3 images
+the closed gate: present 0, waited at least 100 ms: yes, the signal handled meanwhile: yes
+in the background: vkQueueSubmit 0, waited at least 100 ms: yes
+in the background: vkQueueSubmit2KHR 0, waited at least 100 ms: yes
+in the background: vkQueueBindSparse 0, waited at least 100 ms: yes
+in the background: vkAcquireNextImage2KHR 0, waited at least 100 ms: yes
+in the background: vkQueuePresentKHR 0, waited at least 100 ms: yes
+the window gone in the background: present -1000000000, after 50 ms: yes, before the foreground: yes
+gone: acquire -1000000000, present -1000000000 (its result -1000000000), a swapchain -1000000000, a surface -1000000001, within 50 ms: yes
+the old swapchain, retired although its replacement failed: acquire -1000001004
+done
