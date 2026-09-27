@@ -111,6 +111,11 @@ struct APKSignaturesTests {
         #expect(APKSignatures.read(try Self.apk()).signer == SignerIdentity(current: []))
     }
 
+    /// Lineage nodes with the flags SigningBlockBuilder gives every level.
+    static func nodes(_ certificates: [String]) -> [LineageNode] {
+        certificates.map { LineageNode(sha256: $0, flags: 0x1F) }
+    }
+
     @Test func v3WithItsLineage() throws {
         // A rotated key: v2 still carries the old key, v3 the new one with the old one in its lineage.
         let block = SigningBlockBuilder.block([
@@ -119,7 +124,7 @@ struct APKSignaturesTests {
         ])
         let info = APKSignatures.read(try Self.apk(block: block, v1: TestCertificates.signerPKCS7))
 
-        #expect(info.signer == SignerIdentity(current: [Self.newSHA256], lineage: [Self.oldSHA256]))
+        #expect(info.signer == SignerIdentity(current: [Self.newSHA256], lineage: Self.nodes([Self.oldSHA256])))
         // The list of every certificate stays as it was.
         #expect(info.certificates.map(\.sha256) == [Self.newSHA256, Self.oldSHA256])
     }
@@ -130,7 +135,7 @@ struct APKSignaturesTests {
         ])
 
         #expect(APKSignatures.read(try Self.apk(block: block)).signer
-            == SignerIdentity(current: [Self.newSHA256], lineage: [Self.thirdSHA256, Self.oldSHA256]))
+            == SignerIdentity(current: [Self.newSHA256], lineage: Self.nodes([Self.thirdSHA256, Self.oldSHA256])))
     }
 
     @Test func v31BeforeV3() throws {
@@ -140,7 +145,7 @@ struct APKSignaturesTests {
             Self.scheme(SigningBlockBuilder.v31ID, [SigningBlockBuilder.v3Signer(certificates: [Self.new], minSdk: 33, lineage: [Self.old, Self.new])]),
         ])
 
-        #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.newSHA256], lineage: [Self.oldSHA256]))
+        #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.newSHA256], lineage: Self.nodes([Self.oldSHA256])))
     }
 
     @Test func aV3SignerForOtherAndroidVersionsDoesNotCount() throws {
@@ -170,6 +175,16 @@ struct APKSignaturesTests {
     @Test func aReportFromBeforeTheSignerDecodes() throws {
         let json = #"{"schemes":["v2"],"certificates":[{"sha256":"aa"}],"hasGooglePlayStamp":false}"#
         #expect(try JSONDecoder().decode(SignatureInfo.self, from: Data(json.utf8)).signer == nil)
+    }
+
+    @Test func aSignerFromStepBDecodesWithoutCapabilities() throws {
+        let json = #"{"current":["bb"],"lineage":["aa"]}"#
+        let signer = try JSONDecoder().decode(SignerIdentity.self, from: Data(json.utf8))
+        #expect(signer == SignerIdentity(current: ["bb"], lineage: [LineageNode(sha256: "aa", flags: nil)]))
+        #expect(!signer.knowsCapabilities)
+        // And written again, with them.
+        let written = SignerIdentity(current: ["bb"], lineage: Self.nodes(["aa"]))
+        #expect(try JSONDecoder().decode(SignerIdentity.self, from: JSONEncoder().encode(written)) == written)
     }
 
     @Test func survivesCorruptedSigningBlock() throws {

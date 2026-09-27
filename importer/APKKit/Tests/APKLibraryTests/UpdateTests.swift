@@ -154,7 +154,7 @@ struct UpdateTests {
     }
 
     static let olderVersion = SampleAPK.make(versionCode: 1)
-    static let otherSigner = SampleAPK.make(versionCode: 3, signers: [TestCertificates.rotatedSigner])
+    static let otherSigner = SampleAPK.make(versionCode: 3, signers: [.rotated])
 
     @Test(arguments: [(olderVersion, Set([UpdateWarning.olderVersion])), (otherSigner, Set([UpdateWarning.otherSigner]))])
     func aQuestionChangesNothingAndTheFileWaits(file: Data, warnings: Set<UpdateWarning>) async throws {
@@ -228,7 +228,7 @@ struct UpdateTests {
 
         let same = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "again.apk"), replacing: true)
         let unusable = try await library.importFile(
-            sandbox.file(SampleAPK.make(versionCode: 3, abis: ["armeabi-v7a"], signers: [TestCertificates.rotatedSigner]), named: "v3.apk"),
+            sandbox.file(SampleAPK.make(versionCode: 3, abis: ["armeabi-v7a"], signers: [.rotated]), named: "v3.apk"),
             replacing: true)
 
         #expect(same.decision == .unchanged)
@@ -240,18 +240,15 @@ struct UpdateTests {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         // A rotated key: v2 carries the old key, v3 the new one with the old one in its lineage.
-        func rotated(_ versionCode: Int32, lineage: [Data]) -> Data {
-            SampleAPK.make(versionCode: versionCode, signingBlock: SigningBlockBuilder.block([
-                (SigningBlockBuilder.v2ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v2Signer(certificates: [TestCertificates.signer])])),
-                (SigningBlockBuilder.v3ID, SigningBlockBuilder.schemeValue([SigningBlockBuilder.v3Signer(
-                    certificates: [TestCertificates.rotatedSigner], lineage: lineage)])),
-            ]))
-        }
-        let imported = try await Library(paths: sandbox.paths).importFile(sandbox.file(rotated(1, lineage: [TestCertificates.signer, TestCertificates.rotatedSigner]), named: "v1.apk")).entry
-        #expect(imported.report?.signature.signer == SignerIdentity(current: [TestCertificates.rotatedSignerSHA256], lineage: [TestCertificates.signerSHA256]))
+        let rotated = SampleAPK.make(versionCode: 1, v3: [TestSigner.Signer(.rotated, lineage: [.init(.ec), .init(.rotated)])])
+        let imported = try await Library(paths: sandbox.paths).importFile(sandbox.file(rotated, named: "v1.apk")).entry
+        #expect(imported.report?.signature.signer == SignerIdentity(
+            current: [TestCertificates.rotatedSignerSHA256],
+            lineage: [LineageNode(sha256: TestCertificates.signerSHA256, flags: TestSigner.defaultCapabilities)]))
         // Written before the signer: the report lists both certificates, the old and the new key, and no signer.
         var old = imported
         old.report?.signature.signer = nil
+        old.report?.signature.check = nil
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let index = try encoder.encode(OldIndex(entries: [old]))
@@ -261,7 +258,130 @@ struct UpdateTests {
 
         // Only the new key now, without the lineage: its base.apk shows the installed signer is that key.
         let result = try await library.importFile(sandbox.file(
-            SampleAPK.make(versionCode: 2, signers: [TestCertificates.rotatedSigner]), named: "v2.apk"))
+            SampleAPK.make(versionCode: 2, signers: [.rotated]), named: "v2.apk"))
+
+        #expect(result.decision == .update)
+    }
+
+    // MARK: - The signature check (step d)
+
+    /// A sample APK with the last byte of its icon changed after signing.
+    static func damaged(versionCode: Int32) throws -> Data {
+        var apk = SampleAPK.make(versionCode: versionCode)
+        let archive = try ZipArchive(data: apk)
+        let icon = try #require(archive.entry(named: "res/mipmap-xxhdpi-v4/ic_launcher.png"))
+        apk[try Int(archive.dataOffset(of: icon) + icon.compressedSize) - 1] ^= 0x01
+        return apk
+    }
+
+    static func signatureFailure(_ report: APKReport?) -> SignatureFailure? {
+        for case .signatureInvalid(let failure) in report?.compatibility.issues ?? [] { return failure }
+        return nil
+    }
+
+    @Test func aDamagedOrForgedUpdateIsRejected() async throws {
+        let forged = SampleAPK.make(versionCode: 2) { TestSigner.sign($0, v2: [.init(.rotated, certificate: TestKey.ec.certificate)]) }
+        for (file, kind) in [(try Self.damaged(versionCode: 2), SignatureFailure.Kind.damaged), (forged, .signatureMismatch)] {
+            let sandbox = try Sandbox()
+            defer { sandbox.remove() }
+            let library = try Library(paths: sandbox.paths)
+            let v1 = SampleAPK.make(versionCode: 1)
+            let installed = try await library.importFile(sandbox.file(v1, named: "v1.apk")).entry
+
+            let result = try await library.importFile(sandbox.file(file, named: "v2.apk"), replacing: true)
+
+            #expect(result.decision == .reject(.incompatible))
+            #expect(Self.signatureFailure(result.report)?.kind == kind)
+            #expect(await library.entries == [installed])
+            #expect(try Self.installedAPK(sandbox, installed) == v1)
+        }
+    }
+
+    @Test func aDamagedFileIsRejectedOverAVersionThatCannotRunEither() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let v1 = SampleAPK.make(versionCode: 1, abis: ["armeabi-v7a"])
+        let installed = try await library.importFile(sandbox.file(v1, named: "v1.apk")).entry
+
+        let result = try await library.importFile(sandbox.file(Self.damaged(versionCode: 2), named: "v2.apk"), replacing: true)
+
+        #expect(result.decision == .reject(.incompatible))
+        #expect(await library.entries == [installed])
+    }
+
+    @Test func aDamagedFileInstallsAsIncompatible() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(Self.damaged(versionCode: 1), named: "v1.apk")).entry
+        #expect(entry.state == .incompatible)
+        #expect(Self.signatureFailure(entry.report)?.kind == .damaged)
+        #expect(entry.report?.signature.check.map { if case .failed = $0 { true } else { false } } == true)
+    }
+
+    @Test func anUpdateTheCheckCannotProveAsks() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 1), named: "v1.apk"))
+        // The same certificate, but only a verity signature, which the check cannot verify.
+        let unproven = SampleAPK.make(versionCode: 2) { TestSigner.sign($0, v2: [.init(.ec, algorithms: [TestSigner.ecdsaSHA256Verity])]) }
+
+        let result = try await library.importFile(sandbox.file(unproven, named: "v2.apk"))
+
+        #expect(result.decision == .ask([.otherSigner]))
+        #expect(result.report?.signature.signer == SignerIdentity(current: [TestKey.ec.sha256]))
+    }
+
+    @Test func anUnprovenInstalledVersionAsksBeforeTheRealOne() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        // Names the real signer's certificate, with a signature the check cannot verify: installed fresh.
+        let unproven = SampleAPK.make(versionCode: 1) { TestSigner.sign($0, v2: [.init(.ec, algorithms: [TestSigner.ecdsaSHA256Verity])]) }
+        #expect(try await library.importFile(sandbox.file(unproven, named: "v1.apk")).decision == .install)
+
+        let real = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))
+
+        #expect(real.decision == .ask([.otherSigner]))
+    }
+
+    @Test func anEntryFromBeforeTheCheckHasItsBaseAPKChecked() async throws {
+        for (installedFile, decision) in [(SampleAPK.make(versionCode: 1), UpdateDecision.update),
+                                          (SampleAPK.make(versionCode: 1) { TestSigner.sign($0, v2: [.init(.ec, algorithms: [TestSigner.ecdsaSHA256Verity])]) },
+                                           .ask([.otherSigner]))] {
+            let sandbox = try Sandbox()
+            defer { sandbox.remove() }
+            var entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(installedFile, named: "v1.apk")).entry
+            entry.report?.signature.check = nil
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(OldIndex(entries: [entry])).write(to: sandbox.paths.indexFile)
+            let library = try Library(paths: sandbox.paths)
+
+            let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))
+
+            #expect(result.decision == decision)
+        }
+    }
+
+    @Test func anEntryFromStepBReadsTheCapabilitiesFromItsBaseAPK() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        // Rotated to a new key that may roll back to the old one.
+        let lineage: [TestSigner.Level] = [.init(.ec, flags: TestSigner.defaultCapabilities | TestSigner.rollback), .init(.rotated)]
+        let rotated = SampleAPK.make(versionCode: 1, v3: [TestSigner.Signer(.rotated, lineage: lineage)])
+        var entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(rotated, named: "v1.apk")).entry
+        // Step b) recorded the lineage without the capabilities, and no check.
+        entry.report?.signature.signer?.lineage = [LineageNode(sha256: TestKey.ec.sha256, flags: nil)]
+        entry.report?.signature.check = nil
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(OldIndex(entries: [entry])).write(to: sandbox.paths.indexFile)
+        let library = try Library(paths: sandbox.paths)
+
+        // Back to the old key: the base.apk's lineage grants it.
+        let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2, signers: [.ec]), named: "v2.apk"))
 
         #expect(result.decision == .update)
     }

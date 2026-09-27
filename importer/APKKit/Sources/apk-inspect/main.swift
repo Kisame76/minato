@@ -37,6 +37,7 @@ do {
     print("icon:           \(report.iconPath ?? "-")")
     print("signature:      \(report.signature.schemes.map(\.rawValue).joined(separator: ", ")), Play stamp: \(report.signature.hasGooglePlayStamp)")
     report.signature.certificates.forEach { print("                \($0.sha256)  \($0.subject ?? "?")") }
+    print("signature check: \(report.signature.check.map { "\($0)" } ?? "none")")
     print("status:         \(report.compatibility.status.rawValue)")
     report.compatibility.issues.forEach { print("  issue:        \($0)") }
     print("native libraries (\(report.nativeLibraries.count)):")

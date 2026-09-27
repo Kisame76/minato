@@ -19,4 +19,18 @@ public enum X509 {
         }
         return data.subdata(in: fields[index].start..<fields[index].end)
     }
+
+    /// The DER encodings of the certificate's issuer and serial number, which PKCS#7 names a signer by.
+    static func issuerAndSerialNumber(of certificate: Data) throws -> (issuer: Data, serial: Data) {
+        let data = Data(certificate)
+        let root = try DER.node(in: data, at: 0)
+        guard root.tag == 0x30, let tbs = try DER.children(of: root, in: data).first, tbs.tag == 0x30 else {
+            throw APKError.invalidCertificate("not an X.509 certificate")
+        }
+        let fields = try DER.children(of: tbs, in: data)
+        let first = fields.first?.tag == 0xA0 ? 1 : 0
+        guard first + 2 < fields.count else { throw APKError.invalidCertificate("no issuer") }
+        return (data.subdata(in: fields[first + 2].start..<fields[first + 2].end),
+                data.subdata(in: fields[first].start..<fields[first].end))
+    }
 }

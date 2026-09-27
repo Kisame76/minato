@@ -310,12 +310,17 @@ struct NativeCodeTests {
         #expect(!sandbox.exists(picked))
     }
 
-    @Test func aDamagedLibraryMakesTheAppIncompatible() async throws {
-        // Its last byte no longer matches the CRC: importing the file again would fail the same way.
+    @Test(arguments: [false, true])
+    func aDamagedLibraryMakesTheAppIncompatible(signed: Bool) async throws {
+        // Its last byte no longer matches the CRC: importing the file again would fail the same way. A
+        // signed file fails its signature check first (ADR-0034, step d); an unsigned one its conversion.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        var apk = try Self.madeAPK(extractNativeLibs: false)
+        let layout = try APKLayout.build(manifest: Self.manifest(extractNativeLibs: false, versionCode: 1),
+                                         libraries: ["libactivity-test.so", "libhelper.so"].map { PackFile(name: $0, contents: Self.library($0)) },
+                                         assets: [])
+        var apk = signed ? try APKSigner.sign(layout, with: Self.key) : layout
         let archive = try ZipArchive(data: apk)
         let entry = try #require(archive.entry(named: "lib/arm64-v8a/libhelper.so"))
         let last = try Int(archive.dataOffset(of: entry) + entry.compressedSize) - 1
@@ -324,8 +329,12 @@ struct NativeCodeTests {
         let result = try await library.importFile(sandbox.file(apk, named: "activity-test.apk"), signing: Self.signing())
 
         #expect(result.entry.state == .incompatible)
-        #expect(result.entry.report?.compatibility.issues.contains(
-            .conversionFailed(library: "libhelper.so", reason: "its data in the APK is damaged")) == true)
+        let issues = result.entry.report?.compatibility.issues ?? []
+        if signed {
+            #expect(issues.contains(.signatureInvalid(SignatureFailure(.damaged, "the content does not match its v2 digest"))))
+        } else {
+            #expect(issues.contains(.conversionFailed(library: "libhelper.so", reason: "its data in the APK is damaged")))
+        }
     }
 
     @Test func aRefusedUpdateOverAnAppThatCannotRunReplacesIt() async throws {
@@ -335,7 +344,7 @@ struct NativeCodeTests {
         let library = try Library(paths: sandbox.paths)
         let installed = try await library.importFile(
             sandbox.file(SampleAPK.make(package: "io.github.kisame76.minato.test.activity", splitRequired: true, nativeActivity: true,
-                                        signers: [Self.key.certificate]),
+                                        signers: [TestKey(debugKey: Self.key)]),
                          named: "v1.apk"), signing: Self.signing()).entry
         #expect(installed.state == .needsSplits)
 

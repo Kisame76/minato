@@ -30,6 +30,8 @@ public struct SignatureInfo: Sendable, Equatable, Codable {
     public var hasGooglePlayStamp: Bool
     /// Who signed the APK, as Android 15 decides it; nil in a report written before it was recorded.
     public var signer: SignerIdentity?
+    /// What the cryptographic check found; nil in a report written before it (ADR-0034, step d).
+    public var check: SignatureCheck?
 }
 
 /// Who signed an APK, as Android 15 decides it (ADR-0034, decision 2): the signers of the newest scheme
@@ -37,22 +39,66 @@ public struct SignatureInfo: Sendable, Equatable, Codable {
 public struct SignerIdentity: Sendable, Equatable, Hashable, Codable {
     /// SHA-256 of each signer's certificate, sorted; empty for an unsigned APK.
     public var current: [String]
-    /// SHA-256 of a rotated key's older certificates, oldest first (v3 and v3.1 with one signer only).
-    public var lineage: [String]
+    /// A rotated key's older certificates, oldest first (v3 and v3.1 with one signer only).
+    public var lineage: [LineageNode]
 
-    public init(current: [String], lineage: [String] = []) {
-        self.current = current.sorted()
+    public init(current: [String], lineage: [LineageNode] = []) {
+        // Android compares signers as sets: the same certificate twice is one signer.
+        self.current = Set(current).sorted()
         self.lineage = lineage
     }
 
-    /// The same signer, as Android decides an update: the same certificates, or one signer's current
-    /// certificate in the other's lineage, a key rotated forward or back. Several signers must all match
-    /// and none may rotate; an unsigned APK is nobody's.
-    public func isSame(as other: SignerIdentity) -> Bool {
-        guard !current.isEmpty, !other.current.isEmpty else { return false }
-        if current == other.current { return true }
-        guard current.count == 1, other.current.count == 1 else { return false }
-        return other.lineage.contains(current[0]) || lineage.contains(other.current[0])
+    /// Whether an APK of this signer may take over the data of an app `installed` signed, as Android
+    /// decides an update (ADR-0034, step d): the same certificates; a key rotated since, whose lineage
+    /// grants the installed key INSTALLED_DATA; or a key back to an older one, which the installed
+    /// lineage grants ROLLBACK. Several signers must all match and none may rotate; an unsigned APK is
+    /// nobody's.
+    public func canUpdate(_ installed: SignerIdentity) -> Bool {
+        guard !current.isEmpty, !installed.current.isEmpty else { return false }
+        if current == installed.current { return true }
+        guard current.count == 1, installed.current.count == 1 else { return false }
+        if lineage.contains(where: { $0.sha256 == installed.current[0] && $0.grants(LineageNode.installedData) }) {
+            return true
+        }
+        return installed.lineage.contains { $0.sha256 == current[0] && $0.grants(LineageNode.rollback) }
+    }
+
+    /// Whether every older certificate comes with its capabilities; a report from step b) has none.
+    public var knowsCapabilities: Bool { lineage.allSatisfy { $0.flags != nil } }
+
+    private enum CodingKeys: String, CodingKey { case current, lineage }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        current = try container.decode([String].self, forKey: .current)
+        if let nodes = try? container.decode([LineageNode].self, forKey: .lineage) {
+            lineage = nodes
+        } else {
+            // Written by step b): the certificates only.
+            lineage = try container.decode([String].self, forKey: .lineage).map { LineageNode(sha256: $0, flags: nil) }
+        }
+    }
+}
+
+/// An older certificate of a rotated key and what Android still lets it do (SigningCertificateLineage).
+public struct LineageNode: Sendable, Equatable, Hashable, Codable {
+    /// Apps signed with it may be updated by the rotated key and keep their data.
+    public static let installedData: UInt32 = 1
+    /// An APK signed with it may replace an app of the rotated key.
+    public static let rollback: UInt32 = 8
+
+    public var sha256: String
+    /// Nil in a report written before the capabilities were recorded.
+    public var flags: UInt32?
+
+    public init(sha256: String, flags: UInt32?) {
+        self.sha256 = sha256
+        self.flags = flags
+    }
+
+    public func grants(_ capability: UInt32) -> Bool {
+        guard let flags else { return false }
+        return flags & capability == capability
     }
 }
 
@@ -65,14 +111,18 @@ public enum APKSignatures {
     private static let proofOfRotationID: UInt32 = 0x3BA0_6F8C
     /// The Android version whose choice of signer counts: Android 15.
     static let platformSDK: UInt32 = 35
+    /// The most certificates, lineage levels, algorithms or attributes a signer may list, and pairs a
+    /// signing block may hold: far above a real APK's one to three certificates and handful of pairs.
+    static let maximumListLength = 64
 
     public static func read(_ archive: ZipArchive) -> SignatureInfo {
         var found: [SignatureInfo.Scheme: [Data]] = [:]
         var signers: [SignatureInfo.Scheme: [Signer]] = [:]
         var hasPlayStamp = false
 
-        for entry in archive.entries where isV1SignatureFile(entry.name) {
-            let certificates = (try? PKCS7.certificates(in: archive.data(for: entry, maxSize: 1 << 20))) ?? []
+        // No more signature blocks than the check reads.
+        for entry in archive.entries.lazy.filter({ isV1SignatureFile($0.name) }).prefix(JarVerifier.maximumSigners) {
+            let certificates = ((try? PKCS7.certificates(in: archive.data(for: entry, maxSize: 1 << 20))) ?? []).prefix(maximumListLength)
             found[.v1, default: []] += certificates
             if let first = certificates.first { signers[.v1, default: []].append(Signer(certificates: [first])) }
         }
@@ -88,12 +138,10 @@ public enum APKSignatures {
         }
 
         var certificates: [SigningCertificate] = []
+        var seen: Set<Data> = []
         for scheme in SignatureInfo.Scheme.allCases.reversed() {
-            for der in found[scheme] ?? [] {
-                let certificate = SigningCertificate(der: der)
-                if !certificates.contains(where: { $0.sha256 == certificate.sha256 }) {
-                    certificates.append(certificate)
-                }
+            for der in found[scheme] ?? [] where seen.insert(der).inserted {
+                certificates.append(SigningCertificate(der: der))
             }
         }
         return SignatureInfo(
@@ -109,7 +157,7 @@ public enum APKSignatures {
         var certificates: [Data]
         var minSdk: UInt32 = 0
         var maxSdk: UInt32 = .max
-        var lineage: [Data] = []
+        var lineage: [(certificate: Data, flags: UInt32)] = []
 
         init(certificates: [Data]) {
             self.certificates = certificates
@@ -124,44 +172,54 @@ public enum APKSignatures {
             let chosen = (signers[scheme] ?? []).filter { $0.isFor(sdk: platformSDK) && !$0.certificates.isEmpty }
             guard !chosen.isEmpty else { continue }
             let current = chosen.map { SigningCertificate(der: $0.certificates[0]).sha256 }
-            var lineage: [String] = []
+            var lineage: [LineageNode] = []
             if chosen.count == 1 {
                 // The lineage ends with the signer's own certificate.
-                lineage = chosen[0].lineage.map { SigningCertificate(der: $0).sha256 }.filter { $0 != current[0] }
+                lineage = chosen[0].lineage
+                    .map { LineageNode(sha256: SigningCertificate(der: $0.certificate).sha256, flags: $0.flags) }
+                    .filter { $0.sha256 != current[0] }
             }
             return SignerIdentity(current: current, lineage: lineage)
         }
         return SignerIdentity(current: [])
     }
 
-    private static func isV1SignatureFile(_ name: String) -> Bool {
-        guard name.hasPrefix("META-INF/"), !name.dropFirst(9).contains("/") else { return false }
-        let upper = name.uppercased()
-        return upper.hasSuffix(".RSA") || upper.hasSuffix(".DSA") || upper.hasSuffix(".EC")
+    /// A v1 signature block, as StrictJarVerifier finds them: case matters, and META-INF/'s folders count.
+    static func isV1SignatureFile(_ name: String) -> Bool {
+        let utf8 = Array(name.utf8)
+        guard utf8.starts(with: "META-INF/".utf8) else { return false }
+        return [".RSA", ".DSA", ".EC"].contains { utf8.reversed().starts(with: $0.utf8.reversed()) }
     }
 
     /// ID/value pairs of the APK Signing Block, which ends right before the central directory.
     static func signingBlockPairs(_ archive: ZipArchive) throws -> [(UInt32, Data)] {
+        try signingBlock(archive)?.pairs ?? []
+    }
+
+    /// The APK Signing Block: where it starts, and its ID/value pairs; nil without one.
+    static func signingBlock(_ archive: ZipArchive) throws -> (offset: UInt64, pairs: [(UInt32, Data)])? {
         let centralDirectory = archive.centralDirectoryOffset
-        guard centralDirectory >= 32 else { return [] }
+        guard centralDirectory >= 32 else { return nil }
         let footer = ByteReader(try archive.source.read(at: centralDirectory - 24, count: 24), context: "signing block footer")
-        guard footer.data.suffix(16) == Data("APK Sig Block 42".utf8) else { return [] }
+        guard footer.data.suffix(16) == Data("APK Sig Block 42".utf8) else { return nil }
         let size = try footer.u64(at: 0)
         guard size >= 24, size <= 64 << 20, size + 8 <= centralDirectory else {
             throw APKError.invalidSigningBlock("size \(size)")
         }
-        let block = ByteReader(try archive.source.read(at: centralDirectory - size - 8, count: Int(size + 8)), context: "signing block")
+        let offset = centralDirectory - size - 8
+        let block = ByteReader(try archive.source.read(at: offset, count: Int(size + 8)), context: "signing block")
         guard try block.u64(at: 0) == size else { throw APKError.invalidSigningBlock("size fields differ") }
 
         var pairs = ByteReader(block.data.subdata(in: 8..<block.count - 24), context: "signing block pairs")
         var result: [(UInt32, Data)] = []
         while pairs.remaining >= 12 {
+            guard result.count < maximumListLength else { throw APKError.invalidSigningBlock("more than \(maximumListLength) pairs") }
             let length = try pairs.u64()
             guard length >= 4, length <= UInt64(pairs.remaining) else { throw APKError.invalidSigningBlock("pair length \(length)") }
             let id = try pairs.u32()
             result.append((id, try pairs.bytes(Int(length) - 4)))
         }
-        return result
+        return (offset, result)
     }
 
     /// Every signer in a v2/v3/v3.1 block. v3 signed data starts like v2's, digests, then certificates,
@@ -170,13 +228,13 @@ public enum APKSignatures {
         var outer = ByteReader(value, context: "signers")
         var signers = ByteReader(try prefixed(&outer), context: "signers")
         var result: [Signer] = []
-        while signers.remaining >= 4 {
+        while signers.remaining >= 4, result.count < JarVerifier.maximumSigners {
             var signer = ByteReader(try prefixed(&signers), context: "signer")
             var signedData = ByteReader(try prefixed(&signer), context: "signed data")
             _ = try prefixed(&signedData) // digests
             var encoded = ByteReader(try prefixed(&signedData), context: "certificates")
             var certificates: [Data] = []
-            while encoded.remaining >= 4 {
+            while encoded.remaining >= 4, certificates.count < maximumListLength {
                 certificates.append(try prefixed(&encoded))
             }
             var parsed = Signer(certificates: certificates)
@@ -192,11 +250,11 @@ public enum APKSignatures {
     }
 
     /// The lineage among a v3 signer's additional attributes; empty without one.
-    private static func lineage(afterCertificates signedData: inout ByteReader) throws -> [Data] {
+    private static func lineage(afterCertificates signedData: inout ByteReader) throws -> [(certificate: Data, flags: UInt32)] {
         _ = try signedData.u32() // the Android versions, as in the signer
         _ = try signedData.u32()
         var attributes = ByteReader(try prefixed(&signedData), context: "additional attributes")
-        while attributes.remaining >= 4 {
+        for _ in 0..<maximumListLength where attributes.remaining >= 4 {
             var attribute = ByteReader(try prefixed(&attributes), context: "attribute")
             if try attribute.u32() == proofOfRotationID {
                 return try proofOfRotation(&attribute)
@@ -205,17 +263,17 @@ public enum APKSignatures {
         return []
     }
 
-    /// The certificates of a proof of rotation, oldest first: a version, then one level per key, each
-    /// with the certificate in its signed data.
-    private static func proofOfRotation(_ reader: inout ByteReader) throws -> [Data] {
+    /// The certificates of a proof of rotation with their capabilities, oldest first: a version, then
+    /// one level per key, each with the certificate in its signed data and its flags after them.
+    private static func proofOfRotation(_ reader: inout ByteReader) throws -> [(certificate: Data, flags: UInt32)] {
         _ = try reader.u32() // version
-        var certificates: [Data] = []
-        while reader.remaining >= 4 {
+        var levels: [(certificate: Data, flags: UInt32)] = []
+        while reader.remaining >= 4, levels.count < maximumListLength {
             var level = ByteReader(try prefixed(&reader), context: "rotation level")
             var signedData = ByteReader(try prefixed(&level), context: "rotation signed data")
-            certificates.append(try prefixed(&signedData))
+            levels.append((try prefixed(&signedData), try level.u32()))
         }
-        return certificates
+        return levels
     }
 
     private static func stampCertificate(_ value: Data) throws -> Data {

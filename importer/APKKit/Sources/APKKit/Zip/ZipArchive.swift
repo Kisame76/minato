@@ -29,6 +29,9 @@ public final class ZipArchive {
     public let entries: [ZipEntry]
     /// Start of the central directory. The APK Signing Block ends right before it.
     public let centralDirectoryOffset: UInt64
+    public let centralDirectorySize: UInt64
+    /// Where the end of central directory record starts (the classic one, after any ZIP64 records).
+    public let endOfCentralDirectoryOffset: UInt64
     public let source: ByteSource
     private let indexByName: [String: Int]
 
@@ -46,6 +49,8 @@ public final class ZipArchive {
         self.source = source
         let end = try Self.readEndOfCentralDirectory(source)
         centralDirectoryOffset = end.centralDirectoryOffset
+        centralDirectorySize = end.centralDirectorySize
+        endOfCentralDirectoryOffset = end.offset
         entries = try Self.readCentralDirectory(source, end: end)
         var index: [String: Int] = [:]
         for (position, entry) in entries.enumerated() where index[entry.name] == nil {
@@ -76,6 +81,41 @@ public final class ZipArchive {
             throw APKError.crcMismatch(entry.name)
         }
         return content
+    }
+
+    /// Hands an entry's uncompressed content to `body` in pieces of at most `chunkSize` bytes, so that
+    /// no entry is ever in memory whole (ADR-0034, step d).
+    public func forEachChunk(of entry: ZipEntry, chunkSize: Int = 1 << 20, _ body: (Data) throws -> Void) throws {
+        guard !entry.isEncrypted else { throw APKError.encryptedEntry(entry.name) }
+        let start = try dataOffset(of: entry)
+        guard entry.compressedSize <= source.size, start <= source.size - entry.compressedSize else {
+            throw APKError.truncated("\(entry.name): data beyond end of archive")
+        }
+        var produced: UInt64 = 0
+        // More than the entry's size is refused as it comes, so a deflate bomb costs no more than its size.
+        func emit(_ piece: Data) throws {
+            produced += UInt64(piece.count)
+            guard produced <= entry.uncompressedSize else {
+                throw APKError.truncated("\(entry.name): more data than its size of \(entry.uncompressedSize) bytes")
+            }
+            try body(piece)
+        }
+        switch entry.method {
+        case .stored:
+            var offset: UInt64 = 0
+            while offset < entry.compressedSize {
+                let count = Int(min(UInt64(chunkSize), entry.compressedSize - offset))
+                try emit(try source.read(at: start + offset, count: count))
+                offset += UInt64(count)
+            }
+        case .deflated:
+            try inflate(entry, from: start, chunkSize: chunkSize, emit)
+        case .other(let method):
+            throw APKError.unsupportedCompression(entry: entry.name, method: method)
+        }
+        guard produced == entry.uncompressedSize else {
+            throw APKError.truncated("\(entry.name): got \(produced) of \(entry.uncompressedSize) bytes")
+        }
     }
 
     /// The first `count` bytes of an entry (fewer if the entry is shorter). Inflates only what is needed.
@@ -153,6 +193,56 @@ public final class ZipArchive {
             if finalize && stream.pointee.src_size == 0 && stream.pointee.dst_size == spaceBefore { break }
         }
         return Data(bytes: output, count: target - stream.pointee.dst_size)
+    }
+
+    /// Inflates the whole entry, handing the output to `body` whenever `chunkSize` bytes are ready.
+    private func inflate(_ entry: ZipEntry, from start: UInt64, chunkSize: Int, _ body: (Data) throws -> Void) throws {
+        let inputSize = 64 * 1024
+        let output = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        let input = UnsafeMutablePointer<UInt8>.allocate(capacity: inputSize)
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer {
+            output.deallocate()
+            input.deallocate()
+            stream.deallocate()
+        }
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw APKError.truncated("\(entry.name): cannot initialise inflater")
+        }
+        defer { compression_stream_destroy(stream) }
+
+        stream.pointee.dst_ptr = output
+        stream.pointee.dst_size = chunkSize
+        stream.pointee.src_ptr = UnsafePointer(input)
+        stream.pointee.src_size = 0
+        var consumed: UInt64 = 0
+        while true {
+            if stream.pointee.src_size == 0 && consumed < entry.compressedSize {
+                let count = Int(min(UInt64(inputSize), entry.compressedSize - consumed))
+                let chunk = try source.read(at: start + consumed, count: count)
+                chunk.copyBytes(to: input, count: count)
+                consumed += UInt64(count)
+                stream.pointee.src_ptr = UnsafePointer(input)
+                stream.pointee.src_size = count
+            }
+            let finalize = consumed >= entry.compressedSize
+            let sourceBefore = stream.pointee.src_size
+            let spaceBefore = stream.pointee.dst_size
+            let status = compression_stream_process(stream, finalize ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0)
+            guard status == COMPRESSION_STATUS_OK || status == COMPRESSION_STATUS_END else {
+                throw APKError.truncated("\(entry.name): invalid deflate data")
+            }
+            let filled = chunkSize - stream.pointee.dst_size
+            if stream.pointee.dst_size == 0 || status == COMPRESSION_STATUS_END {
+                if filled > 0 { try body(Data(bytes: output, count: filled)) }
+                stream.pointee.dst_ptr = output
+                stream.pointee.dst_size = chunkSize
+            }
+            if status == COMPRESSION_STATUS_END { return }
+            if finalize && stream.pointee.src_size == sourceBefore && stream.pointee.dst_size == spaceBefore {
+                throw APKError.truncated("\(entry.name): deflate data ends early")
+            }
+        }
     }
 
     // MARK: - Central directory

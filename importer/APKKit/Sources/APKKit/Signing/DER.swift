@@ -60,6 +60,49 @@ enum DER {
     }
 }
 
+extension DER {
+    /// An OBJECT IDENTIFIER's value in dotted form, e.g. "1.2.840.113549.1.7.2".
+    static func objectIdentifier(_ node: DERNode, in data: Data) throws -> String {
+        guard node.tag == 0x06, node.contentEnd > node.contentStart else { throw APKError.invalidCertificate("not an OID") }
+        var arcs: [UInt64] = []
+        var value: UInt64 = 0
+        for index in node.contentStart..<node.contentEnd {
+            guard value >> 56 == 0 else { throw APKError.invalidCertificate("OID arc too large") }
+            value = value << 7 | UInt64(data[index] & 0x7F)
+            if data[index] & 0x80 == 0 {
+                if arcs.isEmpty {
+                    arcs = value < 80 ? [value / 40, value % 40] : [2, value - 80]
+                } else {
+                    arcs.append(value)
+                }
+                value = 0
+            }
+        }
+        guard data[node.contentEnd - 1] & 0x80 == 0 else { throw APKError.invalidCertificate("truncated OID") }
+        return arcs.map(String.init).joined(separator: ".")
+    }
+
+    static func bytes(of node: DERNode, in data: Data) -> Data {
+        data.subdata(in: node.start..<node.end)
+    }
+
+    /// An element of `tag` around `content`, its length in DER's shortest form.
+    static func encode(_ tag: UInt8, _ content: Data) -> Data {
+        var length: [UInt8] = []
+        var rest = content.count
+        while rest > 0 {
+            length.insert(UInt8(rest & 0xFF), at: 0)
+            rest >>= 8
+        }
+        let header = content.count < 0x80 ? [UInt8(content.count)] : [0x80 | UInt8(length.count)] + length
+        return Data([tag] + header) + content
+    }
+
+    static func content(of node: DERNode, in data: Data) -> Data {
+        data.subdata(in: node.contentStart..<node.contentEnd)
+    }
+}
+
 enum PKCS7 {
     /// DER encodings of the certificates in a PKCS#7 SignedData (ContentInfo), e.g. META-INF/CERT.RSA.
     static func certificates(in encoded: Data) throws -> [Data] {

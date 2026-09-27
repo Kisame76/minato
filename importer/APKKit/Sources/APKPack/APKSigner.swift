@@ -11,7 +11,7 @@ public struct DebugKey: @unchecked Sendable {
     public let certificate: Data
     /// The certificate's SubjectPublicKeyInfo, exactly as it stands in the certificate.
     public let subjectPublicKeyInfo: Data
-    let privateKey: SecKey
+    package let privateKey: SecKey
 
     /// ~/.android/minato-debug-key, next to Android Studio's debug key.
     public static var standardFolder: URL {

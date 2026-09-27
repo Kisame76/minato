@@ -80,6 +80,8 @@ public struct Compatibility: Sendable, Equatable, Codable {
         case wrongArchitecture(String)
         /// The converter refuses a library: it cannot run on iOS as it is (ADR-0010, ADR-0032).
         case conversionFailed(library: String, reason: String)
+        /// The signature check failed: the file is damaged or forged (ADR-0034, step d).
+        case signatureInvalid(SignatureFailure)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART

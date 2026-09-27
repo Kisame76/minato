@@ -106,7 +106,9 @@ public actor Library {
         let signer = report.signature.signer ?? SignerIdentity(current: [])
         var decision = UpdatePolicy.decide(
             installed: installedVersion,
-            new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer))
+            new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
+                            signerProven: report.signature.check == .verified,
+                            signatureFailed: report.signature.check?.isFailure == true))
         switch (decision, installed) {
         case (.unchanged, let installed?), (.reject, let installed?):
             discardPickedCopy(url)
@@ -146,7 +148,9 @@ public actor Library {
                 try? fileManager.removeItem(at: versionDirectory.appendingPathComponent("lib"))
                 decision = UpdatePolicy.decide(
                     installed: installedVersion,
-                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer))
+                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
+                            signerProven: report.signature.check == .verified,
+                            signatureFailed: report.signature.check?.isFailure == true))
                 if case .reject = decision, let installed {
                     try? fileManager.removeItem(at: versionDirectory)
                     discardPickedCopy(url)
@@ -202,14 +206,16 @@ public actor Library {
         discardPickedCopy(url)
     }
 
-    /// The version an entry holds, with the signer read from its base.apk when its report is from before
-    /// the signer was recorded (ADR-0034, decision 2).
+    /// The version an entry holds. A report from before the signature check (ADR-0034, step d), and so
+    /// from before the signer or its lineage's capabilities were recorded, has its base.apk checked now.
     private func version(of entry: LibraryEntry) -> AppVersion? {
         guard var version = AppVersion(entry: entry) else { return nil }
-        if entry.report?.signature.signer == nil, let base = entry.base,
-           let archive = try? ZipArchive(url: paths.versionDirectory(for: entry).appendingPathComponent(base.fileName)),
-           let signer = APKSignatures.read(archive).signer {
-            version.signer = signer
+        let signature = entry.report?.signature
+        if signature?.check == nil || signature?.signer?.knowsCapabilities != true, let base = entry.base,
+           let archive = try? ZipArchive(url: paths.versionDirectory(for: entry).appendingPathComponent(base.fileName)) {
+            let verification = SignatureVerifier.verify(archive)
+            version.signerProven = verification.check == .verified
+            if let signer = verification.signer ?? APKSignatures.read(archive).signer { version.signer = signer }
         }
         return version
     }
@@ -395,7 +401,8 @@ public actor Library {
         defer { try? handle.close() }
         var hasher = SHA256()
         var done: UInt64 = 0
-        while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+        // One autorelease pool per chunk: FileHandle's buffers would otherwise pile up to the file's size.
+        while let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: 4 << 20) }), !chunk.isEmpty {
             hasher.update(data: chunk)
             done += UInt64(chunk.count)
             progress(Double(done) / Double(max(size, 1)))

@@ -88,9 +88,11 @@ enum Texts {
 
     /// A file the installed app keeps its version against: it needs splits or cannot run.
     static func updateRejected(installed: LibraryEntry, report: APKReport?, state: LibraryEntry.State) -> (title: String, message: String) {
-        let reason = switch state {
-        case .needsSplits: "needs its split APKs"
-        default: report?.compatibility.issues.first(where: isBlocking).map { "cannot run: " + issue($0) } ?? "cannot run"
+        let blocking = report?.compatibility.issues.first(where: isBlocking)
+        let reason = switch (state, blocking) {
+        case (.needsSplits, _): "needs its split APKs"
+        case (_, .signatureInvalid(let failure)?): signatureReason(failure)
+        default: blocking.map { "cannot run: " + issue($0) } ?? "cannot run"
         }
         return ("Can’t Update “\(installed.displayName)”",
                 "\(versionName(report)) \(reason). Version \(versionName(installed.report)) stays installed.")
@@ -120,7 +122,7 @@ enum Texts {
 
     static func isBlocking(_ issue: Compatibility.Issue) -> Bool {
         switch issue {
-        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed: true
+        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed, .signatureInvalid: true
         default: false
         }
     }
@@ -137,6 +139,8 @@ enum Texts {
             "\(library) is in the arm64 folder but is not ARM64 code"
         case .conversionFailed(let library, let reason):
             "\(library) cannot run: \(reason)"
+        case .signatureInvalid(let failure):
+            "The file \(signatureReason(failure))"
         case .needsART:
             "Contains Java/Kotlin code and needs ART (milestone M4)"
         case .requiresGLES(let version):
@@ -147,6 +151,14 @@ enum Texts {
             "Uses Google’s license check (LVL), which we do not bypass"
         case .unreadableLibrary(let library):
             "\(library) cannot be read"
+        }
+    }
+
+    /// Why a file's signature check failed (ADR-0034, step d), after the file or its version.
+    static func signatureReason(_ failure: SignatureFailure) -> String {
+        switch failure.kind {
+        case .damaged: "is damaged"
+        case .signatureMismatch: "has a signature that does not match"
         }
     }
 

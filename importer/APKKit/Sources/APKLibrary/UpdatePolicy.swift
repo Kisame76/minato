@@ -8,22 +8,31 @@ public struct AppVersion: Sendable, Equatable {
     /// SHA-256 of the APK; nil for an installed version from before it was recorded that keeps no copy.
     public var sha256: String?
     public var signer: SignerIdentity
+    /// Whether the signature check proved `signer` (ADR-0034, step d), for the new file and for the
+    /// installed version alike: an unproven one on either side asks, since a forged file names anyone.
+    public var signerProven: Bool
+    /// Whether the signature check found the file damaged or forged.
+    public var signatureFailed: Bool
 
-    public init(state: LibraryEntry.State, versionCode: Int64, sha256: String?, signer: SignerIdentity) {
+    public init(state: LibraryEntry.State, versionCode: Int64, sha256: String?, signer: SignerIdentity,
+                signerProven: Bool = true, signatureFailed: Bool = false) {
         self.state = state
         self.versionCode = versionCode
         self.sha256 = sha256
         self.signer = signer
+        self.signerProven = signerProven
+        self.signatureFailed = signatureFailed
     }
 
     /// The version an entry holds; nil for a file that was not a readable APK. A report from before the
-    /// signer was recorded counts every certificate it lists as current; the library reads the signer
-    /// from the version's base.apk instead where it can.
+    /// signer was recorded counts every certificate it lists as current, and one from before the check
+    /// counts as unproven; the library reads both from the version's base.apk instead where it can.
     public init?(entry: LibraryEntry) {
         guard let report = entry.report else { return nil }
         self.init(
             state: entry.state, versionCode: report.versionCode, sha256: entry.source.sha256 ?? entry.base?.sha256,
-            signer: report.signature.signer ?? SignerIdentity(current: report.signature.certificates.map(\.sha256)))
+            signer: report.signature.signer ?? SignerIdentity(current: report.signature.certificates.map(\.sha256)),
+            signerProven: report.signature.check == .verified, signatureFailed: report.signature.check?.isFailure == true)
     }
 }
 
@@ -31,7 +40,8 @@ public struct AppVersion: Sendable, Equatable {
 public enum UpdateWarning: Sendable, Hashable {
     /// The file is an older version, which may not be able to read the newer one's data.
     case olderVersion
-    /// Someone else signed the file, or one of the two is unsigned: it would get the installed app's data.
+    /// Someone else signed the file, one of the two is unsigned, or the check could not prove the file's
+    /// signer: it would get the installed app's data.
     case otherSigner
 }
 
@@ -45,7 +55,8 @@ public enum UpdateDecision: Sendable, Equatable {
     case reinstall
     /// The same bytes: nothing changes, and the file is discarded.
     case unchanged
-    /// The installed version works and the file, in this state, would not: nothing changes.
+    /// The file failed its signature check, or the installed version works and the file, in this state,
+    /// would not: nothing changes.
     case reject(LibraryEntry.State)
     /// Nothing changes until the user answers.
     case ask(Set<UpdateWarning>)
@@ -54,12 +65,15 @@ public enum UpdateDecision: Sendable, Equatable {
 public enum UpdatePolicy {
     public static func decide(installed: AppVersion?, new: AppVersion) -> UpdateDecision {
         guard let installed else { return .install }
-        // An unusable file never replaces a working version, whatever its version or signer.
-        if installed.state == .ready, new.state == .incompatible || new.state == .needsSplits {
+        // A damaged or forged file never replaces anything, and an unusable one never replaces a working
+        // version, whatever its version or signer.
+        if new.signatureFailed || installed.state == .ready && (new.state == .incompatible || new.state == .needsSplits) {
             return .reject(new.state)
         }
         var warnings: Set<UpdateWarning> = []
-        if !new.signer.isSame(as: installed.signer) { warnings.insert(.otherSigner) }
+        if !new.signerProven || !installed.signerProven || !new.signer.canUpdate(installed.signer) {
+            warnings.insert(.otherSigner)
+        }
         if new.versionCode < installed.versionCode { warnings.insert(.olderVersion) }
         if !warnings.isEmpty { return .ask(warnings) }
         if new.versionCode > installed.versionCode { return .update }

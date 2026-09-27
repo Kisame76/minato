@@ -56,10 +56,20 @@ public enum APKAnalyzer {
             playDependencies: playDependencies(manifest),
             engine: engine(allLibraryNames),
             iconPath: chooseIcon(manifest, resources: resources, archive: archive),
-            signature: APKSignatures.read(archive),
+            signature: signature(of: archive),
             compatibility: Compatibility(status: .ready, issues: []))
         report.compatibility = compatibility(of: report, manifest: manifest)
         return report
+    }
+
+    /// The certificates and the signer as the file names them, checked cryptographically (ADR-0034,
+    /// step d): once verified, the signer is the one the check proved.
+    static func signature(of archive: ZipArchive) -> SignatureInfo {
+        var signature = APKSignatures.read(archive)
+        let verification = SignatureVerifier.verify(archive)
+        signature.check = verification.check
+        if let signer = verification.signer { signature.signer = signer }
+        return signature
     }
 
     public static func iconData(for report: APKReport, in archive: ZipArchive) throws -> Data? {
@@ -100,6 +110,10 @@ public enum APKAnalyzer {
         var issues: [Compatibility.Issue] = []
         var blocked = false
 
+        if case .failed(let failure) = report.signature.check {
+            issues.append(.signatureInvalid(failure))
+            blocked = true
+        }
         if let split = report.splitName {
             issues.append(.isSplitAPK(split))
             blocked = true

@@ -44,7 +44,9 @@ public final class FileSource: ByteSource {
             throw APKError.truncated("read of \(count) bytes at \(offset) beyond \(size)")
         }
         try handle.seek(toOffset: offset)
-        let data = try handle.read(upToCount: count) ?? Data()
+        // FileHandle hands out autoreleased buffers: without a pool per read, a loop over a large file
+        // would keep all of them until its thread's pool drains, as much memory as the file.
+        let data = try autoreleasepool { try handle.read(upToCount: count) ?? Data() }
         guard data.count == count else {
             throw APKError.truncated("short read at \(offset)")
         }

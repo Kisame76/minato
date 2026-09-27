@@ -86,6 +86,14 @@ struct UpdatePolicyTests {
             == .reject(.incompatible))
     }
 
+    @Test(arguments: [LibraryEntry.State.ready, .needsSplits, .incompatible])
+    func rejectsAFileWhoseCheckFailedWhateverIsInstalled(installed: LibraryEntry.State) {
+        // A damaged or forged file never replaces an app, not even one that cannot run.
+        var new = Self.version(2, .incompatible, sha256: "bb")
+        new.signatureFailed = true
+        #expect(UpdatePolicy.decide(installed: Self.version(1, installed), new: new) == .reject(.incompatible))
+    }
+
     @Test func asksWhenEitherOneIsUnsigned() {
         let unsigned = SignerIdentity(current: [])
         #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: unsigned)) == .ask([.otherSigner]))
@@ -94,28 +102,64 @@ struct UpdatePolicyTests {
             == .ask([.otherSigner]))
     }
 
+    static func node(_ sha256: String, _ flags: UInt32 = TestSigner.defaultCapabilities) -> LineageNode {
+        LineageNode(sha256: sha256, flags: flags)
+    }
+
     @Test func aRotatedKeyIsTheSameSigner() {
-        let rotated = SignerIdentity(current: ["k2"], lineage: ["k1"])
+        let rotated = SignerIdentity(current: ["k2"], lineage: [Self.node("k1")])
         #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: rotated)) == .update)
         // Rotated twice since the installed version.
-        let twice = SignerIdentity(current: ["k3"], lineage: ["k1", "k2"])
+        let twice = SignerIdentity(current: ["k3"], lineage: [Self.node("k1"), Self.node("k2")])
         #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: twice)) == .update)
         // Both carry the lineage.
         #expect(UpdatePolicy.decide(installed: Self.version(1, signer: rotated), new: Self.version(2, sha256: "bb", signer: twice)) == .update)
     }
 
-    @Test func aKeyBackToAnOlderOneIsTheSameSigner() {
-        let rotated = SignerIdentity(current: ["k2"], lineage: ["k1"])
-        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: rotated), new: Self.version(2, sha256: "bb")) == .update)
+    @Test func aRotatedKeyNeedsTheInstalledKeysInstalledDataCapability() {
+        // Android's checkCapability(INSTALLED_DATA): the old key no longer vouches for its apps' data.
+        let revoked = SignerIdentity(current: ["k2"], lineage: [Self.node("k1", TestSigner.defaultCapabilities & ~TestSigner.installedData)])
+        #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: revoked)) == .ask([.otherSigner]))
+        // A report from step b) knows no capabilities; the library reads them from the base.apk first.
+        let unknown = SignerIdentity(current: ["k2"], lineage: [LineageNode(sha256: "k1", flags: nil)])
+        #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: unknown)) == .ask([.otherSigner]))
+    }
+
+    @Test func aKeyBackToAnOlderOneNeedsTheRollbackCapability() {
+        // The installed app's lineage decides, as old.checkCapability(new, ROLLBACK) on Android.
+        let rotated = SignerIdentity(current: ["k2"], lineage: [Self.node("k1")])
+        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: rotated), new: Self.version(2, sha256: "bb")) == .ask([.otherSigner]))
+        let mayRollBack = SignerIdentity(current: ["k2"], lineage: [Self.node("k1", TestSigner.defaultCapabilities | TestSigner.rollback)])
+        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: mayRollBack), new: Self.version(2, sha256: "bb")) == .update)
+        // The new file's own lineage cannot grant itself the way back: its ROLLBACK counts for nothing.
+        let claims = SignerIdentity(current: ["k1"], lineage: [Self.node("k2", TestSigner.rollback)])
+        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: rotated), new: Self.version(2, sha256: "bb", signer: claims))
+            == .ask([.otherSigner]))
     }
 
     @Test func aLineageWithoutTheInstalledKeyIsAnotherSigner() {
-        let foreign = SignerIdentity(current: ["k2"], lineage: ["k9"])
+        let foreign = SignerIdentity(current: ["k2"], lineage: [Self.node("k9")])
         #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: foreign)) == .ask([.otherSigner]))
         // Sharing only an older key is not enough: the one's current key must be in the other's lineage.
-        let sibling = SignerIdentity(current: ["k3"], lineage: ["k1"])
-        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: SignerIdentity(current: ["k2"], lineage: ["k1"])),
+        let sibling = SignerIdentity(current: ["k3"], lineage: [Self.node("k1")])
+        #expect(UpdatePolicy.decide(installed: Self.version(1, signer: SignerIdentity(current: ["k2"], lineage: [Self.node("k1")])),
                                     new: Self.version(2, sha256: "bb", signer: sibling)) == .ask([.otherSigner]))
+    }
+
+    @Test func anUnprovenInstalledSignerAsks() {
+        // A forged file installed fresh names anyone; the real app must not update it silently.
+        var installed = Self.version(1)
+        installed.signerProven = false
+        #expect(UpdatePolicy.decide(installed: installed, new: Self.version(2, sha256: "bb")) == .ask([.otherSigner]))
+    }
+
+    @Test func anUnprovenSignerAsks() {
+        // Signed with an algorithm the check cannot verify (ADR-0034, step d): the same certificate proves nothing.
+        var unproven = Self.version(2, sha256: "bb")
+        unproven.signerProven = false
+        #expect(UpdatePolicy.decide(installed: Self.version(1), new: unproven) == .ask([.otherSigner]))
+        unproven.versionCode = 1
+        #expect(UpdatePolicy.decide(installed: Self.version(2), new: unproven) == .ask([.otherSigner, .olderVersion]))
     }
 
     @Test func severalSignersMustAllMatch() {
@@ -124,7 +168,7 @@ struct UpdatePolicyTests {
         #expect(UpdatePolicy.decide(installed: Self.version(1, signer: both), new: Self.version(2, sha256: "bb")) == .ask([.otherSigner]))
         #expect(UpdatePolicy.decide(installed: Self.version(1), new: Self.version(2, sha256: "bb", signer: both)) == .ask([.otherSigner]))
         // None of several may rotate: a lineage counts only for one signer on each side.
-        let rotatedInto = SignerIdentity(current: ["k3"], lineage: ["k1"])
+        let rotatedInto = SignerIdentity(current: ["k3"], lineage: [Self.node("k1")])
         #expect(UpdatePolicy.decide(installed: Self.version(1, signer: both), new: Self.version(2, sha256: "bb", signer: rotatedInto))
             == .ask([.otherSigner]))
     }
