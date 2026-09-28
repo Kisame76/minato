@@ -1,0 +1,45 @@
+I/aaudio-test: android_main
+I/aaudio-test: AAudio_convertResultToText(0): AAUDIO_OK
+I/aaudio-test: AAudio_convertResultToText(-895): AAUDIO_ERROR_INVALID_STATE
+I/aaudio-test: AAudio_convertResultToText(-889): AAUDIO_ERROR_UNAVAILABLE
+I/aaudio-test: AAudio_convertResultToText(-885): AAUDIO_ERROR_TIMEOUT
+I/aaudio-test: AAudio_convertStreamStateToText(2): AAUDIO_STREAM_STATE_OPEN
+I/aaudio-test: AAudio_convertStreamStateToText(4): AAUDIO_STREAM_STATE_STARTED
+I/aaudio-test: AAudio_convertStreamStateToText(10): AAUDIO_STREAM_STATE_STOPPED
+I/aaudio-test: AAudio_convertStreamStateToText(12): AAUDIO_STREAM_STATE_CLOSED
+I/aaudio-test: nothing set: open OK
+I/aaudio-test: nothing set: direction OUTPUT, sharing SHARED, usage 1, content type 2, session ID -1, state OPEN
+I/aaudio-test: nothing set: close OK
+I/aaudio-test: everything set: open OK
+I/aaudio-test: everything set: rate 44100, channels 2, format I16, sharing SHARED, usage 14, burst above 0: yes, capacity at least a burst: yes, state OPEN
+I/aaudio-test: write before the start, timeout 0: frames written: yes; again: none
+I/aaudio-test: requestStart: OK
+I/aaudio-test: after requestStart: STARTED
+I/aaudio-test: requestFlush while started: ERROR_INVALID_STATE
+I/aaudio-test: write of 100 ms while started, timeout 1 s: every frame
+I/aaudio-test: requestPause: OK
+I/aaudio-test: after requestPause: PAUSED
+I/aaudio-test: write of twice the capacity while paused, timeout 50 ms: fewer frames than asked: yes
+I/aaudio-test: requestFlush: OK
+I/aaudio-test: after requestFlush: FLUSHED
+I/aaudio-test: requestStart again: OK
+I/aaudio-test: after requestStart again: STARTED
+I/aaudio-test: requestStop: OK
+I/aaudio-test: after requestStop: STOPPED
+I/aaudio-test: everything set: close OK
+I/aaudio-test: callback: open OK
+I/aaudio-test: callback: write of 64 frames before the start: ERROR_INVALID_STATE
+I/aaudio-test: callback: requestStart: OK
+I/aaudio-test: callback: after requestStart: STARTED
+I/aaudio-test: callback: write while started: ERROR_INVALID_STATE
+I/aaudio-test: callback: after 1 s: called: yes, frames in every call: yes, never on the test thread: yes, frames written: yes, errors 0
+I/aaudio-test: callback: getTimestamp: OK, its position at most the frames written: yes
+I/aaudio-test: callback: requestStop: OK
+I/aaudio-test: callback: after requestStop: STOPPED
+I/aaudio-test: callback: close OK
+I/aaudio-test: STOP from the callback: open OK
+I/aaudio-test: STOP from the callback: requestStart: OK
+I/aaudio-test: STOP from the callback, after the 10th call: STOPPED; 200 ms later: 10 calls, 0 after STOP
+I/aaudio-test: STOP from the callback: close OK
+I/aaudio-test: ANativeActivity_finish
+I/aaudio-test: android_main returns

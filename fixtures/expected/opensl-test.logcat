@@ -1,0 +1,45 @@
+I/opensl-test: android_main
+I/opensl-test: slCreateEngine: SUCCESS
+I/opensl-test: Realize the engine: SUCCESS
+I/opensl-test: GetInterface ENGINE: SUCCESS
+I/opensl-test: CreateOutputMix: SUCCESS
+I/opensl-test: Realize the output mix: SUCCESS
+I/opensl-test: CreateAudioPlayer, 16-bit PCM from a simple buffer queue: SUCCESS
+I/opensl-test: GetInterface ANDROIDCONFIGURATION before Realize: SUCCESS
+I/opensl-test: SetConfiguration stream type MEDIA: SUCCESS
+I/opensl-test: SetConfiguration performance mode LATENCY: SUCCESS
+I/opensl-test: GetConfiguration: stream type SUCCESS, 3; performance mode SUCCESS, 1
+I/opensl-test: Realize the player: SUCCESS
+I/opensl-test: SetConfiguration performance mode after Realize: PRECONDITIONS_VIOLATED
+I/opensl-test: GetInterface PLAY SUCCESS, ANDROIDSIMPLEBUFFERQUEUE SUCCESS, VOLUME SUCCESS
+I/opensl-test: the first play state: STOPPED
+I/opensl-test: SetPlayState PLAYING: SUCCESS, reads PLAYING
+I/opensl-test: SetPlayState PAUSED: SUCCESS, reads PAUSED
+I/opensl-test: SetPlayState STOPPED: SUCCESS, reads STOPPED
+I/opensl-test: RegisterCallback: SUCCESS
+I/opensl-test: Enqueue 1: SUCCESS
+I/opensl-test: Enqueue 2: SUCCESS
+I/opensl-test: Enqueue 3 into a queue of 2: BUFFER_INSUFFICIENT
+I/opensl-test: buffer queue with 2 buffers: GetState SUCCESS, count 2
+I/opensl-test: Clear: SUCCESS
+I/opensl-test: buffer queue after Clear: GetState SUCCESS, count 0
+I/opensl-test: SetPlayState PLAYING: SUCCESS, reads PLAYING
+I/opensl-test: after 1 s of PLAYING: the callback ran: yes, never on the test thread: yes
+I/opensl-test: SetPlayState PAUSED: SUCCESS, reads PAUSED
+I/opensl-test: SetPlayState STOPPED: SUCCESS, reads STOPPED
+I/opensl-test: buffer queue with 2 buffers queued while paused, after STOPPED: GetState SUCCESS, count 2
+I/opensl-test: GetMaxVolumeLevel: SUCCESS, 0
+I/opensl-test: SetVolumeLevel -600: SUCCESS, reads SUCCESS, -600
+I/opensl-test: SetMute: SUCCESS, reads SUCCESS, muted
+I/opensl-test: the 16-bit player destroyed
+I/opensl-test: CreateAudioPlayer, float PCM from a buffer queue: SUCCESS
+I/opensl-test: Realize the float player: SUCCESS
+I/opensl-test: GetInterface PLAY SUCCESS, BUFFERQUEUE SUCCESS
+I/opensl-test: Enqueue float: SUCCESS
+I/opensl-test: SetPlayState PLAYING: SUCCESS, reads PLAYING
+I/opensl-test: the float player's callback ran: yes
+I/opensl-test: SetPlayState STOPPED: SUCCESS, reads STOPPED
+I/opensl-test: the float player destroyed
+I/opensl-test: the engine destroyed
+I/opensl-test: ANativeActivity_finish
+I/opensl-test: android_main returns

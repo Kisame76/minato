@@ -97,11 +97,19 @@ mkdir -p "$RESULTS"
 "$ADB" start-server >/dev/null 2>&1
 serial=$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }')
 started=""
+# The audio test apps (ADR-0036, step c) need the emulator's audio device; they play only zeros. Every other
+# test runs without it. A running emulator started with -no-audio would give them a wrong reference.
+audio=-no-audio
+case "$app" in aaudio-test | opensl-test) audio="" ;; esac
+if [[ -n "$serial" && -z "$audio" && "$(ps -Ao args | grep -e '-avd ' | grep -c -e '-no-audio')" != 0 ]]; then
+  echo "The running emulator has no audio device (-no-audio): stop it, and this script starts it with audio." >&2
+  exit 1
+fi
 if [[ -z "$serial" ]]; then
   [[ -f "$AVD_HOME/$AVD.ini" ]] || create_avd
   serial=emulator-5554
   echo "Starting the emulator ($AVD) ..."
-  ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK" ANDROID_AVD_HOME="$AVD_HOME" "$EMULATOR" -avd "$AVD" -port 5554 -no-window -no-audio \
+  ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK" ANDROID_AVD_HOME="$AVD_HOME" "$EMULATOR" -avd "$AVD" -port 5554 -no-window ${audio:+"$audio"} \
     -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RESULTS/emulator.log" 2>&1 &
   started=$!
   trap '"$ADB" -s "$serial" emu kill >/dev/null 2>&1 || kill "$started" 2>/dev/null || true' EXIT
