@@ -39,6 +39,7 @@ PATCHES = os.path.join(ROOT, "third_party", "angle", "patches")
 STRIPPED = os.path.join(BUILD, "stripped")
 # The one output outside build/angle/ (ADR-0029, decision 5), which the app build embeds.
 XCFRAMEWORK = os.path.join(ROOT, "build", "ANGLE.xcframework")
+IOS_SLICES = ("ios", "ios-simulator")
 # Each slice's library in its output directory.
 LIBRARIES = {"ios": "libGLESv2.framework", "ios-simulator": "libGLESv2.framework", "macos": "libGLESv2.dylib"}
 APP_DEPLOYMENT_TARGET = (26, 0)
@@ -429,6 +430,11 @@ def self_test():
         listed = check_revinfo(directory, settings["keep"])
         expect(set(listed) <= {".", "kept"} and "kept" in listed,
                f"with IGNORED_TYPES gclient takes only the kept git entry (it listed: {', '.join(sorted(listed))})")
+
+        built = {"ios": {}, "ios-simulator": {}, "macos": {}}
+        expect(not packs(["macos"], built) and packs(["ios"], built) and packs(["ios-simulator"], built)
+               and not packs(["ios"], {"ios": {}}),
+               "a build packs build/ANGLE.xcframework only when it built an iOS slice and both are built")
     finally:
         shutil.rmtree(directory)
     print("self-test: passed", flush=True)
@@ -559,6 +565,12 @@ def link_xcode_tools():
     return linked
 
 
+def packs(slices, record):
+    """Whether a build of `slices` packs build/ANGLE.xcframework: when it built an iOS slice and both iOS
+    slices are built (in this run or before, as `record` says). A build of the macOS slice alone leaves it."""
+    return any(name in slices for name in IOS_SLICES) and all(name in record for name in IOS_SLICES)
+
+
 def build(slices):
     """ADR-0029, step A2: patches, gn gen and ninja per slice, the checks, and the XCFramework once both
     iOS slices are built."""
@@ -581,7 +593,7 @@ def build(slices):
         if name == "macos":
             record[name]["install_name"] = output(["otool", "-D", path]).splitlines()[-1].strip()
         write_stamp(stamp)
-    if all(name in record for name in ("ios", "ios-simulator")):
+    if packs(slices, record):
         package(stamp)
         write_stamp(stamp)
     print(json.dumps(record, indent=2, sort_keys=True))

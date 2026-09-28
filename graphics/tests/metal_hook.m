@@ -10,7 +10,8 @@
    first one, then sets the event one higher, which the program waits for.
    With MINATO_METAL_HOOK=present it prints none of that. It reads back the textures of the first four
    drawables presented, before they go to the screen, and prints their size, pixel format and CRC-32; and
-   while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit. */
+   while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
+   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -178,13 +179,14 @@ __attribute__((constructor)) static void hook_metal(void) {
         return;
     }
     scheduled_mode = strcmp(mode, "scheduled") == 0;
-    noting = strcmp(mode, "present") != 0;
+    const int present_mode = strcmp(mode, "present") == 0;
+    noting = !present_mode && strcmp(mode, "count") != 0;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
         Class queues = [queue class], buffers = [buffer class];
-        if (!noting) {
+        if (present_mode) {
             CAMetalLayer *layer = [CAMetalLayer layer];
             layer.device = device;
             layer.drawableSize = CGSizeMake(1, 1);

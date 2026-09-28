@@ -10,3 +10,9 @@ library libGLESv3.so 35
 # which waits in slices (ADR-0030, decision 4).
 hand glGetString glGetStringi glDebugMessageCallback glDebugMessageCallbackKHR glGetPointerv glGetPointervKHR
 hand glClientWaitSync
+# The filter's count (B1): GL_NUM_EXTENSIONS counts the extensions glGetStringi lists, through every query.
+hand glGetBooleanv glGetFloatv glGetIntegerv glGetInteger64v
+hand glGetBooleanvRobustANGLE glGetFloatvRobustANGLE glGetIntegervRobustANGLE glGetInteger64vRobustANGLE
+
+# B1: libEGL's eglGetProcAddress hands out this lib's functions, most of them hidden, through its lookup.
+private minato_gles_proc

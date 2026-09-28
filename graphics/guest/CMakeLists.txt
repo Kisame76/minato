@@ -1,7 +1,7 @@
 # The guest side of Minato's graphics (ADR-0029, ADR-0030), built with the Android NDK for arm64-v8a by
 # tools/build-front-libs.sh: tools/frontgen's tables, stubs, constructors and export lists in
-# build/graphics/gen/, the binding the front libs share, libvulkan.so, and the guest programs of ADR-0030's
-# tests 2, 4 and 6. The other front libs follow (ADR-0029 B1).
+# build/graphics/gen/, the binding the front libs share, libvulkan.so, libEGL.so, libGLESv2.so and
+# libGLESv3.so, and the guest programs of ADR-0030's tests 2, 4 and 6 and ADR-0029's tests 5 to 7.
 cmake_minimum_required(VERSION 4.0)
 project(MinatoGraphicsGuest LANGUAGES C ASM)
 
@@ -100,3 +100,56 @@ foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vu
   target_link_libraries(${program} PRIVATE vulkan nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+
+# ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
+# with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv2
+# and libGLESv3 are one set of objects with two export lists; each exports exactly the NDK's names, and the
+# two GLES libs minato_gles_proc in version APKRT_PRIVATE, which libEGL's eglGetProcAddress finds.
+set(egl "${graphics}/egl")
+set(gles "${graphics}/gles")
+add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/procs.c" "${gen}/egl_stubs.S"
+  "${gen}/egl_bind.c")
+target_include_directories(EGL PRIVATE "${egl}" "${gen}" "${repo}/runtime/include")
+# The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
+target_link_libraries(EGL PRIVATE minato_bind nativewindow dl)
+target_link_options(EGL PRIVATE "-Wl,--version-script=${gen}/libEGL.map" -Wl,-Bsymbolic)
+set_target_properties(EGL PROPERTIES LINK_DEPENDS "${gen}/libEGL.map"
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+target_compile_options(EGL PRIVATE -Wall -Wextra)
+add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gen}/gles_stubs.S" "${gen}/gles_bind.c")
+target_include_directories(gles_objects PRIVATE "${gles}" "${gen}" "${repo}/runtime/include")
+target_link_libraries(gles_objects PRIVATE minato_bind)
+set_target_properties(gles_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(gles_objects PRIVATE -Wall -Wextra)
+foreach(library IN ITEMS GLESv2 GLESv3)
+  add_library(${library} SHARED $<TARGET_OBJECTS:gles_objects> $<TARGET_OBJECTS:minato_bind>)
+  target_link_options(${library} PRIVATE "-Wl,--version-script=${gen}/lib${library}.map" -Wl,-Bsymbolic)
+  set_target_properties(${library} PROPERTIES LINK_DEPENDS "${gen}/lib${library}.map"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endforeach()
+
+# ADR-0029, tests 5 to 7, run by graphics-run: gles-thunk-test calls the stubs that extend or repack through
+# the built libs, with test 2's caller and a list from the C headers; the others reach graphics-run's test
+# control (test_control_guest.c), and gles-glue-test runs the NDK's native_app_glue as an app does.
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/gles_thunk_calls.c"
+  COMMAND Python3::Interpreter "${tests}/thunk_calls.py" --gles-thunks --gen "${gen}"
+    --out "${CMAKE_BINARY_DIR}/gles_thunk_calls.c" --ndk "${ANDROID_NDK}" --angle "${APK_ANGLE_DIR}"
+  DEPENDS "${tests}/thunk_calls.py" "${tests}/ndk_headers.py" ${generated} ${headers}
+  COMMENT "graphics/tests/thunk_calls.py: test 5's calls from the C headers")
+add_executable(gles-thunk-test "${tests}/gles_thunk_test.c" "${tests}/thunk_test.S"
+  "${CMAKE_BINARY_DIR}/gles_thunk_calls.c")
+target_include_directories(gles-thunk-test PRIVATE "${tests}")
+target_link_libraries(gles-thunk-test PRIVATE EGL dl)
+target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
+set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
+foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test)
+  string(REPLACE "_" "-" program ${test})
+  add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
+  target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")
+  target_link_libraries(${program} PRIVATE EGL GLESv3 minato_bind nativewindow dl)
+  target_compile_options(${program} PRIVATE -Wall -Wextra)
+endforeach()
+target_sources(gles-glue-test PRIVATE "${glue}/android_native_app_glue.c")
+target_include_directories(gles-glue-test PRIVATE "${glue}")
+target_link_libraries(gles-glue-test PRIVATE android log)
+set_source_files_properties("${glue}/android_native_app_glue.c" PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter")

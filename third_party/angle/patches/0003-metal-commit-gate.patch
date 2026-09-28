@@ -3,10 +3,14 @@ A commit gate and a wait until scheduled for the Metal backend (ADR-0029, decisi
 Why: iOS refuses GPU work in the background, and Minato promises that no app reaches the GPU there,
 whatever it does (ADR-0032, decision 6). Every command buffer ANGLE commits (presents, glFlush,
 glFinish, reads, its own flushes) now first calls a function that the embedder sets with
-ANGLEMetalSetCommitGate(void (*)(void)); Minato's graphics/host holds the commit there while the app is
-in the background. ANGLEMetalWaitUntilScheduled(double seconds) returns 1 once every command buffer
-committed so far, on every display's queue, is scheduled, and 0 after the timeout. It takes only the
-queues' own locks, so a host thread can call it while a guest thread waits at the gate inside ANGLE.
+ANGLEMetalSetCommitGates(void (*gate)(void), void (*counted)(void)); Minato's graphics/host holds the
+commit there while the app is in the background. The second function comes once ANGLE counted the
+command buffer as committed, so the embedder knows every commit between the two: a commit that passed
+the gate just before the app went into the background is either counted already or still known to the
+embedder when it asks for "scheduled" (ADR-0029 B1). ANGLEMetalWaitUntilScheduled(double seconds)
+returns 1 once every command buffer committed so far, on every display's queue, is scheduled, and 0
+after the timeout. It takes only the queues' own locks, so a host thread can call it while a guest
+thread waits at the gate inside ANGLE.
 Upstream: no; it serves one embedder's lifecycle.
 Remove: not while Minato keeps apps off the GPU in the background.
 
@@ -45,7 +49,7 @@ index 2221ba0..6a1b063 100644
  
      angle::HashMap<uint64_t, std::vector<std::function<void()>>> mCommandBufferScheduledCallbacks;
 diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
-index 1dd725d..93e5bf1 100644
+index 1dd725d..ae68ae9 100644
 --- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
 +++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
 @@ -25,6 +25,12 @@
@@ -61,13 +65,15 @@ index 1dd725d..93e5bf1 100644
  // Use to compare the new values with the values already set in the command encoder:
  static inline bool operator==(const MTLViewport &lhs, const MTLViewport &rhs)
  {
-@@ -44,6 +50,27 @@
+@@ -44,6 +50,29 @@
  namespace
  {
  
-+// Minato (patch 0003): the embedder's gate, called before every commit, and every queue that
-+// ANGLEMetalWaitUntilScheduled waits for.
++// Minato (patch 0003): the embedder's gate, called before every commit, its second function, called
++// once the command buffer is counted as committed, and every queue that ANGLEMetalWaitUntilScheduled
++// waits for.
 +std::atomic<void (*)(void)> gCommitGate{nullptr};
++std::atomic<void (*)(void)> gCommitCounted{nullptr};
 +std::mutex gQueuesLock;
 +std::vector<const CommandQueue *> gQueues;
 +
@@ -89,7 +95,7 @@ index 1dd725d..93e5bf1 100644
  #define ANGLE_MTL_CMD_X(PROC)                        \
      PROC(Invalid)                                    \
      PROC(SetRenderPipelineState)                     \
-@@ -482,8 +509,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+@@ -482,8 +511,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
  }
  
  // CommandQueue implementation
@@ -104,7 +110,7 @@ index 1dd725d..93e5bf1 100644
      finishAllCommands();
      ParentClass::reset();
  }
-@@ -493,6 +526,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+@@ -493,6 +528,14 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
      finishAllCommands();
  
      ParentClass::set(metalQueue);
@@ -119,7 +125,7 @@ index 1dd725d..93e5bf1 100644
  }
  
  void CommandQueue::finishAllCommands()
-@@ -655,6 +696,17 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+@@ -655,6 +698,17 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
      ANGLE_MTL_LOG("Committed MTLCommandBuffer %llu:%p", serial, buf);
  
      mCommittedBufferSerial.storeMaxValue(serial);
@@ -137,7 +143,7 @@ index 1dd725d..93e5bf1 100644
  }
  
  void CommandQueue::onCommandBufferScheduled(uint64_t serial)
-@@ -669,6 +721,11 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+@@ -669,6 +723,11 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
              mCommandBufferScheduledCallbacks.erase(it);
          }
          mScheduledBufferSerial.storeMaxValue(serial);
@@ -149,13 +155,16 @@ index 1dd725d..93e5bf1 100644
      }
      for (const auto &callback : callbacks)
      {
-@@ -1151,6 +1208,13 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+@@ -1151,9 +1210,24 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
      // Encoding any pending event's signalling.
      setPendingEvents();
  
 +    // Minato (patch 0003): the embedder's gate may hold the commit, e.g. while the app is in the
-+    // background.
-+    if (void (*gate)(void) = gCommitGate.load(std::memory_order_acquire))
++    // background; its second function comes once the command buffer is counted, so the embedder
++    // knows every commit between the two (ANGLEMetalSetCommitGates).
++    void (*gate)(void) = gCommitGate.load(std::memory_order_acquire);
++    void (*counted)(void) = gate != nullptr ? gCommitCounted.load(std::memory_order_acquire) : nullptr;
++    if (gate != nullptr)
 +    {
 +        gate();
 +    }
@@ -163,15 +172,26 @@ index 1dd725d..93e5bf1 100644
      // Notify command queue
      mCmdQueue.onCommandBufferCommitted(get(), mQueueSerial);
  
-@@ -2774,3 +2838,30 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
++    if (counted != nullptr)
++    {
++        counted();
++    }
++
+     // Do the actual commit
+     [get() enqueue];
+     [get() commit];
+@@ -2774,3 +2848,33 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
  }
  }  // namespace mtl
  }  // namespace rx
 +
-+// Minato (patch 0003): the embedder's gate before every commit, and its wait until everything
-+// committed is scheduled (Minato's ADR-0029, decision 15).
-+extern "C" ANGLE_EXPORT void ANGLEMetalSetCommitGate(void (*gate)(void))
++// Minato (patch 0003): the embedder's gate before every commit, its second function once the
++// command buffer is counted as committed, and its wait until everything committed is scheduled
++// (Minato's ADR-0029, decision 15). The second function comes for each command buffer that passed
++// the gate, after ANGLEMetalWaitUntilScheduled counts it.
++extern "C" ANGLE_EXPORT void ANGLEMetalSetCommitGates(void (*gate)(void), void (*counted)(void))
 +{
++    rx::mtl::gCommitCounted.store(counted, std::memory_order_release);
 +    rx::mtl::gCommitGate.store(gate, std::memory_order_release);
 +}
 +

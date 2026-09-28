@@ -1,0 +1,10 @@
+app: APP_CMD_START
+app: APP_CMD_RESUME
+app: APP_CMD_INIT_WINDOW, EGL ready: yes
+app: APP_CMD_GAINED_FOCUS
+app: APP_CMD_LOST_FOCUS, its frame: EGL_TRUE, EGL_SUCCESS
+app: APP_CMD_PAUSE
+app: APP_CMD_TERM_WINDOW, the display terminated: yes
+app: APP_CMD_SAVE_STATE
+app: APP_CMD_STOP
+app: APP_CMD_DESTROY

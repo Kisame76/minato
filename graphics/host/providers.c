@@ -4,8 +4,8 @@
    code. It takes only the table of the lists it was built with (the same length and hash), opens the host
    library, which stays open for the process's life, and fills slot n with the library's function for the
    n-th name of tools/frontgen's list. A name the library lacks gets its function from here: it logs once
-   and answers the API's "not supported", the answer tools/frontgen put next to the name. For libvulkan,
-   graphics/host's own functions then stand in front of some of MoltenVK's (vulkan.m). */
+   and answers the API's "not supported", the answer tools/frontgen put next to the name. graphics/host's
+   own functions then stand in front of some of MoltenVK's (vulkan.m) and of ANGLE's (angle.m). */
 #include <dlfcn.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "APKRuntime/apkrt.h"
+#include "angle_host.h"
 #include "minato_graphics.h"
 #include "egl_table.h"
 #include "gles_table.h"
@@ -91,15 +92,22 @@ struct lib {
     uint64_t hash;
     const char *const *hosts;
     void *const *missing;
-    void (*wrap)(void **table);  /* graphics/host's functions in front of the library's, or NULL */
+    void (*wrap)(void **table, void *library);  /* graphics/host's functions in front of the library's */
     char path[1024];
 };
 
+static void vulkan_wrap(void **table, void *library) {
+    (void)library;
+    minato_graphics_vulkan_wrap(table);
+}
+
 static struct lib libs[] = {
     {"vulkan", "MoltenVK", MINATO_VULKAN_TABLE_LENGTH, MINATO_VULKAN_TABLE_HASH, vulkan_hosts, vulkan_missing,
-     minato_graphics_vulkan_wrap, ""},
-    {"gles", "ANGLE", MINATO_GLES_TABLE_LENGTH, MINATO_GLES_TABLE_HASH, gles_hosts, gles_missing, NULL, ""},
-    {"egl", "ANGLE", MINATO_EGL_TABLE_LENGTH, MINATO_EGL_TABLE_HASH, egl_hosts, egl_missing, NULL, ""},
+     vulkan_wrap, ""},
+    {"gles", "ANGLE", MINATO_GLES_TABLE_LENGTH, MINATO_GLES_TABLE_HASH, gles_hosts, gles_missing,
+     minato_graphics_gles_wrap, ""},
+    {"egl", "ANGLE", MINATO_EGL_TABLE_LENGTH, MINATO_EGL_TABLE_HASH, egl_hosts, egl_missing, minato_graphics_egl_wrap,
+     ""},
 };
 
 static int provide(void *context, void **table, size_t length, uint64_t hash) {
@@ -119,9 +127,7 @@ static int provide(void *context, void **table, size_t length, uint64_t hash) {
         void *function = dlsym(library, lib->hosts[slot - 1]);
         table[slot] = function != NULL ? function : lib->missing[slot - 1];
     }
-    if (lib->wrap != NULL) {
-        lib->wrap(table);
-    }
+    lib->wrap(table, library);
     return 0;
 }
 
@@ -146,8 +152,11 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
             result = -1;
         }
     }
-    /* The app asks for "scheduled" at background (ADR-0030, decision 13). */
+    /* The app asks for "scheduled" at background (ADR-0029, decision 15; ADR-0030, decision 13). */
     if (moltenvk != NULL && moltenvk[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_vulkan_provider, NULL) != 0) {
+        result = -1;
+    }
+    if (angle != NULL && angle[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_angle_provider, NULL) != 0) {
         result = -1;
     }
     return result;

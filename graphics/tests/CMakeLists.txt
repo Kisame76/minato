@@ -94,7 +94,7 @@ if(TARGET minato_graphics_host)
   # With test 6's Metal hook (metal_hook.m) and window (window_host.m), which do nothing unless
   # MINATO_METAL_HOOK and MINATO_WINDOW are set.
   add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m
-    window_host.m)
+    window_host.m test_control.m)
   target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   add_library(fake-driver MODULE fake_driver.c)
@@ -110,7 +110,7 @@ if(TARGET minato_graphics_host)
   endif()
   set(hook_options -fobjc-arc ${on_guest_stacks})
   set_source_files_properties(fake_driver.c fake_vulkan.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
-  set_source_files_properties(metal_hook.m window_host.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
+  set_source_files_properties(metal_hook.m window_host.m test_control.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
   set(moltenvk "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
   set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
   # One run of a guest program from tools/build-front-libs.sh: its name, the program, its expected output
@@ -179,6 +179,39 @@ if(TARGET minato_graphics_host)
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
     endforeach()
   endif()
+  # ADR-0029, tests 5 to 7: libEGL.so, libGLESv2.so and libGLESv3.so among the system's libraries with
+  # libnativewindow.so and libandroid.so. Test 5 against fake-angle (fake_angle.py), which records what
+  # arrives; tests 6 and 7 against ANGLE's macOS slice with the window, test_control.m playing the app and
+  # the Metal hook counting the guests' commits; test 7's second part with the window host's glue script,
+  # which begins a session for native_app_glue.
+  enable_language(ASM)
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/fake_angle.S"
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/fake_angle.py"
+      --names "${APK_GRAPHICS_GEN_DIR}/gles_names.inc" --out "${CMAKE_CURRENT_BINARY_DIR}/fake_angle.S"
+    DEPENDS fake_angle.py "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
+    COMMENT "graphics/tests/fake_angle.py: test 5's host library in ANGLE's place")
+  add_library(fake-angle MODULE "${CMAKE_CURRENT_BINARY_DIR}/fake_angle.S")
+  # CMake's ASM has no rule to link a module on Apple platforms; C's links it.
+  set_target_properties(fake-angle PROPERTIES LINKER_LANGUAGE C)
+  set(gles_system_libraries ${thunk_system_libraries} "${APK_BIONIC_DIR}/libnativewindow.so" "${APK_BIONIC_DIR}/libz.so"
+    "${APK_BIONIC_DIR}/libandroid.so" "${APK_GRAPHICS_GUEST_DIR}/libEGL.so" "${APK_GRAPHICS_GUEST_DIR}/libGLESv2.so"
+    "${APK_GRAPHICS_GUEST_DIR}/libGLESv3.so")
+  add_guest_test(gles_thunk gles-thunk-test gles_thunk_test "${gles_system_libraries}"
+    "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=set:$<TARGET_FILE:fake-angle>")
+  if(EXISTS "${angle}")
+    set(with_angle "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=set:${angle}" "MINATO_METAL_HOOK=set:count"
+      "MINATO_WINDOW=set:64x48")
+    add_guest_test(gles_front gles-front-test gles_front_test "${gles_system_libraries}" ${with_angle})
+    add_guest_test(gles_gate gles-gate-test gles_gate_test "${gles_system_libraries}" ${with_angle})
+    add_guest_test(gles_glue gles-glue-test gles_glue_test "${gles_system_libraries}" ${with_angle}
+      "MINATO_WINDOW_SCRIPT=set:glue")
+  else()
+    foreach(name IN ITEMS gles_front gles_gate gles_glue)
+      add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
+        "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
+      set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    endforeach()
+  endif()
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -194,7 +227,7 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

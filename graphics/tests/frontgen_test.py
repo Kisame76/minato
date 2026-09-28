@@ -14,6 +14,10 @@
 - libvulkan's lists (decisions 10 and 11), against vk.xml: vkGet*ProcAddr's names with each one's
   function, level and own extensions; the offered extensions with their kind; the structures that may
   extend the create infos whose pNext chains libvulkan copies, with their sType.
+- The GLES and EGL lists (ADR-0029, decision 14), against gl.xml and egl.xml with ANGLE's: eglGetProcAddress's
+  names with the function each front lib hands out, and the extensions its strings withhold: exactly those
+  the description leaves out by name and those with a command outside the table. libGLESv2 and libGLESv3
+  export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names.
 
 Prints "skipped:" while vk.xml (tools/fetch-moltenvk.sh), ANGLE's registries (tools/build-angle.sh) or
 the NDK is missing, so CTest stays green for everyone else."""
@@ -32,17 +36,28 @@ import xml.etree.ElementTree as ElementTree
 
 import ndk_headers
 
-# The counts of ADR-0029, decision 14 (with ADR-0030's change) and of ADR-0030, test 1 and decision 10.
+# The counts of ADR-0029, decision 14 (with ADR-0030's change) and of ADR-0030, test 1 and decision 10. B1
+# writes glGetBooleanv, glGetFloatv, glGetIntegerv and glGetInteger64v by hand too, whose GL_NUM_EXTENSIONS
+# must count the extensions glGetStringi lists.
 ABI_COUNTS = {
     "gles": {"same": 420, "extend": 33, "repack": 8},
     "egl": {"same": 73},
     "vulkan": {"same": 233},
 }
 KIND_COUNTS = {
-    "gles": {"plain": 413, "extend": 33, "repack": 8, "by hand": 7},
+    "gles": {"plain": 409, "extend": 33, "repack": 8, "by hand": 11},
     "egl": {"plain": 58, "by hand": 15},
     "vulkan": {"plain": 149, "without allocator": 46, "by hand": 38},
 }
+# ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the
+# private exports beside the NDK's names (B1: libEGL finds libGLES's functions with minato_gles_proc).
+WITHHELD_BY_NAME = {
+    "egl": {"EGL_KHR_debug", "EGL_ANDROID_blob_cache", "EGL_EXT_platform_base"},
+    "gles": set(),
+}
+WITHHELD_PREFIX = {"egl": "EGL_ANGLE_platform_angle", "gles": None}
+PRIVATE = {"gles": {"minato_gles_proc"}}
+API = {"gles": "gles2", "egl": "egl"}
 VULKAN_HEADER_COUNTS = {"same": 706, "extend": 3, "repack": 1}
 FUNCTION_POINTER_STRUCTURES = {
     "VkAllocationCallbacks", "VkDebugReportCallbackCreateInfoEXT", "VkDebugUtilsMessengerCreateInfoEXT",
@@ -204,12 +219,17 @@ def check_lib(lib, report, headers, exports, registry):
         check(not wrong, f"vulkan: exactly the exports that take an allocator and are not written by hand go "
                          f"without it ({wrong[:8]})")
 
-    # The export lists.
+    # The export lists: the NDK's names, hiding everything else, and the private ones in APKRT_PRIVATE. A
+    # version script with a named node names every node, so the public one is then the library's.
+    private = PRIVATE.get(lib, set())
     for library, names in exports.items():
         with open(os.path.join(report["out"], library.replace(".so", ".map"))) as file:
-            listed = set(re.findall(r"^\s*([A-Za-z_]\w*);\s*$", file.read(), re.M))
-        check(listed == names, f"{lib}: {library.replace('.so', '.map')} lists exactly the {len(names)} "
-                               f"names of the NDK's {library}")
+            nodes = map_nodes(file.read())
+        public = "".join(part.upper() for part in library.replace(".so", "").split("_")) if private else ""
+        expected = {public: (names, True)} | ({"APKRT_PRIVATE": (private, False)} if private else {})
+        check(nodes == expected, f"{lib}: {library.replace('.so', '.map')} lists exactly the {len(names)} names of "
+                                 f"the NDK's {library} and hides the rest"
+                                 + (f", and {', '.join(sorted(private))} in version APKRT_PRIVATE" if private else ""))
 
     # Aliases of functions written by hand.
     aliases = xml_aliases(registry, "vulkan" if lib == "vulkan" else "gl")
@@ -235,6 +255,61 @@ def check_lib(lib, report, headers, exports, registry):
     check(f"0x{digest}ull" in header and f"{lib.upper()}_TABLE_LENGTH {len(names) + 1}u" in header,
           f"{lib}: {lib}_table.h carries the hash and the length with the entry's slot")
     check(names == sorted(names) and len(names) == len(set(names)), f"{lib}: the table is sorted, each name once")
+
+
+def map_nodes(text):
+    """A version script's nodes: its name ("" for the anonymous one) with the names its global part lists
+    and whether its local part hides everything else."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    nodes = {}
+    for name, body in re.findall(r"(\w*)\s*\{(.*?)\}\s*;", text, re.S):
+        listed, _, hidden = body.partition("local:")
+        nodes[name] = (set(re.findall(r"([A-Za-z_]\w*)\s*;", listed)), hidden.split() == ["*;"])
+    return nodes
+
+
+def check_gl_lists(lib, report, root):
+    """ADR-0029, decision 14: <lib>_procs.inc, eglGetProcAddress's names in the table's order, each with the
+    function the front lib hands out for it (the one written by hand, else its stub), and <lib>_withheld.inc,
+    the extensions the front lib's strings withhold: exactly those it leaves out by name and those with a
+    command outside the table, read from the XML here."""
+    table = report["table"]
+
+    def read(name, pattern):
+        path = os.path.join(report["out"], name)
+        check(os.path.exists(path), f"{lib}: the generator writes {name}")
+        with open(path if os.path.exists(path) else os.devnull) as file:
+            return re.findall(pattern, file.read(), re.M)
+
+    listed = read(f"{lib}_procs.inc", r"^MINATO_PROC\((\w+), (\w+)\)$")
+    expected = [(entry["name"], entry["hand"] or entry["name"]) for entry in table]
+    check(listed == expected, f"{lib}: {lib}_procs.inc lists the table's {len(expected)} names in its order, each "
+                              f"with the function written by hand or else its stub ({len(listed)} listed)")
+
+    names = {entry["name"] for entry in table}
+    withheld, reasons = set(), {}
+    for extension in root.find("extensions"):
+        if API[lib] not in (extension.get("supported") or "").split("|"):
+            continue
+        name = extension.get("name")
+        commands = [command.get("name") for part in extension.iter("require")
+                    if part.get("api") in (None, API[lib]) for command in part.findall("command")]
+        outside = sorted(set(commands) - names)
+        prefix = WITHHELD_PREFIX[lib]
+        if name in WITHHELD_BY_NAME[lib] or (prefix and name.startswith(prefix)) or outside:
+            withheld.add(name)
+            reasons[name] = outside
+    listed = read(f"{lib}_withheld.inc", r"^MINATO_WITHHELD\((\w+)\)$")
+    check(listed == sorted(withheld), f"{lib}: {lib}_withheld.inc lists the {len(withheld)} extensions left out by "
+                                      f"name or with a command outside the table, sorted ({len(listed)} listed; "
+                                      f"missing {sorted(withheld - set(listed))[:4]}, extra "
+                                      f"{sorted(set(listed) - withheld)[:4]})")
+    check(not withheld & set(report["extensions"]["offered"]), f"{lib}: no withheld extension is offered")
+    # A prefix withholds the names the host library reports beyond the registry as well
+    # (EGL_ANGLE_platform_angle_display_key is in none of the XML).
+    prefixes = read(f"{lib}_withheld.inc", r"^MINATO_WITHHELD_PREFIX\((\w+)\)$")
+    expected = [WITHHELD_PREFIX[lib]] if WITHHELD_PREFIX[lib] else []
+    check(prefixes == expected, f"{lib}: {lib}_withheld.inc names the prefixes the description leaves out ({prefixes})")
 
 
 def check_structures(report, registry):
@@ -559,6 +634,8 @@ def main():
         if lib == "vulkan":
             check_structures(report, registry)
             check_vulkan_lists(report, registry)
+        else:
+            check_gl_lists(lib, report, registry)
         include = os.path.join(os.path.dirname(options.vk_xml), "include") if lib == "vulkan" else \
             os.path.join(options.angle, "include")
         prototypes = ndk_headers.Headers(options.ndk, lib, include=include).prototypes

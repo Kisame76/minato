@@ -1,0 +1,10 @@
+host: the app drew: yes
+host: the app stopped drawing: yes
+host: in the background
+host: "scheduled": 1
+host: the window removed: 0
+host: onPause answered within 500 ms: yes
+host: onNativeWindowDestroyed answered within 500 ms: yes
+host: onSaveInstanceState and onStop answered within 500 ms: yes, yes
+host: guest commits in the background: 0
+host: in the foreground

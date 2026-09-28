@@ -12,12 +12,14 @@ Writes into --out, never into the repo: <lib>_stubs.S (the table and a stub per 
 driver; guest code), <lib>_table.h (the table's layout, for the guest and the host build),
 <lib>_names.inc (the provider's list in the table's order: each name with its host function's name, its
 kind of result and its answer when the host library lacks it), one <library>.map per library (its
-version script) and <lib>_report.json (the sorting, name by name); for Vulkan also libvulkan's lists,
-vulkan_procs.inc (vkGet*ProcAddr's names), vulkan_extensions.inc (what it may offer) and
-vulkan_structs.inc (the structures in the pNext chains it copies). The answers (decision 3) are 0 unless
-the description's "answer" names others for a result type or a name. --check reads one registry on its
-own and says, for each command and callback in it, whether it can cross between the two ABIs. Standard
-library only."""
+version script, which puts the description's "private" names into version APKRT_PRIVATE) and
+<lib>_report.json (the sorting, name by name); for Vulkan also libvulkan's lists, vulkan_procs.inc
+(vkGet*ProcAddr's names), vulkan_extensions.inc (what it may offer) and vulkan_structs.inc (the structures
+in the pNext chains it copies); for GLES and EGL <lib>_procs.inc (eglGetProcAddress's names, ADR-0029,
+decision 14) and <lib>_withheld.inc (the extensions the lib's strings leave out). The answers (decision 3)
+are 0 unless the description's "answer" names others for a result type or a name. --check reads one
+registry on its own and says, for each command and callback in it, whether it can cross between the two
+ABIs. Standard library only."""
 import argparse
 import glob
 import hashlib
@@ -43,7 +45,7 @@ class Description:
     """graphics/<lib>/frontgen.txt: one keyword per line with its words; "#" starts a comment."""
 
     LISTS = ("hand", "own", "exclude", "exclude-prefix", "exclude-if-takes", "exclude-if-extends", "platform",
-             "chain")
+             "chain", "private")
 
     def __init__(self, path):
         self.path, self.dialect, self.libraries, self.structures, self.answers = path, None, [], {}, {}
@@ -448,10 +450,34 @@ def write(front, out, inputs):
                                   f"its kind of result, its answer\n   when the host library lacks it). */\n"
                                   + "".join(names)),
              f"{lib}_stubs.S": stubs(front, note), f"{lib}_bind.c": binding(front, note)}
+    # The version scripts. With private names every node needs a name (an anonymous one stands alone), so
+    # the NDK's names then take the library's.
+    private = sorted(front.description.lists["private"])
     for soname, names in front.exports.items():
         body = "".join(f"    {name};\n" for name in names)
-        files[soname.replace(".so", ".map")] = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"
-                                                f"{{\n  global:\n{body}  local:\n    *;\n}};\n")
+        if private:
+            text = (f"/* {note}\n   The names that the NDK's {soname} exports, and in version APKRT_PRIVATE the "
+                    f"lib's own for Minato's other front libs. */\n{soname.replace('.so', '').upper()} {{\n"
+                    f"  global:\n{body}  local:\n    *;\n}};\nAPKRT_PRIVATE {{\n  global:\n"
+                    + "".join(f"    {name};\n" for name in private) + "};\n")
+        else:
+            text = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"
+                    f"{{\n  global:\n{body}  local:\n    *;\n}};\n")
+        files[soname.replace(".so", ".map")] = text
+    if front.registry.dialect != "vulkan":
+        procs = "".join(f"MINATO_PROC({entry['name']}, {entry['hand'] or entry['name']})\n" for entry in front.table)
+        files[f"{lib}_procs.inc"] = (
+            f"/* {note}\n   For eglGetProcAddress (ADR-0029, decision 14): the table's names in its order, "
+            f"MINATO_PROC(name, the function\n   handed out, which is the one written by hand or else the stub). */\n"
+            + procs)
+        withheld = "".join(f"MINATO_WITHHELD({name})\n" for name in sorted(front.left_out))
+        withheld += "".join(f"MINATO_WITHHELD_PREFIX({prefix})\n"
+                            for prefix in sorted(front.description.lists["exclude-prefix"]))
+        files[f"{lib}_withheld.inc"] = (
+            f"/* {note}\n   The extensions the lib's strings leave out (ADR-0029, decision 14), sorted: those "
+            f"the description\n   leaves out and those whose functions are not all in the table, then the "
+            f"description's prefixes,\n   which also leave out names the host library reports beyond the "
+            f"registry. */\n" + withheld)
     if front.procs is not None:
         version = ".".join(map(str, front.description.version))
         procs = "".join(f"MINATO_PROC({name}, {function}, {level}, "

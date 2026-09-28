@@ -1,0 +1,317 @@
+/* graphics/host's functions in front of ANGLE's for libEGL and libGLES (ADR-0029, decisions 14 to 16); see
+   minato_graphics.h. The "egl" and "gles" providers put them into their slots, so they run as host code on
+   the guest threads that call the front libs:
+   - window surfaces: libEGL names the host window by its ID, which becomes the window's CAMetalLayer for
+     ANGLE (none for the ID 0, which ANGLE answers with EGL_BAD_NATIVE_WINDOW); Core Animation gets ANGLE's
+     changes to the layer, made on a thread without a run loop, when a surface is made or destroyed; the
+     presents are counted per window for the FPS label;
+   - the debug callback: ANGLE gets graphics/host's function with a record of the app's function and user
+     data, which calls the app's function through apkrt_call_guest on guest threads only and logs the
+     message on any other thread (decision 16, ADR-0030's decision 5); glGetPointerv answers from the record;
+   - ANGLE's commit gate (patch 0003): a commit counts itself, then reads the background flag and backs out
+     and waits for the foreground if it is set; the count drops once ANGLE counted the command buffer. The
+     app sets the flag, then "scheduled" waits until the count is 0 and then until ANGLE's committed command
+     buffers are scheduled: either the commit sees the flag or "scheduled" sees the commit (decision 15).
+   Manual reference counting, as vulkan.m. ANGLE's C types are written out here, as ANGLE's headers are not
+   among graphics/host's. */
+#import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
+
+#include <dlfcn.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "APKRuntime/apkrt.h"
+#include "angle_host.h"
+#include "egl_table.h"
+#include "gles_table.h"
+
+/* EGL's and GLES's types and names as ANGLE has them. */
+typedef unsigned int egl_boolean;
+typedef int32_t egl_int;
+typedef intptr_t egl_attrib;
+typedef unsigned int gl_enum;
+#define GL_DEBUG_CALLBACK_FUNCTION 0x8244
+#define GL_DEBUG_CALLBACK_USER_PARAM 0x8245
+
+typedef void *(*create_window_surface_function)(void *display, void *config, void *layer, const egl_int *attributes);
+typedef void *(*create_platform_window_surface_function)(void *display, void *config, void *layer,
+                                                          const egl_attrib *attributes);
+typedef egl_boolean (*destroy_surface_function)(void *display, void *surface);
+typedef egl_boolean (*swap_buffers_function)(void *display, void *surface);
+typedef egl_boolean (*terminate_function)(void *display);
+typedef void (*debug_function)(unsigned source, unsigned type, unsigned id, unsigned severity, int length,
+                               const char *text, const void *user);
+typedef void (*debug_callback_function)(debug_function callback, const void *user);
+typedef void (*get_pointerv_function)(gl_enum pname, void **params);
+
+/* ANGLE's functions that graphics/host's stand in front of, and the one they use. */
+static create_window_surface_function create_window_surface;
+static create_platform_window_surface_function create_platform_window_surface;
+static destroy_surface_function destroy_surface;
+static swap_buffers_function swap_buffers;
+static terminate_function terminate;
+static debug_callback_function debug_callback, debug_callback_khr;
+static get_pointerv_function get_pointerv, get_pointerv_khr;
+
+/* The window surfaces ANGLE made on a window's layer, with the window's ID: few, a list under a lock. */
+struct surface {
+    struct surface *next;
+    void *display, *surface;
+    uint64_t window;
+};
+static struct surface *surfaces;
+static pthread_mutex_t surfaces_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void surface_keep(void *display, void *surface, uint64_t window) {
+    struct surface *entry = malloc(sizeof *entry);
+    if (entry == NULL) {
+        return;  /* its presents go uncounted */
+    }
+    *entry = (struct surface){NULL, display, surface, window};
+    pthread_mutex_lock(&surfaces_lock);
+    entry->next = surfaces;
+    surfaces = entry;
+    pthread_mutex_unlock(&surfaces_lock);
+}
+
+/* Takes a surface (or every surface of a display) out of the list. */
+static void surfaces_forget(void *display, void *surface) {
+    pthread_mutex_lock(&surfaces_lock);
+    for (struct surface **entry = &surfaces; *entry != NULL;) {
+        if ((*entry)->display == display && (surface == NULL || (*entry)->surface == surface)) {
+            struct surface *gone = *entry;
+            *entry = gone->next;
+            free(gone);
+        } else {
+            entry = &(*entry)->next;
+        }
+    }
+    pthread_mutex_unlock(&surfaces_lock);
+}
+
+static uint64_t window_of(void *surface) {
+    uint64_t window = 0;
+    pthread_mutex_lock(&surfaces_lock);
+    for (const struct surface *entry = surfaces; entry != NULL; entry = entry->next) {
+        if (entry->surface == surface) {
+            window = entry->window;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&surfaces_lock);
+    return window;
+}
+
+/* The window's layer, retained for this call (ANGLE's surface retains it for its own life); nil for the ID 0
+   and for a window that is gone. */
+static CAMetalLayer *layer_of(uint64_t window) {
+    return window != 0 ? (CAMetalLayer *)apkrt_window_layer(window) : nil;
+}
+
+static void *window_surface_created(void *display, void *config, void *window, const egl_int *attributes) {
+    const uint64_t id = (uint64_t)(uintptr_t)window;
+    CAMetalLayer *layer = layer_of(id);
+    void *const surface = create_window_surface(display, config, layer, attributes);
+    if (surface != NULL) {
+        surface_keep(display, surface, id);
+        [CATransaction flush];
+    }
+    [layer release];
+    return surface;
+}
+
+static void *platform_window_surface_created(void *display, void *config, void *window, const egl_attrib *attributes) {
+    const uint64_t id = (uint64_t)(uintptr_t)window;
+    CAMetalLayer *layer = layer_of(id);
+    void *const surface = create_platform_window_surface(display, config, layer, attributes);
+    if (surface != NULL) {
+        surface_keep(display, surface, id);
+        [CATransaction flush];
+    }
+    [layer release];
+    return surface;
+}
+
+static egl_boolean surface_destroyed(void *display, void *surface) {
+    const egl_boolean result = destroy_surface(display, surface);
+    if (result) {
+        surfaces_forget(display, surface);
+        [CATransaction flush];
+    }
+    return result;
+}
+
+static egl_boolean terminated(void *display) {
+    const egl_boolean result = terminate(display);
+    if (result) {
+        surfaces_forget(display, NULL);
+    }
+    return result;
+}
+
+/* A present that succeeded counts for the FPS label. */
+static egl_boolean swapped(void *display, void *surface) {
+    const egl_boolean result = swap_buffers(display, surface);
+    const uint64_t window = result ? window_of(surface) : 0;
+    if (window != 0) {
+        apkrt_window_presented(window);
+    }
+    return result;
+}
+
+/* The app's debug callback: the user data graphics/host's function gets from ANGLE. */
+struct callback {
+    uint64_t magic;
+    uint64_t function, user;
+};
+#define CALLBACK_MAGIC 0x6d696e61746f4342ull
+
+static const struct callback *callback_of(const void *user) {
+    const struct callback *callback = user;
+    return callback != NULL && callback->magic == CALLBACK_MAGIC ? callback : NULL;
+}
+
+static void message(unsigned source, unsigned type, unsigned id, unsigned severity, int length, const char *text,
+                    const void *user) {
+    if (!apkrt_is_guest_thread()) {
+        fprintf(stderr, "minato graphics: a GL debug message on a host thread, logged instead of calling the app: %s\n",
+                text != NULL ? text : "(none)");
+        return;
+    }
+    const struct callback *callback = callback_of(user);
+    if (callback != NULL && callback->function != 0) {
+        apkrt_call_guest(callback->function, source, type, id, severity, (uint64_t)(int64_t)length,
+                         (uint64_t)(uintptr_t)text, callback->user, 0);
+    }
+}
+
+/* Registers graphics/host's function (none for none) with a new record, which ANGLE's user data then names;
+   the one it named before goes, and a record ANGLE refused (glDebugMessageCallback in an ES 3.0 context) too.
+   ANGLE calls the callback only on the thread that uses its context, which is this one. */
+static void callback_set(debug_callback_function set, uint64_t function, const void *user) {
+    void *before = NULL, *after = NULL;
+    get_pointerv_khr(GL_DEBUG_CALLBACK_USER_PARAM, &before);
+    struct callback *record = malloc(sizeof *record);
+    if (record == NULL) {
+        return;
+    }
+    *record = (struct callback){CALLBACK_MAGIC, function, (uint64_t)(uintptr_t)user};
+    set(function != 0 ? message : NULL, record);
+    get_pointerv_khr(GL_DEBUG_CALLBACK_USER_PARAM, &after);
+    if (after != record) {
+        free(record);
+    } else if (callback_of(before) != NULL) {
+        free(before);
+    }
+}
+
+static void callback_given(debug_function function, const void *user) {
+    callback_set(debug_callback, (uint64_t)(uintptr_t)function, user);
+}
+
+static void callback_given_khr(debug_function function, const void *user) {
+    callback_set(debug_callback_khr, (uint64_t)(uintptr_t)function, user);
+}
+
+/* ANGLE answers first, with its errors; a debug answer it gave becomes the app's function or user data. */
+static void pointer_asked(get_pointerv_function get, gl_enum pname, void **params) {
+    const int debug = (pname == GL_DEBUG_CALLBACK_FUNCTION || pname == GL_DEBUG_CALLBACK_USER_PARAM) && params != NULL;
+    void *const before = debug ? *params : NULL;
+    if (debug) {
+        *params = (void *)pointer_asked;  /* never an answer of ANGLE's */
+    }
+    get(pname, params);
+    if (!debug) {
+        return;
+    }
+    if (*params == (void *)pointer_asked) {
+        *params = before;
+        return;
+    }
+    void *user = NULL;
+    get_pointerv_khr(GL_DEBUG_CALLBACK_USER_PARAM, &user);
+    const struct callback *callback = callback_of(user);
+    if (callback != NULL) {
+        *params = (void *)(uintptr_t)(pname == GL_DEBUG_CALLBACK_FUNCTION ? callback->function : callback->user);
+    }
+}
+
+static void pointer_given(gl_enum pname, void **params) {
+    pointer_asked(get_pointerv, pname, params);
+}
+
+static void pointer_given_khr(gl_enum pname, void **params) {
+    pointer_asked(get_pointerv_khr, pname, params);
+}
+
+/* ANGLE's commits between its gate and its count (patch 0003), and its wait until they are scheduled. */
+static atomic_uint committing;
+static int (*_Atomic wait_until_scheduled)(double seconds);
+
+static void commit_entered(void) {
+    for (;;) {
+        atomic_fetch_add(&committing, 1);
+        if (!apkrt_is_background()) {
+            return;
+        }
+        atomic_fetch_sub(&committing, 1);
+        apkrt_wait_foreground();
+    }
+}
+
+static void commit_counted(void) {
+    atomic_fetch_sub(&committing, 1);
+}
+
+static void gates(void *library) {
+    void (*set)(void (*)(void), void (*)(void)) =
+        (void (*)(void (*)(void), void (*)(void)))dlsym(library, "ANGLEMetalSetCommitGates");
+    if (set != NULL) {
+        set(commit_entered, commit_counted);
+    }
+    atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
+}
+
+int minato_graphics_angle_provider(void *context, uint64_t deadline) {
+    (void)context;
+    int (*wait)(double) = atomic_load(&wait_until_scheduled);
+    if (wait == NULL) {
+        return 1;
+    }
+    while (atomic_load(&committing) != 0) {
+        if (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) {
+            return 0;
+        }
+        usleep(100);
+    }
+    const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    return now < deadline && wait((double)(deadline - now) / 1e9);
+}
+
+#define WRAP(LIB, name, angle, ours)                    \
+    angle = (__typeof__(angle))table[MINATO_##LIB##_SLOT_##name]; \
+    table[MINATO_##LIB##_SLOT_##name] = (void *)ours;
+
+void minato_graphics_egl_wrap(void **table, void *library) {
+    WRAP(EGL, eglCreateWindowSurface, create_window_surface, window_surface_created)
+    WRAP(EGL, eglCreatePlatformWindowSurface, create_platform_window_surface, platform_window_surface_created)
+    WRAP(EGL, eglDestroySurface, destroy_surface, surface_destroyed)
+    WRAP(EGL, eglSwapBuffers, swap_buffers, swapped)
+    WRAP(EGL, eglTerminate, terminate, terminated)
+    gates(library);
+}
+
+void minato_graphics_gles_wrap(void **table, void *library) {
+    WRAP(GLES, glDebugMessageCallback, debug_callback, callback_given)
+    WRAP(GLES, glDebugMessageCallbackKHR, debug_callback_khr, callback_given_khr)
+    WRAP(GLES, glGetPointerv, get_pointerv, pointer_given)
+    WRAP(GLES, glGetPointervKHR, get_pointerv_khr, pointer_given_khr)
+    gates(library);
+}
+#undef WRAP

@@ -3,7 +3,9 @@
 // gate that holds, a glFlush of such a buffer on a second thread waits in the gate, and
 // ANGLEMetalWaitUntilScheduled, called from a thread without a context, still returns at once: the
 // held buffer is not committed. Once the gate opens, the same call times out until the event is
-// signaled, and then returns.
+// signaled, and then returns. The gate's second function comes for each command buffer that passed the
+// gate, once ANGLE counted it (B1: graphics/host's count-then-flag): ANGLEMetalWaitUntilScheduled with no
+// time to wait answers 0 there, since the buffer counted is not scheduled yet.
 #import <Metal/Metal.h>
 
 #include <EGL/egl.h>
@@ -49,11 +51,23 @@ std::condition_variable gate_changed;
 bool closed = false;
 int arrived = 0;
 
+// The second function: how often it came, and how often a command buffer was not counted yet then.
+std::atomic<int> counted{0};
+std::atomic<int> uncounted{0};
+int (*wait_until_scheduled)(double) = nullptr;
+
 void gate() {
     std::unique_lock<std::mutex> lock(gate_mutex);
     ++arrived;
     gate_changed.notify_all();
     gate_changed.wait(lock, [] { return !closed; });
+}
+
+void counted_now() {
+    if (wait_until_scheduled(0.0) != 0) {
+        ++uncounted;
+    }
+    ++counted;
 }
 
 void set_closed(bool value) {
@@ -87,9 +101,9 @@ int main(int argc, char **argv) {
         if (library == nullptr) {
             fail(std::string("dlopen: ") + dlerror());
         }
-        auto set_commit_gate = load<void (*)(void (*)(void))>("ANGLEMetalSetCommitGate");
-        auto wait_until_scheduled = load<int (*)(double)>("ANGLEMetalWaitUntilScheduled");
-        set_commit_gate(gate);
+        auto set_commit_gates = load<void (*)(void (*)(void), void (*)(void))>("ANGLEMetalSetCommitGates");
+        wait_until_scheduled = load<int (*)(double)>("ANGLEMetalWaitUntilScheduled");
+        set_commit_gates(gate, counted_now);
 
         const EGLAttrib display_attributes[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
                                                 EGL_NONE};
@@ -201,6 +215,13 @@ int main(int argc, char **argv) {
         step = 3;
         render.join();
         EGL(Terminate)(display);
+        if (counted != arrivals() || uncounted != 0) {
+            fail("the gate's second function came " + std::to_string(counted.load()) + " times for " +
+                 std::to_string(arrivals()) + " command buffers, " + std::to_string(uncounted.load()) +
+                 " of them before ANGLE counted the buffer");
+        }
+        std::printf("each of the %d command buffers that passed the gate was counted before the second function\n",
+                    counted.load());
     }
     return 0;
 }
