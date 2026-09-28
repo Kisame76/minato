@@ -20,3 +20,8 @@ target_include_directories(vulkan-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/shad
 target_compile_options(vulkan-test PRIVATE -Wall -Wextra)
 target_link_options(vulkan-test PRIVATE -u ANativeActivity_onCreate)
 target_link_libraries(vulkan-test PRIVATE native_app_glue vulkan)
+# vulkan-live (ADR-0032, test 8; ADR-0036 a): the same library under the name fixtures/apps/vulkan-live's
+# manifest gives it, whose android.app.func_name starts it at ANativeActivity_onCreateLive.
+add_custom_command(TARGET vulkan-test POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:vulkan-test>" "$<TARGET_FILE_DIR:vulkan-test>/libvulkan-live.so"
+  COMMENT "vulkan-live: libvulkan-test.so copied")

@@ -8,24 +8,37 @@
 // differs by device (the renderer, the versions, the extensions, the config's Android attributes, the
 // window's size, times, the commands) goes to the tag "gles-test-device", which is not compared with Android.
 // After the scenes it swaps 120 more frames and calls ANativeActivity_finish.
+// The live variant (gles-live; ADR-0032, test 8; ADR-0036 a) is this library started at
+// ANativeActivity_onCreateLive. It skips the scenes and draws a frame per AChoreographer callback while it has a
+// window and the focus, a clear and a square that moves, until onDestroy. Each window gets a surface at its own
+// size, and TERM_WINDOW takes only that. Every 5 s it asks the window for 120 and 60 frames a second in turn
+// (ANativeWindow_setFrameRate, by dlsym above the minSdk) and logs the frame intervals of each rate. AKEYCODE_BACK
+// finishes it. At onDestroy it logs its frames, windows and failures with the tag "gles-live".
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
+#include <android/choreographer.h>
+#include <android/input.h>
 #include <android/log.h>
 #include <android/looper.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
+#include <dlfcn.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "android_native_app_glue.h"
 
-#define LOG(...) __android_log_print(ANDROID_LOG_INFO, "gles-test", __VA_ARGS__)
-#define DEVICE(...) __android_log_print(ANDROID_LOG_INFO, "gles-test-device", __VA_ARGS__)
+// The log's tags: the live variant has its own.
+static const char *tag = "gles-test", *device_tag = "gles-test-device";
+
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO, tag, __VA_ARGS__)
+#define DEVICE(...) __android_log_print(ANDROID_LOG_INFO, device_tag, __VA_ARGS__)
 
 enum { kSize = 64, kWindow = 256, kFrames = 120 };
 
@@ -914,9 +927,231 @@ static bool stop_egl(void) {
     return all;
 }
 
+// ---- The live variant (gles-live)
+
+enum { kPhaseSeconds = 5, kMaxIntervals = 4096 };
+
+static struct {
+    bool on;       // started at ANativeActivity_onCreateLive
+    AChoreographer *choreographer;
+    EGLConfig config;
+    bool ready;    // the window's surface is current
+    bool focused;
+    bool lost;     // a swap found the window gone: no frames until the next window
+    int windows, frames, failures, losses;
+    float rate;            // the frames a second the window is asked for: 120 or 60
+    int64_t phase_start;   // the frame time the rate's phase began, 0 before the first callback
+    int64_t previous;      // the frame time of the frame before, 0 after a break
+    int interval_count;
+    double intervals[kMaxIntervals];  // ms
+} live = {.rate = 120};
+
+// The live variant's entry, which its manifest names (android.app.func_name).
+__attribute__((visibility("default"))) void ANativeActivity_onCreateLive(ANativeActivity *activity, void *saved_state,
+                                                                         size_t saved_state_size) {
+    live.on = true;
+    tag = "gles-live";
+    device_tag = "gles-live-device";
+    ANativeActivity_onCreate(activity, saved_state, saved_state_size);
+}
+
+static int compare_doubles(const void *a, const void *b) {
+    const double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+// The frame intervals of the rate's phase: the median and the 99th percentile by nearest rank, and the longest.
+static void log_phase(void) {
+    const int count = live.interval_count;
+    if (count == 0) return;
+    qsort(live.intervals, (size_t)count, sizeof live.intervals[0], compare_doubles);
+    DEVICE("rate %.0f: %d frame intervals, median %.2f ms, p99 %.2f ms, max %.2f ms", live.rate, count,
+           live.intervals[(count + 1) / 2 - 1], live.intervals[(99 * count + 99) / 100 - 1], live.intervals[count - 1]);
+    live.interval_count = 0;
+}
+
+typedef int32_t (*set_frame_rate_function)(ANativeWindow *window, float rate, int8_t compatibility);
+
+// ANativeWindow_setFrameRate came with API 30, above the minSdk: from libnativewindow by dlsym.
+static void ask_rate(ANativeWindow *window) {
+    static set_frame_rate_function set_frame_rate;
+    static bool looked;
+    if (!looked) {
+        looked = true;
+        void *library = dlopen("libnativewindow.so", RTLD_NOW);
+        if (library != NULL) set_frame_rate = (set_frame_rate_function)dlsym(library, "ANativeWindow_setFrameRate");
+        DEVICE("ANativeWindow_setFrameRate: %s", set_frame_rate != NULL ? "there" : "not there");
+    }
+    if (set_frame_rate != NULL) {
+        DEVICE("ANativeWindow_setFrameRate(%.0f): %d", live.rate,
+               set_frame_rate(window, live.rate, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT));
+    }
+}
+
+// A window: EGL's display, config and context with the first, and for each a surface at the window's own size.
+static void live_window(ANativeWindow *window) {
+    ++live.windows;
+    live.lost = false;
+    static const EGLint version[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    if (app_state.context == EGL_NO_CONTEXT) {
+        app_state.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        if (!eglInitialize(app_state.display, NULL, NULL) || !choose_config(&live.config) ||
+            (app_state.context = eglCreateContext(app_state.display, live.config, EGL_NO_CONTEXT, version)) ==
+                EGL_NO_CONTEXT) {
+            ++live.failures;
+            DEVICE("no EGL display, config or context: 0x%04x", eglGetError());
+            return;
+        }
+    }
+    EGLint visual = 0, width = 0, height = 0;
+    eglGetConfigAttrib(app_state.display, live.config, EGL_NATIVE_VISUAL_ID, &visual);
+    const int32_t geometry = ANativeWindow_setBuffersGeometry(window, 0, 0, visual);
+    app_state.surface = eglCreateWindowSurface(app_state.display, live.config, window, NULL);
+    if (app_state.surface == EGL_NO_SURFACE ||
+        !eglMakeCurrent(app_state.display, app_state.surface, app_state.surface, app_state.context)) {
+        ++live.failures;
+        DEVICE("window %d: no surface: 0x%04x", live.windows, eglGetError());
+        return;
+    }
+    live.ready = true;
+    eglQuerySurface(app_state.display, app_state.surface, EGL_WIDTH, &width);
+    eglQuerySurface(app_state.display, app_state.surface, EGL_HEIGHT, &height);
+    DEVICE("window %d: setBuffersGeometry %d, surface %d x %d", live.windows, geometry, width, height);
+    ask_rate(window);
+}
+
+// The window goes, and its surface with it; the display and the context stay.
+static void live_window_gone(void) {
+    live.ready = false;
+    live.previous = 0;
+    if (app_state.surface == EGL_NO_SURFACE) return;
+    const bool released = eglMakeCurrent(app_state.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) &&
+                          eglDestroySurface(app_state.display, app_state.surface);
+    if (!released) {
+        ++live.failures;
+        DEVICE("window %d: the surface's release failed: 0x%04x", live.windows, eglGetError());
+    }
+    app_state.surface = EGL_NO_SURFACE;
+}
+
+// A frame: a dark clear and a square that moves with the frame count, swapped.
+static void live_frame(void) {
+    EGLint width = 0, height = 0;
+    eglQuerySurface(app_state.display, app_state.surface, EGL_WIDTH, &width);
+    eglQuerySurface(app_state.display, app_state.surface, EGL_HEIGHT, &height);
+    const int size = (width < height ? width : height) / 4;
+    glViewport(0, 0, width, height);
+    glClearColor(0, 0, 0.2f, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(width > size ? (live.frames * 8) % (width - size) : 0, (height - size) / 2, size, size);
+    glClearColor(1, 0.6f, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        ++live.failures;
+        DEVICE("frame %d: GL error 0x%04x", live.frames, error);
+    }
+    if (eglSwapBuffers(app_state.display, app_state.surface)) {
+        ++live.frames;
+        return;
+    }
+    const EGLint swap_error = eglGetError();
+    if (swap_error == EGL_BAD_NATIVE_WINDOW || swap_error == EGL_BAD_SURFACE) {
+        ++live.losses;
+        live.lost = true;
+        DEVICE("frame %d: the window is gone (0x%04x)", live.frames, swap_error);
+    } else {
+        ++live.failures;
+        DEVICE("frame %d: eglSwapBuffers failed: 0x%04x", live.frames, swap_error);
+    }
+}
+
+// A frame per callback while the app has a window and the focus; every 5 s of frame time the other rate.
+static void on_frame(int64_t frame_time, void *data) {
+    struct android_app *app = data;
+    if (app->destroyRequested) return;
+    AChoreographer_postFrameCallback64(live.choreographer, on_frame, app);
+    if (live.phase_start == 0) live.phase_start = frame_time;
+    if (frame_time - live.phase_start >= kPhaseSeconds * 1000000000LL) {
+        log_phase();
+        live.rate = live.rate == 120 ? 60 : 120;
+        live.phase_start = frame_time;
+        live.previous = 0;
+        if (live.ready) ask_rate(app->window);
+    }
+    if (!live.ready || !live.focused || live.lost) {
+        live.previous = 0;
+        return;
+    }
+    if (live.previous != 0 && live.interval_count < kMaxIntervals) {
+        live.intervals[live.interval_count++] = (double)(frame_time - live.previous) / 1e6;
+    }
+    live.previous = frame_time;
+    live_frame();
+}
+
+// BACK finishes the live variant: from Android 12 on, BACK alone only moves a root activity to the back.
+static int32_t on_input(struct android_app *app, AInputEvent *event) {
+    if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_KEY || AKeyEvent_getKeyCode(event) != AKEYCODE_BACK) return 0;
+    if (AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_UP) {
+        LOG("AKEYCODE_BACK: ANativeActivity_finish");
+        ANativeActivity_finish(app->activity);
+    }
+    return 1;
+}
+
+static void on_live_command(struct android_app *app, int32_t command) {
+    switch (command) {
+        case APP_CMD_INIT_WINDOW:
+            live_window(app->window);
+            break;
+        case APP_CMD_TERM_WINDOW:
+            live_window_gone();
+            break;
+        case APP_CMD_GAINED_FOCUS:
+            live.focused = true;
+            break;
+        case APP_CMD_LOST_FOCUS:
+            live.focused = false;
+            live.previous = 0;  // a break, no frame interval
+            break;
+        case APP_CMD_DESTROY:
+            log_phase();
+            if (!stop_egl()) ++live.failures;
+            LOG("onDestroy: frames %d, windows %d, failures %d, lost %d", live.frames, live.windows, live.failures,
+                live.losses);
+            break;
+        default:
+            break;
+    }
+}
+
+// The live variant's loop: the frames come from the choreographer's callbacks inside ALooper_pollOnce.
+static void live_main(struct android_app *app) {
+    app->onInputEvent = on_input;
+    live.choreographer = AChoreographer_getInstance();
+    if (live.choreographer == NULL) {
+        ++live.failures;
+        LOG("no AChoreographer");
+    } else {
+        AChoreographer_postFrameCallback64(live.choreographer, on_frame, app);
+    }
+    while (!app->destroyRequested) {
+        struct android_poll_source *source = NULL;
+        const int result = ALooper_pollOnce(-1, NULL, NULL, (void **)&source);
+        if ((result == LOOPER_ID_MAIN || result == LOOPER_ID_INPUT) && source != NULL) source->process(app, source);
+    }
+}
+
 static void on_command(struct android_app *app, int32_t command) {
     if (command >= 0 && command < (int32_t)(sizeof command_names / sizeof command_names[0])) {
         DEVICE("%s", command_names[command]);
+    }
+    if (live.on) {
+        on_live_command(app, command);
+        return;
     }
     switch (command) {
         case APP_CMD_INIT_WINDOW:
@@ -958,6 +1193,7 @@ static void frame(struct android_app *app) {
 void android_main(struct android_app *app) {
     app->onAppCmd = on_command;
     LOG("android_main");
+    if (live.on) live_main(app);
     while (!app->destroyRequested) {
         const bool drawing = app_state.ready && app_state.frames_left > 0;
         struct android_poll_source *source = NULL;

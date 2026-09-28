@@ -1,16 +1,29 @@
-// ADR-0029 B2 and ADR-0030 V5 on the Mac: a scripted host that plays the App's lifecycle for one of the test
-// apps of fixtures/apps (gles-test, vulkan-test) through activity-host, with graphics/host's providers of
-// ANGLE and MoltenVK and a window on a CAMetalLayer the size of an iPhone 15 Pro Max's screen (430 x 932
-// points at scale 3). It converts activity-host, the system's libraries, the front libs and the app's library
-// into containers signed ad hoc, mounts the guest paths, begins the session, starts the app, and posts the
-// events in the order the App's SessionBridge gives them: the start with its window and the focus, then the
-// gate opened; after the app's ANativeActivity_finish the focus lost, the gate closed, the window removed,
-// onPause, onNativeWindowDestroyed, onStop and onDestroy. It passes when the app's lines of the guest's log
-// (stderr in logcat's tag format) are fixtures/expected/<app>.logcat, Android 15's, the only request was
-// FINISH, the window counted <presents> presents, onNativeWindowDestroyed and onDestroy were answered within
-// 500 ms, and activity-host ended with status 0. The app's device lines are printed, not compared.
+// ADR-0029 B2 and ADR-0030 V5 on the Mac, and for the live variants ADR-0032's test 8 with ADR-0036 a): a scripted
+// host that plays the App's lifecycle for one of the test apps of fixtures/apps through activity-host, with
+// graphics/host's providers of ANGLE and MoltenVK and windows on CAMetalLayers the size of an iPhone 15 Pro Max's
+// screen (430 x 932 points at scale 3). It converts activity-host, the system's libraries, the front libs and the
+// app's library into containers signed ad hoc, mounts the guest paths, begins the session, starts the app with the
+// function its manifest names (android.app.func_name, else ANativeActivity_onCreate), and posts the events in the
+// order the App's SessionBridge gives them.
+// - gles-test and vulkan-test (<mode> is the presents): the start with its window and the focus, then the gate
+//   opened; after the app's ANativeActivity_finish the focus lost, the gate closed, the window removed, onPause,
+//   onNativeWindowDestroyed, onStop and onDestroy. It passes when the app's lines of the guest's log (stderr in
+//   logcat's tag format) are fixtures/expected/<app>.logcat, Android 15's, the only request was FINISH, the window
+//   counted <presents> presents, onNativeWindowDestroyed and onDestroy were answered within 500 ms, and
+//   activity-host ended with status 0. The app's device lines are printed, not compared.
+// - gles-live and vulkan-live (<mode> live), which draw until onDestroy: a thread stands in for the App's frame
+//   clock, with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's
+//   gate is open. The start; 6 s of frames, over one change of the rate; HOME as iOS gives it, the scene inactive
+//   (the focus lost, the gate closed) and 300 ms later in the background (the background flag, "scheduled" with
+//   1 s to go, the window removed, onPause, onNativeWindowDestroyed, onStop, onSaveInstanceState); 0.5 s away;
+//   the return with a new window (the foreground, onStart, onResume, the window's events, the focus, the gate
+//   opened); 2 s of frames; Quit. It passes when both windows counted presents, "scheduled" said yes, every
+//   onNativeWindowDestroyed and onDestroy was answered within 500 ms, guest threads committed no command buffer
+//   from "scheduled" to the foreground (metal_hook.m with MINATO_METAL_HOOK=count), the only requests were
+//   FRAME_RATE, with 120 and 60 among them, the app's onDestroy line says "windows 2, failures 0", and
+//   activity-host ended with status 0.
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
-//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents>
+//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live>
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -19,9 +32,13 @@
 #include "apkconv/container.h"
 #include "minato_graphics.h"
 
+#include <time.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <bit>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
@@ -29,10 +46,15 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
+// app_counts.c: the Metal hook's count of the command buffers guest threads commit (test_host.h).
+extern "C" void minato_app_test_count_commits(void);
+extern "C" int minato_app_test_commits(void);
 
 namespace {
 
@@ -51,6 +73,9 @@ void fail(const std::string &what) {
     ++failures;
 }
 
+/// The rate the window prefers, as FRAME_RATE's argument gives it: a float's bits, 0 for none.
+std::atomic<std::uint32_t> preferred_rate{0};
+
 /// What the session's handlers saw, written on guest threads.
 struct Seen {
     std::mutex lock;
@@ -61,10 +86,16 @@ struct Seen {
 };
 Seen seen;
 
+/// FRAME_RATE comes under the window registry's lock (apkrt.h), so this calls none of its functions.
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
+    const auto bits = static_cast<std::uint32_t>(argument);
+    if (type == APKRT_REQUEST_FRAME_RATE) preferred_rate = bits;
+    char rate[32];
+    std::snprintf(rate, sizeof rate, "%g", static_cast<double>(std::bit_cast<float>(bits)));
     std::string request = type == APKRT_REQUEST_FINISH           ? "FINISH"
                           : type == APKRT_REQUEST_KEEP_SCREEN_ON ? "KEEP_SCREEN_ON " + std::to_string(argument)
                           : type == APKRT_REQUEST_START_FAILED   ? std::string("START_FAILED ") + (text ? text : "")
+                          : type == APKRT_REQUEST_FRAME_RATE     ? std::string("FRAME_RATE ") + rate
                                                                  : "request " + std::to_string(type);
     const std::lock_guard hold(seen.lock);
     seen.requests.push_back(std::move(request));
@@ -83,6 +114,14 @@ template <typename Predicate>
 bool wait_for(Predicate predicate, std::chrono::seconds limit) {
     std::unique_lock hold(seen.lock);
     return seen.changed.wait_for(hold, limit, predicate);
+}
+
+/// The requests so far, each in brackets.
+std::string requests_text() {
+    const std::lock_guard hold(seen.lock);
+    std::string text;
+    for (const auto &request : seen.requests) text += "[" + request + "]";
+    return text;
 }
 
 /// The guest's stderr: a pipe in place of descriptor 2 before the program starts, read by a thread that
@@ -129,6 +168,50 @@ struct Capture {
     }
 };
 
+/// The App's frame clock for the live variants: a tick per period of the rate the window prefers (120 without a
+/// preference, the session's refresh_rate), as DisplayLinkClock follows setPreferredRate; paused unless the
+/// window's gate is open, as GameSession runs it.
+class Vsync {
+public:
+    std::atomic<bool> paused{true};
+    std::atomic<int> ticks{0};
+
+    void start() {
+        thread_ = std::thread([this] { run(); });
+    }
+
+    void stop() {
+        running_ = false;
+        thread_.join();
+    }
+
+private:
+    std::atomic<bool> running_{true};
+    std::thread thread_;
+
+    static std::int64_t now() {
+        return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+    }
+
+    void run() {
+        std::int64_t tick = now();
+        while (running_) {
+            const float rate = std::bit_cast<float>(preferred_rate.load());
+            const std::int64_t period = std::llround(1e9 / (rate > 0 && rate < 120 ? static_cast<double>(rate) : 120.0));
+            tick += period;
+            if (const std::int64_t left = tick - now(); left > 0) {
+                std::this_thread::sleep_for(std::chrono::nanoseconds(left));
+            } else {
+                tick = now();
+            }
+            if (!paused) {
+                apkrt_vsync_post(tick, tick + period);
+                ++ticks;
+            }
+        }
+    }
+};
+
 /// The lines of `text` that begin with `prefix`.
 std::string lines_with(const std::string &text, const std::string &prefix) {
     std::istringstream input(text);
@@ -163,12 +246,21 @@ void convert(const fs::path &elf, const fs::path &directory, const std::string &
 }
 
 /// The package of the app's manifest (package="...").
-std::string package_of(const fs::path &manifest) {
-    const std::string text = read_text(manifest);
-    const auto start = text.find("package=\"");
+std::string package_of(const std::string &manifest) {
+    const auto start = manifest.find("package=\"");
     if (start == std::string::npos) return "";
-    const auto end = text.find('"', start + 9);
-    return text.substr(start + 9, end - start - 9);
+    const auto end = manifest.find('"', start + 9);
+    return manifest.substr(start + 9, end - start - 9);
+}
+
+/// The value of the manifest's <meta-data android:name="`name`" android:value="..."/>, empty without one.
+std::string meta_data_of(const std::string &manifest, const std::string &name) {
+    const auto at = manifest.find("android:name=\"" + name + "\"");
+    if (at == std::string::npos) return "";
+    const auto value = manifest.find("android:value=\"", at);
+    if (value == std::string::npos || value > manifest.find('>', at)) return "";
+    const auto start = value + 15;
+    return manifest.substr(start, manifest.find('"', start) - start);
 }
 
 /// Posts one event; its serial number, 0 when the post failed.
@@ -185,8 +277,178 @@ double answered(std::uint32_t serial, double seconds) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
 
+void check_answer(double milliseconds, const std::string &what) {
+    if (milliseconds < 0 || milliseconds >= 500) fail(what + " was not answered within 500 ms");
+}
+
 std::uint64_t pair(std::int32_t low, std::int32_t high) {
     return static_cast<std::uint32_t>(low) | static_cast<std::uint64_t>(static_cast<std::uint32_t>(high)) << 32;
+}
+
+/// The App's window: the view's layer, its bounds in points, its size in pixels.
+std::uint64_t add_window() {
+    @autoreleasepool {
+        CAMetalLayer *layer = [CAMetalLayer layer];
+        layer.contentsScale = scale;
+        layer.bounds = CGRectMake(0, 0, width / scale, height / scale);
+        return apkrt_window_add((__bridge void *)layer, width, height);
+    }
+}
+
+/// onNativeWindowCreated and what SessionBridge posts after it: the resize to the same size, the content's
+/// rectangle when it changed (with the first window), redraw needed.
+void window_created(std::uint64_t window, bool first) {
+    post(APKRT_EVENT_NATIVE_WINDOW_CREATED, window, width, height);
+    post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, width, height);
+    if (first) post(APKRT_EVENT_CONTENT_RECT_CHANGED, pair(0, 0), pair(width, height));
+    post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window);
+}
+
+/// The focus gained, as SessionBridge gives it: the post, then the gate opened, and with it the frame clock
+/// (`clock`, the live variants'). Milliseconds until activity-host answered, -1 without an answer in `seconds`.
+double focus_gained(std::uint64_t window, Vsync *clock, double seconds) {
+    const std::uint32_t serial = post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 1);
+    apkrt_window_set_gate(window, 1);
+    if (clock != nullptr) clock->paused = false;
+    return answered(serial, seconds);
+}
+
+/// The focus lost: the post, then the gate closed, and with it the frame clock.
+void focus_lost(std::uint64_t window, Vsync *clock) {
+    post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
+    apkrt_window_set_gate(window, 0);
+    if (clock != nullptr) clock->paused = true;
+}
+
+/// The start, as SessionBridge posts it: the window added first, the focus last. False when activity-host did
+/// not answer the focus within 10 s.
+bool start(std::uint64_t window, Vsync *clock) {
+    post(APKRT_EVENT_CREATE);
+    post(APKRT_EVENT_START);
+    post(APKRT_EVENT_RESUME);
+    post(APKRT_EVENT_INPUT_QUEUE_CREATED, 0);
+    window_created(window, true);
+    if (focus_gained(window, clock, 10) < 0) {
+        fail("no answer for the start; the requests: " + requests_text());
+        return false;
+    }
+    return true;
+}
+
+/// gles-test and vulkan-test: their scenes and frames, then their own ANativeActivity_finish and the App's quit.
+void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t presents, Capture &capture) {
+    const std::uint64_t window = add_window();
+    if (!start(window, nullptr)) return;
+    if (!wait_for([] { return !seen.requests.empty(); }, 120s)) fail("no request within 120 s");
+    const std::uint64_t counted = apkrt_window_presents(window);
+    focus_lost(window, nullptr);
+    apkrt_window_remove(window);
+    post(APKRT_EVENT_PAUSE);
+    const double destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window), 2);
+    post(APKRT_EVENT_STOP);
+    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
+    wait_for([] { return seen.ended; }, 10s);
+
+    const std::string log = capture.drain();
+    ::dprintf(report, "host: presents counted: %llu\n", static_cast<unsigned long long>(counted));
+    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
+    if (counted != presents) {
+        fail("the window counted " + std::to_string(counted) + " presents, not " + std::to_string(presents));
+    }
+    check_answer(destroyed, "onNativeWindowDestroyed");
+    check_answer(destroy, "onDestroy");
+    if (const std::string requests = requests_text(); requests != "[FINISH]") fail("the requests were " + requests);
+    const std::string app_lines = lines_with(log, "I/" + app + ": ");
+    if (app_lines != read_text(expected / (app + ".logcat"))) {
+        fail("the app's lines differ from Android 15's:\n" + app_lines);
+    }
+    ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
+}
+
+/// gles-live and vulkan-live: the start, HOME, the return with a new window and Quit.
+void play_live(const std::string &app, Capture &capture) {
+    Vsync vsync;
+    vsync.start();
+    const std::uint64_t first = add_window();
+    if (!start(first, &vsync)) {
+        vsync.stop();
+        return;
+    }
+    std::this_thread::sleep_for(6s);
+
+    // HOME: the scene inactive, and after the home gesture's animation in the background, a few hundred ms later
+    // on iOS [guess]. A frame whose GL or Vulkan work reaches its commit only after the background flag waits at
+    // the gates until the foreground (ADR-0029, decision 15), and onNativeWindowDestroyed with it.
+    focus_lost(first, &vsync);
+    std::this_thread::sleep_for(300ms);
+    apkrt_set_background(1);
+    const int scheduled = apkrt_wait_scheduled(1.0);
+    minato_app_test_count_commits();
+    const std::uint64_t first_presents = apkrt_window_presents(first);
+    apkrt_window_remove(first);
+    preferred_rate = 0;  // the App drops a removed window's preference
+    post(APKRT_EVENT_PAUSE);
+    const double first_destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, first), 2);
+    post(APKRT_EVENT_STOP);
+    post(APKRT_EVENT_SAVE_INSTANCE_STATE);
+    std::this_thread::sleep_for(500ms);
+
+    // The return: the foreground with a new window, then the scene active.
+    const int background_commits = minato_app_test_commits();
+    apkrt_set_background(0);
+    const std::uint64_t second = add_window();
+    post(APKRT_EVENT_START);
+    post(APKRT_EVENT_RESUME);
+    window_created(second, false);
+    if (focus_gained(second, &vsync, 2) < 0) fail("no answer for the focus after the return");
+    std::this_thread::sleep_for(2s);
+
+    // Quit.
+    focus_lost(second, &vsync);
+    const std::uint64_t second_presents = apkrt_window_presents(second);
+    apkrt_window_remove(second);
+    preferred_rate = 0;
+    post(APKRT_EVENT_PAUSE);
+    const double second_destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, second), 2);
+    post(APKRT_EVENT_STOP);
+    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
+    wait_for([] { return seen.ended; }, 10s);
+    vsync.stop();
+
+    const std::string log = capture.drain();
+    ::dprintf(report, "host: presents counted: %llu on the first window, %llu on the second; %d ticks\n",
+              static_cast<unsigned long long>(first_presents), static_cast<unsigned long long>(second_presents),
+              vsync.ticks.load());
+    ::dprintf(report, "host: \"scheduled\": %d; guest commits in the background: %d\n", scheduled, background_commits);
+    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms and %.1f ms, onDestroy in %.1f ms\n",
+              first_destroyed, second_destroyed, destroy);
+    const std::string requests = requests_text();
+    ::dprintf(report, "host: requests: %s\n", requests.c_str());
+    if (first_presents == 0) fail("the first window counted no presents");
+    if (second_presents == 0) fail("the second window counted no presents");
+    if (scheduled != 1) fail("\"scheduled\" said no");
+    if (background_commits != 0) fail("guest threads committed command buffers in the background");
+    check_answer(first_destroyed, "the first onNativeWindowDestroyed");
+    check_answer(second_destroyed, "the second onNativeWindowDestroyed");
+    check_answer(destroy, "onDestroy");
+    if (!std::regex_match(requests, std::regex(R"((\[FRAME_RATE [0-9.]+\])+)")) ||
+        requests.find("[FRAME_RATE 120]") == std::string::npos ||
+        requests.find("[FRAME_RATE 60]") == std::string::npos) {
+        fail("the requests were not FRAME_RATE alone, with 120 and 60");
+    }
+    const std::string app_lines = lines_with(log, "I/" + app + ": ");
+    const std::regex destroyed_line("I/" + app + R"(: onDestroy: frames [1-9][0-9]*, windows 2, failures 0, lost [0-9]+\n)");
+    if (!std::regex_search(app_lines, destroyed_line)) fail("no onDestroy line with windows 2 and failures 0");
+    // Each rate's frame intervals leave the breaks out (HOME, the window's change): none reaches 100 ms.
+    const std::string device_lines = lines_with(log, "I/" + app + "-device: ");
+    const std::regex rate_line(R"(rate [0-9]+: [0-9]+ frame intervals, median [0-9.]+ ms, p99 [0-9.]+ ms, max ([0-9.]+) ms)");
+    int rates = 0;
+    for (std::sregex_iterator line(device_lines.begin(), device_lines.end(), rate_line), end; line != end; ++line) {
+        ++rates;
+        if (std::stod((*line)[1].str()) >= 100) fail("a frame interval spans a break: " + line->str());
+    }
+    if (rates < 2) fail("the frame intervals of fewer than two rates");
+    ::dprintf(report, "%s", device_lines.c_str());
 }
 
 }  // namespace
@@ -194,31 +456,36 @@ std::uint64_t pair(std::int32_t low, std::int32_t high) {
 int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
-                             "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> <presents>\n");
+                             "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> <presents | live>\n");
         return 2;
     }
     const std::string app = argv[2];
     const fs::path scratch = fs::path(argv[1]) / app, fixtures = argv[3], bionic = argv[4], system = argv[5],
                    front = argv[6], expected = argv[7], angle = argv[8], moltenvk = argv[9];
-    const std::uint64_t presents = std::strtoull(argv[10], nullptr, 10);
+    const bool live = std::strcmp(argv[10], "live") == 0;
+    const std::uint64_t presents = live ? 0 : std::strtoull(argv[10], nullptr, 10);
     const fs::path apk = fixtures / "apks" / (app + ".apk"), library = fixtures / "bin" / ("lib" + app + ".so");
     const fs::path host = bionic.parent_path() / "bin" / "activity-host";
-    const fs::path manifest = fs::path(expected).parent_path() / "apps" / app / "AndroidManifest.xml";
-    for (const auto &needed : {apk, library, host, bionic / "libandroid.so", front / "libEGL.so", front / "libvulkan.so",
-                               angle, moltenvk, expected / (app + ".logcat")}) {
-        if (!fs::exists(needed)) {
+    const fs::path manifest_path = fs::path(expected).parent_path() / "apps" / app / "AndroidManifest.xml";
+    std::vector<fs::path> needed = {apk, library, host, bionic / "libandroid.so", front / "libEGL.so",
+                                    front / "libvulkan.so", angle, moltenvk, manifest_path};
+    if (!live) needed.push_back(expected / (app + ".logcat"));
+    for (const auto &path : needed) {
+        if (!fs::exists(path)) {
             std::printf("skipped: %s is missing (tools/build-fixtures.sh, tools/build-bionic.sh, "
                         "tools/build-front-libs.sh, tools/build-angle.sh, tools/fetch-moltenvk.sh, "
                         "tools/android-reference.sh --app %s)\n",
-                        needed.c_str(), app.c_str());
+                        path.c_str(), app.c_str());
             return 0;
         }
     }
-    const std::string package = package_of(manifest);
+    const std::string manifest = read_text(manifest_path), package = package_of(manifest);
     if (package.empty()) {
-        std::fprintf(stderr, "no package in %s\n", manifest.c_str());
+        std::fprintf(stderr, "no package in %s\n", manifest_path.c_str());
         return 2;
     }
+    std::string function = meta_data_of(manifest, "android.app.func_name");
+    if (function.empty()) function = "ANativeActivity_onCreate";
 
     // The containers, and the host folders of the app's data (fresh for each run).
     fs::remove_all(scratch);
@@ -269,19 +536,10 @@ int main(int argc, char **argv) {
                              .refresh_rate = 120, .language = "en", .country = "US"};
     if (apkrt_session_begin(&session) != 0) fail("apkrt_session_begin");
 
-    // The App's window: the view's layer, its bounds in points, its size in pixels.
-    std::uint64_t window = 0;
-    @autoreleasepool {
-        CAMetalLayer *layer = [CAMetalLayer layer];
-        layer.contentsScale = scale;
-        layer.bounds = CGRectMake(0, 0, width / scale, height / scale);
-        window = apkrt_window_add((__bridge void *)layer, width, height);
-    }
-
     const std::string apk_argument = installed + "/base.apk", library_path = "LD_LIBRARY_PATH=" + installed + "/lib/arm64";
     const char *const arguments[] = {"/system/bin/activity-host", "--package", package.c_str(), "--apk",
-                                     apk_argument.c_str(), "--library", app.c_str(), "--function",
-                                     "ANativeActivity_onCreate", nullptr};
+                                     apk_argument.c_str(), "--library", app.c_str(), "--function", function.c_str(),
+                                     nullptr};
     const char *const environment[] = {library_path.c_str(), nullptr};
     const fs::path container = scratch / "system-bin" / "activity-host.dylib";
     if (apkrt_start_program(container.c_str(), arguments, environment, error, sizeof error) != 0) {
@@ -289,46 +547,20 @@ int main(int argc, char **argv) {
         _exit(1);
     }
 
-    // The start, as SessionBridge posts it: the window added first, the focus last, then the gate opened.
-    post(APKRT_EVENT_CREATE);
-    post(APKRT_EVENT_START);
-    post(APKRT_EVENT_RESUME);
-    post(APKRT_EVENT_INPUT_QUEUE_CREATED, 0);
-    post(APKRT_EVENT_NATIVE_WINDOW_CREATED, window, width, height);
-    post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, width, height);
-    post(APKRT_EVENT_CONTENT_RECT_CHANGED, pair(0, 0), pair(width, height));
-    post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window);
-    if (answered(post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 1), 10) < 0) fail("no answer for the start");
-    apkrt_window_set_gate(window, 1);
-
-    // The app draws its frames, then finishes itself; the App's quit sequence follows.
-    if (!wait_for([] { return !seen.requests.empty(); }, 120s)) fail("no request within 120 s");
-    const std::uint64_t counted = apkrt_window_presents(window);
-    post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
-    apkrt_window_set_gate(window, 0);
-    apkrt_window_remove(window);
-    post(APKRT_EVENT_PAUSE);
-    const double destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window), 2);
-    post(APKRT_EVENT_STOP);
-    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
-    if (!wait_for([] { return seen.ended; }, 10s)) fail("the program did not end after onDestroy");
-
-    const std::string log = capture.drain();
-    ::dprintf(report, "host: presents counted: %llu\n", static_cast<unsigned long long>(counted));
-    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
-    if (counted != presents) fail("the window counted " + std::to_string(counted) + " presents, not " + argv[10]);
-    if (destroyed < 0 || destroyed >= 500) fail("onNativeWindowDestroyed was not answered within 500 ms");
-    if (destroy < 0 || destroy >= 500) fail("onDestroy was not answered within 500 ms");
-    std::lock_guard hold(seen.lock);
-    if (seen.status != 0) fail("activity-host ended with status " + std::to_string(seen.status));
-    std::string requests;
-    for (const auto &request : seen.requests) requests += "[" + request + "]";
-    if (requests != "[FINISH]") fail("the requests were " + requests);
-    const std::string app_lines = lines_with(log, "I/" + app + ": ");
-    if (app_lines != read_text(expected / (app + ".logcat"))) {
-        fail("the app's lines differ from Android 15's:\n" + app_lines);
+    if (live) {
+        play_live(app, capture);
+    } else {
+        play_scenes(app, expected, presents, capture);
     }
-    ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
+    const bool ended = wait_for([] { return seen.ended; }, 10s);
+    {
+        const std::lock_guard hold(seen.lock);
+        if (!ended) {
+            fail("activity-host did not end");
+        } else if (seen.status != 0) {
+            fail("activity-host ended with status " + std::to_string(seen.status));
+        }
+    }
     if (failures == 0) {
         ::dprintf(report, "PASS: %s\n", app.c_str());
     } else {

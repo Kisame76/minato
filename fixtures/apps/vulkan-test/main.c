@@ -11,11 +11,21 @@
 // the GPU time of the same copy at the window's size (timestamp queries), 120 presents at the window's size
 // through the copy (R8G8B8A8) and 120 directly (B8G8R8A8, where offered), and the time of a call through the
 // front lib. Then it calls ANativeActivity_finish.
+// The live variant (vulkan-live; ADR-0032, test 8; ADR-0036 a) is this library started at
+// ANativeActivity_onCreateLive. It skips the scenes and draws a frame per AChoreographer callback while it has a
+// window and the focus, a clear and a square that moves, until onDestroy. Each window gets a surface and an
+// R8G8B8A8_UNORM swapchain at its own size, and TERM_WINDOW takes only those. Every 5 s it asks the window for 120
+// and 60 frames a second in turn (ANativeWindow_setFrameRate, by dlsym above the minSdk) and logs the frame
+// intervals of each rate. AKEYCODE_BACK finishes it. At onDestroy it logs its frames, windows and failures with
+// the tag "vulkan-live".
 #define VK_USE_PLATFORM_ANDROID_KHR
+#include <android/choreographer.h>
+#include <android/input.h>
 #include <android/log.h>
 #include <android/looper.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
+#include <dlfcn.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -27,8 +37,11 @@
 
 #include "android_native_app_glue.h"
 
-#define LOG(...) __android_log_print(ANDROID_LOG_INFO, "vulkan-test", __VA_ARGS__)
-#define DEVICE(...) __android_log_print(ANDROID_LOG_INFO, "vulkan-test-device", __VA_ARGS__)
+// The log's tags: the live variant has its own.
+static const char *tag = "vulkan-test", *device_tag = "vulkan-test-device";
+
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO, tag, __VA_ARGS__)
+#define DEVICE(...) __android_log_print(ANDROID_LOG_INFO, device_tag, __VA_ARGS__)
 
 enum { kSize = 64, kWindow = 256, kFrames = 120, kMaxImages = 8, kCopies = 60 };
 
@@ -1250,7 +1263,10 @@ static void destroy_chain(struct swapchain *chain, bool swapchain_too) {
         vkDestroySemaphore(vk.device, chain->rendered[index], NULL);
     }
     if (chain->render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(vk.device, chain->render_pass, NULL);
-    if (swapchain_too) vkDestroySwapchainKHR(vk.device, chain->swapchain, NULL);
+    if (swapchain_too) {
+        vkDestroySwapchainKHR(vk.device, chain->swapchain, NULL);
+        chain->swapchain = VK_NULL_HANDLE;
+    }
     chain->count = 0;
     chain->render_pass = VK_NULL_HANDLE;
 }
@@ -1541,9 +1557,245 @@ static void stop_vulkan(void) {
     LOG("APP_CMD_TERM_WINDOW: vkDeviceWaitIdle %d, the swapchain and the surface destroyed", idle);
 }
 
+// ---- The live variant (vulkan-live)
+
+enum { kPhaseSeconds = 5, kMaxIntervals = 4096 };
+
+static struct {
+    bool on;       // started at ANativeActivity_onCreateLive
+    AChoreographer *choreographer;
+    bool ready;    // the window's swapchain is there
+    bool focused;
+    bool lost;     // an acquire or present found the window gone: no frames until the next window
+    int windows, frames, failures, losses;
+    float rate;            // the frames a second the window is asked for: 120 or 60
+    int64_t phase_start;   // the frame time the rate's phase began, 0 before the first callback
+    int64_t previous;      // the frame time of the frame before, 0 after a break
+    int interval_count;
+    double intervals[kMaxIntervals];  // ms
+} live = {.rate = 120};
+
+// The live variant's entry, which its manifest names (android.app.func_name).
+__attribute__((visibility("default"))) void ANativeActivity_onCreateLive(ANativeActivity *activity, void *saved_state,
+                                                                         size_t saved_state_size) {
+    live.on = true;
+    tag = "vulkan-live";
+    device_tag = "vulkan-live-device";
+    ANativeActivity_onCreate(activity, saved_state, saved_state_size);
+}
+
+// The frame intervals of the rate's phase: the median and the 99th percentile by nearest rank, and the longest.
+static void log_phase(void) {
+    const int count = live.interval_count;
+    if (count == 0) return;
+    qsort(live.intervals, (size_t)count, sizeof live.intervals[0], compare_doubles);
+    DEVICE("rate %.0f: %d frame intervals, median %.2f ms, p99 %.2f ms, max %.2f ms", live.rate, count,
+           live.intervals[(count + 1) / 2 - 1], live.intervals[(99 * count + 99) / 100 - 1], live.intervals[count - 1]);
+    live.interval_count = 0;
+}
+
+typedef int32_t (*set_frame_rate_function)(ANativeWindow *window, float rate, int8_t compatibility);
+
+// ANativeWindow_setFrameRate came with API 30, above the minSdk: from libnativewindow by dlsym.
+static void ask_rate(ANativeWindow *window) {
+    static set_frame_rate_function set_frame_rate;
+    static bool looked;
+    if (!looked) {
+        looked = true;
+        void *library = dlopen("libnativewindow.so", RTLD_NOW);
+        if (library != NULL) set_frame_rate = (set_frame_rate_function)dlsym(library, "ANativeWindow_setFrameRate");
+        DEVICE("ANativeWindow_setFrameRate: %s", set_frame_rate != NULL ? "there" : "not there");
+    }
+    if (set_frame_rate != NULL) {
+        DEVICE("ANativeWindow_setFrameRate(%.0f): %d", live.rate,
+               set_frame_rate(window, live.rate, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT));
+    }
+}
+
+// A result of a live frame: true to go on. A window that is gone counts as a loss, anything else as a failure.
+static bool live_result(VkResult result, const char *what) {
+    if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) return true;
+    if (result == VK_ERROR_SURFACE_LOST_KHR || result == VK_ERROR_OUT_OF_DATE_KHR) {
+        ++live.losses;
+        live.lost = true;
+        DEVICE("frame %d: %s: the window is gone (%d)", live.frames, what, result);
+    } else {
+        ++live.failures;
+        DEVICE("frame %d: %s failed: %d", live.frames, what, result);
+    }
+    return false;
+}
+
+// A window: the instance and the device with the first, and for each a surface and a swapchain of
+// R8G8B8A8_UNORM, Android's first format, at the surface's size.
+static void live_window(ANativeWindow *window) {
+    ++live.windows;
+    live.lost = false;
+    if (vk.device == VK_NULL_HANDLE) {
+        if (!start_instance() || !start_device(window)) {
+            ++live.failures;
+            return;
+        }
+    } else {
+        const VkAndroidSurfaceCreateInfoKHR surface = {.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
+                                                       .window = window};
+        if (!ok(vkCreateAndroidSurfaceKHR(vk.instance, &surface, NULL, &vk.surface), "vkCreateAndroidSurfaceKHR")) {
+            ++live.failures;
+            return;
+        }
+    }
+    VkBool32 presents = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(vk.physical, vk.family, vk.surface, &presents);
+    VkSurfaceCapabilitiesKHR capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical, vk.surface, &capabilities);
+    if (!presents || !make_chain(VK_FORMAT_R8G8B8A8_UNORM, capabilities.currentExtent,
+                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, false)) {
+        ++live.failures;
+        DEVICE("window %d: no swapchain (presents %u)", live.windows, presents);
+        return;
+    }
+    live.ready = true;
+    DEVICE("window %d: swapchain %u x %u, %u images", live.windows, vk.chain.extent.width, vk.chain.extent.height,
+           vk.chain.count);
+    ask_rate(window);
+}
+
+// The window goes, and its swapchain and surface with it; the device stays for the process's life.
+static void live_window_gone(void) {
+    live.ready = false;
+    live.previous = 0;
+    if (vk.surface == VK_NULL_HANDLE) return;
+    if (vk.device != VK_NULL_HANDLE) {
+        const VkResult idle = vkDeviceWaitIdle(vk.device);
+        if (idle != VK_SUCCESS) {
+            ++live.failures;
+            DEVICE("window %d: vkDeviceWaitIdle %d", live.windows, idle);
+        }
+        destroy_chain(&vk.chain, true);
+    }
+    vkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
+    vk.surface = VK_NULL_HANDLE;
+}
+
+// A frame: a render pass that clears to a dark color and a square that moves with the frame count, presented.
+static void live_frame(void) {
+    uint32_t index = 0;
+    if (!live_result(vkAcquireNextImageKHR(vk.device, vk.chain.swapchain, UINT64_MAX, vk.acquired, VK_NULL_HANDLE,
+                                           &index),
+                     "vkAcquireNextImageKHR")) {
+        return;
+    }
+    if (!begin(vk.commands)) {
+        ++live.failures;
+        return;
+    }
+    const VkExtent2D extent = vk.chain.extent;
+    const uint32_t size = (extent.width < extent.height ? extent.width : extent.height) / 4;
+    const VkClearValue background = {.color = {.float32 = {0, 0, 0.2f, 1}}};
+    const VkRenderPassBeginInfo pass = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, .renderPass = vk.chain.render_pass,
+        .framebuffer = vk.chain.framebuffers[index], .renderArea = {{0, 0}, extent}, .clearValueCount = 1,
+        .pClearValues = &background};
+    vkCmdBeginRenderPass(vk.commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    const VkClearAttachment square = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0,
+                                      .clearValue = {.color = {.float32 = {1, 0.6f, 0, 1}}}};
+    const int32_t x = extent.width > size ? (int32_t)(((uint32_t)live.frames * 8) % (extent.width - size)) : 0;
+    const VkClearRect rect = {.rect = {{x, (int32_t)((extent.height - size) / 2)}, {size, size}}, .layerCount = 1};
+    vkCmdClearAttachments(vk.commands, 1, &square, 1, &rect);
+    vkCmdEndRenderPass(vk.commands);
+    if (!submit_and_wait(vk.commands, vk.acquired, vk.chain.rendered[index])) {
+        ++live.failures;
+        return;
+    }
+    const VkPresentInfoKHR info = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
+                                   .pWaitSemaphores = &vk.chain.rendered[index], .swapchainCount = 1,
+                                   .pSwapchains = &vk.chain.swapchain, .pImageIndices = &index};
+    if (live_result(vkQueuePresentKHR(vk.queue, &info), "vkQueuePresentKHR")) ++live.frames;
+}
+
+// A frame per callback while the app has a window and the focus; every 5 s of frame time the other rate.
+static void on_frame(int64_t frame_time, void *data) {
+    struct android_app *app = data;
+    if (app->destroyRequested) return;
+    AChoreographer_postFrameCallback64(live.choreographer, on_frame, app);
+    if (live.phase_start == 0) live.phase_start = frame_time;
+    if (frame_time - live.phase_start >= kPhaseSeconds * 1000000000LL) {
+        log_phase();
+        live.rate = live.rate == 120 ? 60 : 120;
+        live.phase_start = frame_time;
+        live.previous = 0;
+        if (live.ready) ask_rate(app->window);
+    }
+    if (!live.ready || !live.focused || live.lost) {
+        live.previous = 0;
+        return;
+    }
+    if (live.previous != 0 && live.interval_count < kMaxIntervals) {
+        live.intervals[live.interval_count++] = (double)(frame_time - live.previous) / 1e6;
+    }
+    live.previous = frame_time;
+    live_frame();
+}
+
+// BACK finishes the live variant: from Android 12 on, BACK alone only moves a root activity to the back.
+static int32_t on_input(struct android_app *app, AInputEvent *event) {
+    if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_KEY || AKeyEvent_getKeyCode(event) != AKEYCODE_BACK) return 0;
+    if (AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_UP) {
+        LOG("AKEYCODE_BACK: ANativeActivity_finish");
+        ANativeActivity_finish(app->activity);
+    }
+    return 1;
+}
+
+static void on_live_command(struct android_app *app, int32_t command) {
+    switch (command) {
+        case APP_CMD_INIT_WINDOW:
+            live_window(app->window);
+            break;
+        case APP_CMD_TERM_WINDOW:
+            live_window_gone();
+            break;
+        case APP_CMD_GAINED_FOCUS:
+            live.focused = true;
+            break;
+        case APP_CMD_LOST_FOCUS:
+            live.focused = false;
+            live.previous = 0;  // a break, no frame interval
+            break;
+        case APP_CMD_DESTROY:
+            log_phase();
+            LOG("onDestroy: frames %d, windows %d, failures %d, lost %d", live.frames, live.windows, live.failures,
+                live.losses);
+            break;
+        default:
+            break;
+    }
+}
+
+// The live variant's loop: the frames come from the choreographer's callbacks inside ALooper_pollOnce.
+static void live_main(struct android_app *app) {
+    app->onInputEvent = on_input;
+    live.choreographer = AChoreographer_getInstance();
+    if (live.choreographer == NULL) {
+        ++live.failures;
+        LOG("no AChoreographer");
+    } else {
+        AChoreographer_postFrameCallback64(live.choreographer, on_frame, app);
+    }
+    while (!app->destroyRequested) {
+        struct android_poll_source *source = NULL;
+        const int result = ALooper_pollOnce(-1, NULL, NULL, (void **)&source);
+        if ((result == LOOPER_ID_MAIN || result == LOOPER_ID_INPUT) && source != NULL) source->process(app, source);
+    }
+}
+
 static void on_command(struct android_app *app, int32_t command) {
     if (command >= 0 && command < (int32_t)(sizeof command_names / sizeof command_names[0])) {
         DEVICE("%s", command_names[command]);
+    }
+    if (live.on) {
+        on_live_command(app, command);
+        return;
     }
     switch (command) {
         case APP_CMD_INIT_WINDOW:
@@ -1580,6 +1832,7 @@ static void frame(struct android_app *app) {
 void android_main(struct android_app *app) {
     app->onAppCmd = on_command;
     LOG("android_main");
+    if (live.on) live_main(app);
     while (!app->destroyRequested) {
         const bool drawing = vk.ready && vk.frames_left > 0;
         struct android_poll_source *source = NULL;

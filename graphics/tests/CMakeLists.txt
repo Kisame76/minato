@@ -218,10 +218,12 @@ if(TARGET minato_graphics_host)
   # its measurements (through the copy and directly). It prints "skipped:" while something is missing.
   set(APK_TEST_APPS_DIR "${PROJECT_SOURCE_DIR}/build/fixtures" CACHE PATH
     "tools/build-fixtures.sh's build directory, with the test apps' libraries in bin/ and their APKs in apks/")
-  add_executable(graphics-app-test app_test.mm)
-  target_compile_options(graphics-app-test PRIVATE -fobjc-arc)
+  # With the Metal hook (metal_hook.m, the counters in app_counts.c), which counts guest commits for the live
+  # variants and does nothing unless MINATO_METAL_HOOK is set.
+  add_executable(graphics-app-test app_test.mm app_counts.c metal_hook.m)
+  target_compile_options(graphics-app-test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fobjc-arc>)
   target_link_libraries(graphics-app-test PRIVATE minato_graphics_host apkrt apkconv apk_defaults
-    "-framework Foundation" "-framework QuartzCore")
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   foreach(app_presents IN ITEMS gles:132 vulkan:372)
     string(REPLACE ":" ";" app_presents "${app_presents}")
     list(GET app_presents 0 app)
@@ -230,6 +232,16 @@ if(TARGET minato_graphics_host)
       "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" ${presents})
     set_tests_properties(graphics.${app}_app PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
+  endforeach()
+  # ADR-0032's test 8 and ADR-0036 a) on the Mac: the live variants (gles-live, vulkan-live), which draw a frame
+  # per AChoreographer callback until onDestroy, through the start, HOME, the return with a new window and Quit,
+  # with a display link that follows FRAME_RATE and the Metal hook counting guest commits in the background.
+  foreach(app IN ITEMS gles vulkan)
+    add_test(NAME graphics.${app}_live COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" ${app}-live
+      "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+      "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" live)
+    set_tests_properties(graphics.${app}_live PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120
+      ENVIRONMENT "MINATO_METAL_HOOK=count")
   endforeach()
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
@@ -246,7 +258,7 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
