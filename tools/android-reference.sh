@@ -11,7 +11,9 @@
 # after it has its first window and the focus, and started again, before that; input-test gets the gestures
 # of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready". Its lines of
 # logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
-# <app>-device differ by device and are only shown.
+# <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
+# step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
+# no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 #        tools/android-reference.sh --app <app>
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
@@ -30,6 +32,7 @@ AVD=apk-runner-35
 IMAGE=system-images/android-35/default/arm64-v8a/
 FIXTURES="${FIXTURES_BUILD:-build/fixtures}/bin"
 APKS="${FIXTURES_BUILD:-build/fixtures}/apks"
+BENCH=build/graphics/bench
 RESULTS=build/android-reference
 DEVICE_DIR=/data/local/tmp
 
@@ -150,12 +153,20 @@ wait_for() {
 }
 
 run_app() {
-  local apk="$APKS/$app.apk" package activity
+  local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
+  local last="android_main returns" package activity
+  # A benchmark's APK ends after the line of its run, which gives its frames and failures.
+  case "$app" in
+    bench-gles | bench-vulkan)
+      apk="$BENCH/$app.apk" manifest="graphics/bench/android/$app/AndroidManifest.xml" build=tools/build-bench.sh
+      last=" failures"
+      ;;
+  esac
   if [[ ! -f "$apk" ]]; then
-    echo "No $apk: run tools/build-fixtures.sh first." >&2
+    echo "No $apk: run $build first." >&2
     return 1
   fi
-  package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "fixtures/apps/$app/AndroidManifest.xml" | head -n 1)
+  package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
   activity="$package/android.app.NativeActivity"
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
@@ -216,10 +227,32 @@ run_app() {
         device emu event send $command >/dev/null
       done
   fi
-  wait_for "$app" "android_main returns" || return 1
+  wait_for "$app" "$last" || return 1
   sleep 1
   app_lines "$app" >"$RESULTS/$app.logcat"
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  if [[ "$last" == " failures" ]]; then
+    # Compared with nothing: the run counts frames and no failure, and the app finished itself without a crash.
+    local finished=no activities crashes
+    for _ in $(seq 1 20); do
+      activities=$(run dumpsys activity activities)
+      if [[ "$activities" != *"$activity"* ]]; then
+        finished=yes
+        break
+      fi
+      sleep 0.5
+    done
+    crashes=$(run logcat -d -b crash)
+    device uninstall "$package" >/dev/null 2>&1 || true
+    sed 's/^/    /' "$RESULTS/$app.logcat"
+    if [[ "$finished" == yes && "$crashes" != *"$package"* ]] &&
+      grep -Eq '^I/[^:]+: run [^:]+: [1-9][0-9]* frames, 0 failures' "$RESULTS/$app.logcat"; then
+      echo "ran      $app"
+      return 0
+    fi
+    echo "FAILED   $app (finished by itself: $finished)"
+    return 1
+  fi
   device uninstall "$package" >/dev/null 2>&1 || true
   if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then
     echo "same     $app"
