@@ -1,6 +1,7 @@
 // ALooper of libandroid.so (ADR-0028, decision 9), written for Minato from the NDK's documentation and
 // Android 15's answers (fixtures/suite/looper-test.c). A thread's looper waits in an epoll for its
-// descriptors and for an eventfd that ALooper_wake raises. A descriptor has either an ident, which
+// descriptors and for an eventfd that ALooper_wake raises, and no longer than until the first of
+// libandroid's own messages (internal.h, AChoreographer's) is due. A descriptor has either an ident, which
 // pollOnce returns, or a callback, which pollOnce calls and which removes it by answering 0. Each
 // registration has a sequence number of its own, so an event of an old registration never reaches a
 // new one of the same descriptor. A descriptor closed before its removal leaves the epoll with an
@@ -18,6 +19,8 @@
 #include <sys/eventfd.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "internal.h"
 
 namespace {
 
@@ -38,6 +41,12 @@ struct Response {
     int events;
 };
 
+struct Message {
+    int64_t uptime;  // CLOCK_MONOTONIC in ns
+    void (*handler)(void*);
+    void* data;
+};
+
 }  // namespace
 
 struct ALooper {
@@ -52,11 +61,17 @@ struct ALooper {
     Request* requests;
     size_t request_count;
     size_t request_capacity;
+    // Under the lock: the messages of minato_looper_send, by time, and whether one's handler runs.
+    Message* messages;
+    size_t message_count;
+    size_t message_capacity;
+    bool sending;
     // The looper's own thread alone.
     Response responses[kMaxEvents];
     size_t response_count;
     size_t response_index;
-    uint64_t polls;  // a callback that polls again replaces the responses
+    uint64_t polls;         // a callback that polls again replaces the responses
+    int64_t next_message;   // the first message's time after the last poll, INT64_MAX for none
 };
 
 namespace {
@@ -224,8 +239,22 @@ int collect_locked(ALooper* looper, int count, const epoll_event* items) {
     return ALOOPER_POLL_WAKE;
 }
 
-// One wait: the responses of the descriptors that are ready, whose callbacks have run.
+int64_t now_nanoseconds() {
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1'000'000'000LL + now.tv_nsec;
+}
+
+// One wait, no longer than until the first message is due: the messages that are due run, in their order,
+// then the callbacks of the descriptors that are ready.
 int poll_inner(ALooper* looper, int timeout) {
+    if (timeout != 0 && looper->next_message != INT64_MAX) {
+        const int64_t left = looper->next_message - now_nanoseconds();
+        const int64_t message_timeout = left <= 0 ? 0 : (left + 999'999) / 1'000'000;  // rounded up
+        if (message_timeout < INT32_MAX && (timeout < 0 || message_timeout < timeout)) {
+            timeout = static_cast<int>(message_timeout);
+        }
+    }
     const uint64_t poll = ++looper->polls;
     looper->response_count = 0;
     looper->response_index = 0;
@@ -233,6 +262,21 @@ int poll_inner(ALooper* looper, int timeout) {
     const int count = epoll_wait(looper->epoll_fd, items, kMaxEvents, timeout);
     pthread_mutex_lock(&looper->lock);
     int result = collect_locked(looper, count, items);
+    looper->next_message = INT64_MAX;
+    while (looper->message_count > 0) {
+        const Message message = looper->messages[0];
+        if (message.uptime > now_nanoseconds()) {
+            looper->next_message = message.uptime;
+            break;
+        }
+        memmove(looper->messages, looper->messages + 1, --looper->message_count * sizeof(Message));
+        looper->sending = true;
+        pthread_mutex_unlock(&looper->lock);
+        message.handler(message.data);
+        pthread_mutex_lock(&looper->lock);
+        looper->sending = false;
+        result = ALOOPER_POLL_CALLBACK;
+    }
     pthread_mutex_unlock(&looper->lock);
     for (size_t i = 0; i < looper->response_count && looper->polls == poll; ++i) {
         const Response response = looper->responses[i];
@@ -269,13 +313,38 @@ int poll_once(ALooper* looper, int timeout, int* out_fd, int* out_events, void**
     }
 }
 
-int64_t now_nanoseconds() {
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return now.tv_sec * 1'000'000'000LL + now.tv_nsec;
+}  // namespace
+
+// libandroid's own (internal.h), as Android's Looper::sendMessageAtTime: a message that becomes the first
+// wakes the looper, unless a message's handler runs, after which the looper looks at the time again anyway.
+void minato_looper_send(ALooper* looper, int64_t uptime, void (*handler)(void*), void* data) {
+    pthread_mutex_lock(&looper->lock);
+    size_t index = 0;
+    while (index < looper->message_count && uptime >= looper->messages[index].uptime) ++index;
+    if (looper->message_count == looper->message_capacity) {
+        const size_t capacity = looper->message_capacity == 0 ? 8 : looper->message_capacity * 2;
+        auto* grown = static_cast<Message*>(realloc(looper->messages, capacity * sizeof(Message)));
+        if (grown == nullptr) fatal("Could not queue a message");
+        looper->messages = grown;
+        looper->message_capacity = capacity;
+    }
+    memmove(looper->messages + index + 1, looper->messages + index, (looper->message_count - index) * sizeof(Message));
+    looper->messages[index] = {uptime, handler, data};
+    ++looper->message_count;
+    const bool first = index == 0 && !looper->sending;
+    pthread_mutex_unlock(&looper->lock);
+    if (first) wake(looper);
 }
 
-}  // namespace
+void minato_looper_remove(ALooper* looper, void* data) {
+    pthread_mutex_lock(&looper->lock);
+    size_t kept = 0;
+    for (size_t index = 0; index < looper->message_count; ++index) {
+        if (looper->messages[index].data != data) looper->messages[kept++] = looper->messages[index];
+    }
+    looper->message_count = kept;
+    pthread_mutex_unlock(&looper->lock);
+}
 
 extern "C" {
 
@@ -296,6 +365,7 @@ ALooper* ALooper_prepare(int opts) {
         pthread_mutex_init(&looper->lock, nullptr);
         looper->epoll_fd = -1;
         looper->next_sequence = kWakeSequence + 1;
+        looper->next_message = INT64_MAX;
         rebuild_locked(looper);
         pthread_setspecific(thread_key, looper);
     }
@@ -316,6 +386,7 @@ void ALooper_release(ALooper* looper) {
     close(looper->wake_fd);
     pthread_mutex_destroy(&looper->lock);
     free(looper->requests);
+    free(looper->messages);
     free(looper);
 }
 

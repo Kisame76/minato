@@ -20,6 +20,9 @@ EndHandler end_handler();
 /// end with -1.
 void end();
 
+/// The display's refresh rate in the session's configuration, frames per second; 0 without a session.
+int refresh_rate();
+
 /// The private syscalls (guest_interface.h): session_connect with the guest's struct apkrt_configuration,
 /// session_answer and session_request.
 long connect(std::uint64_t configuration);

@@ -10,4 +10,9 @@ namespace apkrt::windows {
 /// when a deliverable signal ends the wait, -EINVAL for an ID or a kind it does not take.
 long gate(std::uint64_t id, std::uint64_t kind);
 
+/// ANativeWindow_setFrameRate (ADR-0036, decision 2): keeps `bits`, a float's, as the frame rate of the window
+/// `id`, and when they changed calls `report` with them under the registry's lock, so that no report of a
+/// window comes once apkrt_window_remove has returned. Nothing for a window that is removed or unknown.
+void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits));
+
 }  // namespace apkrt::windows

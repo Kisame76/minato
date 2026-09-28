@@ -10,6 +10,8 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "APKRuntime/guest_interface.h"
 
@@ -112,8 +114,8 @@ int32_t ANativeWindow_setBuffersGeometry(ANativeWindow* window, int32_t width, i
     return size_taken ? 0 : -EINVAL;
 }
 
-// Accepted when Android accepts them, and they change nothing: the frame rate is the host's
-// (CADisplayLink), the transform and the data space are the front libs' business.
+// Accepted when Android accepts them. The rate goes to the host (ADR-0036, decision 2), whose display link
+// prefers it; the compatibility and the strategy have nothing to change there.
 int32_t ANativeWindow_setFrameRateWithChangeStrategy(ANativeWindow* window, float frameRate, int8_t compatibility,
                                                       int8_t changeFrameRateStrategy) {
     const bool valid = is_window(window) && frameRate >= 0 && frameRate != __builtin_inff() &&
@@ -121,7 +123,11 @@ int32_t ANativeWindow_setFrameRateWithChangeStrategy(ANativeWindow* window, floa
                         compatibility == ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE) &&
                        (changeFrameRateStrategy == ANATIVEWINDOW_CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS ||
                         changeFrameRateStrategy == ANATIVEWINDOW_CHANGE_FRAME_RATE_ALWAYS);
-    return valid ? 0 : -EINVAL;
+    if (!valid) return -EINVAL;
+    uint32_t bits;
+    memcpy(&bits, &frameRate, sizeof bits);
+    syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window->id, bits);
+    return 0;
 }
 
 int32_t ANativeWindow_setFrameRate(ANativeWindow* window, float frameRate, int8_t compatibility) {

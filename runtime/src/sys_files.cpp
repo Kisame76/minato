@@ -732,7 +732,10 @@ template <typename Plain>
 long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain plain) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
-    if (description->kind() == Description::Kind::epoll) return -linux_errno::einval;  // it has no read or write
+    // An epoll has no read or write, and a channel only its private syscalls (channels.h).
+    if (description->kind() == Description::Kind::epoll || description->kind() == Description::Kind::channel) {
+        return -linux_errno::einval;
+    }
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
     if (description->kind() == Description::Kind::eventfd) return transfer_count(*description, writing, vectors, count);
     if (!description->can_block()) return result_or_error(plain(description->host()));

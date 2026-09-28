@@ -155,6 +155,9 @@ enum apkrt_request_type {
     APKRT_REQUEST_KEEP_SCREEN_ON,  // host only: the argument is 1 or 0, reported when the flag changes
     APKRT_REQUEST_START_FAILED,    // a0: activity-host's text (dlerror's) about why the app cannot start,
                                    // NUL-terminated; the host gets at most 1023 bytes of it
+    APKRT_REQUEST_FRAME_RATE,      // ANativeWindow_setFrameRate (ADR-0036, decision 2): a0 the window's ID, a1 the rate
+                                   // in frames per second as a float's bits, 0 for no preference; the host gets the
+                                   // bits when the rate of a window it has not removed changes
 };
 
 /// The kinds of the window's gate.
@@ -179,7 +182,8 @@ enum apkrt_gate_kind {
 /// session_request: x0 an enum apkrt_request_type, x1 and x2 its arguments. Returns 0; -ENOENT without a
 /// session, -EFAULT for APKRT_REQUEST_START_FAILED without a text, -EINVAL for another type. The runtime
 /// keeps the window flags and reports only APKRT_REQUEST_KEEP_SCREEN_ON to the host, when
-/// AWINDOW_FLAG_KEEP_SCREEN_ON (0x80) changes, in the order of the changes.
+/// AWINDOW_FLAG_KEEP_SCREEN_ON (0x80) changes, in the order of the changes. It keeps each window's frame rate
+/// as well and reports APKRT_REQUEST_FRAME_RATE when it changes, only for a window the host has not removed.
 #define APKRT_NR_SESSION_REQUEST 4104
 /// window_gate, the front libs': x0 the window's ID, x1 an enum apkrt_gate_kind. Returns 0 to go on and
 /// 1 when the window is gone, or waits:
@@ -193,6 +197,89 @@ enum apkrt_gate_kind {
 /// Every change the host makes ends a wait's round. A deliverable signal ends the wait with -EINTR once
 /// its handler ran; with SA_RESTART the runtime makes the call again. -EINVAL for another kind.
 #define APKRT_NR_WINDOW_GATE 4105
+
+// MARK: - The vsync and input channels (ADR-0036, decision 1)
+//
+// The host posts the ticks of its frame clock and its motion events (apkrt_vsync_post and apkrt_input_post in
+// apkrt.h), which the runtime keeps in host memory. Each consumer, a choreographer or an input queue, holds a
+// guest descriptor of its channel for its looper, readable while the channel holds something unread, and
+// takes the records with the syscalls below. Times are in nanoseconds on the guest's CLOCK_MONOTONIC.
+
+/// The frame timelines of a tick (AChoreographerFrameCallbackData).
+#define APKRT_FRAME_TIMELINES 3
+
+/// One frame timeline.
+struct apkrt_frame_timeline {
+    int64_t vsync_id;
+    int64_t expected_present_time;
+    int64_t deadline;
+};
+
+/// What vsync_read gives: the newest tick the channel asked for, and the display's period. Timeline k has the
+/// vsync ID of the tick's number (from 1) + k, its expected present at target_time + (k + 1) × period and its
+/// deadline one period earlier, so the preferred one's deadline is target_time. A guess (ADR-0036, step a
+/// measures it against the drawables' presentedTime), settled by the lead: a deadline at the frame time would
+/// have passed already.
+struct apkrt_vsync {
+    int64_t time;                 // the tick's vsync, Choreographer's frame time; 0 before the first tick
+    int64_t target_time;          // when the next frame is due
+    int64_t period;               // the display's frame period: a tick whose target_time - time differs by more
+                                  // than 1 % from it makes that the period; before the first tick 10^9 / the
+                                  // session's refresh_rate, 0 without a session
+    uint32_t preferred_timeline;  // 0
+    uint32_t reserved;
+    struct apkrt_frame_timeline timelines[APKRT_FRAME_TIMELINES];
+};
+
+/// Android's MAX_POINTERS: the pointers of a motion event.
+#define APKRT_MOTION_POINTERS 16
+/// The samples of a motion event: its history and, last, its own.
+#define APKRT_MOTION_SAMPLES 16
+
+/// A pointer's place in one sample.
+struct apkrt_pointer_coords {
+    float x;            // in the window's pixels; raw x and y are the same, as the window fills the screen
+    float y;
+    float pressure;     // 0 to 1
+    float touch_major;  // in pixels
+};
+
+/// A motion event of the touchscreen as input_read gives it (AMotionEvent). Its source, tool type and device
+/// are libandroid's in M3: AINPUT_SOURCE_TOUCHSCREEN, AMOTION_EVENT_TOOL_TYPE_FINGER and one device.
+struct apkrt_motion_event {
+    int32_t action;          // AMOTION_EVENT_ACTION_*: DOWN 0, UP 1, MOVE 2, CANCEL 3, and POINTER_DOWN 5 and
+                             // POINTER_UP 6 with the pointer's index << 8
+    uint32_t pointer_count;  // 1 to APKRT_MOTION_POINTERS
+    uint32_t sample_count;   // 1 to APKRT_MOTION_SAMPLES: the history, oldest first, then the event's own sample
+    uint32_t reserved;
+    int64_t down_time;       // the time of the gesture's DOWN
+    int32_t pointer_ids[APKRT_MOTION_POINTERS];  // in the order of the pointers: ascending, 0 to 31
+    int64_t sample_times[APKRT_MOTION_SAMPLES];  // the last is the event's time
+    struct apkrt_pointer_coords coords[APKRT_MOTION_SAMPLES][APKRT_MOTION_POINTERS];  // by sample, then pointer index
+};
+
+/// vsync_connect, AChoreographer's, once per instance: a new vsync channel. Returns its guest descriptor
+/// (close-on-exec), readable while the channel holds a tick it asked for or a period it has not read; -EMFILE
+/// when the guest's table is full, -ENOMEM without memory, or the host's error when it has no descriptors left
+/// for the channel's pipe. Closing the descriptor ends the channel.
+#define APKRT_NR_VSYNC_CONNECT 4106
+/// vsync_request: x0 the channel's descriptor. The next tick goes to the channel (requestNextVsync); asking
+/// again before it comes changes nothing. Returns 0; -EBADF for a descriptor that is no vsync channel.
+#define APKRT_NR_VSYNC_REQUEST 4107
+/// vsync_read: x0 the channel's descriptor, x1 a struct apkrt_vsync, which it fills; the descriptor is then no
+/// longer readable. Returns 1 when a tick came since the last read, else 0; -EBADF for a descriptor that is no
+/// vsync channel, -EFAULT for NULL.
+#define APKRT_NR_VSYNC_READ 4108
+/// input_connect, activity-host's at APKRT_EVENT_INPUT_QUEUE_CREATED (minato_AInputQueue_create): x0 the input
+/// channel's ID. Returns a guest descriptor (close-on-exec), readable while the channel holds an event, as the
+/// wake byte of InputQueue.cpp; -ENOENT for an ID the host never gave, 0 included (the queue then has no
+/// events); -EBUSY for a channel that had its descriptor already; -EMFILE when the guest's table is full.
+/// Closing the descriptor ends the channel: the host's later posts fail.
+#define APKRT_NR_INPUT_CONNECT 4109
+/// input_read: x0 the channel's descriptor, x1 a struct apkrt_motion_event. Takes the oldest event into it;
+/// once the channel is empty, the descriptor is no longer readable (pop and drain). Returns 0; -EAGAIN when
+/// there is none, -EBADF for a descriptor that is no input channel, -EFAULT for NULL.
+#define APKRT_NR_INPUT_READ 4110
 
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the
 /// window's layer.

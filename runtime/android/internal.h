@@ -3,10 +3,20 @@
 #define MINATO_ANDROID_INTERNAL_H
 
 #include <android/configuration.h>
+#include <android/looper.h>
+#include <stdint.h>
 
 #include "APKRuntime/guest_interface.h"
 
 /// Sets every field of `config` to the value ADR-0028's decision 9 chooses from the session's configuration.
 void minato_configuration_from_session(AConfiguration *config, const struct apkrt_configuration *session);
+
+/// A message for `looper`, as Android's Looper::sendMessageAtTime: its poll calls `handler` with `data` on the
+/// looper's thread once CLOCK_MONOTONIC reaches `uptime` (ns), before the callbacks of its descriptors; messages
+/// run in the order of their times, and in the order sent for the same time. From any thread.
+void minato_looper_send(ALooper *looper, int64_t uptime, void (*handler)(void *data), void *data);
+
+/// Takes the messages with `data` that have not run out of `looper`.
+void minato_looper_remove(ALooper *looper, void *data);
 
 #endif

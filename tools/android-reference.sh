@@ -6,10 +6,11 @@
 # emulator is used, because every fixture starts with an empty /data/local/tmp on the device.
 # The tests are those of fixtures/tests.txt, run as CTest runs them; tests of the runtime that
 # Android cannot run are left out, and what a benchmark (measures) prints is shown, not compared.
-# A test app of fixtures/apps (ADR-0028, test 3) is installed fresh from build/fixtures/apks, started as
-# the launcher starts it, sent HOME a second after it has its first window and the focus, started again,
-# and left until it finishes itself. Its lines of logcat with its own tag (logcat -v tag) must be
-# fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
+# A test app of fixtures/apps (ADR-0028, test 3; ADR-0036) is installed fresh from build/fixtures/apks,
+# started as the launcher starts it, and left until it finishes itself; activity-test is sent HOME a second
+# after it has its first window and the focus, and started again, before that. Its lines of logcat with its
+# own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by
+# device and are only shown.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 #        tools/android-reference.sh --app <app>
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
@@ -151,12 +152,14 @@ run_app() {
   device install "$apk" >/dev/null
   run logcat -c
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
-  wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
-  sleep 1
-  run input keyevent KEYCODE_HOME
-  wait_for "$app" APP_CMD_SAVE_STATE || return 1
-  sleep 1
-  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  if [[ "$app" == activity-test ]]; then
+    wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" APP_CMD_SAVE_STATE || return 1
+    sleep 1
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
   wait_for "$app" "android_main returns" || return 1
   sleep 1
   app_lines "$app" >"$RESULTS/$app.logcat"

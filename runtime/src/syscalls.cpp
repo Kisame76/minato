@@ -5,6 +5,7 @@
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
 #include "APKRuntime/guest_interface.h"
+#include "channels.h"
 #include "descriptors.h"
 #include "dl.h"
 #include "guest_context.h"
@@ -678,6 +679,13 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return apkrt::session::request(x[0], x[1], x[2]);
         case APKRT_NR_WINDOW_GATE:
             return apkrt::windows::gate(x[0], x[1]);
+        // The vsync channel (ADR-0036, decision 1).
+        case APKRT_NR_VSYNC_CONNECT:
+            return apkrt::channels::vsync_connect();
+        case APKRT_NR_VSYNC_REQUEST:
+            return apkrt::channels::vsync_request(as_int(x[0]));
+        case APKRT_NR_VSYNC_READ:
+            return apkrt::channels::vsync_read(as_int(x[0]), x[1]);
 
         default:
             report_unsupported(x[8]);

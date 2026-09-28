@@ -3,6 +3,7 @@
 #include "descriptors.h"
 #include "guest_context.h"
 #include "syscalls.h"
+#include "windows.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -77,6 +78,10 @@ void end() {
     changed.notify_all();
 }
 
+int refresh_rate() {
+    return begun.load(std::memory_order_acquire) ? described.configuration.refresh_rate : 0;
+}
+
 long connect(std::uint64_t configuration) {
     if (!begun.load(std::memory_order_acquire)) return -linux_errno::enoent;
     if (configuration == 0) return -linux_errno::efault;
@@ -127,6 +132,10 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             report(APKRT_REQUEST_START_FAILED, 0, text);
             return 0;
         }
+        case APKRT_REQUEST_FRAME_RATE:
+            windows::set_frame_rate(a0, static_cast<std::uint32_t>(a1),
+                                    [](std::uint32_t bits) { report(APKRT_REQUEST_FRAME_RATE, bits, nullptr); });
+            return 0;
         default:
             return -linux_errno::einval;
     }

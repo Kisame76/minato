@@ -109,8 +109,16 @@ typedef void (*apkrt_end_handler)(void *context, int status);
 /// it must not block (the app hands the request to its main queue). `type` is an enum apkrt_request_type:
 /// APKRT_REQUEST_FINISH; APKRT_REQUEST_KEEP_SCREEN_ON with `argument` 1 or 0, only when the flag changes
 /// (the runtime keeps the window flags, so APKRT_REQUEST_WINDOW_FLAGS never comes here); or
-/// APKRT_REQUEST_START_FAILED with `text`, which lives until the handler returns. `text` is NULL for the
-/// others. The KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate. The
+/// APKRT_REQUEST_START_FAILED with `text`, which lives until the handler returns; or APKRT_REQUEST_FRAME_RATE
+/// (ADR-0036, decision 2) with `argument` the bits of a float, the rate in frames per second that
+/// ANativeWindow_setFrameRate prefers, 0 for none, when the rate of a window that is not removed changes. The
+/// FRAME_RATE handler runs under the window registry's lock, so it must call none of the registry's functions
+/// (apkrt_window_*, apkrt_set_background, apkrt_wait_scheduled, apkrt_wait_foreground,
+/// apkrt_add_scheduled_provider): then apkrt_window_remove returns only after a report of that window that is
+/// under way has returned, and none starts after it. The report names no window, since the host has one at a
+/// time (ADR-0028, decision 6), and the host drops that window's preference itself after the removal: a new
+/// window has none, as a new Surface on Android. `text` is NULL for all but START_FAILED. The
+/// KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate. The
 /// handler runs with the runtime signal blocked, on that thread's stack, which the guest chose and which
 /// may be small (an alternate signal stack): a handler that needs more hands its work to another thread.
 typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument, const char *text);
@@ -209,6 +217,35 @@ typedef int (*apkrt_scheduled_provider)(void *context, uint64_t deadline);
 /// For graphics/host: adds a provider of "scheduled", at any time. Returns 0, or -1 when `provider` is NULL
 /// or 4 are set already.
 int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *context);
+
+// MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
+//
+// For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and
+// input channels (guest_interface.h). Every function may be called from any thread; none blocks, and none
+// runs guest code.
+
+/// A tick of the display link: its timestamp and targetTimestamp in nanoseconds on CLOCK_UPTIME_RAW, the
+/// guest's CLOCK_MONOTONIC. The tick goes to every vsync channel that asked for one since its last, which
+/// keeps only the newest. A tick whose period (target_time - time) differs by more than 1 % from the current
+/// one makes it the current one and wakes every channel, for the refresh-rate callbacks.
+void apkrt_vsync_post(int64_t time, int64_t target_time);
+
+/// A new input channel, whose ID the host sends with APKRT_EVENT_INPUT_QUEUE_CREATED. Returns the ID, from 1,
+/// never reused; 0 without memory. The events posted before the guest's queue connects wait in it. Until
+/// ADR-0036's step b), it returns 0.
+uint64_t apkrt_input_add(void);
+
+/// Posts a motion event (struct apkrt_motion_event) to the input channel `id`, after those before it.
+/// `pointer_ids` holds `pointer_count` IDs, 1 to APKRT_MOTION_POINTERS of them, ascending; `sample_times`
+/// holds `sample_count` times, the history's oldest first and the event's own last; `coords` holds
+/// sample_count × pointer_count places, by sample, then pointer index. Of more than APKRT_MOTION_SAMPLES
+/// samples, the oldest go. Returns 1 when the channel took the event, else 0: an unknown ID, a channel whose
+/// queue has closed, an event that is not sound, or a full channel (256 events) in which no MOVE could merge.
+/// A full channel merges MOVEs: a MOVE's samples become the history of the MOVE right after it with the same
+/// pointers. Until ADR-0036's step b), it returns 0.
+int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, uint32_t pointer_count,
+                     const int32_t *pointer_ids, uint32_t sample_count, const int64_t *sample_times,
+                     const struct apkrt_pointer_coords *coords);
 
 // MARK: - Host code on guest threads (ADR-0030)
 

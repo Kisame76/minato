@@ -82,11 +82,21 @@ bool runtime_signal_blocked() {
 std::mutex requests_lock;
 std::vector<Request> requests;
 
+// A FRAME_RATE handler that takes its time: it says when it began and when it returns.
+std::atomic<bool> slow_frame_rate{false}, frame_rate_began{false}, frame_rate_returned{false};
+
 void on_request(void *context, int type, std::uint64_t argument, const char *text) {
     CHECK(context == &requests);
-    const std::lock_guard<std::mutex> hold(requests_lock);
-    requests.push_back(
-        {type, argument, text != nullptr ? text : "", text != nullptr, ::pthread_self(), runtime_signal_blocked()});
+    {
+        const std::lock_guard<std::mutex> hold(requests_lock);
+        requests.push_back(
+            {type, argument, text != nullptr ? text : "", text != nullptr, ::pthread_self(), runtime_signal_blocked()});
+    }
+    if (type == APKRT_REQUEST_FRAME_RATE && slow_frame_rate.load()) {
+        frame_rate_began.store(true);
+        std::this_thread::sleep_for(200ms);
+        frame_rate_returned.store(true);
+    }
 }
 
 /// The requests seen since the last call.
@@ -140,6 +150,9 @@ TEST(without_a_session_nothing_goes_through) {
     CHECK(call(APKRT_NR_SESSION_CONNECT, address(&received)) == -enoent);
     CHECK(call(APKRT_NR_SESSION_ANSWER, 1) == -enoent);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FINISH) == -enoent);
+    const auto window = apkrt_window_add(nullptr, 64, 64);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window, 0x42700000) == -enoent);  // 60.0f
+    apkrt_window_remove(window);
 }
 
 // --- Events and answers -------------------------------------------------------------------------
@@ -341,6 +354,77 @@ TEST(keep_screen_on_is_reported_in_the_order_it_changes_across_threads) {
     // Turning it off now reports a change exactly when the last report said on.
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FLAGS, 0, keep_screen_on) == 0);
     CHECK(take_requests().size() == (seen.size() % 2 == 1 ? 1U : 0U));
+}
+
+// --- The frame rate (ADR-0036, decision 2) ------------------------------------------------------
+
+/// A float's bits, as libnativewindow passes a rate and the host gets it.
+std::uint64_t bits(float rate) {
+    std::uint32_t value;
+    std::memcpy(&value, &rate, sizeof value);
+    return value;
+}
+
+/// ANativeWindow_setFrameRate's request for `window`, and what reached the host.
+std::vector<Request> frame_rate(std::uint64_t window, float rate) {
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window, bits(rate)) == 0);
+    return take_requests();
+}
+
+bool reported(const std::vector<Request> &seen, float rate) {
+    return seen.size() == 1 && seen[0].type == APKRT_REQUEST_FRAME_RATE && seen[0].argument == bits(rate) &&
+           !seen[0].had_text && seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked;
+}
+
+TEST(a_windows_frame_rate_is_reported_when_it_changes) {
+    const auto window = apkrt_window_add(nullptr, 1290, 2796);
+    take_requests();
+    CHECK(reported(frame_rate(window, 60), 60));
+    CHECK(frame_rate(window, 60).empty());
+    CHECK(reported(frame_rate(window, 0), 0));  // no preference
+    CHECK(frame_rate(window, 0).empty());
+    CHECK(reported(frame_rate(window, 120), 120));
+    CHECK(reported(frame_rate(window, 59.94f), 59.94f));
+    apkrt_window_remove(window);
+}
+
+TEST(a_new_window_starts_without_a_frame_rate_and_each_keeps_its_own) {
+    const auto first = apkrt_window_add(nullptr, 1290, 2796);
+    take_requests();
+    CHECK(frame_rate(first, 0).empty());
+    CHECK(reported(frame_rate(first, 60), 60));
+    const auto second = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(reported(frame_rate(second, 60), 60));
+    CHECK(frame_rate(first, 60).empty());
+    CHECK(reported(frame_rate(first, 30), 30));
+    CHECK(frame_rate(second, 60).empty());
+    apkrt_window_remove(first);
+    apkrt_window_remove(second);
+}
+
+TEST(the_removal_of_a_window_waits_for_its_frame_rate_report_under_way) {
+    const auto window = apkrt_window_add(nullptr, 1290, 2796);
+    take_requests();
+    slow_frame_rate.store(true);
+    std::thread guest([window] { call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window, bits(60)); });
+    CHECK(within(2s, [] { return frame_rate_began.load(); }));
+    CHECK(apkrt_window_remove(window) == 0);
+    CHECK(frame_rate_returned.load());
+    guest.join();
+    slow_frame_rate.store(false);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1 && seen[0].type == APKRT_REQUEST_FRAME_RATE && seen[0].argument == bits(60));
+    // None starts once the removal has returned.
+    CHECK(frame_rate(window, 120).empty());
+}
+
+TEST(no_frame_rate_is_reported_for_a_removed_or_unknown_window) {
+    const auto window = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(apkrt_window_remove(window) == 0);
+    take_requests();
+    CHECK(frame_rate(window, 60).empty());
+    CHECK(frame_rate(window + 1000, 60).empty());
+    CHECK(frame_rate(0, 60).empty());
 }
 
 // --- Last: the full pipe ------------------------------------------------------------------------

@@ -32,6 +32,7 @@ struct Window {
     std::int32_t width, height;
     bool open;  // the gate; a removed window is not here
     std::uint64_t presents;
+    std::uint32_t frame_rate;  // a float's bits, 0 for no preference (ANativeWindow_setFrameRate)
 };
 
 struct Provider {
@@ -100,6 +101,14 @@ long gate(std::uint64_t id, std::uint64_t kind) {
     return end == sys::WaitEnd::done ? result : -linux_errno::eintr;
 }
 
+void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits)) {
+    const std::lock_guard<std::mutex> hold(lock);
+    Window *window = find(id);
+    if (window == nullptr || window->frame_rate == bits) return;
+    window->frame_rate = bits;
+    report(bits);
+}
+
 }  // namespace apkrt::windows
 
 using namespace apkrt::windows;
@@ -109,7 +118,7 @@ extern "C" {
 uint64_t apkrt_window_add(void *layer, int32_t width, int32_t height) {
     const std::lock_guard<std::mutex> hold(lock);
     try {
-        windows.push_back({next_id, layer, width, height, false, 0});
+        windows.push_back({next_id, layer, width, height, false, 0, 0});
     } catch (const std::bad_alloc &) {
         return 0;
     }

@@ -18,8 +18,9 @@ namespace apkrt::descriptors {
 class Description {
 public:
     /// What it is: a host file, whose host descriptor the guest's calls use, or an object of the
-    /// runtime's own (sys_events.cpp, ADR-0027), whose host descriptor only shows when it is ready.
-    enum class Kind { file, eventfd, epoll };
+    /// runtime's own (sys_events.cpp, ADR-0027; a vsync or input channel, channels.cpp, ADR-0036), whose
+    /// host descriptor only shows when it is ready.
+    enum class Kind { file, eventfd, epoll, channel };
 
     /// For a pipe or FIFO open in one direction: which end it is. The kqueue filter of the other
     /// direction fires only when the other end goes (sys_events.cpp).

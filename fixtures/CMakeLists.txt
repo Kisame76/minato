@@ -143,6 +143,12 @@ target_include_directories(activity-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..
 target_compile_options(activity-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(activity-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
 target_link_libraries(activity-test PRIVATE native_app_glue)
+# choreographer-test (ADR-0036, step a): AChoreographer with every way to post, the timelines (API 33) and
+# the refresh-rate callback; the 32-bit posts are deprecated since API 29 and still in use.
+add_library(choreographer-test SHARED apps/choreographer-test/main.c)
+target_compile_options(choreographer-test PRIVATE --target=aarch64-none-linux-android35 -Wno-deprecated-declarations)
+target_link_options(choreographer-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
+target_link_libraries(choreographer-test PRIVATE native_app_glue nativewindow)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

@@ -1,6 +1,7 @@
 // eventfd, epoll, ppoll and pselect6 of the Linux syscall layer (ADR-0027, decisions 8 to 10), on the
 // waits for descriptors of syscalls.h: every wait is a wait on host descriptors in the thread's kqueue,
 // which a signal always ends.
+#include "channels.h"
 #include "descriptors.h"
 #include "syscalls.h"
 
@@ -183,6 +184,7 @@ int filters_for(const Description &description, std::uint32_t wanted, Filter (&f
             if (wanted & pollout) add(static_cast<const EventCounter &>(description).write_end(), EVFILT_WRITE);
             return count;
         case Kind::epoll:
+        case Kind::channel:
             if (wanted & readable) add(host, EVFILT_READ);
             return count;
         case Kind::file: break;
@@ -215,6 +217,7 @@ std::uint32_t bits_of(Description &description, std::int16_t filter, bool end, s
         // EPOLLOUT stays true (decision 8): the write end of the pipe always has room.
         case Kind::eventfd: return static_cast<EventCounter &>(description).poll_bits() | pollout;
         case Kind::epoll: return readable;
+        case Kind::channel: return channels::readable(description) ? readable : 0;
         case Kind::file: break;
     }
     const std::uint32_t hangup = end ? pollhup : 0, error = end ? pollerr : 0;
@@ -509,6 +512,7 @@ public:
         std::uint32_t bits = 0;
         switch (description.kind()) {
             case Kind::eventfd: return static_cast<EventCounter &>(description).poll_bits();
+            case Kind::channel: return channels::readable(description) ? readable : 0;
             case Kind::epoll: break;  // its kqueue is readable while it has events, those that wait too
             case Kind::file:
                 if (!description.can_block()) return always_ready;

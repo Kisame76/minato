@@ -47,6 +47,8 @@ LIBRARIES = {
             "ANativeActivity_*",
             # the input queue without events (input_queue.cpp); its events come with M3 step 6
             "AInputQueue_attachLooper", "AInputQueue_detachLooper",
+            # the choreographer on the vsync channel (choreographer.cpp, ADR-0036)
+            "AChoreographer_*", "AChoreographerFrameCallbackData_*",
             # forwarded to libnativewindow (window_forwards.c)
             "ANativeWindow_acquire", "ANativeWindow_release", "ANativeWindow_getWidth", "ANativeWindow_getHeight",
             "ANativeWindow_getFormat", "ANativeWindow_setBuffersGeometry", "ANativeWindow_lock",
@@ -84,13 +86,6 @@ KINDS = {
 
 _ERRNO = "(errno = ENOSYS, -1)"  # -1 with errno set, where the API says so
 VALUES = {
-    # Choreographer's frame data (M3 step 6): getters of data no frame gives
-    "AChoreographerFrameCallbackData_getFrameTimeNanos": "0",
-    "AChoreographerFrameCallbackData_getFrameTimelineDeadlineNanos": "0",
-    "AChoreographerFrameCallbackData_getFrameTimelineExpectedPresentationTimeNanos": "0",
-    "AChoreographerFrameCallbackData_getFrameTimelineVsyncId": "0",
-    "AChoreographerFrameCallbackData_getFrameTimelinesLength": "0",
-    "AChoreographerFrameCallbackData_getPreferredFrameTimelineIndex": "0",
     # Resource matching: no match, never better
     "AConfiguration_isBetterThan": "0", "AConfiguration_match": "0",
     # Fonts: no font exists

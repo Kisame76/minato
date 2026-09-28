@@ -5,7 +5,7 @@ enable_language(ASM)
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
-  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp)
+  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -154,6 +154,14 @@ if(APK_HOST_BUILD)
   target_link_libraries(session_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.session COMMAND session_test)
   set_tests_properties(runtime.session PROPERTIES TIMEOUT 60)
+
+  # The vsync and input channels (ADR-0036).
+  add_executable(channels_test tests/channels_test.cpp)
+  target_include_directories(channels_test PRIVATE src)
+  target_link_libraries(channels_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.channels COMMAND channels_test)
+  set_tests_properties(runtime.channels PROPERTIES TIMEOUT 60)
+
   add_executable(window_test tests/window_test.cpp tests/window_probe.S tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(window_test PRIVATE src)
   target_link_libraries(window_test PRIVATE apkrt apk_defaults apk_testing "-framework CoreFoundation")
@@ -165,8 +173,10 @@ if(APK_HOST_BUILD)
 
   # ADR-0028's test 3: a scripted host plays ADR-0032's lifecycle for activity-test through activity-host and
   # compares the app's log with Android 15's (fixtures/expected/activity-test.logcat).
+  add_library(app_host STATIC tests/app_host.cpp)
+  target_link_libraries(app_host PUBLIC apkrt apkconv apk_defaults)
   add_executable(activity_test tests/activity_test.cpp)
-  target_link_libraries(activity_test PRIVATE apkrt apkconv apk_defaults)
+  target_link_libraries(activity_test PRIVATE app_host)
   # Its variants: an onStart that polls the main thread's looper, a host that leaves NATIVE_WINDOW_DESTROYED
   # out, and a library, a function or an APK that is not there (START_FAILED, status 1).
   foreach(case IN ITEMS "" polling leftovers missing-library missing-function missing-apk)
@@ -179,6 +189,14 @@ if(APK_HOST_BUILD)
       ${case})
     set_tests_properties(${name} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   endforeach()
+  # ADR-0036's choreographer-test: the same host plays the frame clock for choreographer-test and compares
+  # its log with Android 15's (fixtures/expected/choreographer-test.logcat).
+  add_executable(choreographer_test tests/choreographer_test.cpp)
+  target_include_directories(choreographer_test PRIVATE src)
+  target_link_libraries(choreographer_test PRIVATE app_host)
+  add_test(NAME runtime.choreographer COMMAND choreographer_test "${CMAKE_CURRENT_BINARY_DIR}/choreographer_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
+  set_tests_properties(runtime.choreographer PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)

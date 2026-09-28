@@ -1,0 +1,23 @@
+I/choreographer-test: android_main
+I/choreographer-test: a thread without a looper: no choreographer
+I/choreographer-test: a thread with a looper: a choreographer
+I/choreographer-test: ANativeWindow_setFrameRate: 0
+I/choreographer-test: the looper's thread: a choreographer
+I/choreographer-test: the same choreographer again: yes
+I/choreographer-test: refresh rate: first call, on the looper's thread: yes
+I/choreographer-test: frame A
+I/choreographer-test: frame B
+I/choreographer-test: vsync V
+I/choreographer-test: timelines: at least one: yes, the preferred among them: yes
+I/choreographer-test: timelines: vsync IDs rise: yes, expected presents rise: yes, each deadline before its present: yes
+I/choreographer-test: timelines: the preferred deadline after the frame time: yes
+I/choreographer-test: frame L
+I/choreographer-test: one frame time for A, B, V and L: yes
+I/choreographer-test: frame C, posted in A: a later frame: yes
+I/choreographer-test: refresh rate: the second callback's first call, on the looper's thread: yes
+I/choreographer-test: frame F, posted from another thread while the delayed D waits: before it: yes, before its delay was up: yes
+I/choreographer-test: frame D, delayed 100 ms: not before its delay: yes
+I/choreographer-test: frame D2, delayed 50 ms: not before its delay: yes
+I/choreographer-test: frame E, posted from another thread: on the looper's thread: yes
+I/choreographer-test: ANativeActivity_finish
+I/choreographer-test: android_main returns
