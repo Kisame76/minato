@@ -1,0 +1,15 @@
+#version 450
+// Integer arithmetic on a storage buffer: one packed RGBA8 value per pixel of 64 x 64.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, std430) buffer Data {
+    uint data[];
+};
+void main() {
+    uvec2 p = gl_GlobalInvocationID.xy;
+    uint a = p.y * 64u + p.x;
+    uint h = a * 2654435761u;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    data[a] = h + ((p.x << 8) | p.y);
+}

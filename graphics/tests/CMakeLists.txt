@@ -212,6 +212,25 @@ if(TARGET minato_graphics_host)
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
     endforeach()
   endif()
+  # ADR-0029 B2 and ADR-0030 V5: the test apps of fixtures/apps through activity-host, with graphics-app-test
+  # playing the App's lifecycle for them. Each app's lines must be Android 15's (fixtures/expected/<app>.logcat),
+  # and its window must count its presents: 12 scene frames and 120 more, and for vulkan-test the 240 frames of
+  # its measurements (through the copy and directly). It prints "skipped:" while something is missing.
+  set(APK_TEST_APPS_DIR "${PROJECT_SOURCE_DIR}/build/fixtures" CACHE PATH
+    "tools/build-fixtures.sh's build directory, with the test apps' libraries in bin/ and their APKs in apks/")
+  add_executable(graphics-app-test app_test.mm)
+  target_compile_options(graphics-app-test PRIVATE -fobjc-arc)
+  target_link_libraries(graphics-app-test PRIVATE minato_graphics_host apkrt apkconv apk_defaults
+    "-framework Foundation" "-framework QuartzCore")
+  foreach(app_presents IN ITEMS gles:132 vulkan:372)
+    string(REPLACE ":" ";" app_presents "${app_presents}")
+    list(GET app_presents 0 app)
+    list(GET app_presents 1 presents)
+    add_test(NAME graphics.${app}_app COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" ${app}-test
+      "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+      "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" ${presents})
+    set_tests_properties(graphics.${app}_app PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
+  endforeach()
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -227,7 +246,7 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

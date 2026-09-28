@@ -164,3 +164,7 @@ add_executable(address-space bench/address-space.c)
 target_link_options(x18-test PRIVATE -Wl,--no-relax)
 target_link_options(x18-stress PRIVATE -Wl,--no-relax)
 target_link_options(island-bench PRIVATE -Wl,--no-relax)
+
+# The Grafik chat's test apps (ADR-0029 B2, ADR-0030 V5), each with its own CMakeLists.txt.
+add_subdirectory(apps/gles-test)
+add_subdirectory(apps/vulkan-test)
