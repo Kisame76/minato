@@ -23,6 +23,13 @@ public enum SessionEvent: Sendable, Equatable {
     case nativeWindowCreated(window: UInt64, width: Int32, height: Int32)
     case nativeWindowDestroyed(window: UInt64)
     case lowMemory
+    /// ADR-0028 d)'s callbacks beyond decision 7, in the places Android 15 calls them: the input queue after
+    /// the first onResume (its channel 0 until ADR-0036's exists), and after each new window a resize to
+    /// the same size, the content's rectangle when it changed, and redraw needed.
+    case inputQueueCreated(channel: UInt64)
+    case nativeWindowResized(window: UInt64, width: Int32, height: Int32)
+    case contentRectChanged(left: Int32, top: Int32, right: Int32, bottom: Int32)
+    case nativeWindowRedrawNeeded(window: UInt64)
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -87,6 +94,10 @@ public struct SessionBridge: Sendable {
     /// The host's window the guest has, 0 for none.
     public private(set) var window: UInt64 = 0
     private var gateIsOpen = false
+    /// Whether the guest has its input queue: activity-host destroys it itself before onDestroy.
+    private var hasInputQueue = false
+    /// The content's rectangle the guest was told last: the whole window, as for an edge-to-edge app.
+    private var contentRect: PixelSize?
     /// Whether the runtime was told of the background.
     private var isInBackground = false
     /// The wait that answers the lifecycle's `awaits`; an answer to an earlier one changes nothing.
@@ -127,16 +138,14 @@ public struct SessionBridge: Sendable {
     }
 
     /// Posts `callbacks` in order, with the window's steps around them:
-    /// - the gate closes before anything else when the focus goes, and opens after the posts;
+    /// - the gate closes right after the focus's post when the focus goes, so the frame an app draws for
+    ///   LOST_FOCUS waits at the closed gate rather than coming after the window is gone; it opens after
+    ///   the posts;
     /// - a new window is added before the callbacks that start its life (ADR-0028's foreground order);
     /// - a window that goes is removed before every callback but the focus's, since `native_app_glue`'s
     ///   onPause waits for an app thread that may wait at the closed gate (ADR-0029, decision 15).
     private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost) -> Handled {
         var handled = Handled()
-        if gateIsOpen, lifecycle.gate != .open {
-            gateIsOpen = false
-            host.setGate(window, open: false)
-        }
         let givesUpWindow = callbacks.contains(.onNativeWindowDestroyed)
         var gone: UInt64 = 0
         var serial: UInt32 = 0
@@ -146,17 +155,23 @@ public struct SessionBridge: Sendable {
                 window = host.addWindow(width: windowSize.width, height: windowSize.height)
             }
             if givesUpWindow, window != 0, !Self.isFocus(callback) {
+                closeGateIfDue(host)
                 gone = window
                 window = 0
                 host.removeWindow(gone)
             }
-            serial = host.post(sessionEvent(for: callback, gone: gone))
-            guard serial != 0 else {
-                isBroken = true
-                return handled
+            for event in sessionEvents(for: callback, gone: gone) {
+                serial = host.post(event)
+                guard serial != 0 else {
+                    isBroken = true
+                    closeGateIfDue(host)
+                    return handled
+                }
             }
             handled.callbacks.append(callback)
+            if Self.isFocus(callback) { closeGateIfDue(host) }
         }
+        closeGateIfDue(host)
         if !gateIsOpen, lifecycle.gate == .open, window != 0 {
             gateIsOpen = true
             host.setGate(window, open: true)
@@ -169,9 +184,35 @@ public struct SessionBridge: Sendable {
         return handled
     }
 
+    private mutating func closeGateIfDue(_ host: SessionHost) {
+        guard gateIsOpen, lifecycle.gate != .open else { return }
+        gateIsOpen = false
+        host.setGate(window, open: false)
+    }
+
     private static func isFocus(_ callback: Lifecycle.Callback) -> Bool {
         if case .onWindowFocusChanged = callback { return true }
         return false
+    }
+
+    /// The callback's event, and ADR-0028 d)'s that follow it.
+    private mutating func sessionEvents(for callback: Lifecycle.Callback, gone: UInt64) -> [SessionEvent] {
+        let event = sessionEvent(for: callback, gone: gone)
+        switch callback {
+        case .onResume where !hasInputQueue:
+            hasInputQueue = true
+            return [event, .inputQueueCreated(channel: 0)]
+        case .onNativeWindowCreated:
+            let (width, height) = (windowSize.width, windowSize.height)
+            var events = [event, .nativeWindowResized(window: window, width: width, height: height)]
+            if contentRect != windowSize {
+                contentRect = windowSize
+                events.append(.contentRectChanged(left: 0, top: 0, right: width, bottom: height))
+            }
+            return events + [.nativeWindowRedrawNeeded(window: window)]
+        default:
+            return [event]
+        }
     }
 
     private func sessionEvent(for callback: Lifecycle.Callback, gone: UInt64) -> SessionEvent {

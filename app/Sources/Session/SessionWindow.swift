@@ -167,6 +167,8 @@ final class MetalLayerHostView: UIView {
 }
 
 struct MetalLayerView: UIViewRepresentable {
+    /// The view's layer, once, as the view is made.
+    var onLayer: (CAMetalLayer) -> Void
     /// A swipe down from the top edge (ADR-0032, decision 9).
     var onTopEdgeSwipe: () -> Void
     /// A layout, with the window's size in pixels.
@@ -177,6 +179,7 @@ struct MetalLayerView: UIViewRepresentable {
     func makeUIView(context: Context) -> MetalLayerHostView {
         let view = MetalLayerHostView(frame: .zero)
         updateUIView(view, context: context)
+        onLayer(view.metalLayer)
         return view
     }
 

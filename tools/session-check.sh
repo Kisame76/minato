@@ -25,7 +25,11 @@
 # goes Home and back during the tone, and the engine starts again at the foreground. FPS=1 runs the rounds of the
 # FPS label (ADR-0032, decision 9): with fake presents at 60 a second, "Show FPS" in the menu turns it on, the label
 # counts 60 in the first window and again in the next one after Home and back; the setting holds at the next
-# start, and "Hide FPS" turns it off.
+# start, and "Hide FPS" turns it off. ACTIVITY=1 runs test 7 of ADR-0032 in the Simulator: activity-test
+# (build/fixtures/apks/activity-test.apk) on activity-host (ADR-0028 d), through its start, Home and back, and
+# the end that follows its ANativeActivity_finish; its log must be Android 15's
+# (fixtures/expected/activity-test.logcat) apart from the recorded departure: the focus goes at "inactive",
+# before onPause, where Android pauses first. Every other round runs game mode without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -37,11 +41,14 @@
 #   ENDS        only the rounds of ends that go wrong
 #   AUDIO       only the round of the test tone
 #   FPS         only the rounds of the FPS label
+#   ACTIVITY    only test 7, with activity-test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
 PKG="io.github.kisame76.minato.check.session"
+ACTIVITY_PKG="io.github.kisame76.minato.test.activity"
+ACTIVITY_APK="build/fixtures/apks/activity-test.apk"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -133,7 +140,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -190,7 +197,7 @@ restore() {
   for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
   terminate
   if [[ "$ON_DEVICE" == no ]]; then
-    rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$REQUEST"
+    rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$SUPPORT/apps/$ACTIVITY_PKG" "$SUPPORT/data/$ACTIVITY_PKG" "$REQUEST"
     if [[ "$had_data" == no ]]; then rmdir "$SUPPORT/data" 2>/dev/null || true; fi
     if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi
   fi
@@ -254,10 +261,11 @@ shot() {
     xcrun simctl io "$SIM_UDID" screenshot --type=png "$SHOTS/$1.png" >/dev/null 2>&1 || true
   fi
 }
+# Field $1 of the test app's entry, or of app $2's.
 field() {
   has "$SUPPORT_REL/library.json" || true
   python3 -c 'import json,sys; e={e["id"]:e for e in json.load(open(sys.argv[1]))["entries"]}.get(sys.argv[2]); print(None if e is None else e.get(sys.argv[3]))' \
-    "$SUPPORT/library.json" "$PKG" "$1" 2>/dev/null || echo None
+    "$SUPPORT/library.json" "${2:-$PKG}" "$1" 2>/dev/null || echo None
 }
 
 # Checks game mode's window from its "window ..." event $1: $2 is the orientation it holds, portrait or
@@ -351,6 +359,8 @@ begin_round() {
   fetch_requests || mkdir -p "$CHECK"
   : > "$EVENTS"
   seen=0
+  # Only test 7 runs a guest: the test app's library is no NativeActivity.
+  echo yes > "$CHECK/no-guest"
 }
 
 # Waits for the event "exit" and checks that process $1 wrote it: a restart ends the old process itself.
@@ -718,6 +728,67 @@ run_ends() {
     || fail "  no library after Quit"
 }
 
+# Test 7: activity-test on activity-host, from the tap through Home and back to the end it asks for itself.
+run_activity() {
+  begin_round "test 7: activity-test on activity-host"
+  rm -f "$CHECK/no-guest"
+  echo "$ACTIVITY_PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  launch
+  await_event "process gameMode $ACTIVITY_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  local pid start
+  pid=$(pid_of "$EVENT")
+  await_event "start window [0-9]+x[0-9]+" && start=${EVENT##* } || start=none
+  await_event 'callback onWindowFocusChanged\(true\)' 20 || { abort_round "activity-test did not gain the focus"; return; }
+  shot "activity-1-started"
+  sleep 1
+  launch com.apple.Preferences
+  await_event "callback onSaveInstanceState" 10 || fail "  no onSaveInstanceState in the background"
+  sleep 1
+  launch
+  await_event "request finish" 20 && ok "  activity-test finishes itself after its return" || fail "  no FINISH"
+  await_event "program ended .*" 10 && expect "  activity-host ends with status 0" "program ended 0" "$(event_of "$EVENT")" \
+    || fail "  activity-host did not end"
+  await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+    "$(callbacks_of "$pid")"
+  expect "  the requests" "keepScreenOn(true) finish" \
+    "$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "request" { printf "%s%s", sep, $4; sep = " " }')"
+
+  # The app's lines against Android 15's, with test 7's departure: LOST_FOCUS before PAUSE.
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  grep '^I/activity-test: ' "$CHECK/guest-log" > "$WORK/activity-app.log" || true
+  python3 - fixtures/expected/activity-test.logcat > "$WORK/activity-expected.log" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+pause, lost = "I/activity-test: APP_CMD_PAUSE", "I/activity-test: APP_CMD_LOST_FOCUS"
+for i in range(len(lines) - 1):
+    if lines[i] == pause and lines[i + 1] == lost:
+        lines[i], lines[i + 1] = lost, pause
+print("\n".join(lines))
+PY
+  if diff -u "$WORK/activity-expected.log" "$WORK/activity-app.log" > "$WORK/activity.diff"; then
+    ok "  its log is Android 15's but for the departure ($(wc -l < "$WORK/activity-app.log" | tr -d ' ') lines)"
+  else
+    fail "  its log differs from Android 15's:"
+    sed 's/^/      | /' "$WORK/activity.diff"
+  fi
+  local device
+  device=$(grep '^I/activity-test-device: ' "$CHECK/guest-log" || true)
+  sed 's/^/      /' <<< "$device"
+  grep -q "^I/activity-test-device: window 1: ${start/x/ x } *$" <<< "$device" \
+    && ok "  window 1 has the window's size ($start)" || fail "  window 1 does not have the window's size ($start)"
+  grep -q "^I/activity-test-device: window 2: ${start/x/ x } *$" <<< "$device" \
+    && ok "  window 2 has it too" || fail "  window 2 does not have the window's size ($start)"
+  if [[ "$ON_DEVICE" == no ]]; then
+    local folder=$SUPPORT/data/$ACTIVITY_PKG
+    [[ -d "$folder/data/files" && -d "$folder/external/files" && -d "$folder/obb" ]] \
+      && ok "  the app's three folders exist" || fail "  the app's folders are missing"
+  fi
+}
+
 # Import the test app; the first session shows the hint.
 if [[ "$ON_DEVICE" == yes ]]; then
   terminate
@@ -738,12 +809,27 @@ if [[ "$ON_DEVICE" == yes ]]; then
 else
   cp "$WORK/session-check.apk" "$SUPPORT/incoming/"
 fi
+if [[ -n "${ACTIVITY:-}" ]]; then
+  [[ -f "$ACTIVITY_APK" ]] || { echo "$ACTIVITY_APK is missing: tools/build-fixtures.sh builds it" >&2; exit 1; }
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$ACTIVITY_APK" --destination "$SUPPORT_REL/incoming/activity-test.apk"
+  else
+    cp "$ACTIVITY_APK" "$SUPPORT/incoming/"
+  fi
+fi
 launch
 for _ in $(seq 1 100); do
   [[ "$(field state)" == "{'ready': {}}" ]] && break
   sleep 0.2
 done
 expect "the test app is ready" "{'ready': {}}" "$(field state)"
+if [[ -n "${ACTIVITY:-}" ]]; then
+  for _ in $(seq 1 100); do
+    [[ "$(field state "$ACTIVITY_PKG")" == "{'ready': {}}" ]] && break
+    sleep 0.2
+  done
+  expect "activity-test is ready" "{'ready': {}}" "$(field state "$ACTIVITY_PKG")"
+fi
 # The Simulator signs ad hoc at the first tap; the iPhone with the certificate Minato has, at the import.
 signer=$(field signedWith)
 if [[ "$ON_DEVICE" == yes ]]; then
@@ -759,12 +845,13 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" || -n "${FPS:-}" ]]; then
+if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" || -n "${FPS:-}" || -n "${ACTIVITY:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
   [[ -n "${AUDIO:-}" ]] && run_audio
   [[ -n "${FPS:-}" ]] && run_fps
+  [[ -n "${ACTIVITY:-}" ]] && run_activity
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi

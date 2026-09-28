@@ -26,6 +26,8 @@ import UIKit
 ///            names none), then logs the frames its render block read.
 ///   fps      a rate, or "hide": without a guest, every window presents that many frames a second, and game
 ///            mode turns the FPS label on through its menu; "hide" turns it off there.
+///   no-guest game mode runs without a guest, as before ADR-0028 d): every post and wait is answered at once.
+///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -43,6 +45,21 @@ enum SessionCheck {
         guard isOn, let text = try? String(contentsOf: folder.appending(path: name), encoding: .utf8) else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Whether game mode runs without a guest.
+    static var withoutGuest: Bool { requested("no-guest") }
+
+    /// The guest is about to start: its stderr, which the runtime hands it as descriptor 2, goes to the
+    /// file the script reads.
+    static func guestStarts() {
+        guard requested("guest-log") else { return }
+        let path = folder.appending(path: "guest-log").path
+        let file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+        guard file >= 0 else { return event("guest log failed") }
+        dup2(file, 2)
+        close(file)
+        event("guest log on")
     }
 
     /// The way the script asks for.
@@ -236,7 +253,7 @@ enum SessionCheck {
             guard requested("confirm") else { return }
             try? await Task.sleep(for: .seconds(text(of: "confirm").flatMap(Double.init) ?? 1))
             event("fallback confirmed")
-            exit(0)
+            _exit(0)
         }
     }
 

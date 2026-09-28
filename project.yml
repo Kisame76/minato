@@ -146,6 +146,9 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1.dylib
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-adhoc.dylib
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Spikes/SpikeS1-bundleid.dylib
+      - name: Embed the guest system
+        script: exec "$SRCROOT/tools/embed-guest-system.sh"
+        basedOnDependencyAnalysis: false
       - name: Embed fixture containers
         script: exec "$SRCROOT/tools/embed-fixtures.sh"
         basedOnDependencyAnalysis: false

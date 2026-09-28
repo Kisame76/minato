@@ -62,6 +62,15 @@ struct SessionBridgeTests {
         return bridge
     }
 
+    /// ADR-0028 d)'s events around a new window, as Android 15 sends them: created, then resized once with
+    /// the same size, the content's rectangle (the whole window) at the first only, then redraw needed.
+    static func shown(_ window: UInt64, first: Bool) -> [Call] {
+        [.post(.nativeWindowCreated(window: window, width: width, height: height)),
+         .post(.nativeWindowResized(window: window, width: width, height: height))]
+            + (first ? [.post(.contentRectChanged(left: 0, top: 0, right: width, bottom: height))] : [])
+            + [.post(.nativeWindowRedrawNeeded(window: window))]
+    }
+
     /// Started, active and focused, with window 1.
     static func running(_ host: FakeHost) -> SessionBridge {
         var bridge = bridge()
@@ -78,9 +87,8 @@ struct SessionBridgeTests {
         bridge.handle(.start, host: host)
         #expect(host.take() == [
             .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume),
-            .post(.nativeWindowCreated(window: 1, width: Self.width, height: Self.height)),
-        ])
+            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+        ] + Self.shown(1, first: true))
         bridge.handle(.active, host: host)
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
     }
@@ -107,24 +115,35 @@ struct SessionBridgeTests {
         bridge.handle(.start, host: host)
         #expect(host.take() == [
             .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume),
-            .post(.nativeWindowCreated(window: 1, width: Self.width, height: Self.height)),
-            .post(.windowFocusChanged(true)), .setGate(1, open: true),
-        ])
+            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+        ] + Self.shown(1, first: true) + [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
     }
 
-    @Test func theGateClosesBeforeTheFocusGoes() {
+    /// The focus's post comes first: an animating app draws its LOST_FOCUS frame, which then waits at the
+    /// closed gate rather than coming after the window is gone (Grafik's finding, ADR-0028 d).
+    @Test func theFocusGoesBeforeTheGateCloses() {
         let host = FakeHost()
         var bridge = Self.running(host)
 
         bridge.handle(.inactive, host: host)
-        #expect(host.take() == [.setGate(1, open: false), .post(.windowFocusChanged(false))])
+        #expect(host.take() == [.post(.windowFocusChanged(false)), .setGate(1, open: false)])
         bridge.handle(.menuOpened, host: host)
         #expect(host.take() == [])
         bridge.handle(.active, host: host)
         #expect(host.take() == [])
         bridge.handle(.menuClosed, host: host)
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
+    }
+
+    /// The program ended while the focus went: the gate closes all the same.
+    @Test func aFailedFocusPostStillClosesTheGate() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        host.breaksAt = 10
+
+        bridge.handle(.inactive, host: host)
+        #expect(host.take() == [.post(.windowFocusChanged(false)), .setGate(1, open: false)])
+        #expect(bridge.isBroken)
     }
 
     @Test func backgroundWaitsForTheGPUAndRemovesTheWindowBeforeOnPause() {
@@ -138,7 +157,7 @@ struct SessionBridgeTests {
             .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout), .removeWindow(1),
             .post(.pause), .post(.nativeWindowDestroyed(window: 1)),
         ])
-        #expect(wait == SessionBridge.Wait(serial: 8, callback: .onNativeWindowDestroyed))
+        #expect(wait == SessionBridge.Wait(serial: 12, callback: .onNativeWindowDestroyed))
 
         #expect(bridge.finished(wait!, result: 1, host: host).wait == nil)
         #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
@@ -156,8 +175,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [
             .setBackground(false), .addWindow(width: Self.width, height: Self.height),
             .post(.start), .post(.resume),
-            .post(.nativeWindowCreated(window: 2, width: Self.width, height: Self.height)),
-        ])
+        ] + Self.shown(2, first: false))
         bridge.handle(.active, host: host)
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(2, open: true)])
     }
@@ -175,8 +193,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [
             .post(.stop), .post(.saveInstanceState), .addWindow(width: Self.width, height: Self.height),
             .post(.start), .post(.resume),
-            .post(.nativeWindowCreated(window: 2, width: Self.width, height: Self.height)),
-        ])
+        ] + Self.shown(2, first: false))
     }
 
     @Test func quitRemovesTheWindowBeforeOnPauseAndWaitsForOnDestroy() {
@@ -185,7 +202,7 @@ struct SessionBridgeTests {
 
         let first = bridge.handle(.quit, host: host).wait
         #expect(host.take() == [
-            .setGate(1, open: false), .post(.windowFocusChanged(false)), .removeWindow(1),
+            .post(.windowFocusChanged(false)), .setGate(1, open: false), .removeWindow(1),
             .post(.pause), .post(.nativeWindowDestroyed(window: 1)),
         ])
         #expect(first?.callback == .onNativeWindowDestroyed)
@@ -284,9 +301,8 @@ struct SessionBridgeTests {
         bridge.handle(.foreground, host: host)
         #expect(host.take() == [
             .setBackground(false), .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume),
-            .post(.nativeWindowCreated(window: 1, width: Self.width, height: Self.height)),
-        ])
+            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+        ] + Self.shown(1, first: true))
     }
 
     /// The background steps run once per trip, also when iOS reports it twice.

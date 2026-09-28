@@ -18,7 +18,7 @@ struct GameModeView: View {
     var body: some View {
         // The edges defer the system's gestures, so the first swipe down from the top edge opens the
         // menu, and a second one the Notification Center.
-        MetalLayerView(onTopEdgeSwipe: { session.openMenu() }, onLayout: { pixels in
+        MetalLayerView(onLayer: { session.attach($0) }, onTopEdgeSwipe: { session.openMenu() }, onLayout: { pixels in
             Task { @MainActor in session.windowLaidOut(pixels) }
         }, onTouches: { phase, changes, scale in
             session.touched(phase, changes, scale: scale)
@@ -64,7 +64,7 @@ struct GameModeView: View {
                 Button("Quit") { session.quit() }
             }
             .alert("Open Minato again to return to the library.", isPresented: $session.restartFailed) {
-                Button("OK") { exit(0) }
+                Button("OK") { _exit(0) }
             }
             .onAppear {
                 // The guest starts once the window is laid out in the orientation held here.

@@ -55,7 +55,9 @@ enum Restart {
                 #if DEBUG
                 SessionCheck.event("exit")
                 #endif
-                exit(0)
+                // Without destructors: a guest's threads may still run or hold locks that they would meet
+                // (apkrt.h, the end handler).
+                _exit(0)
             }
             log.error("Restarting through \(way.rawValue, privacy: .public) failed: \(why, privacy: .public)")
             #if DEBUG

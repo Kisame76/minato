@@ -7,9 +7,8 @@ import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "session")
 
-/// One app's session in game mode (ADR-0032): its lifecycle on ADR-0028's session, the menu, and the
-/// way back to the library. The guest itself starts with ADR-0028's activity-host (its step d); until
-/// then the session has no guest, the callbacks are logged and every wait for an answer ends at once.
+/// One app's session in game mode (ADR-0032): the guest's start on ADR-0028's activity-host, its lifecycle
+/// on the session, the menu, and the way back to the library.
 @MainActor
 @Observable
 final class GameSession {
@@ -31,6 +30,8 @@ final class GameSession {
 
     @ObservationIgnored private var bridge: SessionBridge
     @ObservationIgnored private let host: SessionHost
+    /// The runtime's session; nil only for session-check's rounds without a guest.
+    @ObservationIgnored private let runtime: RuntimeSessionHost?
     /// `apkrt_session_wait` or its stand-in, run off the main thread.
     @ObservationIgnored private let waitForAnswer: @Sendable (UInt32, Double) -> Int32
     @ObservationIgnored private var started = false
@@ -61,9 +62,27 @@ final class GameSession {
         self.entry = entry
         // Game mode starts only ready apps, which have a report; activity-host reports API level 35.
         bridge = SessionBridge(lifecycle: Lifecycle(targetSdk: entry.report?.targetSdk ?? 35))
-        host = NoGuestSessionHost()
-        waitForAnswer = { NoGuestSessionHost.wait(serial: $0, seconds: $1) }
-        presents = { NoGuestSessionHost.presents($0) }
+        #if DEBUG
+        let withGuest = !SessionCheck.withoutGuest
+        #else
+        let withGuest = true
+        #endif
+        if withGuest {
+            let runtime = RuntimeSessionHost()
+            self.runtime = runtime
+            host = runtime
+            waitForAnswer = { RuntimeSessionHost.wait(serial: $0, seconds: $1) }
+            presents = { RuntimeSessionHost.presents($0) }
+        } else {
+            #if DEBUG
+            runtime = nil
+            host = NoGuestSessionHost()
+            waitForAnswer = { NoGuestSessionHost.wait(serial: $0, seconds: $1) }
+            presents = { NoGuestSessionHost.presents($0) }
+            #else
+            fatalError("every session has a guest")
+            #endif
+        }
         motionSink = NoChannelMotionSink()
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
         showsFPS = UserDefaults.standard.bool(forKey: Self.showsFPSKey)
@@ -101,6 +120,11 @@ final class GameSession {
         }
     }
 
+    /// The view's layer, the host side of every window the guest gets.
+    func attach(_ layer: CAMetalLayer) {
+        runtime?.layer = layer
+    }
+
     /// The window was laid out.
     func windowLaidOut(_ pixels: CGSize) {
         windowPixels = pixels
@@ -116,11 +140,72 @@ final class GameSession {
         start()
     }
 
-    /// The window is there; the guest starts with it, or with the foreground (Lifecycle).
+    /// The window is there; the guest starts with it, or with the foreground (Lifecycle): the paths and the
+    /// session first, then activity-host off the main thread, then its first events.
     private func start() {
         guard !started else { return }
         started = true
-        deliver(.start)
+        guard let runtime else { return deliver(.start) }
+        guard let (start, configuration) = guestStart(scale: runtime.layer?.contentsScale ?? 1) else {
+            return couldNotStart("it is not a NativeActivity app")
+        }
+        #if DEBUG
+        SessionCheck.guestStarts()
+        #endif
+        if let failure = RuntimeSessionHost.begin(start, configuration: configuration) {
+            return couldNotStart(failure)
+        }
+        Task.detached {
+            let failure = RuntimeSessionHost.startProgram(start)
+            await MainActor.run {
+                if let failure { self.couldNotStart(failure) } else { self.deliver(.start) }
+            }
+        }
+    }
+
+    /// What activity-host needs for this app (ADR-0028, decisions 3 and 14), with the window's size as the
+    /// screen's in the session's orientation. Nil for an app without a NativeActivity.
+    private func guestStart(scale: CGFloat) -> (GuestStart, GuestConfiguration)? {
+        guard case .nativeActivity(let library) = entry.report?.runtime, let paths = try? LibraryPaths.standard(),
+              let bundle = Bundle.main.resourceURL
+        else { return nil }
+        let data = paths.dataDirectory(for: entry.id)
+        let start = GuestStart(
+            package: entry.id, library: library,
+            apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path,
+            appLibraries: paths.libraryDirectory(for: entry).path,
+            data: data.appending(path: "data").path, external: data.appending(path: "external").path,
+            obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path)
+        // Android's locale is the first preferred language, with the region's settings where it names none.
+        let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
+        let configuration = GuestConfiguration(
+            scale: Double(scale), width: Int32(windowPixels.width.rounded()), height: Int32(windowPixels.height.rounded()),
+            dark: UITraitCollection.current.userInterfaceStyle == .dark,
+            refreshRate: Int32((UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.maximumFramesPerSecond ?? 60),
+            languageCode: language.language.languageCode?.identifier,
+            regionCode: language.region?.identifier ?? Locale.current.region?.identifier)
+        return (start, configuration)
+    }
+
+    /// The guest cannot start: the library tells why at its next start (decision 8).
+    private func couldNotStart(_ reason: String) {
+        log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
+        #if DEBUG
+        SessionCheck.event("could not start \(reason)")
+        #endif
+        startFailure = reason
+        SessionEndReport.startFailed(reason)
+        Restart.now { [weak self] in self?.restartFailed = true }
+    }
+
+    /// The program ended, after onDestroy or by itself (ADR-0032, decision 7): back to the library. A crash
+    /// ends the process without this.
+    func programEnded(status: Int32) {
+        log.info("\(self.entry.id, privacy: .public) ended with status \(status)")
+        #if DEBUG
+        SessionCheck.event("program ended \(status)")
+        #endif
+        Restart.now { [weak self] in self?.restartFailed = true }
     }
 
     /// The guest started: the first session shows how to reach the menu for 3 s.
@@ -240,6 +325,9 @@ final class GameSession {
 
     /// A request of the guest (ADR-0028, decision 4), on the main thread.
     func received(_ request: SessionRequest) {
+        #if DEBUG
+        SessionCheck.event("request \(request)")
+        #endif
         switch request {
         case .finish:
             deliver(.finish)
