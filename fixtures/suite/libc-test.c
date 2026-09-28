@@ -166,6 +166,41 @@ static void sorting(void) {
     printf("bsearch: %td\n", found - values);
 }
 
+static long long nanoseconds(clockid_t clock, int *failed) {
+    struct timespec value = {0, 0};
+    if (clock_gettime(clock, &value) != 0) *failed = 1;
+    return value.tv_sec * 1000000000LL + value.tv_nsec;
+}
+
+// The CPU clocks (POSIX): the thread's counts its work and hardly its sleep, the process's at least the
+// thread's. The work runs until the thread's clock shows 20 ms, at most 2 s by the monotonic clock.
+static void cpu_clocks(void) {
+    int failed = 0;
+    const long long started = nanoseconds(CLOCK_MONOTONIC, &failed);
+    const long long before = nanoseconds(CLOCK_THREAD_CPUTIME_ID, &failed);
+    volatile unsigned long sum = 0;
+    long long worked = 0;
+    while (!failed && worked < 20000000 && nanoseconds(CLOCK_MONOTONIC, &failed) - started < 2000000000) {
+        for (unsigned i = 0; i < 100000; ++i) sum += i;
+        worked = nanoseconds(CLOCK_THREAD_CPUTIME_ID, &failed) - before;
+    }
+    const long long awake = nanoseconds(CLOCK_THREAD_CPUTIME_ID, &failed);
+    const struct timespec pause = {0, 50 * 1000 * 1000};
+    nanosleep(&pause, NULL);
+    const long long asleep = nanoseconds(CLOCK_THREAD_CPUTIME_ID, &failed) - awake;
+    const long long thread = nanoseconds(CLOCK_THREAD_CPUTIME_ID, &failed);
+    const long long process = nanoseconds(CLOCK_PROCESS_CPUTIME_ID, &failed);
+    struct timespec thread_step = {0, 0}, process_step = {0, 0};
+    const int steps = clock_getres(CLOCK_THREAD_CPUTIME_ID, &thread_step) == 0 &&
+                      clock_getres(CLOCK_PROCESS_CPUTIME_ID, &process_step) == 0 &&
+                      (thread_step.tv_sec > 0 || thread_step.tv_nsec > 0) &&
+                      (process_step.tv_sec > 0 || process_step.tv_nsec > 0);
+    printf("CLOCK_THREAD_CPUTIME_ID: 20 ms of work counted within 2 s: %s, 50 ms asleep counted under 10 ms: %s\n",
+           !failed && worked >= 20000000 ? "yes" : "no", !failed && asleep < 10000000 ? "yes" : "no");
+    printf("CLOCK_PROCESS_CPUTIME_ID: at least the thread's: %s, resolutions above 0: %s\n",
+           !failed && process >= thread ? "yes" : "no", steps ? "yes" : "no");
+}
+
 static void times(void) {
     const time_t moment = 1700000000;
     struct tm broken;
@@ -185,6 +220,7 @@ static void times(void) {
     printf("nanosleep: %d, at least 20 ms passed: %s\n", slept, elapsed >= 20 * 1000 * 1000 ? "yes" : "no");
     const time_t now = time(NULL);
     printf("time after 2023: %s\n", now > moment ? "yes" : "no");
+    cpu_clocks();
 
     // Time zones come from the system's tzdata, the same rules on every device for these dates.
     setenv("TZ", "Europe/Berlin", 1);
