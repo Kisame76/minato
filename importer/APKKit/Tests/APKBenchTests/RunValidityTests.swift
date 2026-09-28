@@ -1,0 +1,89 @@
+import Testing
+
+@testable import APKBench
+
+/// ADR-0037, decision 6: the rules of one run.
+@Suite("RunValidity")
+struct RunValidityTests {
+    static func record(rate: Int = 120) -> BenchRunRecord {
+        var record = BenchRunRecord(run: BenchRun("gles-\(rate)-light-native-01")!)
+        record.requestedRate = Float(rate)
+        record.linkPeriodMedianNs = 1_000_000_000 / Int64(rate)
+        record.sceneFrames = 52 * rate
+        record.drawables = 52 * rate
+        return record
+    }
+
+    @Test func aRunInGoodConditionsIsValid() {
+        var record = Self.record()
+        record.thermalChanges = [.init(timeNs: 1, state: .fair), .init(timeNs: 2, state: .nominal)]
+        #expect(RunValidity.reasons(for: record) == [])
+    }
+
+    @Test func lowPowerMode() {
+        var record = Self.record()
+        record.lowPower = true
+        #expect(RunValidity.reasons(for: record) == [RunValidity.lowPower])
+    }
+
+    @Test func theStartMustBeNominal() {
+        var record = Self.record()
+        record.thermalStart = .fair
+        #expect(RunValidity.reasons(for: record) == [RunValidity.thermalStart])
+    }
+
+    @Test func neverAboveFair() {
+        for state in [BenchThermal.serious, .critical] {
+            var record = Self.record()
+            record.thermalChanges = [.init(timeNs: 1, state: state), .init(timeNs: 2, state: .nominal)]
+            #expect(RunValidity.reasons(for: record) == [RunValidity.thermalAboveFair], "\(state)")
+        }
+    }
+
+    @Test func theDisplayLinkWithinOnePercent() {
+        for rate in [60, 120] {
+            let period = 1_000_000_000.0 / Double(rate)
+            for (factor, valid) in [(1.0099, true), (0.9901, true), (1.0101, false), (0.9899, false), (0.0, false)] {
+                var record = Self.record(rate: rate)
+                record.linkPeriodMedianNs = Int64(period * factor)
+                #expect(RunValidity.reasons(for: record) == (valid ? [] : [RunValidity.linkPeriod]), "\(rate) \(factor)")
+            }
+        }
+    }
+
+    @Test func noDebugger() {
+        var record = Self.record()
+        record.debugger = true
+        #expect(RunValidity.reasons(for: record) == [RunValidity.debugger])
+    }
+
+    @Test func noLossOfFocus() {
+        var record = Self.record()
+        record.focusLosses = [5]
+        #expect(RunValidity.reasons(for: record) == [RunValidity.focusLoss])
+    }
+
+    /// A drawable taken before frame 0 would shift every frame by one: the counts must agree.
+    @Test func theSceneAndTheRecorderCountAlike() {
+        for (frames, drawables) in [(6240, 6241), (6241, 6240), (0, 6240), (0, 0)] {
+            var record = Self.record()
+            record.sceneFrames = frames
+            record.drawables = drawables
+            #expect(RunValidity.reasons(for: record) == ["frames \(frames), drawables \(drawables)"])
+        }
+    }
+
+    @Test func everyReasonCounts() {
+        var record = Self.record()
+        record.lowPower = true
+        record.thermalStart = .serious
+        record.linkPeriodMedianNs = 16_666_667
+        record.debugger = true
+        record.focusLosses = [5]
+        record.drawables += 1
+        #expect(RunValidity.reasons(for: record) == [RunValidity.lowPower, RunValidity.thermalStart,
+                                                     RunValidity.thermalAboveFair, RunValidity.linkPeriod,
+                                                     RunValidity.debugger, RunValidity.focusLoss,
+                                                     "frames 6240, drawables 6241"])
+    }
+}

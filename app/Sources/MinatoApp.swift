@@ -15,6 +15,13 @@ struct MinatoApp: App {
     @State private var signing: SigningCoordinator?
 
     init() {
+        #if BENCHMARK
+        // A benchmark run (ADR-0037) touches neither the launch request nor the library.
+        if BenchmarkMode.run != nil {
+            mode = .library(nil)
+            return
+        }
+        #endif
         mode = Self.chooseMode()
         // Game mode creates no signing coordinator, scans no imports and shows no sheet.
         if case .library = mode {
@@ -41,14 +48,26 @@ struct MinatoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            switch mode {
-            case .gameMode(let entry):
-                GameModeView(entry: entry)
-                    .onOpenURL { url in Self.takeOverDuringSession(url) }
-            case .library(let problem):
-                if let library, let signing {
-                    LibraryScene(library: library, signing: signing, problem: problem)
-                }
+            #if BENCHMARK
+            if let run = BenchmarkMode.run {
+                BenchmarkView(run: run)
+            } else {
+                modeView
+            }
+            #else
+            modeView
+            #endif
+        }
+    }
+
+    @ViewBuilder private var modeView: some View {
+        switch mode {
+        case .gameMode(let entry):
+            GameModeView(entry: entry)
+                .onOpenURL { url in Self.takeOverDuringSession(url) }
+        case .library(let problem):
+            if let library, let signing {
+                LibraryScene(library: library, signing: signing, problem: problem)
             }
         }
     }

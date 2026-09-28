@@ -1,0 +1,152 @@
+import Testing
+
+@testable import APKBench
+
+/// ADR-0037, decisions 6 and 7: the series, interleaved A B B A, with a discarded pair per API.
+@Suite("BenchPlan")
+struct BenchPlanTests {
+    static func run(_ id: String) -> BenchRun { BenchRun(id)! }
+
+    static func result(_ run: BenchRun, valid: Bool = true, reasons: [String] = [], width: Int = 1290,
+                       count: Int = 3) -> BenchResult {
+        BenchResult(run: run, valid: valid, invalidReasons: reasons, drawableWidth: width, drawableHeight: 2796,
+                    maxDrawableCount: count)
+    }
+
+    /// Runs the plan to its end; `outcome` decides each run's result.
+    static func play(_ plan: BenchPlan, from start: [BenchResult] = [],
+                     _ outcome: (BenchRun) -> BenchResult = { result($0) }) -> (runs: [BenchRun], end: BenchStep) {
+        var results = start
+        var runs: [BenchRun] = []
+        while runs.count < 500 {
+            guard case .run(let run) = plan.next(after: results) else { return (runs, plan.next(after: results)) }
+            runs.append(run)
+            results.append(outcome(run))
+        }
+        return (runs, .stop("the plan did not end"))
+    }
+
+    @Test func runIDsReadAndWrite() {
+        let run = Self.run("gles-120-heavy-apk-03")
+        #expect(run.configuration == BenchConfiguration(api: .gles, rate: 120, load: .heavy))
+        #expect(run.variant == .apk)
+        #expect(run.number == 3)
+        #expect(!run.isWarmUp)
+        #expect(run.description == "gles-120-heavy-apk-03")
+        #expect(Self.run("vulkan-60-light-native-00").isWarmUp)
+        for bad in ["gles-120-heavy-apk-3", "metal-120-heavy-apk-03", "gles-0-heavy-apk-03", "gles-120-heavy-apk",
+                    "gles-120-medium-native-01", "gles-120-heavy-other-01", "gles-120-heavy-apk-03-x"] {
+            #expect(BenchRun(bad) == nil, "\(bad)")
+        }
+    }
+
+    @Test func aSeriesBeginsWithTheDiscardedPairThenInterleaves() throws {
+        let (runs, end) = Self.play(BenchPlan())
+        #expect(end == .done)
+        #expect(runs.prefix(12).map(\.description) == [
+            "gles-120-heavy-native-00", "gles-120-heavy-apk-00",
+            "gles-60-light-native-01", "gles-60-light-apk-01", "gles-60-light-apk-02", "gles-60-light-native-02",
+            "gles-60-light-native-03", "gles-60-light-apk-03", "gles-60-light-apk-04", "gles-60-light-native-04",
+            "gles-60-light-native-05", "gles-60-light-apk-05",
+        ])
+        try #require(runs.count == 2 * (2 + 3 * 10))
+        #expect(runs[12].description == "gles-120-light-native-01")
+        #expect(runs[32].description == "vulkan-120-heavy-native-00")
+        #expect(runs.last?.description == "vulkan-120-heavy-apk-05")
+        for api in BenchAPI.allCases {
+            for configuration in BenchConfiguration.series(of: api) {
+                for variant in BenchVariant.allCases {
+                    let counted = runs.filter { $0.configuration == configuration && $0.variant == variant && !$0.isWarmUp }
+                    #expect(counted.count == BenchPlan.validRunsPerVariant, "\(configuration) \(variant)")
+                }
+            }
+        }
+    }
+
+    @Test func anInvalidRunIsRepeatedRightAway() {
+        let start = [Self.result(Self.run("gles-120-heavy-native-00")), Self.result(Self.run("gles-120-heavy-apk-00")),
+                     Self.result(Self.run("gles-60-light-native-01")),
+                     Self.result(Self.run("gles-60-light-apk-01"), valid: false, reasons: [RunValidity.focusLoss])]
+        #expect(BenchPlan().next(after: start) == .run(Self.run("gles-60-light-apk-02")))
+        let repeated = start + [Self.result(Self.run("gles-60-light-apk-02"))]
+        // The interleaving counts valid runs: the second B comes next.
+        #expect(BenchPlan().next(after: repeated) == .run(Self.run("gles-60-light-apk-03")))
+    }
+
+    @Test func theResultsMayComeInAnyOrder() {
+        let results = [Self.result(Self.run("gles-60-light-native-01")), Self.result(Self.run("gles-120-heavy-apk-00")),
+                       Self.result(Self.run("gles-120-heavy-native-00"))]
+        #expect(BenchPlan().next(after: results) == .run(Self.run("gles-60-light-apk-01")))
+    }
+
+    @Test func aWarmUpRunCountsWhateverItsValidity() {
+        let results = [Self.result(Self.run("gles-120-heavy-native-00"), valid: false, reasons: [RunValidity.debugger])]
+        #expect(BenchPlan().next(after: results) == .run(Self.run("gles-120-heavy-apk-00")))
+    }
+
+    @Test func threeInvalidRunsInARowStopTheSeries() {
+        var invalid = 0
+        let (runs, end) = Self.play(BenchPlan()) { run in
+            guard run.description.hasPrefix("gles-60-light-apk") else { return Self.result(run) }
+            invalid += 1
+            return Self.result(run, valid: false, reasons: [RunValidity.thermalAboveFair, RunValidity.linkPeriod])
+        }
+        #expect(invalid == BenchPlan.invalidRunsInARow)
+        #expect(runs.last?.description == "gles-60-light-apk-03")
+        guard case .stop(let reason) = end else { Issue.record("no stop: \(end)"); return }
+        #expect(reason.contains("gles-60-light"))
+        #expect(reason.contains(RunValidity.thermalAboveFair))
+        #expect(reason.contains(RunValidity.linkPeriod))
+    }
+
+    @Test func twoInvalidRunsThenAValidOneGoOn() {
+        var invalid = 0
+        let (_, end) = Self.play(BenchPlan()) { run in
+            guard run.description.hasPrefix("gles-60-light-apk"), invalid < 2 else { return Self.result(run) }
+            invalid += 1
+            return Self.result(run, valid: false, reasons: [RunValidity.focusLoss])
+        }
+        #expect(end == .done)
+    }
+
+    @Test func aPairMismatchStopsAtOnce() {
+        for mismatch in [Self.result(Self.run("gles-60-light-apk-01"), width: 1179),
+                         Self.result(Self.run("gles-60-light-apk-01"), count: 2)] {
+            let results = [Self.result(Self.run("gles-120-heavy-native-00")),
+                           Self.result(Self.run("gles-120-heavy-apk-00")),
+                           Self.result(Self.run("gles-60-light-native-01")), mismatch]
+            guard case .stop(let reason) = BenchPlan().next(after: results) else {
+                Issue.record("no stop for \(mismatch)")
+                continue
+            }
+            #expect(reason.contains("gles-60-light"))
+            #expect(reason.contains("pair"))
+        }
+    }
+
+    @Test func theWarmUpPairIsNotComparedWithTheSeries() {
+        let results = [Self.result(Self.run("gles-120-heavy-native-00"), width: 1179),
+                       Self.result(Self.run("gles-120-heavy-apk-00"), count: 2)]
+        #expect(BenchPlan().next(after: results) == .run(Self.run("gles-60-light-native-01")))
+    }
+
+    @Test func moreRunsAddFivePerVariant() {
+        let (runs, _) = Self.play(BenchPlan())
+        let finished = runs.map { Self.result($0) }
+        let noisy = BenchConfiguration("gles-120-heavy")!
+        let (extra, end) = Self.play(BenchPlan(more: [noisy]), from: finished)
+        #expect(end == .done)
+        #expect(extra.map(\.description) == [
+            "gles-120-heavy-apk-06", "gles-120-heavy-native-06", "gles-120-heavy-native-07", "gles-120-heavy-apk-07",
+            "gles-120-heavy-apk-08", "gles-120-heavy-native-08", "gles-120-heavy-native-09", "gles-120-heavy-apk-09",
+            "gles-120-heavy-apk-10", "gles-120-heavy-native-10",
+        ])
+    }
+
+    @Test func oneAPIOnly() {
+        let (runs, end) = Self.play(BenchPlan(apis: [.vulkan]))
+        #expect(end == .done)
+        #expect(runs.first?.description == "vulkan-120-heavy-native-00")
+        #expect(runs.count == 32)
+    }
+}

@@ -14,6 +14,8 @@ let package = Package(
         .library(name: "APKSigning", targets: ["APKSigning"]),
         // Game mode's pure logic (ADR-0032).
         .library(name: "APKSession", targets: ["APKSession"]),
+        // The parity benchmark's run plan, CSV and validity (ADR-0037).
+        .library(name: "APKBench", targets: ["APKBench"]),
     ],
     targets: [
         .target(name: "APKKit"),
@@ -25,6 +27,11 @@ let package = Package(
         // lifecycle machine and the orientation of a session.
         .target(name: "APKSession", dependencies: ["APKLibrary"]),
         .testTarget(name: "APKSessionTests", dependencies: ["APKSession", "APKLibrary", "APKKit", "APKTestSupport"]),
+        // The parity benchmark's pure logic (ADR-0037, step d): the run plan, the CSV and the validity.
+        .target(name: "APKBench"),
+        .testTarget(name: "APKBenchTests", dependencies: ["APKBench"]),
+        // Development tool: tells tools/benchmark.sh the next run from the results so far (ADR-0037).
+        .executableTarget(name: "bench-plan", dependencies: ["APKBench"]),
         // Development tool: prints what APKKit reads from a real APK.
         .executableTarget(name: "apk-inspect", dependencies: ["APKKit"]),
         // Writes APKs for our test apps (make-apk, ADR-0031): ZIP, binary XML and string pools,

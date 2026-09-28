@@ -6,6 +6,7 @@
 # code (tools/hand-over-certificate.sh), when the app does not have that one yet.
 # Usage: tools/deploy.sh [device name or identifier]
 # Optional environment:
+#   CONFIGURATION   Debug (default) or Release; tools/benchmark.sh builds Release
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/Minato.entitlements
 #   LAUNCH_ARGS     arguments for the app; its output is then shown here until it exits
 #   INSTALL_ONLY    when set, installs the app without launching it
@@ -14,6 +15,7 @@ cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
 DERIVED="build/DerivedData"
+CONFIGURATION="${CONFIGURATION:-Debug}"
 
 read -r DEVICE_ID DEVICE_UDID DEV_MODE CONN_STATE < <(python3 tools/find-device.py "${1:-}") || true
 
@@ -33,12 +35,12 @@ tools/gen.sh
 tools/build-native.sh --app
 tools/build-graphics-host.sh
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
-xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Debug \
+xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATION" \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration -quiet build \
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
-APP="$DERIVED/Build/Products/Debug-iphoneos/Minato.app"
+APP="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/Minato.app"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
 tools/hand-over-certificate.sh "$DEVICE_ID" ||
   echo "The signing certificate was not handed over; converted code loads only once the app has it." >&2

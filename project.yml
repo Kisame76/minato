@@ -36,6 +36,8 @@ targets:
           - "TestLibrary/**"
       # The fixture tests on the iPhone (M2 step 6), run by Debug builds launched with -runFixture <test>.
       - path: app/Fixtures
+      # The parity benchmark's mode (ADR-0037), compiled only with APK_EMBED_BENCHMARK=YES.
+      - path: app/Benchmark
     dependencies:
       - package: APKKit
         product: APKKit
@@ -47,6 +49,9 @@ targets:
       # Game mode's launch request, launch decision and lifecycle (ADR-0032).
       - package: APKKit
         product: APKSession
+      # The parity benchmark's run plan, CSV and validity (ADR-0037).
+      - package: APKKit
+        product: APKBench
       # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
       - framework: build/APKRuntime.xcframework
         embed: false
@@ -95,6 +100,11 @@ targets:
         LSApplicationQueriesSchemes:
           - sidestore
           - altstore-classic
+        # iOS Game Mode in every build (ADR-0037, decision 9); our own texts still never say "game".
+        LSSupportsGameMode: true
+        LSApplicationCategoryType: public.app-category.games
+        # The commit a benchmark build was built from (ADR-0037, decision 5); tools/benchmark.sh sets it.
+        MinatoCommit: $(MINATO_COMMIT)
         # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
         # "Open with" hands over the original file instead of a copy in Documents/Inbox.
         LSSupportsOpeningDocumentsInPlace: true
@@ -129,6 +139,12 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: app/Sources/Minato-Bridging-Header.h
         # YES puts the fixture tests into Debug builds (tools/embed-fixtures.sh); tools/device-suite.sh sets it.
         APK_EMBED_FIXTURES: NO
+        # YES makes a Release build the benchmark build (ADR-0037, decision 3): the mode, compiled under
+        # BENCHMARK, and tools/embed-benchmark.sh's MinatoBench.framework and APKs. tools/benchmark.sh sets it.
+        APK_EMBED_BENCHMARK: NO
+        APK_BENCHMARK_CONDITION_YES: BENCHMARK
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(APK_BENCHMARK_CONDITION_$(APK_EMBED_BENCHMARK))
+        MINATO_COMMIT: ""
         # MoltenVK has no Simulator slice (ADR-0030, decision 8).
         "EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]": MoltenVK.framework
       configs:
@@ -151,6 +167,9 @@ targets:
         basedOnDependencyAnalysis: false
       - name: Embed fixture containers
         script: exec "$SRCROOT/tools/embed-fixtures.sh"
+        basedOnDependencyAnalysis: false
+      - name: Embed the benchmark
+        script: exec "$SRCROOT/tools/embed-benchmark.sh"
         basedOnDependencyAnalysis: false
       # The license texts of what the app embeds (THIRD_PARTY.md), after the frameworks are in the bundle.
       - name: Bundle license texts
