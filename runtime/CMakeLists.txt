@@ -197,6 +197,14 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.choreographer COMMAND choreographer_test "${CMAKE_CURRENT_BINARY_DIR}/choreographer_test_scratch"
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
   set_tests_properties(runtime.choreographer PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0036's input-test: the same host plays the gestures of gestures.txt through an input channel and
+  # compares the log with Android 15's (fixtures/expected/input-test.logcat).
+  add_executable(input_test tests/input_test.cpp)
+  target_link_libraries(input_test PRIVATE app_host)
+  add_test(NAME runtime.input COMMAND input_test "${CMAKE_CURRENT_BINARY_DIR}/input_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+    "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
+  set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)

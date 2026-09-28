@@ -45,8 +45,8 @@ LIBRARIES = {
             "AAsset_*", "AAssetDir_*", "AAssetManager_open", "AAssetManager_openDir",
             # the requests (native_activity.cpp)
             "ANativeActivity_*",
-            # the input queue without events (input_queue.cpp); its events come with M3 step 6
-            "AInputQueue_attachLooper", "AInputQueue_detachLooper",
+            # the input queue on the input channel (input_queue.cpp) and its motion events (input.cpp, ADR-0036)
+            "AInputQueue_*", "AInputEvent_*", "AMotionEvent_*",
             # the choreographer on the vsync channel (choreographer.cpp, ADR-0036)
             "AChoreographer_*", "AChoreographerFrameCallbackData_*",
             # forwarded to libnativewindow (window_forwards.c)
@@ -55,8 +55,9 @@ LIBRARIES = {
             "ANativeWindow_unlockAndPost",
         ],
         # M3 has no resource matching. libandroid's own AHardwareBuffer functions stay stubs; they would
-        # forward once libnativewindow has buffers.
-        "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan"],
+        # forward once libnativewindow has buffers. Input's Java side waits for Java (M4).
+        "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
+                    "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava"],
         "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete"],
     },
     "libnativewindow": {
@@ -97,17 +98,10 @@ VALUES = {
     "AHardwareBuffer_lockPlanes": "-EINVAL", "AHardwareBuffer_recvHandleFromUnixSocket": "-EINVAL",
     "AHardwareBuffer_sendHandleToUnixSocket": "-EINVAL", "AHardwareBuffer_unlock": "-EINVAL",
     "AHardwareBuffer_readFromParcel": "-ENOSYS", "AHardwareBuffer_writeToParcel": "-ENOSYS",  # STATUS_INVALID_OPERATION
-    # Input (M3 step 6): getters of events no queue gives
-    "AInputEvent_getDeviceId": "0", "AInputEvent_getSource": "0", "AInputEvent_getType": "0",
-    "AInputQueue_getEvent": "-1", "AInputQueue_hasEvents": "0", "AInputQueue_preDispatchEvent": "0",
+    # Key events: M3 has none (ADR-0036, decision 3)
     "AKeyEvent_getAction": "0", "AKeyEvent_getDownTime": "0", "AKeyEvent_getEventTime": "0", "AKeyEvent_getFlags": "0",
     "AKeyEvent_getKeyCode": "0", "AKeyEvent_getMetaState": "0", "AKeyEvent_getRepeatCount": "0",
     "AKeyEvent_getScanCode": "0",
-    "AMotionEvent_getAction": "0", "AMotionEvent_getActionButton": "0", "AMotionEvent_getButtonState": "0",
-    "AMotionEvent_getClassification": "0", "AMotionEvent_getDownTime": "0", "AMotionEvent_getEdgeFlags": "0",
-    "AMotionEvent_getEventTime": "0", "AMotionEvent_getFlags": "0", "AMotionEvent_getHistoricalEventTime": "0",
-    "AMotionEvent_getHistorySize": "0", "AMotionEvent_getMetaState": "0", "AMotionEvent_getPointerCount": "0",
-    "AMotionEvent_getPointerId": "0", "AMotionEvent_getToolType": "0",
     # Drawing by the CPU is not in M3 (decision 7): INVALID_OPERATION
     "ANativeWindow_lock": "-ENOSYS", "ANativeWindow_unlockAndPost": "-ENOSYS",
     "ANativeWindow_readFromParcel": "-ENOSYS", "ANativeWindow_writeToParcel": "-ENOSYS",

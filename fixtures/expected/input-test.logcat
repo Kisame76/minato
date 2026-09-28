@@ -1,0 +1,45 @@
+I/input-test: android_main
+I/input-test: ready: an input queue: yes, a window: yes
+I/input-test: tap: DOWN, pointers 1, IDs 0
+I/input-test: tap: UP, pointers 1, IDs 0
+I/input-test: tap: a touchscreen's fingers, one device: yes
+I/input-test: tap: the down time the DOWN's time, times never back and on CLOCK_MONOTONIC: yes
+I/input-test: tap: history times never back and not after the event's time: yes, pressure above 0 and at most 1: yes
+I/input-test: tap: raw places and axis values the same as x and y: yes
+I/input-test: tap: at a quarter of the width and the height, the UP at the DOWN's place: yes
+I/input-test: swipe: DOWN, pointers 1, IDs 0
+I/input-test: swipe: MOVE, pointers 1, IDs 0
+I/input-test: swipe: UP, pointers 1, IDs 0
+I/input-test: swipe: a touchscreen's fingers, one device: yes
+I/input-test: swipe: the down time the DOWN's time, times never back and on CLOCK_MONOTONIC: yes
+I/input-test: swipe: history times never back and not after the event's time: yes, pressure above 0 and at most 1: yes
+I/input-test: swipe: raw places and axis values the same as x and y: yes
+I/input-test: swipe: x never falls, y stays, the UP right of the DOWN: yes
+I/input-test: two fingers: DOWN, pointers 1, IDs 0
+I/input-test: two fingers: POINTER_DOWN(1), pointers 2, IDs 0 1
+I/input-test: two fingers: MOVE, pointers 2, IDs 0 1
+I/input-test: two fingers: POINTER_UP(0), pointers 2, IDs 0 1
+I/input-test: two fingers: MOVE, pointers 1, IDs 1
+I/input-test: two fingers: UP, pointers 1, IDs 1
+I/input-test: two fingers: a touchscreen's fingers, one device: yes
+I/input-test: two fingers: the down time the DOWN's time, times never back and on CLOCK_MONOTONIC: yes
+I/input-test: two fingers: history times never back and not after the event's time: yes, pressure above 0 and at most 1: yes
+I/input-test: two fingers: raw places and axis values the same as x and y: yes
+I/input-test: two fingers: the second finger right of the first: yes
+I/input-test: lowest free ID: DOWN, pointers 1, IDs 0
+I/input-test: lowest free ID: POINTER_DOWN(1), pointers 2, IDs 0 1
+I/input-test: lowest free ID: POINTER_UP(0), pointers 2, IDs 0 1
+I/input-test: lowest free ID: POINTER_DOWN(0), pointers 2, IDs 0 1
+I/input-test: lowest free ID: POINTER_UP(1), pointers 2, IDs 0 1
+I/input-test: lowest free ID: UP, pointers 1, IDs 0
+I/input-test: lowest free ID: a touchscreen's fingers, one device: yes
+I/input-test: lowest free ID: the down time the DOWN's time, times never back and on CLOCK_MONOTONIC: yes
+I/input-test: lowest free ID: history times never back and not after the event's time: yes, pressure above 0 and at most 1: yes
+I/input-test: lowest free ID: raw places and axis values the same as x and y: yes
+I/input-test: lowest free ID: the third finger with ID 0 at index 0, right of the second: yes
+I/input-test: the history's size as an index: each event's own time and place: yes
+I/input-test: the queue: getEvent 0 for each event, -11 and NULL once it is empty: yes
+I/input-test: the queue: hasEvents 1 at each wake, preDispatchEvent 0 for each event: yes
+I/input-test: the queue after the last gesture: hasEvents 0
+I/input-test: ANativeActivity_finish
+I/input-test: android_main returns

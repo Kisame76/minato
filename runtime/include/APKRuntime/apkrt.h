@@ -231,18 +231,24 @@ int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *contex
 void apkrt_vsync_post(int64_t time, int64_t target_time);
 
 /// A new input channel, whose ID the host sends with APKRT_EVENT_INPUT_QUEUE_CREATED. Returns the ID, from 1,
-/// never reused; 0 without memory. The events posted before the guest's queue connects wait in it. Until
-/// ADR-0036's step b), it returns 0.
+/// never reused; 0 without memory. The events posted before the guest's queue connects wait in it.
 uint64_t apkrt_input_add(void);
 
 /// Posts a motion event (struct apkrt_motion_event) to the input channel `id`, after those before it.
-/// `pointer_ids` holds `pointer_count` IDs, 1 to APKRT_MOTION_POINTERS of them, ascending; `sample_times`
-/// holds `sample_count` times, the history's oldest first and the event's own last; `coords` holds
-/// sample_count × pointer_count places, by sample, then pointer index. Of more than APKRT_MOTION_SAMPLES
-/// samples, the oldest go. Returns 1 when the channel took the event, else 0: an unknown ID, a channel whose
-/// queue has closed, an event that is not sound, or a full channel (256 events) in which no MOVE could merge.
-/// A full channel merges MOVEs: a MOVE's samples become the history of the MOVE right after it with the same
-/// pointers. Until ADR-0036's step b), it returns 0.
+/// `pointer_ids` holds `pointer_count` IDs, 1 to APKRT_MOTION_POINTERS of them, rising, each 0 to 31;
+/// `sample_times` holds `sample_count` times, the history's oldest first and the event's own last; `coords`
+/// holds sample_count × pointer_count places, by sample, then pointer index. As Android's reader makes them,
+/// `action` is a MOVE, the only one with history; DOWN or UP of one pointer; CANCEL; or POINTER_DOWN or
+/// POINTER_UP of two pointers or more, with the index of its pointer. A MOVE keeps its newest
+/// APKRT_MOTION_SAMPLES samples.
+/// A full channel (256 events) keeps the guest's gestures whole, as Android's dispatcher does. It merges the
+/// oldest pair of neighbouring MOVEs with the same pointers and down time for a MOVE, which counts as the last
+/// event (the earlier's samples become the later's history, keeping the newest APKRT_MOTION_SAMPLES), and
+/// drops the MOVE when no pair can merge. It takes UP, POINTER_UP and CANCEL, up to 17 events beyond 256. It
+/// refuses a DOWN, and ends the gesture at a POINTER_DOWN with a CANCEL of the pointers the guest has; the rest
+/// of such a gesture is refused, its UP or CANCEL included, also once the channel has room again.
+/// Returns 1 when the channel took the event, else 0: an unknown ID, a channel whose queue has closed, an
+/// event that is not sound, one the channel refuses, or no memory.
 int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, uint32_t pointer_count,
                      const int32_t *pointer_ids, uint32_t sample_count, const int64_t *sample_times,
                      const struct apkrt_pointer_coords *coords);

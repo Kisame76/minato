@@ -15,6 +15,10 @@ long vsync_connect();
 long vsync_request(int fd);
 long vsync_read(int fd, std::uint64_t vsync);
 
+/// The private syscalls input_connect and input_read (guest_interface.h).
+long input_connect(std::uint64_t id);
+long input_read(int fd, std::uint64_t event);
+
 /// Whether a channel's description (Kind::channel) holds something unread: its POLLIN.
 bool readable(descriptors::Description &channel);
 

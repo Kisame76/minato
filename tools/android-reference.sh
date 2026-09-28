@@ -8,9 +8,10 @@
 # Android cannot run are left out, and what a benchmark (measures) prints is shown, not compared.
 # A test app of fixtures/apps (ADR-0028, test 3; ADR-0036) is installed fresh from build/fixtures/apks,
 # started as the launcher starts it, and left until it finishes itself; activity-test is sent HOME a second
-# after it has its first window and the focus, and started again, before that. Its lines of logcat with its
-# own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by
-# device and are only shown.
+# after it has its first window and the focus, and started again, before that; input-test gets the gestures
+# of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready". Its lines of
+# logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
+# <app>-device differ by device and are only shown.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 #        tools/android-reference.sh --app <app>
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
@@ -167,6 +168,53 @@ run_app() {
     wait_for "$app" APP_CMD_SAVE_STATE || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == input-test ]]; then
+    # The gestures as reports of the emulator's multi-touch screen through its console (ABS_MT_*, 0 to 32767
+    # across the screen): a new pointer takes the slot of its ID with a new tracking ID and some pressure,
+    # without which the reader takes it for a hover; a lifted one ends its tracking ID; the samples of a MOVE
+    # are reports in one command.
+    local delay command
+    wait_for "$app" ready || return 1
+    awk '
+      function raw(fraction) { fraction = int(fraction * 32768 + 0.5); return fraction > 32767 ? 32767 : fraction }
+      function slot(pointer, parts) { split(pointer, parts, /[:,]/); return "EV_ABS:ABS_MT_SLOT:" parts[1] }
+      function place(pointer, parts) {
+        split(pointer, parts, /[:,]/)
+        return " EV_ABS:ABS_MT_POSITION_X:" raw(parts[2]) " EV_ABS:ABS_MT_POSITION_Y:" raw(parts[3])
+      }
+      /^[[:space:]]*(#|$)/ { next }
+      {
+        action = $2; at = 0
+        if (match(action, /\([0-9]+\)/)) {
+          at = substr(action, RSTART + 1, RLENGTH - 2); action = substr(action, 1, RSTART - 1)
+        }
+        pointers_of = $0; sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+[^[:space:]]+/, "", pointers_of)
+        samples = split(pointers_of, sample, "|")
+        split(sample[1], pointers, " ")
+        out = ""
+        if (action == "DOWN" || action == "POINTER_DOWN") {
+          out = slot(pointers[at + 1]) " EV_ABS:ABS_MT_TRACKING_ID:" (++tracking) place(pointers[at + 1]) \
+            " EV_ABS:ABS_MT_PRESSURE:512 EV_SYN:0:0"
+        } else if (action == "UP" || action == "POINTER_UP") {
+          out = slot(pointers[at + 1]) " EV_ABS:ABS_MT_TRACKING_ID:-1 EV_SYN:0:0"
+        } else if (action == "MOVE") {
+          for (s = 1; s <= samples; ++s) {
+            count = split(sample[s], pointers, " ")
+            for (k = 1; k <= count; ++k) out = out slot(pointers[k]) place(pointers[k]) " "
+            out = out "EV_SYN:0:0 "
+          }
+        } else {
+          print "gestures.txt:" NR ": a touchscreen cannot play " $2 > "/dev/stderr"
+          exit 1
+        }
+        print $1 / 1000, out
+      }' "fixtures/apps/$app/gestures.txt" |
+      while read -r delay command; do
+        sleep "$delay"
+        # shellcheck disable=SC2086
+        device emu event send $command >/dev/null
+      done
   fi
   wait_for "$app" "android_main returns" || return 1
   sleep 1

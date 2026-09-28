@@ -189,8 +189,8 @@ apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp" 
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libnativewindow UNITS apk_nativewindow NEEDED libc liblog VERSION_SCRIPTS "${nativewindow_map}")
 
-# libandroid.so: ALooper, AConfiguration, the asset manager, ANativeActivity's requests, the input queue,
-# AChoreographer and the forwards to libnativewindow (runtime/android).
+# libandroid.so: ALooper, AConfiguration, the asset manager, ANativeActivity's requests, the input queue and
+# its motion events, AChoreographer and the forwards to libnativewindow (runtime/android).
 set(android_map "${android_generated}/libandroid.map")
 set(android_stubs "${android_generated}/libandroid_stubs.c")
 add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
@@ -198,7 +198,8 @@ add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libandroid.so" VERBATIM)
 apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
   "${android_sources}/asset_manager.cpp" "${android_sources}/native_activity.cpp" "${android_sources}/input_queue.cpp"
-  "${android_sources}/choreographer.cpp" "${android_sources}/window_forwards.cpp" "${android_stubs}"
+  "${android_sources}/input.cpp" "${android_sources}/choreographer.cpp" "${android_sources}/window_forwards.cpp"
+  "${android_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libandroid UNITS apk_android NEEDED libc liblog libnativewindow libz VERSION_SCRIPTS "${android_map}")
 

@@ -120,7 +120,7 @@ enum apkrt_event_type {
                                           // with, and a new size comes as a new window
     APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED,  // a0: the window's ID
     APKRT_EVENT_NATIVE_WINDOW_DESTROYED,  // a0: the window's ID
-    APKRT_EVENT_INPUT_QUEUE_CREATED,      // a0: the input channel's ID (ADR-0036), 0 until the channel exists
+    APKRT_EVENT_INPUT_QUEUE_CREATED,      // a0: the input channel's ID (ADR-0036), 0 for a queue without events
     APKRT_EVENT_INPUT_QUEUE_DESTROYED,    // a0: as INPUT_QUEUE_CREATED
     APKRT_EVENT_CONTENT_RECT_CHANGED,     // a0: left | top << 32; a1: right | bottom << 32 (32 bits each)
     APKRT_EVENT_CONFIGURATION_CHANGED,
@@ -272,9 +272,10 @@ struct apkrt_motion_event {
 #define APKRT_NR_VSYNC_READ 4108
 /// input_connect, activity-host's at APKRT_EVENT_INPUT_QUEUE_CREATED (minato_AInputQueue_create): x0 the input
 /// channel's ID. Returns a guest descriptor (close-on-exec), readable while the channel holds an event, as the
-/// wake byte of InputQueue.cpp; -ENOENT for an ID the host never gave, 0 included (the queue then has no
-/// events); -EBUSY for a channel that had its descriptor already; -EMFILE when the guest's table is full.
-/// Closing the descriptor ends the channel: the host's later posts fail.
+/// wake byte of InputQueue.cpp; -ENOENT for an ID the host never gave, 0 included; -EBUSY for a channel that
+/// has a descriptor, had one or is being connected. After -EMFILE when the guest's table is full, -ENOMEM
+/// without memory, or the host's error when it has no descriptors left for the channel's pipe, a connect can
+/// be made again. Closing its last descriptor ends the channel: the host's later posts fail.
 #define APKRT_NR_INPUT_CONNECT 4109
 /// input_read: x0 the channel's descriptor, x1 a struct apkrt_motion_event. Takes the oldest event into it;
 /// once the channel is empty, the descriptor is no longer readable (pop and drain). Returns 0; -EAGAIN when
@@ -308,10 +309,12 @@ struct AInputQueue;
 struct AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_configuration *configuration);
 
 /// In libandroid.so, version APKRT_PRIVATE: a new input queue of the input channel `channel` (ADR-0036), for
-/// onInputQueueCreated; until the channel exists (0), a queue without events. NULL without memory.
+/// onInputQueueCreated, connected to it (input_connect); for channel 0 or one it cannot connect to, a queue
+/// without events. NULL without memory.
 struct AInputQueue *minato_AInputQueue_create(uint64_t channel);
 
-/// In libandroid.so, version APKRT_PRIVATE: frees a queue once onInputQueueDestroyed has returned.
+/// In libandroid.so, version APKRT_PRIVATE: frees a queue once onInputQueueDestroyed has returned, which
+/// ends its channel.
 void minato_AInputQueue_delete(struct AInputQueue *queue);
 
 /// In libnativewindow.so, version APKRT_PRIVATE: a new window of the host window `id`, `width` × `height`

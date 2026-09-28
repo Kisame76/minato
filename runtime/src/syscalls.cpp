@@ -686,6 +686,10 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return apkrt::channels::vsync_request(as_int(x[0]));
         case APKRT_NR_VSYNC_READ:
             return apkrt::channels::vsync_read(as_int(x[0]), x[1]);
+        case APKRT_NR_INPUT_CONNECT:
+            return apkrt::channels::input_connect(x[0]);
+        case APKRT_NR_INPUT_READ:
+            return apkrt::channels::input_read(as_int(x[0]), x[1]);
 
         default:
             report_unsupported(x[8]);

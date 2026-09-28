@@ -149,6 +149,12 @@ add_library(choreographer-test SHARED apps/choreographer-test/main.c)
 target_compile_options(choreographer-test PRIVATE --target=aarch64-none-linux-android35 -Wno-deprecated-declarations)
 target_link_options(choreographer-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
 target_link_libraries(choreographer-test PRIVATE native_app_glue nativewindow)
+# input-test (ADR-0036, step b): the input queue and its motion events for the gestures of gestures.txt; the
+# classification and the action button came with API 33.
+add_library(input-test SHARED apps/input-test/main.c)
+target_compile_options(input-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(input-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
+target_link_libraries(input-test PRIVATE native_app_glue nativewindow m)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

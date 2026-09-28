@@ -1,0 +1,39 @@
+# input-test's gestures (ADR-0036, step b): the one source for tools/android-reference.sh, which plays them
+# through the emulator's console as its touchscreen's reports, and for runtime/tests/input_test.cpp, which
+# posts them with apkrt_input_post. One motion event per line, as Android's reader makes one of each report:
+#   <delay in ms before it> <action> <id>:<x>,<y> ... [| <id>:<x>,<y> ...]
+# The action is DOWN, UP, MOVE, POINTER_DOWN(<index>) or POINTER_UP(<index>). The pointers follow in the
+# order of their IDs, with places in fractions of the screen's width and height; a DOWN or POINTER_DOWN lists
+# them with the new one, an UP or POINTER_UP with the lifted one. A MOVE may have several samples, oldest
+# first, separated by "|": the emulator gets them as reports in one burst, the Mac as one event with history.
+# The gestures come in the order input-test names them. MOVEs are 40 ms apart, more than the 20 ms up to
+# which Android extrapolates a touch at the frame, so that no resampled time lies after a later event's.
+
+# tap
+500 DOWN 0:0.25,0.25
+80 UP 0:0.25,0.25
+
+# swipe
+500 DOWN 0:0.2,0.5
+40 MOVE 0:0.3,0.5
+40 MOVE 0:0.4,0.5 | 0:0.45,0.5 | 0:0.5,0.5
+40 MOVE 0:0.6,0.5
+40 MOVE 0:0.7,0.5 | 0:0.75,0.5 | 0:0.8,0.5
+40 UP 0:0.8,0.5
+
+# two fingers
+500 DOWN 0:0.3,0.4
+40 POINTER_DOWN(1) 0:0.3,0.4 1:0.7,0.4
+40 MOVE 0:0.3,0.45 1:0.7,0.45
+40 MOVE 0:0.3,0.5 1:0.7,0.5
+40 POINTER_UP(0) 0:0.3,0.5 1:0.7,0.5
+40 MOVE 1:0.7,0.55
+40 UP 1:0.7,0.55
+
+# lowest free ID: A gets ID 0 and B 1; A goes up; C gets ID 0 again, at index 0 although it lies right of B
+500 DOWN 0:0.2,0.7
+40 POINTER_DOWN(1) 0:0.2,0.7 1:0.5,0.7
+40 POINTER_UP(0) 0:0.2,0.7 1:0.5,0.7
+40 POINTER_DOWN(0) 0:0.8,0.7 1:0.5,0.7
+40 POINTER_UP(1) 0:0.8,0.7 1:0.5,0.7
+40 UP 0:0.8,0.7

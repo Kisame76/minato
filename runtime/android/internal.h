@@ -19,4 +19,10 @@ void minato_looper_send(ALooper *looper, int64_t uptime, void (*handler)(void *d
 /// Takes the messages with `data` that have not run out of `looper`.
 void minato_looper_remove(ALooper *looper, void *data);
 
+/// An event of an input queue (input_queue.cpp), which input.cpp's getters read: the record input_read gives
+/// (ADR-0036, decision 3).
+struct AInputEvent {
+    struct apkrt_motion_event motion;
+};
+
 #endif
