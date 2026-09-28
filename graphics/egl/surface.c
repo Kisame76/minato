@@ -83,8 +83,7 @@ void minato_bad_native_window(EGLDisplay display, EGLConfig config) {
             }                                                                                               \
         }                                                                                                   \
         if (ours != NULL) {                                                                                 \
-            const type fixed[] = {MINATO_EGL_FIXED_SIZE_ANGLE, EGL_TRUE, EGL_WIDTH, width, EGL_HEIGHT, height, \
-                                  EGL_NONE};                                                                \
+            const type fixed[] = {MINATO_EGL_FIXED_SIZE(width, height), EGL_NONE};                          \
             for (size_t index = 0; index < sizeof fixed / sizeof *fixed; index++) {                         \
                 ours[kept++] = fixed[index];                                                                \
             }                                                                                               \

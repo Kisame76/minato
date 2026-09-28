@@ -22,8 +22,16 @@
 //   from "scheduled" to the foreground (metal_hook.m with MINATO_METAL_HOOK=count), the only requests were
 //   FRAME_RATE, with 120 and 60 among them, the app's onDestroy line says "windows 2, failures 0", and
 //   activity-host ended with status 0.
+// - bench-gles and bench-vulkan (<mode> bench:<load>), ADR-0037 a): the parity benchmark's APKs from
+//   tools/build-bench.sh (<fixtures build>), their manifests in graphics/bench/android (<expected>). bench.conf asks
+//   for 120 Hz, the load, 9 s and the CRC of frame 1000. Ticks in lockstep with the presents: the first once the
+//   scene asked for its rate, tick k then k periods of 120 Hz after it and 0.5 or 1 ms late (odd or even k), each
+//   once frame k-1 is presented, until the app's own ANativeActivity_finish; then the App's quit. It passes when the
+//   window counted 1080 presents, the requests were KEEP_SCREEN_ON 1, FRAME_RATE 120 and FINISH,
+//   onNativeWindowDestroyed and onDestroy were answered within 500 ms, and activity-host ended with status 0;
+//   bench_test.py checks the rest.
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
-//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live>
+//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live | bench:<load>>
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -35,6 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -114,6 +123,12 @@ template <typename Predicate>
 bool wait_for(Predicate predicate, std::chrono::seconds limit) {
     std::unique_lock hold(seen.lock);
     return seen.changed.wait_for(hold, limit, predicate);
+}
+
+/// Whether `request` came.
+bool requested(const std::string &request) {
+    const std::lock_guard hold(seen.lock);
+    return std::find(seen.requests.begin(), seen.requests.end(), request) != seen.requests.end();
 }
 
 /// The requests so far, each in brackets.
@@ -451,28 +466,103 @@ void play_live(const std::string &app, Capture &capture) {
     ::dprintf(report, "%s", device_lines.c_str());
 }
 
+/// Waits until the window counted `count` presents or the app asked to finish: true for the presents.
+bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseconds limit) {
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (apkrt_window_presents(window) >= count) return true;
+        if (requested("FINISH")) return false;
+        std::this_thread::sleep_for(100us);
+    }
+    return false;
+}
+
+/// bench-gles and bench-vulkan: the start, the frames in lockstep with the ticks until the app finishes, the quit.
+void play_bench(Capture &capture) {
+    constexpr std::uint64_t frames = 1080;  // 9 s at 120 Hz
+    constexpr double period = 1e9 / 120;
+    const std::uint64_t window = add_window();
+    if (!start(window, nullptr)) return;
+    // The scene asks for its rate once it can draw, and posts its first callback right after.
+    if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FRAME_RATE 120") !=
+                              seen.requests.end(); },
+                  30s)) {
+        fail("no FRAME_RATE 120 within 30 s; the requests: " + requests_text());
+    }
+    std::this_thread::sleep_for(50ms);
+    std::int64_t first = 0;
+    for (int attempt = 0; attempt < 3 && apkrt_window_presents(window) == 0 && !requested("FINISH"); ++attempt) {
+        first = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+        apkrt_vsync_post(first, first + std::llround(period));
+        presented(window, 1, 10000ms);
+    }
+    std::uint64_t ticks = 1;
+    if (apkrt_window_presents(window) == 0) {
+        fail("no present for the first tick");
+    } else {
+        for (;; ++ticks) {
+            const std::int64_t late = ticks % 2 == 0 ? 1000000 : 500000;
+            const std::int64_t tick = first + std::llround(static_cast<double>(ticks) * period) + late;
+            apkrt_vsync_post(tick, tick + std::llround(period));
+            if (!presented(window, ticks + 1, 5000ms)) break;
+        }
+    }
+    if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end(); },
+                  10s)) {
+        fail("the app did not finish by itself");
+    }
+
+    // The App's quit.
+    focus_lost(window, nullptr);
+    const std::uint64_t counted = apkrt_window_presents(window);
+    apkrt_window_remove(window);
+    post(APKRT_EVENT_PAUSE);
+    const double destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window), 2);
+    post(APKRT_EVENT_STOP);
+    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
+    wait_for([] { return seen.ended; }, 10s);
+
+    capture.drain();
+    ::dprintf(report, "host: %llu ticks after the first, %llu presents counted\n",
+              static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(counted));
+    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
+    if (counted != frames) {
+        fail("the window counted " + std::to_string(counted) + " presents, not " + std::to_string(frames));
+    }
+    check_answer(destroyed, "onNativeWindowDestroyed");
+    check_answer(destroy, "onDestroy");
+    if (const std::string requests = requests_text(); requests != "[KEEP_SCREEN_ON 1][FRAME_RATE 120][FINISH]") {
+        fail("the requests were " + requests);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
-                             "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> <presents | live>\n");
+                             "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
+                             "<presents | live | bench:<load>>\n");
         return 2;
     }
     const std::string app = argv[2];
     const fs::path scratch = fs::path(argv[1]) / app, fixtures = argv[3], bionic = argv[4], system = argv[5],
                    front = argv[6], expected = argv[7], angle = argv[8], moltenvk = argv[9];
-    const bool live = std::strcmp(argv[10], "live") == 0;
-    const std::uint64_t presents = live ? 0 : std::strtoull(argv[10], nullptr, 10);
-    const fs::path apk = fixtures / "apks" / (app + ".apk"), library = fixtures / "bin" / ("lib" + app + ".so");
+    const bool live = std::strcmp(argv[10], "live") == 0, bench = std::strncmp(argv[10], "bench:", 6) == 0;
+    const std::uint64_t presents = live || bench ? 0 : std::strtoull(argv[10], nullptr, 10);
+    // tools/build-bench.sh puts the APKs at the top of its build, tools/build-fixtures.sh into apks/; the bench's
+    // manifests are in <expected>/<app>/, the test apps' in fixtures/apps/<app>/.
+    const fs::path apk = bench ? fixtures / (app + ".apk") : fixtures / "apks" / (app + ".apk");
+    const fs::path library = fixtures / "bin" / ("lib" + app + ".so");
     const fs::path host = bionic.parent_path() / "bin" / "activity-host";
-    const fs::path manifest_path = fs::path(expected).parent_path() / "apps" / app / "AndroidManifest.xml";
+    const fs::path manifest_path = bench ? expected / app / "AndroidManifest.xml"
+                                         : fs::path(expected).parent_path() / "apps" / app / "AndroidManifest.xml";
     std::vector<fs::path> needed = {apk, library, host, bionic / "libandroid.so", front / "libEGL.so",
                                     front / "libvulkan.so", angle, moltenvk, manifest_path};
-    if (!live) needed.push_back(expected / (app + ".logcat"));
+    if (!live && !bench) needed.push_back(expected / (app + ".logcat"));
     for (const auto &path : needed) {
         if (!fs::exists(path)) {
-            std::printf("skipped: %s is missing (tools/build-fixtures.sh, tools/build-bionic.sh, "
+            std::printf("skipped: %s is missing (tools/build-fixtures.sh, tools/build-bench.sh, tools/build-bionic.sh, "
                         "tools/build-front-libs.sh, tools/build-angle.sh, tools/fetch-moltenvk.sh, "
                         "tools/android-reference.sh --app %s)\n",
                         path.c_str(), app.c_str());
@@ -501,6 +591,14 @@ int main(int argc, char **argv) {
     }
     convert(library, app_libraries, "lib" + app + ".so");
     for (const auto &folder : {data, external, obb}) fs::create_directories(folder);
+    if (bench) {
+        // bench.conf in the app's internalDataPath, /data/user/0/<package>/files.
+        const std::string load = argv[10] + 6;
+        fs::create_directories(data / "files");
+        std::ofstream(data / "files" / "bench.conf") << "run=" << app.substr(6) << "-120-" << load
+                                                      << "-apk-00\nrate=120\nload=" << load
+                                                      << "\nseconds=9\ncheck=1000\n";
+    }
 
     // The guest paths the App mounts (ADR-0028, decision 14).
     const std::string installed = "/data/app/" + package;
@@ -549,6 +647,8 @@ int main(int argc, char **argv) {
 
     if (live) {
         play_live(app, capture);
+    } else if (bench) {
+        play_bench(capture);
     } else {
         play_scenes(app, expected, presents, capture);
     }

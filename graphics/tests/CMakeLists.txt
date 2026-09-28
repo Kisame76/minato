@@ -45,13 +45,8 @@ else()
 endif()
 set_tests_properties(graphics.moltenvk_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 
-# Test 3: every GLES and EGL function of the NDK's stubs is exported by the three slices or on the stub list.
-if(DEFINED ENV{ANDROID_NDK})
-  set(ndk_default "$ENV{ANDROID_NDK}")
-else()
-  set(ndk_default "$ENV{HOME}/Library/Android/sdk/ndk/30.0.16248370")
-endif()
-set(APK_ANDROID_NDK "${ndk_default}" CACHE PATH "Android NDK whose stubs name the functions of Android's libraries")
+# Test 3: every GLES and EGL function of the NDK's stubs (APK_ANDROID_NDK, graphics/CMakeLists.txt) is exported
+# by the three slices or on the stub list.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME graphics.angle_exports
   COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/angle_exports.py"
@@ -243,6 +238,34 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.${app}_live PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120
       ENVIRONMENT "MINATO_METAL_HOOK=count")
   endforeach()
+  # ADR-0037 a): the parity benchmark's scene built for the Mac (graphics/bench, graphics-bench-host) and as the
+  # APKs of tools/build-bench.sh (graphics-app-test's bench mode), each API and load with ticks scripted in
+  # lockstep (bench_test.py): both must draw the same frame 1000, and the APK must end by itself.
+  set(APK_BENCH_DIR "${PROJECT_SOURCE_DIR}/build/graphics/bench" CACHE PATH
+    "tools/build-bench.sh's build directory, with the bench's APKs at its top and their libraries in bin/")
+  if(TARGET minato_bench)
+    add_executable(graphics-bench-host bench_host.mm)
+    target_compile_options(graphics-bench-host PRIVATE -fobjc-arc)
+    target_link_libraries(graphics-bench-host PRIVATE minato_bench apk_defaults "-framework Foundation"
+      "-framework QuartzCore")
+    add_test(NAME graphics.bench
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/bench_test.py"
+        --host $<TARGET_FILE:graphics-bench-host> --app-test $<TARGET_FILE:graphics-app-test>
+        --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_runs" --bench "${APK_BENCH_DIR}" --bionic "${APK_BIONIC_DIR}"
+        --system "${APK_GUEST_SYSTEM_DIR}" --front "${APK_GRAPHICS_GUEST_DIR}"
+        --manifests "${PROJECT_SOURCE_DIR}/graphics/bench/android" --angle "${angle}" --moltenvk "${moltenvk}")
+    set_tests_properties(graphics.bench PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
+  else()
+    add_test(NAME graphics.bench COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: the bench's host build needs ANGLE, MoltenVK and the NDK's glslc (graphics/bench/CMakeLists.txt)")
+    set_tests_properties(graphics.bench PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endif()
+  # The tests that time something on the GPU's way, and graphics.bench, whose heavy scene holds the GPU for a minute,
+  # never run at once under ctest -j: another test's GPU work could stall a frame past their limits
+  # (graphics.vulkan_live once saw a frame interval of 108 ms in a full run with -j8).
+  set_tests_properties(graphics.angle_commit_gate graphics.gles_front graphics.gles_gate graphics.gles_glue
+    graphics.vulkan_queue graphics.vulkan_present graphics.gles_app graphics.vulkan_app graphics.gles_live
+    graphics.vulkan_live graphics.bench PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -258,7 +281,7 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live bench)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

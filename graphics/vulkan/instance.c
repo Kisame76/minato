@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "libvulkan.h"
+#include "moltenvk_settings.h"
 
 MINATO_HOST(vkEnumerateInstanceExtensionProperties);
 MINATO_HOST(vkCreateInstance);
@@ -23,19 +24,6 @@ static const VkExtensionProperties own[] = {
     {VK_GOOGLE_SURFACELESS_QUERY_EXTENSION_NAME, VK_GOOGLE_SURFACELESS_QUERY_SPEC_VERSION},
 };
 #define OWN (sizeof own / sizeof *own)
-
-/* What the gate relies on (decision 8), for MoltenVK whatever its environment variables say: synchronous
-   submits, no prefilled command buffers, MTLEvent semaphores (MoltenVK's style "where safe", which is
-   MTLEvent on Apple's GPUs) and Vulkan 1.3 advertised, so that devices report it (decision 11). */
-static const VkBool32 synchronous = VK_TRUE;
-static const int32_t no_prefill = 0, metal_events = 1;
-static const uint32_t version_1_3 = VK_API_VERSION_1_3;
-static const VkLayerSettingEXT pinned[] = {
-    {"MoltenVK", "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1, &synchronous},
-    {"MoltenVK", "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS", VK_LAYER_SETTING_TYPE_INT32_EXT, 1, &no_prefill},
-    {"MoltenVK", "MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE", VK_LAYER_SETTING_TYPE_INT32_EXT, 1, &metal_events},
-    {"MoltenVK", "MVK_CONFIG_API_VERSION_TO_ADVERTISE", VK_LAYER_SETTING_TYPE_UINT32_EXT, 1, &version_1_3},
-};
 
 /* Taken out of vkCreateInstance's chain: the app's own settings (decision 8) and the direct driver loading,
    whose extension is not offered. The app's debug callbacks stay, as libvulkan's copies, which
@@ -142,8 +130,9 @@ VkResult vkCreateInstance(const VkInstanceCreateInfo *info, const VkAllocationCa
     }
     const VkLayerSettingsCreateInfoEXT settings = {.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
                                                    .pNext = chain,
-                                                   .settingCount = sizeof pinned / sizeof *pinned,
-                                                   .pSettings = pinned};
+                                                   .settingCount = sizeof minato_moltenvk_settings /
+                                                                   sizeof *minato_moltenvk_settings,
+                                                   .pSettings = minato_moltenvk_settings};
     /* Vulkan 1.3 whatever the app asked for, so its devices report 1.3 (decision 11). */
     VkApplicationInfo application = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
     if (info->pApplicationInfo != NULL) {

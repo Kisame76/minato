@@ -8,16 +8,11 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+#include "metal_display.h"
 #include "minato_bind.h"
 
 /* The host function of a name written by hand: its stub in egl_stubs.S, which takes what the name takes. */
 #define MINATO_HOST(name) extern __typeof__(name) minato_host_##name MINATO_HIDDEN
-
-/* ANGLE's names, which the NDK's headers lack (ANGLE's include/EGL/eglext_angle.h and eglext.h). */
-#define MINATO_EGL_PLATFORM_ANGLE_ANGLE 0x3202
-#define MINATO_EGL_PLATFORM_ANGLE_TYPE_ANGLE 0x3203
-#define MINATO_EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE 0x3489
-#define MINATO_EGL_FIXED_SIZE_ANGLE 0x3201
 
 /* eglGetProcAddress's EGL names (procs.c): the function libEGL hands out for a name of its table, the one
    written by hand or else the stub; NULL for any other name. */

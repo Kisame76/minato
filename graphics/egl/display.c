@@ -29,8 +29,7 @@ MINATO_HOST(eglClientWaitSync);
 MINATO_HOST(eglClientWaitSyncKHR);
 
 static EGLDisplay metal_display(void) {
-    static const EGLAttrib metal[] = {MINATO_EGL_PLATFORM_ANGLE_TYPE_ANGLE, MINATO_EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
-                                      EGL_NONE};
+    static const EGLAttrib metal[] = MINATO_EGL_METAL_DISPLAY;
     return minato_host_eglGetPlatformDisplay(MINATO_EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, metal);
 }
 
