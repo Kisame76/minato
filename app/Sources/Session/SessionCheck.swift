@@ -130,13 +130,13 @@ enum SessionCheck {
         }
     }
 
-    /// The check is over: the library removes the requested app, then the folder.
+    /// The check is over: the library removes the requested apps, one package per line, then the folder.
     @MainActor
     static func endIfRequested(in library: LibraryModel) async {
-        guard let package = text(of: "end") else { return }
-        if let entry = library.entries.first(where: { $0.id == package }) {
-            await library.remove([entry])
-        }
+        guard let text = text(of: "end") else { return }
+        let packages = Set(text.split(whereSeparator: \.isNewline).map(String.init))
+        let entries = library.entries.filter { packages.contains($0.id) }
+        if !entries.isEmpty { await library.remove(entries) }
         try? FileManager.default.removeItem(at: folder)
     }
 
@@ -214,8 +214,12 @@ enum SessionCheck {
     }
 
     /// A motion event that reached the sink: its action, its pointers' IDs and its history's rows.
-    static func motion(_ motion: MotionEvent) {
-        event("motion \(motion.action) ids \(motion.pointers.map { String($0.id) }.joined(separator: ",")) history \(motion.history.count)")
+    /// A motion event the input channel was given, and how many it did not take so far; then each pointer's
+    /// pressure and touch major in pixels.
+    static func motion(_ motion: MotionEvent, channel: UInt64, failedPosts: Int) {
+        let pointers = motion.pointers.map { String(format: "%.2f/%.0f", $0.pressure, $0.touchMajor) }.joined(separator: ",")
+        event("motion \(motion.action) ids \(motion.pointers.map { String($0.id) }.joined(separator: ",")) history \(motion.history.count)"
+              + " channel \(channel) failed \(failedPosts) pressure/major \(pointers)")
     }
 
     /// ADR-0036's guess that `UITouch.timestamp` counts on CLOCK_UPTIME_RAW, the guest's CLOCK_MONOTONIC:

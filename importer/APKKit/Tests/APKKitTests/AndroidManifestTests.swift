@@ -113,6 +113,10 @@ struct AndroidManifestTests {
                         .android("name", 0x0101_0003, .string("android.app.lib_name")),
                         .android("value", 0x0101_0024, .string("game")),
                     ]),
+                    E("meta-data", [
+                        .android("name", 0x0101_0003, .string("android.app.func_name")),
+                        .android("value", 0x0101_0024, .string("game_onCreate")),
+                    ]),
                     Self.launcherFilter,
                 ]),
             ]),
@@ -121,6 +125,7 @@ struct AndroidManifestTests {
         #expect(manifest.hasCode == false)
         #expect(manifest.usesNativeActivity)
         #expect(manifest.nativeLibraryName == "game")
+        #expect(manifest.nativeFunctionName == "game_onCreate")
     }
 
     @Test func readsTheLaunchersScreenOrientation() throws {
@@ -163,6 +168,23 @@ struct AndroidManifestTests {
 
         #expect(manifest.hasCode)
         #expect(manifest.nativeLibraryName == "main")
+        #expect(manifest.nativeFunctionName == "ANativeActivity_onCreate")
+    }
+
+    @Test func aJavaActivityHasNoNativeFunction() throws {
+        let manifest = try Self.parse(Self.manifest([], [
+            E("application", [], [
+                E("activity", [.android("name", 0x0101_0003, .string(".Main"))], [
+                    E("meta-data", [
+                        .android("name", 0x0101_0003, .string("android.app.func_name")),
+                        .android("value", 0x0101_0024, .string("game_onCreate")),
+                    ]),
+                    Self.launcherFilter,
+                ]),
+            ]),
+        ]))
+
+        #expect(manifest.nativeFunctionName == nil)
     }
 
     @Test func readsGraphicsRequirements() throws {

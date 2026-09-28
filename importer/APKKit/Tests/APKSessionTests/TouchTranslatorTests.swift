@@ -39,6 +39,28 @@ struct TouchTranslatorTests {
         ])
     }
 
+    /// UIKit gives a touch's radius and force as 0 in `touchesEnded`; Android's UP and POINTER_UP carry
+    /// the pointer's last reported size and pressure, with the finger's last place.
+    @Test func theLiftKeepsTheLastSizeAndPressure() {
+        var translator = TouchTranslator(scale: Self.scale)
+        let pressed = { (x: Double, time: Double) in Self.sample(x, 10, at: time, force: 3, maximumForce: 6, radius: 12) }
+        let lifted = { (x: Double, time: Double) in Self.sample(x, 10, at: time, force: 0, maximumForce: 6, radius: 0) }
+        _ = translator.began([TouchChange(touch: 1, samples: [pressed(10, 1)])])
+        _ = translator.began([TouchChange(touch: 2, samples: [pressed(50, 2)])])
+        let held = MotionEvent.Pointer(id: 1, x: 150, y: 30, pressure: 0.5, touchMajor: 72)
+
+        #expect(translator.ended([TouchChange(touch: 1, samples: [lifted(11, 3)])]) == [
+            MotionEvent(action: .pointerUp(0), downTime: Self.ns(1), eventTime: Self.ns(3), pointers: [
+                MotionEvent.Pointer(id: 0, x: 33, y: 30, pressure: 0.5, touchMajor: 72), held,
+            ]),
+        ])
+        #expect(translator.ended([TouchChange(touch: 2, samples: [lifted(51, 4)])]) == [
+            MotionEvent(action: .up, downTime: Self.ns(1), eventTime: Self.ns(4), pointers: [
+                MotionEvent.Pointer(id: 1, x: 153, y: 30, pressure: 0.5, touchMajor: 72),
+            ]),
+        ])
+    }
+
     @Test func aSecondFingerIsPointerDownAndItsLiftPointerUpWithTheIndex() {
         var translator = TouchTranslator(scale: Self.scale)
         _ = translator.began([Self.touch(1, 10, 10, at: 1)])

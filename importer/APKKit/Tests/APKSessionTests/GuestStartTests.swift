@@ -8,9 +8,9 @@ import Testing
 struct GuestStartTests {
     static let package = "io.github.kisame76.minato.test.activity"
 
-    static func start(library: String = "activity-test") -> GuestStart {
+    static func start(library: String = "activity-test", function: String? = nil) -> GuestStart {
         GuestStart(
-            package: package, library: library,
+            package: package, library: library, function: function,
             apk: "/v/apps/p/1/base.apk", appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", external: "/v/data/p/external", obb: "/v/data/p/obb",
             guestSystem: "/b/Minato.app/Guest")
@@ -38,13 +38,18 @@ struct GuestStartTests {
     }
 
     @Test func startsActivityHostWithTheAppsLibrary() {
-        let start = Self.start(library: "main")
+        let start = Self.start(library: "main", function: "game_onCreate")
         #expect(start.program == "/b/Minato.app/Guest/bin/activity-host.dylib")
         #expect(start.arguments == [
             "/system/bin/activity-host", "--package", Self.package,
-            "--apk", "/data/app/\(Self.package)/base.apk", "--library", "main",
+            "--apk", "/data/app/\(Self.package)/base.apk", "--library", "main", "--function", "game_onCreate",
         ])
         #expect(start.environment == ["LD_LIBRARY_PATH=/data/app/\(Self.package)/lib/arm64"])
+    }
+
+    /// A report from before the import read `android.app.func_name` has none: Android's default.
+    @Test func withoutAFunctionNameItIsAndroidsDefault() {
+        #expect(Self.start(function: nil).arguments.suffix(2) == ["--function", "ANativeActivity_onCreate"])
     }
 
     @Test func theConfigurationHasTheScreenInTheSessionsOrientation() {

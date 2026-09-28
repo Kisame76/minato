@@ -174,13 +174,19 @@ public struct TouchTranslator: Sendable {
     }
 
     /// One POINTER_UP per finger in the order of the IDs, the last one UP, each at the finger's last place.
+    /// UIKit gives the radius and the force as 0 there; the finger keeps its last size and pressure, as
+    /// Android's pointer does.
     public mutating func ended(_ changes: [TouchChange]) -> [MotionEvent] {
         var events: [MotionEvent] = []
         let known = changes.filter { pointers[$0.touch] != nil && !$0.samples.isEmpty }
         for change in known.sorted(by: { pointers[$0.touch]!.id < pointers[$1.touch]!.id }) {
             let sample = change.samples.last!
-            let id = pointers[change.touch]!.id
-            pointers[change.touch] = pointer(id, sample)
+            let last = pointers[change.touch]!
+            let id = last.id
+            var lifted = pointer(id, sample)
+            lifted.pressure = last.pressure
+            lifted.touchMajor = last.touchMajor
+            pointers[change.touch] = lifted
             let ordered = orderedPointers()
             let index = ordered.firstIndex { $0.id == id }!
             events.append(MotionEvent(action: ordered.count == 1 ? .up : .pointerUp(index), downTime: downTime,

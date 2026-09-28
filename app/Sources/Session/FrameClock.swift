@@ -1,3 +1,4 @@
+import APKRuntime
 import APKSession
 import Foundation
 import QuartzCore
@@ -72,9 +73,9 @@ final class DisplayLinkClock {
     }
 }
 
-/// The ticks until Runtime's vsync channel exists (ADR-0036, step a): the Debug build shows session-check
-/// the intervals between them, and nothing goes further.
-final class NoChannelFrameSink: FrameTickSink, @unchecked Sendable {
+/// The ticks to the guest's vsync channels (ADR-0036, decision 1); the Debug build shows session-check the
+/// intervals between them.
+final class VsyncChannelSink: FrameTickSink, @unchecked Sendable {
     #if DEBUG
     /// Only on the clock's thread.
     private var last: FrameTick?
@@ -82,6 +83,7 @@ final class NoChannelFrameSink: FrameTickSink, @unchecked Sendable {
     #endif
 
     func tick(_ tick: FrameTick) {
+        apkrt_vsync_post(tick.time, tick.targetTime)
         #if DEBUG
         defer { last = tick }
         // The first tick after a pause starts anew.

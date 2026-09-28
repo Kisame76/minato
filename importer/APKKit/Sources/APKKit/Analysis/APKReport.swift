@@ -28,6 +28,9 @@ public struct APKReport: Sendable, Equatable, Codable {
     /// unset. Game mode holds the screen by it (ADR-0032).
     public var screenOrientation: Int?
     public var runtime: Runtime
+    /// For a NativeActivity, the function it calls (`android.app.func_name`); nil in reports from before
+    /// the import read it, which then mean Android's default.
+    public var nativeFunction: String?
     /// ABIs with native libraries, sorted.
     public var abis: [String]
     /// "arm64-v8a" when present; the only ABI an iPhone can run (ADR-0006).

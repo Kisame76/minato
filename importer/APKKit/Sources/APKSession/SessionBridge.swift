@@ -40,6 +40,14 @@ public enum SessionRequest: Sendable, Equatable {
     case keepScreenOn(Bool)
     /// activity-host cannot start the app, with its reason.
     case startFailed(String)
+    /// `ANativeWindow_setFrameRate` changed the rate the window prefers, in frames per second, 0 for none
+    /// (ADR-0036, decision 2).
+    case frameRate(Float)
+
+    /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
+    public static func frameRate(bits: UInt64) -> SessionRequest {
+        .frameRate(Float(bitPattern: UInt32(truncatingIfNeeded: bits)))
+    }
 
     /// The lifecycle's event for the request, if it has one.
     public var event: Lifecycle.Event? {
@@ -63,6 +71,8 @@ public protocol SessionHost: AnyObject {
     func setBackground(_ on: Bool)
     /// `apkrt_wait_scheduled`: whether every provider reported its GPU work scheduled in time.
     func waitScheduled(seconds: Double) -> Bool
+    /// `apkrt_input_add`: a new input channel's ID, from 1, 0 without memory (ADR-0036, decision 1).
+    func addInputChannel() -> UInt64
 }
 
 /// The lifecycle (ADR-0032, decision 7) on ADR-0028's session: each callback becomes an event for
@@ -94,8 +104,9 @@ public struct SessionBridge: Sendable {
     /// The host's window the guest has, 0 for none.
     public private(set) var window: UInt64 = 0
     private var gateIsOpen = false
-    /// Whether the guest has its input queue: activity-host destroys it itself before onDestroy.
-    private var hasInputQueue = false
+    /// The input channel of the guest's input queue, once it has one: activity-host destroys the queue
+    /// itself before onDestroy. 0 when the runtime had no memory for one.
+    public private(set) var inputChannel: UInt64?
     /// The content's rectangle the guest was told last: the whole window, as for an edge-to-edge app.
     private var contentRect: PixelSize?
     /// Whether the runtime was told of the background.
@@ -160,7 +171,7 @@ public struct SessionBridge: Sendable {
                 window = 0
                 host.removeWindow(gone)
             }
-            for event in sessionEvents(for: callback, gone: gone) {
+            for event in sessionEvents(for: callback, gone: gone, host: host) {
                 serial = host.post(event)
                 guard serial != 0 else {
                     isBroken = true
@@ -196,12 +207,14 @@ public struct SessionBridge: Sendable {
     }
 
     /// The callback's event, and ADR-0028 d)'s that follow it.
-    private mutating func sessionEvents(for callback: Lifecycle.Callback, gone: UInt64) -> [SessionEvent] {
+    private mutating func sessionEvents(for callback: Lifecycle.Callback, gone: UInt64,
+                                        host: SessionHost) -> [SessionEvent] {
         let event = sessionEvent(for: callback, gone: gone)
         switch callback {
-        case .onResume where !hasInputQueue:
-            hasInputQueue = true
-            return [event, .inputQueueCreated(channel: 0)]
+        case .onResume where inputChannel == nil:
+            let channel = host.addInputChannel()
+            inputChannel = channel
+            return [event, .inputQueueCreated(channel: channel)]
         case .onNativeWindowCreated:
             let (width, height) = (windowSize.width, windowSize.height)
             var events = [event, .nativeWindowResized(window: window, width: width, height: height)]

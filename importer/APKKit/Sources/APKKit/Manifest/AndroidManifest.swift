@@ -31,6 +31,8 @@ public struct AndroidManifest: Sendable, Equatable {
     public var usesNativeActivity: Bool
     /// Library that NativeActivity loads (`android.app.lib_name`, default "main").
     public var nativeLibraryName: String?
+    /// Function in it that NativeActivity calls (`android.app.func_name`, default "ANativeActivity_onCreate").
+    public var nativeFunctionName: String?
 
     public var requiredGLESVersion: UInt32?
     public var requiredVulkanVersion: UInt32?
@@ -109,12 +111,17 @@ public struct AndroidManifest: Sendable, Equatable {
         screenOrientation = launcher?.element.android(.screenOrientation)?.integer
         usesNativeActivity = launcher?.className == "android.app.NativeActivity"
         if usesNativeActivity {
-            let libraryName = launcher?.element.children(named: "meta-data")
-                .first { $0.android(.name)?.string == "android.app.lib_name" }?
-                .android(.value)?.string
-            nativeLibraryName = libraryName ?? "main"
+            // NativeActivity.onCreate reads both from the launcher's meta-data, with these defaults.
+            let value = { (name: String) in
+                launcher?.element.children(named: "meta-data")
+                    .first { $0.android(.name)?.string == name }?
+                    .android(.value)?.string
+            }
+            nativeLibraryName = value("android.app.lib_name") ?? "main"
+            nativeFunctionName = value("android.app.func_name") ?? "ANativeActivity_onCreate"
         } else {
             nativeLibraryName = nil
+            nativeFunctionName = nil
         }
 
         var glesVersion: UInt32?

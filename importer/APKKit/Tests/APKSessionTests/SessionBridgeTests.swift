@@ -14,6 +14,7 @@ struct SessionBridgeTests {
         case removeWindow(UInt64)
         case setBackground(Bool)
         case waitScheduled(Double)
+        case addInputChannel
     }
 
     /// A session that records every call; window IDs and serial numbers count from 1, as the runtime's.
@@ -44,6 +45,12 @@ struct SessionBridgeTests {
         func waitScheduled(seconds: Double) -> Bool {
             calls.append(.waitScheduled(seconds))
             return true
+        }
+
+        /// The runtime's IDs count from 1; 7 tells the channel from a window or a serial.
+        func addInputChannel() -> UInt64 {
+            calls.append(.addInputChannel)
+            return 7
         }
 
         /// The calls since the last look.
@@ -83,11 +90,13 @@ struct SessionBridgeTests {
     @Test func startAddsTheWindowAndOpensTheGateWithTheFocus() {
         let host = FakeHost()
         var bridge = Self.bridge()
+        #expect(bridge.inputChannel == nil)
 
         bridge.handle(.start, host: host)
+        #expect(bridge.inputChannel == 7)
         #expect(host.take() == [
             .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+            .post(.create), .post(.start), .addInputChannel, .post(.resume), .post(.inputQueueCreated(channel: 7)),
         ] + Self.shown(1, first: true))
         bridge.handle(.active, host: host)
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
@@ -115,7 +124,7 @@ struct SessionBridgeTests {
         bridge.handle(.start, host: host)
         #expect(host.take() == [
             .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+            .post(.create), .post(.start), .addInputChannel, .post(.resume), .post(.inputQueueCreated(channel: 7)),
         ] + Self.shown(1, first: true) + [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
     }
 
@@ -301,7 +310,7 @@ struct SessionBridgeTests {
         bridge.handle(.foreground, host: host)
         #expect(host.take() == [
             .setBackground(false), .addWindow(width: Self.width, height: Self.height),
-            .post(.create), .post(.start), .post(.resume), .post(.inputQueueCreated(channel: 0)),
+            .post(.create), .post(.start), .addInputChannel, .post(.resume), .post(.inputQueueCreated(channel: 7)),
         ] + Self.shown(1, first: true))
     }
 
@@ -334,5 +343,12 @@ struct SessionBridgeTests {
         #expect(SessionRequest.finish.event == .finish)
         #expect(SessionRequest.keepScreenOn(true).event == nil)
         #expect(SessionRequest.startFailed("dlopen failed").event == nil)
+        #expect(SessionRequest.frameRate(60).event == nil)
+    }
+
+    /// APKRT_REQUEST_FRAME_RATE's argument holds a float's bits (ADR-0036, decision 2).
+    @Test func theFrameRateComesAsAFloatsBits() {
+        #expect(SessionRequest.frameRate(bits: UInt64(Float(90).bitPattern)) == .frameRate(90))
+        #expect(SessionRequest.frameRate(bits: 0) == .frameRate(0))
     }
 }

@@ -9,6 +9,13 @@ final class RuntimeSessionHost: SessionHost {
     /// The layer every window of the session is on, once the view exists; the registry retains it while a
     /// window is there. The bridge adds windows only after the first layout.
     var layer: CAMetalLayer?
+    /// The frame clock's `setPreferredRate`: the request handler calls it on the guest's thread, and a
+    /// window's removal with 0.
+    private let preferRate: @Sendable (Float) -> Void
+
+    init(preferRate: @escaping @Sendable (Float) -> Void) {
+        self.preferRate = preferRate
+    }
 
     func post(_ event: SessionEvent) -> UInt32 {
         let (type, a0, a1, a2) = Self.record(event)
@@ -23,8 +30,11 @@ final class RuntimeSessionHost: SessionHost {
         _ = apkrt_window_set_gate(window, open ? 1 : 0)
     }
 
+    /// No FRAME_RATE request for the window comes once it is removed, and its preference goes with it: a
+    /// new window has none, as a new Surface on Android (ADR-0036, decision 2).
     func removeWindow(_ window: UInt64) {
         _ = apkrt_window_remove(window)
+        preferRate(0)
     }
 
     func setBackground(_ on: Bool) {
@@ -33,6 +43,10 @@ final class RuntimeSessionHost: SessionHost {
 
     func waitScheduled(seconds: Double) -> Bool {
         apkrt_wait_scheduled(seconds) == 1
+    }
+
+    func addInputChannel() -> UInt64 {
+        apkrt_input_add()
     }
 
     /// `apkrt_session_wait`, never on the main thread: 1 answered, 0 timed out, -1 the channel broke or the
@@ -76,20 +90,21 @@ final class RuntimeSessionHost: SessionHost {
     }
 
     /// The paths of decision 14 and the session with its configuration and handlers, before activity-host
-    /// starts (ADR-0028 d). Nil, or why the app cannot start.
-    static func begin(_ start: GuestStart, configuration: GuestConfiguration) -> String? {
+    /// starts (ADR-0028 d); the handlers get this host as their context. Nil, or why the app cannot start.
+    func begin(_ start: GuestStart, configuration: GuestConfiguration) -> String? {
         var error = [CChar](repeating: 0, count: 1024)
         for path in start.mounts where apkrt_mount(path.guest, path.host, &error, error.count) != 0 {
-            return text(error)
+            return Self.text(error)
         }
         for path in start.libraryDirectories
         where apkrt_add_library_directory(path.guest, path.host, &error, error.count) != 0 {
-            return text(error)
+            return Self.text(error)
         }
         var session = apkrt_session()
-        session.end = endHandler
-        session.request = requestHandler
-        session.configuration = record(configuration)
+        session.context = Unmanaged.passUnretained(self).toOpaque()
+        session.end = Self.endHandler
+        session.request = Self.requestHandler
+        session.configuration = Self.record(configuration)
         guard apkrt_session_begin(&session) == 0 else { return "the session did not begin" }
         return nil
     }
@@ -141,6 +156,7 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_FINISH.rawValue: .finish
         case APKRT_REQUEST_KEEP_SCREEN_ON.rawValue: .keepScreenOn(argument != 0)
         case APKRT_REQUEST_START_FAILED.rawValue: .startFailed(text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_FRAME_RATE.rawValue: .frameRate(bits: argument)
         default: nil
         }
     }
@@ -154,9 +170,14 @@ final class RuntimeSessionHost: SessionHost {
     }
 
     /// The session's request handler: it runs on the guest thread that asks and must not block, so the
-    /// request goes to the main queue; the text lives only until it returns, so it is copied first.
-    static let requestHandler: apkrt_request_handler = { _, type, argument, text in
+    /// request goes to the main queue; the text lives only until it returns, so it is copied first. A frame
+    /// rate goes to the clock at once, which takes it without blocking: the runtime reports none for a
+    /// window after its removal has returned, so the preference cannot come after the reset.
+    static let requestHandler: apkrt_request_handler = { context, type, argument, text in
         guard let request = RuntimeSessionHost.request(type: type, argument: argument, text: text) else { return }
+        if case .frameRate(let rate) = request, let context {
+            Unmanaged<RuntimeSessionHost>.fromOpaque(context).takeUnretainedValue().preferRate(rate)
+        }
         DispatchQueue.main.async {
             MainActor.assumeIsolated { GameSession.current?.received(request) }
         }
@@ -184,6 +205,7 @@ final class NoGuestSessionHost: SessionHost {
     func removeWindow(_ window: UInt64) {}
     func setBackground(_ on: Bool) {}
     func waitScheduled(seconds: Double) -> Bool { true }
+    func addInputChannel() -> UInt64 { 0 }
 
     static func wait(serial: UInt32, seconds: Double) -> Int32 { 1 }
 
@@ -194,12 +216,28 @@ final class NoGuestSessionHost: SessionHost {
 }
 #endif
 
-/// The motion events until Runtime's input channel exists (ADR-0036, step b): the Debug build shows
-/// session-check what reaches it, and nothing goes further.
-final class NoChannelMotionSink: MotionEventSink {
+/// The motion events to the guest's input channel (ADR-0036, decision 3); the Debug build shows
+/// session-check each, with the posts the channel did not take so far.
+final class InputChannelSink: MotionEventSink {
+    /// The channel of the guest's input queue, 0 before it has one.
+    var channel: UInt64 = 0
+    #if DEBUG
+    private var failedPosts = 0
+    #endif
+
     func post(_ events: [MotionEvent]) {
-        #if DEBUG
-        events.forEach(SessionCheck.motion)
-        #endif
+        for event in events {
+            let record = event.record
+            let places = record.places.map {
+                apkrt_pointer_coords(x: $0.x, y: $0.y, pressure: $0.pressure, touch_major: $0.touchMajor)
+            }
+            let posted = apkrt_input_post(
+                channel, record.action, record.downTime, UInt32(record.pointerIDs.count), record.pointerIDs,
+                UInt32(record.sampleTimes.count), record.sampleTimes, places) == 1
+            #if DEBUG
+            if !posted { failedPosts += 1 }
+            SessionCheck.motion(event, channel: channel, failedPosts: failedPosts)
+            #endif
+        }
     }
 }

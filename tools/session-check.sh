@@ -187,11 +187,11 @@ fi
 
 restore() {
   terminate
-  # The hint counts as not shown yet, as before the first session, and the test app goes.
+  # The hint counts as not shown yet, as before the first session, and the test apps go.
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   echo yes > "$CHECK/forget-hint"
-  echo "$PKG" > "$CHECK/end"
+  printf '%s\n' "$PKG" ${ACTIVITY:+"$ACTIVITY_PKG"} > "$CHECK/end"
   send_requests || true
   launch || true
   for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
@@ -577,6 +577,8 @@ run_touch() {
     && ok "  every touch's time lies 0 to 100 ms before now on the uptime clock" \
     || fail "  a touch's time is not on the uptime clock: $clocks"
   echo "      moves with history: $(head -n "$seen" "$EVENTS" | grep -c -E 'motion move .* history [1-9]' || true)"
+  echo "      the events: action, history, failed posts, pressure/touch major in pixels per pointer"
+  head -n "$seen" "$EVENTS" | awk '$3 == "motion" { print "        " $4, $8, $12, $14 }' | head -n 60
 }
 
 # The frame clock ticks while the gate is open, off the main thread, and pauses when the menu takes the focus.

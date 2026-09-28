@@ -43,6 +43,7 @@ public enum APKAnalyzer {
             launcherActivity: manifest.launcherActivity,
             screenOrientation: manifest.screenOrientation,
             runtime: runtime,
+            nativeFunction: manifest.nativeFunctionName,
             abis: abis,
             selectedABI: selectedABI,
             nativeLibraries: nativeLibraries,

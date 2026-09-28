@@ -145,7 +145,21 @@ struct APKAnalyzerTests {
         let report = try APKAnalyzer.analyze(apk.archive(), preferredLanguages: [])
 
         #expect(report.runtime == .nativeActivity(library: "game"))
+        #expect(report.nativeFunction == "ANativeActivity_onCreate")
         #expect(!report.compatibility.issues.contains(.needsART))
+    }
+
+    @Test func aReportFromBeforeTheFunctionNameHasNone() throws {
+        let apk = TestAPK(manifestChildren: [Self.application([], [
+            E("activity", [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))], [Self.launcherFilter]),
+        ])], files: [Self.library("lib/arm64-v8a/libmain.so")])
+        let report = try APKAnalyzer.analyze(apk.archive(), preferredLanguages: [])
+        var stored = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
+        stored["nativeFunction"] = nil
+
+        let decoded = try JSONDecoder().decode(APKReport.self, from: JSONSerialization.data(withJSONObject: stored))
+        #expect(decoded.nativeFunction == nil)
+        #expect(decoded.runtime == report.runtime)
     }
 
     @Test func probesNativeLibraries() throws {

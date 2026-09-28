@@ -46,9 +46,9 @@ final class GameSession {
 
     /// The guest's touches (ADR-0036, decision 3), and where they go.
     @ObservationIgnored private var touches = TouchTranslator(scale: 1)
-    @ObservationIgnored private let motionSink: MotionEventSink
-    /// Ticks while the gate is open (ADR-0036, decision 2).
-    @ObservationIgnored private let frameClock = DisplayLinkClock(sink: NoChannelFrameSink())
+    @ObservationIgnored private let motionSink = InputChannelSink()
+    /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers.
+    @ObservationIgnored private let frameClock: DisplayLinkClock
     /// The guest's audio output (ADR-0036, decision 4).
     @ObservationIgnored let audio = AudioHost(sink: NoChannelAudioSink())
 
@@ -67,8 +67,10 @@ final class GameSession {
         #else
         let withGuest = true
         #endif
+        let frameClock = DisplayLinkClock(sink: VsyncChannelSink())
+        self.frameClock = frameClock
         if withGuest {
-            let runtime = RuntimeSessionHost()
+            let runtime = RuntimeSessionHost(preferRate: frameClock.setPreferredRate)
             self.runtime = runtime
             host = runtime
             waitForAnswer = { RuntimeSessionHost.wait(serial: $0, seconds: $1) }
@@ -83,7 +85,6 @@ final class GameSession {
             fatalError("every session has a guest")
             #endif
         }
-        motionSink = NoChannelMotionSink()
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
         showsFPS = UserDefaults.standard.bool(forKey: Self.showsFPSKey)
         Self.current = self
@@ -152,7 +153,7 @@ final class GameSession {
         #if DEBUG
         SessionCheck.guestStarts()
         #endif
-        if let failure = RuntimeSessionHost.begin(start, configuration: configuration) {
+        if let failure = runtime.begin(start, configuration: configuration) {
             return couldNotStart(failure)
         }
         Task.detached {
@@ -171,7 +172,7 @@ final class GameSession {
         else { return nil }
         let data = paths.dataDirectory(for: entry.id)
         let start = GuestStart(
-            package: entry.id, library: library,
+            package: entry.id, library: library, function: entry.report?.nativeFunction,
             apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path,
             appLibraries: paths.libraryDirectory(for: entry).path,
             data: data.appending(path: "data").path, external: data.appending(path: "external").path,
@@ -320,6 +321,7 @@ final class GameSession {
 
     private func post(_ events: [MotionEvent]) {
         guard !events.isEmpty else { return }
+        motionSink.channel = bridge.inputChannel ?? 0
         motionSink.post(events)
     }
 
@@ -333,6 +335,9 @@ final class GameSession {
             deliver(.finish)
         case .keepScreenOn(let on):
             UIApplication.shared.isIdleTimerDisabled = on
+        case .frameRate:
+            // The request handler gave it to the frame clock already.
+            break
         case .startFailed(let reason):
             log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
             startFailure = reason
