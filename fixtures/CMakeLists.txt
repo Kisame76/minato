@@ -1,7 +1,7 @@
 # NDK test programs for the loader (M2), built for arm64-v8a by tools/build-fixtures.sh.
 # Static programs first (M2 step 4), then dynamically linked ones (step 5).
 cmake_minimum_required(VERSION 4.0)
-project(MinatoFixtures LANGUAGES C ASM)
+project(MinatoFixtures LANGUAGES C CXX ASM)
 
 if(NOT ANDROID OR NOT ANDROID_ABI STREQUAL "arm64-v8a")
   message(FATAL_ERROR "Build the fixtures with tools/build-fixtures.sh (Android NDK, arm64-v8a).")
@@ -109,6 +109,40 @@ target_include_directories(libandroid-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_options(libandroid-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(libandroid-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(libandroid-test PRIVATE nativewindow android dl)
+# asset-test: libandroid's asset manager on archives it writes with zlib, and AConfiguration_fromAssetManager
+# (ADR-0028, decisions 9 and 10).
+add_executable(asset-test suite/asset-test.c)
+target_include_directories(asset-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include")
+target_compile_options(asset-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(asset-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(asset-test PRIVATE android z dl)
+# jni-test: activity-host's JNI stub, from its own source (ADR-0028, decision 8), without the C++ library,
+# which activity-host does not have either.
+add_executable(jni-test suite/jni-test.c ../runtime/activity-host/jni_stub.cpp)
+target_include_directories(jni-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/activity-host")
+target_compile_options(jni-test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20 -fno-exceptions -fno-rtti>)
+target_link_options(jni-test PRIVATE -nostdlib++)
+target_link_libraries(jni-test PRIVATE log)
+# jni-fatal-test: the stub's FatalError, which ends the program.
+add_executable(jni-fatal-test suite/jni-fatal-test.c ../runtime/activity-host/jni_stub.cpp)
+target_include_directories(jni-fatal-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/activity-host")
+target_compile_options(jni-fatal-test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20 -fno-exceptions -fno-rtti>)
+target_link_options(jni-fatal-test PRIVATE -nostdlib++)
+target_link_libraries(jni-fatal-test PRIVATE log)
+# The test apps of M3 (ADR-0028, decision 15): NativeActivity libraries on native_app_glue from the NDK's
+# sources, which tools/build-fixtures.sh packs into build/fixtures/apks/<app>.apk with tools/make-apk.sh.
+# The glue's ANativeActivity_onCreate is only referenced by Java, so -u keeps it in the library.
+set(app_glue "${ANDROID_NDK}/sources/android/native_app_glue")
+add_library(native_app_glue STATIC "${app_glue}/android_native_app_glue.c")
+target_include_directories(native_app_glue PUBLIC "${app_glue}")
+target_link_libraries(native_app_glue PUBLIC android log)
+# activity-test (test 3): its lifecycle, the JNI stub, assets and the configuration; the newest
+# configuration getters came with API 34.
+add_library(activity-test SHARED apps/activity-test/main.c)
+target_include_directories(activity-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include")
+target_compile_options(activity-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(activity-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
+target_link_libraries(activity-test PRIVATE native_app_glue)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

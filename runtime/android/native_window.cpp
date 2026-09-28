@@ -59,7 +59,7 @@ ANativeWindow* minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t h
     window->id = id;
     window->width = width;
     window->height = height;
-    window->format = WINDOW_FORMAT_RGB_565;  // NativeActivity's window
+    window->format = WINDOW_FORMAT_RGBX_8888;  // NativeActivity's window in Android 15 (activity-test)
     pthread_mutex_init(&window->lock, nullptr);
     __atomic_store_n(&window->check, kCheck, __ATOMIC_RELEASE);
     return window;

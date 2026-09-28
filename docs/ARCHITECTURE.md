@@ -92,7 +92,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 2. The host world is initialized: memory budget, VFS roots, signal handlers.
 3. The guest system libraries are loaded. They are in the app bundle and already signed during the Xcode build.
 4. The app's `.so` files are loaded: `dlopen` of the containers, data relocations, constructors.
-5. Start of the game: in M3 the NativeActivity host calls `ANativeActivity_onCreate`, from M4 ART starts the `Activity`.
+5. Start of the game: in M3 the guest program `activity-host` (ADR-0028) plays Android's app process. It opens the app's library and calls `ANativeActivity_onCreate`, then each NativeActivity callback in Android 15's order as the host posts events through the session (an event pipe with answers). The host's windows reach the guest through a registry whose gate (syscall 4105) holds presents while the app may not draw. From M4, ART starts the `Activity`.
 6. Quitting via the overlay ends the process, then the app restarts into the launcher.
 
 ## 4. Components

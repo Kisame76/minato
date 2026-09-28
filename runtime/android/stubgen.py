@@ -41,15 +41,21 @@ LIBRARIES = {
         "implemented": [
             "ALooper_*",
             "AConfiguration_*",
+            # the asset manager (asset_manager.cpp); AAssetManager_fromJava stays a stub until Java (M4)
+            "AAsset_*", "AAssetDir_*", "AAssetManager_open", "AAssetManager_openDir",
+            # the requests (native_activity.cpp)
+            "ANativeActivity_*",
+            # the input queue without events (input_queue.cpp); its events come with M3 step 6
+            "AInputQueue_attachLooper", "AInputQueue_detachLooper",
             # forwarded to libnativewindow (window_forwards.c)
             "ANativeWindow_acquire", "ANativeWindow_release", "ANativeWindow_getWidth", "ANativeWindow_getHeight",
             "ANativeWindow_getFormat", "ANativeWindow_setBuffersGeometry", "ANativeWindow_lock",
             "ANativeWindow_unlockAndPost",
         ],
-        # With the asset manager (ADR-0028, step d); M3 has no resource matching. libandroid's own
-        # AHardwareBuffer functions stay stubs; they would forward once libnativewindow has buffers.
-        "stubbed": ["AConfiguration_fromAssetManager", "AConfiguration_match", "AConfiguration_isBetterThan"],
-        "private": [],
+        # M3 has no resource matching. libandroid's own AHardwareBuffer functions stay stubs; they would
+        # forward once libnativewindow has buffers.
+        "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan"],
+        "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete"],
     },
     "libnativewindow": {
         "version": "LIBNATIVEWINDOW",
@@ -78,10 +84,6 @@ KINDS = {
 
 _ERRNO = "(errno = ENOSYS, -1)"  # -1 with errno set, where the API says so
 VALUES = {
-    # Assets (ADR-0028, step d)
-    "AAsset_getLength": "0", "AAsset_getLength64": "0", "AAsset_getRemainingLength": "0",
-    "AAsset_getRemainingLength64": "0", "AAsset_isAllocated": "0", "AAsset_openFileDescriptor": "-1",
-    "AAsset_openFileDescriptor64": "-1", "AAsset_read": "-1", "AAsset_seek": "-1", "AAsset_seek64": "-1",
     # Choreographer's frame data (M3 step 6): getters of data no frame gives
     "AChoreographerFrameCallbackData_getFrameTimeNanos": "0",
     "AChoreographerFrameCallbackData_getFrameTimelineDeadlineNanos": "0",

@@ -52,6 +52,12 @@ looper-test system
 configuration-test system
 # Android has neither minato_ANativeWindow_create nor our generated stubs (ADR-0028, decisions 7 and 9).
 libandroid-test system runtime-only
+# Android has no minato_AAssetManager_create, and its installer takes no broken archive (ADR-0028, decision 10).
+asset-test system runtime-only
+# Android's JNI is ART's; activity-test compares what an app sees of the stub (ADR-0028, decision 8).
+jni-test system runtime-only
+# FatalError logs the app's message and aborts, as ART does (ADR-0028, decision 8).
+jni-fatal-test system runtime-only status=134
 # What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
 island-bench system measures
 # The address space a program has left, and where the allocator spills (ADR-0035).

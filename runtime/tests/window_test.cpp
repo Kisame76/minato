@@ -60,8 +60,9 @@ constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
 constexpr long eintr = 4, eagain = 11, einval = 22, etimedout = 110;
 
-constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND;
-constexpr long go_on = 0, gone = 1;
+constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND,
+                        present_try = APKRT_GATE_PRESENT_TRY;
+constexpr long go_on = 0, gone = 1, closed = 2;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -247,11 +248,27 @@ TEST(removal_answers_gone_at_once_also_to_a_thread_that_waits) {
 TEST(an_unknown_window_is_gone_and_a_present_needs_a_window) {
     CHECK(gate(1'000'000, present) == gone);
     CHECK(gate(1'000'000, background) == gone);
+    CHECK(gate(1'000'000, present_try) == gone);
     CHECK(gate(0, present) == -einval);
+    CHECK(gate(0, present_try) == -einval);
     const auto id = apkrt_window_add(nullptr, 1080, 2340);
     CHECK(gate(id, 0) == -einval);
-    CHECK(gate(id, 3) == -einval);
+    CHECK(gate(id, 4) == -einval);
     apkrt_window_remove(id);
+}
+
+TEST(the_trying_present_never_waits_and_tells_a_closed_gate) {
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    CHECK(gate(id, present_try) == closed);  // a new window's gate
+    CHECK(apkrt_window_set_gate(id, 1) == 0);
+    CHECK(gate(id, present_try) == go_on);
+    apkrt_set_background(1);  // the background is not the present's business
+    CHECK(gate(id, present_try) == go_on);
+    apkrt_set_background(0);
+    CHECK(apkrt_window_set_gate(id, 0) == 0);
+    CHECK(gate(id, present_try) == closed);
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(gate(id, present_try) == gone);
 }
 
 // --- The background -----------------------------------------------------------------------------

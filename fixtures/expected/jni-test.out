@@ -1,0 +1,11 @@
+functions: 229 of 229, invoke: 5 of 5, clazz set
+GetVersion 0x10006, ExceptionCheck 0
+FindClass: NULL, NULL, NULL
+GetFloatField 0, GetDoubleField 0, CallStaticFloatMethod 0, GetFloatField again 0
+NewStringUTF NULL, GetStringUTFChars NULL, GetObjectClass NULL
+RegisterNatives -1, Throw -1, ThrowNew -1, MonitorEnter -1, MonitorExit -1, UnregisterNatives -1
+GetArrayLength 0, PushLocalFrame 0, EnsureLocalCapacity 0, IsSameObject 0, GetLongField 0, GetDirectBufferCapacity -1
+GetJavaVM 0 (the stub's)
+main thread: GetEnv 0 (its env), version 0x7fffffff -3, 1.1 0, 1.2 0, 1.4 0, AttachCurrentThread 0 (its env), DestroyJavaVM -1
+other thread: GetEnv -2 (NULL), AttachCurrentThreadAsDaemon 0, GetEnv 0 (the attached env, not the main thread's), DetachCurrentThread 0, again -1, GetEnv -2
+main thread afterwards: GetEnv 0

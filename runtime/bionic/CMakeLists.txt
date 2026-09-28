@@ -51,8 +51,9 @@ set(apk_flags ${apk_target} -nostdlibinc -fPIC -ffunction-sections -fdata-sectio
 set(apk_link_flags ${apk_target} -nostdlib -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-z,noexecstack
   -Wl,-z,relro -Wl,-z,now -Wl,--build-id=md5 -Wl,--hash-style=gnu)
 
+# STRICT marks Minato's own units, whose warnings are errors: -Werror after bionic's -Wno-error.
 function(apk_bionic_unit name)
-  cmake_parse_arguments(PARSE_ARGV 1 unit "" "" "SOURCES;CFLAGS;CONLYFLAGS;CPPFLAGS;ASFLAGS;INCLUDES")
+  cmake_parse_arguments(PARSE_ARGV 1 unit "STRICT" "" "SOURCES;CFLAGS;CONLYFLAGS;CPPFLAGS;ASFLAGS;INCLUDES")
   add_library(${name} OBJECT ${unit_SOURCES})
   target_include_directories(${name} PRIVATE ${unit_INCLUDES} "${CMAKE_BINARY_DIR}/ndk_liblog/include")
   target_compile_options(${name} PRIVATE ${apk_flags}
@@ -60,6 +61,9 @@ function(apk_bionic_unit name)
     "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20;-fno-rtti;${unit_CFLAGS};${unit_CPPFLAGS}>"
     "$<$<COMPILE_LANGUAGE:ASM>:-D__ASSEMBLY__;-DPLATFORM_SDK_VERSION=35;${unit_ASFLAGS}>"
     -Wno-error)
+  if(unit_STRICT)
+    target_compile_options(${name} PRIVATE -Werror)
+  endif()
 endfunction()
 
 function(apk_bionic_library name)
@@ -127,13 +131,13 @@ target_include_directories(bionic_libscudo BEFORE PRIVATE "${CMAKE_CURRENT_SOURC
 set(bionic_include "${APK_SOURCES}/bionic/libc/include" "${APK_SOURCES}/bionic/libc/kernel/uapi"
   "${APK_SOURCES}/bionic/libc/kernel/android/uapi" "${APK_SOURCES}/bionic/libc/kernel/uapi/asm-arm64")
 apk_bionic_unit(apk_liblog SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/liblog.cpp" INCLUDES ${bionic_include}
-  CFLAGS -Wall -Wextra -Werror)
+  CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(liblog UNITS apk_liblog NEEDED libc)
 
 # libnetd_client.so: Minato's own (runtime/bionic/src/libnetd_client.cpp). bionic's libc.so opens
 # it at start; without netd its functions leave the socket functions as they are.
 apk_bionic_unit(apk_netd_client SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/libnetd_client.cpp" INCLUDES ${bionic_include}
-  CFLAGS -Wall -Wextra -Werror)
+  CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libnetd_client UNITS apk_netd_client NEEDED libc)
 
 # The NDK libraries Minato writes itself (ADR-0028, decisions 7, 9 and 12, runtime/android): libz.so,
@@ -144,8 +148,12 @@ apk_bionic_library(libnetd_client UNITS apk_netd_client NEEDED libc)
 set(android_sources "${CMAKE_CURRENT_SOURCE_DIR}/../android")
 set(android_generated "${APK_BIONIC_GENERATED}/android")
 file(MAKE_DIRECTORY "${android_generated}")
-foreach(header IN ITEMS asset_manager configuration data_space hardware_buffer looper native_window rect)
+foreach(header IN ITEMS asset_manager configuration data_space hardware_buffer input keycodes looper native_activity
+    native_window rect window)
   file(COPY "${ndk_sysroot_include}/android/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/android")
+endforeach()
+foreach(header IN ITEMS jni zconf zlib)
+  file(COPY "${ndk_sysroot_include}/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
 endforeach()
 set(android_includes ${bionic_include} "${CMAKE_BINARY_DIR}/ndk_android/include" "${APK_ROOT}/runtime/include")
 set(stubgen ${Python3_EXECUTABLE} "${android_sources}/stubgen.py" generate)
@@ -178,7 +186,7 @@ add_custom_command(OUTPUT "${nativewindow_map}" "${nativewindow_stubs}"
   COMMAND ${stubgen} libnativewindow ${stubgen_tools} --map "${nativewindow_map}" --stubs "${nativewindow_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libnativewindow.so" VERBATIM)
 apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp" "${nativewindow_stubs}"
-  INCLUDES ${android_includes} CFLAGS -Wall -Wextra -Werror)
+  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libnativewindow UNITS apk_nativewindow NEEDED libc liblog VERSION_SCRIPTS "${nativewindow_map}")
 
 # libandroid.so: ALooper, AConfiguration and the forwards to libnativewindow (runtime/android).
@@ -188,5 +196,20 @@ add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
   COMMAND ${stubgen} libandroid ${stubgen_tools} --map "${android_map}" --stubs "${android_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libandroid.so" VERBATIM)
 apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
-  "${android_sources}/window_forwards.cpp" "${android_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra -Werror)
-apk_bionic_library(libandroid UNITS apk_android NEEDED libc liblog libnativewindow VERSION_SCRIPTS "${android_map}")
+  "${android_sources}/asset_manager.cpp" "${android_sources}/native_activity.cpp" "${android_sources}/input_queue.cpp"
+  "${android_sources}/window_forwards.cpp" "${android_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libandroid UNITS apk_android NEEDED libc liblog libnativewindow libz VERSION_SCRIPTS "${android_map}")
+
+# activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
+# process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
+# libandroid's asset manager and the JNI stub. A PIE with linker64 as its interpreter, like the NDK's
+# programs, into <build>/bin.
+set(activity_host_sources "${CMAKE_CURRENT_SOURCE_DIR}/../activity-host")
+apk_bionic_unit(apk_activity_host SOURCES "${activity_host_sources}/activity_host.cpp"
+  "${activity_host_sources}/jni_stub.cpp" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+add_executable(guest_activity_host "${ndk_crt}/crtbegin_dynamic.o" "$<TARGET_OBJECTS:apk_activity_host>")
+set_target_properties(guest_activity_host PROPERTIES OUTPUT_NAME activity-host LINKER_LANGUAGE C
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+target_link_options(guest_activity_host PRIVATE ${apk_link_flags} -pie -Wl,-dynamic-linker,/system/bin/linker64)
+target_link_libraries(guest_activity_host PRIVATE guest_libandroid guest_libnativewindow guest_liblog guest_libdl
+  guest_libc "${ndk_builtins}" "${ndk_crt}/crtend_android.o")

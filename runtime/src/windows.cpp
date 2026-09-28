@@ -60,19 +60,22 @@ void notify_waiters() {
     for (signals::ThreadSignals *state : waiters) signals::raise_signal_word(*state);
 }
 
-/// The gate's answer now, under `lock`: 0 or 1, or -1 to wait.
+/// The gate's answer now, under `lock`: 0, 1 or (present_try) 2, or -1 to wait.
 long answer(std::uint64_t id, std::uint64_t kind) {
     const Window *window = id != 0 ? find(id) : nullptr;
     if (id != 0 && window == nullptr) return 1;  // gone, or never given
     if (kind == APKRT_GATE_PRESENT) return window->open ? 0 : -1;
+    if (kind == APKRT_GATE_PRESENT_TRY) return window->open ? 0 : 2;
     return in_background.load() ? -1 : 0;
 }
 
 }  // namespace
 
 long gate(std::uint64_t id, std::uint64_t kind) {
-    if (kind != APKRT_GATE_PRESENT && kind != APKRT_GATE_BACKGROUND) return -linux_errno::einval;
-    if (kind == APKRT_GATE_PRESENT && id == 0) return -linux_errno::einval;
+    if (kind != APKRT_GATE_PRESENT && kind != APKRT_GATE_BACKGROUND && kind != APKRT_GATE_PRESENT_TRY) {
+        return -linux_errno::einval;
+    }
+    if (kind != APKRT_GATE_BACKGROUND && id == 0) return -linux_errno::einval;
     auto &state = signals::current();
     long result;
     {

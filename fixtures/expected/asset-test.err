@@ -1,0 +1,23 @@
+W/libandroid: /data/local/tmp/missing.apk: No such file or directory
+W/libandroid: /data/local/tmp/test.apk: no end record
+W/libandroid: /data/local/tmp/test.apk: no end record
+W/libandroid: /data/local/tmp/test.apk: no end record
+W/libandroid: /data/local/tmp/test.apk: the central directory runs into the end record
+W/libandroid: /data/local/tmp/test.apk: a broken central directory
+W/libandroid: /data/local/tmp/test.apk: a split or ZIP64 archive
+W/libandroid: /data/local/tmp/test.apk: a split or ZIP64 archive
+W/libandroid: /data/local/tmp/test.apk: a split or ZIP64 archive
+W/libandroid: /data/local/tmp/test.apk: a broken central directory
+W/libandroid: /data/local/tmp/test.apk: a broken central directory
+W/libandroid: /data/local/tmp/test.apk: assets/twice.txt: two entries of this name
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: a broken local header
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: a broken local header
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: a broken local header
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: its data runs into the central directory
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: neither stored nor deflated
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: encrypted
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: ZIP64 sizes
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
+W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
+W/libandroid: /data/local/tmp/test.apk: assets/s.bin: stored, but its sizes differ

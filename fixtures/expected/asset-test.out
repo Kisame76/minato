@@ -1,0 +1,53 @@
+sound: created
+d.txt: length 209, 209 bytes in 4 reads, hash 200afd1b, then 0
+s.bin: length 21, 21 bytes in 1 reads, hash 9b6412ea, then 0
+dir/a.txt: length 1, 1 bytes in 1 reads, hash e40c292c, then 0
+seek: set 10 10, cur 5 15, end -1 208, read 1 '\n', set -1 -1, set past the end -1, cur 0 209, set to the end 209, read 0, whence 7 -1, set 50 50, remaining 159
+s.bin: descriptor given, length 21, "Stored bytes, 21 long"; the buffer the same, allocated 0
+d.txt: descriptor refused; the buffer the text, allocated 1
+big.bin: length 204800, 204800 bytes in 50 reads, the same bytes, then 0, back to 1000: 1000 the same, on to 150000: 150000 the same
+s.bin in pieces of 5: 5 5 5 5 1 0, "Stored bytes, 21 long"; from 7: "bytes"
+a thread with a 32 KiB stack: d.txt 209 bytes, big.bin 204800 bytes, the same
+folder "": big.bin d.txt s.bin (after a rewind: big.bin)
+folder "dir": a.txt b.txt (after a rewind: a.txt)
+folder "dir/": a.txt b.txt (after a rewind: a.txt)
+folder "dir/sub": c.txt (after a rewind: c.txt)
+folder "missing": (after a rewind: nothing)
+folder "d.txt": (after a rewind: nothing)
+names: "dir" NULL "dir/" NULL "" NULL "/d.txt" NULL "dir/../d.txt" NULL "libx.so" NULL "../lib/arm64-v8a/libx.so" NULL "D.TXT" NULL "dir/sub/c.txt" found
+configuration: locale de-DE, density 480, orientation 1, touchscreen 3, keyboard 1, keys hidden 2, navigation 1, navigation hidden 0, mcc 0, mnc 0
+  screen size 2, long 2, round 1, 430 x 932 dp, smallest 430 dp, layout direction 1, UI mode 1, night 1, sdk 35, grammatical gender 0
+configuration: locale ar---, density 320, orientation 2, touchscreen 3, keyboard 1, keys hidden 2, navigation 1, navigation hidden 0, mcc 0, mnc 0
+  screen size 4, long 1, round 1, 1366 x 1024 dp, smallest 1024 dp, layout direction 2, UI mode 1, night 2, sdk 35, grammatical gender 0
+screen 1920 x 1440 at 2: 960 x 720 dp, smallest 720, size 4, long 1, density 320
+screen 1918 x 1440 at 2: 959 x 720 dp, smallest 720, size 3, long 1, density 320
+screen 1280 x 960 at 2: 640 x 480 dp, smallest 480, size 3, long 1, density 320
+screen 1278 x 960 at 2: 639 x 480 dp, smallest 480, size 2, long 1, density 320
+screen 940 x 640 at 2: 470 x 320 dp, smallest 320, size 2, long 1, density 320
+screen 938 x 640 at 2: 469 x 320 dp, smallest 320, size 1, long 1, density 320
+screen 1000 x 602 at 2: 500 x 301 dp, smallest 301, size 2, long 2, density 320
+screen 1000 x 604 at 2: 500 x 302 dp, smallest 302, size 2, long 1, density 320
+screen 1080 x 2340 at 2.61: 413 x 895 dp, smallest 413, size 2, long 2, density 418
+missing file: NULL
+broken, empty file: NULL
+broken, no end record: NULL
+broken, comment longer than the file: NULL
+broken, central directory into the end record: NULL
+broken, one entry more than there are: NULL
+broken, entries on this disk and in all differ: NULL
+broken, ZIP64: NULL
+broken, split archive: NULL
+broken, central header signature: NULL
+broken, name past the directory: NULL
+broken, two entries of one name: NULL
+entry, local header past the file: NULL; s.bin found
+entry, local header signature: NULL; s.bin found
+entry, local name differs: NULL; s.bin found
+entry, data into the central directory: NULL; s.bin found
+entry, method 12: NULL; s.bin found
+entry, encrypted: NULL; s.bin found
+entry, ZIP64 size: NULL; s.bin found
+entry, inflates to less: found, read 192 bytes, then -1, buffer NULL; s.bin found
+entry, inflates to more: found, read 192 bytes, then -1, buffer NULL; s.bin found
+entry, corrupt data: found, read 0 bytes, then -1, buffer NULL; s.bin found
+entry, stored sizes differ: NULL

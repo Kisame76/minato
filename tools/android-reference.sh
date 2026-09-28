@@ -6,11 +6,17 @@
 # emulator is used, because every fixture starts with an empty /data/local/tmp on the device.
 # The tests are those of fixtures/tests.txt, run as CTest runs them; tests of the runtime that
 # Android cannot run are left out, and what a benchmark (measures) prints is shown, not compared.
+# A test app of fixtures/apps (ADR-0028, test 3) is installed fresh from build/fixtures/apks, started as
+# the launcher starts it, sent HOME a second after it has its first window and the focus, started again,
+# and left until it finishes itself. Its lines of logcat with its own tag (logcat -v tag) must be
+# fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
-# Results: build/android-reference/<test>.{out,err,logcat}
+#        tools/android-reference.sh --app <app>
+# Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
 # Optional environment:
 #   ANDROID_HOME      SDK with emulator, platform-tools and the system image, default: ~/Library/Android/sdk
 #   ANDROID_AVD_HOME  where the AVD lives, default: ~/.android/avd
+#   FIXTURES_BUILD    the fixtures' build directory (tools/build-fixtures.sh), default: build/fixtures
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,7 +26,8 @@ ADB="$SDK/platform-tools/adb"
 EMULATOR="$SDK/emulator/emulator"
 AVD=apk-runner-35
 IMAGE=system-images/android-35/default/arm64-v8a/
-FIXTURES=build/fixtures/bin
+FIXTURES="${FIXTURES_BUILD:-build/fixtures}/bin"
+APKS="${FIXTURES_BUILD:-build/fixtures}/apks"
 RESULTS=build/android-reference
 DEVICE_DIR=/data/local/tmp
 
@@ -48,7 +55,11 @@ field() {
   done
 }
 
-if [[ $# -gt 0 ]]; then
+app=""
+if [[ $# -eq 2 && "$1" == --app ]]; then
+  app=$2
+  fixtures=()
+elif [[ $# -gt 0 ]]; then
   fixtures=("$@")
 else
   fixtures=()
@@ -115,6 +126,56 @@ echo "Android $(run getprop ro.build.version.release | tr -d '\r'), build $(run 
 # Messages to the device's logger: in the runtime they go to stderr in logcat's "tag" format, on
 # Android to logcat. An expected .err file therefore splits into logcat lines and stderr lines.
 logcat_line='^[VDIWEFS]/[^:]+: '
+
+# The app's lines of logcat with the tag $1.
+app_lines() { run logcat -d -v tag -s "$1:V" | grep -v '^--------- ' || true; }
+# Waits up to 30 s until the app's lines with the tag $1 contain the text $2.
+wait_for() {
+  for _ in $(seq 1 60); do
+    app_lines "$1" | grep -q -F "$2" && return 0
+    sleep 0.5
+  done
+  echo "$1 did not log \"$2\" within 30 s." >&2
+  return 1
+}
+
+run_app() {
+  local apk="$APKS/$app.apk" package activity
+  if [[ ! -f "$apk" ]]; then
+    echo "No $apk: run tools/build-fixtures.sh first." >&2
+    return 1
+  fi
+  package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "fixtures/apps/$app/AndroidManifest.xml" | head -n 1)
+  activity="$package/android.app.NativeActivity"
+  device uninstall "$package" >/dev/null 2>&1 || true
+  device install "$apk" >/dev/null
+  run logcat -c
+  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
+  sleep 1
+  run input keyevent KEYCODE_HOME
+  wait_for "$app" APP_CMD_SAVE_STATE || return 1
+  sleep 1
+  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  wait_for "$app" "android_main returns" || return 1
+  sleep 1
+  app_lines "$app" >"$RESULTS/$app.logcat"
+  app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  device uninstall "$package" >/dev/null 2>&1 || true
+  if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then
+    echo "same     $app"
+  else
+    echo "DIFFERS  $app"
+    diff -u "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat" | sed 's/^/    /' || true
+    return 1
+  fi
+  sed 's/^/    /' "$RESULTS/$app-device.logcat"
+}
+
+if [[ -n "$app" ]]; then
+  run_app
+  exit $?
+fi
 
 failed=0
 for name in "${fixtures[@]}"; do

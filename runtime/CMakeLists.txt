@@ -163,6 +163,23 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.window COMMAND window_test)
   set_tests_properties(runtime.window PROPERTIES TIMEOUT 120)
 
+  # ADR-0028's test 3: a scripted host plays ADR-0032's lifecycle for activity-test through activity-host and
+  # compares the app's log with Android 15's (fixtures/expected/activity-test.logcat).
+  add_executable(activity_test tests/activity_test.cpp)
+  target_link_libraries(activity_test PRIVATE apkrt apkconv apk_defaults)
+  # Its variants: an onStart that polls the main thread's looper, a host that leaves NATIVE_WINDOW_DESTROYED
+  # out, and a library, a function or an APK that is not there (START_FAILED, status 1).
+  foreach(case IN ITEMS "" polling leftovers missing-library missing-function missing-apk)
+    set(name runtime.activity)
+    if(case)
+      set(name runtime.activity.${case})
+    endif()
+    add_test(NAME ${name} COMMAND activity_test "${CMAKE_CURRENT_BINARY_DIR}/activity_test_scratch"
+      "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+      ${case})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  endforeach()
+
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)
   target_include_directories(signals_test PRIVATE src)

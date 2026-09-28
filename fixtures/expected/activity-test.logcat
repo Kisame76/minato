@@ -1,0 +1,52 @@
+I/activity-test: android_main
+I/activity-test: sdkVersion: 35
+I/activity-test: internalDataPath: /data/user/0/io.github.kisame76.minato.test.activity/files (a folder)
+I/activity-test: externalDataPath: /storage/emulated/0/Android/data/io.github.kisame76.minato.test.activity/files (a folder)
+I/activity-test: obbPath: /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.activity (a folder)
+I/activity-test: vm, env and clazz: set, set, set
+I/activity-test: GetEnv on the app's thread: -2
+I/activity-test: AttachCurrentThread: 0
+I/activity-test: GetEnv again: 0, the attached env
+I/activity-test: GetEnv for an unknown version: -3
+I/activity-test: DetachCurrentThread: 0
+I/activity-test: DetachCurrentThread again: -1
+I/activity-test: text/hello.txt: length 1160; read 100, 1060 remaining, read 1060, then 0; hash efe9e5ed
+I/activity-test: text/hello.txt: descriptor refused
+I/activity-test: text/hello.txt: seek to 29, then "Line 02 of a deflated asset."
+I/activity-test: text/hello.txt: seek back 10 from the end: 1150, past the end: -1
+I/activity-test: stored.ogg: 32 bytes through a descriptor of the APK: "The contents of a stored asset."
+I/activity-test: stored.ogg: the buffer has the same bytes
+I/activity-test: missing.txt: NULL
+I/activity-test: folder "text": hello.txt second.txt (2 files; after a rewind: hello.txt)
+I/activity-test: folder "": stored.ogg top.txt (2 files; after a rewind: stored.ogg)
+I/activity-test: folder "missing": (0 files; after a rewind: nothing)
+I/activity-test: configuration: sdkVersion 35
+I/activity-test: APP_CMD_START
+I/activity-test: APP_CMD_RESUME
+I/activity-test: APP_CMD_INPUT_CHANGED
+I/activity-test: APP_CMD_INIT_WINDOW
+I/activity-test: window 1: format 2
+I/activity-test: APP_CMD_WINDOW_RESIZED
+I/activity-test: APP_CMD_CONTENT_RECT_CHANGED
+I/activity-test: APP_CMD_WINDOW_REDRAW_NEEDED
+I/activity-test: APP_CMD_GAINED_FOCUS
+I/activity-test: APP_CMD_PAUSE
+I/activity-test: APP_CMD_LOST_FOCUS
+I/activity-test: APP_CMD_TERM_WINDOW
+I/activity-test: APP_CMD_STOP
+I/activity-test: APP_CMD_SAVE_STATE
+I/activity-test: APP_CMD_START
+I/activity-test: APP_CMD_RESUME
+I/activity-test: APP_CMD_INIT_WINDOW
+I/activity-test: window 2: format 2
+I/activity-test: APP_CMD_WINDOW_RESIZED
+I/activity-test: APP_CMD_WINDOW_REDRAW_NEEDED
+I/activity-test: APP_CMD_GAINED_FOCUS
+I/activity-test: ANativeActivity_finish
+I/activity-test: APP_CMD_PAUSE
+I/activity-test: APP_CMD_LOST_FOCUS
+I/activity-test: APP_CMD_TERM_WINDOW
+I/activity-test: APP_CMD_STOP
+I/activity-test: APP_CMD_INPUT_CHANGED
+I/activity-test: APP_CMD_DESTROY
+I/activity-test: android_main returns

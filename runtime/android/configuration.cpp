@@ -2,11 +2,14 @@
 // and Android 15's answers (fixtures/suite/configuration-test.c). Each field is kept as wide as Android
 // keeps it, several as bits of one byte, so a value beyond its range reads back cut to those bits; the
 // language and the country are their first two characters. diff sets one ACONFIGURATION_* bit for each
-// kind of field that differs. AConfiguration_fromAssetManager comes with the asset manager (step d).
+// kind of field that differs. AConfiguration_fromAssetManager (asset_manager.cpp) gives the values that
+// minato_configuration_from_session chose from the session (decision 9).
 #include <android/configuration.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "internal.h"
 
 struct AConfiguration {
     uint16_t mcc, mnc;
@@ -185,3 +188,58 @@ int32_t AConfiguration_diff(AConfiguration* config1, AConfiguration* config2) {
 }
 
 }  // extern "C"
+
+namespace {
+
+// The languages whose script runs from right to left [inferred from ICU's likely scripts].
+bool right_to_left(const char* language) {
+    static const char kLanguages[][3] = {"ar", "dv", "fa", "he", "iw", "ji", "ks", "ps", "sd", "ug", "ur", "yi"};
+    for (const char* candidate : kLanguages) {
+        if (language[0] == candidate[0] && language[0] != 0 && language[1] == candidate[1]) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+// Decision 9's values. The size and length of the screen follow Android's Configuration.reduceScreenLayout
+// [inferred]: small below 470 dp on the long side, extra large from 960 × 720 dp, large from 640 × 480 dp,
+// else normal; long when the long side's three fifths reach the short side less 1.
+void minato_configuration_from_session(AConfiguration* config, const struct apkrt_configuration* session) {
+    *config = AConfiguration{};
+    const double scale = session->scale > 0 && session->scale < 64 ? session->scale : 1;
+    int32_t density = static_cast<int32_t>(scale * 160 + 0.5);
+    if (density < 1) density = 1;
+    const int32_t width_dp = static_cast<int32_t>(static_cast<int64_t>(session->width) * 160 / density);
+    const int32_t height_dp = static_cast<int32_t>(static_cast<int64_t>(session->height) * 160 / density);
+    const int32_t long_dp = width_dp > height_dp ? width_dp : height_dp;
+    const int32_t short_dp = width_dp > height_dp ? height_dp : width_dp;
+    int32_t size = ACONFIGURATION_SCREENSIZE_NORMAL;
+    if (long_dp < 470) {
+        size = ACONFIGURATION_SCREENSIZE_SMALL;
+    } else if (long_dp >= 960 && short_dp >= 720) {
+        size = ACONFIGURATION_SCREENSIZE_XLARGE;
+    } else if (long_dp >= 640 && short_dp >= 480) {
+        size = ACONFIGURATION_SCREENSIZE_LARGE;
+    }
+    const bool is_long = long_dp >= 470 && long_dp * 3 / 5 >= short_dp - 1;
+    AConfiguration_setDensity(config, density);
+    AConfiguration_setOrientation(config, session->orientation);
+    AConfiguration_setTouchscreen(config, ACONFIGURATION_TOUCHSCREEN_FINGER);
+    AConfiguration_setKeyboard(config, ACONFIGURATION_KEYBOARD_NOKEYS);
+    AConfiguration_setKeysHidden(config, ACONFIGURATION_KEYSHIDDEN_YES);
+    AConfiguration_setNavigation(config, ACONFIGURATION_NAVIGATION_NONAV);
+    AConfiguration_setScreenSize(config, size);
+    AConfiguration_setScreenLong(config, is_long ? ACONFIGURATION_SCREENLONG_YES : ACONFIGURATION_SCREENLONG_NO);
+    set_bits(config->screen_layout2, kScreenRound, 0, ACONFIGURATION_SCREENROUND_NO);
+    AConfiguration_setUiModeType(config, ACONFIGURATION_UI_MODE_TYPE_NORMAL);
+    AConfiguration_setUiModeNight(config, session->night);
+    AConfiguration_setScreenWidthDp(config, width_dp);
+    AConfiguration_setScreenHeightDp(config, height_dp);
+    AConfiguration_setSmallestScreenWidthDp(config, short_dp);
+    AConfiguration_setLanguage(config, session->language);
+    AConfiguration_setCountry(config, session->country);
+    AConfiguration_setLayoutDirection(config, right_to_left(session->language) ? ACONFIGURATION_LAYOUTDIR_RTL
+                                                                               : ACONFIGURATION_LAYOUTDIR_LTR);
+    AConfiguration_setSdkVersion(config, 35);
+}

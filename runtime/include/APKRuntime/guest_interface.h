@@ -114,7 +114,10 @@ enum apkrt_event_type {
     APKRT_EVENT_SAVE_INSTANCE_STATE,
     APKRT_EVENT_WINDOW_FOCUS_CHANGED,     // a0: 1 when the window has the focus, else 0
     APKRT_EVENT_NATIVE_WINDOW_CREATED,    // a0: the window's ID (apkrt_window_add); a1, a2: width, height in pixels
-    APKRT_EVENT_NATIVE_WINDOW_RESIZED,    // as NATIVE_WINDOW_CREATED; not sent in M3, where a window's size is fixed
+    APKRT_EVENT_NATIVE_WINDOW_RESIZED,    // as NATIVE_WINDOW_CREATED; in M3 only right after it, with the same size,
+                                          // as Android 15 calls onNativeWindowResized after onNativeWindowCreated.
+                                          // A window's size is fixed: activity-host keeps the one it was created
+                                          // with, and a new size comes as a new window
     APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED,  // a0: the window's ID
     APKRT_EVENT_NATIVE_WINDOW_DESTROYED,  // a0: the window's ID
     APKRT_EVENT_INPUT_QUEUE_CREATED,      // a0: the input channel's ID (ADR-0036), 0 until the channel exists
@@ -156,8 +159,9 @@ enum apkrt_request_type {
 
 /// The kinds of the window's gate.
 enum apkrt_gate_kind {
-    APKRT_GATE_PRESENT = 1,     // at every present
-    APKRT_GATE_BACKGROUND = 2,  // at every call that commits GPU work
+    APKRT_GATE_PRESENT = 1,      // at every present
+    APKRT_GATE_BACKGROUND = 2,   // at every call that commits GPU work
+    APKRT_GATE_PRESENT_TRY = 3,  // the present's gate without a wait, for a swap that flushes before it waits
 };
 
 /// The private syscalls of ADR-0028 (decision 11) for activity-host, libandroid and the front libs,
@@ -182,7 +186,10 @@ enum apkrt_gate_kind {
 ///   - present: 0 while the window's gate is open, a wait while it is closed, 1 once the window is gone
 ///     or for an ID the host never gave; -EINVAL for ID 0;
 ///   - background: 1 for a window that is gone or unknown, else 0 in the foreground and a wait in the
-///     background; ID 0 for calls without a window, such as a queue submit, which only wait.
+///     background; ID 0 for calls without a window, such as a queue submit, which only wait;
+///   - present_try: never waits: 0 while the window's gate is open, 2 while it is closed, 1 once the window
+///     is gone or for an ID the host never gave; -EINVAL for ID 0. libEGL's swap flushes when it sees 2 and
+///     then waits with present (ADR-0029, decision 15).
 /// Every change the host makes ends a wait's round. A deliverable signal ends the wait with -EINTR once
 /// its handler ran; with SA_RESTART the runtime makes the call again. -EINVAL for another kind.
 #define APKRT_NR_WINDOW_GATE 4105
@@ -204,9 +211,25 @@ struct ANativeWindow;
 /// anything that is not a window.
 int minato_ANativeWindow_getInfo(struct ANativeWindow *window, struct minato_window_info *info);
 
+struct AAssetManager;
+struct AInputQueue;
+
+/// In libandroid.so, version APKRT_PRIVATE: the asset manager of the APK at the guest path `apk` (ADR-0028,
+/// decision 10), for ANativeActivity. It reads the ZIP's central directory once and keeps a descriptor of the
+/// APK; AConfiguration_fromAssetManager gives the values decision 9 chooses from `configuration`, the
+/// session's. NULL when the APK cannot be read or its central directory is not sound, or without memory.
+struct AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_configuration *configuration);
+
+/// In libandroid.so, version APKRT_PRIVATE: a new input queue of the input channel `channel` (ADR-0036), for
+/// onInputQueueCreated; until the channel exists (0), a queue without events. NULL without memory.
+struct AInputQueue *minato_AInputQueue_create(uint64_t channel);
+
+/// In libandroid.so, version APKRT_PRIVATE: frees a queue once onInputQueueDestroyed has returned.
+void minato_AInputQueue_delete(struct AInputQueue *queue);
+
 /// In libnativewindow.so, version APKRT_PRIVATE: a new window of the host window `id`, `width` × `height`
-/// pixels in the format WINDOW_FORMAT_RGB_565, as NativeActivity's window starts, with one reference
-/// for the caller (activity-host, at NATIVE_WINDOW_CREATED). NULL without memory.
+/// pixels in the format WINDOW_FORMAT_RGBX_8888, which NativeActivity's window has in Android 15, with one
+/// reference for the caller (activity-host, at NATIVE_WINDOW_CREATED). NULL without memory.
 struct ANativeWindow *minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height);
 
 #ifdef __cplusplus
