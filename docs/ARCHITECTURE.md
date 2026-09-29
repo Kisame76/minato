@@ -12,7 +12,7 @@ Markers: **[verified]** = read in a primary source or measured, **[inferred]** =
   - Then it is packaged in a Mach-O dylib, signed with our own developer certificate and loaded in the game with `dlopen` (ADR-0008, ADR-0010).
 - **Two worlds in the game process:**
   - The **guest world** runs with the Android ABI: real AOSP Bionic, the app's `.so` files and our Android system libraries.
-  - The **host world** runs with the Darwin ABI: loader, Linux syscall layer, ANGLE, MoltenVK, AudioUnit and UIKit.
+  - The **host world** runs with the Darwin ABI: loader, Linux syscall layer, ANGLE, MoltenVK, AVAudioEngine and UIKit.
   - There are exactly two transitions: syscalls and the NDK system APIs (ADR-0009, ADR-0011).
 - **What is verified:** Signing with our own certificate and `dlopen` work on iOS 27 (LiveContainer, JIT-less mode). Our own tests confirm this also for files in the data container if the signature identifier is the app's bundle ID (S1b). With a different identifier, iOS rejects the copy (S1, ADR-0008).
 - **What is not verified** is that Android `.so` files run on a real iPhone. So far ARTBox has shown this only on macOS in CI. That is why three small feasibility tests (spikes) still run in M0 (see [`STATUS.md`](STATUS.md)). Since M2 step 4, static NDK programs run on macOS through the converter, container dylib and loader (ADR-0019); the iPhone follows in step 6.
@@ -68,7 +68,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
                                           Linux personality: VM, VFS, threads, futex,
                                             signals, time, /proc, system properties
                                           ANGLE-Metal | MoltenVK | CAMetalLayer
-                                          AudioUnit | UITouch/GameController | CADisplayLink
+                                          AVAudioEngine | UITouch/GameController | CADisplayLink
 ```
 
 **Import (launcher mode):**
@@ -102,7 +102,8 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 - **Info.plist:**
   - `UILaunchScreen` (mandatory with the iOS 27 SDK);
   - from M1: `LSSupportsOpeningDocumentsInPlace`, `CFBundleDocumentTypes`, `UTImportedTypeDeclarations`, no `UIFileSharingEnabled` (ADR-0018);
-  - from M3: `CADisableMinimumFrameDurationOnPhone`, `GCSupportsGameMode`, category Games.
+  - from M3: `CADisableMinimumFrameDurationOnPhone`; iOS Game Mode in every build (`LSSupportsGameMode`, `LSApplicationCategoryType` `public.app-category.games`, ADR-0037); `MinatoCommit`, the commit a benchmark build names in its CSVs.
+- **Benchmark builds** (ADR-0037): a Release build of the Release libraries with `APK_EMBED_BENCHMARK=YES` also holds `MinatoBench.framework` and the two bench APKs, and the mode `-runBenchmark <run>`, which draws one variant on the game view and writes its CSVs; `tools/benchmark.sh` runs the series and `tools/bench-summary.py` judges it. Other builds hold none of it.
 - **Storage locations:**
   - `Documents/` stays empty; only iOS puts copies into `Inbox/` on "Open with", which the app takes in and deletes;
   - `Library/Application Support/incoming/` for chosen files until installation;
@@ -182,7 +183,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 - **errno and time:** Host errors are translated into Linux errno. Time values follow the clock mapping from F10.
 
 ### 4.7 Graphics (ADR-0005, ADR-0013)
-- **`ANativeWindow`:** a UIView with `CAMetalLayer` (ADR-0032). The window's size in pixels is the layer's bounds × `contentsScale` (ADR-0030); the front libs set the drawable size to the buffer size of `setBuffersGeometry`, or to the window's size while none is set, and Core Animation scales it onto the layer, as SurfaceFlinger does. This is later the starting point for MetalFX upscaling (M6).
+- **`ANativeWindow`:** a UIView whose layer is `graphics/host`'s `MinatoMetalLayer`, a `CAMetalLayer` that can record every drawable's `nextDrawable` and present times for the parity benchmark, on the device only, and costs one flag test otherwise (ADR-0032, ADR-0037). The window's size in pixels is the layer's bounds × `contentsScale` (ADR-0030); the front libs set the drawable size to the buffer size of `setBuffersGeometry`, or to the window's size while none is set, and Core Animation scales it onto the layer, as SurfaceFlinger does. This is later the starting point for MetalFX upscaling (M6).
 - **Calls into host code** (ADR-0030): every call of a front lib goes through the runtime's entry `apkrt_host_call`, so no guest signal is delivered inside ANGLE or MoltenVK. Each front lib's first constructor binds its table of host functions through the runtime's syscall 4101, with the provider `graphics/host` sets; without one, every function answers "no driver". The front libs cut waits into slices of at most 10 ms. The generator `tools/frontgen/` makes the stubs from `vk.xml`, `gl.xml` and `egl.xml`: plain, with small integers extended, or with stack arguments repacked (refines ADR-0011).
 - **EGL/GLES** (ADR-0029): the front libs go to our own ANGLE build with the Metal backend only (ES ≤ 3.0), pinned to `chromium/8037`. Only `libGLESv2` is built, which carries EGL too; the app embeds it as a framework (4.43 MB installed) and opens it with `dlopen` when a guest first loads a GLES library. Patches: a fixed window size (0001), Metal's internal shaders compiled at runtime on macOS too (0002), a gate before every command buffer commit (0003), a build fix (0004). Later: `eglPresentationTimeANDROID` for Swappy (M4), `OES_EGL_image_external`. ES 3.1 comes as a prototype via ANGLE-Vulkan on MoltenVK (M4).
 - **Vulkan** (ADR-0030):
@@ -192,22 +193,24 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
   - `AHardwareBuffer` and the fd extensions come later.
 - **Background:** iOS forbids GPU work in the background. From the start of the host's background handling, a gate holds every commit of ANGLE and every Vulkan submit, present and acquire; the host waits at most 1 s until everything committed is scheduled, then the window's gate becomes "gone", and only then does the app get onPause and the other callbacks (ADR-0029 decision 15, ADR-0032).
 
-### 4.8 Frame pacing, input, audio
+### 4.8 Frame pacing, input, audio (ADR-0036)
+The host reaches the guest through channels: guest descriptors whose pipe holds a byte per arrival, so `ALooper` wakes on them like on any fd; their data lives in the runtime, behind private syscalls.
 - **Choreographer:**
-  - CADisplayLink runs on its own thread and wakes ALooper via fds.
-  - Settings: `preferredFrameRateRange` (80, 120, 120) and `CADisableMinimumFrameDurationOnPhone`.
-  - Timestamps are based on `mach_absolute_time`.
+  - The app's `DisplayLinkClock` runs CADisplayLink on its own thread while the window's gate is open and posts each tick into the vsync channel (syscalls 4106 to 4108).
+  - `AChoreographer` runs its callbacks as looper messages with the tick's timelines; `ANativeWindow_setFrameRate` reaches the clock's `setPreferredRate` (60 or 120 Hz, `CADisableMinimumFrameDurationOnPhone`).
+  - Timestamps are the guest's CLOCK_MONOTONIC, `mach_absolute_time`'s clock (F10).
 - **Swappy** (statically linked in many NDK games) needs:
   - a reported SDK ≥ 31;
   - working JNI methods `Display`/`WindowManager`;
   - `VK_GOOGLE_display_timing` (MoltenVK has it);
   - `eglPresentationTimeANDROID` (ANGLE patch).
 - **Input:**
-  - `UITouch` including coalesced touches becomes `AMotionEvent` with history, pointer IDs and pixel coordinates.
-  - `GCController` becomes `AKeyEvent`/`AMotionEvent` with the Android axes.
+  - The app's `TouchTranslator` turns `UITouch`, coalesced touches included, into motion events with history, the lowest free pointer IDs and pixel coordinates, and posts them into the input channel (syscalls 4109 and 4110), 256 events deep; gestures stay whole when it is full.
+  - `AInputQueue` and every `AMotionEvent` getter read it as Android's `InputQueue` does.
+  - Later: `GCController` becomes `AKeyEvent`/`AMotionEvent` with the Android axes.
 - **Audio:**
-  - Our own `libaaudio` on RemoteIO. It must export the symbol set that Oboe loads.
-  - OpenSL ES comes from AOSP `frameworks/wilhelm` (Apache-2.0) with a new AudioUnit backend.
+  - Our own `libaaudio` (the NDK's 70 names) keeps each output stream's ring of float32 frames in the runtime's memory, behind syscalls 4111 to 4117. The app's `AVAudioEngine` (category `.ambient`) plays each stream through an `AVAudioSourceNode` whose render block reads the ring without a lock; guests that wait for room sleep on their signal words, and stream threads join the output's audio workgroup.
+  - Our own `libOpenSLES` (the NDK's 56 names) runs buffer-queue players on `libaaudio` streams; written for Minato from the headers and Android 15's answers, not AOSP's wilhelm.
 
 ### 4.9 ART and framework (M4, outlook)
 - **Goal: ART as a guest library with the Android ABI**, built as for a device. This keeps JNI calls with their varargs (`Call*Method(...)`) in one ABI, and through the personality ART sees the same Linux semantics as the rest. The alternative, building ART for Darwin, is decided in M4.
@@ -236,7 +239,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 | Android Translation Layer (`3e686d1`) | GPL-3.0 | Concepts only: cut app ↔ Java framework, NativeActivity host via `dlopen`+`dlsym`, inserting surface and instance extensions for Vulkan, path virtualization | Any code; GTK/Wayland/ALSA | License; wrong platform |
 | bionic_translation (`b36c17d`) | Apache-2.0, linker without a license (from android2gnulinux) | Idea of a TLS module registry | Code; the shim approach | Unclear origin; on Darwin all constants differ (F9) |
 | art_standalone (`66a5d90`) | Apache-2.0 | Reference for how ART is built outside AOSP | The version itself (Android 10 era, GCC/Linux) | Outdated |
-| AOSP (Bionic, ART, libcore, wilhelm, apksig, gamesdk) | Apache-2.0/BSD; libcore GPL-2.0+CE | Bionic, ART, wilhelm; 4 KB compatibility logic from `linker_phdr_16kib_compat.cpp`; signature formats | – | Reference implementation |
+| AOSP (Bionic, ART, libcore, wilhelm, apksig, gamesdk) | Apache-2.0/BSD; libcore GPL-2.0+CE | Bionic, ART; 4 KB compatibility logic from `linker_phdr_16kib_compat.cpp`; signature formats; wilhelm and AAudio only as behavior to match, since `libaaudio` and `libOpenSLES` are our own (ADR-0036) | – | Reference implementation |
 | StikJIT (`3623e72`) / StikDebug | MPL-2.0 / AGPL-3.0 | Later, only for an optional JIT path: URL protocol `stikdebug://enable-jit`, `brk #0xf00d` | Built-in StikJIT (needs an extension) | ADR-0002 |
 | bundletool / apkeep | Apache-2.0 / MIT | References for M5/M7 | – | – |
 | ANGLE / MoltenVK | BSD-3 / Apache-2.0 | Dependencies from M3, only after asking | MetalANGLE (inactive), Apple's EAGL (deprecated, no EGL) | – |
