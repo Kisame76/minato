@@ -4,7 +4,7 @@ fetches them (App's run.csv and frames.csv), in four sets:
 - windows: cold from the start to 10 s after the first present, warm from 20 s to 50 s after it, each end excluded;
   FPS, p50 and p99 of the frame intervals by nearest rank, drops by their nextDrawable time, the CPU times;
 - validity: each rule of decision 6 broken once, App's own reasons kept, present times checked (after their
-  drawable, in order), and the pair rule;
+  drawable, in order; two drawables at one present count once, the earlier as a drop), and the pair rule;
 - a series whose configurations all pass at the limits (95 % of the FPS, 105 % of the p99): parity holds;
 - the verdicts: a failure by FPS and by p99, the noise rule at its limit, beyond it with 5 runs (more runs) and with
   10 (undecided, the median of 10 by nearest rank), too few valid runs: parity fails.
@@ -161,6 +161,7 @@ def check_validity(tool, scratch):
         "12": ({}, "short", "short_run"),
         "13": ({"thermal_changes": "1000=fair", "thermal_end": "fair"}, None, ""),
         "14": ({"link_period_median_ns": 0}, None, "link_period"),
+        "15": ({}, "shared", ""),
     }
     for number, (fields, frames_change, _) in broken.items():
         first = (1000 + int(number) * 100) * S
@@ -172,6 +173,11 @@ def check_validity(tool, scratch):
             # Each after its own drawable, the second before the first.
             (a_taken, a_presented, a_cpu), (_, b_presented, b_cpu) = frames[2500], frames[2501]
             frames[2500], frames[2501] = (a_taken, b_presented, a_cpu), (a_presented - 3 * MS, a_presented, b_cpu)
+        elif frames_change == "shared":
+            # As the APKs' first two drawables on the iPhone: both taken before the first present, and both
+            # reaching the screen at it. One presented frame; drawable 0 was superseded at that refresh, a drop.
+            cpu = frames[0][2]
+            frames[0], frames[1] = (first - 12 * MS, first, cpu), (first - 5 * MS, first, cpu)
         elif frames_change == "none":
             frames = [(taken, 0, cpu) for taken, _, cpu in frames]
         elif frames_change == "short":
@@ -188,6 +194,9 @@ def check_validity(tool, scratch):
         run = f"vulkan-60-light-native-{number}"
         expect(tables, "warm", run, "valid", "0" if reasons else "1", f"validity of {run}")
         expect(tables, "warm", run, "invalid_reasons", reasons, f"validity of {run}")
+    # The cold window of 15: presents at 0 (shared), 20, 30 ... 9990 ms, not 0, 10, 20 ... 9990.
+    for field, wanted in (("frames", "999"), ("drops", "1")):
+        expect(tables, "cold", "vulkan-60-light-native-15", field, wanted, "a present shared by two drawables")
     expect(tables, "verdict", "vulkan-60-light", "verdict", "pair differs", "the pair rule")
 
 

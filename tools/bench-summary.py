@@ -6,14 +6,16 @@
   20 s to 50 s after it, by present time, each end excluded. FPS is the presents in the window over its length; the
   frame times are the intervals between two presents in it, with p50 and p99 by nearest rank; drops are drawables
   never presented (presented_ns 0) whose nextDrawable fell in the window; the CPU times are the scene's for the
-  frames in it. Warm-up runs (number 00) are left out.
+  frames in it. Drawables that share a present time reached the screen at one refresh: one presented frame, and the
+  earlier ones count as drops, superseded. Warm-up runs (number 00) are left out.
 - verdict.csv, a row per configuration, on the warm windows of its valid runs. A run is valid when decision 6's
   rules hold (recomputed from run.csv, and App's own reasons kept) and its present times are plausible: each after
-  its drawable was taken, in frame order, up to the warm window's end. The pair rule: the valid runs of both
-  variants have the same drawable size and count, else "pair differs". With fewer than 5 valid runs per variant,
-  "incomplete". The noise rule: the native runs' FPS and p99 each spread at most 5 % (max - min over the median),
-  else "more runs" (5 more per variant) or, from 10 native runs on, "undecided". Then "pass" when the APK's median
-  FPS is at least 95 % of the native's and its median p99 at most 105 %, else "fail". Medians by nearest rank.
+  its drawable was taken, none before an earlier drawable's, up to the warm window's end. The pair rule: the valid
+  runs of both variants have the same drawable size and count, else "pair differs". With fewer than 5 valid runs
+  per variant, "incomplete". The noise rule: the native runs' FPS and p99 each spread at most 5 % (max - min over
+  the median), else "more runs" (5 more per variant) or, from 10 native runs on, "undecided". Then "pass" when the
+  APK's median FPS is at least 95 % of the native's and its median p99 at most 105 %, else "fail". Medians by
+  nearest rank.
 It prints the verdicts and then "parity: holds" (every configuration of decision 7 passed), "parity: fails" (one
 failed) or "parity: not decided".
 Usage: tools/bench-summary.py [<results>, default build/benchmark] [--out <folder>]"""
@@ -92,6 +94,9 @@ class Run:
             self.reasons.append(f"frames_csv ({error})")
         presents = [frame[3] for frame in self.frames if frame[3] != 0]
         self.first = min(presents) if presents else None
+        # A drawable whose present time the next presented one shares was superseded at that refresh.
+        shown = [frame for frame in self.frames if frame[3] != 0]
+        self.superseded = {earlier[0] for earlier, later in zip(shown, shown[1:]) if later[3] == earlier[3]}
         self.check(presents)
         self.cold = self.window("cold")
         self.warm = self.window("warm")
@@ -122,7 +127,7 @@ class Run:
         elif self.frames:
             if any(presented != 0 and presented <= taken for _, _, taken, presented, _ in self.frames):
                 own.append("present_before_drawable")
-            if any(later <= earlier for earlier, later in zip(presents, presents[1:])):
+            if any(later < earlier for earlier, later in zip(presents, presents[1:])):
                 own.append("presents_out_of_order")
             if max(frame[2] for frame in self.frames) < self.first + WARM_END_S * S:
                 own.append("short_run")
@@ -136,6 +141,10 @@ class Run:
     def valid(self):
         return not self.reasons
 
+    def presented(self, frame):
+        """Whether the drawable reached the screen as a frame of its own: presented, and not superseded."""
+        return frame[3] != 0 and frame[0] not in self.superseded
+
     def window(self, which):
         numbers = dict(window_s=None, frames=0, fps=None, p50=None, p99=None, drops=0, cpu_p50=None, cpu_p99=None)
         if self.first is None:
@@ -145,15 +154,15 @@ class Run:
             begin, end = (start if 0 < start <= self.first else self.first), self.first + COLD_S * S
         else:
             begin, end = self.first + WARM_BEGIN_S * S, self.first + WARM_END_S * S
-        inside = [frame for frame in self.frames
-                  if (frame[3] != 0 and begin <= frame[3] < end) or (frame[3] == 0 and begin <= frame[2] < end)]
-        times = sorted(frame[3] for frame in inside if frame[3] != 0)
+        inside = [frame for frame in self.frames if (self.presented(frame) and begin <= frame[3] < end)
+                  or (not self.presented(frame) and begin <= frame[2] < end)]
+        times = sorted(frame[3] for frame in inside if self.presented(frame))
         intervals = [later - earlier for earlier, later in zip(times, times[1:])]
         cpu = [frame[4] for frame in inside]
         seconds = Fraction(end - begin, S)
         numbers.update(window_s=seconds, frames=len(times), fps=len(times) / seconds,
                        p50=nearest_rank(intervals, 50), p99=nearest_rank(intervals, 99),
-                       drops=sum(1 for frame in inside if frame[3] == 0), cpu_p50=nearest_rank(cpu, 50),
+                       drops=sum(1 for frame in inside if not self.presented(frame)), cpu_p50=nearest_rank(cpu, 50),
                        cpu_p99=nearest_rank(cpu, 99))
         return numbers
 
