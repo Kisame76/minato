@@ -24,8 +24,8 @@ public enum SessionEvent: Sendable, Equatable {
     case nativeWindowDestroyed(window: UInt64)
     case lowMemory
     /// ADR-0028 d)'s callbacks beyond decision 7, in the places Android 15 calls them: the input queue after
-    /// the first onResume (its channel 0 until ADR-0036's exists), and after each new window a resize to
-    /// the same size, the content's rectangle when it changed, and redraw needed.
+    /// the first onResume (with the input channel `apkrt_input_add` gave, ADR-0036 b), and after each new
+    /// window a resize to the same size, the content's rectangle when it changed, and redraw needed.
     case inputQueueCreated(channel: UInt64)
     case nativeWindowResized(window: UInt64, width: Int32, height: Int32)
     case contentRectChanged(left: Int32, top: Int32, right: Int32, bottom: Int32)

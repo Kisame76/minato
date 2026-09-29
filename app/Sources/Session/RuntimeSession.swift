@@ -2,6 +2,9 @@ import APKRuntime
 import APKSession
 import Foundation
 import QuartzCore
+import os
+
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "session")
 
 /// ADR-0028's session and window registry (`apkrt.h`) for the bridge: the events go to activity-host,
 /// and the window is the view's CAMetalLayer.
@@ -112,6 +115,7 @@ final class RuntimeSessionHost: SessionHost {
     /// activity-host, once the session has begun; not on the main thread, where it would map the program.
     /// Nil, or why it cannot start.
     static func startProgram(_ start: GuestStart) -> String? {
+        _ = graphicsProviders
         var error = [CChar](repeating: 0, count: 1024)
         let result = withCStrings(start.arguments) { arguments in
             withCStrings(start.environment) { environment in
@@ -120,6 +124,23 @@ final class RuntimeSessionHost: SessionHost {
         }
         return result == 0 ? nil : text(error)
     }
+
+    /// The providers of the graphics front libs' host tables (ADR-0030, decision 3): ANGLE, and MoltenVK on the
+    /// iPhone, from the app's Frameworks. Once per process, before the program starts, so the front libs find
+    /// their drivers and "scheduled" asks both at the background. The Simulator has no MoltenVK: NULL leaves
+    /// Vulkan without a provider there, and it answers "no driver".
+    private static let graphicsProviders: Void = {
+        let frameworks = Bundle.main.privateFrameworksURL
+        let angle = frameworks?.appending(path: "libGLESv2.framework/libGLESv2").path
+        #if targetEnvironment(simulator)
+        let moltenVK: String? = nil
+        #else
+        let moltenVK = frameworks?.appending(path: "MoltenVK.framework/MoltenVK").path
+        #endif
+        if minato_graphics_set_providers(moltenVK, angle) != 0 {
+            log.error("the graphics providers were refused: MoltenVK \(moltenVK ?? "none", privacy: .public), ANGLE \(angle ?? "none", privacy: .public)")
+        }
+    }()
 
     static func record(_ configuration: GuestConfiguration) -> apkrt_configuration {
         var record = apkrt_configuration()

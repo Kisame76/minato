@@ -3,6 +3,7 @@ import APKSession
 import Foundation
 import Observation
 import SwiftUI
+import Synchronization
 import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "session")
@@ -43,12 +44,16 @@ final class GameSession {
     @ObservationIgnored private(set) var startFailure: String?
 
     @ObservationIgnored private var backgroundObserver: (any NSObjectProtocol)?
+    /// The view is there and the session has taken over the process (open()).
+    @ObservationIgnored private var isOpen = false
 
     /// The guest's touches (ADR-0036, decision 3), and where they go.
     @ObservationIgnored private var touches = TouchTranslator(scale: 1)
     @ObservationIgnored private let motionSink = InputChannelSink()
-    /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers.
-    @ObservationIgnored private let frameClock: DisplayLinkClock
+    /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers; there
+    /// once the session opens, since it runs a thread of its own.
+    @ObservationIgnored private var frameClock: DisplayLinkClock?
+    @ObservationIgnored private let frameClockSlot = FrameClockSlot()
     /// The guest's audio output (ADR-0036, decision 4).
     @ObservationIgnored let audio = AudioHost(sink: NoChannelAudioSink())
 
@@ -67,10 +72,8 @@ final class GameSession {
         #else
         let withGuest = true
         #endif
-        let frameClock = DisplayLinkClock(sink: VsyncChannelSink())
-        self.frameClock = frameClock
         if withGuest {
-            let runtime = RuntimeSessionHost(preferRate: frameClock.setPreferredRate)
+            let runtime = RuntimeSessionHost(preferRate: { [frameClockSlot] in frameClockSlot.setPreferredRate($0) })
             self.runtime = runtime
             host = runtime
             waitForAnswer = { RuntimeSessionHost.wait(serial: $0, seconds: $1) }
@@ -87,8 +90,24 @@ final class GameSession {
         }
         showsHint = !UserDefaults.standard.bool(forKey: Self.hintShownKey)
         showsFPS = UserDefaults.standard.bool(forKey: Self.showsFPSKey)
+    }
+
+    /// The session takes over the process once its view is there: it becomes the runtime's session, writes
+    /// the last session's record, and starts its frame clock, its observer of the background and the FPS
+    /// label's sampler. SwiftUI may build a view's state more than once, so init does none of that.
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
         Self.current = self
         SessionEndReport.begin(entry)
+        let clock = DisplayLinkClock(sink: VsyncChannelSink())
+        frameClock = clock
+        frameClockSlot.set(clock)
+        clock.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
+        #if DEBUG
+        // Before the observer below, so each scene event is logged before the callbacks it causes.
+        SessionCheck.observeScene()
+        #endif
         // The GPU work must be scheduled before the background (ADR-0032, decision 6): the notification
         // comes on the main thread as the scene enters it, and SwiftUI's scene phase only later.
         backgroundObserver = NotificationCenter.default.addObserver(
@@ -97,6 +116,19 @@ final class GameSession {
             MainActor.assumeIsolated { self?.enteredBackground() }
         }
         countFrames()
+    }
+
+    /// The view is gone: the observer and the sampler stop, the frame clock pauses, and the runtime's
+    /// requests no longer reach this session.
+    func close() {
+        guard isOpen else { return }
+        isOpen = false
+        if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
+        backgroundObserver = nil
+        frameRateTask?.cancel()
+        frameRateTask = nil
+        frameClock?.run(false)
+        if Self.current === self { Self.current = nil }
     }
 
     /// The orientation the session is to hold (ADR-0032, decision 5).
@@ -137,7 +169,8 @@ final class GameSession {
     /// The guest starts with its window's final size, which ADR-0028 hands over with the window: at the
     /// first layout in the orientation the session holds.
     private func startIfLaidOut() {
-        guard let heldOrientation, heldOrientation.fits(width: windowPixels.width, height: windowPixels.height) else { return }
+        guard isOpen, let heldOrientation, heldOrientation.fits(width: windowPixels.width, height: windowPixels.height)
+        else { return }
         start()
     }
 
@@ -283,7 +316,7 @@ final class GameSession {
         frameRateTask?.cancel()
         frameRate = FrameRateMeter()
         fps = nil
-        guard showsFPS else { return }
+        guard isOpen, showsFPS else { return }
         frameRateTask = Task { [weak self] in
             while !Task.isCancelled, self != nil {
                 self?.sampleFrameRate()
@@ -359,7 +392,7 @@ final class GameSession {
             #endif
         }
         if handled.callbacks.contains(.onCreate) { guestStarted() }
-        frameClock.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
+        frameClock?.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
         // A gesture that is open when the focus goes ends with a CANCEL (ADR-0036, decision 3).
         if handled.callbacks.contains(.onWindowFocusChanged(false)) {
             post(touches.focusLost(at: Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9))
@@ -380,11 +413,31 @@ final class GameSession {
         let task = app.beginBackgroundTask(withName: "Answer to \(wait.callback)")
         let seconds = Double(Lifecycle.answerTimeout.components.seconds)
         Task.detached { [waitForAnswer] in
+            #if DEBUG
+            let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            #endif
             let result = waitForAnswer(wait.serial, seconds)
+            #if DEBUG
+            SessionCheck.answer(wait.callback, result: result, since: start)
+            #endif
             await MainActor.run {
                 self.report(self.bridge.finished(wait, result: result, host: self.host))
                 if task != .invalid { app.endBackgroundTask(task) }
             }
         }
+    }
+}
+
+/// The frame clock for the runtime's request handler, which calls it on the guest's thread without blocking:
+/// empty until the session opens.
+private final class FrameClockSlot: Sendable {
+    private let clock = Mutex<DisplayLinkClock?>(nil)
+
+    func set(_ clock: DisplayLinkClock) {
+        self.clock.withLock { $0 = clock }
+    }
+
+    func setPreferredRate(_ rate: Float) {
+        clock.withLock { $0 }?.setPreferredRate(rate)
     }
 }

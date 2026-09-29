@@ -67,6 +67,8 @@ struct GameModeView: View {
                 Button("OK") { _exit(0) }
             }
             .onAppear {
+                // Only the session SwiftUI keeps takes over the process, before the guest can start.
+                session.open()
                 // The guest starts once the window is laid out in the orientation held here.
                 guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
                     return session.holds(.atStart)
@@ -76,6 +78,7 @@ struct GameModeView: View {
                     session.holds(.atStart)
                 })
             }
+            .onDisappear { session.close() }
             .onChange(of: scenePhase, initial: true) { old, new in
                 session.sceneChanged(from: old, to: new)
             }

@@ -9,7 +9,7 @@
 # lifecycle callbacks follow decision 7. The fallback's alert comes up in both modes, also right after the
 # menu, and game mode restarts once, also after Home and back; a restart whose request goes unanswered
 # ends in the fallback after 3 s. The Debug build answers through app/Sources/Session/SessionCheck.swift.
-# The test app is removed afterwards, and the hint counts as not shown yet.
+# The test app is removed afterwards, the hint counts as not shown yet, and the FPS label is off.
 # On the iPhone (--device), devicectl sends the requests and fetches the events, and the app must stay
 # unlocked. BY_HAND=1 runs one round there in which the user taps the test app, swipes down from the top
 # edge and taps Quit; the script waits for each step. TOUCH=1 runs one round in which the touches come by hand
@@ -29,7 +29,15 @@
 # (build/fixtures/apks/activity-test.apk) on activity-host (ADR-0028 d), through its start, Home and back, and
 # the end that follows its ANativeActivity_finish; its log must be Android 15's
 # (fixtures/expected/activity-test.logcat) apart from the recorded departure: the focus goes at "inactive",
-# before onPause, where Android pauses first. Every other round runs game mode without a guest.
+# before onPause, where Android pauses first. LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
+# (build/fixtures/apks/gles-live.apk and, on the iPhone, vulkan-live.apk, which needs MoltenVK): each draws paced
+# by AChoreographer and asks for 120 and 60 Hz in turn every 5 s; game mode goes Home and back, and Quit returns
+# to the library. It checks that the FPS label counts in both windows, that the app ends with "windows 2,
+# failures 0" and without a GPU error in its log, that no answer waits out its timeout and, on the iPhone, that
+# the touches the user makes reach the input channel and that the display link ran at 120 and at 60 Hz; it prints
+# the gap between the scene's willDeactivate and didEnterBackground. LIVE_BY_HAND=1 runs vulkan-live once on the
+# iPhone with Home, the menu and Quit by hand, for the gap of the real gesture. Every other round runs game mode
+# without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -40,8 +48,11 @@
 #   FRAMES      only the round of the frame clock
 #   ENDS        only the rounds of ends that go wrong
 #   AUDIO       only the round of the test tone
+#   AWAY        with AUDIO: the seconds the second round stays in Settings (2 when unset)
 #   FPS         only the rounds of the FPS label
 #   ACTIVITY    only test 7, with activity-test
+#   LIVE        only test 8, with the live variants
+#   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -49,6 +60,8 @@ BUNDLE_ID="io.github.kisame76.minato"
 PKG="io.github.kisame76.minato.check.session"
 ACTIVITY_PKG="io.github.kisame76.minato.test.activity"
 ACTIVITY_APK="build/fixtures/apks/activity-test.apk"
+GLES_LIVE_PKG="io.github.kisame76.minato.test.gles.live"
+VULKAN_LIVE_PKG="io.github.kisame76.minato.test.vulkan.live"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -65,6 +78,20 @@ else
     exit 1
   fi
 fi
+if [[ -n "${LIVE_BY_HAND:-}" && "$ON_DEVICE" == no ]]; then
+  echo "LIVE_BY_HAND needs the iPhone (--device)." >&2
+  exit 1
+fi
+
+# The fixture apps this run imports beside the test app, one "<package> <APK>" per line. The Simulator has no
+# MoltenVK (ADR-0030, decision 8), so vulkan-live runs only on the iPhone.
+GUEST_APPS=""
+[[ -z "${ACTIVITY:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
+[[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
+if [[ "$ON_DEVICE" == yes && -n "${LIVE:-}${LIVE_BY_HAND:-}" ]]; then
+  GUEST_APPS+="$VULKAN_LIVE_PKG build/fixtures/apks/vulkan-live.apk"$'\n'
+fi
+guest_packages() { printf '%s' "$GUEST_APPS" | awk '{ print $1 }'; }
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -140,7 +167,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -187,17 +214,18 @@ fi
 
 restore() {
   terminate
-  # The hint counts as not shown yet, as before the first session, and the test apps go.
+  # The hint counts as not shown yet and the FPS label is off, as before the first session, and the test apps go.
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   echo yes > "$CHECK/forget-hint"
-  printf '%s\n' "$PKG" ${ACTIVITY:+"$ACTIVITY_PKG"} > "$CHECK/end"
+  { echo "$PKG"; guest_packages; } > "$CHECK/end"
   send_requests || true
   launch || true
   for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
   terminate
   if [[ "$ON_DEVICE" == no ]]; then
-    rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$SUPPORT/apps/$ACTIVITY_PKG" "$SUPPORT/data/$ACTIVITY_PKG" "$REQUEST"
+    rm -rf "$CHECK" "$SUPPORT/apps/$PKG" "$SUPPORT/data/$PKG" "$REQUEST"
+    for package in $(guest_packages); do rm -rf "$SUPPORT/apps/$package" "$SUPPORT/data/$package"; done
     if [[ "$had_data" == no ]]; then rmdir "$SUPPORT/data" 2>/dev/null || true; fi
     if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi
   fi
@@ -219,6 +247,8 @@ abort_round() {
 expect() {
   if [[ "$3" == "$2" ]]; then ok "$1"; else fail "$1: got \"$3\", wanted \"$2\""; fi
 }
+# What the user is to do or check now, on the iPhone.
+say() { [[ "$ON_DEVICE" == no ]] || echo ">>>   $1"; }
 
 # The events the app appended, "<seconds> <pid> <event>"; `seen` counts the lines already taken.
 seen=0
@@ -614,6 +644,7 @@ run_audio() {
   await_event "audio activate .*" && ok "  the session activates" || fail "  the session did not activate"
   await_event "audio startEngine .*" && ok "  the engine starts" || fail "  the engine did not start"
   await_event "audio tone opened .*" && ok "  the stream opens" || fail "  the stream did not open"
+  say "Listen now: a tone should play for 2 s."
   await_event "audio tone frames .*" 10 || { abort_round "the tone did not end"; return; }
   line=$(head -n "$seen" "$EVENTS" | grep " audio tone frames " | tail -n 1)
   read -r frames expected xruns < <(echo "$line" | awk '{ print $6, $8, $10 }')
@@ -630,21 +661,29 @@ run_audio() {
   await_event "quit" && ok "  Quit" || fail "  no Quit"
 
   # iOS stops the engine in the background: .ambient has no background audio.
-  begin_round "the test tone across Home and back"
+  # The tone must outlast the time away: on the iPhone, devicectl's fetch and launch take up to about 8 s more
+  # before Settings is in front, and a tone that ends in the background has no engine to start again.
+  local away=${AWAY:-2} slack=6
+  [[ "$ON_DEVICE" == yes ]] && slack=16
+  begin_round "the test tone across Home and back, $away s away"
   echo "$PKG" > "$CHECK/tap"
-  echo 8 > "$CHECK/tone"
-  echo 10 > "$CHECK/quit"
+  echo $((away + slack)) > "$CHECK/tone"
+  echo $((away + slack + 2)) > "$CHECK/quit"
   send_requests
   launch
   await_event "process gameMode $PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
   await_event "audio tone opened .*" || { abort_round "the stream did not open"; return; }
+  say "Listen now: a tone should play."
   sleep 1
   launch com.apple.Preferences
-  sleep 2
+  say "Minato is in the background for $away s now (Settings is in front): listen whether the tone goes on."
+  sleep "$away"
   launch
+  say "Minato is back: listen whether the tone plays again."
   await_event "audio foreground .*" && ok "  the host sees the foreground ($EVENT)" || fail "  the host did not see the foreground"
   await_event "audio startEngine .*" 5 && ok "  the engine starts again" || fail "  the engine did not start again"
   await_event "audio tone frames .*" 15 || { abort_round "the tone did not end"; return; }
+  say "The tone has ended."
   head -n "$seen" "$EVENTS" | grep -q " audio .* failed" && fail "  an audio step failed" || ok "  no audio step failed"
   await_event "quit" 10 && ok "  Quit" || fail "  no Quit"
 }
@@ -791,6 +830,118 @@ PY
   fi
 }
 
+# Test 8 (ADR-0032) with a live variant (ADR-0036 a): $1 is its package, $2 its log tag, and $3 "by-hand" when
+# the user goes Home and back and quits. It draws paced by AChoreographer, a frame per callback, and asks for 120
+# and 60 Hz in turn every 5 s.
+run_live() {
+  local pkg=$1 tag=$2 by_hand=${3:-} pid lines
+  begin_round "test 8: $tag${by_hand:+, Home and Quit by hand}"
+  # The folder keeps the last round's requests.
+  rm -f "$CHECK/no-guest" "$CHECK/quit" "$CHECK/tone"
+  echo "$pkg" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  # With a guest, "show" only turns the label on: its count is the window's real presents.
+  echo show > "$CHECK/fps"
+  # A second GameSession, as SwiftUI may build one, must change nothing: one sampler, the requests to this one.
+  echo yes > "$CHECK/extra-session"
+  [[ -n "$by_hand" ]] || echo 28 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $pkg .*" 60 || { abort_round "no game mode after the tap"; return; }
+  pid=$(pid_of "$EVENT")
+  await_event 'callback onWindowFocusChanged\(true\)' 30 || { abort_round "$tag did not gain the focus"; return; }
+  say "Touch now: tap and swipe on the picture for about 10 s, with one finger and with two."
+  sleep 12
+  if [[ -n "$by_hand" ]]; then
+    say "Swipe up now to the Home Screen, wait about 5 s, then tap Minato."
+    await_event "scene didEnterBackground" 180 || { abort_round "no background"; return; }
+    await_event "scene didActivate" 180 || { abort_round "Minato did not come back"; return; }
+  else
+    launch com.apple.Preferences
+    await_event "scene didEnterBackground" 10 || { abort_round "no background"; return; }
+    sleep 3
+    launch
+    await_event "scene didActivate" 10 || { abort_round "Minato did not come back"; return; }
+  fi
+  await_event 'callback onWindowFocusChanged\(true\)' 20 && ok "  back with the focus" || fail "  no focus after the return"
+  say "Touch now again for a few seconds."
+  if [[ -n "$by_hand" ]]; then
+    sleep 8
+    say "Swipe down from the top edge now, then tap Quit."
+    await_event "quit" 180 && ok "  Quit" || fail "  no Quit"
+  else
+    await_event "quit" 40 && ok "  Quit" || fail "  no Quit"
+  fi
+  say "Done with $tag: nothing more to do in this round."
+  await_event "program ended .*" 20 && expect "  $tag ends with status 0" "program ended 0" "$(event_of "$EVENT")" \
+    || fail "  $tag did not end"
+  await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after Quit"
+  lines=$(head -n "$seen" "$EVENTS")
+  echo "      callbacks: $(callbacks_of "$pid")"
+
+  # The gap Grafik's finding depends on: from the focus's loss to the background, with the callbacks in it.
+  awk -v pid="$pid" '
+    $2 != pid { next }
+    $3 == "scene" && $4 == "willDeactivate" { start = $1 }
+    start != "" && ($3 == "scene" || $3 == "callback" || $3 == "answer") {
+      printf "      +%4.0f ms  %s\n", ($1 - start) * 1000, substr($0, index($0, $3))
+    }
+    $3 == "scene" && $4 == "didActivate" { start = "" }' <<< "$lines"
+  local gap
+  gap=$(awk -v pid="$pid" '$2 == pid && $3 == "scene" && $4 == "willDeactivate" { start = $1 }
+    $2 == pid && $3 == "scene" && $4 == "didEnterBackground" && start != "" { printf "%.0f", ($1 - start) * 1000; exit }' <<< "$lines")
+  [[ -n "$gap" ]] && ok "  willDeactivate to didEnterBackground: $gap ms" || fail "  no gap from willDeactivate to didEnterBackground"
+  local answers
+  answers=$(awk -v pid="$pid" '$2 == pid && $3 == "answer"' <<< "$lines")
+  [[ -n "$answers" ]] && ok "  answers timed: $(wc -l <<< "$answers" | tr -d ' ')" || fail "  no answer was timed"
+  grep -q " timedOut " <<< "$answers" && fail "  a wait timed out: $(grep " timedOut " <<< "$answers" | awk '{ print $4 }' | tr '\n' ' ')" \
+    || ok "  no wait timed out"
+
+  # The FPS label counts the real presents of both windows, before Home and after the return.
+  local counted
+  counted=$(awk -v pid="$pid" '$2 == pid && $3 == "fps" && $4 == "window" && $9 != "none" && $9 > 0 { print $5 }' <<< "$lines" | sort -u)
+  echo "      FPS values: $(awk -v pid="$pid" '$2 == pid && $3 == "fps" && $4 == "window" { printf "%s:%s ", $5, $9 }' <<< "$lines")"
+  [[ "$(wc -l <<< "$counted" | tr -d ' ')" == 2 && -n "$counted" ]] && ok "  the FPS label counts in both windows" \
+    || fail "  the FPS label did not count in two windows: $(echo $counted)"
+  grep -q " extra session made$" <<< "$lines" && ok "  a second GameSession was built" || fail "  no second GameSession"
+  local samples span
+  read -r samples span < <(awk -v pid="$pid" '$2 == pid && $3 == "fps" && $4 == "window" { if (n++ == 0) first = $1; last = $1 }
+    END { printf "%d %.0f\n", n, last - first }' <<< "$lines")
+  (( samples <= span + 2 )) && ok "  one FPS sampler ($samples samples in $span s)" \
+    || fail "  more than one FPS sampler: $samples samples in $span s"
+
+  # The display link: its summaries of 120 intervals, beside what the app asked for and measured.
+  awk -v pid="$pid" '$2 == pid && ($3 == "frames" || ($3 == "request" && $4 ~ /^frameRate/)) { print "      " substr($0, index($0, $3)) }' <<< "$lines"
+  if [[ "$ON_DEVICE" == yes ]]; then
+    grep -q -E " frames [0-9]+ interval [0-9.]+/8\.[23][0-9]/" <<< "$lines" && grep -q -E " frames [0-9]+ interval [0-9.]+/16\.[67][0-9]/" <<< "$lines" \
+      && ok "  the display link ran at 120 and at 60 Hz" || fail "  the display link did not run at both 120 and 60 Hz"
+    # The touches reached the guest's input channel.
+    local motions last
+    motions=$(awk -v pid="$pid" '$2 == pid && $3 == "motion"' <<< "$lines")
+    last=$(tail -n 1 <<< "$motions")
+    echo "      motion events: $(grep -c . <<< "$motions" || true), the last: ${last#* * }"
+    [[ -n "$motions" ]] && ok "  touches reached the sink" || fail "  no touch reached the sink"
+    [[ -n "$last" && "$(awk '{ print $10 }' <<< "$last")" != 0 ]] && ok "  the input channel exists" || fail "  no input channel"
+    [[ -n "$last" && "$(awk '{ print $12 }' <<< "$last")" == 0 ]] && ok "  no post failed" || fail "  posts failed: $(awk '{ print $12 }' <<< "$last")"
+  fi
+
+  # The app's own count, and no GPU error from it, ANGLE or MoltenVK, which all write to its log.
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  grep -E "^I/$tag-device: (rate|ANativeWindow_setFrameRate|window)" "$CHECK/guest-log" | sed 's/^/      /' || true
+  local end
+  end=$(grep -E "^I/$tag: onDestroy: " "$CHECK/guest-log" || true)
+  if [[ "$end" =~ windows\ 2,\ failures\ 0, ]]; then
+    ok "  $tag: ${end#*onDestroy: }"
+  else
+    fail "  $tag's end: \"${end:-none}\"; its log:"
+    sed 's/^/      | /' "$CHECK/guest-log" | head -n 60
+  fi
+  local errors
+  errors=$(grep -i -E "mvk-error|VK_ERROR|DEVICE_LOST|command buffer|GL error|eglSwapBuffers failed|no EGL|no surface|release failed" "$CHECK/guest-log" || true)
+  [[ -z "$errors" ]] && ok "  no GPU error in the log" || { fail "  GPU errors in the log:"; sed 's/^/      | /' <<< "$errors" | head -n 20; }
+}
+
 # Import the test app; the first session shows the hint.
 if [[ "$ON_DEVICE" == yes ]]; then
   terminate
@@ -811,27 +962,28 @@ if [[ "$ON_DEVICE" == yes ]]; then
 else
   cp "$WORK/session-check.apk" "$SUPPORT/incoming/"
 fi
-if [[ -n "${ACTIVITY:-}" ]]; then
-  [[ -f "$ACTIVITY_APK" ]] || { echo "$ACTIVITY_APK is missing: tools/build-fixtures.sh builds it" >&2; exit 1; }
+while read -r package apk; do
+  [[ -n "$package" ]] || continue
+  [[ -f "$apk" ]] || { echo "$apk is missing: tools/build-fixtures.sh builds it" >&2; exit 1; }
   if [[ "$ON_DEVICE" == yes ]]; then
-    devicectl_copy to --source "$ACTIVITY_APK" --destination "$SUPPORT_REL/incoming/activity-test.apk"
+    devicectl_copy to --source "$apk" --destination "$SUPPORT_REL/incoming/${apk##*/}"
   else
-    cp "$ACTIVITY_APK" "$SUPPORT/incoming/"
+    cp "$apk" "$SUPPORT/incoming/"
   fi
-fi
+done <<< "$GUEST_APPS"
 launch
 for _ in $(seq 1 100); do
   [[ "$(field state)" == "{'ready': {}}" ]] && break
   sleep 0.2
 done
 expect "the test app is ready" "{'ready': {}}" "$(field state)"
-if [[ -n "${ACTIVITY:-}" ]]; then
+for package in $(guest_packages); do
   for _ in $(seq 1 100); do
-    [[ "$(field state "$ACTIVITY_PKG")" == "{'ready': {}}" ]] && break
+    [[ "$(field state "$package")" == "{'ready': {}}" ]] && break
     sleep 0.2
   done
-  expect "activity-test is ready" "{'ready': {}}" "$(field state "$ACTIVITY_PKG")"
-fi
+  expect "$package is ready" "{'ready': {}}" "$(field state "$package")"
+done
 # The Simulator signs ad hoc at the first tap; the iPhone with the certificate Minato has, at the import.
 signer=$(field signedWith)
 if [[ "$ON_DEVICE" == yes ]]; then
@@ -847,13 +999,18 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}" || -n "${FRAMES:-}" || -n "${ENDS:-}" || -n "${AUDIO:-}" || -n "${FPS:-}" || -n "${ACTIVITY:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
   [[ -n "${AUDIO:-}" ]] && run_audio
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
+  if [[ -n "${LIVE:-}" ]]; then
+    run_live "$GLES_LIVE_PKG" gles-live
+    [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live
+  fi
+  [[ -n "${LIVE_BY_HAND:-}" ]] && run_live "$VULKAN_LIVE_PKG" vulkan-live by-hand
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi

@@ -18,7 +18,8 @@ import UIKit
 ///            (1 when it names none), which ends the process.
 ///   orientation  "landscape" or "portrait": game mode holds that instead of the app's own.
 ///   unanswered   the next restart's first request goes unanswered, so it times out; the file is removed.
-///   forget-hint  the next process forgets that game mode showed its hint, and removes the file.
+///   forget-hint  the next process forgets that game mode showed its hint and that the FPS label is on, as
+///            before the first session, and removes the file.
 ///   crash    an exit status: game mode ends at its start as the runtime ends a program, reporting that
 ///            status, and removes the file.
 ///   start-failed  a reason: game mode's app reports that it cannot start, and the file is removed.
@@ -28,6 +29,8 @@ import UIKit
 ///            mode turns the FPS label on through its menu; "hide" turns it off there.
 ///   no-guest game mode runs without a guest, as before ADR-0028 d): every post and wait is answered at once.
 ///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log.
+///   extra-session  once the guest starts, game mode builds a second GameSession for the same app and keeps
+///            it, as SwiftUI may build a view's state more than once; it must change nothing.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -83,16 +86,22 @@ enum SessionCheck {
         return true
     }
 
+    /// Events come from the main thread, the audio host's queue and guest threads: one at a time, so that no
+    /// line overwrites another at the file's end, and in the order of their times.
+    private static let writing = Mutex(())
+
     static func event(_ text: String) {
         guard isOn else { return }
-        let line = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(getpid()) \(text)\n"
-        let file = folder.appending(path: "events")
-        if let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            try? Data(line.utf8).write(to: file)
+        writing.withLock { _ in
+            let line = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(getpid()) \(text)\n"
+            let file = folder.appending(path: "events")
+            if let handle = try? FileHandle(forWritingTo: file) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try? Data(line.utf8).write(to: file)
+            }
         }
     }
 
@@ -100,6 +109,7 @@ enum SessionCheck {
     static func processStarted(_ mode: LaunchMode, request: LaunchRequest?) {
         if requested("forget-hint") {
             UserDefaults.standard.removeObject(forKey: GameSession.hintShownKey)
+            UserDefaults.standard.removeObject(forKey: GameSession.showsFPSKey)
             try? FileManager.default.removeItem(at: folder.appending(path: "forget-hint"))
         }
         let seconds = request.map { String(format: " %.3f", Date.now.timeIntervalSince($0.time)) } ?? ""
@@ -140,6 +150,9 @@ enum SessionCheck {
         try? FileManager.default.removeItem(at: folder)
     }
 
+    /// The sessions "extra-session" built, kept for the process's life.
+    @MainActor private static var extraSessions: [GameSession] = []
+
     /// Game mode's guest starts: the window's size in pixels it starts with, the window's facts, then the
     /// menu and Quit when the script asks for them.
     @MainActor
@@ -157,6 +170,10 @@ enum SessionCheck {
             session.received(.startFailed(reason))
         }
         if requested("tone") { playTone(session.audio, seconds: text(of: "tone").flatMap(Double.init) ?? 2) }
+        if requested("extra-session") {
+            extraSessions.append(GameSession(entry: session.entry))
+            event("extra session made")
+        }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))
             recordWindow()
@@ -230,6 +247,36 @@ enum SessionCheck {
         let monotonic = Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1e9
         event(String(format: "touch clock uptime %.3f monotonic %.3f", (uptime - timestamp) * 1000,
                      (monotonic - timestamp) * 1000))
+    }
+
+    @MainActor private static var sceneObservers: [NSObjectProtocol] = []
+
+    /// The scene's changes of state as UIKit posts them, for the time from the focus's loss to the background
+    /// (ADR-0036 a): a frame that commits after the background waits at the gate until the foreground.
+    @MainActor
+    static func observeScene() {
+        guard isOn, sceneObservers.isEmpty else { return }
+        let names: [(Notification.Name, String)] = [
+            (UIScene.willDeactivateNotification, "willDeactivate"),
+            (UIScene.didEnterBackgroundNotification, "didEnterBackground"),
+            (UIScene.willEnterForegroundNotification, "willEnterForeground"),
+            (UIScene.didActivateNotification, "didActivate"),
+        ]
+        sceneObservers = names.map { name, text in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in event("scene \(text)") }
+        }
+    }
+
+    /// The wait for the guest's answer to `callback`, begun at `start` on CLOCK_UPTIME_RAW, ended with
+    /// `apkrt_session_wait`'s `result`: whether it was answered, and how long it took in ms.
+    static func answer(_ callback: Lifecycle.Callback, result: Int32, since start: UInt64) {
+        let ms = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1e6
+        let outcome = switch result {
+        case 1: "answered"
+        case 0: "timedOut"
+        default: "broken"
+        }
+        event("answer \(callback) \(outcome) " + String(format: "%.0f", ms))
     }
 
     /// 120 intervals between ticks of the frame clock, in ms: smallest, median and largest, the period
