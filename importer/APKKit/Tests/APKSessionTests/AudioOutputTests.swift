@@ -58,16 +58,23 @@ struct AudioOutputTests {
     @Test func theFirstStreamActivatesTheSessionAndStartsTheEngine() {
         var output = AudioOutput()
 
-        #expect(output.opened(1, mode: .none) == [.preferIOBuffer(0.020), .activate, .startEngine])
+        #expect(output.opened(1, mode: .none) == [.preferIOBuffer(0.020), .activate, .startEngine, .publishOutput])
     }
 
-    @Test func aLowLatencyStreamShortensTheIOBufferUntilItCloses() {
+    /// A stream's burst is fixed at its open (Runtime's c1), so the IO buffer shrinks for a LOW_LATENCY stream
+    /// but never grows while streams are open: a burst would outgrow the rings of the streams opened on it.
+    @Test func aLowLatencyStreamShortensTheIOBufferUntilTheLastStreamCloses() {
         var output = AudioOutput()
         _ = output.opened(1, mode: .none)
 
         #expect(output.opened(2, mode: .lowLatency) == [.preferIOBuffer(0.005)])
         #expect(output.opened(3, mode: .powerSaving) == [])
-        #expect(output.closed(2) == [.preferIOBuffer(0.020)])
+        #expect(output.closed(2) == [])
+        #expect(output.opened(4, mode: .none) == [])
+        _ = output.closed(1)
+        _ = output.closed(3)
+        #expect(output.closed(4) == [.withdrawOutput, .stopEngine, .deactivate])
+        #expect(output.opened(5, mode: .none) == [.preferIOBuffer(0.020), .activate, .startEngine, .publishOutput])
     }
 
     @Test func theLastStreamStopsTheEngineAndDeactivatesTheSession() {
@@ -76,7 +83,7 @@ struct AudioOutputTests {
         _ = output.opened(2, mode: .none)
 
         #expect(output.closed(1) == [])
-        #expect(output.closed(2) == [.stopEngine, .deactivate])
+        #expect(output.closed(2) == [.withdrawOutput, .stopEngine, .deactivate])
         #expect(output.closed(2) == [])
     }
 
@@ -85,8 +92,8 @@ struct AudioOutputTests {
         var output = AudioOutput()
         _ = output.opened(1, mode: .none)
 
-        #expect(output.interruptionBegan() == [])
-        #expect(output.interruptionEnded() == [.activate, .startEngine])
+        #expect(output.interruptionBegan() == [.withdrawOutput])
+        #expect(output.interruptionEnded() == [.activate, .startEngine, .publishOutput])
     }
 
     @Test func aStreamOpenedDuringAnInterruptionWaitsForItsEnd() {
@@ -94,7 +101,18 @@ struct AudioOutputTests {
         _ = output.interruptionBegan()
 
         #expect(output.opened(1, mode: .lowLatency) == [.preferIOBuffer(0.005)])
-        #expect(output.interruptionEnded() == [.activate, .startEngine])
+        #expect(output.interruptionEnded() == [.activate, .startEngine, .publishOutput])
+    }
+
+    /// Streams are the runtime's handles (`apkrt.h`), which use all 64 bits.
+    @Test func streamsAreTheRuntimesHandles() {
+        var output = AudioOutput()
+        let handle: UInt64 = 0xFFFF_FFFF_FFFF_FFC1
+        _ = output.opened(handle, mode: .none)
+        _ = output.hardware(Self.speaker, rerouted: false)
+
+        #expect(output.hardware(AudioHardware(sampleRate: 44_100, ioBufferDuration: 0.005), rerouted: true)
+            == [.disconnect([handle]), .withdrawOutput, .stopEngine, .deactivate])
     }
 
     @Test func anInterruptionWithoutStreamsEndsWithNothingToDo() {
@@ -109,7 +127,7 @@ struct AudioOutputTests {
         var output = AudioOutput()
         _ = output.opened(1, mode: .none)
 
-        #expect(output.enteredForeground() == [.activate, .startEngine])
+        #expect(output.enteredForeground() == [.activate, .startEngine, .publishOutput])
     }
 
     @Test func theForegroundWithoutStreamsOrDuringAnInterruptionStartsNothing() {
@@ -119,7 +137,7 @@ struct AudioOutputTests {
         _ = output.opened(1, mode: .none)
         _ = output.interruptionBegan()
         #expect(output.enteredForeground() == [])
-        #expect(output.interruptionEnded() == [.activate, .startEngine])
+        #expect(output.interruptionEnded() == [.activate, .startEngine, .publishOutput])
     }
 
     /// AVAudioEngineConfigurationChange: the engine stopped itself.
@@ -127,7 +145,7 @@ struct AudioOutputTests {
         var output = AudioOutput()
         _ = output.opened(1, mode: .none)
 
-        #expect(output.engineStopped() == [.startEngine])
+        #expect(output.engineStopped() == [.startEngine, .publishOutput])
     }
 
     @Test func anEngineThatStoppedDuringAnInterruptionWaitsForItsEnd() {
@@ -148,12 +166,36 @@ struct AudioOutputTests {
 
     static let speaker = AudioHardware(sampleRate: 48_000, ioBufferDuration: 0.005)
 
+    /// The streams go on, on an output whose latency may have changed.
     @Test func aRouteChangeKeepsTheStreamsWhenRateAndBurstStay() {
         var output = AudioOutput()
         _ = output.opened(1, mode: .none)
         _ = output.hardware(Self.speaker, rerouted: false)
 
-        #expect(output.hardware(AudioHardware(sampleRate: 48_000, ioBufferDuration: 0.0050001), rerouted: true) == [])
+        #expect(output.hardware(AudioHardware(sampleRate: 48_000, ioBufferDuration: 0.0050001), rerouted: true)
+            == [.publishOutput])
+    }
+
+    /// The interruption's end publishes the output.
+    @Test func aRouteChangeDuringAnInterruptionPublishesNothing() {
+        var output = AudioOutput()
+        _ = output.opened(1, mode: .none)
+        _ = output.hardware(Self.speaker, rerouted: false)
+        _ = output.interruptionBegan()
+
+        #expect(output.hardware(Self.speaker, rerouted: true) == [])
+    }
+
+    /// Headphones out during a call: the streams' burst or rate is gone all the same.
+    @Test func aRouteChangeOfRateDuringAnInterruptionStillDisconnects() {
+        var output = AudioOutput()
+        _ = output.opened(1, mode: .none)
+        _ = output.hardware(Self.speaker, rerouted: false)
+        _ = output.interruptionBegan()
+
+        #expect(output.hardware(AudioHardware(sampleRate: 44_100, ioBufferDuration: 0.005), rerouted: true)
+            == [.disconnect([1]), .withdrawOutput, .stopEngine, .deactivate])
+        #expect(output.interruptionEnded() == [])
     }
 
     /// AudioStreamTrack.cpp: a reroute that changes the rate or the burst disconnects.
@@ -164,7 +206,7 @@ struct AudioOutputTests {
         _ = output.hardware(Self.speaker, rerouted: false)
 
         #expect(output.hardware(AudioHardware(sampleRate: 44_100, ioBufferDuration: 0.005), rerouted: true)
-            == [.disconnect([1, 2]), .stopEngine, .deactivate])
+            == [.disconnect([1, 2]), .withdrawOutput, .stopEngine, .deactivate])
         #expect(output.closed(1) == [])
     }
 
@@ -174,7 +216,7 @@ struct AudioOutputTests {
         _ = output.hardware(Self.speaker, rerouted: false)
 
         #expect(output.hardware(AudioHardware(sampleRate: 48_000, ioBufferDuration: 0.02), rerouted: true)
-            == [.disconnect([1]), .stopEngine, .deactivate])
+            == [.disconnect([1]), .withdrawOutput, .stopEngine, .deactivate])
     }
 
     /// The host's own change of the IO buffer is no reroute.
@@ -185,7 +227,7 @@ struct AudioOutputTests {
         _ = output.opened(2, mode: .lowLatency)
 
         #expect(output.hardware(Self.speaker, rerouted: false) == [])
-        #expect(output.hardware(Self.speaker, rerouted: true) == [])
+        #expect(output.hardware(Self.speaker, rerouted: true) == [.publishOutput])
     }
 
     @Test func aRouteChangeWithoutStreamsDoesNothing() {

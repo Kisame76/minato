@@ -55,7 +55,7 @@ final class GameSession {
     @ObservationIgnored private var frameClock: DisplayLinkClock?
     @ObservationIgnored private let frameClockSlot = FrameClockSlot()
     /// The guest's audio output (ADR-0036, decision 4).
-    @ObservationIgnored let audio = AudioHost(sink: NoChannelAudioSink())
+    @ObservationIgnored let audio = AudioHost(sink: RuntimeAudioSink())
     #if BENCHMARK
     /// A benchmark run's hooks (ADR-0037, decision 3): no menu, FPS label or hint, and the end goes to the run.
     @ObservationIgnored private var benchmark: BenchmarkHooks?
@@ -214,7 +214,10 @@ final class GameSession {
         if let failure = runtime.begin(start, configuration: configuration) {
             return couldNotStart(failure)
         }
+        let audio = audio
         Task.detached {
+            // Before the guest runs, so its first stream opens on the host.
+            audio.serveRuntime()
             let failure = RuntimeSessionHost.startProgram(start)
             await MainActor.run {
                 if let failure { self.couldNotStart(failure) } else { self.deliver(.start) }

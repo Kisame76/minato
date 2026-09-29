@@ -214,7 +214,10 @@ enum SessionCheck {
     @MainActor
     private static func playTone(_ audio: AudioHost, seconds: Double) {
         let tone = ToneSource(sampleRate: 44_100, frequency: 440)
-        guard let (id, stream, hardware) = audio.open(sampleRate: 44_100, channels: 2, mode: .lowLatency, source: tone)
+        // The runtime's handles are at least 64, a generation above the slot (runtime/src/audio.cpp): 1 is none.
+        let id: UInt64 = 1
+        guard let (stream, hardware) = audio.open(stream: id, sampleRate: 44_100, channels: 2, mode: .lowLatency,
+                                                  source: tone)
         else { return event("audio tone failed") }
         event("audio tone opened \(id) rate \(Int(hardware.sampleRate)) burst \(hardware.burstFrames)")
         Task { @MainActor in

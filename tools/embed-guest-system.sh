@@ -3,8 +3,8 @@
 # consequences; ADR-0032, decision 10), as game mode mounts it for activity-host. In Guest/:
 #   bin/activity-host.dylib   the program /system/bin/activity-host
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
-#                             libnativewindow and libz, and the graphics front libs libEGL, libGLESv2,
-#                             libGLESv3 and libvulkan (ADR-0029, ADR-0030)
+#                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
+#                             libEGL, libGLESv2, libGLESv3 and libvulkan (ADR-0029, ADR-0030)
 #   system/                   the guest's /system for files: bionic's time zone file
 # Every container is converted at build time and signed with the app's identity and the bundle ID as
 # identifier (route 1 of ADR-0008). tools/build-bionic.sh builds what it takes from build/bionic,
