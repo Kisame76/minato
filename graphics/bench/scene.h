@@ -33,7 +33,7 @@ void bench_conf_defaults(struct bench_conf *conf);
 /* bench.conf's text over the defaults: 0, or -1 with the line it does not take in `error`. */
 int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, size_t size);
 
-/* N: the meshes and the particles of a load with an API. First guesses; step e) calibrates them on the iPhone. */
+/* N: the meshes and the particles of a load with an API, calibrated on the iPhone in step e) (scene.c). */
 int bench_meshes(enum bench_api api, enum bench_load load);
 
 const char *bench_load_name(enum bench_load load);

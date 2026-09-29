@@ -98,8 +98,9 @@ int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, siz
 /* ---- The loads */
 
 int bench_meshes(enum bench_api api, enum bench_load load) {
-    // [guess] The heavy N gives the native build about 90 FPS at 120 Hz, the light N is a quarter (decision 7).
-    static const int meshes[2][2] = {{512, 2048}, {512, 2048}};
+    // Decision 7, calibrated on the iPhone 15 Pro Max (ADR-0037 e): the heavy N gives the native build about
+    // 90 FPS at 120 Hz (GLES 89, Vulkan 86 in the warm window), and the light N, a quarter, holds 120 Hz.
+    static const int meshes[2][2] = {{2048, 8192}, {2048, 8192}};
     return meshes[api == BENCH_VULKAN][load == BENCH_HEAVY];
 }
 
