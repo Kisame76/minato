@@ -1,6 +1,7 @@
 // graphics/host's layer and the parity benchmark's recorder (ADR-0037, decision 2), minato_layer.h.
 #import "minato_layer.h"
 
+#include <TargetConditionals.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -21,11 +22,13 @@ static int64_t now_ns(void) {
     return (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 
+#if !TARGET_OS_SIMULATOR
 /// presentedTime is in seconds of the same host clock as CACurrentMediaTime, which counts mach_absolute_time as
 /// CLOCK_UPTIME_RAW does.
 static int64_t host_ns(CFTimeInterval seconds) {
     return seconds > 0 ? (int64_t)llround(seconds * 1e9) : 0;
 }
+#endif
 
 @implementation MinatoLayerRecording {
 @public
@@ -133,6 +136,9 @@ static int64_t host_ns(CFTimeInterval seconds) {
     MinatoLayerRecording *_current;
 }
 
+// The Simulator's MTLDrawable has no presented handlers, drawableID or presentedTime: there the layer keeps
+// CAMetalLayer's nextDrawable, and -startRecording: returns NO.
+#if !TARGET_OS_SIMULATOR
 - (nullable id<CAMetalDrawable>)nextDrawable {
     const uintptr_t active = atomic_load_explicit(&_active, memory_order_acquire);
     if (active == 0) return [super nextDrawable];
@@ -174,14 +180,20 @@ static int64_t host_ns(CFTimeInterval seconds) {
     atomic_fetch_sub(&recording->_inside, 1);
     return drawable;
 }
+#endif
 
 - (BOOL)startRecording:(NSUInteger)capacity {
+#if TARGET_OS_SIMULATOR
+    (void)capacity;
+    return NO;
+#else
     if (capacity == 0 || atomic_load(&_active) != 0) return NO;
     MinatoLayerRecording *recording = [[MinatoLayerRecording alloc] initWithCapacity:capacity];
     if (recording == nil) return NO;
     _current = recording;
     atomic_store_explicit(&_active, (uintptr_t)(__bridge void *)recording, memory_order_release);
     return YES;
+#endif
 }
 
 - (nullable MinatoLayerRecording *)stopRecording:(NSTimeInterval)timeout {

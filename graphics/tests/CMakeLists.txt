@@ -68,6 +68,20 @@ add_test(NAME graphics.bench_summary
     --tool "${PROJECT_SOURCE_DIR}/tools/bench-summary.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_summary")
 set_tests_properties(graphics.bench_summary PROPERTIES TIMEOUT 300)
 
+# ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
+# device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them
+# from tools/build-graphics-host.sh, which CTest does not run.
+if(TARGET minato_graphics_host)
+  add_test(NAME graphics.host_ios
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/host_ios_test.py"
+      --commands "${CMAKE_BINARY_DIR}/compile_commands.json" --sources "${PROJECT_SOURCE_DIR}/graphics/host"
+      --presets "${PROJECT_SOURCE_DIR}/CMakePresets.json")
+else()
+  add_test(NAME graphics.host_ios
+    COMMAND ${CMAKE_COMMAND} -E echo "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
+endif()
+set_tests_properties(graphics.host_ios PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
 # ADR-0030, test 2: thunk-test, a guest program from tools/build-front-libs.sh, calls every stub with
 # garbage; it runs as the fixtures do (tools/run-fixture.cmake), with bionic's libraries as the system's,
 # and prints "skipped:" while it is not built.
