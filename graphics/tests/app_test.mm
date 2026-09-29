@@ -1,9 +1,10 @@
 // ADR-0029 B2 and ADR-0030 V5 on the Mac, and for the live variants ADR-0032's test 8 with ADR-0036 a): a scripted
 // host that plays the App's lifecycle for one of the test apps of fixtures/apps through activity-host, with
-// graphics/host's providers of ANGLE and MoltenVK and windows on CAMetalLayers the size of an iPhone 15 Pro Max's
-// screen (430 x 932 points at scale 3). It converts activity-host, the system's libraries, the front libs and the
-// app's library into containers signed ad hoc, mounts the guest paths, begins the session, starts the app with the
-// function its manifest names (android.app.func_name, else ANativeActivity_onCreate), and posts the events in the
+// graphics/host's providers of ANGLE and MoltenVK and windows on graphics/host's layers (the App's, ADR-0037
+// decision 2) the size of an iPhone 15 Pro Max's screen (430 x 932 points at scale 3). It converts activity-host,
+// the system's libraries, the front libs and the app's library into containers signed ad hoc, mounts the guest
+// paths, begins the session, starts the app with the function its manifest names (android.app.func_name, else
+// ANativeActivity_onCreate), and posts the events in the
 // order the App's SessionBridge gives them.
 // - gles-test and vulkan-test (<mode> is the presents): the start with its window and the focus, then the gate
 //   opened; after the app's ANativeActivity_finish the focus lost, the gate closed, the window removed, onPause,
@@ -30,15 +31,21 @@
 //   window counted 1080 presents, the requests were KEEP_SCREEN_ON 1, FRAME_RATE 120 and FINISH,
 //   onNativeWindowDestroyed and onDestroy were answered within 500 ms, and activity-host ended with status 0;
 //   bench_test.py checks the rest.
+// - The same with <mode> record:<load> (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the window's
+//   layer records, and a nextDrawable of the test's own before and after the recording. It passes as above with 120
+//   presents, and when the recording holds every drawable once and in order (recording_check.h).
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
-//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live | bench:<load>>
+//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live | bench:<load> | record:<load>>
 #import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include "APKRuntime/apkrt.h"
 #include "apkconv/codesign.h"
 #include "apkconv/container.h"
 #include "minato_graphics.h"
+#include "minato_layer.h"
+#include "recording_check.h"
 
 #include <time.h>
 #include <unistd.h>
@@ -300,12 +307,16 @@ std::uint64_t pair(std::int32_t low, std::int32_t high) {
     return static_cast<std::uint32_t>(low) | static_cast<std::uint64_t>(static_cast<std::uint32_t>(high)) << 32;
 }
 
-/// The App's window: the view's layer, its bounds in points, its size in pixels.
+/// The layer of the window added last.
+MinatoMetalLayer *last_layer;
+
+/// The App's window: the view's layer, graphics/host's in every build, its bounds in points, its size in pixels.
 std::uint64_t add_window() {
     @autoreleasepool {
-        CAMetalLayer *layer = [CAMetalLayer layer];
+        MinatoMetalLayer *layer = [MinatoMetalLayer layer];
         layer.contentsScale = scale;
         layer.bounds = CGRectMake(0, 0, width / scale, height / scale);
+        last_layer = layer;
         return apkrt_window_add((__bridge void *)layer, width, height);
     }
 }
@@ -478,10 +489,22 @@ bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseco
 }
 
 /// bench-gles and bench-vulkan: the start, the frames in lockstep with the ticks until the app finishes, the quit.
-void play_bench(Capture &capture) {
-    constexpr std::uint64_t frames = 1080;  // 9 s at 120 Hz
+/// With `record`, the layer records the run.
+void play_bench(const std::string &app, Capture &capture, bool record) {
+    const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
     constexpr double period = 1e9 / 120;
     const std::uint64_t window = add_window();
+    MinatoMetalLayer *layer = last_layer;
+    if (record) {
+        // A drawable before the recording, which it must not hold; room for twice the frames, so that extra
+        // drawables show in the count.
+        @autoreleasepool {
+            layer.device = MTLCreateSystemDefaultDevice();
+            (void)[layer nextDrawable];
+        }
+        if (![layer startRecording:2 * frames]) fail("the layer did not start recording");
+    }
+    std::vector<std::int64_t> posts;
     if (!start(window, nullptr)) return;
     // The scene asks for its rate once it can draw, and posts its first callback right after.
     if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FRAME_RATE 120") !=
@@ -493,6 +516,7 @@ void play_bench(Capture &capture) {
     std::int64_t first = 0;
     for (int attempt = 0; attempt < 3 && apkrt_window_presents(window) == 0 && !requested("FINISH"); ++attempt) {
         first = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+        if (posts.empty()) posts.push_back(first);
         apkrt_vsync_post(first, first + std::llround(period));
         presented(window, 1, 10000ms);
     }
@@ -503,6 +527,7 @@ void play_bench(Capture &capture) {
         for (;; ++ticks) {
             const std::int64_t late = ticks % 2 == 0 ? 1000000 : 500000;
             const std::int64_t tick = first + std::llround(static_cast<double>(ticks) * period) + late;
+            posts.push_back(static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)));
             apkrt_vsync_post(tick, tick + std::llround(period));
             if (!presented(window, ticks + 1, 5000ms)) break;
         }
@@ -511,6 +536,7 @@ void play_bench(Capture &capture) {
                   10s)) {
         fail("the app did not finish by itself");
     }
+    MinatoLayerRecording *recording = record ? [layer stopRecording:2] : nil;
 
     // The App's quit.
     focus_lost(window, nullptr);
@@ -521,6 +547,11 @@ void play_bench(Capture &capture) {
     post(APKRT_EVENT_STOP);
     const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
     wait_for([] { return seen.ended; }, 10s);
+    if (record) {
+        @autoreleasepool {
+            (void)[layer nextDrawable];  // after the recording: not in it
+        }
+    }
 
     capture.drain();
     ::dprintf(report, "host: %llu ticks after the first, %llu presents counted\n",
@@ -534,6 +565,11 @@ void play_bench(Capture &capture) {
     if (const std::string requests = requests_text(); requests != "[KEEP_SCREEN_ON 1][FRAME_RATE 120][FINISH]") {
         fail("the requests were " + requests);
     }
+    if (record) {
+        ::dprintf(report, "recorder: %s, APK: %llu drawables; %s\n", app.substr(6).c_str(),
+                  static_cast<unsigned long long>(recording.count), recording_notes(recording).c_str());
+        for (const auto &problem : recording_problems(recording, posts, frames)) fail("recorder: " + problem);
+    }
 }
 
 }  // namespace
@@ -542,13 +578,14 @@ int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
                              "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
-                             "<presents | live | bench:<load>>\n");
+                             "<presents | live | bench:<load> | record:<load>>\n");
         return 2;
     }
     const std::string app = argv[2];
     const fs::path scratch = fs::path(argv[1]) / app, fixtures = argv[3], bionic = argv[4], system = argv[5],
                    front = argv[6], expected = argv[7], angle = argv[8], moltenvk = argv[9];
-    const bool live = std::strcmp(argv[10], "live") == 0, bench = std::strncmp(argv[10], "bench:", 6) == 0;
+    const bool record = std::strncmp(argv[10], "record:", 7) == 0;
+    const bool live = std::strcmp(argv[10], "live") == 0, bench = record || std::strncmp(argv[10], "bench:", 6) == 0;
     const std::uint64_t presents = live || bench ? 0 : std::strtoull(argv[10], nullptr, 10);
     // tools/build-bench.sh puts the APKs at the top of its build, tools/build-fixtures.sh into apks/; the bench's
     // manifests are in <expected>/<app>/, the test apps' in fixtures/apps/<app>/.
@@ -593,11 +630,11 @@ int main(int argc, char **argv) {
     for (const auto &folder : {data, external, obb}) fs::create_directories(folder);
     if (bench) {
         // bench.conf in the app's internalDataPath, /data/user/0/<package>/files.
-        const std::string load = argv[10] + 6;
+        const std::string load = std::strchr(argv[10], ':') + 1;
         fs::create_directories(data / "files");
         std::ofstream(data / "files" / "bench.conf") << "run=" << app.substr(6) << "-120-" << load
                                                       << "-apk-00\nrate=120\nload=" << load
-                                                      << "\nseconds=9\ncheck=1000\n";
+                                                      << (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n");
     }
 
     // The guest paths the App mounts (ADR-0028, decision 14).
@@ -648,7 +685,7 @@ int main(int argc, char **argv) {
     if (live) {
         play_live(app, capture);
     } else if (bench) {
-        play_bench(capture);
+        play_bench(app, capture, record);
     } else {
         play_scenes(app, expected, presents, capture);
     }

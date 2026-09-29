@@ -5,7 +5,11 @@
 that moved with the ticks rather than the frame index would draw other frames. It passes when both runs pass,
 both logged the same CRC of frame 1000 and a CRC per load differs from the other load's, and each run's scene.csv
 has a row per frame: the indices 0 to 1079 in order, the ticks rising, the CPU times above 0. It prints
-"skipped:" when a program says so."""
+"skipped:" when a program says so.
+
+With --record, ADR-0037 b): graphics.recorder. For each API, both builds draw the light load for 1 s, 120 frames, on
+graphics/host's layer, which records the run; each program checks in-process that the recording holds every drawable
+once and in order (recording_check.h) and prints a "recorder:" line with the layer's notes."""
 import argparse
 import pathlib
 import re
@@ -70,13 +74,36 @@ def check_scene(path, what):
         ticks = tick
 
 
+def recorder_line(output, what):
+    lines = [line for line in output.splitlines() if line.startswith("recorder: ")]
+    if len(lines) != 1:
+        fail(f"{what}: {len(lines)} recorder lines, not 1")
+        return
+    print(lines[0], flush=True)
+
+
+def record(args, scratch):
+    for api in ("gles", "vulkan"):
+        host = run([args.host, api, "light", str(scratch / "record-host"), args.moltenvk, "record"],
+                   f"{api}, host build")
+        recorder_line(host, f"{api}, host build")
+        guest = run([args.app_test, str(scratch / "record-guest"), f"bench-{api}", args.bench, args.bionic,
+                     args.system, args.front, args.manifests, args.angle, args.moltenvk, "record:light"], f"{api}, APK")
+        recorder_line(guest, f"{api}, APK")
+    print(f"{len(failures)} failures" if failures else "PASS: graphics.recorder")
+    return 1 if failures else 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     for option in ("host", "app-test", "scratch", "bench", "bionic", "system", "front", "manifests", "angle",
                    "moltenvk"):
         parser.add_argument(f"--{option}", required=True)
+    parser.add_argument("--record", action="store_true")
     args = parser.parse_args()
     scratch = pathlib.Path(args.scratch)
+    if args.record:
+        return record(args, scratch)
 
     for api in ("gles", "vulkan"):
         crcs = {}

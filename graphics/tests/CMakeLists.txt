@@ -61,6 +61,13 @@ add_test(NAME graphics.frontgen
     --ndk "${APK_ANDROID_NDK}" --work "${CMAKE_CURRENT_BINARY_DIR}/frontgen")
 set_tests_properties(graphics.frontgen PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
 
+# ADR-0037 b): tools/bench-summary.py on made-up run folders: the windows, nearest rank, validity with the pair rule,
+# the verdict and the noise rule.
+add_test(NAME graphics.bench_summary
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/bench_summary_test.py"
+    --tool "${PROJECT_SOURCE_DIR}/tools/bench-summary.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_summary")
+set_tests_properties(graphics.bench_summary PROPERTIES TIMEOUT 300)
+
 # ADR-0030, test 2: thunk-test, a guest program from tools/build-front-libs.sh, calls every stub with
 # garbage; it runs as the fixtures do (tools/run-fixture.cmake), with bionic's libraries as the system's,
 # and prints "skipped:" while it is not built.
@@ -243,11 +250,13 @@ if(TARGET minato_graphics_host)
   # lockstep (bench_test.py): both must draw the same frame 1000, and the APK must end by itself.
   set(APK_BENCH_DIR "${PROJECT_SOURCE_DIR}/build/graphics/bench" CACHE PATH
     "tools/build-bench.sh's build directory, with the bench's APKs at its top and their libraries in bin/")
+  # ADR-0037 b): graphics.recorder, the same programs with graphics/host's layer recording a run of 120 frames per API
+  # and build (bench_test.py --record): every drawable once and in order (recording_check.h).
   if(TARGET minato_bench)
     add_executable(graphics-bench-host bench_host.mm)
     target_compile_options(graphics-bench-host PRIVATE -fobjc-arc)
-    target_link_libraries(graphics-bench-host PRIVATE minato_bench apk_defaults "-framework Foundation"
-      "-framework QuartzCore")
+    target_link_libraries(graphics-bench-host PRIVATE minato_bench minato_graphics_host apk_defaults
+      "-framework Foundation" "-framework Metal" "-framework QuartzCore")
     add_test(NAME graphics.bench
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/bench_test.py"
         --host $<TARGET_FILE:graphics-bench-host> --app-test $<TARGET_FILE:graphics-app-test>
@@ -255,17 +264,26 @@ if(TARGET minato_graphics_host)
         --system "${APK_GUEST_SYSTEM_DIR}" --front "${APK_GRAPHICS_GUEST_DIR}"
         --manifests "${PROJECT_SOURCE_DIR}/graphics/bench/android" --angle "${angle}" --moltenvk "${moltenvk}")
     set_tests_properties(graphics.bench PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
+    add_test(NAME graphics.recorder
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/bench_test.py" --record
+        --host $<TARGET_FILE:graphics-bench-host> --app-test $<TARGET_FILE:graphics-app-test>
+        --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_runs" --bench "${APK_BENCH_DIR}" --bionic "${APK_BIONIC_DIR}"
+        --system "${APK_GUEST_SYSTEM_DIR}" --front "${APK_GRAPHICS_GUEST_DIR}"
+        --manifests "${PROJECT_SOURCE_DIR}/graphics/bench/android" --angle "${angle}" --moltenvk "${moltenvk}")
+    set_tests_properties(graphics.recorder PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 300)
   else()
-    add_test(NAME graphics.bench COMMAND ${CMAKE_COMMAND} -E echo
-      "skipped: the bench's host build needs ANGLE, MoltenVK and the NDK's glslc (graphics/bench/CMakeLists.txt)")
-    set_tests_properties(graphics.bench PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    foreach(name IN ITEMS bench recorder)
+      add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
+        "skipped: the bench's host build needs ANGLE, MoltenVK and the NDK's glslc (graphics/bench/CMakeLists.txt)")
+      set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    endforeach()
   endif()
   # The tests that time something on the GPU's way, and graphics.bench, whose heavy scene holds the GPU for a minute,
   # never run at once under ctest -j: another test's GPU work could stall a frame past their limits
   # (graphics.vulkan_live once saw a frame interval of 108 ms in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.gles_front graphics.gles_gate graphics.gles_glue
     graphics.vulkan_queue graphics.vulkan_present graphics.gles_app graphics.vulkan_app graphics.gles_live
-    graphics.vulkan_live graphics.bench PROPERTIES RESOURCE_LOCK gpu)
+    graphics.vulkan_live graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -281,7 +299,8 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live bench)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live bench
+      recorder)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

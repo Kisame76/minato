@@ -1,13 +1,19 @@
 // ADR-0037 a) on the Mac: the parity benchmark's scene built for the host (graphics/bench, MinatoBench's files) draws
-// a run on a CAMetalLayer the size of an iPhone 15 Pro Max's screen (430 x 932 points at scale 3), with ticks
+// a run on graphics/host's layer the size of an iPhone 15 Pro Max's screen (430 x 932 points at scale 3), with ticks
 // scripted in lockstep: tick k comes k periods of 120 Hz after the first, each once frame k-1 is drawn, so every tick
 // draws a frame. bench.conf asks for 120 Hz, the load, 9 s and the CRC of frame 1000. It passes when the run ends by
 // itself after 1080 frames; bench_test.py then checks its scene.csv and compares the CRC with the APK's.
-//   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>
+// With `record` (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the layer records, and a
+// nextDrawable of the test's own before and after the recording. It passes when the recording holds every
+// drawable once and in order (recording_check.h), taken on the render thread at QoS user-interactive.
+//   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib> [record]
 #import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include "minato_bench.h"
+#include "minato_layer.h"
+#include "recording_check.h"
 
 #include <time.h>
 #include <unistd.h>
@@ -20,13 +26,13 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 
-constexpr int frames = 1080;  // 9 s at 120 Hz
 constexpr double period = 1e9 / 120;
 
 std::int64_t now() {
@@ -48,13 +54,15 @@ bool drawn(std::uint64_t count, std::chrono::milliseconds limit) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 5) {
-        std::fprintf(stderr,
-                     "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>\n");
+    const bool record = argc == 6 && std::strcmp(argv[5], "record") == 0;
+    if (argc != 5 && !record) {
+        std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
+                             "<libMoltenVK.dylib> [record]\n");
         return 2;
     }
     const std::string api = argv[1], load = argv[2];
     const fs::path scratch = fs::path(argv[3]) / (api + "-" + load), moltenvk = argv[4];
+    const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
     if (api == "vulkan" && !fs::exists(moltenvk)) {
         std::printf("skipped: %s is missing (tools/fetch-moltenvk.sh)\n", moltenvk.c_str());
         return 0;
@@ -63,15 +71,25 @@ int main(int argc, char **argv) {
     fs::create_directories(scratch);
     const fs::path csv = scratch / "scene.csv";
     const std::string conf = "run=" + api + "-120-" + load + "-native-00\nrate=120\nload=" + load +
-                             "\nseconds=9\ncheck=1000\n";
+                             (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n");
 
     int failures = 0;
     char error[512] = "";
+    MinatoMetalLayer *layer = [MinatoMetalLayer layer];
     @autoreleasepool {
-        CAMetalLayer *layer = [CAMetalLayer layer];
         layer.contentsScale = 3;
         layer.bounds = CGRectMake(0, 0, 430, 932);
         layer.drawableSize = CGSizeMake(1290, 2796);
+        if (record) {
+            // A drawable before the recording, which it must not hold; room for twice the frames, so that extra
+            // drawables show in the count.
+            layer.device = MTLCreateSystemDefaultDevice();
+            (void)[layer nextDrawable];
+            if (![layer startRecording:2 * frames]) {
+                std::printf("FAIL: the layer did not start recording\n");
+                return 1;
+            }
+        }
         if (minato_bench_start(api.c_str(), conf.c_str(), (__bridge void *)layer, moltenvk.c_str(), csv.c_str(), error,
                                sizeof error) != 0) {
             std::printf("FAIL: minato_bench_start: %s\n", error);
@@ -82,7 +100,9 @@ int main(int argc, char **argv) {
     // Lockstep: the first tick waits for the scene's start, each later one for the frame before it.
     const std::int64_t first = now();
     std::uint64_t ticks = 0;
+    std::vector<std::int64_t> posts;
     for (;; ++ticks) {
+        posts.push_back(now());
         minato_bench_tick(first + std::llround(static_cast<double>(ticks) * period));
         if (!drawn(ticks + 1, ticks == 0 ? 20000ms : 5000ms)) break;
     }
@@ -94,8 +114,24 @@ int main(int argc, char **argv) {
         ++failures;
     }
     if (minato_bench_frames() != frames) {
-        std::printf("FAIL: %llu frames, not %d\n", static_cast<unsigned long long>(minato_bench_frames()), frames);
+        std::printf("FAIL: %llu frames, not %llu\n", static_cast<unsigned long long>(minato_bench_frames()),
+                    static_cast<unsigned long long>(frames));
         ++failures;
+    }
+    if (record) {
+        @autoreleasepool {
+            MinatoLayerRecording *recording = [layer stopRecording:2];
+            (void)[layer nextDrawable];  // after the recording: not in it
+            std::printf("recorder: %s, host build: %llu drawables; %s\n", api.c_str(),
+                        static_cast<unsigned long long>(recording.count), recording_notes(recording).c_str());
+            std::vector<std::string> problems = recording_problems(recording, posts, frames);
+            if (recording != nil && recording.qosClass != QOS_CLASS_USER_INTERACTIVE) {
+                problems.push_back("taken at QoS " + std::string(recording.qosName.UTF8String) +
+                                   ", not the render thread's user-interactive");
+            }
+            for (const auto &problem : problems) std::printf("FAIL: recorder: %s\n", problem.c_str());
+            failures += static_cast<int>(problems.size());
+        }
     }
     if (!fs::exists(csv)) {
         std::printf("FAIL: no scene.csv\n");

@@ -6,18 +6,19 @@ set(APK_MOLTENVK_DIR "${PROJECT_SOURCE_DIR}/build/moltenvk" CACHE PATH "MoltenVK
 # The probe is Objective-C (a CAMetalLayer); enabled here, above graphics/host and the tests that link it.
 enable_language(OBJC)
 add_subdirectory(host)
+# ANGLE's checkout from tools/build-angle.sh, with its builds in out/<slice>. Tests that need it are skipped
+# while it is missing.
+set(APK_ANGLE_DIR "${PROJECT_SOURCE_DIR}/build/angle/angle" CACHE PATH "ANGLE's checkout from tools/build-angle.sh")
+if(DEFINED ENV{ANDROID_NDK})
+  set(ndk_default "$ENV{ANDROID_NDK}")
+else()
+  set(ndk_default "$ENV{HOME}/Library/Android/sdk/ndk/30.0.16248370")
+endif()
+set(APK_ANDROID_NDK "${ndk_default}" CACHE PATH
+  "Android NDK whose stubs name the functions of Android's libraries and whose glslc compiles the bench's shaders")
+# The parity benchmark's scene (ADR-0037): for the Mac, which graphics.bench runs, and as MinatoBench.framework for
+# iOS (tools/build-bench.sh --ios).
+add_subdirectory(bench)
 if(APK_HOST_BUILD)
-  # ANGLE's checkout from tools/build-angle.sh, with its builds in out/<slice>. Tests that need it are
-  # skipped while it is missing.
-  set(APK_ANGLE_DIR "${PROJECT_SOURCE_DIR}/build/angle/angle" CACHE PATH "ANGLE's checkout from tools/build-angle.sh")
-  if(DEFINED ENV{ANDROID_NDK})
-    set(ndk_default "$ENV{ANDROID_NDK}")
-  else()
-    set(ndk_default "$ENV{HOME}/Library/Android/sdk/ndk/30.0.16248370")
-  endif()
-  set(APK_ANDROID_NDK "${ndk_default}" CACHE PATH
-    "Android NDK whose stubs name the functions of Android's libraries and whose glslc compiles the bench's shaders")
-  # The parity benchmark's scene built for the Mac (ADR-0037), which graphics.bench runs.
-  add_subdirectory(bench)
   add_subdirectory(tests)
 endif()

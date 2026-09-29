@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
-# Builds graphics/host for the app (ADR-0030): the providers of the front libs' host tables and the probe
-# of V3's check, which only debug builds link (project.yml), for the iOS device and the Simulator, packed
-# into build/MinatoGraphics.xcframework. It needs tools/frontgen's lists from tools/build-front-libs.sh and
+# Builds graphics/host for the app (ADR-0030): the providers of the front libs' host tables, the game view's layer
+# with the benchmark's recorder (ADR-0037) and the probe of V3's check, which only debug builds link (project.yml),
+# for the iOS device and the Simulator, packed into build/MinatoGraphics.xcframework with the configuration in
+# build/MinatoGraphics.xcframework.configuration. It needs tools/frontgen's lists from tools/build-front-libs.sh and
 # MoltenVK's headers from tools/fetch-moltenvk.sh. Build folders: build/native/<preset>-graphics-host.
+# Usage:
+#   tools/build-graphics-host.sh            Debug, which the app links
+#   tools/build-graphics-host.sh --release  optimized, for the benchmark build (ADR-0037, decision 3); the next run
+#                                           without --release packs the debug builds again
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+configuration=Debug
+suffix=""
+for argument in "$@"; do
+  case "$argument" in
+    --release) configuration=Release suffix=-release ;;
+    *)
+      echo "usage: tools/build-graphics-host.sh [--release]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 for needed in build/graphics/gen/vulkan_names.inc build/moltenvk/include/vulkan/vulkan_metal.h; do
   if [[ ! -f "$needed" ]]; then
@@ -16,7 +33,7 @@ done
 xcframework=build/MinatoGraphics.xcframework
 arguments=()
 libraries=()
-for preset in ios ios-simulator; do
+for preset in "ios$suffix" "ios-simulator$suffix"; do
   build="build/native/$preset-graphics-host"
   # The preset's toolchain in a folder of its own. With OPTIMIZE_DEPENDENCIES the static library does not
   # wait for the runtime it names for the tests on the Mac: the app links the runtime from
@@ -27,10 +44,13 @@ for preset in ios ios-simulator; do
   arguments+=(-library "$build/graphics/host/libminato_graphics_host.a" -headers graphics/host/include)
 done
 
-# Packed again only when a library or header changed, so Xcode does not relink the app for nothing.
+# Packed again only when a library or header changed or the configuration differs, so Xcode does not relink the
+# app for nothing and never links a mix.
 if [[ ! -f "$xcframework/Info.plist" ]] \
+  || [[ "$(cat "$xcframework.configuration" 2>/dev/null)" != "$configuration" ]] \
   || [[ -n "$(find "${libraries[@]}" graphics/host/include -newer "$xcframework/Info.plist" -print -quit)" ]]; then
   rm -rf "$xcframework"
   xcodebuild -create-xcframework "${arguments[@]}" -output "$xcframework" >/dev/null
-  echo "Packed $xcframework"
+  echo "$configuration" >"$xcframework.configuration"
+  echo "Packed $xcframework ($configuration)"
 fi
