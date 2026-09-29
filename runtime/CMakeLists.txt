@@ -5,7 +5,7 @@ enable_language(ASM)
 # signal handlers look up the x18 islands (ADR-0020 X4).
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
-  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp)
+  src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -162,6 +162,34 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.channels COMMAND channels_test)
   set_tests_properties(runtime.channels PROPERTIES TIMEOUT 60)
 
+  # The audio output streams (ADR-0036, decisions 5 and 6), with a fake host and, for the workgroup, the Mac's
+  # default output unit.
+  add_executable(audio_test tests/audio_test.cpp)
+  target_include_directories(audio_test PRIVATE src)
+  target_link_libraries(audio_test PRIVATE apkrt apk_defaults apk_testing "-framework AudioToolbox")
+  add_test(NAME runtime.audio COMMAND audio_test)
+  set_tests_properties(runtime.audio PROPERTIES TIMEOUT 60)
+
+  # libaaudio's own logic on the Mac (ADR-0036, decision 6): runtime/android/aaudio.cpp against the NDK's AAudio.h and
+  # tests/aaudio_host, with its syscalls going to the runtime's dispatcher.
+  set(aaudio_header "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/aaudio/AAudio.h")
+  set(aaudio_ndk "${APK_ANDROID_NDK}")
+  if(NOT EXISTS "${aaudio_ndk}/${aaudio_header}")
+    set(aaudio_ndk "$ENV{HOME}/Library/Android/sdk/ndk/30.0.16248370")  # graphics/CMakeLists.txt's default
+  endif()
+  if(EXISTS "${aaudio_ndk}/${aaudio_header}")
+    file(COPY "${aaudio_ndk}/${aaudio_header}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/aaudio_host/include/aaudio")
+    add_executable(aaudio_library_test tests/aaudio_library_test.cpp android/aaudio.cpp)
+    target_include_directories(aaudio_library_test PRIVATE src tests/aaudio_host)
+    target_include_directories(aaudio_library_test SYSTEM PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/aaudio_host/include")
+    target_compile_options(aaudio_library_test PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/aaudio_host/shim.h")
+    set_source_files_properties(android/aaudio.cpp PROPERTIES COMPILE_OPTIONS
+      "-Dsyscall=minato_host_syscall;-Wno-deprecated-declarations")
+    target_link_libraries(aaudio_library_test PRIVATE apkrt apk_defaults apk_testing)
+    add_test(NAME runtime.aaudio_library COMMAND aaudio_library_test)
+    set_tests_properties(runtime.aaudio_library PROPERTIES TIMEOUT 60)
+  endif()
+
   add_executable(window_test tests/window_test.cpp tests/window_probe.S tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(window_test PRIVATE src)
   target_link_libraries(window_test PRIVATE apkrt apk_defaults apk_testing "-framework CoreFoundation")
@@ -205,6 +233,14 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
     "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
   set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0036's aaudio-test: the same host plays the audio host's side with a consumer that reads every stream every
+  # 5 ms, and compares the log with Android 15's (fixtures/expected/aaudio-test.logcat).
+  add_executable(audio_app_test tests/audio_app_test.cpp)
+  target_link_libraries(audio_app_test PRIVATE app_host)
+  add_test(NAME runtime.aaudio COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/audio_app_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+    aaudio-test)
+  set_tests_properties(runtime.aaudio PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)

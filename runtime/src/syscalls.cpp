@@ -5,6 +5,7 @@
 // became deliverable are delivered (signals.h). Everything unknown answers -ENOSYS and is reported
 // once on stderr, so the gaps show up while programs are brought up.
 #include "APKRuntime/guest_interface.h"
+#include "audio.h"
 #include "channels.h"
 #include "descriptors.h"
 #include "dl.h"
@@ -690,6 +691,21 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return apkrt::channels::input_connect(x[0]);
         case APKRT_NR_INPUT_READ:
             return apkrt::channels::input_read(as_int(x[0]), x[1]);
+        // The audio output streams (ADR-0036, decisions 5 and 6).
+        case APKRT_NR_AUDIO_OPEN:
+            return apkrt::audio::open(x[0]);
+        case APKRT_NR_AUDIO_CLOSE:
+            return apkrt::audio::close(x[0]);
+        case APKRT_NR_AUDIO_CONTROL:
+            return apkrt::audio::control(x[0], x[1], static_cast<std::int64_t>(x[2]));
+        case APKRT_NR_AUDIO_WRITE:
+            return apkrt::audio::write(x[0], x[1], static_cast<std::int64_t>(x[2]), static_cast<std::int64_t>(x[3]));
+        case APKRT_NR_AUDIO_STATUS:
+            return apkrt::audio::status(x[0], x[1]);
+        case APKRT_NR_AUDIO_WAIT:
+            return apkrt::audio::wait(x[0], static_cast<std::uint32_t>(x[1]), static_cast<std::int64_t>(x[2]));
+        case APKRT_NR_AUDIO_JOIN:
+            return apkrt::audio::join(x[0], x[1]);
 
         default:
             report_unsupported(x[8]);

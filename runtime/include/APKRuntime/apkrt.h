@@ -253,6 +253,63 @@ int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, uint32_t po
                      const int32_t *pointer_ids, uint32_t sample_count, const int64_t *sample_times,
                      const struct apkrt_pointer_coords *coords);
 
+// MARK: - Audio output (ADR-0036, decisions 4 to 6)
+//
+// The guest's libaaudio opens output streams through the runtime (guest_interface.h), which keeps each stream's ring
+// of interleaved float32 frames and its state, and asks the host for a node that plays it. A stream's handle is the
+// runtime's: never 0, and never valid again once the stream is closed. Start, pause and stop never reach the host:
+// its node plays from the open to the close, and a stream that does not play reads nothing.
+
+/// The hardware a stream opens on, as the host's audio session reports it.
+struct apkrt_audio_hardware {
+    double sample_rate;         // Hz
+    double io_buffer_duration;  // seconds; the stream's burst is this long, in frames at the stream's rate to the
+                                // nearest (halves up), at least 1
+};
+
+/// The host's side of the guest's audio output (apkrt_set_audio_host).
+struct apkrt_audio_host {
+    void *context;  // passed to both functions
+    /// Opens `stream`: `channels` interleaved float32 channels at `sample_rate` Hz, 0 for the hardware's rate;
+    /// `performance_mode` is AAudio's, NONE 10, POWER_SAVING 11 or LOW_LATENCY 12. Fills `hardware` and returns 0,
+    /// or returns -1 when it cannot. From then on until close returns, the host's render block reads the stream with
+    /// apkrt_audio_read.
+    int (*open)(void *context, uint64_t stream, double sample_rate, int32_t channels, int32_t performance_mode,
+                struct apkrt_audio_hardware *hardware);
+    /// The stream is closed: once for each open that returned 0, disconnected streams included.
+    void (*close)(void *context, uint64_t stream);
+};
+
+/// For the app: the host's audio side, for the streams opened from now on; NULL removes it, and the guest's opens
+/// fail then. Both functions run on the guest thread that opens or closes a stream, inside its syscall, where the
+/// runtime holds no lock: they may block, and may call apkrt_audio_disconnected and apkrt_audio_set_output. Returns
+/// 0, or -1 when `host` lacks open or close.
+int apkrt_set_audio_host(const struct apkrt_audio_host *host);
+
+/// For the render block, on the real-time thread: copies up to `frames` frames of the stream's ring, interleaved
+/// float32, into `buffer` and returns how many; `host_time` is the first one's AudioTimeStamp.mHostTime, for the
+/// guest's timestamps. A stream that does not play (not started, paused, stopped and played out, disconnected, closed
+/// or unknown) gives 0. A started one whose guest wrote too little gives what there is, and counts an xrun once the
+/// stream has played since its start. It never blocks, takes no lock, allocates nothing and runs no guest code; a
+/// call for a closed stream is harmless. One thread at a time reads a stream: its node's render block.
+int64_t apkrt_audio_read(uint64_t stream, float *buffer, int64_t frames, uint64_t host_time);
+
+/// For the app: a route change changed the hardware's rate or burst, so the stream is DISCONNECTED, and the guest's
+/// error callback follows. The host drops its node itself; the close still comes.
+void apkrt_audio_disconnected(uint64_t stream);
+
+/// For the app, after each start of its engine and after each route change that disconnects no stream: the output's
+/// AudioUnit, whose audio workgroup (kAudioOutputUnitProperty_OSWorkgroup) the guest's stream threads join, and the
+/// output's latency in nanoseconds, from a render to the speaker, which the guest's timestamps add. NULL, with the
+/// latency as it is, when the engine stops or an interruption begins. The workgroup may be stale by then (iOS stops
+/// the engine in the background without a word): a thread whose join fails goes on without it. The runtime reads the
+/// property with the AudioToolbox the unit comes from, so the app need not link AudioToolbox for it.
+void apkrt_audio_set_output(void *audio_unit, int64_t output_latency);
+
+/// The stream's xruns so far, as AAudioStream_getXRunCount gives them, for the host's log, also inside the host's
+/// close; 0 for a closed or unknown stream.
+int32_t apkrt_audio_xruns(uint64_t stream);
+
 // MARK: - Host code on guest threads (ADR-0030)
 
 /// 1 when the calling thread is a guest thread, else 0.

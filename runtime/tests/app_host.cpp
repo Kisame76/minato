@@ -149,6 +149,10 @@ bool prepare(App &app, const Paths &paths, const std::string &run) {
                              "libandroid.so", "libnativewindow.so", "libz.so"}) {
         convert(paths.bionic / name, system_libraries, name);
     }
+    // The audio libraries (ADR-0036), where they are built: only the audio apps need them.
+    for (const char *name : {"libaaudio.so", "libOpenSLES.so"}) {
+        if (fs::exists(paths.bionic / name)) convert(paths.bionic / name, system_libraries, name);
+    }
     convert(library, app_libraries, "lib" + app.name + ".so");
     for (const auto &folder : {app.data, app.external, app.obb}) fs::create_directories(folder);
 

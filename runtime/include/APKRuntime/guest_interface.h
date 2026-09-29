@@ -282,6 +282,107 @@ struct apkrt_motion_event {
 /// there is none, -EBADF for a descriptor that is no input channel, -EFAULT for NULL.
 #define APKRT_NR_INPUT_READ 4110
 
+// MARK: - Audio output (ADR-0036, decisions 5 and 6)
+//
+// libaaudio's output streams. The runtime keeps each stream's ring of interleaved float32 frames and its state in
+// host memory, where the host's render block reads them (apkrt_audio_read in apkrt.h); the guest opens, writes,
+// controls and waits through the syscalls below. A stream's handle is the runtime's: never 0, and never valid again
+// once the stream is closed. Times are in nanoseconds on the guest's CLOCK_MONOTONIC; a deadline is such a time.
+
+/// The ring holds this many bursts (the capacity); the guest fills this many at first (the buffer size).
+#define APKRT_AUDIO_BURSTS 8
+#define APKRT_AUDIO_FIRST_BURSTS 2
+/// A stream's channels: 1 to this.
+#define APKRT_AUDIO_CHANNELS 8
+
+/// A stream's state, with AAudio's numbers (aaudio_stream_state_t). The only transient one is STARTING, which the
+/// host's first read after the start ends.
+enum apkrt_audio_state {
+    APKRT_AUDIO_OPEN = 2,
+    APKRT_AUDIO_STARTING = 3,
+    APKRT_AUDIO_STARTED = 4,
+    APKRT_AUDIO_PAUSED = 6,
+    APKRT_AUDIO_FLUSHED = 8,
+    APKRT_AUDIO_STOPPED = 10,
+    APKRT_AUDIO_DISCONNECTED = 13,
+};
+
+/// audio_control's commands.
+enum apkrt_audio_command {
+    APKRT_AUDIO_START = 1,
+    APKRT_AUDIO_PAUSE,
+    APKRT_AUDIO_FLUSH,
+    APKRT_AUDIO_STOP,
+    APKRT_AUDIO_BUFFER_SIZE,  // the argument: the frames the guest may fill
+};
+
+/// What audio_open takes and gives.
+struct apkrt_audio_config {
+    int32_t sample_rate;       // in: Hz, 0 for the hardware's; out: the stream's
+    int32_t channels;          // in: 1 to APKRT_AUDIO_CHANNELS
+    int32_t performance_mode;  // in: AAudio's, NONE 10, POWER_SAVING 11 or LOW_LATENCY 12, for the host's IO buffer
+    int32_t frames_per_burst;  // out: the host's IO buffer in frames at the stream's rate, to the nearest (halves up),
+                               // at least 1
+    int32_t capacity;          // out: APKRT_AUDIO_BURSTS bursts
+    int32_t buffer_size;       // out: APKRT_AUDIO_FIRST_BURSTS bursts
+    int32_t hardware_rate;     // out: Hz
+    int32_t reserved;
+};
+
+/// What audio_status gives.
+struct apkrt_audio_status {
+    int32_t state;           // enum apkrt_audio_state
+    uint32_t sequence;       // changes with what a guest may wait for: at every read or flush that takes frames, every
+                             // change of the state or the buffer size, and at the close
+    int64_t frames_written;  // by the guest since the open
+    int64_t frames_read;     // by the host since the open; flushed frames count as read
+    int32_t buffer_size;
+    int32_t xruns;           // reads of a started stream that found fewer frames than asked, once it has played
+    int64_t position;        // the first frame of the host's newest read that took frames; -1 before any
+    int64_t time;            // when that frame is heard: the read's host time plus the output's latency
+};
+
+/// audio_open, libaaudio's: x0 a struct apkrt_audio_config. Opens an output stream, and the host adds a node that
+/// plays it. Returns the stream's handle, above 0; -EFAULT for NULL; -EINVAL for a rate other than 0 or 8000 to
+/// 1600000, channels outside 1 to APKRT_AUDIO_CHANNELS or a performance mode AAudio lacks; -ENODEV when the host has
+/// no audio (apkrt_set_audio_host); -EMFILE when 64 streams are open; -ENOMEM without memory; -EIO when the host
+/// cannot open the stream.
+#define APKRT_NR_AUDIO_OPEN 4111
+/// audio_close: x0 the handle. Ends the stream, whose waiters answer -EBADF, and the host drops its node. Returns 0;
+/// -EBADF for a handle that is no open stream.
+#define APKRT_NR_AUDIO_CLOSE 4112
+/// audio_control: x0 the handle, x1 an enum apkrt_audio_command, x2 its argument. Returns 0, for BUFFER_SIZE the size
+/// set: the argument, at least a burst and at most the capacity. The states follow AAudio's requests:
+///   - START from OPEN, PAUSED, FLUSHED or STOPPED gives STARTING, which the host's next read makes STARTED;
+///   - PAUSE gives PAUSED from every state, once no read of the host is under way;
+///   - FLUSH from OPEN, PAUSED, STOPPED or FLUSHED gives FLUSHED, once no read is under way, and drops the frames not
+///     read yet;
+///   - STOP gives STOPPED at once: the frames a started stream holds at the STOP still play, as AudioTrack's stop
+///     lets them, and those of a stream that did not play stay, as do frames written after the STOP, until the next
+///     START;
+///   - each answers 0 at once in the state it gives, and -EPERM in any other.
+/// -EPIPE once the stream is DISCONNECTED, -EBADF for a handle that is no open stream, -EINVAL for another command.
+#define APKRT_NR_AUDIO_CONTROL 4113
+/// audio_write: x0 the handle, x1 x2 frames of interleaved float32 (x2 × the channels), x3 a deadline. Takes as many
+/// frames as the buffer size leaves room for, and waits until the deadline for room for the rest; a deadline that
+/// has passed, 0 included, does not wait. Returns the frames taken; when none were taken, -EPIPE once the stream is
+/// DISCONNECTED and -EINTR for a deliverable signal; -EFAULT for NULL with frames, -EINVAL for x2 below 0, -EBADF for
+/// a handle that is no open stream, also when the stream closes during the wait.
+#define APKRT_NR_AUDIO_WRITE 4114
+/// audio_status: x0 the handle, x1 a struct apkrt_audio_status, which it fills. Returns 0; -EFAULT for NULL, -EBADF
+/// for a handle that is no open stream.
+#define APKRT_NR_AUDIO_STATUS 4115
+/// audio_wait: x0 the handle, x1 a sequence of audio_status, x2 a deadline. Returns 0 once the stream's sequence is
+/// another, at once when it is already; -ETIMEDOUT once the deadline has passed, -EINTR for a deliverable signal,
+/// -EBADF for a handle that is no open stream, also when the stream closes during the wait.
+#define APKRT_NR_AUDIO_WAIT 4116
+/// audio_join, a stream thread's: x0 the handle, x1 1 to join, 0 to leave. Joins the calling thread to the audio
+/// workgroup of the host's output (apkrt_audio_set_output) with a time constraint of the stream's burst, first
+/// leaving one it joined before; 0 at once when the thread is in the output's workgroup already. The thread also
+/// leaves when it ends. Returns 0; -ENOENT when the output has no workgroup, -EBADF for a handle that is no open
+/// stream, -EINVAL for an x1 other than 0 and 1, or os_workgroup_join's error as a negated Linux errno.
+#define APKRT_NR_AUDIO_JOIN 4117
+
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the
 /// window's layer.
 struct minato_window_info {

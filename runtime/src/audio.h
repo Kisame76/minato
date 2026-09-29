@@ -1,0 +1,19 @@
+// The audio output streams (ADR-0036, decisions 5 and 6): each stream's ring of interleaved float32 frames and its
+// state live in host memory, where the host's render block reads them (apkrt.h) and the guest reaches them through
+// the private syscalls of guest_interface.h.
+#pragma once
+
+#include <cstdint>
+
+namespace apkrt::audio {
+
+/// The private syscalls audio_open to audio_join (guest_interface.h).
+long open(std::uint64_t config);
+long close(std::uint64_t handle);
+long control(std::uint64_t handle, std::uint64_t command, std::int64_t argument);
+long write(std::uint64_t handle, std::uint64_t frames_address, std::int64_t frames, std::int64_t deadline);
+long status(std::uint64_t handle, std::uint64_t address);
+long wait(std::uint64_t handle, std::uint32_t sequence, std::int64_t deadline);
+long join(std::uint64_t handle, std::uint64_t join);
+
+}  // namespace apkrt::audio

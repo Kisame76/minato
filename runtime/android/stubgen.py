@@ -74,6 +74,8 @@ LIBRARIES = {
     },
     # zlib from the NDK's libz.a, whole (decision 12): only the version script.
     "libz": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
+    # AAudio's output streams on the runtime's (aaudio.cpp, ADR-0036, decision 6), every name written by hand.
+    "libaaudio": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
 }
 
 # The kinds of the functions the NDK's headers do not declare.

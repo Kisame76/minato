@@ -141,10 +141,10 @@ apk_bionic_unit(apk_netd_client SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/libnetd
 apk_bionic_library(libnetd_client UNITS apk_netd_client NEEDED libc)
 
 # The NDK libraries Minato writes itself (ADR-0028, decisions 7, 9 and 12, runtime/android): libz.so,
-# libnativewindow.so and libandroid.so. Each exports exactly the names of its NDK stub, with a version
-# script that runtime/android/stubgen.py writes from the stub, and a generated stub for every function
-# not written by hand. Only the NDK headers of the APIs they implement are copied, since the NDK's other
-# headers would shadow bionic's.
+# libnativewindow.so, libandroid.so and libaaudio.so (ADR-0036). Each exports exactly the names of its NDK
+# stub, with a version script that runtime/android/stubgen.py writes from the stub, and a generated stub for
+# every function not written by hand. Only the NDK headers of the APIs they implement are copied, since the
+# NDK's other headers would shadow bionic's.
 set(android_sources "${CMAKE_CURRENT_SOURCE_DIR}/../android")
 set(android_generated "${APK_BIONIC_GENERATED}/android")
 file(MAKE_DIRECTORY "${android_generated}")
@@ -155,6 +155,7 @@ endforeach()
 foreach(header IN ITEMS jni zconf zlib)
   file(COPY "${ndk_sysroot_include}/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
 endforeach()
+file(COPY "${ndk_sysroot_include}/aaudio/AAudio.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/aaudio")
 set(android_includes ${bionic_include} "${CMAKE_BINARY_DIR}/ndk_android/include" "${APK_ROOT}/runtime/include")
 set(stubgen ${Python3_EXECUTABLE} "${android_sources}/stubgen.py" generate)
 set(stubgen_tools --sysroot "${CMAKE_SYSROOT}" --clang "${CMAKE_C_COMPILER}" --nm "${ANDROID_TOOLCHAIN_ROOT}/bin/llvm-nm")
@@ -202,6 +203,16 @@ apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_s
   "${android_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libandroid UNITS apk_android NEEDED libc liblog libnativewindow libz VERSION_SCRIPTS "${android_map}")
+
+# libaaudio.so: AAudio's output streams on the runtime's (runtime/android/aaudio.cpp, ADR-0036, decision 6), every
+# name written by hand, without versions like the NDK's stub.
+set(aaudio_map "${android_generated}/libaaudio.map")
+add_custom_command(OUTPUT "${aaudio_map}"
+  COMMAND ${stubgen} libaaudio ${stubgen_tools} --map "${aaudio_map}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libaaudio.so" VERBATIM)
+apk_bionic_unit(apk_aaudio SOURCES "${android_sources}/aaudio.cpp" INCLUDES ${android_includes} CFLAGS -Wall -Wextra
+  STRICT)
+apk_bionic_library(libaaudio UNITS apk_aaudio NEEDED libc liblog VERSION_SCRIPTS "${aaudio_map}")
 
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
