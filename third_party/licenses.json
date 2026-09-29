@@ -4,6 +4,7 @@
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
     "Graphics: MoltenVK": "MoltenVK.framework",
+    "Parity benchmark": "MinatoBench.framework",
     "References without adopted code": "never"
   },
   "components": [
@@ -338,6 +339,20 @@
         {
           "from": "moltenvk:MoltenVK-ios/MoltenVK/LICENSE",
           "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "native_app_glue",
+      "section": "Parity benchmark",
+      "license": "Apache-2.0",
+      "rows": [
+        "native_app_glue"
+      ],
+      "texts": [
+        {
+          "from": "ndk:sources/android/native_app_glue/NOTICE",
+          "as": "NOTICE"
         }
       ]
     }

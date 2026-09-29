@@ -52,9 +52,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// The host side of the app's ANativeWindow (ADR-0032, decision 5): a view whose layer is a
 /// CAMetalLayer, black until the guest's first frame. ADR-0028 hands the layer to the guest in step c).
 /// It also takes the swipe down from the top edge that opens the menu (decision 9), and hands every touch
-/// to the guest (ADR-0036, decision 3).
+/// to the guest (ADR-0036, decision 3). The layer is graphics/host's MinatoMetalLayer in every build, which
+/// records the parity benchmark's drawables (ADR-0037, decision 2).
 final class MetalLayerHostView: UIView {
-    override class var layerClass: AnyClass { CAMetalLayer.self }
+    override class var layerClass: AnyClass { MinatoMetalLayer.self }
 
     /// Where the menu's swipe starts: within this many points of the top edge.
     static let topEdge: CGFloat = 40

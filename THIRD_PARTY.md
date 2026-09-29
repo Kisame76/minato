@@ -63,6 +63,16 @@ MoltenVK 1.4.2 as Khronos released it (tag `v1.4.2`, commit `db660224`), from `g
 
 Only MoltenVK's own license text comes with the release. The texts of SPIRV-Cross, SPIRV-Tools, SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/) (`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030, and the Vulkan headers of the same version from MoltenVK's release, against which our guest `libvulkan.so` is built.
 
+## Parity benchmark (ADR-0037)
+
+Only in benchmark builds (`APK_EMBED_BENCHMARK=YES`), beside `MinatoBench.framework`: the APKs `bench-gles` and `bench-vulkan` in `Benchmark/`, built by `tools/build-bench.sh` with the NDK r30 (`30.0.16248370`). `MinatoBench.framework` is our own code and links ANGLE's framework (above); neither APK links libc++.
+
+| Part | License | What for |
+|---|---|---|
+| `native_app_glue` | Apache-2.0 | `android_native_app_glue.c`, linked into both APKs' libraries |
+
+Used only to build: the NDK's `glslc` (Apache-2.0), which compiles the scene's shaders for both builds.
+
 ## Time zones
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.

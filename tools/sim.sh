@@ -3,7 +3,8 @@
 # Usage: tools/sim.sh [--headless] [simulator name or UDID]
 # Without a name the newest available iPhone simulator is used.
 # Optional environment, as for tools/deploy.sh:
-#   CONFIGURATION   Debug (default) or Release; tools/benchmark.sh builds Release
+#   CONFIGURATION   Debug (default) or Release, with the runtime's and graphics/host's Release builds;
+#                   tools/benchmark.sh builds Release
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "APK_EMBED_FIXTURES=YES"
 #   INSTALL_ONLY    when set, installs the app without launching it
 set -euo pipefail
@@ -27,8 +28,12 @@ if [[ -z "${SIM_UDID:-}" ]]; then
 fi
 
 tools/gen.sh
-tools/build-native.sh --app
-tools/build-graphics-host.sh
+# A Release build links the Release builds of the runtime and of graphics/host (ADR-0037, decision 3);
+# a Debug build packs the Debug builds again.
+RELEASE=()
+[[ "$CONFIGURATION" != Release ]] || RELEASE=(--release)
+tools/build-native.sh --app ${RELEASE[@]+"${RELEASE[@]}"}
+tools/build-graphics-host.sh ${RELEASE[@]+"${RELEASE[@]}"}
 read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATION" \

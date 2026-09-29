@@ -15,6 +15,11 @@ struct GameModeView: View {
         _session = State(initialValue: GameSession(entry: entry))
     }
 
+    /// A session made beforehand, as a benchmark run's (ADR-0037, decision 3).
+    init(session: GameSession) {
+        _session = State(initialValue: session)
+    }
+
     var body: some View {
         // The edges defer the system's gestures, so the first swipe down from the top edge opens the
         // menu, and a second one the Notification Center.

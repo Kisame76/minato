@@ -56,6 +56,10 @@ final class GameSession {
     @ObservationIgnored private let frameClockSlot = FrameClockSlot()
     /// The guest's audio output (ADR-0036, decision 4).
     @ObservationIgnored let audio = AudioHost(sink: NoChannelAudioSink())
+    #if BENCHMARK
+    /// A benchmark run's hooks (ADR-0037, decision 3): no menu, FPS label or hint, and the end goes to the run.
+    @ObservationIgnored private var benchmark: BenchmarkHooks?
+    #endif
 
     /// The session of this process, for the runtime's request handler.
     private(set) weak static var current: GameSession?
@@ -92,6 +96,15 @@ final class GameSession {
         showsFPS = UserDefaults.standard.bool(forKey: Self.showsFPSKey)
     }
 
+    #if BENCHMARK
+    /// Makes this session a benchmark run's, before it opens.
+    func runBenchmark(_ hooks: BenchmarkHooks) {
+        benchmark = hooks
+        showsHint = false
+        showsFPS = false
+    }
+    #endif
+
     /// The session takes over the process once its view is there: it becomes the runtime's session, writes
     /// the last session's record, and starts its frame clock, its observer of the background and the FPS
     /// label's sampler. SwiftUI may build a view's state more than once, so init does none of that.
@@ -99,8 +112,17 @@ final class GameSession {
         guard !isOpen else { return }
         isOpen = true
         Self.current = self
+        var sink: FrameTickSink = VsyncChannelSink()
+        #if BENCHMARK
+        if let benchmark {
+            sink = TickTee(sink, benchmark.ticks)
+        } else {
+            SessionEndReport.begin(entry)
+        }
+        #else
         SessionEndReport.begin(entry)
-        let clock = DisplayLinkClock(sink: VsyncChannelSink())
+        #endif
+        let clock = DisplayLinkClock(sink: sink)
         frameClock = clock
         frameClockSlot.set(clock)
         clock.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
@@ -156,6 +178,9 @@ final class GameSession {
     /// The view's layer, the host side of every window the guest gets.
     func attach(_ layer: CAMetalLayer) {
         runtime?.layer = layer
+        #if BENCHMARK
+        benchmark?.layer(layer)
+        #endif
     }
 
     /// The window was laid out.
@@ -227,6 +252,9 @@ final class GameSession {
         #if DEBUG
         SessionCheck.event("could not start \(reason)")
         #endif
+        #if BENCHMARK
+        if let benchmark { return benchmark.ended(reason) }
+        #endif
         startFailure = reason
         SessionEndReport.startFailed(reason)
         Restart.now { [weak self] in self?.restartFailed = true }
@@ -238,6 +266,9 @@ final class GameSession {
         log.info("\(self.entry.id, privacy: .public) ended with status \(status)")
         #if DEBUG
         SessionCheck.event("program ended \(status)")
+        #endif
+        #if BENCHMARK
+        if let benchmark { return benchmark.ended(status == 0 ? nil : "the variant ended with status \(status)") }
         #endif
         Restart.now { [weak self] in self?.restartFailed = true }
     }
@@ -285,6 +316,9 @@ final class GameSession {
 
     func openMenu() {
         guard !menuIsOpen else { return }
+        #if BENCHMARK
+        guard benchmark == nil else { return }
+        #endif
         menuIsOpen = true
         #if DEBUG
         SessionCheck.event("menu opened")
@@ -402,6 +436,9 @@ final class GameSession {
             log.error("\(self.entry.id, privacy: .public): the session's channel broke")
         }
         if bridge.lifecycle.hasEnded || bridge.isBroken {
+            #if BENCHMARK
+            if let benchmark { return benchmark.ended(bridge.isBroken ? "the session's channel broke" : nil) }
+            #endif
             Restart.now { [weak self] in self?.restartFailed = true }
         }
     }

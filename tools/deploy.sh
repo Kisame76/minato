@@ -6,7 +6,8 @@
 # code (tools/hand-over-certificate.sh), when the app does not have that one yet.
 # Usage: tools/deploy.sh [device name or identifier]
 # Optional environment:
-#   CONFIGURATION   Debug (default) or Release; tools/benchmark.sh builds Release
+#   CONFIGURATION   Debug (default) or Release, with the runtime's and graphics/host's Release builds;
+#                   tools/benchmark.sh builds Release
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/Minato.entitlements
 #   LAUNCH_ARGS     arguments for the app; its output is then shown here until it exits
 #   INSTALL_ONLY    when set, installs the app without launching it
@@ -32,8 +33,12 @@ read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 read -r -a APP_ARGS <<< "${LAUNCH_ARGS:-}"
 
 tools/gen.sh
-tools/build-native.sh --app
-tools/build-graphics-host.sh
+# A Release build links the Release builds of the runtime and of graphics/host (ADR-0037, decision 3);
+# a Debug build packs the Debug builds again.
+RELEASE=()
+[[ "$CONFIGURATION" != Release ]] || RELEASE=(--release)
+tools/build-native.sh --app ${RELEASE[@]+"${RELEASE[@]}"}
+tools/build-graphics-host.sh ${RELEASE[@]+"${RELEASE[@]}"}
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATION" \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \

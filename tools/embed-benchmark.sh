@@ -24,25 +24,27 @@ esac
 BENCH="$SRCROOT/build/MinatoBench.xcframework/$SLICE/MinatoBench.framework"
 APKS=("$SRCROOT/build/graphics/bench/bench-gles.apk" "$SRCROOT/build/graphics/bench/bench-vulkan.apk")
 
-# Until ADR-0037 a) and b) (Grafik) deliver the framework and the APKs, a missing one is only a
-# warning, so the mode and the CSVs can be tested; from then on it is an error. The paths above
-# follow Grafik's a) plan.
-missing() {
-  echo "warning: $1 is missing; it comes with ADR-0037 a) and b)" >&2
-}
-
-if [[ -d "$BENCH" ]]; then
-  mkdir -p "$(dirname "$FRAMEWORK")"
-  cp -R "$BENCH" "$FRAMEWORK"
-  codesign --force --timestamp=none --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$FRAMEWORK"
-else
-  missing "$BENCH"
-fi
-for apk in "${APKS[@]}"; do
-  if [[ -f "$apk" ]]; then
-    mkdir -p "$OUT"
-    cp "$apk" "$OUT/"
-  else
-    missing "$apk"
+# Decision 3: a benchmark build links the Release builds of the runtime and of graphics/host
+# (tools/build-native.sh --app --release, tools/build-graphics-host.sh --release), which note their
+# configuration beside each xcframework.
+for xcframework in APKRuntime APKConvert MinatoGraphics; do
+  configuration=$(cat "$SRCROOT/build/$xcframework.xcframework.configuration" 2>/dev/null || echo none)
+  if [[ "$configuration" != Release ]]; then
+    echo "error: build/$xcframework.xcframework holds the $configuration build, not Release (ADR-0037)" >&2
+    exit 1
   fi
 done
+
+# MinatoBench.framework from tools/build-bench.sh --ios, the APKs from tools/build-bench.sh.
+for needed in "$BENCH" "${APKS[@]}"; do
+  if [[ ! -e "$needed" ]]; then
+    echo "error: $needed is missing: run tools/build-bench.sh and tools/build-bench.sh --ios (ADR-0037)" >&2
+    exit 1
+  fi
+done
+mkdir -p "$(dirname "$FRAMEWORK")" "$OUT"
+cp -R "$BENCH" "$FRAMEWORK"
+# The headers are for the build; the mode opens the library by dlopen.
+rm -rf "$FRAMEWORK/Headers"
+codesign --force --timestamp=none --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$FRAMEWORK"
+cp "${APKS[@]}" "$OUT/"

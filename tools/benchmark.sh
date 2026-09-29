@@ -9,8 +9,13 @@
 #   --more <config>      5 more runs per variant of a configuration, e.g. gles-120-heavy (decision 8)
 #   --seconds <n>        a shorter draw time than 52 s, for the Simulator (its graphics are not judged)
 #   --build-check        checks the build setting instead: a Release build without it holds neither
-#                        MinatoBench.framework, the APKs nor the mode, one with it holds the mode, and
-#                        both carry the Game Mode keys (decisions 3 and 9). Needs the Simulator.
+#                        MinatoBench.framework, the APKs nor the mode; one with it holds all three and
+#                        their license texts (tools/license-check.py); both carry the Game Mode keys
+#                        (decisions 3 and 9). The setting is refused in Debug, with the runtime's or
+#                        graphics/host's Debug builds, and without the framework or an APK. Needs the Simulator.
+# The benchmark build is Release, with tools/build-native.sh --app --release and
+# tools/build-graphics-host.sh --release (through tools/deploy.sh and tools/sim.sh); their next
+# Debug run packs the Debug builds again.
 # Usage: tools/benchmark.sh [--simulator] [--device <name or identifier>] [--api <api>]
 #                           [--more <configuration> ...] [--seconds <n>]
 #        tools/benchmark.sh --build-check [simulator name or UDID]
@@ -46,6 +51,12 @@ check_app() {
     [[ ! -e "$app/Benchmark" ]] || problems+=" Benchmark"
   else
     [[ "$mode" == 1 ]] || problems+=" no-mode"
+    [[ -f "$app/Frameworks/MinatoBench.framework/MinatoBench" ]] || problems+=" no-MinatoBench.framework"
+    local apk
+    for apk in bench-gles.apk bench-vulkan.apk; do
+      [[ -f "$app/Benchmark/$apk" ]] || problems+=" no-$apk"
+    done
+    python3 tools/license-check.py "$app" >"$CHECK/license-check.txt" 2>&1 || problems+=" license-check"
   fi
   echo "$problems"
 }
@@ -56,19 +67,46 @@ if [[ "${1:-}" == "--build-check" ]]; then
     echo "No matching iPhone simulator found." >&2
     exit 1
   fi
-  tools/gen.sh
-  tools/build-native.sh --app
-  tools/build-graphics-host.sh
   failed=0
-  # A benchmark build is a Release build: in Debug the setting is an error.
-  if [[ ! -x tools/embed-benchmark.sh ]]; then
-    echo "DIFFERS  no tools/embed-benchmark.sh"
-    failed=1
-  elif CONFIGURATION=Debug APK_EMBED_BENCHMARK=YES SRCROOT="$PWD" TARGET_BUILD_DIR="$CHECK/debug" \
-    tools/embed-benchmark.sh >/dev/null 2>&1; then
-    echo "DIFFERS  Debug with APK_EMBED_BENCHMARK=YES is not refused"
-    failed=1
-  fi
+  # A benchmark build is a Release build of Release libraries with the framework and both APKs: the
+  # build phase refuses anything else. In a scratch tree, each case with only its own flaw, and one
+  # without a flaw that it takes, so a refusal is the flaw's.
+  embed_case() {
+    local expected=$2 name=$3 configuration=$4 libraries=$5 missing=$6 tree="$CHECK/tree-$1" outcome
+    rm -rf "$tree"
+    mkdir -p "$tree/build/MinatoBench.xcframework/ios-arm64-simulator/MinatoBench.framework" \
+      "$tree/build/graphics/bench" "$tree/app"
+    echo stand-in >"$tree/build/MinatoBench.xcframework/ios-arm64-simulator/MinatoBench.framework/MinatoBench"
+    touch "$tree/build/graphics/bench/bench-gles.apk" "$tree/build/graphics/bench/bench-vulkan.apk"
+    for xcframework in APKRuntime APKConvert MinatoGraphics; do
+      echo "$libraries" >"$tree/build/$xcframework.xcframework.configuration"
+    done
+    [[ -z "$missing" ]] || rm -rf "${tree:?}/$missing"
+    if CONFIGURATION=$configuration APK_EMBED_BENCHMARK=YES SRCROOT="$tree" TARGET_BUILD_DIR="$tree/app" \
+      FRAMEWORKS_FOLDER_PATH=Minato.app/Frameworks UNLOCALIZED_RESOURCES_FOLDER_PATH=Minato.app \
+      PLATFORM_NAME=iphonesimulator tools/embed-benchmark.sh >"$tree/out.txt" 2>&1; then
+      outcome=embedded
+      [[ -f "$tree/app/Minato.app/Frameworks/MinatoBench.framework/MinatoBench" ]] || outcome="embedded nothing"
+    else
+      outcome=refused
+    fi
+    if [[ "$outcome" == "$expected" ]]; then
+      echo "same     $outcome: $name"
+    else
+      echo "DIFFERS  $outcome, not $expected: $name"
+      failed=1
+    fi
+  }
+  embed_case complete embedded "a Release build of Release libraries" Release Release ""
+  embed_case debug refused "a Debug build" Debug Release ""
+  embed_case libraries refused "the runtime's Debug build" Release Debug ""
+  embed_case framework refused "no MinatoBench.framework" Release Release build/MinatoBench.xcframework
+  embed_case apk refused "no bench-vulkan.apk" Release Release build/graphics/bench/bench-vulkan.apk
+  tools/gen.sh
+  tools/build-bench.sh
+  tools/build-bench.sh --ios
+  tools/build-native.sh --app --release
+  tools/build-graphics-host.sh --release
   for setting in without with; do
     value=NO
     [[ "$setting" == without ]] || value=YES
@@ -102,6 +140,9 @@ RESULTS=build/benchmark
 mkdir -p "$RESULTS"
 
 swift build --package-path importer/APKKit --scratch-path build/swift-app -j 6 --product bench-plan >/dev/null
+# The APKs and MinatoBench.framework, which the build embeds (tools/embed-benchmark.sh).
+tools/build-bench.sh
+tools/build-bench.sh --ios
 PLAN="$(swift build --package-path importer/APKKit --scratch-path build/swift-app --show-bin-path)/bench-plan"
 
 # The run.csv names the commit; -dirty when the tree has changes.
