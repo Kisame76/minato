@@ -36,8 +36,11 @@
 # failures 0" and without a GPU error in its log, that no answer waits out its timeout and, on the iPhone, that
 # the touches the user makes reach the input channel and that the display link ran at 120 and at 60 Hz; it prints
 # the gap between the scene's willDeactivate and didEnterBackground. LIVE_BY_HAND=1 runs vulkan-live once on the
-# iPhone with Home, the menu and Quit by hand, for the gap of the real gesture. Every other round runs game mode
-# without a guest.
+# iPhone with Home, the menu and Quit by hand, for the gap of the real gesture. GUEST_AUDIO=1 runs ADR-0036 c)'s
+# test apps in game mode (build/fixtures/apks/aaudio-test.apk and opensl-test.apk) until their
+# ANativeActivity_finish: each log must be Android 15's (fixtures/expected/<app>.logcat); the lines of its -device
+# tag, the rates, bursts, callbacks, xruns and the timestamp's age, and what the audio host did are printed. The
+# apps play zeros, so this log, not a listen, is the check. Every other round runs game mode without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -53,6 +56,7 @@
 #   ACTIVITY    only test 7, with activity-test
 #   LIVE        only test 8, with the live variants
 #   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
+#   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -62,6 +66,8 @@ ACTIVITY_PKG="io.github.kisame76.minato.test.activity"
 ACTIVITY_APK="build/fixtures/apks/activity-test.apk"
 GLES_LIVE_PKG="io.github.kisame76.minato.test.gles.live"
 VULKAN_LIVE_PKG="io.github.kisame76.minato.test.vulkan.live"
+AAUDIO_PKG="io.github.kisame76.minato.test.aaudio"
+OPENSL_PKG="io.github.kisame76.minato.test.opensl"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -88,6 +94,9 @@ fi
 GUEST_APPS=""
 [[ -z "${ACTIVITY:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
+if [[ -n "${GUEST_AUDIO:-}" ]]; then
+  GUEST_APPS+="$AAUDIO_PKG build/fixtures/apks/aaudio-test.apk"$'\n'"$OPENSL_PKG build/fixtures/apks/opensl-test.apk"$'\n'
+fi
 if [[ "$ON_DEVICE" == yes && -n "${LIVE:-}${LIVE_BY_HAND:-}" ]]; then
   GUEST_APPS+="$VULKAN_LIVE_PKG build/fixtures/apks/vulkan-live.apk"$'\n'
 fi
@@ -830,6 +839,49 @@ PY
   fi
 }
 
+# The lines of tag $1 in the guest's log against Android 15's (fixtures/expected/$1.logcat), then the lines of
+# its -device tag, which differ by device.
+compare_guest_log() {
+  local tag=$1 device
+  grep "^I/$tag: " "$CHECK/guest-log" > "$WORK/$tag-app.log" || true
+  if diff -u "fixtures/expected/$tag.logcat" "$WORK/$tag-app.log" > "$WORK/$tag.diff"; then
+    ok "  its log is Android 15's ($(wc -l < "$WORK/$tag-app.log" | tr -d ' ') lines)"
+  else
+    fail "  its log differs from Android 15's:"
+    sed 's/^/      | /' "$WORK/$tag.diff"
+  fi
+  device=$(grep "^I/$tag-device: " "$CHECK/guest-log" || true)
+  if [[ -n "$device" ]]; then sed 's/^/      /' <<< "$device"; else fail "  no $tag-device lines"; fi
+}
+
+# ADR-0036 c): test app $1, whose log tag is $2, runs in game mode until its ANativeActivity_finish. It plays
+# zeros; what the audio host did goes with its log.
+run_guest_audio() {
+  local package=$1 tag=$2 pid audio
+  begin_round "$tag in game mode"
+  rm -f "$CHECK/no-guest"
+  echo "$package" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  launch
+  await_event "process gameMode $package .*" 60 || { abort_round "no game mode after the tap"; return; }
+  pid=$(pid_of "$EVENT")
+  say "$tag runs now; it plays silence and ends by itself."
+  await_event "request finish" 60 && ok "  $tag finishes itself" || fail "  no FINISH"
+  await_event "program ended .*" 10 && expect "  it ends with status 0" "program ended 0" "$(event_of "$EVENT")" \
+    || fail "  $tag did not end"
+  await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+  audio=$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }')
+  sed 's/^/      /' <<< "$audio"
+  grep -q "^audio publishOutput " <<< "$audio" && ok "  the output reaches the runtime" || fail "  no publishOutput"
+  grep -q "^audio stream closed " <<< "$audio" && ok "  its streams close through the host" || fail "  no stream closed"
+  grep -q "^audio disconnected" <<< "$audio" && fail "  a stream was disconnected" || ok "  no stream disconnected"
+  grep -q " failed" <<< "$audio" && fail "  an audio step failed" || ok "  no audio step failed"
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  compare_guest_log "$tag"
+}
+
 # Test 8 (ADR-0032) with a live variant (ADR-0036 a): $1 is its package, $2 its log tag, and $3 "by-hand" when
 # the user goes Home and back and quits. It draws paced by AChoreographer, a frame per callback, and asks for 120
 # and 60 Hz in turn every 5 s.
@@ -999,7 +1051,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1011,6 +1063,10 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}
     [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live
   fi
   [[ -n "${LIVE_BY_HAND:-}" ]] && run_live "$VULKAN_LIVE_PKG" vulkan-live by-hand
+  if [[ -n "${GUEST_AUDIO:-}" ]]; then
+    run_guest_audio "$AAUDIO_PKG" aaudio-test
+    run_guest_audio "$OPENSL_PKG" opensl-test
+  fi
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi
