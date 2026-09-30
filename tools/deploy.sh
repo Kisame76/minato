@@ -3,7 +3,7 @@
 # Needs: Apple ID in Xcode (Settings > Accounts), the iPhone paired, unlocked
 # and connected, and Developer Mode enabled on the iPhone.
 # After installing, it hands the app the certificate Xcode signed it with, for signing converted
-# code (tools/hand-over-certificate.sh), when the app does not have that one yet.
+# code (tools/hand-over-certificate.sh), when the app does not have that one yet; only a Debug build can take it.
 # Usage: tools/deploy.sh [device name or identifier]
 # Optional environment:
 #   CONFIGURATION   Debug (default) or Release, with the runtime's and graphics/host's Release builds;
@@ -47,8 +47,14 @@ xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATI
 
 APP="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/Minato.app"
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
-tools/hand-over-certificate.sh "$DEVICE_ID" ||
-  echo "The signing certificate was not handed over; converted code loads only once the app has it." >&2
+# Only the Debug build answers the hand-over (app/Sources/Signing/CertificateHandover.swift); asking a
+# Release build would wait out devicectl's 120 s.
+if [[ "$CONFIGURATION" == Debug ]]; then
+  tools/hand-over-certificate.sh "$DEVICE_ID" ||
+    echo "The signing certificate was not handed over; converted code loads only once the app has it." >&2
+else
+  echo "Signing certificate: not handed over to a $CONFIGURATION build; the app keeps the one a Debug install handed over."
+fi
 if [[ -n "${INSTALL_ONLY:-}" ]]; then
   echo "Installed on device $DEVICE_ID (connection: $CONN_STATE)"
 elif [[ ${#APP_ARGS[@]} -gt 0 ]]; then
