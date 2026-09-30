@@ -238,6 +238,9 @@ static void times(void) {
 }
 
 static void environment(void) {
+    // The environment the program started with: the shell line of fixtures/tests.txt sets LD_LIBRARY_PATH.
+    const char *path = getenv("LD_LIBRARY_PATH");
+    printf("LD_LIBRARY_PATH at the start: %s\n", path == NULL ? "(none)" : path);
     setenv("APKRT_TEST", "first", 1);
     setenv("APKRT_TEST", "second", 0);
     const char *kept = getenv("APKRT_TEST");

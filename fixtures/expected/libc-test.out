@@ -52,6 +52,7 @@ CLOCK_THREAD_CPUTIME_ID: 20 ms of work counted within 2 s: yes, 50 ms asleep cou
 CLOCK_PROCESS_CPUTIME_ID: at least the thread's: yes, resolutions above 0: yes
 localtime Europe/Berlin: 2023-11-14 23:13:20 CET, isdst 0, gmtoff 3600, mktime back: yes
 localtime Europe/Berlin: 2023-07-22 06:26:40 CEST, isdst 1, gmtoff 7200, mktime back: yes
+LD_LIBRARY_PATH at the start: /data/local/tmp
 setenv without overwrite keeps: first
 setenv with overwrite: third
 unsetenv: gone

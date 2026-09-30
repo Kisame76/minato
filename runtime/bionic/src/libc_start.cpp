@@ -1,10 +1,12 @@
 // Minato, added to bionic's libc.so (ADR-0021): sets up the main thread of a dynamic program the
 // way linker64 does before any constructor runs (linker_main.cpp, linker_tls.cpp): the thread
-// pointer, the main thread's pthread_internal_t and bionic_tls, the stack guard, and the static TLS
-// of the program and its libraries. The runtime's loader calls it on the program thread in place
-// of linker64. Built without the stack protector, like the rest of libc_bootstrap: the stack guard
-// lives behind the thread pointer, which is set up here.
+// pointer, the main thread's pthread_internal_t and bionic_tls, the stack guard, the start
+// environment, and the static TLS of the program and its libraries. The runtime's loader calls it on
+// the program thread in place of linker64. Built without the stack protector, like the rest of
+// libc_bootstrap: the stack guard lives behind the thread pointer, which is set up here.
 #include "APKRuntime/guest_interface.h"
+
+#include <unistd.h>
 
 #include "bionic/pthread_internal.h"
 #include "private/KernelArgumentBlock.h"
@@ -47,6 +49,11 @@ extern "C" __attribute__((visibility("default"))) int __apkrt_start_main_thread(
   __libc_init_main_thread_early(args, &temp_tcb);
   __libc_init_main_thread_late();
   __libc_shared_globals()->init_progname = args.argv[0];
+  // The start environment, as linker64 hands it over: linker_main.cpp calls __libc_init_AT_SECURE(args.envp),
+  // which ends with `environ = __libc_shared_globals()->init_environ = env;` (libc_init_common.cpp), and
+  // __libc_init_common sets environ from init_environ again. There are no setuid programs, so no AT_SECURE
+  // and nothing to sanitize.
+  environ = __libc_shared_globals()->init_environ = args.envp;
 
   // linker_setup_exe_static_tls, register_soinfo_tls and linker_finalize_static_tls.
   StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
