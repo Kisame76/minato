@@ -77,6 +77,8 @@ struct AAudioStreamStruct {
     pthread_mutex_t gate;   // openStream holds it until the stream is whole; the thread starts once it is free
     pthread_mutex_t feed;   // the thread's writes of callback frames, against flushes and stops
     uint32_t drops;         // under `feed`: the flushes and stops so far, which drop the frames not handed over
+    bool claimed;           // the thread's: the data callback under way claimed its frames
+    uint32_t claimed_at;    // under `feed`: `drops` at that claim
     int32_t per_call;       // the frames of a data callback
     void* callback_frames;  // per_call frames in the app's format
     float* floats;          // chunk frames, converted
@@ -223,7 +225,8 @@ int64_t hand_over(AAudioStream* stream, const float* frames, int64_t count, int6
 
 /// The thread of a stream with callbacks, from the open to the release. While the stream plays, it calls the data
 /// callback whenever the buffer has room, and hands over the frames that fit; the rest waits for the next room, as
-/// AAudio's block adapter keeps it, unless a flush or a stop drops it first.
+/// AAudio's block adapter keeps it, unless a flush or a stop drops it first. One during the call drops its frames,
+/// unless the callback claimed them after it (minato_AAudioStream_claimCallbackFrames).
 void* run_callbacks(void* argument) {
     auto* stream = static_cast<AAudioStream*>(argument);
     pthread_mutex_lock(&stream->gate);  // free once openStream has given the app the stream
@@ -262,6 +265,7 @@ void* run_callbacks(void* argument) {
             }
             pthread_mutex_unlock(&stream->feed);
             if (pending_count > 0) continue;
+            stream->claimed = false;
             const aaudio_data_callback_result_t result =
                 stream->data_callback(stream, stream->data_user, stream->callback_frames, stream->per_call);
             if (result != AAUDIO_CALLBACK_RESULT_CONTINUE) {
@@ -277,7 +281,8 @@ void* run_callbacks(void* argument) {
                 frames = stream->floats;
             }
             pthread_mutex_lock(&stream->feed);
-            if (stream->drops == drops) {  // no flush or stop came during the callback
+            if (stream->claimed) drops = stream->claimed_at;
+            if (stream->drops == drops) {  // no flush or stop came during the callback, or after its claim
                 const long taken = call(APKRT_NR_AUDIO_WRITE, stream->handle, bits(frames), bits(stream->per_call));
                 const int64_t took = taken > 0 ? taken : 0;
                 pending = frames + took * stream->channels;
@@ -870,6 +875,16 @@ bool AAudioStream_isMMapUsed(AAudioStream*) {
 
 bool AAudioStream_isPrivacySensitive(AAudioStream* stream) {
     return stream->privacy_sensitive;
+}
+
+// MARK: - Private
+
+void minato_AAudioStream_claimCallbackFrames(AAudioStream* stream) {
+    if (stream == nullptr || !on_own_thread(stream)) return;
+    pthread_mutex_lock(&stream->feed);
+    stream->claimed_at = stream->drops;
+    stream->claimed = true;
+    pthread_mutex_unlock(&stream->feed);
 }
 
 }  // extern "C"

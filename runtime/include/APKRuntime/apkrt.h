@@ -257,7 +257,8 @@ int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, uint32_t po
 //
 // The guest's libaaudio opens output streams through the runtime (guest_interface.h), which keeps each stream's ring
 // of interleaved float32 frames and its state, and asks the host for a node that plays it. A stream's handle is the
-// runtime's: never 0, and never valid again once the stream is closed. Start, pause and stop never reach the host:
+// runtime's: at least 64 (its slot's generation above the slot's index), so a host may keep smaller IDs for its own
+// streams, and never valid again once the stream is closed. Start, pause and stop never reach the host:
 // its node plays from the open to the close, and a stream that does not play reads nothing.
 
 /// The hardware a stream opens on, as the host's audio session reports it.

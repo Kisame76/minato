@@ -1,97 +1,34 @@
 // Checks libaaudio (runtime/android/aaudio.cpp, ADR-0036, decision 6) on the Mac, where it is compiled with
-// tests/aaudio_host (shim.h, android/log.h) and its syscalls go to the runtime's dispatcher, and a fake host of 48 kHz
-// with 5 ms IO buffers takes its streams; the test reads them as the render block would. It covers what aaudio-test
-// on Android cannot show: the conversions of I16, I24 and I32, a data callback of more frames than the buffer size,
-// the buffer of a callback that stops, callback frames against a flush, a write that a signal ends after its
-// deadline, the error callback at a disconnect and from within the open, waitForStateChange's timeout, and a stream
-// after its release.
+// tests/aaudio_host (shim.h, android/log.h, host.h) and its syscalls go to the runtime's dispatcher, and a fake host
+// of 48 kHz with 5 ms IO buffers takes its streams; the test reads them as the render block would. It covers what
+// aaudio-test on Android cannot show: the conversions of I16, I24 and I32, a data callback of more frames than the
+// buffer size, the buffer of a callback that stops, callback frames against a flush and the claim of them that lets a
+// callback keep them, a write that a signal ends after its deadline, the error callback at a disconnect and from
+// within the open, waitForStateChange's timeout, and a stream after its release.
 #include "signals.h"
-#include "syscall_frame.h"
 
-#include "APKRuntime/apkrt.h"
 #include "check.h"
+#include "host.h"
+
+#include "APKRuntime/guest_interface.h"
 
 #include <aaudio/AAudio.h>
-#include <mach/mach_time.h>
 
 #include <atomic>
-#include <cerrno>
 #include <chrono>
-#include <cstdarg>
 #include <cstdint>
-#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <vector>
 
-// MARK: - What the guest build gets from bionic
-
-extern "C" int minato_host_syscall(int number, ...) {
-    va_list arguments;
-    va_start(arguments, number);
-    apkrt_syscall_frame frame{};
-    for (int index = 0; index < 4; ++index) frame.x[index] = va_arg(arguments, std::uint64_t);
-    va_end(arguments);
-    frame.x[8] = static_cast<std::uint64_t>(number);
-    apkrt_syscall_dispatch(&frame);
-    const auto result = static_cast<std::int64_t>(frame.x[0]);
-    if (result >= -4095 && result < 0) {
-        // bionic's syscall(): -1 and errno; Linux's numbers where Darwin's differ
-        const auto linux_error = static_cast<int>(-result);
-        errno = linux_error == 110 ? ETIMEDOUT : linux_error == 11 ? EAGAIN : linux_error;
-        return -1;
-    }
-    return static_cast<int>(result);
-}
-
-extern "C" int __android_log_print(int, const char *tag, const char *format, ...) {
-    va_list arguments;
-    va_start(arguments, format);
-    std::fprintf(stderr, "log %s: ", tag);
-    const int written = std::vfprintf(stderr, format, arguments);
-    std::fputc('\n', stderr);
-    va_end(arguments);
-    return written;
-}
-
 namespace {
 
+using namespace audio_host;
 using namespace std::chrono_literals;
-
-// MARK: - The fake host
-
-struct FakeHost {
-    std::mutex lock;
-    std::vector<std::uint64_t> opened;
-    bool disconnect_in_open = false;
-};
-FakeHost fake;
-
-int fake_open(void *, std::uint64_t stream, double, std::int32_t, std::int32_t, apkrt_audio_hardware *hardware) {
-    const std::lock_guard hold(fake.lock);
-    fake.opened.push_back(stream);
-    *hardware = {48'000, 0.005};
-    apkrt_audio_set_output(nullptr, 10'000'000);
-    if (fake.disconnect_in_open) apkrt_audio_disconnected(stream);
-    return 0;
-}
-
-void fake_close(void *, std::uint64_t) {}
-
-void use_fake_host() {
-    {
-        const std::lock_guard hold(fake.lock);
-        fake.opened.clear();
-        fake.disconnect_in_open = false;
-    }
-    const apkrt_audio_host host{nullptr, fake_open, fake_close};
-    CHECK(apkrt_set_audio_host(&host) == 0);
-}
 
 /// The runtime's handle of the stream the host opened last.
 std::uint64_t last_handle() {
-    const std::lock_guard hold(fake.lock);
-    return fake.opened.empty() ? 0 : fake.opened.back();
+    return last_opened().handle;
 }
 
 // MARK: - Streams
@@ -118,24 +55,6 @@ AAudioStream *open_stream(const Options &options) {
     CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_OK);
     AAudioStreamBuilder_delete(builder);
     return stream;
-}
-
-/// The render block's read of `frames` frames of `channels` channels.
-std::vector<float> render(std::uint64_t handle, std::int64_t frames, std::int32_t channels = 1) {
-    std::vector<float> samples(static_cast<std::size_t>(frames * channels));
-    const auto read = apkrt_audio_read(handle, samples.data(), frames, mach_absolute_time());
-    samples.resize(static_cast<std::size_t>(read * channels));
-    return samples;
-}
-
-template <typename Done>
-bool within(std::chrono::milliseconds limit, Done done) {
-    const auto end = std::chrono::steady_clock::now() + limit;
-    while (!done()) {
-        if (std::chrono::steady_clock::now() >= end) return false;
-        std::this_thread::sleep_for(1ms);
-    }
-    return true;
 }
 
 /// Whether the ring holds as many frames as the buffer size lets it, within a second.
@@ -272,6 +191,56 @@ TEST(a_flush_drops_the_callback_frames_that_were_not_in_the_buffer_yet) {
     for (const float sample : render(last_handle(), 480)) fresh = fresh && sample > static_cast<float>(calls_before);
     CHECK(fresh);
     CHECK(AAudioStream_close(stream) == AAUDIO_OK);
+}
+
+/// Who claims the frames of hold_first's first call: nobody, the callback itself, or the test's thread.
+enum class Claim { none, in_callback, from_another_thread };
+
+/// A data callback held in its first call until the test opens it, which then claims its frames if `claim` says so;
+/// its frames hold the number of their call, float mono.
+struct Held {
+    std::atomic<bool> inside{false};
+    std::atomic<bool> open{false};
+    std::atomic<int> calls{0};
+    Claim claim = Claim::none;
+};
+
+aaudio_data_callback_result_t hold_first(AAudioStream *stream, void *user, void *data, int32_t frames) {
+    auto &held = *static_cast<Held *>(user);
+    const int call = held.calls.fetch_add(1) + 1;
+    if (call == 1) {
+        held.inside.store(true);
+        within(2'000ms, [&] { return held.open.load(); });
+        if (held.claim == Claim::in_callback) minato_AAudioStream_claimCallbackFrames(stream);
+    }
+    auto *samples = static_cast<float *>(data);
+    for (int32_t frame = 0; frame < frames; ++frame) samples[frame] = static_cast<float>(call);
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
+TEST(a_flush_after_a_callback_began_drops_its_frames_unless_the_callback_claims_them_after_the_flush) {
+    for (const Claim claim : {Claim::none, Claim::in_callback, Claim::from_another_thread}) {
+        use_fake_host();
+        Held held;
+        held.claim = claim;
+        AAudioStream *stream = open_stream({.data = hold_first, .user = &held});
+        CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+        CHECK(within(1'000ms, [&] { return held.inside.load(); }));
+        CHECK(AAudioStream_requestPause(stream) == AAUDIO_OK);
+        CHECK(AAudioStream_requestFlush(stream) == AAUDIO_OK);
+        CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+        if (claim == Claim::from_another_thread) minato_AAudioStream_claimCallbackFrames(stream);  // does nothing
+        held.open.store(true);
+        CHECK(fills_up(stream));
+        const auto samples = render(last_handle(), 240);
+        CHECK(samples.size() == 240 && samples.front() == (claim == Claim::in_callback ? 1.0f : 2.0f));
+        // A claim holds for its call only: after the next flush the calls that claim nothing play again.
+        CHECK(AAudioStream_requestPause(stream) == AAUDIO_OK);
+        CHECK(AAudioStream_requestFlush(stream) == AAUDIO_OK);
+        CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+        CHECK(fills_up(stream));
+        CHECK(AAudioStream_close(stream) == AAUDIO_OK);
+    }
 }
 
 // MARK: - Writes, states and errors

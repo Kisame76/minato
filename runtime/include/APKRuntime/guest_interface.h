@@ -423,6 +423,14 @@ void minato_AInputQueue_delete(struct AInputQueue *queue);
 /// reference for the caller (activity-host, at NATIVE_WINDOW_CREATED). NULL without memory.
 struct ANativeWindow *minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height);
 
+struct AAudioStreamStruct;
+
+/// In libaaudio.so, unversioned as its other names, from the stream's data callback: the frames of this call are the
+/// stream's as of now, so that only a flush or a stop after this call drops them (ADR-0036 c2). Without it, one after
+/// the call began does: the stream's thread cannot see when the callback takes its frames. libOpenSLES claims them
+/// under the player's lock, which also orders its flushes and stops. From another thread it does nothing.
+void minato_AAudioStream_claimCallbackFrames(struct AAudioStreamStruct *stream);
+
 #ifdef __cplusplus
 }
 #endif

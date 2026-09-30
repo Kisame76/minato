@@ -170,24 +170,31 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.audio COMMAND audio_test)
   set_tests_properties(runtime.audio PROPERTIES TIMEOUT 60)
 
-  # libaaudio's own logic on the Mac (ADR-0036, decision 6): runtime/android/aaudio.cpp against the NDK's AAudio.h and
-  # tests/aaudio_host, with its syscalls going to the runtime's dispatcher.
-  set(aaudio_header "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/aaudio/AAudio.h")
+  # libaaudio's and libOpenSLES's own logic on the Mac (ADR-0036, decisions 6 and 7): runtime/android/aaudio.cpp and
+  # opensles.cpp against the NDK's headers and tests/aaudio_host, with their syscalls going to the runtime's dispatcher.
+  set(ndk_include "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include")
   set(aaudio_ndk "${APK_ANDROID_NDK}")
-  if(NOT EXISTS "${aaudio_ndk}/${aaudio_header}")
+  if(NOT EXISTS "${aaudio_ndk}/${ndk_include}/aaudio/AAudio.h")
     set(aaudio_ndk "$ENV{HOME}/Library/Android/sdk/ndk/30.0.16248370")  # graphics/CMakeLists.txt's default
   endif()
-  if(EXISTS "${aaudio_ndk}/${aaudio_header}")
-    file(COPY "${aaudio_ndk}/${aaudio_header}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/aaudio_host/include/aaudio")
-    add_executable(aaudio_library_test tests/aaudio_library_test.cpp android/aaudio.cpp)
-    target_include_directories(aaudio_library_test PRIVATE src tests/aaudio_host)
-    target_include_directories(aaudio_library_test SYSTEM PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/aaudio_host/include")
-    target_compile_options(aaudio_library_test PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/aaudio_host/shim.h")
-    set_source_files_properties(android/aaudio.cpp PROPERTIES COMPILE_OPTIONS
+  if(EXISTS "${aaudio_ndk}/${ndk_include}/aaudio/AAudio.h")
+    set(host_include "${CMAKE_CURRENT_BINARY_DIR}/aaudio_host/include")
+    file(COPY "${aaudio_ndk}/${ndk_include}/aaudio/AAudio.h" DESTINATION "${host_include}/aaudio")
+    file(COPY "${aaudio_ndk}/${ndk_include}/SLES" "${aaudio_ndk}/${ndk_include}/jni.h" DESTINATION "${host_include}")
+    set_source_files_properties(android/aaudio.cpp android/opensles.cpp PROPERTIES COMPILE_OPTIONS
       "-Dsyscall=minato_host_syscall;-Wno-deprecated-declarations")
-    target_link_libraries(aaudio_library_test PRIVATE apkrt apk_defaults apk_testing)
+    add_executable(aaudio_library_test tests/aaudio_library_test.cpp tests/aaudio_host/host.cpp android/aaudio.cpp)
+    add_executable(opensl_library_test tests/opensl_library_test.cpp tests/aaudio_host/host.cpp android/aaudio.cpp
+      android/opensles.cpp)
+    foreach(test IN ITEMS aaudio_library_test opensl_library_test)
+      target_include_directories(${test} PRIVATE src tests/aaudio_host)
+      target_include_directories(${test} SYSTEM PRIVATE "${host_include}")
+      target_compile_options(${test} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/aaudio_host/shim.h")
+      target_link_libraries(${test} PRIVATE apkrt apk_defaults apk_testing)
+    endforeach()
     add_test(NAME runtime.aaudio_library COMMAND aaudio_library_test)
-    set_tests_properties(runtime.aaudio_library PROPERTIES TIMEOUT 60)
+    add_test(NAME runtime.opensl_library COMMAND opensl_library_test)
+    set_tests_properties(runtime.aaudio_library runtime.opensl_library PROPERTIES TIMEOUT 60)
   endif()
 
   add_executable(window_test tests/window_test.cpp tests/window_probe.S tests/blocking_probe.S tests/threads_probe.S)
@@ -233,14 +240,16 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
     "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
   set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
-  # ADR-0036's aaudio-test: the same host plays the audio host's side with a consumer that reads every stream every
-  # 5 ms, and compares the log with Android 15's (fixtures/expected/aaudio-test.logcat).
+  # ADR-0036's aaudio-test and opensl-test: the same host plays the audio host's side with a consumer that reads every
+  # stream every 5 ms, and compares the log with Android 15's (fixtures/expected/<app>.logcat).
   add_executable(audio_app_test tests/audio_app_test.cpp)
   target_link_libraries(audio_app_test PRIVATE app_host)
-  add_test(NAME runtime.aaudio COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/audio_app_test_scratch"
-    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
-    aaudio-test)
-  set_tests_properties(runtime.aaudio PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  foreach(app IN ITEMS aaudio opensl)
+    add_test(NAME runtime.${app} COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/${app}_app_test_scratch"
+      "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+      ${app}-test)
+    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  endforeach()
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)

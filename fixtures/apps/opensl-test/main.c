@@ -3,7 +3,8 @@
 // output mix; an audio player from an Android simple buffer queue of 16-bit PCM, configured through
 // ANDROIDCONFIGURATION before Realize (stream type and performance mode, read back) and refused after it; its
 // play states; its buffer queue, full at two buffers, cleared by Clear but not by STOPPED, with the callback
-// while it plays; its volume; and a second player from a buffer queue of float PCM (SLAndroidDataFormat_PCM_EX).
+// while it plays; its volume; and a second player from a buffer queue of float PCM (SLAndroidDataFormat_PCM_EX),
+// which also asks for EFFECTSEND, as the NDK's native-audio sample does, and sets its direct level.
 // What differs by device, the number of callbacks, goes to the tag "opensl-test-device". Every player plays
 // zeros. At the end the test calls ANativeActivity_finish.
 #include <SLES/OpenSLES.h>
@@ -206,17 +207,24 @@ static void float_player(SLEngineItf engine, SLObjectItf mix) {
     SLDataSource source = {&queue_locator, &format};
     SLDataLocator_OutputMix mix_locator = {SL_DATALOCATOR_OUTPUTMIX, mix};
     SLDataSink sink = {&mix_locator, NULL};
-    const SLInterfaceID ids[] = {SL_IID_BUFFERQUEUE};
-    const SLboolean required[] = {SL_BOOLEAN_TRUE};
+    const SLInterfaceID ids[] = {SL_IID_BUFFERQUEUE, SL_IID_EFFECTSEND};
+    const SLboolean required[] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
     SLObjectItf player = NULL;
     LOG("CreateAudioPlayer, float PCM from a buffer queue: %s",
-        result_name((*engine)->CreateAudioPlayer(engine, &player, &source, &sink, 1, ids, required)));
+        result_name((*engine)->CreateAudioPlayer(engine, &player, &source, &sink, 2, ids, required)));
     if (player == NULL) return;
     LOG("Realize the float player: %s", result_name((*player)->Realize(player, SL_BOOLEAN_FALSE)));
     SLPlayItf play = NULL;
     SLBufferQueueItf queue = NULL;
     LOG("GetInterface PLAY %s, BUFFERQUEUE %s", result_name((*player)->GetInterface(player, SL_IID_PLAY, &play)),
         result_name((*player)->GetInterface(player, SL_IID_BUFFERQUEUE, &queue)));
+    SLEffectSendItf send = NULL;
+    const SLresult got_send = (*player)->GetInterface(player, SL_IID_EFFECTSEND, &send);
+    SLmillibel direct = 1;
+    const SLresult set_direct = send != NULL ? (*send)->SetDirectLevel(send, -300) : got_send;
+    const SLresult get_direct = send != NULL ? (*send)->GetDirectLevel(send, &direct) : got_send;
+    LOG("GetInterface EFFECTSEND %s, SetDirectLevel -300 %s, reads %s, %d", result_name(got_send),
+        result_name(set_direct), result_name(get_direct), direct);
     if (play != NULL && queue != NULL) {
         struct queue context = {0};
         (*queue)->RegisterCallback(queue, on_float_buffer, &context);

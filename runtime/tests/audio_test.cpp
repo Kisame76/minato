@@ -305,9 +305,11 @@ TEST(sixty_four_streams_are_open_at_most_and_a_refused_open_takes_none) {
     std::vector<std::uint64_t> streams;
     for (int index = 0; index < 64; ++index) streams.push_back(opened());
     CHECK(open_stream().result == -emfile);
+    for (const auto stream : streams) CHECK(stream >= 64);  // apkrt.h: a host may keep smaller IDs for itself
     for (const auto stream : streams) CHECK(close_stream(stream) == 0);
     for (const auto stream : streams) CHECK(closes_of(stream) == 1);
     const auto again = opened();
+    CHECK(again >= 64);
     CHECK(close_stream(again) == 0);
 }
 

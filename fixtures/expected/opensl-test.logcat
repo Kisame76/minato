@@ -35,6 +35,7 @@ I/opensl-test: the 16-bit player destroyed
 I/opensl-test: CreateAudioPlayer, float PCM from a buffer queue: SUCCESS
 I/opensl-test: Realize the float player: SUCCESS
 I/opensl-test: GetInterface PLAY SUCCESS, BUFFERQUEUE SUCCESS
+I/opensl-test: GetInterface EFFECTSEND SUCCESS, SetDirectLevel -300 SUCCESS, reads SUCCESS, -300
 I/opensl-test: Enqueue float: SUCCESS
 I/opensl-test: SetPlayState PLAYING: SUCCESS, reads PLAYING
 I/opensl-test: the float player's callback ran: yes
