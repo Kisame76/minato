@@ -3,7 +3,8 @@
    - the surface on the window's layer and what it answers: support, capabilities from the window's size or
      its buffer geometry, formats, present modes and the rest of VK_KHR_surface, VK_KHR_swapchain's device
      group queries, VK_KHR_get_surface_capabilities2, VK_KHR_surface_protected_capabilities and
-     VK_GOOGLE_surfaceless_query (decision 12);
+     VK_GOOGLE_surfaceless_query (decision 12); the formats with B8G8R8A8 first when the environment has
+     MINATO_VULKAN_BGRA8_FIRST=1, and only then (V5, F15);
    - swapchains the direct way and the copy way: what reaches MoltenVK, the copy's commands, the order the
      app's images come back in, a replaced swapchain, and VK_SUBOPTIMAL_KHR for the size (decision 12);
    - the gates (decision 13): a present waits at the closed gate and takes a signal meanwhile; in the
@@ -221,6 +222,28 @@ static void surface_part(void) {
 
     formats("formats without a surface", VK_NULL_HANDLE);
     present_modes("present modes without a surface", VK_NULL_HANDLE);
+
+    const char *values[] = {"0", "true", "1"};
+    for (int index = 0; index < 3; index++) {
+        char what[64];
+        snprintf(what, sizeof what, "formats with MINATO_VULKAN_BGRA8_FIRST=%s", values[index]);
+        setenv("MINATO_VULKAN_BGRA8_FIRST", values[index], 1);
+        formats(what, surface);
+    }
+    room = 2;
+    const VkResult incomplete_bgra8 = vkGetPhysicalDeviceSurfaceFormatsKHR(physical, surface, &room, two);
+    printf("formats with MINATO_VULKAN_BGRA8_FIRST=1 and room for 2: %d, %u: %d/%d %d/%d\n", incomplete_bgra8, room,
+           two[0].format, two[0].colorSpace, two[1].format, two[1].colorSpace);
+    count = 8;
+    check("vkGetPhysicalDeviceSurfaceFormats2KHR", formats2(physical, &which, &count, list));
+    printf("formats 2 with MINATO_VULKAN_BGRA8_FIRST=1: %u:", count);
+    for (uint32_t index = 0; index < count; index++) {
+        printf(" %d/%d", list[index].surfaceFormat.format, list[index].surfaceFormat.colorSpace);
+    }
+    printf("\n");
+    formats("formats without a surface with MINATO_VULKAN_BGRA8_FIRST=1", VK_NULL_HANDLE);
+    unsetenv("MINATO_VULKAN_BGRA8_FIRST");
+    formats("formats with MINATO_VULKAN_BGRA8_FIRST unset again", surface);
 }
 
 static VkSemaphore semaphore(void) {

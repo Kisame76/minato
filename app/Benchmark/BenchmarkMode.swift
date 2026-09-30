@@ -9,7 +9,9 @@ import SwiftUI
 /// The benchmark mode (ADR-0037, decision 3), only in builds with APK_EMBED_BENCHMARK=YES: launched with
 /// -runBenchmark <run>, the app shows a black screen, waits until the thermal state is nominal, runs the
 /// variant and writes the run's CSVs to tmp/benchmark/<run>/, where tools/benchmark.sh fetches them.
-/// -benchmarkSeconds <n> shortens the draw time for the Simulator.
+/// -benchmarkSeconds <n> shortens the draw time for the Simulator. Each -benchmarkGuestEnvironment <KEY=VALUE>
+/// adds an entry to the APK variant's guest environment, such as libvulkan's MINATO_VULKAN_BGRA8_FIRST=1
+/// (ADR-0030 V5).
 enum BenchmarkMode {
     static let run: BenchRun? = {
         let arguments = ProcessInfo.processInfo.arguments
@@ -25,6 +27,12 @@ enum BenchmarkMode {
             let seconds = Int(arguments[flag + 1]), seconds > 0
         else { return BenchPlan.drawSeconds }
         return seconds
+    }()
+
+    static let guestEnvironment: [String] = {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.indices.dropLast().filter { arguments[$0] == "-benchmarkGuestEnvironment" }
+            .map { arguments[$0 + 1] }
     }()
 }
 

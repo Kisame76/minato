@@ -12,6 +12,13 @@ formats 2: 6: 37/0 43/0 97/0 64/0 44/0 50/0
 formats 2 with room for 2: 5, 2: 37 43
 formats without a surface: 6: 37/0 43/0 97/0 64/0 44/0 50/0
 present modes without a surface: 1: 2
+formats with MINATO_VULKAN_BGRA8_FIRST=0: 6: 37/0 43/0 97/0 64/0 44/0 50/0
+formats with MINATO_VULKAN_BGRA8_FIRST=true: 6: 37/0 43/0 97/0 64/0 44/0 50/0
+formats with MINATO_VULKAN_BGRA8_FIRST=1: 6: 44/0 50/0 37/0 43/0 97/0 64/0
+formats with MINATO_VULKAN_BGRA8_FIRST=1 and room for 2: 5, 2: 44/0 50/0
+formats 2 with MINATO_VULKAN_BGRA8_FIRST=1: 6: 44/0 50/0 37/0 43/0 97/0 64/0
+formats without a surface with MINATO_VULKAN_BGRA8_FIRST=1: 6: 44/0 50/0 37/0 43/0 97/0 64/0
+formats with MINATO_VULKAN_BGRA8_FIRST unset again: 6: 37/0 43/0 97/0 64/0 44/0 50/0
 direct: 3 images, acquired 0
 the replaced swapchain: present -1000001004, its result -1000001004, acquire -1000001004
 copy: 4 images; acquired 0 1, presented 1 0 (result 0), acquired 2 3, presented 3 2, acquired 1

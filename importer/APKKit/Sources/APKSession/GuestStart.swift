@@ -28,9 +28,10 @@ public struct GuestStart: Sendable, Equatable {
     /// `library` and `function` are the manifest's `android.app.lib_name` and `android.app.func_name`, the
     /// latter nil in a report from before the import read it. The host paths: the installed version's
     /// base.apk and lib/ (its containers), the app's data, external and OBB folders, and the guest system in
-    /// the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/.
+    /// the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `environment` follows
+    /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5).
     public init(package: String, library: String, function: String?, apk: String, appLibraries: String, data: String,
-                external: String, obb: String, guestSystem: String) {
+                external: String, obb: String, guestSystem: String, environment extra: [String] = []) {
         let app = "/data/app/\(package)"
         mounts = [
             Path(guest: "\(app)/base.apk", host: apk),
@@ -49,7 +50,7 @@ public struct GuestStart: Sendable, Equatable {
         program = "\(guestSystem)/bin/activity-host.dylib"
         arguments = ["/system/bin/activity-host", "--package", package, "--apk", "\(app)/base.apk",
                      "--library", library, "--function", function ?? Self.defaultFunction]
-        environment = ["LD_LIBRARY_PATH=\(app)/lib/arm64"]
+        environment = ["LD_LIBRARY_PATH=\(app)/lib/arm64"] + extra
     }
 }
 

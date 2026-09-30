@@ -232,12 +232,18 @@ final class GameSession {
               let bundle = Bundle.main.resourceURL
         else { return nil }
         let data = paths.dataDirectory(for: entry.id)
+        #if BENCHMARK
+        let environment = BenchmarkMode.guestEnvironment
+        #else
+        let environment: [String] = []
+        #endif
         let start = GuestStart(
             package: entry.id, library: library, function: entry.report?.nativeFunction,
             apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path,
             appLibraries: paths.libraryDirectory(for: entry).path,
             data: data.appending(path: "data").path, external: data.appending(path: "external").path,
-            obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path)
+            obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path,
+            environment: environment)
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(

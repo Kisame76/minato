@@ -8,12 +8,13 @@ import Testing
 struct GuestStartTests {
     static let package = "io.github.kisame76.minato.test.activity"
 
-    static func start(library: String = "activity-test", function: String? = nil) -> GuestStart {
+    static func start(library: String = "activity-test", function: String? = nil,
+                      environment: [String] = []) -> GuestStart {
         GuestStart(
             package: package, library: library, function: function,
             apk: "/v/apps/p/1/base.apk", appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", external: "/v/data/p/external", obb: "/v/data/p/obb",
-            guestSystem: "/b/Minato.app/Guest")
+            guestSystem: "/b/Minato.app/Guest", environment: environment)
     }
 
     @Test func mountsThePathsOfDecision14() {
@@ -45,6 +46,14 @@ struct GuestStartTests {
             "--apk", "/data/app/\(Self.package)/base.apk", "--library", "main", "--function", "game_onCreate",
         ])
         #expect(start.environment == ["LD_LIBRARY_PATH=/data/app/\(Self.package)/lib/arm64"])
+    }
+
+    /// V5 (ADR-0030, F15): a benchmark run's extra entries, such as libvulkan's MINATO_VULKAN_BGRA8_FIRST, come
+    /// after LD_LIBRARY_PATH.
+    @Test func addsTheExtraEnvironmentAfterTheLibraryPath() {
+        #expect(Self.start(environment: ["MINATO_VULKAN_BGRA8_FIRST=1"]).environment == [
+            "LD_LIBRARY_PATH=/data/app/\(Self.package)/lib/arm64", "MINATO_VULKAN_BGRA8_FIRST=1",
+        ])
     }
 
     /// A report from before the import read `android.app.func_name` has none: Android's default.

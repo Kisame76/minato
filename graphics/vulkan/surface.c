@@ -2,7 +2,8 @@
    the window's CAMetalLayer, which graphics/host finds by the host window's ID, and what a surface answers,
    as Android 15's loader does where MoltenVK allows it: every queue supports it; its current extent is the
    window's buffer geometry once set, else the window's size in pixels (ADR-0028), never MoltenVK's drawable
-   size; 3 to 4 images, the identity transform, alpha INHERIT; Android's formats, then B8G8R8A8, and FIFO. */
+   size; 3 to 4 images, the identity transform, alpha INHERIT; Android's formats, then B8G8R8A8 (first with
+   MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <pthread.h>
@@ -141,11 +142,28 @@ static const VkSurfaceFormatKHR formats[] = {
 };
 #define FORMATS (uint32_t)(sizeof formats / sizeof *formats)
 
+/* The same formats with B8G8R8A8 first, which MoltenVK's drawables take without the copy (F15): only with
+   MINATO_VULKAN_BGRA8_FIRST=1 in the environment (V5). */
+static const VkSurfaceFormatKHR bgra8_first[] = {
+    {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    {VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    {VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    {VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    {VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+};
+_Static_assert(sizeof bgra8_first == sizeof formats, "both orders list the same formats");
+
+static const VkSurfaceFormatKHR *surface_formats(void) {
+    const char *value = getenv("MINATO_VULKAN_BGRA8_FIRST");
+    return value != NULL && strcmp(value, "1") == 0 ? bgra8_first : formats;
+}
+
 /* With VK_GOOGLE_surfaceless_query, `surface` may be VK_NULL_HANDLE: the same lists. */
 VkResult vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physical, VkSurfaceKHR surface, uint32_t *count,
                                               VkSurfaceFormatKHR *list) {
     (void)physical, (void)surface;
-    return hand_out(formats, sizeof *formats, FORMATS, count, list);
+    return hand_out(surface_formats(), sizeof *formats, FORMATS, count, list);
 }
 
 VkResult vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physical, const VkPhysicalDeviceSurfaceInfo2KHR *info,
@@ -155,9 +173,10 @@ VkResult vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physical, const 
         *count = FORMATS;
         return VK_SUCCESS;
     }
+    const VkSurfaceFormatKHR *order = surface_formats();
     const uint32_t copied = *count < FORMATS ? *count : FORMATS;
     for (uint32_t index = 0; index < copied; index++) {
-        list[index].surfaceFormat = formats[index];
+        list[index].surfaceFormat = order[index];
     }
     *count = copied;
     return copied < FORMATS ? VK_INCOMPLETE : VK_SUCCESS;

@@ -9,7 +9,9 @@ ADR-0037 measures it with one scene built twice: as the APKs `bench-gles` and `b
 between them is what Minato costs.
 
 **Result: parity does not hold yet. 5 of 6 configurations pass; `vulkan-120-heavy` fails, with the APK at 90.83 % of
-the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max.
+the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max. V5 then measured
+the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK still
+fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)).
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -48,16 +50,122 @@ The Vulkan APK and the native build differ in several things that are Minato's:
 The GLES APK shares the loader, the glue, the vsync channel and the QoS class. It has its own front libs and no copy,
 and at the same load it matches the native build (1.0036 and 1.0000).
 
-The copy is therefore the likely cause, but this series did not measure it. ADR-0037 names this risk. V5's iPhone
-part, the copy's GPU time per frame, would show whether the copy is the cause. On the Mac (M4 Pro, 1290 × 2796) V5
-measured 0.18 ms. The remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch.
+The copy was therefore the likely cause, but this series did not measure it; ADR-0037 names this risk. V5 below
+measured it: the copy explains about half of the gap, and the rest lies elsewhere in the Vulkan APK's path.
 
-The mean interval (12.78 ms against 11.61 ms) does not give the copy's cost: a frame that misses a step waits for the
-next one, so a small cost per frame moves a share of frames by a whole 4.17 ms (see Limits).
+The mean interval gives the cost of the APK's path per frame, though not the copy's alone: 12.78 ms against 11.61 ms,
+1.17 ms more. The step shares fit a pipeline that the GPU keeps busy, whose frame period is the mean interval. A
+period of 11.61 ms puts 21.6 % of the intervals at 8.33 ms and the rest at 12.50 ms; one of 12.78 ms puts 6.7 % at
+16.67 ms and the rest at 12.50 ms. Both are as measured. A frame that misses a step waits for the next one, and the
+frames queued behind it catch up, so the mean stays the period.
 
 The APK's render thread also spends more CPU time per frame. Its CPU p99 of 5.45 ms is well below the 12.5 ms step,
 so the GPU sets the rate [guess, from these numbers]. At the light loads the GPU has room within its step, and the same
 path passes (0.9994 and 1.0000).
+
+### V5: the copy on the iPhone (ADR-0030)
+
+**Result: the copy explains about half of `vulkan-120-heavy`'s gap. Without it the APK reaches 96.03 % of the native
+build's FPS, but its p99 stays a step or two higher (16.670 and 20.838 ms against 12.503 ms), so parity still
+fails.** Measured 2026-09-30 from 19:37 to 21:08 on the same iPhone.
+
+By the rule fixed before the runs, the result is "between". B reaches 95 % of the control's FPS but not its p99, and
+it is 5.5 % above A. The copy's share of the gap, (B − A) / (N − A), is 0.56 on the second build and 0.49 over all
+runs.
+
+| Run | Build | Arm | FPS | p99 | at 8.33 / 12.50 / 16.67 / 20.83 ms | CPU p50 | Period |
+|---|---|---|---:|---:|---|---:|---:|
+| native-50 | 26d724f | N | 86.07 | 12.503 ms | 21.1 / 78.9 / 0.0 / 0.0 % | 4.39 ms | 11.62 ms |
+| apk-51 | 26d724f | A | 80.37 | 20.838 ms | 7.5 / 88.5 / 1.7 / 2.2 % | 4.79 ms | 12.45 ms |
+| apk-52 | 26d724f | A (meant as B) | 80.47 | 16.670 ms | 5.2 / 92.3 / 1.5 / 1.0 % | 4.78 ms | 12.43 ms |
+| apk-53 | 8109689 | B | 83.20 | 16.670 ms | 13.1 / 85.5 / 1.3 / 0.1 % | 4.40 ms | 12.02 ms |
+| apk-54 | 8109689 | A | 78.33 | 16.670 ms | 1.4 / 91.3 / 6.8 / 0.5 % | 4.92 ms | 12.77 ms |
+| apk-55 | 8109689 | A | 78.37 | 16.670 ms | 1.8 / 90.9 / 6.7 / 0.6 % | 4.89 ms | 12.76 ms |
+| apk-56 | 8109689 | B | 82.10 | 20.838 ms | 12.4 / 84.9 / 0.8 / 1.9 % | 4.47 ms | 12.18 ms |
+
+The runs are `vulkan-120-heavy-<run>`, each cut like the series (the warm window, `tools/bench-summary.py`'s `Run`).
+The period is the mean present interval, the frame's cost (see above). By period, on the second build, the copy
+costs 0.67 ms a frame (A's 12.77 ms against B's 12.10 ms), and the rest of the APK's path 0.48 ms (B against N's
+11.62 ms).
+
+**Method.** One sitting, both arms on each build, a native control first (the lead's OK of 2026-09-30):
+
+- *A:* the Vulkan APK as in the series. It takes the surface's first format, R8G8B8A8 (37), and `libvulkan` copies
+  each frame to the drawable.
+- *B:* the same APK started with `MINATO_VULKAN_BGRA8_FIRST=1` in its guest environment. `libvulkan` then lists
+  B8G8R8A8 (44) first, the APK takes it, and it draws straight into MoltenVK's drawable, as the native build does.
+  Only the copy differs from A. Each run's console names the format it took.
+- *N:* the native build, as in the series.
+- *The rule, fixed before the runs:* if B reaches at least 95 % of N's FPS and its p99 is within 105 % of N's, the
+  copy is the cause. If B is within 1 % of A, the copy is ruled out. In between, the copy's share is
+  (B − A) / (N − A).
+
+**The builds.** Release benchmark builds that `tools/benchmark.sh --api vulkan` made and installed. Its series was
+complete, so it started no run. `build/v5/tree-at-build.txt` (not in git) has a section for each build, and the
+runs' `run.csv` files name both commits with -dirty (the switch, uncommitted).
+
+- *First, 19:09:* 26d724f with the switch.
+  - Against the series' Vulkan build, these are byte-identical: the bench APKs, `MinatoBench`, MoltenVK, ANGLE,
+    `activity-host`, `libGLESv2` and `libGLESv3`.
+  - `libEGL` differs only in its build ID, and `libvulkan` has the switch.
+  - `libaaudio`, `libOpenSLES` and Minato's binary carry the commits since the series (ADR-0036 c2 and App's), and
+    the switch's launch argument.
+- *Second, 20:23:* 8109689, the fix below. Only `libc.so` differs from the first build. Minato's binary and
+  `MinatoBench` are byte-identical, so native-50 is the control for both builds.
+
+**A bug found.** The first B, apk-52, took format 37 because no guest saw its start environment.
+
+- The runtime's own start of libc (`runtime/bionic/src/libc_start.cpp`, in place of linker64) never set `environ`.
+  linker64 sets it through `__libc_init_AT_SECURE(args.envp)`.
+- `LD_LIBRARY_PATH` worked only because the runtime's loader reads it itself.
+- The driver stopped at its format check, so apk-52 counts as a second A.
+- 8109689 fixes it, red first: `fixture.libc-test` now prints `LD_LIBRARY_PATH` from the start.
+
+**How it ran.** A driver outside the repo (`build/v5/scripts/v5.sh`) did each run in four steps:
+
+1. A pause of 10 min with Minato closed, the series' rule before a heavy run.
+2. The launch and the fetch with `tools/benchmark.sh`'s own commands, into `build/v5/` only. B's launch added
+   `-benchmarkGuestEnvironment MINATO_VULKAN_BGRA8_FIRST=1`.
+3. A check that the console names format 37 for A and 44 for B. If not, the driver stops.
+4. After a dropped link, a new fetch once Minato has ended. An invalid run moves to `build/v5/failed/` and runs again.
+
+Step 4 was never needed. All 7 runs were valid, in portrait, nominal from start to end, and charging at 80 % (apk-53
+at 75 %). The order was
+native-50, apk-51 and apk-52 on the first build, then apk-53 to apk-56 (B A A B) on the second. The setup was the
+series'.
+
+**Unexplained: the A arm varies between launches.**
+
+- apk-51 and apk-52, on the first build, drew 80.37 and 80.47 FPS (a period of 12.44 ms).
+- apk-54 and apk-55, on the second build, drew 78.33 and 78.37 FPS (12.77 ms), as the series did (78.23 to 78.43).
+- The native control matched the series (86.07 FPS).
+- No commit since the series touched the Vulkan path. The first build's `libc.so` bug was in the series' build too,
+  and the conditions were the same.
+
+The rule compares the arms within one build and one sitting, so the verdict stands.
+
+**The rest: two suspects.** About 0.48 ms a frame remains, and so do the late frames: 1.4 and 2.7 % of B's intervals
+are at 16.67 ms or more, against none of N's. The late frames fit either suspect.
+
+- *`libvulkan`'s queue path* (ADR-0030, V4a2).
+  - Every submit signals the queue's timeline semaphore, and waits go in slices of 10 ms.
+  - `graphics/host` counts and flags every submit, acquire and present.
+  - The GLES APK has none of this.
+  - The steady 0.48 ms is on the GPU's side, since B's render thread spends native's CPU time per frame (4.40 and
+    4.47 ms against 4.39 ms) [guess, from these numbers].
+- *The render thread's QoS:* default in the APK, user-interactive in the native build.
+  - B's late frames took more CPU time than its other frames (4.94 and 4.85 ms against 4.40 and 4.47 ms), as a thread
+    on a slower core would [guess].
+  - The GLES APK has the same QoS and matches its native build, but at a load where both variants show late frames.
+- *The cheapest A/B to separate them* (proposed, not run): the native build with its render thread at QoS default,
+  against user-interactive, in one sitting.
+  - It needs a launch argument that `graphics/bench/native/native.m` reads (red first), and about 25 min of the
+    iPhone for two runs.
+  - If the native build at default loses about 0.48 ms a frame and shows the late frames, QoS is the rest.
+  - If it matches user-interactive, the queue path is left, and its A/B comes next.
+
+The remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch. Either removes the
+copy's share. Neither reaches parity alone.
 
 ### How it was measured
 
