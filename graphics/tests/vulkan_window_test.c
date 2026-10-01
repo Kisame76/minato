@@ -6,7 +6,9 @@
      VK_GOOGLE_surfaceless_query (decision 12); the formats with B8G8R8A8 first when the environment has
      MINATO_VULKAN_BGRA8_FIRST=1, and only then (V5, F15);
    - swapchains the direct way and the copy way: what reaches MoltenVK, the copy's commands, the order the
-     app's images come back in, a replaced swapchain, and VK_SUBOPTIMAL_KHR for the size (decision 12);
+     app's images come back in, a replaced swapchain, and VK_SUBOPTIMAL_KHR for the size (decision 12); OPAQUE
+     for MoltenVK in place of the app's INHERIT when the environment has MINATO_VULKAN_OPAQUE=1, and only then
+     (V5's late frames);
    - turns (ADR-0038 c): a present answers VK_SUBOPTIMAL_KHR while the window's size differs from the one
      the swapchain was made at, as Android's does while the window's transform hint differs from the
      swapchain's, and VK_SUCCESS after a turn by 180 degrees, after a turn back and on a new swapchain;
@@ -387,12 +389,24 @@ static void swapchain_part(void) {
     printf("4 images of R16G16B16A16_SFLOAT: %u images\n", image_count(four));
     const VkSwapchainKHR srgb = swapchain(VK_FORMAT_B8G8R8A8_SRGB, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, four);
     printf("B8G8R8A8_SRGB: %u images\n", image_count(srgb));
+
+    /* With MINATO_VULKAN_OPAQUE=1 MoltenVK gets OPAQUE for the app's INHERIT, so it makes the layer opaque (V5's
+       late frames); without it, INHERIT. */
+    setenv("MINATO_VULKAN_OPAQUE", "1", 1);
+    const VkSwapchainKHR opaque = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                            srgb);
+    unsetenv("MINATO_VULKAN_OPAQUE");
+    const VkSwapchainKHR inherit = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                             opaque);
+    printf("with MINATO_VULKAN_OPAQUE=1, then without: %u and %u images\n", image_count(opaque), image_count(inherit));
     vkDestroySwapchainKHR(device, direct, NULL);
     vkDestroySwapchainKHR(device, copied, NULL);
     vkDestroySwapchainKHR(device, small, NULL);
     vkDestroySwapchainKHR(device, input, NULL);
     vkDestroySwapchainKHR(device, four, NULL);
     vkDestroySwapchainKHR(device, srgb, NULL);
+    vkDestroySwapchainKHR(device, opaque, NULL);
+    vkDestroySwapchainKHR(device, inherit, NULL);
     vkDestroySemaphore(device, acquired, NULL);
     vkDestroySemaphore(device, rendered, NULL);
 }

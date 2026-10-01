@@ -14,7 +14,10 @@ With --record, ADR-0037 b): graphics.recorder. For each API, both builds draw th
 graphics/host's layer, which records the run; each program checks in-process that the recording holds every drawable
 once and in order (recording_check.h) and prints a "recorder:" line with the layer's notes. Then the host build's
 GLES run again with -benchmarkRenderQoS default, its render thread at the APK's QoS (ADR-0030 V5), and once with a
-value MinatoBench must refuse."""
+value MinatoBench must refuse. Both programs' layers start not opaque, as the App's view leaves its layer: the notes
+and the layer's console line at the first drawable must say opaque 1 for the host build's Vulkan run, whose scene
+asks MoltenVK for OPAQUE, and opaque 0 for the others: ANGLE leaves the layer as it is, and so does MoltenVK for
+the INHERIT that libvulkan offers (V5's late frames)."""
 import argparse
 import pathlib
 import re
@@ -112,26 +115,37 @@ def queue_path(args, scratch, plain, plain_crc):
              f"{refused.stdout.strip()[-300:]}")
 
 
-def recorder_line(output, what):
+OPAQUE_NOTE = re.compile(r"\bopaque ([01])$")
+OPAQUE_LINE = re.compile(r"^MinatoMetalLayer: the recording's first drawable: layer opaque ([01])$", re.MULTILINE)
+
+
+def recorder_line(output, what, opaque):
+    """The run's one recorder line, whose notes and the layer's console line must say `opaque`."""
     lines = [line for line in output.splitlines() if line.startswith("recorder: ")]
     if len(lines) != 1:
         fail(f"{what}: {len(lines)} recorder lines, not 1")
         return
     print(lines[0], flush=True)
+    note = OPAQUE_NOTE.search(lines[0])
+    if note is None or note.group(1) != str(opaque):
+        fail(f"{what}: the recorder's notes do not end with opaque {opaque}")
+    logged = OPAQUE_LINE.findall(output)
+    if logged != [str(opaque)]:
+        fail(f"{what}: the layer logged its opacity as {logged}, not once as {opaque}")
 
 
 def record(args, scratch):
     for api in ("gles", "vulkan"):
         host = run([args.host, api, "light", str(scratch / "record-host"), args.moltenvk, "record"],
                    f"{api}, host build")
-        recorder_line(host, f"{api}, host build")
+        recorder_line(host, f"{api}, host build", 1 if api == "vulkan" else 0)
         guest = run([args.app_test, str(scratch / "record-guest"), f"bench-{api}", args.bench, args.bionic,
                      args.system, args.front, args.manifests, args.angle, args.moltenvk, "record:light"], f"{api}, APK")
-        recorder_line(guest, f"{api}, APK")
+        recorder_line(guest, f"{api}, APK", 0)
     what = "gles, host build at QoS default"
     host = run([args.host, "gles", "light", str(scratch / "record-host"), args.moltenvk, "record",
                 "-benchmarkRenderQoS", "default"], what)
-    recorder_line(host, what)
+    recorder_line(host, what, 0)
     refused = subprocess.run([args.host, "gles", "light", str(scratch / "record-host"), args.moltenvk, "record",
                               "-benchmarkRenderQoS", "fast"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, errors="replace", timeout=300)

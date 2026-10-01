@@ -332,9 +332,11 @@ std::uint64_t pair(std::int32_t low, std::int32_t high) {
 MinatoMetalLayer *last_layer;
 
 /// The App's window: the view's layer, graphics/host's in every build, its bounds in points, its size in pixels.
+/// Not opaque, as the App's view leaves it: its black background clears CAMetalLayer's opacity (V5's late frames).
 std::uint64_t add_window() {
     @autoreleasepool {
         MinatoMetalLayer *layer = [MinatoMetalLayer layer];
+        layer.opaque = NO;
         layer.contentsScale = scale;
         layer.bounds = CGRectMake(0, 0, width / scale, height / scale);
         last_layer = layer;

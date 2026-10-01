@@ -18,7 +18,9 @@
    work, the app's semaphores left as they are); an acquire answers VK_ERROR_SURFACE_LOST_KHR for a window
    that is gone and waits in the background; MoltenVK's acquire and present, and the copies' submits, go
    through graphics/host's background gate. VK_GOOGLE_display_timing (ADR-0041 decision 11) is MoltenVK's on the
-   swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order. */
+   swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order. With
+   MINATO_VULKAN_OPAQUE=1 in the environment, MoltenVK's swapchain gets OPAQUE for the app's INHERIT (V5's late
+   frames). */
 #include <stdlib.h>
 #include <string.h>
 
@@ -89,6 +91,15 @@ static int direct(VkPhysicalDevice physical, const struct minato_surface *surfac
     return moltenvk_format(info->imageFormat) && info->minImageCount <= 3 && info->imageArrayLayers == 1 &&
            minato_host_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface->metal, &moltenvk) == VK_SUCCESS &&
            (info->imageUsage & ~moltenvk.supportedUsageFlags) == 0;
+}
+
+/* The composite alpha MoltenVK's swapchain gets: the app's, but OPAQUE for INHERIT with MINATO_VULKAN_OPAQUE=1 in
+   the environment (V5's late frames). MoltenVK leaves the layer's opacity as it is for INHERIT only. */
+static VkCompositeAlphaFlagBitsKHR composite_alpha(VkCompositeAlphaFlagBitsKHR asked) {
+    const char *value = getenv("MINATO_VULKAN_OPAQUE");
+    return asked == VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR && value != NULL && strcmp(value, "1") == 0
+               ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+               : asked;
 }
 
 /* A memory type of the device's own among `bits`, else the first of them. */
@@ -232,6 +243,7 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
     ours.pNext = &windows;
     ours.surface = surface->metal;
     ours.oldSwapchain = old != NULL ? old->moltenvk : VK_NULL_HANDLE;
+    ours.compositeAlpha = composite_alpha(info->compositeAlpha);
     if (copy) {
         ours.minImageCount = 3;
         ours.imageFormat = moltenvk_format(info->imageFormat)            ? info->imageFormat

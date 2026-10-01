@@ -4,6 +4,7 @@
 #include <TargetConditionals.h>
 #include <math.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
@@ -48,6 +49,7 @@ static int64_t host_ns(CFTimeInterval seconds) {
     MTLPixelFormat _format;
     CGSize _size;
     NSUInteger _maximum;
+    BOOL _opaque;
 }
 
 - (nullable instancetype)initWithCapacity:(NSUInteger)capacity {
@@ -115,6 +117,10 @@ static int64_t host_ns(CFTimeInterval seconds) {
     return _maximum;
 }
 
+- (BOOL)opaque {
+    return _opaque;
+}
+
 - (struct minato_layer_drawable)drawable:(NSUInteger)index {
     struct minato_layer_drawable drawable = {0};
     if (index >= self.count) return drawable;
@@ -167,6 +173,10 @@ static int64_t host_ns(CFTimeInterval seconds) {
                 recording->_format = self.pixelFormat;
                 recording->_size = self.drawableSize;
                 recording->_maximum = self.maximumDrawableCount;
+                // Once, also on the console, where a benchmark run's driver checks it (V5's late frames).
+                recording->_opaque = self.opaque;
+                fprintf(stderr, "MinatoMetalLayer: the recording's first drawable: layer opaque %d\n",
+                        recording->_opaque ? 1 : 0);
             }
             // The block holds the recording, and with it the places, until it ran.
             [drawable addPresentedHandler:^(id<MTLDrawable> presented) {

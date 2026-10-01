@@ -36,8 +36,9 @@ struct minato_layer_drawable {
 @property(readonly) NSUInteger nils;
 /* Recorded drawables whose presented handler has not run yet. */
 @property(readonly) NSUInteger unanswered;
-/* Noted at the first drawable: the caller's QoS class, and the layer's pixel format, drawable size and
-   maximumDrawableCount. */
+/* Noted at the first drawable: the caller's QoS class, and the layer's pixel format, drawable size,
+   maximumDrawableCount and opacity. The opacity also goes to stderr, once, as "MinatoMetalLayer: the recording's
+   first drawable: layer opaque 0" or 1, for a benchmark run's console (V5's late frames). */
 @property(readonly) qos_class_t qosClass;
 /* The QoS class as run.csv writes it: user-interactive, user-initiated, default, utility, background or
    unspecified. */
@@ -45,6 +46,7 @@ struct minato_layer_drawable {
 @property(readonly) MTLPixelFormat pixelFormat;
 @property(readonly) CGSize drawableSize;
 @property(readonly) NSUInteger maximumDrawableCount;
+@property(readonly) BOOL opaque;
 /* Drawable `index`, which is below `count`. */
 - (struct minato_layer_drawable)drawable:(NSUInteger)index;
 @end

@@ -68,10 +68,10 @@ inline std::vector<std::string> recording_problems(MinatoLayerRecording *recordi
 inline std::string recording_notes(MinatoLayerRecording *recording) {
     if (recording == nil) return "no recording";
     char text[256];
-    std::snprintf(text, sizeof text, "QoS %s, pixel format %llu, %.0f x %.0f, at most %llu drawables",
+    std::snprintf(text, sizeof text, "QoS %s, pixel format %llu, %.0f x %.0f, at most %llu drawables, opaque %d",
                   recording.qosName.UTF8String, (unsigned long long)recording.pixelFormat,
                   recording.drawableSize.width, recording.drawableSize.height,
-                  (unsigned long long)recording.maximumDrawableCount);
+                  (unsigned long long)recording.maximumDrawableCount, recording.opaque ? 1 : 0);
     return text;
 }
 

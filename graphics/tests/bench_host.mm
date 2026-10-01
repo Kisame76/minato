@@ -85,6 +85,9 @@ int main(int argc, char **argv) {
     char error[512] = "";
     MinatoMetalLayer *layer = [MinatoMetalLayer layer];
     @autoreleasepool {
+        // Not opaque, as the App's view leaves its layer: its black background clears CAMetalLayer's opacity
+        // (V5's late frames). MoltenVK makes it opaque for the scene's OPAQUE; ANGLE leaves it.
+        layer.opaque = NO;
         layer.contentsScale = 3;
         layer.bounds = CGRectMake(0, 0, 430, 932);
         layer.drawableSize = CGSizeMake(1290, 2796);

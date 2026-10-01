@@ -13,7 +13,8 @@ the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on a
 the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK still
 fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)). V5's QoS A/B then ruled out the render thread's QoS
 class as the rest. Its queue-path A/B found that `libvulkan`'s queue path costs about a third of the rest and none of
-the late frames.
+the late frames. Its late-frames A/B found the rest: the APK's layer was not opaque. With the layer opaque and
+without the copy, the APK is the queue path's 0.17 ms a frame from the native build, with its p99 and no late frames.
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -258,8 +259,85 @@ made the next refresh at 120 Hz now miss it.
   - All four runs were valid at their first attempt that launched, in portrait, nominal from start to end. nu-62 ran
     unplugged at 80 %, the others charging at 65 to 75 %. NU's two runs agree within 0.024 ms all the same.
 
-The remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch. Either removes the
-copy's share. Neither reaches parity alone.
+**The late-frames A/B, 2026-10-01: the APK's layer opacity is the rest.** By the rule fixed before any code this is
+case 1: the layer's opacity explains the rest outside the queue path. With its layer opaque, the APK without the copy
+draws 98.57 % of the native build's FPS, with its p99 of 12.503 ms and no late frames. Its period is 0.166 ms longer
+than native's, the queue path's cost of 0.164 ms. Measured 2026-10-01 from 17:49 to 18:34 on the same iPhone.
+
+| Run | Arm | Layer | FPS | p99 | at 8.33 / 12.50 / 16.67 / 20.83 ms | CPU p50 | Period | Late | To screen | Earliest |
+|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|
+| native-66 | N | opaque | 86.20 | 12.503 ms | 21.5 / 78.5 / 0.0 / 0.0 % | 4.33 ms | 11.605 ms | 0.0 % | 22.38 ms | −0.23 ms |
+| apk-67 | B | not opaque | 83.23 | 16.670 ms | 13.3 / 85.2 / 1.5 / 0.0 % | 4.52 ms | 12.015 ms | 1.5 % | 23.41 ms | −0.95 ms |
+| apk-68 | BO | opaque | 84.87 | 12.503 ms | 17.2 / 82.8 / 0.0 / 0.0 % | 4.26 ms | 11.784 ms | 0.0 % | 22.90 ms | −0.24 ms |
+| apk-69 | BO | opaque | 85.07 | 12.503 ms | 17.9 / 82.1 / 0.0 / 0.0 % | 4.26 ms | 11.758 ms | 0.0 % | 22.82 ms | −0.24 ms |
+| apk-70 | B | not opaque | 83.40 | 16.670 ms | 14.0 / 84.4 / 1.7 / 0.0 % | 4.57 ms | 11.991 ms | 1.7 % | 23.35 ms | −0.94 ms |
+
+The runs are `vulkan-120-heavy-<run>`, cut as above. To screen is the p50 of the time from a frame's `nextDrawable`
+to its present. Earliest is the p10 of when a frame took its drawable, counted from frame k−2's present; negative is
+before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms.
+
+- *The data check, before any code* (`build/v5-late/data-check.txt`, not in git), on V5's and the queue A/B's
+  `frames.csv`:
+  - The APK asks in time. Frame k takes its drawable 0.62 to 0.75 ms (p50) after frame k−2's present in every run,
+    native and APK, the earliest it can with 3 drawables. The thunks, the vsync channel and glue, and the gates act
+    before that point.
+  - The APK loses after the drawable. From the drawable to the screen takes (p50) 22.24 to 22.46 ms native, 22.82
+    and 22.89 ms NQ, 23.36 and 23.63 ms B, 24.98 and 24.99 ms A. Half of it plus the 0.7 ms gives each run's period
+    within 0.12 ms.
+  - The late frames come from the same part. They come in bursts and grow with it: native none, NQ 0.04 and 0 %, B
+    1.4 and 2.7 %, A 7.3 and 7.4 %.
+  - Every APK run took its earliest drawables 0.98 to 1.15 ms before frame k−2's present, every native run 0.16 to
+    0.24 ms. A drawable comes free when the next frame is latched, so the APK's frames took longer from latch to
+    screen: another display path.
+- *The difference:* the swapchain's `compositeAlpha`.
+  - The scene takes OPAQUE where the surface offers it. MoltenVK offers it, so the native build asks for OPAQUE.
+    `libvulkan` offers only INHERIT, as Android 15's loader does ("window composition is a WindowManager property").
+  - MoltenVK sets `CAMetalLayer.opaque` only for a request other than INHERIT (`MVKSwapchain.mm`, 1.4.2).
+  - The session's view, `MetalLayerHostView`, sets a black background color, which in UIKit clears the layer's
+    opacity, and its `isOpaque` does not set it back [verified on the Mac's UIKit, and on the iPhone by apk-67's
+    note]. So the APK's Vulkan layer stays non-opaque.
+  - That Core Animation composites such a layer instead of showing its drawables directly fits the earliest
+    drawables [inferred].
+  - ANGLE's Metal backend sets no opacity, so both GLES variants draw on the same non-opaque layer, and they pass.
+- *N:* the native build as in the series and the A/Bs, its layer opaque. The control.
+- *B:* the APK with `MINATO_VULKAN_BGRA8_FIRST=1`, as V5's B: no copy, `libvulkan`'s queue path, INHERIT.
+- *BO:* B with `MINATO_VULKAN_OPAQUE=1` as well. `libvulkan` then hands MoltenVK OPAQUE in place of the app's INHERIT
+  (`graphics/vulkan/swapchain.c`), so MoltenVK makes the layer opaque. Nothing else changes. Each run's console names
+  the layer's opacity at the first drawable, which `graphics/host`'s recorder logs once.
+- *The rule* (`build/v5-late/RULE.md`): P is the period, L the share of late intervals, Δq = 0.164 ms the queue
+  path's cost.
+  1. P_BO − P_N at most Δq + 0.05 ms and L_BO at most 0.1 %: the layer's opacity is the rest.
+  2. P_B − P_BO at most 0.05 ms and L_BO at least half of L_B: opacity is ruled out.
+  3. In between: opacity's share of the rest is (P_B − P_BO) / (P_B − P_N − Δq).
+- *The result:* P_BO − P_N = +0.166 ms and L_BO 0.0 %, so case 1. B is 0.398 ms from N, 0.234 ms of it beyond the
+  queue path, and the opaque layer takes 0.232 ms of that. Opaque, the APK's frames go from drawable to screen in
+  22.86 ms, as NQ's do, and take their earliest drawables as native's do.
+- *The build:* `tools/benchmark.sh --api vulkan` at 17:34, 6db31f7 with the switch and the recorder's note
+  (uncommitted). Against the queue A/B's build, `MinatoBench`, MoltenVK and the bench APKs are byte-identical.
+  `libvulkan` has the switch, the guest's `liblog` and new `libdl_android` carry Runtime's work, and Minato's binary
+  the recorder's note and the tree's other work.
+- *Tests,* red first: `graphics.vulkan_window`, where the fake logs alpha 0x1 for the app's INHERIT with
+  `MINATO_VULKAN_OPAQUE=1` and 0x8 without. `graphics.recorder`: each recording notes the layer's opacity and the
+  console names it once, 0 for the GLES host build and APK, 1 for the Vulkan host build and 0 for the Vulkan APK. The
+  tests' layers start non-opaque, as the session's. Graphics CTest 30 of 30 in debug and release, `present_gles`
+  skipped.
+- *How it ran:* `build/v5-late/scripts/late.sh` (not in git), as the queue A/B's driver, under `caffeinate -i` with
+  the Mac on power: a pause of 10 min with Minato closed before each run, then `tools/benchmark.sh`'s own launch and
+  fetch, into `build/v5-late/` only. It stops if B's or BO's console lacks format 44 or names another opacity than
+  the arm's (N 1, B 0, BO 1). A B with 1 would have left the A/B without a question. The order was N B BO BO B. All
+  five runs were valid at their first attempt, in portrait, nominal from start to end, and charging at 80 %.
+- *Next* (the rule's case 1): its own step, Minato's window layer opaque by default, as Android 15 makes a
+  NativeActivity's window:
+  - `NativeActivity.onCreate` sets the window's format to `PixelFormat.RGB_565`, and `ANativeActivity_setWindowFormat`
+    reaches `Window.setFormat`.
+  - `ViewRootImpl.updateOpacity` makes the surface opaque when the format has no alpha, without surface insets and
+    while it is not drag-resizing.
+  - The buffers' own format and Vulkan's INHERIT do not change it.
+
+  Then a parity rerun of `vulkan-120-heavy`, and of the GLES configurations, whose layers change too.
+
+The copy's remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch. Either removes
+the copy's share. Together with an opaque layer, either gives what BO measured.
 
 ### How it was measured
 
