@@ -165,13 +165,21 @@ int apkrt_session_wait(uint32_t serial, double seconds);
 
 /// For the app: a new window on `layer` (a CAMetalLayer, which the registry retains until the window is
 /// removed; NULL in the tests on the Mac), `width` × `height` pixels (the layer's bounds × contentsScale).
-/// Returns its ID, from 1, never reused; 0 without memory. Its size stays as it is (M3 fixes the
-/// orientation): another size is another window. Its gate starts closed.
+/// Returns its ID, from 1, never reused; 0 without memory. Its size changes only through
+/// apkrt_window_set_size. Its gate starts closed.
 uint64_t apkrt_window_add(void *layer, int32_t width, int32_t height);
 
 /// For the app: opens (`open` nonzero) or closes the window's gate. Returns 0, or -1 for a window that is
 /// removed or unknown.
 int apkrt_window_set_gate(uint64_t id, int open);
+
+/// For the app, at a turn (ADR-0038, decision 1.4): the window keeps its ID and takes a new size in pixels. From
+/// the return on, apkrt_window_size and the guest's ANativeWindow_getWidth and getHeight answer it; the size of
+/// ANativeWindow_setBuffersGeometry stays apart, as before (ADR-0028 b). It posts no event: the host posts
+/// APKRT_EVENT_CONFIGURATION_CHANGED before the call, and NATIVE_WINDOW_RESIZED, CONTENT_RECT_CHANGED and
+/// NATIVE_WINDOW_REDRAW_NEEDED after it. Returns 0, or -1 for a window that is removed or unknown or a size not
+/// above 0.
+int apkrt_window_set_size(uint64_t id, int32_t width, int32_t height);
 
 /// For the app: the window is gone for good. Its waiters wake and answer "gone", and its layer is released.
 /// Returns 0, or -1 for a window that is removed or unknown. A window that comes back is a new ID.
@@ -194,8 +202,8 @@ int apkrt_wait_scheduled(double seconds);
 /// window is removed, which the app may do while a render thread creates its surface.
 void *apkrt_window_layer(uint64_t id);
 
-/// For graphics/host: the window's size in pixels as apkrt_window_add gave it (never the drawable size).
-/// Returns 0, or -1 for a window that is removed or unknown.
+/// For graphics/host: the window's size in pixels as apkrt_window_add or, at a turn, apkrt_window_set_size gave
+/// it (never the drawable size). Returns 0, or -1 for a window that is removed or unknown.
 int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height);
 
 /// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.

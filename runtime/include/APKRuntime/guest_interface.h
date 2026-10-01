@@ -114,10 +114,10 @@ enum apkrt_event_type {
     APKRT_EVENT_SAVE_INSTANCE_STATE,
     APKRT_EVENT_WINDOW_FOCUS_CHANGED,     // a0: 1 when the window has the focus, else 0
     APKRT_EVENT_NATIVE_WINDOW_CREATED,    // a0: the window's ID (apkrt_window_add); a1, a2: width, height in pixels
-    APKRT_EVENT_NATIVE_WINDOW_RESIZED,    // as NATIVE_WINDOW_CREATED; in M3 only right after it, with the same size,
-                                          // as Android 15 calls onNativeWindowResized after onNativeWindowCreated.
-                                          // A window's size is fixed: activity-host keeps the one it was created
-                                          // with, and a new size comes as a new window
+    APKRT_EVENT_NATIVE_WINDOW_RESIZED,    // as NATIVE_WINDOW_CREATED: right after it with the same size, as Android 15
+                                          // calls onNativeWindowResized after onNativeWindowCreated, and at a turn
+                                          // with the size apkrt_window_set_size gave the same window before the
+                                          // post (ADR-0038 c), which ANativeWindow_getWidth/getHeight answer
     APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED,  // a0: the window's ID
     APKRT_EVENT_NATIVE_WINDOW_DESTROYED,  // a0: the window's ID
     APKRT_EVENT_INPUT_QUEUE_CREATED,      // a0: the input channel's ID (ADR-0036), 0 for a queue without events
@@ -197,6 +197,11 @@ enum apkrt_gate_kind {
 /// Every change the host makes ends a wait's round. A deliverable signal ends the wait with -EINTR once
 /// its handler ran; with SA_RESTART the runtime makes the call again. -EINVAL for another kind.
 #define APKRT_NR_WINDOW_GATE 4105
+/// window_size, libnativewindow's (ADR-0038 c): x0 the window's ID, x1 the address of two int32_t that it fills
+/// with the window's width and height in pixels as of now, one size whole also during a turn
+/// (apkrt_window_set_size). Returns 0; -EINVAL for a window that is removed or that the host never gave, -EFAULT
+/// for address 0. The number follows the audio's.
+#define APKRT_NR_WINDOW_SIZE 4118
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //

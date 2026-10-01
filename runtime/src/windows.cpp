@@ -101,6 +101,22 @@ long gate(std::uint64_t id, std::uint64_t kind) {
     return end == sys::WaitEnd::done ? result : -linux_errno::eintr;
 }
 
+long size(std::uint64_t id, std::uint64_t address) {
+    if (address == 0) return -linux_errno::efault;
+    std::int32_t width, height;
+    {
+        const std::lock_guard<std::mutex> hold(lock);
+        const Window *window = find(id);
+        if (window == nullptr) return -linux_errno::einval;
+        width = window->width;
+        height = window->height;
+    }
+    auto *const size = reinterpret_cast<std::int32_t *>(address);
+    size[0] = width;
+    size[1] = height;
+    return 0;
+}
+
 void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits)) {
     const std::lock_guard<std::mutex> hold(lock);
     Window *window = find(id);
@@ -132,6 +148,16 @@ int apkrt_window_set_gate(uint64_t id, int open) {
     if (window == nullptr) return -1;
     window->open = open != 0;
     notify_waiters();
+    return 0;
+}
+
+int apkrt_window_set_size(uint64_t id, int32_t width, int32_t height) {
+    if (width <= 0 || height <= 0) return -1;
+    const std::lock_guard<std::mutex> hold(lock);
+    Window *window = find(id);
+    if (window == nullptr) return -1;
+    window->width = width;
+    window->height = height;
     return 0;
 }
 

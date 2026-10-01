@@ -244,6 +244,13 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
     "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
   set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0038's test 3 (step c): the same host turns rotation-test to landscape and back as the App does, with the
+  # window's new size, and compares the log with Android 15's (fixtures/expected/rotation-test.logcat).
+  add_executable(rotation_test tests/rotation_test.cpp)
+  target_link_libraries(rotation_test PRIVATE app_host)
+  add_test(NAME runtime.rotation COMMAND rotation_test "${CMAKE_CURRENT_BINARY_DIR}/rotation_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
+  set_tests_properties(runtime.rotation PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   # ADR-0036's aaudio-test and opensl-test: the same host plays the audio host's side with a consumer that reads every
   # stream every 5 ms, and compares the log with Android 15's (fixtures/expected/<app>.logcat).
   add_executable(audio_app_test tests/audio_app_test.cpp)

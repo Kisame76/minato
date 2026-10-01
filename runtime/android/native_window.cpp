@@ -1,10 +1,12 @@
 // libnativewindow.so's window (ADR-0028, decision 7): the ANativeWindow that activity-host hands the app
 // at NATIVE_WINDOW_CREATED and whose host window the front libs draw into. It holds the host window's
-// ID, the window's size and format, and the buffer geometry of ANativeWindow_setBuffersGeometry, which
-// the front libs read with minato_ANativeWindow_getInfo. As on Android 15 (checked in the emulator on
-// an AImageReader's window), getWidth and getHeight answer the window's size whatever the geometry, and
-// getFormat the requested format once one is set. It lives until its last reference, also after the
-// host's window is gone. Drawing by the CPU and hardware buffers are generated stubs (stubgen.py).
+// ID, the window's format, and the buffer geometry of ANativeWindow_setBuffersGeometry, which the front
+// libs read with minato_ANativeWindow_getInfo. Its size is the host window's as of now, which a turn
+// changes (window_size, ADR-0038 c), and the last one it read once the host's window is gone. As on
+// Android 15 (checked in the emulator on an AImageReader's window), getWidth and getHeight answer the
+// window's size whatever the geometry, and getFormat the requested format once one is set. It lives until
+// its last reference, also after the host's window is gone. Drawing by the CPU and hardware buffers are
+// generated stubs (stubgen.py).
 #include <android/native_window.h>
 #include <errno.h>
 #include <pthread.h>
@@ -27,8 +29,9 @@ struct ANativeWindow {
     uint32_t check;
     uint32_t references;  // atomic
     uint64_t id;
-    int32_t width, height, format;
-    pthread_mutex_t lock;  // for what the app sets while a render thread reads it
+    int32_t format;
+    pthread_mutex_t lock;  // for what the app or a turn sets while a render thread reads it
+    int32_t width, height;  // the last size the host window had (size())
     int32_t buffer_width, buffer_height, buffer_format;
     int32_t data_space;
 };
@@ -50,6 +53,24 @@ Geometry buffer_geometry(ANativeWindow* window) {
     return geometry;
 }
 
+struct Size {
+    int32_t width, height;
+};
+
+/// The host window's size as of now, kept; the last one kept once the host's window is gone.
+Size size(ANativeWindow* window) {
+    int32_t now[2];
+    const bool known = syscall(APKRT_NR_WINDOW_SIZE, window->id, now) == 0;
+    pthread_mutex_lock(&window->lock);
+    if (known) {
+        window->width = now[0];
+        window->height = now[1];
+    }
+    const Size kept{window->width, window->height};
+    pthread_mutex_unlock(&window->lock);
+    return kept;
+}
+
 }  // namespace
 
 extern "C" {
@@ -69,8 +90,9 @@ ANativeWindow* minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t h
 
 int minato_ANativeWindow_getInfo(ANativeWindow* window, minato_window_info* info) {
     if (!is_window(window) || info == nullptr) return EINVAL;
+    const Size now = size(window);
     const Geometry geometry = buffer_geometry(window);
-    *info = {window->id, window->width, window->height, geometry.width, geometry.height, geometry.format};
+    *info = {window->id, now.width, now.height, geometry.width, geometry.height, geometry.format};
     return 0;
 }
 
@@ -86,11 +108,11 @@ void ANativeWindow_release(ANativeWindow* window) {
 }
 
 int32_t ANativeWindow_getWidth(ANativeWindow* window) {
-    return is_window(window) ? window->width : -EINVAL;
+    return is_window(window) ? size(window).width : -EINVAL;
 }
 
 int32_t ANativeWindow_getHeight(ANativeWindow* window) {
-    return is_window(window) ? window->height : -EINVAL;
+    return is_window(window) ? size(window).height : -EINVAL;
 }
 
 int32_t ANativeWindow_getFormat(ANativeWindow* window) {

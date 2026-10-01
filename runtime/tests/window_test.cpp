@@ -58,7 +58,7 @@ constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134;
 constexpr std::uint64_t futex_wait = 0;
 constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
-constexpr long eintr = 4, eagain = 11, einval = 22, etimedout = 110;
+constexpr long eintr = 4, eagain = 11, efault = 14, einval = 22, etimedout = 110;
 
 constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND,
                         present_try = APKRT_GATE_PRESENT_TRY;
@@ -211,6 +211,67 @@ TEST(presents_are_counted_for_the_fps_label) {
     apkrt_window_presented(id + 1000);  // unknown: nothing happens
     apkrt_window_remove(id);
     CHECK(apkrt_window_presents(id) == 0);
+}
+
+// ADR-0038 c): at a turn the window keeps its ID, its gate and its presents and takes a new size, which the host
+// reads with apkrt_window_size and the guest with window_size.
+TEST(a_turn_gives_the_same_window_a_new_size_that_host_and_guest_read) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    apkrt_window_set_gate(id, 1);
+    apkrt_window_presented(id);
+    CHECK(apkrt_window_set_size(id, 2796, 1290) == 0);
+    std::int32_t width = 0, height = 0;
+    CHECK(apkrt_window_size(id, &width, &height) == 0);
+    CHECK(width == 2796 && height == 1290);
+    std::int32_t size[2] = {0, 0};
+    CHECK(call(APKRT_NR_WINDOW_SIZE, id, address(size)) == 0);
+    CHECK(size[0] == 2796 && size[1] == 1290);
+    CHECK(gate(id, present_try) == go_on);
+    CHECK(apkrt_window_presents(id) == 1);
+    apkrt_window_remove(id);
+}
+
+TEST(a_size_not_above_0_and_a_removed_window_are_refused) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(apkrt_window_set_size(id, 0, 1290) == -1);
+    CHECK(apkrt_window_set_size(id, 2796, -1) == -1);
+    std::int32_t width = 0, height = 0;
+    CHECK(apkrt_window_size(id, &width, &height) == 0);
+    CHECK(width == 1290 && height == 2796);
+    CHECK(call(APKRT_NR_WINDOW_SIZE, id, 0) == -efault);
+    apkrt_window_remove(id);
+    CHECK(apkrt_window_set_size(id, 2796, 1290) == -1);
+    std::int32_t size[2] = {7, 7};
+    CHECK(call(APKRT_NR_WINDOW_SIZE, id, address(size)) == -einval);
+    CHECK(call(APKRT_NR_WINDOW_SIZE, 0, address(size)) == -einval);
+    CHECK(size[0] == 7 && size[1] == 7);
+}
+
+// The host turns its window on its main thread while render threads read its size: every read is one size whole.
+// Four readers, so that one gets in between two writes of a turn that took the lock twice.
+TEST(a_size_read_during_turns_is_always_one_of_them_whole) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    std::atomic<bool> done{false};
+    std::atomic<int> torn{0};
+    std::vector<std::thread> readers;
+    for (int reader = 0; reader < 4; ++reader) {
+        readers.emplace_back([&] {
+            for (int reads = 0; !done.load() || reads < 1000; ++reads) {
+                std::int32_t size[2] = {0, 0};
+                const long result = call(APKRT_NR_WINDOW_SIZE, id, address(size));
+                const bool portrait = size[0] == 1290 && size[1] == 2796, landscape = size[0] == 2796 && size[1] == 1290;
+                if (result != 0 || (!portrait && !landscape)) torn.fetch_add(1);
+            }
+        });
+    }
+    for (int turn = 0; turn < 200000; ++turn) {
+        const bool landscape = turn % 2 == 0;
+        apkrt_window_set_size(id, landscape ? 2796 : 1290, landscape ? 1290 : 2796);
+    }
+    done.store(true);
+    for (auto &reader : readers) reader.join();
+    CHECK(torn.load() == 0);
+    apkrt_window_remove(id);
 }
 
 // --- The gate -----------------------------------------------------------------------------------
