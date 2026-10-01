@@ -9,7 +9,11 @@
      1:1 with vkCmdBlitImage and NEAREST, which reorders the channels, on the app's queue after the app's
      semaphores, and presents MoltenVK's image after the copy.
    A replaced swapchain answers VK_ERROR_OUT_OF_DATE_KHR, and MoltenVK's VK_SUBOPTIMAL_KHR for another size
-   than the layer's becomes VK_SUCCESS, as Android reports it only for a new rotation. A present meets the
+   than the layer's becomes VK_SUCCESS: Android 15 answers it only at a present, while the swapchain's
+   pre-transform differs from the window's transform hint (swapchain.cpp, QueuePresentKHR:
+   "swapchain.pre_transform != window_transform_hint"), so after a turn. With the identity transform only, a
+   present here answers it while the window's size differs from the one the swapchain was made at
+   (ADR-0038 c): a turn by 180 degrees keeps the size and VK_SUCCESS. A present meets the
    window's gate before anything else (closed waits, gone answers VK_ERROR_SURFACE_LOST_KHR without GPU
    work, the app's semaphores left as they are); an acquire answers VK_ERROR_SURFACE_LOST_KHR for a window
    that is gone and waits in the background; MoltenVK's acquire and present, and the copies' submits, go
@@ -43,6 +47,7 @@ struct swapchain {
     VkDevice device;
     VkSwapchainKHR moltenvk;
     VkExtent2D extent;
+    VkExtent2D window;  /* the window's size when it was made */
     int copy;
     /* The copy way: MoltenVK's images, each with a semaphore its present waits for, the command pool of the
        queue family the copies run on, and the app's images. */
@@ -62,6 +67,12 @@ static struct swapchain *swapchain_of(VkSwapchainKHR handle) {
 
 static int replaced(const struct swapchain *swapchain) {
     return __atomic_load_n(&swapchain->surface->swapchain, __ATOMIC_ACQUIRE) != (VkSwapchainKHR)(uintptr_t)swapchain;
+}
+
+/* Whether the window has another size than when the swapchain was made: turned by 90 degrees. */
+static int turned(const struct swapchain *swapchain) {
+    const VkExtent2D now = minato_window_size(swapchain->surface);
+    return now.width != 0 && (now.width != swapchain->window.width || now.height != swapchain->window.height);
 }
 
 static int moltenvk_format(VkFormat format) {
@@ -209,6 +220,7 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
     swapchain->surface = surface;
     swapchain->device = device;
     swapchain->extent = info->imageExtent;
+    swapchain->window = minato_window_size(surface);
     swapchain->copy = copy;
     swapchain->count = count;
     /* MoltenVK's, on MoltenVK's surface; graphics/host checks that the window is there. */
@@ -538,7 +550,9 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
         MINATO_GATED(result, going->windows[0], minato_host_vkQueuePresentKHR(queue, &moltenvk));
         for (uint32_t index = 0; index < on; index++) {
             const VkResult theirs = going->theirs[index] != VK_RESULT_MAX_ENUM ? going->theirs[index] : result;
-            results[going->which[index]] = theirs == VK_SUBOPTIMAL_KHR ? VK_SUCCESS : theirs;
+            const VkResult own = theirs == VK_SUBOPTIMAL_KHR ? VK_SUCCESS : theirs;
+            const struct swapchain *swapchain = swapchain_of(info->pSwapchains[going->which[index]]);
+            results[going->which[index]] = own == VK_SUCCESS && turned(swapchain) ? VK_SUBOPTIMAL_KHR : own;
         }
     } else {
         for (uint32_t index = 0; index < on; index++) {

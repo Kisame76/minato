@@ -7,6 +7,9 @@
      MINATO_VULKAN_BGRA8_FIRST=1, and only then (V5, F15);
    - swapchains the direct way and the copy way: what reaches MoltenVK, the copy's commands, the order the
      app's images come back in, a replaced swapchain, and VK_SUBOPTIMAL_KHR for the size (decision 12);
+   - turns (ADR-0038 c): a present answers VK_SUBOPTIMAL_KHR while the window's size differs from the one
+     the swapchain was made at, as Android's does while the window's transform hint differs from the
+     swapchain's, and VK_SUCCESS after a turn by 180 degrees, after a turn back and on a new swapchain;
    - the gates (decision 13): a present waits at the closed gate and takes a signal meanwhile; in the
      background every call that commits waits, also through the KHR aliases, while "scheduled" comes
      through the runtime; a present waiting there ends when the window goes; then VK_ERROR_SURFACE_LOST_KHR
@@ -27,11 +30,14 @@
 
 /* The fake's script steps (fake_vulkan.c): the gate closes and opens 150 ms later; the background for
    150 ms, with "scheduled" asked; the background, the window gone after 100 ms, the foreground after 200; the
-   background for 150 ms from the fake's next wait on. */
+   background for 150 ms from the fake's next wait on; a turn by 90 degrees, width and height swapped; a turn
+   by 180 degrees, the same size. */
 #define CLOSE_THEN_OPEN ((VkFence)(uintptr_t)0x6a7e0001)
 #define BACKGROUND ((VkFence)(uintptr_t)0x6a7e0002)
 #define BACKGROUND_THEN_GONE ((VkFence)(uintptr_t)0x6a7e0003)
 #define BACKGROUND_IN_WAIT ((VkFence)(uintptr_t)0x6a7e0004)
+#define TURN ((VkFence)(uintptr_t)0x6a7e0005)
+#define TURN_180 ((VkFence)(uintptr_t)0x6a7e0006)
 
 #define MS 1000000u /* ns */
 
@@ -382,6 +388,42 @@ static void swapchain_part(void) {
     vkDestroySemaphore(device, rendered, NULL);
 }
 
+/* An acquire, a submit and a present on `which`, printed after `what`. */
+static void frame(const char *what, VkSwapchainKHR which, VkSemaphore acquired, VkSemaphore rendered) {
+    uint32_t index = 9;
+    VkResult result = 9;
+    const VkResult acquire_result = acquire(which, acquired, &index);
+    check("vkQueueSubmit", signal_after(acquired, rendered));
+    const VkResult present_result = present(which, index, rendered, &result);
+    printf("%s: acquire %d, present %d, its result %d\n", what, acquire_result, present_result, result);
+}
+
+/* Turns of the window of 64 x 48: a swapchain made at that size presents with VK_SUBOPTIMAL_KHR only while
+   the window has another size, and the app's new swapchain at the new size presents with VK_SUCCESS. */
+static void turn_part(void) {
+    const VkSemaphore acquired = semaphore(), rendered = semaphore();
+    const VkSwapchainKHR first = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                           VK_NULL_HANDLE);
+    marker(TURN_180);
+    frame("a turn by 180 degrees, the swapchain made at 64 x 48", first, acquired, rendered);
+    marker(TURN);
+    capabilities("turned to 48 x 64");
+    frame("turned, the swapchain made at 64 x 48", first, acquired, rendered);
+    frame("turned, the swapchain made at 64 x 48 again", first, acquired, rendered);
+    marker(TURN);
+    frame("turned back, the swapchain made at 64 x 48", first, acquired, rendered);
+    marker(TURN);
+    const VkSwapchainKHR second = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 48, 64, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                            first);
+    frame("turned again, a new swapchain at 48 x 64", second, acquired, rendered);
+    marker(TURN);
+    frame("turned back, the swapchain made at 48 x 64", second, acquired, rendered);
+    vkDestroySwapchainKHR(device, first, NULL);
+    vkDestroySwapchainKHR(device, second, NULL);
+    vkDestroySemaphore(device, acquired, NULL);
+    vkDestroySemaphore(device, rendered, NULL);
+}
+
 /* A thread that sends the program's thread SIGUSR1 after 50 ms. */
 static void *nudging(void *unused) {
     (void)unused;
@@ -489,6 +531,8 @@ int main(void) {
     surface_part();
     fprintf(stderr, "vulkan-window-test: swapchains\n");
     swapchain_part();
+    fprintf(stderr, "vulkan-window-test: turns\n");
+    turn_part();
     fprintf(stderr, "vulkan-window-test: the gates\n");
     gate_part();
     fprintf(stderr, "vulkan-window-test: the end\n");

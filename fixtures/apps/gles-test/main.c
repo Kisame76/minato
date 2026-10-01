@@ -11,9 +11,11 @@
 // The live variant (gles-live; ADR-0032, test 8; ADR-0036 a) is this library started at
 // ANativeActivity_onCreateLive. It skips the scenes and draws a frame per AChoreographer callback while it has a
 // window and the focus, a clear and a square that moves, until onDestroy. Each window gets a surface at its own
-// size, and TERM_WINDOW takes only that. Every 5 s it asks the window for 120 and 60 frames a second in turn
-// (ANativeWindow_setFrameRate, by dlsym above the minSdk) and logs the frame intervals of each rate. AKEYCODE_BACK
-// finishes it. At onDestroy it logs its frames, windows and failures with the tag "gles-live".
+// size, and TERM_WINDOW takes only that. Its activity handles turns itself (configChanges orientation|screenSize,
+// ADR-0038 c): it logs the size of each APP_CMD_WINDOW_RESIZED and each new size of its surface with the frame
+// count. Every 5 s it asks the window for 120 and 60 frames a second in turn (ANativeWindow_setFrameRate, by dlsym
+// above the minSdk) and logs the frame intervals of each rate. AKEYCODE_BACK finishes it. At onDestroy it logs its
+// frames, windows and failures with the tag "gles-live".
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -939,6 +941,7 @@ static struct {
     bool focused;
     bool lost;     // a swap found the window gone: no frames until the next window
     int windows, frames, failures, losses;
+    EGLint width, height;  // the surface's size at the frame before
     float rate;            // the frames a second the window is asked for: 120 or 60
     int64_t phase_start;   // the frame time the rate's phase began, 0 before the first callback
     int64_t previous;      // the frame time of the frame before, 0 after a break
@@ -1016,6 +1019,8 @@ static void live_window(ANativeWindow *window) {
     live.ready = true;
     eglQuerySurface(app_state.display, app_state.surface, EGL_WIDTH, &width);
     eglQuerySurface(app_state.display, app_state.surface, EGL_HEIGHT, &height);
+    live.width = width;
+    live.height = height;
     DEVICE("window %d: setBuffersGeometry %d, surface %d x %d", live.windows, geometry, width, height);
     ask_rate(window);
 }
@@ -1034,11 +1039,16 @@ static void live_window_gone(void) {
     app_state.surface = EGL_NO_SURFACE;
 }
 
-// A frame: a dark clear and a square that moves with the frame count, swapped.
+// A frame: a dark clear and a square that moves with the frame count, swapped. A turn changes the surface's size.
 static void live_frame(void) {
     EGLint width = 0, height = 0;
     eglQuerySurface(app_state.display, app_state.surface, EGL_WIDTH, &width);
     eglQuerySurface(app_state.display, app_state.surface, EGL_HEIGHT, &height);
+    if (width != live.width || height != live.height) {
+        DEVICE("frame %d: surface %d x %d", live.frames, width, height);
+        live.width = width;
+        live.height = height;
+    }
     const int size = (width < height ? width : height) / 4;
     glViewport(0, 0, width, height);
     glClearColor(0, 0, 0.2f, 1);
@@ -1109,6 +1119,10 @@ static void on_live_command(struct android_app *app, int32_t command) {
             break;
         case APP_CMD_TERM_WINDOW:
             live_window_gone();
+            break;
+        case APP_CMD_WINDOW_RESIZED:
+            DEVICE("frame %d: window resized to %d x %d", live.frames, ANativeWindow_getWidth(app->window),
+                   ANativeWindow_getHeight(app->window));
             break;
         case APP_CMD_GAINED_FOCUS:
             live.focused = true;

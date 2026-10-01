@@ -271,58 +271,106 @@ fake: vkDestroySwapchainKHR swapchain 5, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 6, allocator NULL
 fake: vkDestroySemaphore s3, allocator NULL
 fake: vkDestroySemaphore s4, allocator NULL
-vulkan-window-test: the gates
+vulkan-window-test: turns
 fake: vkCreateSemaphore, allocator NULL, binary: s14
 fake: vkCreateSemaphore, allocator NULL, binary: s15
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 7
 fake:   chain: empty
-fake: the gate closes
+fake: the window turns by 180 degrees to 64 x 48: 0
 fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s14, 0 command buffers, signals s15=0 s1=14
-fake: the gate opens
 fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 0, with results
 fake:   chain: empty
-fake: background
-fake: "scheduled": 1
-fake: foreground
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=15
-fake: background
-fake: "scheduled": 1
-fake: foreground
-fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=16 at 0x10000 on device 0
-fake: background
-fake: "scheduled": 1
-fake: foreground
-fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=17
-fake: background
-fake: "scheduled": 1
-fake: foreground
+fake: the window turns by 90 degrees to 48 x 64: 0
 fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 1
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=18
-fake: background
-fake: "scheduled": 1
-fake: foreground
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=15
 fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 1, with results
 fake:   chain: empty
 fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 2
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=16
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 2, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 64 x 48: 0
+fake: vkAcquireNextImageKHR swapchain 7, timeout 10000000, semaphore s14, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=17
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 7 image 0, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 48 x 64: 0
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 48 x 64, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 7: swapchain 8
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 8, timeout 10000000, semaphore s14, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s14, 0 command buffers, signals s15=0 s1=18
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 8 image 0, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 64 x 48: 0
+fake: vkAcquireNextImageKHR swapchain 8, timeout 10000000, semaphore s14, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s14, 0 command buffers, signals s15=0 s1=19
+fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 8 image 1, with results
+fake:   chain: empty
+fake: vkDestroySwapchainKHR swapchain 7, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 8, allocator NULL
+fake: vkDestroySemaphore s14, allocator NULL
+fake: vkDestroySemaphore s15, allocator NULL
+vulkan-window-test: the gates
+fake: vkCreateSemaphore, allocator NULL, binary: s16
+fake: vkCreateSemaphore, allocator NULL, binary: s17
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 9
+fake:   chain: empty
+fake: the gate closes
+fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s16, 0 command buffers, signals s17=0 s1=20
+fake: the gate opens
+fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 9 image 0, with results
+fake:   chain: empty
 fake: background
-fake: the window's presents: 9
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=21
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=22 at 0x10000 on device 0
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=23
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s16, 0 command buffers, signals s17=0 s1=24
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 9 image 1, with results
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s16, 0 command buffers, signals s17=0 s1=25
+fake: background
+fake: the window's presents: 15
 fake: the window is gone
 fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=20
+fake:   0: waits none, 0 command buffers, signals s1=26
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkDestroySwapchainKHR swapchain 7, allocator NULL
-fake: vkDestroySemaphore s14, allocator NULL
-fake: vkDestroySemaphore s15, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 9, allocator NULL
+fake: vkDestroySemaphore s16, allocator NULL
+fake: vkDestroySemaphore s17, allocator NULL
 vulkan-window-test: the end
 fake: vkDestroySurfaceKHR surface 1, allocator NULL
 fake: vkDestroySemaphore s1, allocator NULL

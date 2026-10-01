@@ -14,10 +14,12 @@
 // The live variant (vulkan-live; ADR-0032, test 8; ADR-0036 a) is this library started at
 // ANativeActivity_onCreateLive. It skips the scenes and draws a frame per AChoreographer callback while it has a
 // window and the focus, a clear and a square that moves, until onDestroy. Each window gets a surface and an
-// R8G8B8A8_UNORM swapchain at its own size, and TERM_WINDOW takes only those. Every 5 s it asks the window for 120
-// and 60 frames a second in turn (ANativeWindow_setFrameRate, by dlsym above the minSdk) and logs the frame
-// intervals of each rate. AKEYCODE_BACK finishes it. At onDestroy it logs its frames, windows and failures with
-// the tag "vulkan-live".
+// R8G8B8A8_UNORM swapchain at its own size, and TERM_WINDOW takes only those. Its activity handles turns itself
+// (configChanges orientation|screenSize, ADR-0038 c): it logs the size of each APP_CMD_WINDOW_RESIZED with the frame
+// count, and a present that answers VK_SUBOPTIMAL_KHR gets the swapchain replaced at the surface's new size. Every
+// 5 s it asks the window for 120 and 60 frames a second in turn (ANativeWindow_setFrameRate, by dlsym above the
+// minSdk) and logs the frame intervals of each rate. AKEYCODE_BACK finishes it. At onDestroy it logs its frames,
+// windows and failures with the tag "vulkan-live".
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <android/choreographer.h>
 #include <android/input.h>
@@ -1626,8 +1628,22 @@ static bool live_result(VkResult result, const char *what) {
     return false;
 }
 
-// A window: the instance and the device with the first, and for each a surface and a swapchain of
-// R8G8B8A8_UNORM, Android's first format, at the surface's size.
+// The window's swapchain of R8G8B8A8_UNORM, Android's first format, at the surface's size, in place of the one
+// there is. False, with a failure counted, when there is none.
+static bool live_chain(void) {
+    VkSurfaceCapabilitiesKHR capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical, vk.surface, &capabilities);
+    if (!make_chain(VK_FORMAT_R8G8B8A8_UNORM, capabilities.currentExtent, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, false)) {
+        ++live.failures;
+        DEVICE("window %d: no swapchain", live.windows);
+        return false;
+    }
+    DEVICE("window %d: swapchain %u x %u, %u images", live.windows, vk.chain.extent.width, vk.chain.extent.height,
+           vk.chain.count);
+    return true;
+}
+
+// A window: the instance and the device with the first, and for each a surface and its swapchain.
 static void live_window(ANativeWindow *window) {
     ++live.windows;
     live.lost = false;
@@ -1646,17 +1662,13 @@ static void live_window(ANativeWindow *window) {
     }
     VkBool32 presents = VK_FALSE;
     vkGetPhysicalDeviceSurfaceSupportKHR(vk.physical, vk.family, vk.surface, &presents);
-    VkSurfaceCapabilitiesKHR capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical, vk.surface, &capabilities);
-    if (!presents || !make_chain(VK_FORMAT_R8G8B8A8_UNORM, capabilities.currentExtent,
-                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, false)) {
+    if (!presents) {
         ++live.failures;
         DEVICE("window %d: no swapchain (presents %u)", live.windows, presents);
         return;
     }
+    if (!live_chain()) return;
     live.ready = true;
-    DEVICE("window %d: swapchain %u x %u, %u images", live.windows, vk.chain.extent.width, vk.chain.extent.height,
-           vk.chain.count);
     ask_rate(window);
 }
 
@@ -1710,7 +1722,14 @@ static void live_frame(void) {
     const VkPresentInfoKHR info = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .waitSemaphoreCount = 1,
                                    .pWaitSemaphores = &vk.chain.rendered[index], .swapchainCount = 1,
                                    .pSwapchains = &vk.chain.swapchain, .pImageIndices = &index};
-    if (live_result(vkQueuePresentKHR(vk.queue, &info), "vkQueuePresentKHR")) ++live.frames;
+    const VkResult presented = vkQueuePresentKHR(vk.queue, &info);
+    if (!live_result(presented, "vkQueuePresentKHR")) return;
+    if (presented == VK_SUBOPTIMAL_KHR) {
+        // A turn (ADR-0038 c): the swapchain no longer suits the window, so a new one at its new size.
+        DEVICE("frame %d: vkQueuePresentKHR answered VK_SUBOPTIMAL_KHR", live.frames);
+        if (!live_chain()) live.ready = false;
+    }
+    ++live.frames;
 }
 
 // A frame per callback while the app has a window and the focus; every 5 s of frame time the other rate.
@@ -1754,6 +1773,10 @@ static void on_live_command(struct android_app *app, int32_t command) {
             break;
         case APP_CMD_TERM_WINDOW:
             live_window_gone();
+            break;
+        case APP_CMD_WINDOW_RESIZED:
+            DEVICE("frame %d: window resized to %d x %d", live.frames, ANativeWindow_getWidth(app->window),
+                   ANativeWindow_getHeight(app->window));
             break;
         case APP_CMD_GAINED_FOCUS:
             live.focused = true;

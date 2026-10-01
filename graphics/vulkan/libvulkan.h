@@ -124,4 +124,8 @@ static inline struct minato_surface *minato_surface(VkSurfaceKHR surface) {
     return (struct minato_surface *)(uintptr_t)surface;
 }
 
+/* The surface's window's size in pixels as of now, which a turn changes (ADR-0038 c), whatever its buffer
+   geometry; 0 x 0 when the window cannot tell. */
+MINATO_HIDDEN VkExtent2D minato_window_size(const struct minato_surface *surface);
+
 #endif

@@ -13,16 +13,21 @@
 //   counted <presents> presents, onNativeWindowDestroyed and onDestroy were answered within 500 ms, and
 //   activity-host ended with status 0. The app's device lines are printed, not compared.
 // - gles-live and vulkan-live (<mode> live), which draw until onDestroy: a thread stands in for the App's frame
-//   clock, with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's
-//   gate is open. The start; 6 s of frames, over one change of the rate; HOME as iOS gives it, the scene inactive
-//   (the focus lost, the gate closed) and 300 ms later in the background (the background flag, "scheduled" with
-//   1 s to go, the window removed, onPause, onNativeWindowDestroyed, onStop, onSaveInstanceState); 0.5 s away;
-//   the return with a new window (the foreground, onStart, onResume, the window's events, the focus, the gate
-//   opened); 2 s of frames; Quit. It passes when both windows counted presents, "scheduled" said yes, every
-//   onNativeWindowDestroyed and onDestroy was answered within 500 ms, guest threads committed no command buffer
-//   from "scheduled" to the foreground (metal_hook.m with MINATO_METAL_HOOK=count), the only requests were
-//   FRAME_RATE, with 120 and 60 among them, the app's onDestroy line says "windows 2, failures 0", and
-//   activity-host ended with status 0.
+//   clock, with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's gate
+//   is open. Their manifests' activities handle orientation and screenSize (configChanges), so the window turns as
+//   the App turns it (ADR-0038 c): the layer's new bounds, onConfigurationChanged, the window's new size
+//   (apkrt_window_set_size), onNativeWindowResized, onContentRectChanged, onNativeWindowRedrawNeeded. The start; 6 s
+//   of frames, over one change of the rate, with a turn to landscape after 2 s and back after 4 s; HOME as iOS gives
+//   it, the scene inactive (the focus lost, the gate closed) and 300 ms later in the background (the background
+//   flag, "scheduled" with 1 s to go, the window removed, onPause, onNativeWindowDestroyed, onStop,
+//   onSaveInstanceState); 0.5 s away; the return with a new window (the foreground, onStart, onResume, the window's
+//   events, the focus, the gate opened); 2 s of frames; Quit. It passes when both windows counted presents,
+//   "scheduled" said yes, every onNativeWindowDestroyed, onDestroy and the turns' onNativeWindowRedrawNeeded was
+//   answered within 500 ms, each turn gave vulkan-live a present that answered VK_SUBOPTIMAL_KHR and a new swapchain
+//   at the window's new size and gles-live its surface at that size within 2 frames of APP_CMD_WINDOW_RESIZED (the
+//   apps' device lines), guest threads committed no command buffer from "scheduled" to the foreground (metal_hook.m
+//   with MINATO_METAL_HOOK=count), the only requests were FRAME_RATE, with 120 and 60 among them, the app's
+//   onDestroy line says "windows 2, failures 0", and activity-host ended with status 0.
 // - bench-gles and bench-vulkan (<mode> bench:<load>), ADR-0037 a): the parity benchmark's APKs from
 //   tools/build-bench.sh (<fixtures build>), their manifests in graphics/bench/android (<expected>). bench.conf asks
 //   for 120 Hz, the load, 9 s and the CRC of frame 1000. Ticks in lockstep with the presents: the first once the
@@ -361,6 +366,79 @@ bool start(std::uint64_t window, Vsync *clock) {
     return true;
 }
 
+/// Whether the manifest's activity handles `change` itself (android:configChanges, its values joined by '|').
+bool handles(const std::string &manifest, const std::string &change) {
+    const auto at = manifest.find("android:configChanges=\"");
+    if (at == std::string::npos) return false;
+    const auto start = at + 23;
+    std::istringstream values(manifest.substr(start, manifest.find('"', start) - start));
+    for (std::string value; std::getline(values, value, '|');) {
+        if (value == change) return true;
+    }
+    return false;
+}
+
+/// A turn of `window` on `layer` to `new_width` x `new_height` pixels as the App plays it (SessionBridge, ADR-0038
+/// c): the layer laid out in its new bounds, onConfigurationChanged, the window's new size, then the window's events
+/// with the whole window as the content's rectangle. Milliseconds until activity-host answered the redraw, -1
+/// without an answer in 2 s.
+double turn(std::uint64_t window, MinatoMetalLayer *layer, std::int32_t new_width, std::int32_t new_height) {
+    layer.bounds = CGRectMake(0, 0, new_width / scale, new_height / scale);
+    post(APKRT_EVENT_CONFIGURATION_CHANGED);
+    if (apkrt_window_set_size(window, new_width, new_height) != 0) fail("apkrt_window_set_size refused a turn");
+    post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, static_cast<std::uint64_t>(new_width),
+         static_cast<std::uint64_t>(new_height));
+    post(APKRT_EVENT_CONTENT_RECT_CHANGED, pair(0, 0), pair(new_width, new_height));
+    return answered(post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window), 2);
+}
+
+/// What the two turns, to landscape and back, gave the live variant in its device lines: vulkan-live a present
+/// that answered VK_SUBOPTIMAL_KHR and then a swapchain at the new size, once per turn; gles-live its surface at
+/// the new size within 2 frames of APP_CMD_WINDOW_RESIZED with that size.
+void check_turns(const std::string &app, const std::string &device_lines) {
+    const std::string sizes[2] = {std::to_string(height) + " x " + std::to_string(width),
+                                  std::to_string(width) + " x " + std::to_string(height)};
+    const std::regex resized(R"(frame ([0-9]+): window resized to ([0-9]+ x [0-9]+)$)");
+    const std::regex surface(R"(frame ([0-9]+): surface ([0-9]+ x [0-9]+)$)");
+    std::istringstream lines(device_lines);
+    int turns = 0, suboptimal = 0, surfaces = 0;
+    long resized_at[2] = {-1, -1}, surface_at[2] = {-1, -1};
+    bool waiting = false;  // vulkan-live: a VK_SUBOPTIMAL_KHR whose new swapchain has not come yet
+    for (std::string line; std::getline(lines, line);) {
+        std::smatch found;
+        if (line.find("vkQueuePresentKHR answered VK_SUBOPTIMAL_KHR") != std::string::npos) {
+            ++suboptimal;
+            waiting = true;
+        } else if (waiting && turns < 2 && line.find("window 1: swapchain " + sizes[turns] + ", ") != std::string::npos) {
+            ++turns;
+            waiting = false;
+        } else if (std::regex_search(line, found, resized) && found[2] == sizes[0] && resized_at[0] < 0) {
+            resized_at[0] = std::stol(found[1]);
+        } else if (std::regex_search(line, found, resized) && found[2] == sizes[1] && resized_at[0] >= 0 &&
+                   resized_at[1] < 0) {
+            resized_at[1] = std::stol(found[1]);
+        } else if (std::regex_search(line, found, surface)) {
+            if (surfaces < 2 && found[2] == sizes[surfaces]) surface_at[surfaces] = std::stol(found[1]);
+            ++surfaces;
+        }
+    }
+    const char *names[2] = {"the turn to landscape", "the turn back"};
+    if (app == "vulkan-live") {
+        if (suboptimal != 2 || turns != 2) {
+            fail("the turns gave " + std::to_string(suboptimal) + " presents with VK_SUBOPTIMAL_KHR and " +
+                 std::to_string(turns) + " new swapchains at the new size, not 2 and 2");
+        }
+        return;
+    }
+    if (surfaces != 2) fail("the surface changed its size " + std::to_string(surfaces) + " times, not 2");
+    for (int index = 0; index < 2; ++index) {
+        if (resized_at[index] < 0 || surface_at[index] < 0 || surface_at[index] > resized_at[index] + 2) {
+            fail(std::string(names[index]) + ": APP_CMD_WINDOW_RESIZED at frame " + std::to_string(resized_at[index]) +
+                 ", the surface at " + sizes[index] + " at frame " + std::to_string(surface_at[index]));
+        }
+    }
+}
+
 /// gles-test and vulkan-test: their scenes and frames, then their own ANativeActivity_finish and the App's quit.
 void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t presents, Capture &capture) {
     const std::uint64_t window = add_window();
@@ -391,16 +469,21 @@ void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t
     ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
 }
 
-/// gles-live and vulkan-live: the start, HOME, the return with a new window and Quit.
+/// gles-live and vulkan-live: the start, two turns, HOME, the return with a new window and Quit.
 void play_live(const std::string &app, Capture &capture) {
     Vsync vsync;
     vsync.start();
     const std::uint64_t first = add_window();
+    MinatoMetalLayer *first_layer = last_layer;
     if (!start(first, &vsync)) {
         vsync.stop();
         return;
     }
-    std::this_thread::sleep_for(6s);
+    std::this_thread::sleep_for(2s);
+    const double turned = turn(first, first_layer, height, width);
+    std::this_thread::sleep_for(2s);
+    const double turned_back = turn(first, first_layer, width, height);
+    std::this_thread::sleep_for(2s);
 
     // HOME: the scene inactive, and after the home gesture's animation in the background, a few hundred ms later
     // on iOS [guess]. A frame whose GL or Vulkan work reaches its commit only after the background flag waits at
@@ -448,6 +531,8 @@ void play_live(const std::string &app, Capture &capture) {
     ::dprintf(report, "host: \"scheduled\": %d; guest commits in the background: %d\n", scheduled, background_commits);
     ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms and %.1f ms, onDestroy in %.1f ms\n",
               first_destroyed, second_destroyed, destroy);
+    ::dprintf(report, "host: the turns' onNativeWindowRedrawNeeded answered in %.1f ms and %.1f ms\n", turned,
+              turned_back);
     const std::string requests = requests_text();
     ::dprintf(report, "host: requests: %s\n", requests.c_str());
     if (first_presents == 0) fail("the first window counted no presents");
@@ -457,6 +542,8 @@ void play_live(const std::string &app, Capture &capture) {
     check_answer(first_destroyed, "the first onNativeWindowDestroyed");
     check_answer(second_destroyed, "the second onNativeWindowDestroyed");
     check_answer(destroy, "onDestroy");
+    check_answer(turned, "the turn's onNativeWindowRedrawNeeded");
+    check_answer(turned_back, "the turn back's onNativeWindowRedrawNeeded");
     if (!std::regex_match(requests, std::regex(R"((\[FRAME_RATE [0-9.]+\])+)")) ||
         requests.find("[FRAME_RATE 120]") == std::string::npos ||
         requests.find("[FRAME_RATE 60]") == std::string::npos) {
@@ -474,6 +561,7 @@ void play_live(const std::string &app, Capture &capture) {
         if (std::stod((*line)[1].str()) >= 100) fail("a frame interval spans a break: " + line->str());
     }
     if (rates < 2) fail("the frame intervals of fewer than two rates");
+    check_turns(app, device_lines);
     ::dprintf(report, "%s", device_lines.c_str());
 }
 
@@ -613,6 +701,10 @@ int main(int argc, char **argv) {
     }
     std::string function = meta_data_of(manifest, "android.app.func_name");
     if (function.empty()) function = "ANativeActivity_onCreate";
+    if (live && (!handles(manifest, "orientation") || !handles(manifest, "screenSize"))) {
+        fail("the live variant's activity does not handle orientation and screenSize itself (configChanges), so the "
+             "App would not turn it");
+    }
 
     // The containers, and the host folders of the app's data (fresh for each run).
     fs::remove_all(scratch);

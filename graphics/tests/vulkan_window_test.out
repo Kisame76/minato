@@ -27,6 +27,13 @@ copy: presented 0 on another family's queue: 0
 input attachment: 3 images; the app holds 0 1 2, then acquire 1, with a timeout 2
 4 images of R16G16B16A16_SFLOAT: 4 images
 B8G8R8A8_SRGB: 3 images
+a turn by 180 degrees, the swapchain made at 64 x 48: acquire 0, present 0, its result 0
+turned to 48 x 64: 3 to 4 images, current 48 x 64, extents 1 x 1 to 4096 x 4096, 1 layers, transforms 0x1, current 0x1, alpha 0x8, usage 0x9f
+turned, the swapchain made at 64 x 48: acquire 0, present 1000001003, its result 1000001003
+turned, the swapchain made at 64 x 48 again: acquire 0, present 1000001003, its result 1000001003
+turned back, the swapchain made at 64 x 48: acquire 0, present 0, its result 0
+turned again, a new swapchain at 48 x 64: acquire 0, present 0, its result 0
+turned back, the swapchain made at 48 x 64: acquire 0, present 1000001003, its result 1000001003
 the closed gate: present 0, waited at least 100 ms: yes, the signal handled meanwhile: yes
 in the background: vkQueueSubmit 0, waited at least 100 ms: yes
 in the background: vkQueueSubmit2KHR 0, waited at least 100 ms: yes

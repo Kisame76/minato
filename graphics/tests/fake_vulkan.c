@@ -20,7 +20,8 @@
      BACKGROUND puts the process into the background, asks for "scheduled" and comes back after 150 ms;
      BACKGROUND_THEN_GONE removes the window after 100 ms of background and comes back after 200 ms;
      BACKGROUND_IN_WAIT does what BACKGROUND does when the next wait of the fake's succeeds, so from inside
-     the call that waits. */
+     the call that waits; TURN gives the window its height and width as its new size, as a turn by 90
+     degrees does, and TURN_180 its own size again, as a turn by 180 degrees does (ADR-0038 c). */
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
@@ -43,6 +44,8 @@
 #define BACKGROUND ((VkFence)(uintptr_t)0x6a7e0002)
 #define BACKGROUND_THEN_GONE ((VkFence)(uintptr_t)0x6a7e0003)
 #define BACKGROUND_IN_WAIT ((VkFence)(uintptr_t)0x6a7e0004)
+#define TURN ((VkFence)(uintptr_t)0x6a7e0005)
+#define TURN_180 ((VkFence)(uintptr_t)0x6a7e0006)
 #define SLICE 10000000u /* ns */
 
 /* Its lists, in no particular order, with names libvulkan offers and names it hides, each with a name of the
@@ -1028,6 +1031,13 @@ EXPORTED VkResult vkResetFences(VkDevice device, uint32_t count, const VkFence *
         } else if (step == BACKGROUND_IN_WAIT) {
             fprintf(stderr, "fake: the background at the next wait\n");
             atomic_store(&background_in_wait, 1);
+        } else if (step == TURN || step == TURN_180) {
+            int32_t width = 0, height = 0;
+            window_size(&width, &height);
+            const int32_t new_width = step == TURN ? height : width, new_height = step == TURN ? width : height;
+            fprintf(stderr, "fake: the window turns by %s to %d x %d: %d\n", step == TURN ? "90 degrees" : "180 degrees",
+                    new_width, new_height,
+                    ((int (*)(uint64_t, int32_t, int32_t))runtime("apkrt_window_set_size"))(1, new_width, new_height));
         } else {
             fprintf(stderr, "fake: vkResetFences, a fence\n");
         }

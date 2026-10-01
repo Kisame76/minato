@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- vulkan-live (ADR-0032, test 8; ADR-0036 a): vulkan-test's library as a copy of its own, started at
-     ANativeActivity_onCreateLive, which draws a frame per AChoreographer callback until onDestroy. -->
+     ANativeActivity_onCreateLive, which draws a frame per AChoreographer callback until onDestroy. Its activity handles
+     turns itself (configChanges), so a session turns with the device (ADR-0038 c). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.vulkan.live"
     android:versionCode="1" android:versionName="1.0">
@@ -8,7 +9,8 @@
   <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true"/>
   <application android:label="Vulkan Live" android:hasCode="false"
       android:extractNativeLibs="false">
-    <activity android:name="android.app.NativeActivity" android:exported="true">
+    <activity android:name="android.app.NativeActivity" android:exported="true"
+        android:configChanges="orientation|screenSize">
       <meta-data android:name="android.app.lib_name" android:value="vulkan-live"/>
       <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreateLive"/>
       <intent-filter>

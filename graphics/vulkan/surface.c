@@ -88,6 +88,12 @@ VkResult vkGetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physical, uint32_
     return VK_SUCCESS;
 }
 
+VkExtent2D minato_window_size(const struct minato_surface *surface) {
+    struct minato_window_info info = {0};
+    window_info(surface->window, &info);
+    return (VkExtent2D){(uint32_t)info.width, (uint32_t)info.height};
+}
+
 /* The window's buffer geometry once the app set one, else its size in pixels. */
 static VkExtent2D window_extent(const struct minato_surface *surface) {
     struct minato_window_info info = {0};
@@ -105,8 +111,8 @@ VkResult vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physical, Vk
         return VK_ERROR_SURFACE_LOST_KHR;
     }
     const VkExtent2D extent = window_extent(minato_surface(surface));
-    /* 3 to 4 images: 4 - 3 + 1 = 2 held at once, which MoltenVK's 3 back without a present. The orientation
-       is fixed (ADR-0032), so nothing needs pre-rotation. */
+    /* 3 to 4 images: 4 - 3 + 1 = 2 held at once, which MoltenVK's 3 back without a present. A turn gives the
+       window a new size rather than a transform (ADR-0038 c), so nothing needs pre-rotation. */
     *capabilities = (VkSurfaceCapabilitiesKHR){
         .minImageCount = 3, .maxImageCount = 4, .currentExtent = extent, .minImageExtent = {1, 1},
         .maxImageExtent = {extent.width > 4096 ? extent.width : 4096, extent.height > 4096 ? extent.height : 4096},
