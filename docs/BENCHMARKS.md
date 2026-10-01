@@ -12,7 +12,8 @@ between them is what Minato costs.
 the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max. V5 then measured
 the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK still
 fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)). V5's QoS A/B then ruled out the render thread's QoS
-class as the rest.
+class as the rest. Its queue-path A/B found that `libvulkan`'s queue path costs about a third of the rest and none of
+the late frames.
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -197,6 +198,65 @@ frame and draws no late frame.
   before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-qos/` only. It stops if
   `run.csv`'s `qos` does not match the arm. Both runs were valid at the first attempt, in portrait, nominal from
   start to end, and charging at 80 %. The setup was the series'.
+
+**The queue-path A/B, 2026-10-01: `libvulkan`'s queue path is about a third of the rest, and none of the late
+frames.** By the rule fixed before the runs this is case 3, between. The native build with `libvulkan`'s queue path in
+front of MoltenVK has a period 0.164 ms longer than without it, 0.34 of the rest of 0.48 ms, and shows no late frames.
+So about 0.32 ms a frame and all of B's late frames lie outside the queue path. Measured 2026-10-01 from 11:23 to
+16:25 on the same iPhone, with a stop while the Mac slept (below).
+
+| Run | Arm | Queue path | FPS | p99 | at 8.33 / 12.50 / 16.67 / 20.83 ms | CPU p50 | Period | Late |
+|---|---|---|---:|---:|---|---:|---:|---:|
+| native-62 | NU | MoltenVK's | 86.17 | 12.503 ms | 21.5 / 78.5 / 0.0 / 0.0 % | 4.32 ms | 11.606 ms | 0.0 % |
+| native-63 | NQ | `libvulkan`'s | 85.07 | 12.503 ms | 18.0 / 82.0 / 0.0 / 0.0 % | 4.32 ms | 11.755 ms | 0.0 % |
+| native-64 | NQ | `libvulkan`'s | 85.00 | 12.503 ms | 17.8 / 82.2 / 0.0 / 0.0 % | 4.30 ms | 11.762 ms | 0.0 % |
+| native-65 | NU | MoltenVK's | 86.37 | 12.503 ms | 22.1 / 77.9 / 0.0 / 0.0 % | 4.34 ms | 11.582 ms | 0.0 % |
+
+The runs are `vulkan-120-heavy-<run>`, cut as above. NU's period is 11.594 ms (its two runs 0.024 ms apart), NQ's
+11.758 ms (0.007 ms apart). In both NQ runs the share of 8.33 ms intervals falls from about 22 % to 18 %: frames that
+made the next refresh at 120 Hz now miss it.
+
+- *NU:* the native build as in the series, V5 and the QoS A/B, with MoltenVK's own queue path. The control.
+- *NQ:* the same build launched with `-benchmarkQueuePath libvulkan`, which `graphics/bench/native/native.m` reads.
+  `graphics/bench/native/queue_path.c` then puts what `libvulkan` changes in what MoltenVK is asked in front of
+  MoltenVK (`graphics/vulkan/device.c` and `queue.c`):
+  - a device with timeline semaphores and `VK_EXT_metal_objects`, and a timeline semaphore per queue;
+  - the queue's timeline signalled last in every submit, at the count of its submits;
+  - fence waits and acquires in slices of at most 10 ms.
+
+  The scene's frames stay the same. At the end the run logs its submits and the timeline's value: 4400 submits with the
+  timeline at 4400 (nq-63), 4384 at 4384 (nq-64). Its waits took 8822 slices for 8798 waits and 8789 for 8766: two
+  waits a frame, of which about 24 a run took more than one slice.
+- *The rule* (`build/v5-queue/RULE.md`): P is the period, L the share of late intervals.
+  1. P_NQ − P_NU at least 0.24 ms (half of the rest) and L_NQ at least 0.5 %: the queue path explains the rest.
+  2. P_NQ − P_NU at most 0.05 ms and L_NQ at most 0.1 %: the queue path is ruled out.
+  3. In between: the queue path's share of the rest is (P_NQ − P_NU) / 0.48 ms. Two more runs, nq-64 and nu-65, follow,
+     and the rule uses all four.
+- *The result:* P_NQ − P_NU = +0.164 ms, a share of 0.34; L_NQ 0.0 %, against B's 1.4 and 2.7 %. The difference is
+  about 7 times NU's spread. What is left of the rest lies in how and when the APK asks: the thunks, the runtime's vsync
+  channel and glue, the gates. The next step goes to the user.
+- *The build:* `tools/benchmark.sh --api vulkan` at 11:12, 0429e7a with the queue path (uncommitted). MoltenVK is
+  byte-identical to the QoS A/B's build. `MinatoBench` differs by the queue path. The guest libraries differ by the
+  tree's other work since then, but the native arms do not load them.
+- *Tests:* `graphics.bench` runs the Vulkan host build at the light load with `-benchmarkQueuePath libvulkan`. The run
+  must draw the same frame 1000 as without the argument, log a timeline at the count of its submits (at least one per
+  frame), and take a slice or more for each fence wait and acquire (at least two per frame). The run without the
+  argument logs no queue path, and another value is refused. Graphics CTest 28 of 28 in debug and release; `MinatoBench`
+  builds for iphoneos and iphonesimulator.
+- *How it ran:* `build/v5-queue/scripts/queue.sh` (not in git), as the QoS A/B's driver: a pause of 10 min with Minato
+  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-queue/` only. It stops if
+  `run.csv`'s `qos` is not user-interactive, if NQ's console lacks the queue path's line with the timeline at its
+  submits, or if NU's console names one.
+  - nu-62 ran at 11:23. nq-63's first attempt at 11:34 ended 9 s after its launch with the exit code 0. It left an
+    empty folder on the iPhone: no scene end, no crash or Jetsam log. Its second attempt, on the same build at 14:00,
+    passed, so the first counts as a dropped launch [inferred], not as the queue path's fault. Since then `queue.sh`
+    counts such an attempt (the exit code 0 before the scene's end, nothing fetched) as empty. It moves the attempt to
+    `failed/` and runs it again after the pause, as it does with an invalid run.
+  - nq-64 ran at 14:14. The Mac then slept: its lid closed at 14:19 and it ran on battery from 14:21, so nu-65's pause
+    ran only in short wakes. The pause was stopped by hand at 14:59, before anything launched, and nu-65 ran at 16:24
+    under `caffeinate -i` with the Mac on power.
+  - All four runs were valid at their first attempt that launched, in portrait, nominal from start to end. nu-62 ran
+    unplugged at 80 %, the others charging at 65 to 75 %. NU's two runs agree within 0.024 ms all the same.
 
 The remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch. Either removes the
 copy's share. Neither reaches parity alone.

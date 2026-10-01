@@ -7,8 +7,10 @@
 // nextDrawable of the test's own before and after the recording. It passes when the recording holds every
 // drawable once and in order (recording_check.h), taken on the render thread at QoS user-interactive, or at default
 // when the program's own arguments end with -benchmarkRenderQoS default, which MinatoBench reads (ADR-0030 V5).
+// A run without `record` may end with -benchmarkQueuePath <value>, which MinatoBench reads too (ADR-0030 V5, the
+// queue path's A/B); bench_test.py checks what the run logs.
 //   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>
-//                       [record [-benchmarkRenderQoS <value>]]
+//                       [record [-benchmarkRenderQoS <value>] | -benchmarkQueuePath <value>]
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -58,9 +60,11 @@ bool drawn(std::uint64_t count, std::chrono::milliseconds limit) {
 int main(int argc, char **argv) {
     const bool record = (argc == 6 || argc == 8) && std::strcmp(argv[5], "record") == 0;
     const bool qos = argc == 8 && std::strcmp(argv[6], "-benchmarkRenderQoS") == 0;
-    if (argc != 5 && !(record && (argc == 6 || qos))) {
+    const bool queue_path = argc == 7 && std::strcmp(argv[5], "-benchmarkQueuePath") == 0;
+    if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path) {
         std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
-                             "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>]]\n");
+                             "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | "
+                             "-benchmarkQueuePath <value>]\n");
         return 2;
     }
     const bool at_default = qos && std::strcmp(argv[7], "default") == 0;

@@ -4,7 +4,8 @@
 // with libvulkan's pinned settings (moltenvk_settings.h). MoltenVK is opened by dlopen, since it has no Simulator
 // slice (ADR-0030, decision 8). A render thread at QOS_CLASS_USER_INTERACTIVE (QOS_CLASS_DEFAULT with the launch
 // argument -benchmarkRenderQoS default, ADR-0030 V5) draws a frame per tick that minato_bench_tick passes in, the
-// latest it has not drawn, until bench.conf's seconds from the first frame's tick.
+// latest it has not drawn, until bench.conf's seconds from the first frame's tick. With the launch argument
+// -benchmarkQueuePath libvulkan, MoltenVK gets the calls with libvulkan's queue path (queue_path.h, ADR-0030 V5).
 #define VK_NO_PROTOTYPES
 #import <QuartzCore/QuartzCore.h>
 
@@ -24,6 +25,7 @@
 #include "metal_display.h"
 #include "minato_bench.h"
 #include "moltenvk_settings.h"
+#include "queue_path.h"
 
 #include <vulkan/vulkan_metal.h>
 
@@ -41,6 +43,7 @@ static struct {
     void *layer;  // the CAMetalLayer, retained until the run ends
     EGLint width, height;
     void *moltenvk;
+    int queue_path;  // libvulkan's in front of MoltenVK
     char scene_csv[1024];
 } bench = {.lock = PTHREAD_MUTEX_INITIALIZER, .changed = PTHREAD_COND_INITIALIZER, .tag = "bench"};
 
@@ -93,9 +96,9 @@ static void *render(void *unused) {
             .sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
             .settingCount = sizeof minato_moltenvk_settings / sizeof *minato_moltenvk_settings,
             .pSettings = minato_moltenvk_settings};
-        const struct bench_vulkan_platform platform = {
-            (PFN_vkGetInstanceProcAddr)dlsym(bench.moltenvk, "vkGetInstanceProcAddr"), extensions, 3, &settings,
-            metal_surface, bench.layer};
+        PFN_vkGetInstanceProcAddr get = (PFN_vkGetInstanceProcAddr)dlsym(bench.moltenvk, "vkGetInstanceProcAddr");
+        if (bench.queue_path) get = bench_queue_path(get);
+        const struct bench_vulkan_platform platform = {get, extensions, 3, &settings, metal_surface, bench.layer};
         if (platform.get_instance_proc_addr != NULL) vulkan = bench_vulkan_start(&platform, meshes, bench.conf.check);
     }
 
@@ -135,22 +138,19 @@ static void *render(void *unused) {
     return NULL;
 }
 
-/* The render thread's QoS: user-interactive, or default, the APK's guest render thread's, when the process was
-   launched with -benchmarkRenderQoS default (ADR-0030 V5). 0, or -1 with the reason for another value. */
-static int render_qos(qos_class_t *qos, char *error, size_t size) {
+/* The value after `flag` in the process's launch arguments (ADR-0030 V5): its index in `values`, two of them, or
+   1 without the flag; -1 with the reason for another value. */
+static int launch_choice(NSString *flag, NSArray<NSString *> *values, char *error, size_t size) {
     @autoreleasepool {
-        *qos = QOS_CLASS_USER_INTERACTIVE;
         NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
-        const NSUInteger flag = [arguments indexOfObject:@"-benchmarkRenderQoS"];
-        if (flag == NSNotFound) return 0;
-        NSString *value = flag + 1 < arguments.count ? arguments[flag + 1] : @"";
-        if ([value isEqualToString:@"default"]) {
-            *qos = QOS_CLASS_DEFAULT;
-        } else if (![value isEqualToString:@"user-interactive"]) {
-            snprintf(error, size, "-benchmarkRenderQoS takes default or user-interactive, not %s", value.UTF8String);
-            return -1;
-        }
-        return 0;
+        const NSUInteger at = [arguments indexOfObject:flag];
+        if (at == NSNotFound) return 1;
+        NSString *value = at + 1 < arguments.count ? arguments[at + 1] : @"";
+        const NSUInteger chosen = [values indexOfObject:value];
+        if (chosen != NSNotFound) return (int)chosen;
+        snprintf(error, size, "%s takes %s or %s, not %s", flag.UTF8String, values[0].UTF8String,
+                 values[1].UTF8String, value.UTF8String);
+        return -1;
     }
 }
 
@@ -176,11 +176,17 @@ int minato_bench_start(const char *api, const char *conf, void *layer, const cha
         end_run(-1, error);
         return -1;
     }
-    qos_class_t qos;
-    if (render_qos(&qos, error, size) != 0) {
+    // The render thread's QoS, default as the APK's guest render thread's or user-interactive, and the calls'
+    // queue path, libvulkan's as the APK's or MoltenVK's own.
+    const int qos_value = launch_choice(@"-benchmarkRenderQoS", @[ @"default", @"user-interactive" ], error, size);
+    const int path_value =
+        qos_value < 0 ? -1 : launch_choice(@"-benchmarkQueuePath", @[ @"libvulkan", @"moltenvk" ], error, size);
+    if (path_value < 0) {
         end_run(-1, error);
         return -1;
     }
+    const qos_class_t qos = qos_value == 0 ? QOS_CLASS_DEFAULT : QOS_CLASS_USER_INTERACTIVE;
+    bench.queue_path = path_value == 0;
     bench.api = vulkan ? BENCH_VULKAN : BENCH_GLES;
     bench.tag = vulkan ? "bench-vulkan" : "bench-gles";
     // MoltenVK's log level as graphics/host's providers set it for the APKs: warnings, unless the environment

@@ -1,5 +1,6 @@
 # The parity benchmark's scene (ADR-0037, decision 1): the APKs' files (android/, built by tools/build-bench.sh)
-# with native/native.m in place of android/main.c, drawing with ANGLE and MoltenVK directly.
+# with native/native.m in place of android/main.c, drawing with ANGLE and MoltenVK directly (native/queue_path.c
+# puts libvulkan's queue path in front of MoltenVK on request, ADR-0030 V5).
 # - On the Mac, a static library for graphics.bench and graphics.recorder.
 # - For iOS, MinatoBench.framework for the app's benchmark builds (tools/build-bench.sh --ios): the same files at -O2,
 #   as the NDK builds the APKs, linking the slice of ANGLE's framework that the app embeds (build/ANGLE.xcframework
@@ -47,7 +48,7 @@ if(APK_HOST_BUILD)
     IMPORTED_SONAME "@rpath/libGLESv2.dylib")
 
   set(bench minato_bench)
-  add_library(minato_bench STATIC scene.c gles.c vulkan.c native/native.m ${shaders})
+  add_library(minato_bench STATIC scene.c gles.c vulkan.c native/native.m native/queue_path.c ${shaders})
   add_dependencies(minato_bench bench-angle)
   target_include_directories(minato_bench PUBLIC native)
   target_link_libraries(minato_bench
@@ -58,7 +59,7 @@ else()
   # builds of these presets (tools/build-native.sh --app) leave it out, tools/build-bench.sh --ios names it.
   set(bench MinatoBench)
   add_library(MinatoBench SHARED EXCLUDE_FROM_ALL
-    scene.c gles.c vulkan.c native/native.m native/minato_bench.h ${shaders})
+    scene.c gles.c vulkan.c native/native.m native/queue_path.c native/minato_bench.h ${shaders})
   set_target_properties(MinatoBench PROPERTIES FRAMEWORK TRUE PUBLIC_HEADER native/minato_bench.h
     MACOSX_FRAMEWORK_IDENTIFIER io.github.kisame76.minato.bench
     MACOSX_FRAMEWORK_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/native/Info.plist.in"
