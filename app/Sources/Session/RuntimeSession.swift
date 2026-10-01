@@ -52,6 +52,11 @@ final class RuntimeSessionHost: SessionHost {
         apkrt_input_add()
     }
 
+    /// A turn's new size (ADR-0038); the bridge never gives a size below 1 for a window it has.
+    func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {
+        _ = apkrt_window_set_size(window, width, height)
+    }
+
     /// `apkrt_session_wait`, never on the main thread: 1 answered, 0 timed out, -1 the channel broke or the
     /// program ended.
     static func wait(serial: UInt32, seconds: Double) -> Int32 {
@@ -228,6 +233,7 @@ final class NoGuestSessionHost: SessionHost {
     func setBackground(_ on: Bool) {}
     func waitScheduled(seconds: Double) -> Bool { true }
     func addInputChannel() -> UInt64 { 0 }
+    func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {}
 
     static func wait(serial: UInt32, seconds: Double) -> Int32 { 1 }
 

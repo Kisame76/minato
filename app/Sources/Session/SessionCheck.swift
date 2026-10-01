@@ -33,6 +33,9 @@ import UIKit
 ///            it, as SwiftUI may build a view's state more than once; it must change nothing.
 ///   turn-library  the library asks its scene to turn to landscape, as a turned device would, logs whether iOS
 ///            refused and the orientation a second later, and removes the file (ADR-0038, decision 1.1).
+///   turn-session  2 s after the guest's start, game mode asks its scene to turn to landscape, as a turned
+///            device would, then a second after that layout back to portrait, logging the orientation and the
+///            window's pixels after each, and removes the file (ADR-0038, test 3).
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -156,6 +159,35 @@ enum SessionCheck {
         event("library orientation \(orientationName(scene.effectiveGeometry.interfaceOrientation))")
     }
 
+    /// Turns game mode's scene to landscape and back, as the emulator's reference turns the device
+    /// (tools/android-reference.sh): rotation-test is ready a second after its first focus.
+    @MainActor
+    private static func turn(_ session: GameSession) {
+        try? FileManager.default.removeItem(at: folder.appending(path: "turn-session"))
+        guard let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene
+        else { return event("session turn without a scene") }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            await turn(scene, of: session, to: .landscape)
+            try? await Task.sleep(for: .seconds(1))
+            await turn(scene, of: session, to: .portrait)
+        }
+    }
+
+    /// Asks `scene` for `mask` and waits at most 3 s for the window's layout in it.
+    @MainActor
+    private static func turn(_ scene: UIWindowScene, of session: GameSession, to mask: UIInterfaceOrientationMask) async {
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { @Sendable error in
+            event("session turn refused \(error.localizedDescription)")
+        }
+        let wide = mask == .landscape
+        for _ in 0..<30 where (session.windowPixels.width > session.windowPixels.height) != wide {
+            try? await Task.sleep(for: .seconds(0.1))
+        }
+        event("session orientation \(orientationName(scene.effectiveGeometry.interfaceOrientation)) "
+            + "window \(Int(session.windowPixels.width))x\(Int(session.windowPixels.height))")
+    }
+
     private static func orientationName(_ orientation: UIInterfaceOrientation) -> String {
         switch orientation {
         case .portrait: "portrait"
@@ -196,6 +228,7 @@ enum SessionCheck {
             session.received(.startFailed(reason))
         }
         if requested("tone") { playTone(session.audio, seconds: text(of: "tone").flatMap(Double.init) ?? 2) }
+        if requested("turn-session") { turn(session) }
         if requested("extra-session") {
             extraSessions.append(GameSession(entry: session.entry))
             event("extra session made")

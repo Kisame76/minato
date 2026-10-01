@@ -76,6 +76,9 @@ public protocol SessionHost: AnyObject {
     func waitScheduled(seconds: Double) -> Bool
     /// `apkrt_input_add`: a new input channel's ID, from 1, 0 without memory (ADR-0036, decision 1).
     func addInputChannel() -> UInt64
+    /// `apkrt_window_set_size`: the window has a new size, which the guest's ANativeWindow answers from then
+    /// on (ADR-0038, step c).
+    func setWindowSize(_ window: UInt64, width: Int32, height: Int32)
 }
 
 /// The lifecycle (ADR-0032, decision 7) on ADR-0028's session: each callback becomes an event for
@@ -101,6 +104,8 @@ public struct SessionBridge: Sendable {
     public private(set) var lifecycle: Lifecycle
     /// The size a new window gets: the window's at its last layout.
     public var windowSize = PixelSize(width: 0, height: 0)
+    /// The session turns with the device (ADR-0038, decision 1.3): a layout in another size turns the window.
+    public var turns = false
     /// A post failed: the channel is broken for good, and nothing more reaches the host.
     public private(set) var isBroken = false
 
@@ -122,13 +127,13 @@ public struct SessionBridge: Sendable {
     }
 
     /// The window was laid out in `size`: the size the next window gets and, when it changed while the guest
-    /// has a window, a turn of that window (ADR-0038, decision 1.4). A turn between the landscape sides keeps
-    /// the size and changes nothing for the guest.
+    /// has a window in a session that turns, a turn of that window (ADR-0038, decision 1.4). A turn between
+    /// the landscape sides keeps the size and changes nothing for the guest.
     @discardableResult
     public mutating func windowLaidOut(_ size: PixelSize, host: SessionHost) -> Handled {
         guard size != windowSize else { return Handled() }
         windowSize = size
-        guard window != 0 else { return Handled() }
+        guard turns, window != 0 else { return Handled() }
         return handle(.turned, host: host)
     }
 
@@ -238,6 +243,7 @@ public struct SessionBridge: Sendable {
             }
             return events + [.nativeWindowRedrawNeeded(window: window)]
         case .onNativeWindowResized:
+            host.setWindowSize(window, width: windowSize.width, height: windowSize.height)
             var events = [event]
             if contentRect != windowSize {
                 contentRect = windowSize

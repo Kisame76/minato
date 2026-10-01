@@ -15,6 +15,7 @@ struct SessionBridgeTests {
         case setBackground(Bool)
         case waitScheduled(Double)
         case addInputChannel
+        case setWindowSize(UInt64, width: Int32, height: Int32)
     }
 
     /// A session that records every call; window IDs and serial numbers count from 1, as the runtime's.
@@ -41,6 +42,10 @@ struct SessionBridgeTests {
         func setGate(_ window: UInt64, open: Bool) { calls.append(.setGate(window, open: open)) }
         func removeWindow(_ window: UInt64) { calls.append(.removeWindow(window)) }
         func setBackground(_ on: Bool) { calls.append(.setBackground(on)) }
+
+        func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {
+            calls.append(.setWindowSize(window, width: width, height: height))
+        }
 
         func waitScheduled(seconds: Double) -> Bool {
             calls.append(.waitScheduled(seconds))
@@ -355,13 +360,17 @@ struct SessionBridgeTests {
     // ADR-0038, decision 1.4 and test 2: a layout in another size turns the running window, in rotation-test's
     // order on Android 15: CONFIG_CHANGED, then the same window resized, its content's rectangle, redraw needed.
 
+    /// The window takes its new size between the configuration and the resize, as ADR-0038 c) has
+    /// `apkrt_window_set_size`: from the resize on, the guest's ANativeWindow answers the new size.
     @Test func aTurnPostsTheConfigurationAndTheNewSizeToTheSameWindow() {
         let host = FakeHost()
         var bridge = Self.running(host)
+        bridge.turns = true
 
         bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
         #expect(host.take() == [
             .post(.configurationChanged),
+            .setWindowSize(1, width: Self.height, height: Self.width),
             .post(.nativeWindowResized(window: 1, width: Self.height, height: Self.width)),
             .post(.contentRectChanged(left: 0, top: 0, right: Self.height, bottom: Self.width)),
             .post(.nativeWindowRedrawNeeded(window: 1)),
@@ -374,6 +383,7 @@ struct SessionBridgeTests {
     @Test func aLayoutOfTheSameSizeGivesNothing() {
         let host = FakeHost()
         var bridge = Self.running(host)
+        bridge.turns = true
 
         bridge.windowLaidOut(PixelSize(width: Self.width, height: Self.height), host: host)
         #expect(host.take() == [])
@@ -383,10 +393,38 @@ struct SessionBridgeTests {
     @Test func aLayoutWithoutAWindowSetsTheNextWindowsSize() {
         let host = FakeHost()
         var bridge = Self.bridge()
+        bridge.turns = true
         bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
         #expect(host.take() == [])
 
         bridge.handle(.start, host: host)
         #expect(host.take().first == .addWindow(width: Self.height, height: Self.width))
+    }
+
+    /// A session that holds its orientation does not turn its window: a layout in another size, as iOS gives
+    /// one late, only sets the size the next window gets (ADR-0038, decision 1.3).
+    @Test func aSessionThatHoldsItsOrientationOnlySetsTheNextWindowsSize() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        #expect(bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host) == .init())
+        #expect(host.take() == [])
+        #expect(bridge.windowSize == PixelSize(width: Self.height, height: Self.width))
+    }
+
+    /// A turn while the window is gone: the window of the foreground has the new size.
+    @Test func aTurnInTheBackgroundGivesTheNextWindowTheNewSize() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.turns = true
+        bridge.handle(.inactive, host: host)
+        let wait = bridge.handle(.background, host: host).wait
+        _ = host.take()
+
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [])
+        bridge.finished(try #require(wait), result: 1, host: host)
+        bridge.handle(.foreground, host: host)
+        #expect(host.take().contains(.addWindow(width: Self.height, height: Self.width)))
     }
 }

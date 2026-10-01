@@ -40,7 +40,12 @@
 # test apps in game mode (build/fixtures/apks/aaudio-test.apk and opensl-test.apk) until their
 # ANativeActivity_finish: each log must be Android 15's (fixtures/expected/<app>.logcat); the lines of its -device
 # tag, the rates, bursts, callbacks, xruns and the timestamp's age, and what the audio host did are printed. The
-# apps play zeros, so this log, not a listen, is the check. Every other round runs game mode without a guest.
+# apps play zeros, so this log, not a listen, is the check. ROTATION=1 runs test 3 of ADR-0038 with rotation-test
+# (build/fixtures/apks/rotation-test.apk), whose activity handles a turn itself: game mode turns its scene to
+# landscape and back, as a turned device would, and the app ends itself after the second turn; its log must be
+# Android 15's (fixtures/expected/rotation-test.logcat) but for test 7's departure, its window must take the
+# turned size and then the size at start again, and its callbacks must turn the same window twice. Every other
+# round runs game mode without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -58,6 +63,7 @@
 #   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
 #   PORTRAIT    only the round of the library's orientation
+#   ROTATION    only test 3 of ADR-0038, with rotation-test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -69,6 +75,7 @@ GLES_LIVE_PKG="io.github.kisame76.minato.test.gles.live"
 VULKAN_LIVE_PKG="io.github.kisame76.minato.test.vulkan.live"
 AAUDIO_PKG="io.github.kisame76.minato.test.aaudio"
 OPENSL_PKG="io.github.kisame76.minato.test.opensl"
+ROTATION_PKG="io.github.kisame76.minato.test.rotation"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -95,6 +102,7 @@ fi
 GUEST_APPS=""
 [[ -z "${ACTIVITY:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
+[[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 if [[ -n "${GUEST_AUDIO:-}" ]]; then
   GUEST_APPS+="$AAUDIO_PKG build/fixtures/apks/aaudio-test.apk"$'\n'"$OPENSL_PKG build/fixtures/apks/opensl-test.apk"$'\n'
 fi
@@ -177,7 +185,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -790,6 +798,20 @@ run_ends() {
     || fail "  no library after Quit"
 }
 
+# Android 15's log of test app $1 (fixtures/expected/$1.logcat) with test 7's departure: the focus goes before
+# onPause, where Android pauses first.
+with_focus_departure() {
+  python3 - "fixtures/expected/$1.logcat" "$1" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+pause, lost = f"I/{sys.argv[2]}: APP_CMD_PAUSE", f"I/{sys.argv[2]}: APP_CMD_LOST_FOCUS"
+for i in range(len(lines) - 1):
+    if lines[i] == pause and lines[i + 1] == lost:
+        lines[i], lines[i + 1] = lost, pause
+print("\n".join(lines))
+PY
+}
+
 # Test 7: activity-test on activity-host, from the tap through Home and back to the end it asks for itself.
 run_activity() {
   begin_round "test 7: activity-test on activity-host"
@@ -822,15 +844,7 @@ run_activity() {
   # The app's lines against Android 15's, with test 7's departure: LOST_FOCUS before PAUSE.
   has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
   grep '^I/activity-test: ' "$CHECK/guest-log" > "$WORK/activity-app.log" || true
-  python3 - fixtures/expected/activity-test.logcat > "$WORK/activity-expected.log" <<'PY'
-import sys
-lines = open(sys.argv[1]).read().splitlines()
-pause, lost = "I/activity-test: APP_CMD_PAUSE", "I/activity-test: APP_CMD_LOST_FOCUS"
-for i in range(len(lines) - 1):
-    if lines[i] == pause and lines[i + 1] == lost:
-        lines[i], lines[i + 1] = lost, pause
-print("\n".join(lines))
-PY
+  with_focus_departure activity-test > "$WORK/activity-expected.log"
   if diff -u "$WORK/activity-expected.log" "$WORK/activity-app.log" > "$WORK/activity.diff"; then
     ok "  its log is Android 15's but for the departure ($(wc -l < "$WORK/activity-app.log" | tr -d ' ') lines)"
   else
@@ -849,6 +863,60 @@ PY
     [[ -d "$folder/data/files" && -d "$folder/external/files" && -d "$folder/obb" ]] \
       && ok "  the app's three folders exist" || fail "  the app's folders are missing"
   fi
+}
+
+# Test 3 of ADR-0038: rotation-test turns to landscape and back with the session, on the same window, and ends
+# itself after the second turn.
+run_rotation() {
+  begin_round "test 3 of ADR-0038: rotation-test turns"
+  rm -f "$CHECK/no-guest"
+  echo "$ROTATION_PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  echo yes > "$CHECK/turn-session"
+  send_requests
+  launch
+  await_event "process gameMode $ROTATION_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  local pid start turned
+  pid=$(pid_of "$EVENT")
+  await_event "start window [0-9]+x[0-9]+" && start=${EVENT##* } || start=none
+  turned=${start#*x}x${start%x*}
+  say "rotation-test runs now; game mode turns it to landscape and back, and it ends by itself."
+  await_event "session orientation .*" 20 || { abort_round "game mode did not turn"; return; }
+  expect "  turned to landscape" "window $turned" "$(event_of "$EVENT" | grep -o 'window .*')"
+  shot "rotation-1-landscape" 0
+  await_event "session orientation .*" 20 || { abort_round "game mode did not turn back"; return; }
+  expect "  turned back to portrait" "session orientation portrait window $start" "$(event_of "$EVENT")"
+  await_event "request finish" 20 && ok "  rotation-test finishes itself after the second turn" || fail "  no FINISH"
+  await_event "program ended .*" 10 && expect "  activity-host ends with status 0" "program ended 0" "$(event_of "$EVENT")" \
+    || fail "  activity-host did not end"
+  await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+  local turn="onConfigurationChanged onNativeWindowResized"
+  expect "  the callbacks" "$START $turn $turn onWindowFocusChanged(false) $QUIT" "$(callbacks_of "$pid")"
+  if head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "session" && $4 == "turn"' | grep -q .; then
+    fail "  iOS refused a turn"
+  else
+    ok "  iOS refused no turn"
+  fi
+
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  grep '^I/rotation-test: ' "$CHECK/guest-log" > "$WORK/rotation-app.log" || true
+  with_focus_departure rotation-test > "$WORK/rotation-expected.log"
+  if diff -u "$WORK/rotation-expected.log" "$WORK/rotation-app.log" > "$WORK/rotation.diff"; then
+    ok "  its log is Android 15's but for the departure ($(wc -l < "$WORK/rotation-app.log" | tr -d ' ') lines)"
+  else
+    fail "  its log differs from Android 15's:"
+    sed 's/^/      | /' "$WORK/rotation.diff"
+  fi
+  local device
+  device=$(grep '^I/rotation-test-device: ' "$CHECK/guest-log" || true)
+  sed 's/^/      /' <<< "$device"
+  grep -q "^I/rotation-test-device: init: window ${start/x/ x } *$" <<< "$device" \
+    && ok "  its window starts at the window's size ($start)" || fail "  its window does not start at $start"
+  grep -q "^I/rotation-test-device: resized: window ${turned/x/ x } *$" <<< "$device" \
+    && ok "  the turn gives it the turned size ($turned)" || fail "  no resize to $turned"
+  grep -q "^I/rotation-test-device: before the finish: window ${start/x/ x } *$" <<< "$device" \
+    && ok "  it ends at the size at start" || fail "  it does not end at $start"
 }
 
 # The lines of tag $1 in the guest's log against Android 15's (fixtures/expected/$1.logcat), then the lines of
@@ -1063,7 +1131,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1071,6 +1139,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}
   [[ -n "${PORTRAIT:-}" ]] && run_portrait
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
+  [[ -n "${ROTATION:-}" ]] && run_rotation
   if [[ -n "${LIVE:-}" ]]; then
     run_live "$GLES_LIVE_PKG" gles-live
     [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live

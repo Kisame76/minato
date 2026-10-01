@@ -153,17 +153,21 @@ final class GameSession {
         if Self.current === self { Self.current = nil }
     }
 
-    /// The orientation the session is to hold (ADR-0032, decision 5).
+    /// The orientation the session is to hold (ADR-0032, decision 5), or whether it turns (ADR-0038).
     var orientation: SessionOrientation {
         #if DEBUG
         if let requested = SessionCheck.requestedOrientation { return requested }
         #endif
-        return SessionOrientation(screenOrientation: entry.report?.screenOrientation)
+        let report = entry.report
+        return SessionOrientation(screenOrientation: report?.screenOrientation, configChanges: report?.configChanges,
+                                  targetSdk: report?.targetSdk)
     }
 
-    /// iOS was asked to hold the window in `orientation`, which turns it after a while.
+    /// iOS was asked to hold the window in `orientation`, which turns it after a while; a session that turns
+    /// turns its window at each layout in another size.
     func holds(_ orientation: SessionOrientation) {
         heldOrientation = orientation
+        bridge.turns = orientation == .turns
         startIfLaidOut()
         // iOS turns the window within a fraction of a second; should it never do so, nor refuse, the
         // guest still starts, with the size the window has.
@@ -183,11 +187,14 @@ final class GameSession {
         #endif
     }
 
-    /// The window was laid out.
+    /// The window was laid out: the size the guest starts with, and the next window's; while the guest has a
+    /// window in a session that turns, a turn of that window (ADR-0038, decision 1.4).
     func windowLaidOut(_ pixels: CGSize) {
         windowPixels = pixels
-        // A window's size is fixed per ID (ADR-0028, c): the next window takes this one.
-        bridge.windowSize = PixelSize(width: Int32(pixels.width.rounded()), height: Int32(pixels.height.rounded()))
+        let size = PixelSize(width: Int32(pixels.width.rounded()), height: Int32(pixels.height.rounded()))
+        let handled = bridge.windowLaidOut(size, host: host)
+        // A layout that turned nothing must not report again a session that has ended.
+        if !handled.callbacks.isEmpty { report(handled) }
         startIfLaidOut()
     }
 
