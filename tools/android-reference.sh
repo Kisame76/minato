@@ -11,7 +11,10 @@
 # after it has its first window and the focus, and started again, before that; input-test gets the gestures
 # of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready"; rotation-test is
 # turned to landscape once it logs "ready" and back to portrait a second after its first change (ADR-0038, test 3),
-# through the window manager's user rotation, which the script restores afterwards. Its lines of
+# through the window manager's user rotation, which the script restores afterwards. audio-live, which plays until it
+# is quit, is sent HOME 3 s after it plays and started again, and quit with BACK 2 s after it plays again; no adb
+# command of the emulator disconnects its stream (killing audioserver restores the stream without an error
+# callback), so its error callback has no reference here (ADR-0036, after M3). Its lines of
 # logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
@@ -106,7 +109,7 @@ started=""
 # The audio test apps (ADR-0036, step c) need the emulator's audio device; they play only zeros. Every other
 # test runs without it. A running emulator started with -no-audio would give them a wrong reference.
 audio=-no-audio
-case "$app" in aaudio-test | opensl-test) audio="" ;; esac
+case "$app" in aaudio-test | opensl-test | audio-live) audio="" ;; esac
 if [[ -n "$serial" && -z "$audio" && "$(ps -Ao args | grep -e '-avd ' | grep -c -e '-no-audio')" != 0 ]]; then
   echo "The running emulator has no audio device (-no-audio): stop it, and this script starts it with audio." >&2
   exit 1
@@ -198,6 +201,23 @@ run_app() {
     wait_for "$app" APP_CMD_SAVE_STATE || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == audio-live ]]; then
+    wait_for "$app-device" playing || return 1
+    sleep 3
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" "pause: requestPause" || return 1
+    sleep 1
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+    local resumed=0
+    for _ in $(seq 1 60); do
+      resumed=$(app_lines "$app" | grep -c "resume: requestStart" || true)
+      [[ "$resumed" -lt 2 ]] || break
+      sleep 0.5
+    done
+    [[ "$resumed" -ge 2 ]] || { echo "$app did not start again within 30 s." >&2; return 1; }
+    sleep 2
+    run input keyevent KEYCODE_BACK
   fi
   if [[ "$app" == input-test ]]; then
     # The gestures as reports of the emulator's multi-touch screen through its console (ABS_MT_*, 0 to 32767

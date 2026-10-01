@@ -1,0 +1,9 @@
+I/audio-live: android_main
+I/audio-live: start: open OK
+I/audio-live: start: format FLOAT, channels 2, sharing SHARED, state OPEN
+I/audio-live: resume: requestStart OK, then STARTED
+I/audio-live: pause: requestPause OK, then PAUSED
+I/audio-live: resume: requestStart OK, then STARTED
+I/audio-live: pause: requestPause OK, then PAUSED
+I/audio-live: destroy: close OK
+I/audio-live: android_main returns

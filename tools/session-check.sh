@@ -44,8 +44,13 @@
 # (build/fixtures/apks/rotation-test.apk), whose activity handles a turn itself: game mode turns its scene to
 # landscape and back, as a turned device would, and the app ends itself after the second turn; its log must be
 # Android 15's (fixtures/expected/rotation-test.logcat) but for test 7's departure, its window must take the
-# turned size and then the size at start again, and its callbacks must turn the same window twice. Every other
-# round runs game mode without a guest.
+# turned size and then the size at start again, and its callbacks must turn the same window twice. AUDIO_LIVE=1
+# runs audio-live (build/fixtures/apks/audio-live.apk), a guest stream playing a sine until Quit: Home and back,
+# then the audio host disconnects its stream as a reroute that changes the rate would, and the menu quits it 5 s
+# later. Its log must be Android 15's (fixtures/expected/audio-live.logcat), with the error callback, the close
+# and the new stream after the second start in AAudio's documented order, as the emulator gives no disconnect;
+# the new stream must play, and both streams must close through the host. Every other round runs game mode
+# without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -64,6 +69,7 @@
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
 #   PORTRAIT    only the round of the library's orientation
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
+#   AUDIO_LIVE  only the round of audio-live
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -76,6 +82,7 @@ VULKAN_LIVE_PKG="io.github.kisame76.minato.test.vulkan.live"
 AAUDIO_PKG="io.github.kisame76.minato.test.aaudio"
 OPENSL_PKG="io.github.kisame76.minato.test.opensl"
 ROTATION_PKG="io.github.kisame76.minato.test.rotation"
+AUDIO_LIVE_PKG="io.github.kisame76.minato.test.audiolive"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -103,6 +110,7 @@ GUEST_APPS=""
 [[ -z "${ACTIVITY:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
+[[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
 if [[ -n "${GUEST_AUDIO:-}" ]]; then
   GUEST_APPS+="$AAUDIO_PKG build/fixtures/apks/aaudio-test.apk"$'\n'"$OPENSL_PKG build/fixtures/apks/opensl-test.apk"$'\n'
 fi
@@ -185,7 +193,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -962,6 +970,68 @@ run_guest_audio() {
   compare_guest_log "$tag"
 }
 
+# audio-live (ADR-0036, after M3): a guest stream through Home and back and a disconnect, until Quit.
+run_audio_live() {
+  begin_round "audio-live: a guest stream until Quit, with Home and a disconnect"
+  rm -f "$CHECK/no-guest" "$CHECK/tone"
+  echo "$AUDIO_LIVE_PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  echo 10 > "$CHECK/audio-disconnect"
+  echo 15 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $AUDIO_LIVE_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  local pid audio closes disconnects frames
+  pid=$(pid_of "$EVENT")
+  await_event 'callback onWindowFocusChanged\(true\)' 20 || { abort_round "audio-live did not gain the focus"; return; }
+  say "audio-live plays a 440 Hz sine now; Home and back, a disconnect at 10 s and Quit at 15 s follow by themselves."
+  sleep 3
+  launch com.apple.Preferences
+  await_event "scene didEnterBackground" 10 || { abort_round "no background"; return; }
+  sleep 2
+  launch
+  await_event "scene didActivate" 10 || { abort_round "Minato did not come back"; return; }
+  await_event "audio disconnect forced" 20 && ok "  the host disconnects the stream" || fail "  no forced disconnect"
+  await_event "program ended .*" 30 && expect "  activity-host ends with status 0 after Quit" "program ended 0" \
+    "$(event_of "$EVENT")" || fail "  activity-host did not end"
+  await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+    "$(callbacks_of "$pid")"
+
+  audio=$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }')
+  sed 's/^/      /' <<< "$audio"
+  disconnects=$(grep -c "^audio disconnected " <<< "$audio" || true)
+  expect "  one disconnect reaches the runtime" 1 "$disconnects"
+  closes=$(grep -c "^audio stream closed " <<< "$audio" || true)
+  expect "  both streams close through the host" 2 "$closes"
+  grep -q " failed" <<< "$audio" && fail "  an audio step failed" || ok "  no audio step failed"
+
+  # Android 15's lines with the disconnect after the second start, in AAudio's order: the error callback, then the
+  # app's own close of the stream and a new one, started as the activity is resumed [unverified on Android].
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  grep '^I/audio-live: ' "$CHECK/guest-log" > "$WORK/audio-live-app.log" || true
+  awk '{ print } /^I\/audio-live: resume: / && ++resumes == 2 {
+    print "I/audio-live: error callback: ERROR_DISCONNECTED"
+    print "I/audio-live: after the error: close OK"
+    print "I/audio-live: reopen: open OK"
+    print "I/audio-live: reopen: format FLOAT, channels 2, sharing SHARED, state OPEN"
+    print "I/audio-live: reopen: requestStart OK, then STARTED"
+  }' fixtures/expected/audio-live.logcat > "$WORK/audio-live-expected.log"
+  if diff -u "$WORK/audio-live-expected.log" "$WORK/audio-live-app.log" > "$WORK/audio-live.diff"; then
+    ok "  its log is Android 15's with the disconnect ($(wc -l < "$WORK/audio-live-app.log" | tr -d ' ') lines)"
+  else
+    fail "  its log differs:"
+    sed 's/^/      | /' "$WORK/audio-live.diff"
+  fi
+  local device
+  device=$(grep '^I/audio-live-device: ' "$CHECK/guest-log" || true)
+  sed 's/^/      /' <<< "$device"
+  frames=$(sed -n 's/^I\/audio-live-device: reopen: \([0-9]*\) frames in the second after it$/\1/p' <<< "$device")
+  [[ "${frames:-0}" -gt 0 ]] && ok "  the new stream plays ($frames frames in its first second)" \
+    || fail "  the new stream does not play"
+}
+
 # Test 8 (ADR-0032) with a live variant (ADR-0036 a): $1 is its package, $2 its log tag, and $3 "by-hand" when
 # the user goes Home and back and quits. It draws paced by AChoreographer, a frame per callback, and asks for 120
 # and 60 Hz in turn every 5 s.
@@ -1131,7 +1201,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1140,6 +1210,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
   [[ -n "${ROTATION:-}" ]] && run_rotation
+  [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   if [[ -n "${LIVE:-}" ]]; then
     run_live "$GLES_LIVE_PKG" gles-live
     [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live

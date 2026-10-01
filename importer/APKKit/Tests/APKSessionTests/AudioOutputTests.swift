@@ -230,6 +230,18 @@ struct AudioOutputTests {
         #expect(output.hardware(Self.speaker, rerouted: true) == [.publishOutput])
     }
 
+    /// session-check's `audio-disconnect` (audio-live): what a reroute that changes the rate does, without one.
+    @Test func aForcedDisconnectIsTheReroutesDisconnect() {
+        var output = AudioOutput()
+        _ = output.opened(2, mode: .lowLatency)
+        _ = output.opened(1, mode: .none)
+        _ = output.hardware(Self.speaker, rerouted: false)
+
+        #expect(output.disconnectAll() == [.disconnect([1, 2]), .withdrawOutput, .stopEngine, .deactivate])
+        #expect(output.disconnectAll() == [])
+        #expect(output.opened(3, mode: .lowLatency) == [.preferIOBuffer(0.005), .activate, .startEngine, .publishOutput])
+    }
+
     @Test func aRouteChangeWithoutStreamsDoesNothing() {
         var output = AudioOutput()
         _ = output.hardware(Self.speaker, rerouted: false)

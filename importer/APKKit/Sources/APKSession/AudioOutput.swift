@@ -96,6 +96,13 @@ public struct AudioOutput: Sendable {
         // During an interruption the engine is stopped; its end publishes the output.
         guard let before = hardware, before.sampleRate != now.sampleRate || before.burstFrames != now.burstFrames
         else { return interrupted ? [] : [.publishOutput] }
+        return disconnectAll()
+    }
+
+    /// Every open stream gets DISCONNECTED, as at a reroute that changes the rate; session-check forces it for
+    /// audio-live's error callback.
+    public mutating func disconnectAll() -> [Action] {
+        guard !streams.isEmpty else { return [] }
         let disconnected = streams.keys.sorted()
         streams = [:]
         return [.disconnect(disconnected)] + stopped()

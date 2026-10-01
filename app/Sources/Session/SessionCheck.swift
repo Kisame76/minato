@@ -36,6 +36,8 @@ import UIKit
 ///   turn-session  2 s after the guest's start, game mode asks its scene to turn to landscape, as a turned
 ///            device would, then a second after that layout back to portrait, logging the orientation and the
 ///            window's pixels after each, and removes the file (ADR-0038, test 3).
+///   audio-disconnect  that many seconds after the guest's start (1 for "yes"), the audio host disconnects every
+///            open stream, as a reroute that changes the rate does, for audio-live's error callback; the file goes.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -229,6 +231,15 @@ enum SessionCheck {
         }
         if requested("tone") { playTone(session.audio, seconds: text(of: "tone").flatMap(Double.init) ?? 2) }
         if requested("turn-session") { turn(session) }
+        if requested("audio-disconnect") {
+            let seconds = text(of: "audio-disconnect").flatMap(Double.init) ?? 1
+            try? FileManager.default.removeItem(at: folder.appending(path: "audio-disconnect"))
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                event("audio disconnect forced")
+                session.audio.disconnectAll()
+            }
+        }
         if requested("extra-session") {
             extraSessions.append(GameSession(entry: session.entry))
             event("extra session made")

@@ -179,3 +179,5 @@ add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)
 # The App chat's turn test app (ADR-0038, test 3).
 add_subdirectory(apps/rotation-test)
+# The App chat's live audio test app (ADR-0036, after M3).
+add_subdirectory(apps/audio-live)

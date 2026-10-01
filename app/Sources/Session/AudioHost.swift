@@ -161,6 +161,14 @@ final class AudioHost: @unchecked Sendable {
         }
     }
 
+    #if DEBUG
+    /// session-check's `audio-disconnect` (audio-live): every open stream gets DISCONNECTED, as at a reroute that
+    /// changes the rate. From any thread.
+    func disconnectAll() {
+        queue.async { [self] in apply(output.disconnectAll()) }
+    }
+    #endif
+
     private func interrupted(began: Bool) {
         #if DEBUG
         SessionCheck.event(began ? "audio interruption began" : "audio interruption ended")
