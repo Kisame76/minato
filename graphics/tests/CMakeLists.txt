@@ -69,6 +69,13 @@ add_test(NAME graphics.bench_summary
     --tool "${PROJECT_SOURCE_DIR}/tools/bench-summary.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_summary")
 set_tests_properties(graphics.bench_summary PROPERTIES TIMEOUT 300)
 
+# ADR-0041 test 3: tools/present-check.py on made-up recordings, decision 11's tolerance at its limits and inputs it
+# must refuse.
+add_test(NAME graphics.present_check
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/present_check_test.py"
+    --tool "${PROJECT_SOURCE_DIR}/tools/present-check.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/present_check")
+set_tests_properties(graphics.present_check PROPERTIES TIMEOUT 120)
+
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them
 # from tools/build-graphics-host.sh, which CTest does not run.
