@@ -47,6 +47,9 @@ poll-test system
 memory-test system
 # ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
 start-test system
+# What ART's start asks of the kernel, /proc and /sys, and init's environment (ADR-0033 decision 8,
+# ADR-0039 decision 2).
+kernel-test system
 # ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 looper-test system
 configuration-test system

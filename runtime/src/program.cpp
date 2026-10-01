@@ -12,8 +12,10 @@
 
 #include "descriptors.h"
 #include "dl.h"
+#include "environment.h"
 #include "guest_call.h"
 #include "loader.h"
+#include "proc.h"
 #include "process_exit.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -44,6 +46,7 @@ struct Start {
     apkrt::loader::Image image{};
     std::uint64_t entry = 0;
     std::uint64_t stack_pointer = 0;
+    std::string name;  // the program file's name, which Linux's exec gives the main thread
 };
 
 /// Runs on the program thread as its first guest thread, and never returns: the program starts.
@@ -82,6 +85,7 @@ void *program_thread(void *argument) {
     static apkrt::threads::GuestThread first;
     first.tid = ::getpid();  // on Linux the first thread's ID is the process ID
     apkrt::threads::add(first);
+    apkrt::proc::set_main_thread(::pthread_self(), static_cast<Start *>(argument)->name);
     apkrt::threads::run(first, enter_program, argument);
     return nullptr;  // the first thread ended with SYS_exit; the process lives on with the others
 }
@@ -114,7 +118,7 @@ void launch(const char *container_path, const char *const argv[], const char *co
 
     const apkrt::loader::StartInfo start_info{
         .arguments = strings(argv),
-        .environment = strings(envp),
+        .environment = apkrt::environment::at_start(strings(envp)),
         .program_headers = std::span(reinterpret_cast<const std::byte *>(image.bias + info.phdr),
                                      std::size_t{info.phnum} * info.phentsize),
         .program_header_count = info.phnum,
@@ -124,6 +128,10 @@ void launch(const char *container_path, const char *const argv[], const char *co
     };
     start->entry = start_info.entry;
     start->stack_pointer = apkrt::loader::build_start_stack(start_info, stack);
+    // /proc/self/maps and /proc/self/stat show the stack as Linux's exec sets it up.
+    const auto stack_low = reinterpret_cast<std::uint64_t>(stack.data());
+    apkrt::proc::set_main_stack(stack_low, stack_low + stack.size(), start->stack_pointer);
+    if (argv != nullptr && argv[0] != nullptr) start->name = std::filesystem::path(argv[0]).filename().string();
 
     // The thread's own frames go below the start stack, on whole pages of the same mapping.
     const auto page = static_cast<std::uint64_t>(::getpagesize());

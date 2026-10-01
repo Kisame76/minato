@@ -220,8 +220,9 @@ private:
 
 // --- futex (sys_futex.cpp, ADR-0026) ------------------------------------------------------------------
 
+/// `timeout_address` is the count to move for FUTEX_REQUEUE, `address2` the word it moves to.
 long sys_futex(std::uint64_t address, int operation, std::uint32_t value, std::uint64_t timeout_address,
-               std::uint32_t bitset);
+               std::uint64_t address2, std::uint32_t bitset);
 
 /// Wakes up to `count` waiters on `word` and returns how many it woke, as FUTEX_WAKE does. Private and
 /// shared futexes are the same: every waiter is in this one process.

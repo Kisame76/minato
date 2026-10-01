@@ -1,0 +1,23 @@
+uname: Linux aarch64, release 5.13 or newer: yes
+environment: ANDROID_BOOTLOGO=1
+environment: ANDROID_ROOT=/system
+environment: ANDROID_ASSETS=/system/app
+environment: ANDROID_DATA=/data
+environment: ANDROID_STORAGE=/storage
+environment: ANDROID_ART_ROOT=/apex/com.android.art
+environment: ANDROID_I18N_ROOT=/apex/com.android.i18n
+environment: ANDROID_TZDATA_ROOT=/apex/com.android.tzdata
+environment: EXTERNAL_STORAGE=/sdcard
+environment: ASEC_MOUNTPOINT=/mnt/asec
+main thread stack: 8388608 bytes, holds the stack pointer: yes
+/proc/self/stat: comm kernel-test, 52 fields, startstack in the main stack: yes
+/proc/self/maps: every line parses: yes, names at column 73: yes
+/proc/self/maps: [stack] holds the stack pointer: yes, the program's code is named: yes
+/proc/self/maps: libc's code: /apex/com.android.runtime/lib64/bionic/libc.so
+realpath: /data/local/tmp/kernel-test-file
+/proc/self/fd: a pipe's link starts with pipe:[ and ends with ]: yes
+processors: configured, online and in the affinity agree: yes, more than one: yes
+setpriority: 0
+sched_setaffinity: 0
+capget: 0
+futex requeue: moved 2 one by one, then woke and moved 2, then woke 1; the waits gave 0 and 0

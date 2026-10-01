@@ -608,6 +608,25 @@ apkrt_start guest_start(void *start_stack) {
     return apkrt_start{start_stack, state.entries, state.listed};
 }
 
+std::vector<MappedObject> mapped_objects() {
+    auto &state = ::apkrt::dl::state();
+    const std::lock_guard lock(state.mutex);
+    std::vector<MappedObject> objects;
+    for (const auto &library : state.libraries) {
+        const auto &image = library.object.image;
+        const auto &info = *image.info;
+        objects.push_back({.path = library.object.shown_name(),
+                           .container = library.container,
+                           .bias = image.bias,
+                           .image_begin = image.bias + info.min_vaddr,
+                           .image_end = image.bias + info.min_vaddr + info.image_size,
+                           .program_headers = info.phdr != 0 ? reinterpret_cast<const void *>(image.bias + info.phdr)
+                                                             : nullptr,
+                           .program_header_count = info.phdr != 0 ? info.phnum : 0});
+    }
+    return objects;
+}
+
 void finish_start(int argc, char **argv, char **envp) {
     auto &state = ::apkrt::dl::state();
     std::vector<const Object *> objects;

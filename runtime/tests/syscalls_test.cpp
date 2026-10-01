@@ -2,6 +2,7 @@
 // with Linux numbers, flags and structures, exactly as a guest's svc veneer delivers them. Descriptors
 // are guest numbers (ADR-0027); host_of() shows the host descriptor behind one.
 #include "descriptors.h"
+#include "proc.h"
 #include "syscall_frame.h"
 #include "vfs.h"
 
@@ -22,10 +23,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <initializer_list>
+#include <regex>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -861,6 +866,91 @@ TEST(futex_waits_and_wakes_like_linux) {
     CHECK(waited == 0);
 }
 
+constexpr std::uint64_t futex_wait = 0, futex_wake = 1, futex_requeue = 3, futex_private = 128;
+constexpr std::uint64_t everyone = 0x7fff'ffff;
+
+/// Moves waiters of `from` to `to` with FUTEX_REQUEUE, one per call, until `count` have moved: so they
+/// all wait, on `to`, when it returns. False when they do not come within a second.
+bool requeue_when_waiting(std::uint64_t from, std::uint64_t to, int count) {
+    int moved = 0;
+    for (int attempt = 0; attempt < 1000 && moved < count; ++attempt) {
+        const auto result = call(nr_futex, {from, futex_requeue | futex_private, 0, 1, to});
+        if (result < 0) return false;
+        moved += static_cast<int>(result);
+        if (moved < count) ::usleep(1000);
+    }
+    return moved == count;
+}
+
+TEST(futex_requeue_moves_waiters_to_another_word_like_linux) {
+    // ART's condition variables move their waiters onto the mutex's word (FUTEX_REQUEUE_PRIVATE) in
+    // Signal and Broadcast, so that the mutex's unlock wakes them (ADR-0033, decision 8). As Linux's
+    // futex_requeue, it wakes `value` waiters, moves up to the count in the timeout argument, and returns
+    // how many it woke and moved together.
+    alignas(4) static std::atomic<std::uint32_t> condition{0}, mutex{0};
+    const auto from = reinterpret_cast<std::uint64_t>(&condition);
+    const auto to = reinterpret_cast<std::uint64_t>(&mutex);
+    CHECK(call(nr_futex, {from, futex_requeue | futex_private, 1, 1, to}) == 0);  // nobody waits
+
+    static std::atomic<std::int64_t> results[2] = {-1, -1};
+    pthread_t threads[2];
+    for (int index = 0; index < 2; ++index) {
+        CHECK(::pthread_create(
+                  &threads[index], nullptr,
+                  [](void *result) -> void * {
+                      *static_cast<std::atomic<std::int64_t> *>(result) = call(
+                          nr_futex, {reinterpret_cast<std::uint64_t>(&condition), futex_wait | futex_private, 0, 0});
+                      return nullptr;
+                  },
+                  &results[index]) == 0);
+    }
+    // Both wait on the mutex's word now; a wake of the condition's word finds nobody.
+    CHECK(requeue_when_waiting(from, to, 2));
+    CHECK(call(nr_futex, {from, futex_wake | futex_private, everyone}) == 0);
+    // Back again: one woken and one moved is 2.
+    CHECK(call(nr_futex, {to, futex_requeue | futex_private, 1, everyone, from}) == 2);
+    CHECK(call(nr_futex, {to, futex_wake | futex_private, everyone}) == 0);
+    CHECK(call(nr_futex, {from, futex_wake | futex_private, everyone}) == 1);
+    // Whatever failed above, no thread waits on: one that comes late finds another value.
+    condition = 1;
+    mutex = 1;
+    call(nr_futex, {from, futex_wake | futex_private, everyone});
+    call(nr_futex, {to, futex_wake | futex_private, everyone});
+    for (const auto thread : threads) CHECK(::pthread_join(thread, nullptr) == 0);
+    CHECK(results[0] == 0 && results[1] == 0);
+
+    // The second word must be aligned, and both counts are ints that may not be negative.
+    CHECK(call(nr_futex, {from, futex_requeue | futex_private, 0, 1, to + 1}) == -einval);
+    CHECK(call(nr_futex, {from, futex_requeue | futex_private, 0xffff'ffff, 1, to}) == -einval);
+    CHECK(call(nr_futex, {from, futex_requeue | futex_private, 0, 0x8000'0000, to}) == -einval);
+}
+
+TEST(a_requeued_futex_wait_that_times_out_leaves_the_new_word_s_queue) {
+    // A waiter whose wait ends by itself after a requeue, by its time as here or by a signal, takes itself
+    // off the queue it is in by then: the new word's.
+    alignas(4) static std::atomic<std::uint32_t> condition{0}, mutex{0};
+    const auto from = reinterpret_cast<std::uint64_t>(&condition);
+    const auto to = reinterpret_cast<std::uint64_t>(&mutex);
+    static std::atomic<std::int64_t> result{-1};
+    pthread_t thread;
+    CHECK(::pthread_create(
+              &thread, nullptr,
+              [](void *) -> void * {
+                  const struct {
+                      std::int64_t seconds, nanoseconds;
+                  } timeout{1, 0};
+                  result = call(nr_futex, {reinterpret_cast<std::uint64_t>(&condition), futex_wait | futex_private, 0,
+                                           reinterpret_cast<std::uint64_t>(&timeout)});
+                  return nullptr;
+              },
+              nullptr) == 0);
+    CHECK(requeue_when_waiting(from, to, 1));
+    CHECK(::pthread_join(thread, nullptr) == 0);
+    CHECK(result == -etimedout);
+    CHECK(call(nr_futex, {to, futex_wake | futex_private, everyone}) == 0);
+    CHECK(call(nr_futex, {from, futex_wake | futex_private, everyone}) == 0);
+}
+
 TEST(prctl_names_anonymous_memory_like_an_android_kernel) {
     // PR_SET_VMA, PR_SET_VMA_ANON_NAME: Android's kernels have CONFIG_ANON_VMA_NAME, and bionic names
     // every thread stack with it. Failing it would leave EINVAL in errno of every new thread.
@@ -997,6 +1087,211 @@ TEST(only_bionics_log_socket_is_refused_quietly) {
         CHECK(call(nr_socket, {af_inet, sock_dgram | sock_cloexec | sock_nonblock, 0}) == -enosys);
         CHECK(call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 1}) == -enosys);
     }));
+}
+
+// --- What ART's start asks of the kernel (ADR-0033, decision 8) -------------------------------------
+
+constexpr std::uint64_t nr_eventfd2 = 19, nr_epoll_create1 = 20, nr_capget = 90, nr_capset = 91,
+                        nr_sched_setaffinity = 122, nr_setpriority = 140, nr_uname = 160;
+
+TEST(uname_answers_as_android_15_s_kernel_in_the_emulator) {
+    // The kernel of the SDK's Android 15 image (kernel-ranchu of android-35): a release of 5.13 or newer,
+    // which ART's read-barrier build checks and apps read. Its release ends in -4k, for its pages; the
+    // guest's are 16 KB, as getpagesize says, and so the release ends in -16k.
+    struct {
+        char sysname[65], nodename[65], release[65], version[65], machine[65], domainname[65];
+    } names;
+    std::memset(&names, 'x', sizeof names);
+    CHECK(call(nr_uname, {address(&names)}) == 0);
+    const auto text = [](const char (&field)[65]) { return std::string(field, ::strnlen(field, sizeof field)); };
+    CHECK(text(names.sysname) == "Linux");
+    CHECK(text(names.nodename) == "localhost");
+    CHECK(text(names.release) == "6.6.30-android15-8-gdd9c02ccfe27-ab11987101-16k");
+    CHECK(text(names.version) == "#1 SMP PREEMPT Tue Jun 18 20:50:32 UTC 2024");
+    CHECK(text(names.machine) == "aarch64");
+    CHECK(text(names.domainname) == "(none)");
+}
+
+TEST(priorities_affinity_and_capabilities_succeed_without_effect) {
+    // Unity sets thread priorities and cores; libcap asks for capabilities. Accepted and kept nowhere:
+    // nothing on the host changes, and an app has no capabilities to get or to set.
+    CHECK(call(nr_setpriority, {0, 0, 10}) == 0);  // PRIO_PROCESS, this process, nice 10
+    CHECK(call(nr_setpriority, {0, unsigned_of(::getpid()), 0}) == 0);
+    CHECK(call(nr_setpriority, {3, 0, 0}) == -einval);  // which is PRIO_PROCESS, PRIO_PGRP or PRIO_USER
+    std::uint64_t mask = 1;                              // CPU 0
+    CHECK(call(nr_sched_setaffinity, {0, sizeof mask, address(&mask)}) == 0);
+    mask = 0;
+    CHECK(call(nr_sched_setaffinity, {0, sizeof mask, address(&mask)}) == -einval);  // no CPU at all
+    std::uint64_t all = 0;
+    CHECK(call(nr_sched_getaffinity, {0, sizeof all, address(&all)}) == 8 && (all & 1) != 0 && all != 1);
+
+    constexpr std::uint32_t version_3 = 0x2008'0522;  // _LINUX_CAPABILITY_VERSION_3: two sets of 32 bits
+    struct {
+        std::uint32_t version;
+        std::int32_t pid;
+    } header{version_3, 0};
+    struct {
+        std::uint32_t effective, permitted, inheritable;
+    } sets[2];
+    std::memset(sets, 0xff, sizeof sets);
+    CHECK(call(nr_capget, {address(&header), address(sets)}) == 0);
+    CHECK(std::all_of(reinterpret_cast<const std::uint8_t *>(sets), reinterpret_cast<const std::uint8_t *>(sets + 2),
+                      [](std::uint8_t byte) { return byte == 0; }));
+    CHECK(call(nr_capget, {address(&header), 0}) == 0);  // libcap's cap_init asks for the version this way
+    header.version = 0x1234'5678;
+    CHECK(call(nr_capget, {address(&header), address(sets)}) == -einval);
+    CHECK(header.version == version_3);  // the kernel's version, for the next try
+    CHECK(call(nr_capset, {address(&header), address(sets)}) == 0);  // nothing, which is what there is
+    sets[0].effective = 1;                                            // CAP_CHOWN
+    CHECK(call(nr_capset, {address(&header), address(sets)}) == -eperm);
+}
+
+/// The whole guest file `path`, read through the guest's syscalls; "error <n>" when it does not open.
+std::string read_guest_file(const char *path) {
+    const auto fd = open_guest(at_fdcwd, path, o_rdonly | o_cloexec);
+    if (fd < 0) return "error " + std::to_string(-fd);
+    std::string text;
+    for (std::string part; !(part = read_text(fd, 1000)).empty() && !part.starts_with("error ");) text += part;
+    call(nr_close, {unsigned_of(fd)});
+    return text;
+}
+
+std::vector<std::string> lines_of(const std::string &text) {
+    std::vector<std::string> lines;
+    for (std::size_t start = 0, end; start < text.size(); start = end + 1) {
+        end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        lines.push_back(text.substr(start, end - start));
+    }
+    return lines;
+}
+
+int cpu_count(const char *name) {
+    int cpus = 0;
+    std::size_t size = sizeof cpus;
+    return ::sysctlbyname(name, &cpus, &size, nullptr, 0) == 0 ? cpus : -1;
+}
+
+TEST(the_cpu_files_count_the_device_s_cpus) {
+    // bionic's sysconf(_SC_NPROCESSORS_CONF) and (_SC_NPROCESSORS_ONLN) read them, and count 1 without
+    // them. "online" agrees with sched_getaffinity.
+    CHECK(read_guest_file("/sys/devices/system/cpu/possible") == std::format("0-{}\n", cpu_count("hw.ncpu") - 1));
+    CHECK(read_guest_file("/sys/devices/system/cpu/online") == std::format("0-{}\n", cpu_count("hw.activecpu") - 1));
+    CHECK(read_guest_file("/sys/devices/system/cpu/present") == "error 2");  // not yet
+    CHECK(open_guest(at_fdcwd, "/sys/devices/system/cpu/online", o_wronly) == -eacces);
+}
+
+/// A main stack for the files of /proc, as program.cpp gives one: 8 MiB.
+struct MainStack {
+    std::uint64_t low = 0, high = 0, start = 0;
+
+    MainStack() {
+        constexpr std::size_t size = 8 << 20;
+        void *const memory = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        low = reinterpret_cast<std::uint64_t>(memory);
+        high = low + size;
+        start = high - 4096;
+        apkrt::proc::set_main_stack(low, high, start);
+        apkrt::proc::set_main_thread(::pthread_self(), "a-name-longer-than-fifteen");
+    }
+    ~MainStack() { ::munmap(reinterpret_cast<void *>(low), high - low); }
+    MainStack(const MainStack &) = delete;
+    MainStack &operator=(const MainStack &) = delete;
+};
+
+TEST(proc_self_stat_reads_as_linux_writes_it) {
+    // bionic's pthread_getattr_np takes the main thread's stack from field 28 (startstack) and
+    // /proc/self/maps; it aborts without them. The line has Linux's 52 fields (fs/proc/array.c).
+    const MainStack stack;
+    ::pthread_setname_np("");  // a thread that has not named itself has the program's name
+    const std::string text = read_guest_file("/proc/self/stat");
+    CHECK(text.ends_with('\n') && lines_of(text).size() == 1);
+    const auto comm_begin = text.find(" ("), comm_end = text.rfind(") ");
+    CHECK(comm_begin != std::string::npos && comm_end != std::string::npos);
+    CHECK(text.substr(0, comm_begin) == std::to_string(::getpid()));
+    // TASK_COMM_LEN: 15 characters and the NUL.
+    CHECK(text.substr(comm_begin + 2, comm_end - comm_begin - 2) == "a-name-longer-t");
+    std::vector<std::string> fields{std::to_string(::getpid()), "comm"};
+    std::istringstream rest(text.substr(comm_end + 2));
+    for (std::string field; rest >> field;) fields.push_back(field);
+    CHECK(fields.size() == 52);
+    CHECK(fields.size() >= 52 && fields[2] == "R" && fields[3] == std::to_string(::getppid()));
+    CHECK(fields.size() >= 52 && fields[27] == std::to_string(stack.start));
+    CHECK(fields.size() >= 52 && fields[24] == "18446744073709551615");  // rsslim: RLIM_INFINITY
+    // The process's own number can stand for self, and the name follows the main thread's.
+    ::pthread_setname_np("renamed");
+    const std::string again = read_guest_file(std::format("/proc/{}/stat", ::getpid()).c_str());
+    CHECK(again.find(" (renamed) R ") != std::string::npos);
+    CHECK(read_guest_file("/proc/1/stat") == "error 2");  // other processes are not there
+}
+
+TEST(proc_self_maps_shows_the_main_stack_and_no_host_path) {
+    // Every mapping in Linux's format (show_map_vma), byte for byte: the name, where there is one, after
+    // spaces up to column 73. The main stack is [stack]; whatever only the host maps (its libraries, its
+    // own code) is anonymous, so that no host path reaches the guest. The guest's own objects come in the
+    // fixture kernel-test, which has some.
+    const MainStack stack;
+    const auto lines = lines_of(read_guest_file("/proc/self/maps"));
+    CHECK(lines.size() > 10);
+    const std::regex format("([0-9a-f]{8,})-([0-9a-f]{8,}) [r-][w-][x-][ps] ([0-9a-f]{8,}) [0-9a-f]{2,}:[0-9a-f]{2,} "
+                            "[0-9]+ ");
+    std::uint64_t previous_end = 0;
+    int stacks = 0;
+    bool code_found = false;
+    const auto code = reinterpret_cast<std::uint64_t>(&read_guest_file);
+    for (const auto &line : lines) {
+        std::smatch match;
+        const bool prefix = std::regex_search(line, match, format, std::regex_constants::match_continuous);
+        CHECK(prefix);
+        if (!prefix) continue;
+        const auto begin = std::stoull(match[1].str(), nullptr, 16), end = std::stoull(match[2].str(), nullptr, 16);
+        CHECK(begin < end && begin >= previous_end);
+        previous_end = end;
+        const auto prefix_length = static_cast<std::size_t>(match.length());
+        const std::string name = line.substr(prefix_length);
+        if (name.empty()) {
+            if (begin <= code && code < end) code_found = true;
+            continue;
+        }
+        CHECK(line.size() > 73 && line[72] == ' ' && line[73] != ' ');
+        CHECK(prefix_length + name.find_first_not_of(' ') == 73);
+        CHECK(line.substr(73) == "[stack]");
+        if (line.substr(73) == "[stack]") {
+            ++stacks;
+            CHECK(begin == stack.low && end == stack.high);
+        }
+    }
+    CHECK(stacks == 1);
+    CHECK(code_found);  // the test's own code is in an anonymous mapping
+}
+
+TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {
+    // bionic's realpath opens the path and asks readlink of /proc/self/fd/<n>; the guest sees its own
+    // paths there, and for what has none Linux's names.
+    const Scratch scratch;
+    const auto file = open_guest(at_fdcwd, "./named", o_rdwr | o_creat | o_cloexec, 0600);
+    CHECK(file >= 0);
+    const auto link = [](const std::string &path, std::size_t size = 256) {
+        std::string buffer(size, '\0');
+        const auto length = call(nr_readlinkat, {at_fdcwd, address(path.c_str()), address(buffer.data()), size});
+        return length < 0 ? "error " + std::to_string(-length) : buffer.substr(0, static_cast<std::size_t>(length));
+    };
+    CHECK(link(std::format("/proc/self/fd/{}", file)) == "/data/local/tmp/named");
+    CHECK(link(std::format("/proc/{}/fd/{}", ::getpid(), file)) == "/data/local/tmp/named");
+    CHECK(link(std::format("/proc/self/fd/{}", file), 9) == "/data/loc");  // cut, as readlink does
+    int ends[2];
+    guest_pipe(ends);
+    CHECK(std::regex_match(link(std::format("/proc/self/fd/{}", ends[0])), std::regex("pipe:\\[[0-9]+\\]")));
+    const auto counter = call(nr_eventfd2, {0, 0});
+    CHECK(link(std::format("/proc/self/fd/{}", counter)) == "anon_inode:[eventfd]");
+    const auto epoll = call(nr_epoll_create1, {0});
+    CHECK(link(std::format("/proc/self/fd/{}", epoll)) == "anon_inode:[eventpoll]");
+    const auto stat = open_guest(at_fdcwd, "/proc/self/stat", o_rdonly);
+    CHECK(link(std::format("/proc/self/fd/{}", stat)) == std::format("/proc/{}/stat", ::getpid()));
+    CHECK(link("/proc/self/fd/999") == "error 2");
+    for (const auto fd : {file, std::int64_t{ends[0]}, std::int64_t{ends[1]}, counter, epoll, stat}) {
+        call(nr_close, {unsigned_of(fd)});
+    }
 }
 
 }  // namespace

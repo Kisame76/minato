@@ -2,6 +2,7 @@
 // structures on Darwin's file descriptors. Every path goes through the path table (vfs.h), every
 // descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
 #include "descriptors.h"
+#include "proc.h"
 #include "syscalls.h"
 #include "vfs.h"
 
@@ -260,6 +261,15 @@ HostPath resolve(int directory, std::uint64_t address) {
     return {.path = std::move(*host)};
 }
 
+/// The absolute guest path, in normal form, of a path argument that does not go through a directory
+/// descriptor: how the files the runtime writes itself are found (proc.h). Nullopt for the others.
+std::optional<std::string> guest_absolute(int directory, std::uint64_t address) {
+    if (address == 0) return std::nullopt;
+    const std::string_view guest(as_pointer<const char>(address));
+    if (guest.empty() || (!guest.starts_with('/') && directory != linux_at_fdcwd)) return std::nullopt;
+    return vfs::absolute(guest, guest.starts_with('/') ? "/" : vfs::working_directory());
+}
+
 /// Darwin's *at() flag for AT_SYMLINK_NOFOLLOW.
 int host_at_flags(int linux_flags) {
     return (linux_flags & linux_at_symlink_nofollow) ? AT_SYMLINK_NOFOLLOW : 0;
@@ -349,6 +359,9 @@ std::optional<long> seek_stream(descriptors::Description &description, std::int6
 
 long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     if (flags & linux_open::tmpfile) return -linux_errno::eopnotsupp;
+    if (const auto absolute = guest_absolute(directory, path)) {
+        if (const auto written = proc::open(*absolute, flags)) return *written;
+    }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     int host_flags = flags & linux_open::access_mode;
@@ -451,6 +464,11 @@ long sys_symlinkat(std::uint64_t target, int directory, std::uint64_t path) {
 
 long sys_readlinkat(int directory, std::uint64_t path, std::uint64_t buffer, std::int64_t size) {
     if (size <= 0) return -linux_errno::einval;
+    if (const auto absolute = guest_absolute(directory, path)) {
+        if (const auto link = proc::read_link(*absolute, as_pointer<char>(buffer), static_cast<std::size_t>(size))) {
+            return *link;
+        }
+    }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     return result_or_error(::readlinkat(host.directory, host.path.c_str(), as_pointer<char>(buffer),

@@ -10,9 +10,13 @@
 #include "loader.h"
 #include "syscall_frame.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace apkrt::dl {
 
@@ -53,5 +57,19 @@ apkrt_start guest_start(void *start_stack);
 /// constructors, with the program's argc, argv and envp, which dlopen'ed libraries get as well.
 /// Guest code runs; on failure the process ends with a message, as linker64 ends it.
 void finish_start(int argc, char **argv, char **envp);
+
+/// A loaded ELF object as /proc/self/maps shows it (proc.h).
+struct MappedObject {
+    std::string path;                       // the guest path linker64 reports
+    std::filesystem::path container;
+    std::uint64_t bias = 0;
+    std::uint64_t image_begin = 0;          // host addresses of the image, page aligned
+    std::uint64_t image_end = 0;
+    const void *program_headers = nullptr;  // Elf64_Phdr[program_header_count], or null when no
+    std::size_t program_header_count = 0;   // segment holds them
+};
+
+/// The program and its libraries, in load order.
+std::vector<MappedObject> mapped_objects();
 
 }  // namespace apkrt::dl

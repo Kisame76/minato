@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace apkrt::descriptors {
 
@@ -59,6 +60,10 @@ public:
     std::mutex stream_mutex;
     DIR *stream = nullptr;     // guarded by stream_mutex
     long stream_position = 0;  // guarded by stream_mutex
+
+    /// For a file of /proc or /sys that the runtime wrote (proc.h): its guest path, which the links
+    /// of /proc/self/fd show. Set before the description goes into the table; empty for all others.
+    std::string written_path;
 
 private:
     std::atomic<bool> nonblocking_;

@@ -174,6 +174,8 @@ constexpr std::uint64_t sync = 81;
 constexpr std::uint64_t fsync = 82;
 constexpr std::uint64_t fdatasync = 83;
 constexpr std::uint64_t utimensat = 88;
+constexpr std::uint64_t capget = 90;
+constexpr std::uint64_t capset = 91;
 constexpr std::uint64_t exit = 93;
 constexpr std::uint64_t exit_group = 94;
 constexpr std::uint64_t set_tid_address = 96;
@@ -184,6 +186,7 @@ constexpr std::uint64_t clock_getres = 114;
 constexpr std::uint64_t clock_nanosleep = 115;
 constexpr std::uint64_t sched_getscheduler = 120;
 constexpr std::uint64_t sched_getparam = 121;
+constexpr std::uint64_t sched_setaffinity = 122;
 constexpr std::uint64_t sched_getaffinity = 123;
 constexpr std::uint64_t sched_yield = 124;
 constexpr std::uint64_t kill = 129;
@@ -197,6 +200,8 @@ constexpr std::uint64_t rt_sigpending = 136;
 constexpr std::uint64_t rt_sigtimedwait = 137;
 constexpr std::uint64_t rt_sigqueueinfo = 138;
 constexpr std::uint64_t rt_sigreturn = 139;
+constexpr std::uint64_t setpriority = 140;
+constexpr std::uint64_t uname = 160;
 constexpr std::uint64_t getrlimit = 163;
 constexpr std::uint64_t setrlimit = 164;
 constexpr std::uint64_t umask = 166;
@@ -247,16 +252,46 @@ long sys_sched_getparam(int pid, std::uint64_t parameters) {
     return 0;
 }
 
+/// The device's active CPUs as Linux's CPU mask: one bit each, up to 64.
+std::uint64_t active_cpu_mask() {
+    int cpus = 1;
+    std::size_t length = sizeof cpus;
+    if (::sysctlbyname("hw.activecpu", &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
+    return cpus >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << cpus) - 1;
+}
+
 long sys_sched_getaffinity(int pid, std::uint64_t size, std::uint64_t mask) {
     // Linux writes the kernel's CPU mask, 8 bytes up to 64 CPUs, and returns its size.
     constexpr std::uint64_t kernel_mask_size = 8;
     if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
     if (size < kernel_mask_size) return -linux_errno::einval;
-    int cpus = 1;
-    std::size_t length = sizeof cpus;
-    if (::sysctlbyname("hw.activecpu", &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
-    *as_pointer<std::uint64_t>(mask) = cpus >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << cpus) - 1;
+    *as_pointer<std::uint64_t>(mask) = active_cpu_mask();
     return static_cast<long>(kernel_mask_size);
+}
+
+/// Whether `id` is 0, the process or one of its guest threads: what a call that takes a thread ID
+/// accepts.
+bool names_own_thread(int id) {
+    if (id == 0 || id == ::getpid()) return true;
+    bool found = false;
+    apkrt::threads::find(id, [&](apkrt::threads::GuestThread &) { found = true; });
+    return found;
+}
+
+/// Unity pins its threads to cores and sets their priorities (ADR-0033, decision 8). Both succeed
+/// as on Android and are kept nowhere: guest threads run where and as the host schedules them.
+long sys_sched_setaffinity(int pid, std::uint64_t size, std::uint64_t mask) {
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
+    std::uint64_t wanted = 0;
+    std::memcpy(&wanted, as_pointer<const void>(mask), std::min<std::uint64_t>(size, sizeof wanted));
+    return (wanted & active_cpu_mask()) != 0 ? 0 : -linux_errno::einval;  // no CPU it could run on
+}
+
+long sys_setpriority(int which, int who) {
+    constexpr int prio_process = 0, prio_user = 2;  // PRIO_PGRP is 1
+    if (which < prio_process || which > prio_user) return -linux_errno::einval;
+    if (which == prio_process && !names_own_thread(who)) return -linux_errno::esrch;
+    return 0;
 }
 
 // --- Time -------------------------------------------------------------------------------------------
@@ -389,6 +424,75 @@ long sys_prctl(int option, std::uint64_t argument) {
     }
 }
 
+/// uname: Linux and Android 15's kernel, with the strings of the SDK's Android 15 emulator image
+/// (kernel-ranchu of android-35). ART's read-barrier build checks for 5.13 or newer, and apps read it.
+/// The emulator's release ends in -4k for its 4 KB pages; the guest's pages are 16 KB, as getpagesize
+/// says, and a GKI kernel with 16 KB pages ends in -16k [inferred].
+long sys_uname(std::uint64_t buffer) {
+    struct {
+        char sysname[65], nodename[65], release[65], version[65], machine[65], domainname[65];
+    } names{};
+    constexpr auto put = [](char (&field)[65], std::string_view text) { text.copy(field, sizeof field - 1); };
+    put(names.sysname, "Linux");
+    put(names.nodename, "localhost");
+    put(names.release, "6.6.30-android15-8-gdd9c02ccfe27-ab11987101-16k");
+    put(names.version, "#1 SMP PREEMPT Tue Jun 18 20:50:32 UTC 2024");
+    put(names.machine, "aarch64");
+    put(names.domainname, "(none)");
+    std::memcpy(as_pointer<void>(buffer), &names, sizeof names);
+    return 0;
+}
+
+// Capabilities (include/uapi/linux/capability.h): a header, then one set (version 1) or two of 32 bits.
+constexpr std::uint32_t capability_version_1 = 0x1998'0330;
+constexpr std::uint32_t capability_version_2 = 0x2007'1026;
+constexpr std::uint32_t capability_version_3 = 0x2008'0522;
+struct CapabilityHeader {
+    std::uint32_t version;
+    std::int32_t pid;
+};
+struct CapabilitySet {
+    std::uint32_t effective, permitted, inheritable;
+};
+
+/// How many sets `header`'s version carries, as cap_validate_magic finds it; for a version Linux does
+/// not know, 0, and the kernel's own version goes into the header for the next try.
+std::size_t capability_sets(CapabilityHeader &header) {
+    switch (header.version) {
+        case capability_version_1: return 1;
+        case capability_version_2:
+        case capability_version_3: return 2;
+        default:
+            header.version = capability_version_3;
+            return 0;
+    }
+}
+
+/// capget and capset as for an app, which has no capabilities (ADR-0033, decision 8): libcap asks.
+long sys_capget(std::uint64_t header_address, std::uint64_t sets_address) {
+    auto &header = *as_pointer<CapabilityHeader>(header_address);
+    const std::size_t sets = capability_sets(header);
+    if (sets_address == 0) return 0;  // asks for the version, whichever it gave
+    if (sets == 0 || header.pid < 0) return -linux_errno::einval;
+    if (!names_own_thread(header.pid)) return -linux_errno::esrch;
+    std::memset(as_pointer<void>(sets_address), 0, sets * sizeof(CapabilitySet));
+    return 0;
+}
+
+long sys_capset(std::uint64_t header_address, std::uint64_t sets_address) {
+    auto &header = *as_pointer<CapabilityHeader>(header_address);
+    const std::size_t sets = capability_sets(header);
+    if (sets == 0) return -linux_errno::einval;
+    if (header.pid != 0 && header.pid != sys_gettid()) return -linux_errno::eperm;  // only the caller's own
+    const auto *wanted = as_pointer<const CapabilitySet>(sets_address);
+    for (std::size_t index = 0; index < sets; ++index) {
+        if (wanted[index].effective != 0 || wanted[index].permitted != 0 || wanted[index].inheritable != 0) {
+            return -linux_errno::eperm;  // more than it has
+        }
+    }
+    return 0;
+}
+
 /// The guest's RLIMIT_STACK, at first Android's: 8 MiB soft and no hard limit (RLIM_INFINITY)
 /// (ADR-0035). The main thread's stack stays 8 MiB whatever the guest sets (program.cpp), where Linux
 /// would let a higher soft limit grow it.
@@ -502,6 +606,12 @@ long dispatch(const apkrt_syscall_frame &frame) {
 
         case nr::prctl:
             return sys_prctl(as_int(x[0]), x[1]);
+        case nr::uname:
+            return sys_uname(x[0]);
+        case nr::capget:
+            return sys_capget(x[0], x[1]);
+        case nr::capset:
+            return sys_capset(x[0], x[1]);
         case nr::getrlimit:
             return sys_prlimit64(0, as_int(x[0]), 0, x[1]);
         case nr::setrlimit:
@@ -611,7 +721,7 @@ long dispatch(const apkrt_syscall_frame &frame) {
         case nr::fchdir:
             return sys_fchdir(as_int(x[0]));
         case nr::futex:
-            return sys_futex(x[0], as_int(x[1]), static_cast<std::uint32_t>(x[2]), x[3],
+            return sys_futex(x[0], as_int(x[1]), static_cast<std::uint32_t>(x[2]), x[3], x[4],
                              static_cast<std::uint32_t>(x[5]));
         case nr::clock_gettime:
             return sys_clock_gettime(as_int(x[0]), x[1], false);
@@ -625,6 +735,10 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_gettimeofday(x[0], x[1]);
         case nr::sched_getaffinity:
             return sys_sched_getaffinity(as_int(x[0]), x[1], x[2]);
+        case nr::sched_setaffinity:
+            return sys_sched_setaffinity(as_int(x[0]), x[1], x[2]);
+        case nr::setpriority:
+            return sys_setpriority(as_int(x[0]), as_int(x[1]));
         case nr::sched_getscheduler:
             return sys_sched_getscheduler(as_int(x[0]));
         case nr::sched_getparam:

@@ -7,6 +7,7 @@
 // are a static one the converter makes and the NDK fixture raw-dyn without its library (skipped while
 // it is missing). That the start-up code runs on the program's thread, fixtures/suite/start-test.c
 // checks against Android.
+#include "environment.h"
 #include "loader_syscalls.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -684,6 +685,35 @@ TEST(a_session_needs_an_end_handler_and_begins_once) {
     const apkrt_session session{.context = nullptr, .end = [](void *, int) {}};
     CHECK(apkrt_session_begin(&session) == 0);
     CHECK(apkrt_session_begin(&session) == -1);
+}
+
+// ADR-0039, decision 2: every program starts with init's environment, and the caller's entries on top.
+TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
+    const std::string boot_class_path =
+        "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
+        "/apex/com.android.art/javalib/core-icu4j.jar";
+    const std::vector<std::string> init = {
+        "ANDROID_BOOTLOGO=1",
+        "ANDROID_ROOT=/system",
+        "ANDROID_ASSETS=/system/app",
+        "ANDROID_DATA=/data",
+        "ANDROID_STORAGE=/storage",
+        "ANDROID_ART_ROOT=/apex/com.android.art",
+        "ANDROID_I18N_ROOT=/apex/com.android.i18n",
+        "ANDROID_TZDATA_ROOT=/apex/com.android.tzdata",
+        "EXTERNAL_STORAGE=/sdcard",
+        "ASEC_MOUNTPOINT=/mnt/asec",
+        "BOOTCLASSPATH=" + boot_class_path,
+        "DEX2OATBOOTCLASSPATH=" + boot_class_path,
+    };
+    CHECK(apkrt::environment::at_start({}) == init);
+    // A name of init's keeps its place with the caller's value; the caller's others follow in order.
+    auto expected = init;
+    expected[3] = "ANDROID_DATA=/elsewhere";
+    expected.push_back("LD_LIBRARY_PATH=/data/local/tmp");
+    expected.push_back("OWN=1");
+    CHECK(apkrt::environment::at_start({"LD_LIBRARY_PATH=/data/local/tmp", "ANDROID_DATA=/elsewhere", "OWN=1"}) ==
+          expected);
 }
 
 // Decision 5: what keeps a program from starting comes back to the caller, which keeps its thread.
