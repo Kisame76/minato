@@ -3,6 +3,7 @@
    - Displays: EGL_DEFAULT_DISPLAY, also as EGL_PLATFORM_ANDROID_KHR, is ANGLE's Metal display; another native
      display or platform gives EGL_NO_DISPLAY with EGL_BAD_PARAMETER, as Android's libEGL answers.
    - Strings: no EGL_KHR_debug, EGL_ANDROID_blob_cache, EGL_EXT_platform_base or ANGLE's platform extensions;
+     EGL_ANDROID_presentation_time among the display extensions (patch 0005, ADR-0041 decision 11) and
      EGL_KHR_platform_android among the client extensions; no GL_ANGLE_blob_cache, and GL_NUM_EXTENSIONS
      through every query counts what glGetStringi lists.
    - Configs: EGL_RECORDABLE_ANDROID and EGL_FRAMEBUFFER_TARGET_ANDROID do not reach ANGLE; the config answers
@@ -142,10 +143,10 @@ static void strings(EGLDisplay display) {
     printf("  client extensions: %s\n", client != NULL ? client : "(NULL)");
     const char *extensions = eglQueryString(display, EGL_EXTENSIONS);
     printf("  display extensions: %d; EGL_ANDROID_blob_cache %s, EGL_KHR_debug %s, EGL_ANDROID_recordable %s, "
-           "EGL_KHR_fence_sync %s; the same string at the next call: %s\n",
+           "EGL_KHR_fence_sync %s, EGL_ANDROID_presentation_time %s; the same string at the next call: %s\n",
            words(extensions), yes(listed(extensions, "EGL_ANDROID_blob_cache")),
            yes(listed(extensions, "EGL_KHR_debug")), yes(listed(extensions, "EGL_ANDROID_recordable")),
-           yes(listed(extensions, "EGL_KHR_fence_sync")),
+           yes(listed(extensions, "EGL_KHR_fence_sync")), yes(listed(extensions, "EGL_ANDROID_presentation_time")),
            yes(eglQueryString(display, EGL_EXTENSIONS) == extensions));
 
     const char *gl = (const char *)glGetString(GL_EXTENSIONS);

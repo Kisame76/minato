@@ -1,0 +1,176 @@
+EGL_ANDROID_presentation_time on the Metal backend (ADR-0041, decision 11; ADR-0029, decision 8).
+
+Why: Swappy, Android's frame pacing library, sets each frame's presentation time with
+eglPresentationTimeANDROID. ANGLE's front end has the entry point and its validation, but the Metal
+backend neither announces the extension nor overrides SurfaceImpl::setPresentationTime. Now DisplayMtl
+announces it, WindowSurfaceMtl keeps the time for its next swap, and that swap presents its drawable
+with presentDrawable:atTime:, the time in seconds of Core Animation's host time. The swap after it
+presents at once again: the time holds for one present, as ANGLE's Vulkan backend consumes
+mDesiredPresentTime. The caller's nanoseconds must be on the host's uptime clock (mach_absolute_time),
+which Minato's guests get as CLOCK_MONOTONIC.
+Upstream: could go upstream, with the clock named for Apple platforms.
+Remove: when upstream implements EGL_ANDROID_presentation_time for Metal.
+
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.h b/src/libANGLE/renderer/metal/ContextMtl.h
+index 4ea4a3c..56ebd55 100644
+--- a/src/libANGLE/renderer/metal/ContextMtl.h
++++ b/src/libANGLE/renderer/metal/ContextMtl.h
+@@ -13,6 +13,8 @@
+ #import <Metal/Metal.h>
+ #import <mach/mach_types.h>
+ 
++#include <optional>
++
+ #include "common/Optional.h"
+ #include "image_util/loadimage.h"
+ #include "libANGLE/Context.h"
+@@ -339,7 +341,10 @@ class ContextMtl : public ContextImpl, public mtl::Context
+     void endEncoding(bool forceSaveRenderPassContent);
+ 
+     void flushCommandBuffer(mtl::CommandBufferFinishOperation operation);
+-    void present(const gl::Context *context, id<CAMetalDrawable> presentationDrawable);
++    // With a presentation time (EGL_ANDROID_presentation_time), the drawable is presented at that time.
++    void present(const gl::Context *context,
++                 id<CAMetalDrawable> presentationDrawable,
++                 std::optional<CFTimeInterval> presentationTime = std::nullopt);
+     angle::Result finishCommandBuffer();
+ 
+     void addCommandBufferScheduledCallback(std::function<void()> callback);
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+index ad2cd40..0bd4044 100644
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -1808,7 +1808,9 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+     }
+ }
+ 
+-void ContextMtl::present(const gl::Context *context, id<CAMetalDrawable> presentationDrawable)
++void ContextMtl::present(const gl::Context *context,
++                         id<CAMetalDrawable> presentationDrawable,
++                         std::optional<CFTimeInterval> presentationTime)
+ {
+     ensureCommandBufferReady();
+ 
+@@ -1819,7 +1821,14 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+     }
+ 
+     endEncoding(false);
+-    mCmdBuffer.present(presentationDrawable);
++    if (presentationTime.has_value())
++    {
++        mCmdBuffer.presentAtTime(presentationDrawable, presentationTime.value());
++    }
++    else
++    {
++        mCmdBuffer.present(presentationDrawable);
++    }
+     mCmdBuffer.commit(mtl::NoWait);
+     mRenderPassesSinceFlush = 0;
+ }
+diff --git a/src/libANGLE/renderer/metal/DisplayMtl.mm b/src/libANGLE/renderer/metal/DisplayMtl.mm
+index b1bc909..5b097b7 100644
+--- a/src/libANGLE/renderer/metal/DisplayMtl.mm
++++ b/src/libANGLE/renderer/metal/DisplayMtl.mm
+@@ -468,6 +468,7 @@ bool IsMetalDisplayAvailable()
+     outExtensions->createContextRobustness    = true;
+     outExtensions->iosurfaceClientBuffer      = true;
+     outExtensions->windowFixedSize            = true;
++    outExtensions->presentationTime           = true;
+     outExtensions->surfacelessContext         = true;
+     outExtensions->noConfigContext            = true;
+     outExtensions->displayTextureShareGroup   = true;
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.h b/src/libANGLE/renderer/metal/SurfaceMtl.h
+index 8208194..16cc41c 100644
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.h
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.h
+@@ -12,6 +12,8 @@
+ #import <QuartzCore/CALayer.h>
+ #import <QuartzCore/CAMetalLayer.h>
+ 
++#include <optional>
++
+ #include "libANGLE/renderer/FramebufferImpl.h"
+ #include "libANGLE/renderer/SurfaceImpl.h"
+ #include "libANGLE/renderer/metal/RenderTargetMtl.h"
+@@ -161,6 +163,9 @@ class WindowSurfaceMtl : public SurfaceMtl
+     void setFixedWidth(EGLint width) override;
+     void setFixedHeight(EGLint height) override;
+ 
++    // EGL_ANDROID_presentation_time: the next swap presents its drawable at this time.
++    egl::Error setPresentationTime(EGLnsecsANDROID time) override;
++
+     angle::Result ensureCurrentDrawableObtained(const gl::Context *context);
+ 
+     // Ensure the the texture returned from getColorTexture() is ready for glReadPixels(). This
+@@ -191,6 +196,9 @@ class WindowSurfaceMtl : public SurfaceMtl
+     bool mFixedSize           = false;
+     CGSize mFixedDrawableSize = CGSizeMake(0, 0);
+ 
++    // EGL_ANDROID_presentation_time: the time set for the next swap's present, which that present takes.
++    std::optional<EGLnsecsANDROID> mPresentationTime;
++
+     bool mRetainBuffer = false;
+ };
+ 
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.mm b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+index 65029ac..8e369b9 100644
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.mm
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+@@ -435,6 +435,12 @@
+     mFixedDrawableSize.height = static_cast<CGFloat>(height);
+ }
+ 
++egl::Error WindowSurfaceMtl::setPresentationTime(EGLnsecsANDROID time)
++{
++    mPresentationTime = time;
++    return egl::NoError();
++}
++
+ WindowSurfaceMtl::~WindowSurfaceMtl() {}
+ 
+ void WindowSurfaceMtl::destroy(const egl::Display *display)
+@@ -716,7 +722,15 @@
+             ANGLE_TRY(resolveColorTextureIfNeeded(context));
+         }
+ 
+-        contextMtl->present(context, mCurrentDrawable);
++        // EGL_ANDROID_presentation_time: the time in seconds, as Core Animation's host time counts them. The
++        // caller's nanoseconds must be on that clock, the host's uptime clock (mach_absolute_time).
++        std::optional<CFTimeInterval> presentationTime;
++        if (mPresentationTime.has_value())
++        {
++            presentationTime = static_cast<CFTimeInterval>(mPresentationTime.value()) / 1e9;
++            mPresentationTime.reset();
++        }
++        contextMtl->present(context, mCurrentDrawable, presentationTime);
+ 
+         StopFrameCapture();
+         StartFrameCapture(contextMtl);
+diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.h b/src/libANGLE/renderer/metal/mtl_command_buffer.h
+index 6a1b063..9f5840b 100644
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.h
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.h
+@@ -200,6 +200,7 @@ class CommandBuffer final : public WrappedObject<id<MTLCommandBuffer>>, angle::N
+     void wait(CommandBufferFinishOperation operation);
+ 
+     void present(id<CAMetalDrawable> presentationDrawable);
++    void presentAtTime(id<CAMetalDrawable> presentationDrawable, CFTimeInterval time);
+ 
+     void setWriteDependency(const ResourceRef &resource, bool isRenderCommand);
+     void setReadDependency(const ResourceRef &resource, bool isRenderCommand);
+diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+index ae68ae9..ed396ef 100644
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+@@ -949,6 +949,11 @@ void RandomizeClearValue(ObjCAttachmentDescriptor *objCRenderPassAttachment)
+     [get() presentDrawable:presentationDrawable];
+ }
+ 
++void CommandBuffer::presentAtTime(id<CAMetalDrawable> presentationDrawable, CFTimeInterval time)
++{
++    [get() presentDrawable:presentationDrawable atTime:time];
++}
++
+ void CommandBuffer::setResourceUsedByCommandBuffer(const ResourceRef &resource)
+ {
+     if (resource)

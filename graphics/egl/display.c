@@ -8,7 +8,8 @@
    - The extension strings leave out what tools/frontgen withholds (egl_withheld.inc); the client extensions
      name EGL_KHR_platform_android, whose display libEGL gives.
    - eglGetProcAddress hands out libEGL's own functions and libGLESv2's, never ANGLE's.
-   - eglPresentationTimeANDROID does nothing until ANGLE can present at a time (M4).
+   - eglPresentationTimeANDROID goes to ANGLE, whose Metal backend presents the surface's next swap at that time
+     (patch 0005, ADR-0041 decision 11); the guest's CLOCK_MONOTONIC is the uptime clock it expects (F10).
    - eglClientWaitSync and eglClientWaitSyncKHR wait in slices of at most 10 ms, their flush is glFlush; a
      reusable sync, on which ANGLE cannot wait, is asked without a wait between sleeps. */
 #include <android/native_window.h>
@@ -25,6 +26,7 @@ MINATO_HOST(eglTerminate);
 MINATO_HOST(eglChooseConfig);
 MINATO_HOST(eglGetConfigAttrib);
 MINATO_HOST(eglQueryString);
+MINATO_HOST(eglPresentationTimeANDROID);
 MINATO_HOST(eglClientWaitSync);
 MINATO_HOST(eglClientWaitSyncKHR);
 
@@ -228,8 +230,7 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *name) {
 }
 
 EGLBoolean eglPresentationTimeANDROID(EGLDisplay display, EGLSurface surface, EGLnsecsANDROID time) {
-    (void)display, (void)surface, (void)time;
-    return EGL_TRUE;
+    return minato_host_eglPresentationTimeANDROID(display, surface, time);
 }
 
 #define SLICE_NS 10000000u

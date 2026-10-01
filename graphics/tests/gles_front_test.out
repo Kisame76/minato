@@ -10,7 +10,7 @@ configs:
   GL_RENDERER is ANGLE's Metal renderer: yes; GL_VERSION begins with OpenGL ES 3.0: yes
 strings:
   client extensions: EGL_EXT_client_extensions EGL_EXT_device_query EGL_KHR_client_get_all_proc_addresses EGL_ANGLE_feature_control EGL_ANGLE_display_power_preference EGL_ANGLE_no_error EGL_KHR_platform_android
-  display extensions: 30; EGL_ANDROID_blob_cache no, EGL_KHR_debug no, EGL_ANDROID_recordable yes, EGL_KHR_fence_sync yes; the same string at the next call: yes
+  display extensions: 31; EGL_ANDROID_blob_cache no, EGL_KHR_debug no, EGL_ANDROID_recordable yes, EGL_KHR_fence_sync yes, EGL_ANDROID_presentation_time yes; the same string at the next call: yes
   GL_EXTENSIONS: 116; GL_ANGLE_blob_cache no, GL_KHR_debug yes; the same string at the next call: yes
   GL_NUM_EXTENSIONS: glGetIntegerv 116, glGetInteger64v 116, glGetFloatv 116, glGetBooleanv GL_TRUE; their RobustANGLE forms 116, 116, 116, GL_TRUE
   glGetStringi: the same 116 names in the same order: yes; index 116: NULL, GL_INVALID_VALUE

@@ -1,0 +1,6 @@
+I/present-gles: EGL_ANDROID_presentation_time: there
+I/present-gles: rate 60: 600 frames presented 1, 2 and 3 periods on, 600 times taken, 600 presents
+I/present-gles: rate 120: 600 frames presented 1, 2 and 3 periods on, 600 times taken, 600 presents
+I/present-gles: present.csv: written
+I/present-gles: ANativeActivity_finish
+I/present-gles: android_main returns

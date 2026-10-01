@@ -14,10 +14,11 @@ else()
 endif()
 set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
-# Tests 2 and 4 need Core Animation and Metal objects: Objective-C++ with ARC.
-# Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003).
+# Tests 2, 4 and 5 need Core Animation and Metal objects: Objective-C++ with ARC.
+# Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003). Test 5:
+# EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11).
 enable_language(OBJCXX)
-foreach(test IN ITEMS fixed_size commit_gate)
+foreach(test IN ITEMS fixed_size commit_gate presentation_time)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)
@@ -305,10 +306,10 @@ if(TARGET minato_graphics_host)
   # The tests that time something on the GPU's way, and graphics.bench, whose heavy scene holds the GPU for a minute,
   # never run at once under ctest -j: another test's GPU work could stall a frame past their limits
   # (graphics.vulkan_live once saw a frame interval of 108 ms in a full run with -j8).
-  set_tests_properties(graphics.angle_commit_gate graphics.gles_front graphics.gles_gate graphics.gles_glue
-    graphics.vulkan_queue graphics.vulkan_present graphics.gles_app graphics.vulkan_app graphics.gles_live
-    graphics.vulkan_live graphics.present_gles graphics.present_vulkan graphics.bench graphics.recorder PROPERTIES
-    RESOURCE_LOCK gpu)
+  set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
+    graphics.gles_gate graphics.gles_glue graphics.vulkan_queue graphics.vulkan_present graphics.gles_app
+    graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles graphics.present_vulkan
+    graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
