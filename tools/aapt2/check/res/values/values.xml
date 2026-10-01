@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="harbor">#ff1e5aa8</color>
+    <integer name="answer">42</integer>
+    <dimen name="gap">16dp</dimen>
+</resources>

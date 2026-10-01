@@ -128,7 +128,7 @@ Host tools in `build/`, not in the app. The Java that `aidl` writes comes from A
 
 ## Framework sources (ADR-0039 step b)
 
-Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.6 MB packed, your go). Host builds (aapt2, protoc) do not ship; what the guest system ships is named here when its step builds it.
+Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed, your go). The host aapt2 and protoc, with the protobuf, libpng, expat, libutils, libcutils, libziparchive, incfs-utils and libbuildversion they link, are build tools in `build/` and do not ship; what the guest system ships is named here when its step builds it.
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
@@ -138,6 +138,7 @@ Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.6 M
 | `platform/system/core` | `fc7bc8c4bfb4` | Apache-2.0 | only `libutils`, `libcutils` and `libsystem`, which aapt2 and libandroidfw link |
 | `platform/system/incremental_delivery` | `fcd1a7622ab4` | Apache-2.0 | libincfs-utils, which libandroidfw links |
 | `platform/build/soong` | `3fe78dc9b32f` | Apache-2.0 | only `cc/libbuildversion`, which aapt2 links |
+| `platform/build/release` | `e1dfb3dc7831` | Apache-2.0 | only `aconfig/ap3a`: Android 15's flag values, read by our flag generator |
 
 ## References without adopted code
 

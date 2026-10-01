@@ -362,6 +362,16 @@
         "cc/libbuildversion"
       ],
       "digest": "2cc2f85d35662c294ecc524938b984c25632a0a7f934a30588bb988dbd9914ff"
+    },
+    {
+      "name": "build_release",
+      "project": "platform/build/release",
+      "commit": "e1dfb3dc783166aadcf150d67d3d53d68001883a",
+      "license": "Apache-2.0",
+      "directories": [
+        "aconfig/ap3a"
+      ],
+      "digest": "07969887b5371c984cc6a368485fceb4a705d9c7dcf6565fdd2d542c65e0c49b"
     }
   ],
   "angle": {

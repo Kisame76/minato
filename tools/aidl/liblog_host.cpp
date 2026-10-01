@@ -1,12 +1,16 @@
-// liblog for the host aidl (ADR-0045 decision 1): the 10 functions that libbase's logging.cpp calls
-// (system/libbase at android-15.0.0_r1), with liblog's host behavior and every message on stderr. aidl
-// is a build tool, so its log is diagnostics only; its errors reach stderr through its own writer.
-//   __android_log_set_logger, __android_log_write_log_message, __android_log_logd_logger,
+// liblog for the host build tools, aidl (ADR-0045 decision 1) and aapt2 (ADR-0039 b1): the 10 functions that
+// libbase's logging.cpp calls (system/libbase at android-15.0.0_r1), and the 3 that libutils, libcutils and
+// libandroidfw call for aapt2, with liblog's host behavior and every message on stderr. The tools' log is
+// diagnostics only; their errors reach stderr through their own writers.
+//   libbase: __android_log_set_logger, __android_log_write_log_message, __android_log_logd_logger,
 //   __android_log_buf_print, __android_log_is_loggable, __android_log_set_minimum_priority,
 //   __android_log_get_minimum_priority, __android_log_set_default_tag, __android_log_set_aborter,
 //   __android_log_call_aborter
+//   aapt2's libraries: __android_log_print, __android_log_assert, and __android_log_error_write (the SafetyNet
+//   event log, which has no reader on the host and is dropped)
 
 #include <android/log.h>
+#include <log/log_safetynet.h>
 
 #include <atomic>
 #include <cstdarg>
@@ -80,6 +84,39 @@ int __android_log_buf_print(int bufID, int prio, const char* tag, const char* fm
   __android_log_message message = {sizeof(__android_log_message), bufID, prio, tag, nullptr, 0, text};
   WriteToStderr(&message);
   return 1;
+}
+
+int __android_log_print(int prio, const char* tag, const char* fmt, ...) {
+  char text[1024];
+  va_list arguments;
+  va_start(arguments, fmt);
+  vsnprintf(text, sizeof(text), fmt, arguments);
+  va_end(arguments);
+  __android_log_message message = {sizeof(__android_log_message), LOG_ID_MAIN, prio, tag, nullptr, 0, text};
+  if (!__android_log_is_loggable(prio, tag, ANDROID_LOG_VERBOSE)) return 0;
+  __android_log_write_log_message(&message);
+  return 1;
+}
+
+void __android_log_assert(const char* cond, const char* tag, const char* fmt, ...) {
+  char text[1024];
+  if (fmt != nullptr) {
+    va_list arguments;
+    va_start(arguments, fmt);
+    vsnprintf(text, sizeof(text), fmt, arguments);
+    va_end(arguments);
+  } else {
+    snprintf(text, sizeof(text), "Assertion failed: %s", cond != nullptr ? cond : "(unknown)");
+  }
+  __android_log_message message = {sizeof(__android_log_message), LOG_ID_CRASH, ANDROID_LOG_FATAL, tag, nullptr, 0,
+                                   text};
+  WriteToStderr(&message);
+  __android_log_call_aborter(text);
+  abort();
+}
+
+int __android_log_error_write(int, const char*, int32_t, const char*, uint32_t) {
+  return 0;
 }
 
 int32_t __android_log_set_minimum_priority(int32_t priority) {

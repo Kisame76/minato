@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No android: attributes: those need framework-res to link against, which b2 builds. -->
+<manifest package="io.github.kisame76.minato.check.res"/>
