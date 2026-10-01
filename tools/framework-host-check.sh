@@ -34,7 +34,8 @@ python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-c
   --class com.android.minato.sample.SampleManager --class com.android.minato.sample.SampleDevice \
   --class com.android.minato.sample.SampleFormat --class com.android.minato.sample.SampleCallback \
   --class com.android.minato.sample.SampleListener --class com.android.minato.sample.SampleBase \
-  --class com.android.minato.sample.SampleChild --class com.android.minato.sample.SampleOther
+  --class com.android.minato.sample.SampleChild --class com.android.minato.sample.SampleOther \
+  --class com.android.minato.sample.SampleShape --class com.android.minato.sample.SampleSquare
 
 "$JDK/bin/javac" -source 17 -target 17 -encoding UTF-8 -Xlint:all -Werror -d "$OUT/classes" \
   $(find framework/java/com/android/minato framework/tests/java "$OUT/gen" -name '*.java' | sort)

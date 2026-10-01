@@ -31,7 +31,7 @@ HAND = os.path.join(SAMPLES, "hand")
 PACKAGE = "com.android.minato.sample"
 CLASSES = [f"{PACKAGE}.SampleManager", f"{PACKAGE}.SampleDevice", f"{PACKAGE}.SampleFormat",
            f"{PACKAGE}.SampleCallback", f"{PACKAGE}.SampleListener", f"{PACKAGE}.SampleBase",
-           f"{PACKAGE}.SampleChild", f"{PACKAGE}.SampleOther"]
+           f"{PACKAGE}.SampleChild", f"{PACKAGE}.SampleOther", f"{PACKAGE}.SampleShape", f"{PACKAGE}.SampleSquare"]
 
 
 def read_api():
@@ -57,7 +57,8 @@ class ParserTest(unittest.TestCase):
         callback = self.api.types[f"{PACKAGE}.SampleCallback"]
         self.assertEqual(callback.type_parameters, "<T>")
         self.assertEqual(callback.implements, f"java.lang.Runnable, java.lang.Comparable<{PACKAGE}.SampleCallback<T>>")
-        self.assertEqual(self.api.types[f"{PACKAGE}.SampleListener"].extends, "java.util.EventListener, java.lang.Runnable")
+        self.assertEqual(self.api.types[f"{PACKAGE}.SampleListener"].extends,
+                         "java.util.EventListener, java.lang.Runnable")
 
     def test_methods(self):
         methods = self.api.types[f"{PACKAGE}.SampleManager"].methods
@@ -155,8 +156,15 @@ class WriterTest(unittest.TestCase):
         # SampleManager's hidden ctor comes from the hand file, so no package-private one is added.
         self.assertNotIn("    SampleManager() {", self.manager)
 
+    def test_object_methods_under_an_abstract_one(self):
+        # A superclass in the API declares equals and hashCode abstract, so super cannot be called: identity.
+        square = self.files["com/android/minato/sample/SampleSquare.java"]
+        self.assertIn("    public boolean equals(Object p0) {\n        return this == p0;\n    }\n", square)
+        self.assertIn("    public int hashCode() {\n        return System.identityHashCode(this);\n    }\n", square)
+        self.assertIn("    public String toString() {\n        return super.toString();\n    }\n", square)
+
     def test_super_without_a_plain_ctor(self):
-        # The superclass's ctor with the fewest parameters, given its types' defaults.
+        # The superclass's ctor with the fewest parameters that throws nothing, given its types' defaults.
         child = self.files["com/android/minato/sample/SampleChild.java"]
         self.assertIn("    public SampleChild() {\n        super((String) null, 0);\n", child)
         other = self.files["com/android/minato/sample/SampleOther.java"]
@@ -185,6 +193,61 @@ class WriterTest(unittest.TestCase):
 
     def test_same_output_twice(self):
         self.assertEqual(self.files, generate())
+
+
+class ReferencesTest(unittest.TestCase):
+    """The types a set of classes reaches through its signatures: the compile-only stubs beside them. A type in no
+    API file is an error in a class to write, and drops the member that names it in a stub."""
+
+    LIBRARY = "// Signature format: 2.0\npackage org.sample.lib {\n\n  public class Lib {\n  }\n\n}\n"
+
+    def api(self, extra=""):
+        api = managergen.parse(self.LIBRARY, "lib.txt", library=True)
+        with open(API, encoding="utf-8") as text:
+            managergen.parse(text.read(), API, api)
+        if extra:
+            managergen.parse(extra, "extra.txt", api)
+        return api
+
+    def test_closure(self):
+        api = self.api()
+        self.assertEqual(managergen.references(api, [f"{PACKAGE}.SampleManager"]),
+                         [f"{PACKAGE}.SampleDevice", f"{PACKAGE}.SampleFormat"])
+        self.assertEqual(managergen.references(api, [f"{PACKAGE}.SampleChild"]), [f"{PACKAGE}.SampleBase"])
+        # The roots themselves are not repeated.
+        self.assertEqual(managergen.references(api, [f"{PACKAGE}.SampleChild", f"{PACKAGE}.SampleBase"]), [])
+
+    def test_library_types_stay_out(self):
+        extra = ("// Signature format: 2.0\npackage com.android.minato.other {\n\n  public class UsesLib {\n"
+                 "    method public org.sample.lib.Lib lib(java.util.Map<java.lang.String, org.sample.lib.Lib>);\n"
+                 "  }\n\n}\n")
+        api = self.api(extra)
+        self.assertEqual(managergen.references(api, ["com.android.minato.other.UsesLib"]), [])
+        self.assertTrue(api.types["org.sample.lib.Lib"].library)
+        with self.assertRaisesRegex(managergen.GeneratorError, "library"):
+            managergen.generate(api, ["org.sample.lib.Lib"])
+
+    def test_unknown_reference(self):
+        extra = ("// Signature format: 2.0\npackage com.android.minato.other {\n\n  public class Lost {\n"
+                 "    method public android.bluetooth.BluetoothAdapter adapter();\n  }\n\n}\n")
+        with self.assertRaisesRegex(managergen.GeneratorError, "android.bluetooth.BluetoothAdapter"):
+            managergen.references(self.api(extra), ["com.android.minato.other.Lost"])
+
+
+    def test_stubs_drop_members_with_unknown_types(self):
+        # A stub only has to compile: a member naming a type in no API file goes, where a class to write fails.
+        extra = ("// Signature format: 2.0\npackage com.android.minato.other {\n\n  public class UsesStub {\n"
+                 "    method public com.android.minato.other.Stubbed stubbed();\n  }\n\n"
+                 "  public class Stubbed {\n    method public android.media.Session2Token token();\n"
+                 "    method public java.util.List<android.media.Session2Token> tokens();\n"
+                 "    method public int count();\n  }\n\n}\n")
+        api = self.api(extra)
+        self.assertEqual(managergen.references(api, ["com.android.minato.other.UsesStub"]),
+                         ["com.android.minato.other.Stubbed"])
+        stub = managergen.generate(api, ["com.android.minato.other.Stubbed"], stubs=True)[
+            "com/android/minato/other/Stubbed.java"]
+        self.assertNotIn("token", stub)
+        self.assertIn("public int count() {", stub)
 
 
 class ErrorTest(unittest.TestCase):

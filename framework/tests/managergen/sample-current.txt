@@ -64,6 +64,7 @@ package com.android.minato.sample {
   }
 
   public class SampleBase {
+    ctor public SampleBase(int) throws java.io.IOException;
     ctor public SampleBase(String, int);
     ctor protected SampleBase(java.util.List<java.lang.String>, String, int);
   }
@@ -73,6 +74,19 @@ package com.android.minato.sample {
   }
 
   public final class SampleOther extends SampleBase {
+  }
+
+  public abstract class SampleShape {
+    ctor public SampleShape();
+    method public abstract boolean equals(@Nullable Object);
+    method public abstract int hashCode();
+  }
+
+  public final class SampleSquare extends com.android.minato.sample.SampleShape {
+    ctor public SampleSquare();
+    method public boolean equals(@Nullable Object);
+    method public int hashCode();
+    method @NonNull public String toString();
   }
 
   public interface SampleListener extends java.util.EventListener java.lang.Runnable {

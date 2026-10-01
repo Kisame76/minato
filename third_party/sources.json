@@ -1,5 +1,5 @@
 {
-  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. The framework's sources and the host tools that build it (ADR-0039 b, ADR-0045 decision 1: aidl, aapt2, libandroidfw, framework-res) in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. The framework's sources and the host tools that build it (ADR-0039 b, ADR-0045 decision 1: aidl, aapt2, libandroidfw, framework-res), and the API files of the managers' generator (ADR-0045 decision 3), in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
   "tag": "android-15.0.0_r1",
   "host": "https://android.googlesource.com",
   "sources": [
@@ -372,6 +372,56 @@
         "aconfig/ap3a"
       ],
       "digest": "07969887b5371c984cc6a368485fceb4a705d9c7dcf6565fdd2d542c65e0c49b"
+    },
+    {
+      "name": "frameworks_base_api",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "core/api/current.txt"
+      ],
+      "digest": "5fa20dcbfc179a3e973896e6e6a2995f126ea0ed3b36648251ff27356e62672f"
+    },
+    {
+      "name": "location_api",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "location/api/current.txt"
+      ],
+      "digest": "8ed388f3221bc62befa4f115b83be49080335efa82ee07ee14fbbc02590df985"
+    },
+    {
+      "name": "connectivity_api",
+      "project": "platform/packages/modules/Connectivity",
+      "commit": "355670c19612b43b73d496fee4b4fc7d4c13bf01",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "4d5ad4369300961e6735b02c5d72a48980fb769d78910e369b4880de00355f6d"
+    },
+    {
+      "name": "connectivity_t_api",
+      "project": "platform/packages/modules/Connectivity",
+      "commit": "355670c19612b43b73d496fee4b4fc7d4c13bf01",
+      "license": "Apache-2.0",
+      "files": [
+        "framework-t/api/current.txt"
+      ],
+      "digest": "8774a15b9b1806f87e37547407c6a799c89770dadef8551d5149f6e9ea12338e"
+    },
+    {
+      "name": "wifi_api",
+      "project": "platform/packages/modules/Wifi",
+      "commit": "a88d7fbb026bada1345124fc1afbbaa0a6b5498f",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "69e5814c677e64519bdeda2985a768bcebe5f33a409ee8b74a5565960df385d3"
     }
   ],
   "angle": {

@@ -45,6 +45,8 @@ class TypeDecl:
         self.extends = extends
         self.implements = implements
         self.ctors, self.methods, self.fields, self.constants, self.nested = [], [], [], [], []
+        # From a library's API file (libcore's): known for references and superclasses, never written.
+        self.library = False
 
     @property
     def qualified(self):
@@ -174,7 +176,7 @@ def top_level_equals(text):
 
 # The signature file.
 
-def parse(text, origin, api=None):
+def parse(text, origin, api=None, library=False):
     api = api or Api()
     lines = text.splitlines()
     if not lines or lines[0].strip() != FORMAT:
@@ -196,6 +198,7 @@ def parse(text, origin, api=None):
                 package = None
             elif stripped.endswith("{"):
                 current = parse_type(package, stripped[:-1], fail)
+                current.library = library
                 if current.qualified in api.types:
                     fail(f"{current.qualified} is declared twice")
                 api.types[current.qualified] = current
@@ -431,15 +434,37 @@ def default_value(java_type):
     return "null", "null"
 
 
+def superclass(decl, api):
+    """The superclass's declaration when it is in the API files."""
+    if decl.kind != "class" or not decl.extends:
+        return None
+    name = log_type(decl.extends)
+    return api.types.get(name) or api.types.get(f"{decl.package}.{name}")
+
+
+def abstract_above(decl, key, api):
+    """Whether a superclass in the API files declares the method abstract, so that super cannot call it."""
+    parent = superclass(decl, api)
+    while parent is not None:
+        for method in parent.methods:
+            if method.key == key:
+                return "abstract" in method.modifiers
+        parent = superclass(parent, api)
+    return False
+
+
+# Object's methods by identity, where super cannot be called.
+IDENTITY = {"equals(Object)": "this == p0", "hashCode()": "System.identityHashCode(this)",
+            "toString()": 'getClass().getName() + "@" + Integer.toHexString(System.identityHashCode(this))'}
+
+
 def super_call(decl, api):
     """super(...) with defaults, when the superclass is in the API files and has no ctor without parameters."""
-    if decl.kind != "class" or not decl.extends:
-        return ""
-    name = log_type(decl.extends)
-    parent = api.types.get(name) or api.types.get(f"{decl.package}.{name}")
+    parent = superclass(decl, api)
     if parent is None or not parent.ctors or any(not c.parameters for c in parent.ctors):
         return ""
-    fewest = min(parent.ctors, key=lambda c: len(c.parameters))
+    # One that throws nothing first, so that the ctor needs no throws clause the API does not list.
+    fewest = min(parent.ctors, key=lambda c: (bool(c.throws), len(c.parameters)))
     arguments = []
     for parameter in fewest.parameters:
         java_type = log_type(parameter).replace("...", "[]")
@@ -448,7 +473,7 @@ def super_call(decl, api):
     return f"super({', '.join(arguments)});\n"
 
 
-def write_type(decl, hand_members, depth, api):
+def write_type(decl, hand_members, depth, api, stubs=False):
     pad = " " * (4 * depth)
     inner = " " * (4 * (depth + 1))
     out = []
@@ -463,6 +488,10 @@ def write_type(decl, hand_members, depth, api):
     hand = {m.key: m for m in hand_members}
     used = set()
 
+    def unknown(*texts):
+        # A compile-only stub leaves out a member that names a type in no API file.
+        return stubs and any(unknown_names(api, text) for text in texts)
+
     def take(key):
         if key in hand:
             used.add(key)
@@ -474,6 +503,8 @@ def write_type(decl, hand_members, depth, api):
         out.append(f"{inner}{decl.constants[-1]};\n" if decl.constants else f"{inner};\n")
     static_init, instance_init = [], []
     for field in decl.fields:
+        if unknown(field.type):
+            continue
         written = take(f"field:{field.name}")
         if written:
             out.append(written)
@@ -498,6 +529,8 @@ def write_type(decl, hand_members, depth, api):
     if decl.kind == "class" and not decl.ctors and not hand_ctor:
         out.append(f"{inner}{decl.name}() {{\n{inner + '    ' + call if call else ''}{inner}}}\n")
     for ctor in decl.ctors:
+        if unknown(ctor.throws, *ctor.parameters):
+            continue
         written = take(ctor.key)
         if written:
             out.append(written)
@@ -506,14 +539,18 @@ def write_type(decl, hand_members, depth, api):
     for method in decl.methods:
         if decl.kind == "enum" and method.key in OBJECT_METHODS | {"values()", "valueOf(String)"}:
             continue
+        if unknown(method.returns, method.type_parameters, method.throws, *method.parameters):
+            continue
         written = take(method.key)
         if written:
             out.append(written)
             continue
-        out.append(method_text(decl, method, inner))
+        out.append(method_text(decl, method, inner, identity=abstract_above(decl, method.key, api)))
     for nested in decl.nested:
+        if unknown(nested.extends, nested.implements):
+            continue
         written = take(f"type:{nested.name}")
-        out.append(written if written else write_type(nested, [], depth + 1, api))
+        out.append(written if written else write_type(nested, [], depth + 1, api, stubs))
     for member in hand_members:
         if member.key not in used:
             out.append(member.text + "\n")
@@ -521,7 +558,7 @@ def write_type(decl, hand_members, depth, api):
     return "".join(out)
 
 
-def method_text(decl, method, inner, constructor=False, call=""):
+def method_text(decl, method, inner, constructor=False, call="", identity=False):
     out = "".join(f"{inner}{a}\n" for a in method.annotations)
     parameters = ", ".join(f"{t} p{i}" for i, t in enumerate(method.parameters))
     words = list(method.modifiers)
@@ -539,6 +576,8 @@ def method_text(decl, method, inner, constructor=False, call=""):
         return f"{out}{inner}{signature};\n"
     body = f"{inner}    "
     if not constructor and method.key in OBJECT_METHODS and "static" not in method.modifiers:
+        if identity:
+            return f"{out}{inner}{signature} {{\n{body}return {IDENTITY[method.key]};\n{inner}}}\n"
         arguments = ", ".join(f"p{i}" for i in range(len(method.parameters)))
         return f"{out}{inner}{signature} {{\n{body}return super.{method.name}({arguments});\n{inner}}}\n"
     name = decl.qualified if constructor else f"{decl.qualified}.{method.name}"
@@ -553,8 +592,9 @@ def method_text(decl, method, inner, constructor=False, call=""):
     return f"{out}{inner}{signature} {{\n{''.join(lines)}{inner}}}\n"
 
 
-def generate(api, classes, hand_folder=None):
-    """The Java files for `classes`, as {relative path: text}."""
+def generate(api, classes, hand_folder=None, stubs=False):
+    """The Java files for `classes`, as {relative path: text}. As compile-only `stubs`, members that name a type in
+    no API file are left out."""
     files = {}
     for name in classes:
         decl = api.types.get(name)
@@ -562,6 +602,8 @@ def generate(api, classes, hand_folder=None):
             raise GeneratorError(f"{name} is not in the API files")
         if "." in decl.dotted:
             raise GeneratorError(f"{name} is nested: name its outer class")
+        if decl.library:
+            raise GeneratorError(f"{name} comes from a library's API file, whose classes exist already")
         relative = f"{decl.package.replace('.', '/')}/{decl.name}.java"
         imports, members = [], []
         hand_path = os.path.join(hand_folder, relative) if hand_folder else None
@@ -576,32 +618,104 @@ def generate(api, classes, hand_folder=None):
         text = [HEADER, f"package {decl.package};\n\n", "import com.android.minato.services.Unwritten;\n"]
         text += [f"{i}\n" for i in sorted(set(imports))]
         text.append("\n")
-        text.append(write_type(decl, members, 0, api))
+        text.append(write_type(decl, members, 0, api, stubs))
         files[relative] = "".join(text)
     return files
 
 
+QUALIFIED = re.compile(r"\b[a-z_]\w*(?:\.[a-z_]\w*)*(?:\.[A-Z]\w*)+")
+
+
+def top_level(api, name):
+    """The top-level declaration that holds `name` (a type, or a nested one), or None."""
+    while True:
+        decl = api.types.get(name)
+        if decl is not None:
+            while "." in decl.dotted:
+                decl = api.types[f"{decl.package}.{decl.dotted.rsplit('.', 1)[0]}"]
+            return decl
+        head, _, last = name.rpartition(".")
+        if not head or not last[:1].isupper():
+            return None
+        name = head
+
+
+def unknown_names(api, text):
+    """The qualified names in `text` that no API file declares, but for java.* and javax.*, the boot jars'."""
+    return {name for name in QUALIFIED.findall(text or "")
+            if top_level(api, name) is None and not name.startswith(("java.", "javax."))}
+
+
+def signature_texts(decl):
+    yield from (decl.extends, decl.implements, decl.type_parameters)
+    for method in decl.methods + decl.ctors:
+        yield from (method.returns or "", method.type_parameters, method.throws, *method.parameters)
+    for field in decl.fields:
+        yield field.type
+    for nested in decl.nested:
+        yield from signature_texts(nested)
+
+
+def references(api, roots):
+    """The top-level types outside the libraries that `roots` reach through their signatures, without the roots:
+    the compile-only stubs beside them. A name in no API file is an error in a root, but for java.* and javax.*,
+    which the boot jars hold; a stub leaves the member out instead (generate's `stubs`)."""
+    seen, queue, found, missing = set(roots), list(roots), set(), set()
+    while queue:
+        current = queue.pop()
+        for text in signature_texts(api.types[current]):
+            if current in roots:
+                missing |= unknown_names(api, text)
+            for name in QUALIFIED.findall(text or ""):
+                target = top_level(api, name)
+                if target is None:
+                    continue
+                if target.library or target.qualified in seen:
+                    continue
+                seen.add(target.qualified)
+                found.add(target.qualified)
+                queue.append(target.qualified)
+    if missing:
+        raise GeneratorError("referenced, but in no API file: " + ", ".join(sorted(missing)))
+    return sorted(found)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--api", action="append", required=True)
-    parser.add_argument("--class", dest="classes", action="append", required=True)
+    parser.add_argument("--api", action="append", default=[], help="an API file whose classes may be written")
+    parser.add_argument("--all-of", action="append", default=[],
+                        help="an API file whose every top-level class is written, as with --class")
+    parser.add_argument("--library-api", action="append", default=[],
+                        help="a library's API file (libcore's): known, never written")
+    parser.add_argument("--class", dest="classes", action="append", default=[])
     parser.add_argument("--hand")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--references-out",
+                        help="where the types the classes reach go, without hand files: compile-only stubs")
     args = parser.parse_args()
     try:
         api = Api()
-        for path in args.api:
+        classes = list(args.classes)
+        for path in args.library_api + args.api + args.all_of:
+            before = set(api.types)
             with open(path, encoding="utf-8") as text:
-                parse(text.read(), path, api)
-        files = generate(api, args.classes, args.hand)
+                parse(text.read(), path, api, library=path in args.library_api)
+            if path in args.all_of:
+                classes += sorted(n for n in set(api.types) - before if "." not in api.types[n].dotted)
+        if not classes:
+            raise GeneratorError("no class to write: name one with --class or --all-of")
+        outputs = [(args.out, generate(api, classes, args.hand))]
+        if args.references_out:
+            outputs.append((args.references_out, generate(api, references(api, classes), stubs=True)))
     except GeneratorError as error:
         sys.exit(f"managergen: {error}")
-    for relative, text in files.items():
-        path = os.path.join(args.out, relative)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as out:
-            out.write(text)
-    print(f"managergen: {len(files)} classes into {args.out}")
+    for folder, files in outputs:
+        for relative, text in files.items():
+            path = os.path.join(folder, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as out:
+                out.write(text)
+        print(f"managergen: {len(files)} classes into {folder}")
 
 
 if __name__ == "__main__":

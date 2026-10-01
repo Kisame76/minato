@@ -143,6 +143,16 @@ Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 M
 | `platform/build/soong` | `3fe78dc9b32f` | Apache-2.0 | only `cc/libbuildversion`, which aapt2 links |
 | `platform/build/release` | `e1dfb3dc7831` | Apache-2.0 | only `aconfig/ap3a`: Android 15's flag values, read by our flag generator |
 
+The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files themselves never ship.
+
+| Project | Commit | License | File | Size | SHA-256 |
+|---|---|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `core/api/current.txt` | 4,382,010 | `a07b0a1df1b7aeeb…` |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `location/api/current.txt` | 53,006 | `a0495a8a32384610…` |
+| `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework/api/current.txt` | 55,123 | `26bf1910035039b2…` |
+| `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
+| `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.
