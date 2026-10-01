@@ -27,7 +27,6 @@ copy: presented 0 on another family's queue: 0
 input attachment: 3 images; the app holds 0 1 2, then acquire 1, with a timeout 2
 4 images of R16G16B16A16_SFLOAT: 4 images
 B8G8R8A8_SRGB: 3 images
-with MINATO_VULKAN_OPAQUE=1, then without: 3 and 3 images
 views: the direct way's image in its format 0, in R8G8B8A8 0, in R8G8B8A8_SRGB 0; the copy way's in its format 0, in B8G8R8A8 0; another image in B8G8R8A8 0
 a turn by 180 degrees, the swapchain made at 64 x 48: acquire 0, present 0, its result 0
 turned to 48 x 64: 3 to 4 images, current 48 x 64, extents 1 x 1 to 4096 x 4096, 1 layers, transforms 0x1, current 0x1, alpha 0x8, usage 0x9f

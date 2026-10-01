@@ -11,7 +11,11 @@
 //   onNativeWindowDestroyed, onStop and onDestroy. It passes when the app's lines of the guest's log (stderr in
 //   logcat's tag format) are fixtures/expected/<app>.logcat, Android 15's, the only request was FINISH, the window
 //   counted <presents> presents, onNativeWindowDestroyed and onDestroy were answered within 500 ms, and
-//   activity-host ended with status 0. The app's device lines are printed, not compared.
+//   activity-host ended with status 0. The app's device lines are printed, not compared. The window's layer is
+//   still opaque at the end, as no request said otherwise.
+// - gles-test with <mode> translucent:<presents>, the opaque layer's part G (V5's late frames): the same, started at
+//   ANativeActivity_onCreateTranslucent, which asks for WINDOW_FORMAT_RGBA_8888 in onCreate. It passes as above
+//   when the requests were WINDOW_OPAQUE 0 and FINISH, and the window's layer is not opaque at the end.
 // - gles-live and vulkan-live (<mode> live), which draw until onDestroy: a thread stands in for the App's frame
 //   clock, with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's gate
 //   is open. Their manifests' activities handle orientation and screenSize (configChanges), so the window turns as
@@ -114,16 +118,32 @@ struct Seen {
 };
 Seen seen;
 
-/// FRAME_RATE comes under the window registry's lock (apkrt.h), so this calls none of its functions.
+/// The layer of the window added last.
+MinatoMetalLayer *last_layer;
+
+/// The window's opacity as the runtime reports it (WINDOW_OPAQUE), opaque until a report says otherwise, as the App's
+/// GameSession keeps it: each new window's layer starts with it.
+std::atomic<bool> window_opaque{true};
+
+/// FRAME_RATE comes under the window registry's lock (apkrt.h), so this calls none of its functions. WINDOW_OPAQUE
+/// sets the layer on the main queue, as the App does, which the main thread's waits serve.
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
     const auto bits = static_cast<std::uint32_t>(argument);
     if (type == APKRT_REQUEST_FRAME_RATE) preferred_rate = bits;
+    if (type == APKRT_REQUEST_WINDOW_OPAQUE) {
+        const bool opaque = argument != 0;
+        window_opaque = opaque;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            last_layer.opaque = opaque;
+        });
+    }
     char rate[32];
     std::snprintf(rate, sizeof rate, "%g", static_cast<double>(std::bit_cast<float>(bits)));
     std::string request = type == APKRT_REQUEST_FINISH           ? "FINISH"
                           : type == APKRT_REQUEST_KEEP_SCREEN_ON ? "KEEP_SCREEN_ON " + std::to_string(argument)
                           : type == APKRT_REQUEST_START_FAILED   ? std::string("START_FAILED ") + (text ? text : "")
                           : type == APKRT_REQUEST_FRAME_RATE     ? std::string("FRAME_RATE ") + rate
+                          : type == APKRT_REQUEST_WINDOW_OPAQUE  ? "WINDOW_OPAQUE " + std::to_string(argument)
                                                                  : "request " + std::to_string(type);
     const std::lock_guard hold(seen.lock);
     seen.requests.push_back(std::move(request));
@@ -328,15 +348,12 @@ std::uint64_t pair(std::int32_t low, std::int32_t high) {
     return static_cast<std::uint32_t>(low) | static_cast<std::uint64_t>(static_cast<std::uint32_t>(high)) << 32;
 }
 
-/// The layer of the window added last.
-MinatoMetalLayer *last_layer;
-
 /// The App's window: the view's layer, graphics/host's in every build, its bounds in points, its size in pixels.
-/// Not opaque, as the App's view leaves it: its black background clears CAMetalLayer's opacity (V5's late frames).
+/// Opaque unless the runtime reported otherwise, as the App's view makes it by Android's rule (V5's late frames).
 std::uint64_t add_window() {
     @autoreleasepool {
         MinatoMetalLayer *layer = [MinatoMetalLayer layer];
-        layer.opaque = NO;
+        layer.opaque = window_opaque;
         layer.contentsScale = scale;
         layer.bounds = CGRectMake(0, 0, width / scale, height / scale);
         last_layer = layer;
@@ -458,10 +475,16 @@ void check_turns(const std::string &app, const std::string &device_lines) {
 }
 
 /// gles-test and vulkan-test: their scenes and frames, then their own ANativeActivity_finish and the App's quit.
-void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t presents, Capture &capture) {
+void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t presents, bool translucent,
+                 Capture &capture) {
     const std::uint64_t window = add_window();
     if (!start(window, nullptr)) return;
-    if (!wait_for([] { return !seen.requests.empty(); }, 120s)) fail("no request within 120 s");
+    // The app's own ANativeActivity_finish ends its scenes; a translucent start reports WINDOW_OPAQUE before it.
+    // wait_for holds seen.lock while it asks, so the predicate looks without requested(), which would take it again.
+    const auto finished = [] {
+        return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end();
+    };
+    if (!wait_for(finished, 120s)) fail("no FINISH within 120 s: " + requests_text());
     const std::uint64_t counted = apkrt_window_presents(window);
     focus_lost(window, nullptr);
     apkrt_window_remove(window);
@@ -479,7 +502,13 @@ void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t
     }
     check_answer(destroyed, "onNativeWindowDestroyed");
     check_answer(destroy, "onDestroy");
-    if (const std::string requests = requests_text(); requests != "[FINISH]") fail("the requests were " + requests);
+    const std::string wanted = translucent ? "[WINDOW_OPAQUE 0][FINISH]" : "[FINISH]";
+    if (const std::string requests = requests_text(); requests != wanted) fail("the requests were " + requests);
+    // The report reaches the layer through the main queue, which the waits above served.
+    ::dprintf(report, "host: the window's layer at the end: %s\n", last_layer.opaque ? "opaque" : "not opaque");
+    if (last_layer.opaque == translucent) {
+        fail(std::string("the window's layer is ") + (translucent ? "still opaque" : "not opaque"));
+    }
     const std::string app_lines = lines_with(log, "I/" + app + ": ");
     if (app_lines != read_text(expected / (app + ".logcat"))) {
         fail("the app's lines differ from Android 15's:\n" + app_lines);
@@ -762,7 +791,7 @@ int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
                              "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
-                             "<presents | live | present | bench:<load> | record:<load>>\n");
+                             "<presents | translucent:<presents> | live | present | bench:<load> | record:<load>>\n");
         return 2;
     }
     const std::string app = argv[2];
@@ -771,7 +800,10 @@ int main(int argc, char **argv) {
     const bool record = std::strncmp(argv[10], "record:", 7) == 0;
     const bool live = std::strcmp(argv[10], "live") == 0, bench = record || std::strncmp(argv[10], "bench:", 6) == 0;
     const bool present = std::strcmp(argv[10], "present") == 0;
-    const std::uint64_t presents = live || bench || present ? 0 : std::strtoull(argv[10], nullptr, 10);
+    const bool translucent = std::strncmp(argv[10], "translucent:", 12) == 0;
+    const std::uint64_t presents = live || bench || present ? 0
+                                   : translucent         ? std::strtoull(argv[10] + 12, nullptr, 10)
+                                                         : std::strtoull(argv[10], nullptr, 10);
     // tools/build-bench.sh puts the APKs at the top of its build, tools/build-fixtures.sh into apks/; the bench's
     // manifests are in <expected>/<app>/, the test apps' in fixtures/apps/<app>/.
     const fs::path apk = bench ? fixtures / (app + ".apk") : fixtures / "apks" / (app + ".apk");
@@ -798,6 +830,7 @@ int main(int argc, char **argv) {
     }
     std::string function = meta_data_of(manifest, "android.app.func_name");
     if (function.empty()) function = "ANativeActivity_onCreate";
+    if (translucent) function = "ANativeActivity_onCreateTranslucent";
     if (live && (!handles(manifest, "orientation") || !handles(manifest, "screenSize"))) {
         fail("the live variant's activity does not handle orientation and screenSize itself (configChanges), so the "
              "App would not turn it");
@@ -878,7 +911,7 @@ int main(int argc, char **argv) {
     } else if (bench) {
         play_bench(app, capture, record);
     } else {
-        play_scenes(app, expected, presents, capture);
+        play_scenes(app, expected, presents, translucent, capture);
     }
     const bool ended = wait_for([] { return seen.ended; }, 10s);
     {

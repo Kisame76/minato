@@ -949,6 +949,16 @@ static struct {
     double intervals[kMaxIntervals];  // ms
 } live = {.rate = 120};
 
+// For the Mac's scripted host only (graphics.gles_translucent), never named by a manifest: onCreate asks for a
+// window format with alpha, so the window's layer must stop being opaque before the first frame (the opaque layer's
+// part G, V5's late frames). The scenes are the same.
+__attribute__((visibility("default"))) void ANativeActivity_onCreateTranslucent(ANativeActivity *activity,
+                                                                                void *saved_state,
+                                                                                size_t saved_state_size) {
+    ANativeActivity_setWindowFormat(activity, WINDOW_FORMAT_RGBA_8888);
+    ANativeActivity_onCreate(activity, saved_state, saved_state_size);
+}
+
 // The live variant's entry, which its manifest names (android.app.func_name).
 __attribute__((visibility("default"))) void ANativeActivity_onCreateLive(ANativeActivity *activity, void *saved_state,
                                                                          size_t saved_state_size) {

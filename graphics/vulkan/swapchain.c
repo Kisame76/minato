@@ -18,9 +18,7 @@
    work, the app's semaphores left as they are); an acquire answers VK_ERROR_SURFACE_LOST_KHR for a window
    that is gone and waits in the background; MoltenVK's acquire and present, and the copies' submits, go
    through graphics/host's background gate. VK_GOOGLE_display_timing (ADR-0041 decision 11) is MoltenVK's on the
-   swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order. With
-   MINATO_VULKAN_OPAQUE=1 in the environment, MoltenVK's swapchain gets OPAQUE for the app's INHERIT (V5's late
-   frames).
+   swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order.
    Minato's own log, which Android's loader does not write: one line per swapchain made, with its size, format,
    entry in the surface's list and way, for the data on V5's copy (which formats apps take); and the guard, a
    warning once per swapchain at a view of one of its images in another format than its own, as an app makes
@@ -106,15 +104,6 @@ static int direct(VkPhysicalDevice physical, const struct minato_surface *surfac
     return moltenvk_format(info->imageFormat) && info->minImageCount <= 3 && info->imageArrayLayers == 1 &&
            minato_host_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface->metal, &moltenvk) == VK_SUCCESS &&
            (info->imageUsage & ~moltenvk.supportedUsageFlags) == 0;
-}
-
-/* The composite alpha MoltenVK's swapchain gets: the app's, but OPAQUE for INHERIT with MINATO_VULKAN_OPAQUE=1 in
-   the environment (V5's late frames). MoltenVK leaves the layer's opacity as it is for INHERIT only. */
-static VkCompositeAlphaFlagBitsKHR composite_alpha(VkCompositeAlphaFlagBitsKHR asked) {
-    const char *value = getenv("MINATO_VULKAN_OPAQUE");
-    return asked == VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR && value != NULL && strcmp(value, "1") == 0
-               ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
-               : asked;
 }
 
 /* Minato's own line for a swapchain made. */
@@ -274,7 +263,6 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
     ours.pNext = &windows;
     ours.surface = surface->metal;
     ours.oldSwapchain = old != NULL ? old->moltenvk : VK_NULL_HANDLE;
-    ours.compositeAlpha = composite_alpha(info->compositeAlpha);
     if (copy) {
         ours.minImageCount = 3;
         ours.imageFormat = moltenvk_format(info->imageFormat)            ? info->imageFormat

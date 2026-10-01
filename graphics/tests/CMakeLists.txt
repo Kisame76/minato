@@ -251,6 +251,12 @@ if(TARGET minato_graphics_host)
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" ${presents})
     set_tests_properties(graphics.${app}_app PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
   endforeach()
+  # The opaque layer's part G (V5's late frames): gles-test started at ANativeActivity_onCreateTranslucent, which asks
+  # for a window format with alpha, so the runtime reports WINDOW_OPAQUE 0 and the window's layer is not opaque.
+  add_test(NAME graphics.gles_translucent COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" gles-test
+    "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+    "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" translucent:132)
+  set_tests_properties(graphics.gles_translucent PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
   # ADR-0032's test 8 and ADR-0036 a) on the Mac: the live variants (gles-live, vulkan-live), which draw a frame
   # per AChoreographer callback until onDestroy, through the start, HOME, the return with a new window and Quit,
   # with a display link that follows FRAME_RATE and the Metal hook counting guest commits in the background.
@@ -308,8 +314,8 @@ if(TARGET minato_graphics_host)
   # (graphics.vulkan_live once saw a frame interval of 108 ms in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
     graphics.gles_gate graphics.gles_glue graphics.vulkan_queue graphics.vulkan_present graphics.gles_app
-    graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles graphics.present_vulkan
-    graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
+    graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
+    graphics.present_vulkan graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -325,8 +331,8 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live
-      present_gles present_vulkan bench recorder)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app gles_live
+      vulkan_live present_gles present_vulkan bench recorder)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
