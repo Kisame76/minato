@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks make-apk from end to end (ADR-0031 c): packs four sample apps with tools/make-apk.sh and
+# Checks make-apk from end to end (ADR-0031 c): packs five sample apps with tools/make-apk.sh and
 # checks each signature with tools/apk-check.py. With --android it also installs them on the running
 # Android emulator, compares what `dumpsys package` read with their manifests, and uninstalls them.
 #   manifest-only     a manifest without code and without a library
@@ -11,8 +11,13 @@
 #   java-code         the stored library's app with Java code (ADR-0039, decision 11): hasCode left
 #                     out, so true, and a classes.dex that javac and D8 make from one class against the
 #                     boot jars, never android.jar; Android's install verifies the DEX file
+#   resources         the stored library's app with resources (ADR-0039, decision 11): aapt2 compiles
+#                     tools/aapt2/check/res and links it against our framework-res, and make-apk packs
+#                     its output with --resources; the label is @string/app_name, which Android resolves
+#                     through the table
 # The library is build/fixtures/bin/libraw-dyn.so from tools/build-fixtures.sh; Android only installs it.
-# The JDK and D8 come from tools/fetch-sources.py --set art, the boot jars' classes from tools/build-art.sh.
+# The JDK and D8 come from tools/fetch-sources.py --set art, the boot jars' classes from tools/build-art.sh,
+# aapt2 from tools/build-aapt2.sh and framework-res from tools/build-framework-res.sh.
 # Usage: tools/make-apk-check.sh [--android]
 # Results: build/make-apk-check/<sample>.apk, and with --android <sample>.dumpsys and <sample>.resolve
 # Optional environment:
@@ -34,6 +39,8 @@ OUT=build/make-apk-check
 JDK=$(echo build/tools/jdk-17/*/Contents/Home)
 R8=build/sources/r8/r8.jar
 BOOT_CLASSES=build/art/java/all-classes.jar
+AAPT2=build/aapt2/aapt2
+FRAMEWORK_RES=build/framework-res/framework-res.apk
 
 if [[ ! -f "$LIBRARY" ]]; then
   echo "No $LIBRARY: run tools/build-fixtures.sh first." >&2
@@ -45,6 +52,10 @@ if [[ ! -x "$JDK/bin/javac" || ! -f "$R8" ]]; then
 fi
 if [[ ! -f "$BOOT_CLASSES" ]]; then
   echo "No $BOOT_CLASSES: run tools/build-art.sh first." >&2
+  exit 1
+fi
+if [[ ! -x "$AAPT2" || ! -f "$FRAMEWORK_RES" ]]; then
+  echo "No $AAPT2 or $FRAMEWORK_RES: run tools/build-aapt2.sh and tools/build-framework-res.sh first." >&2
   exit 1
 fi
 serial=""
@@ -91,10 +102,13 @@ JAVA
 }
 
 # sample <name> <package> <versionCode> <extractNativeLibs, or empty> <library: yes or no> <code: yes or no>
-#        [<screenOrientation> <its value in ActivityInfo>]
+#        <resources: yes or no> [<screenOrientation> <its value in ActivityInfo>]
 sample() {
-  local name=$1 package=$2 version=$3 extract=$4 library=$5 code=$6 orientation=${7:-} orientation_value=${8:-}
+  local name=$1 package=$2 version=$3 extract=$4 library=$5 code=$6 resources=$7 orientation=${8:-}
+  local orientation_value=${9:-}
   local folder="$OUT/$name" apk="$OUT/$name.apk" attribute="" activity="" has_code=' android:hasCode="false"'
+  local label="make-apk check $name" label_id=""
+  [[ "$resources" == no ]] || label="@string/app_name"
   mkdir -p "$folder/assets/sub"
   [[ -z "$extract" ]] || attribute=" android:extractNativeLibs=\"$extract\""
   # Left out, hasCode is true.
@@ -114,7 +128,7 @@ sample() {
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="$package" android:versionCode="$version" android:versionName="1.$version">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
-  <application android:label="make-apk check $name"$has_code$attribute>
+  <application android:label="$label"$has_code$attribute>
 $activity
   </application>
 </manifest>
@@ -123,6 +137,18 @@ EOF
   printf 'stored as aapt2 stores a .png\n' >"$folder/assets/sub/image.png"
 
   local arguments=(--manifest "$folder/AndroidManifest.xml" --out "$apk")
+  if [[ "$resources" == yes ]]; then
+    # aapt2's output in place of the manifest, linked against our framework-res.
+    if ! "$AAPT2" compile --dir tools/aapt2/check/res -o "$folder/compiled.zip" \
+        || ! "$AAPT2" link -o "$folder/linked.apk" -I "$FRAMEWORK_RES" --manifest "$folder/AndroidManifest.xml" \
+          "$folder/compiled.zip"; then
+      echo "FAILED   $name: aapt2"
+      failed=$((failed + 1))
+      return
+    fi
+    label_id=$("$AAPT2" dump resources "$folder/linked.apk" | awk '$3 == "string/app_name" { print $2 }')
+    arguments=(--resources "$folder/linked.apk" --out "$apk")
+  fi
   [[ "$library" == yes ]] && arguments+=(--lib "$LIBRARY" --assets "$folder/assets")
   if [[ "$code" == yes ]]; then
     if ! dex "$folder"; then
@@ -183,6 +209,10 @@ EOF
     printf '%s\n' "$resolved" >"$OUT/$name.resolve"
     [[ "$resolved" == *"screenOrientation=$orientation_value "* ]] \
       || problems+=" the launcher activity lacks screenOrientation=$orientation_value;"
+    # ApplicationInfo dumps a resource label as labelRes, and a plain one as nonLocalizedLabel.
+    if [[ -n "$label_id" && "$resolved" != *"labelRes=$label_id "* ]]; then
+      problems+=" the application lacks labelRes=$label_id, string/app_name;"
+    fi
   fi
   local uninstalled
   uninstalled=$(device uninstall "$package" 2>&1 | tr -d '\r') || true
@@ -195,13 +225,14 @@ EOF
   fi
 }
 
-sample manifest-only io.github.kisame76.minato.check.manifest 1 "" no no
-sample stored-library io.github.kisame76.minato.check.stored 2 false yes no sensorLandscape 6
-sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes no reversePortrait 9
-sample java-code io.github.kisame76.minato.check.code 4 false yes yes sensorLandscape 6
+sample manifest-only io.github.kisame76.minato.check.manifest 1 "" no no no
+sample stored-library io.github.kisame76.minato.check.stored 2 false yes no no sensorLandscape 6
+sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes no no reversePortrait 9
+sample java-code io.github.kisame76.minato.check.code 4 false yes yes no sensorLandscape 6
+sample resources io.github.kisame76.minato.check.resources 5 false yes no yes sensorLandscape 6
 
 if [[ $failed -gt 0 ]]; then
-  echo "make-apk check: $failed of 4 samples failed"
+  echo "make-apk check: $failed of 5 samples failed"
   exit 1
 fi
-echo "make-apk check: 4 of 4 samples fine${android:+ on Android}"
+echo "make-apk check: 5 of 5 samples fine${android:+ on Android}"

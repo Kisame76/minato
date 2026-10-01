@@ -3,7 +3,8 @@ import Foundation
 
 /// The arguments of make-apk (ADR-0031, decision 2).
 public struct MakeAPKOptions: Equatable, Sendable {
-    public var manifest: String
+    /// The text manifest that make-apk compiles; nil with `resources`, which brings aapt2's.
+    public var manifest: String?
     public var libraries: [String]
     public var assets: String?
     public var output: String
@@ -11,18 +12,23 @@ public struct MakeAPKOptions: Equatable, Sendable {
     public var key: String?
     /// D8's output, classes.dex, classes2.dex, …: the app's Java code (ADR-0039, decision 11).
     public var dex: [String]
+    /// aapt2's linked APK, whose manifest, table and res/ files make-apk takes instead of compiling `manifest`
+    /// (ADR-0039, decision 11).
+    public var resources: String?
 
-    public init(manifest: String, libraries: [String], assets: String?, output: String, key: String? = nil,
-                dex: [String] = []) {
+    public init(manifest: String?, libraries: [String], assets: String?, output: String, key: String? = nil,
+                dex: [String] = [], resources: String? = nil) {
         self.manifest = manifest
         self.libraries = libraries
         self.assets = assets
         self.output = output
         self.key = key
         self.dex = dex
+        self.resources = resources
     }
 
-    /// `--manifest` and `--out` once each, `--lib` and `--dex` any number of times, `--assets` and `--key` at most once.
+    /// `--out` once, `--manifest` or `--resources` once, `--lib` and `--dex` any number of times, `--assets` and
+    /// `--key` at most once.
     public static func parse(_ arguments: [String]) throws -> MakeAPKOptions {
         var manifest: String?
         var libraries: [String] = []
@@ -30,9 +36,10 @@ public struct MakeAPKOptions: Equatable, Sendable {
         var output: String?
         var key: String?
         var dex: [String] = []
+        var resources: String?
         var remaining = arguments[...]
         while let option = remaining.popFirst() {
-            guard ["--manifest", "--lib", "--dex", "--assets", "--out", "--key"].contains(option) else {
+            guard ["--manifest", "--resources", "--lib", "--dex", "--assets", "--out", "--key"].contains(option) else {
                 throw UsageError(message: "unknown argument \(option)")
             }
             // A value that is empty or looks like an option means the value was left out.
@@ -47,6 +54,9 @@ public struct MakeAPKOptions: Equatable, Sendable {
             case "--manifest":
                 guard manifest == nil else { throw UsageError(message: "--manifest is given twice") }
                 manifest = value
+            case "--resources":
+                guard resources == nil else { throw UsageError(message: "--resources is given twice") }
+                resources = value
             case "--assets":
                 guard assets == nil else { throw UsageError(message: "--assets is given twice") }
                 assets = value
@@ -58,10 +68,16 @@ public struct MakeAPKOptions: Equatable, Sendable {
                 output = value
             }
         }
-        guard let manifest else { throw UsageError(message: "--manifest is missing") }
+        guard manifest != nil || resources != nil else {
+            throw UsageError(message: "--manifest or --resources is missing")
+        }
+        guard manifest == nil || resources == nil else {
+            throw UsageError(message: "--manifest and --resources exclude each other: "
+                             + "aapt2's output brings its manifest")
+        }
         guard let output else { throw UsageError(message: "--out is missing") }
         return MakeAPKOptions(manifest: manifest, libraries: libraries, assets: assets, output: output, key: key,
-                              dex: dex)
+                              dex: dex, resources: resources)
     }
 }
 
@@ -71,7 +87,8 @@ public struct UsageError: Error, Equatable, Sendable {
 
     public static let exitStatus: Int32 = 64
     public static let usage =
-        "usage: make-apk --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--dex <classes*.dex>]... [--assets <folder>] [--key <folder>] --out <file.apk>"
+        "usage: make-apk (--manifest <AndroidManifest.xml> | --resources <aapt2's linked APK>) [--lib <lib*.so>]... "
+        + "[--dex <classes*.dex>]... [--assets <folder>] [--key <folder>] --out <file.apk>"
 }
 
 /// make-apk: packs one of our test apps into an APK signed with the debug key (ADR-0031).
@@ -120,7 +137,15 @@ public enum MakeAPK {
 
     /// The signed APK for these inputs. A message names each input as it was given.
     static func pack(_ options: MakeAPKOptions, keyFolder: URL) throws -> Data {
-        let manifest = try ManifestCompiler.compile(read(options.manifest), file: options.manifest)
+        let linked = try options.resources.map { path in try LinkedResources.read(read(path), origin: path) }
+        let manifest: Data
+        if let linked {
+            manifest = linked.manifest
+        } else if let path = options.manifest {
+            manifest = try ManifestCompiler.compile(read(path), file: path)
+        } else {
+            throw UsageError(message: "--manifest or --resources is missing")
+        }
         let libraries = try options.libraries.map { path in
             PackFile(name: URL(fileURLWithPath: path).lastPathComponent, contents: try read(path), origin: path)
         }
@@ -128,7 +153,8 @@ public enum MakeAPK {
             PackFile(name: URL(fileURLWithPath: path).lastPathComponent, contents: try read(path), origin: path)
         }
         let assets = try options.assets.map(Self.assets(in:)) ?? []
-        let unsigned = try APKLayout.build(manifest: manifest, dex: dex, libraries: libraries, assets: assets)
+        let unsigned = try APKLayout.build(manifest: manifest, dex: dex, libraries: libraries, assets: assets,
+                                           resources: linked)
         let key = options.key.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? keyFolder
         return try APKSigner.sign(unsigned, with: DebugKey.load(from: key))
     }

@@ -16,8 +16,9 @@ public struct PackFile: Sendable, Equatable {
 }
 
 /// The unsigned APK, laid out as aapt2 and `zipalign -P 16 4` lay it out (ADR-0031): the manifest
-/// first and deflated, then the DEX files in ART's order, then the libraries, then the assets, each of
-/// these two groups in byte order of its names.
+/// first and deflated, then the DEX files in ART's order, then aapt2's resource table and res/ files when
+/// make-apk takes its output, then the libraries, then the assets, each of these last groups in byte order
+/// of its names.
 public enum APKLayout {
     /// Extensions that aapt2 stores uncompressed because they are compressed already (the defaults
     /// in aapt2's Link.cpp; it compares case-sensitively, and so does make-apk).
@@ -34,8 +35,10 @@ public enum APKLayout {
     static let storedAlignment = 4
 
     /// `manifest` is the compiled binary XML; DEX files go to the top, named classes.dex, classes2.dex, …
-    /// (ADR-0039, decision 11), libraries to `lib/arm64-v8a/`, assets to `assets/`.
-    public static func build(manifest: Data, dex: [PackFile] = [], libraries: [PackFile], assets: [PackFile]) throws -> Data {
+    /// (ADR-0039, decision 11), libraries to `lib/arm64-v8a/`, assets to `assets/`. `resources` is aapt2's
+    /// output, whose manifest is `manifest`.
+    public static func build(manifest: Data, dex: [PackFile] = [], libraries: [PackFile], assets: [PackFile],
+                             resources: LinkedResources? = nil) throws -> Data {
         let parsed = try AndroidManifest(xml: BinaryXML.parse(manifest))
         let code = try inARTsOrder(dex, for: parsed)
         try check(libraries, for: parsed)
@@ -52,6 +55,14 @@ public enum APKLayout {
         // Stored and aligned, ART maps a DEX file in place; otherwise it extracts it to memory (dex_file_loader.cc).
         for file in code {
             zip.add(file.name, file.contents, method: .stored, alignment: storedAlignment)
+        }
+        if let resources {
+            // Stored and 4-byte aligned, as Android needs the table from targetSdk 30 on; res/ files as aapt2 chose.
+            zip.add("resources.arsc", resources.table, method: .stored, alignment: storedAlignment)
+            for file in resources.files {
+                zip.add(file.name, file.contents, method: file.stored ? .stored : .deflated,
+                        alignment: file.stored ? storedAlignment : nil)
+            }
         }
         for library in libraries.sorted(by: inByteOrder) {
             zip.add("lib/arm64-v8a/\(library.name)", library.contents, method: storesLibraries ? .stored : .deflated,
