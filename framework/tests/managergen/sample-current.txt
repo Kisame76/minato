@@ -1,0 +1,82 @@
+// Signature format: 2.0
+package com.android.minato.sample {
+
+  public class SampleManager {
+    method @RequiresPermission(anyOf={android.Manifest.permission.MODIFY_AUDIO_SETTINGS, "x(y)"}) public void adjustVolume(int, int);
+    method public int getMode();
+    method @Nullable public String getProperty(@NonNull String);
+    method @Deprecated public boolean isMusicActive();
+    method public static boolean isSupported(@NonNull com.android.minato.sample.SampleFormat);
+    method public long since();
+    method public float ratio();
+    method public double precise();
+    method public char letter();
+    method public byte level();
+    method public short small();
+    method @NonNull public int[] ids();
+    method @NonNull public java.util.List<com.android.minato.sample.SampleDevice> getDevices(@IntRange(from=1, to=3) int);
+    method @Nullable public <T extends java.lang.Number> T first(@NonNull java.util.List<T>);
+    method public void register(@NonNull com.android.minato.sample.SampleManager.OnChangeListener, @Nullable java.lang.Object...);
+    method @Deprecated public int requestFocus(com.android.minato.sample.SampleManager.OnChangeListener, int, int);
+    method public int requestFocus(@NonNull com.android.minato.sample.SampleFormat);
+    method public void load(String) throws java.io.IOException;
+    method public boolean equals(@Nullable Object);
+    method public int hashCode();
+    method @NonNull public String toString();
+    field public static final String ACTION_NOISY = "android.media.AUDIO_BECOMING_NOISY";
+    field public static final String URL = "http://example.org/a;b // c \"q\"";
+    field public static final int MODE_NORMAL = 0; // 0x0
+    field public static final int MODE_RINGTONE = -1; // 0xffffffff
+    field public static final long BIG = 9223372036854775807L; // 0x7fffffffffffffffL
+    field public static final float HALF = 0.5f;
+    field public static final char LETTER = 65; // 0x41 'A'
+    field public static final byte SMALL = -8; // 0xfffffff8
+    field public static final int RUNTIME;
+    field @NonNull public static final java.util.function.Supplier<com.android.minato.sample.SampleDevice> NONE;
+  }
+
+  public static interface SampleManager.OnChangeListener {
+    method public void onChange(int);
+    method public default boolean wants(int);
+  }
+
+  public static final class SampleManager.Settings {
+    ctor public SampleManager.Settings(int);
+    method public int value();
+    field public final int initial;
+  }
+
+  public final class SampleDevice {
+    method public int getId();
+  }
+
+  public enum SampleFormat {
+    method @NonNull public String label();
+    enum_constant public static final com.android.minato.sample.SampleFormat PCM_16BIT;
+    enum_constant public static final com.android.minato.sample.SampleFormat PCM_FLOAT;
+  }
+
+  public abstract class SampleCallback<T> implements java.lang.Runnable java.lang.Comparable<com.android.minato.sample.SampleCallback<T>> {
+    ctor public SampleCallback();
+    method public abstract void onResult(T);
+    method public void run();
+    method public int compareTo(com.android.minato.sample.SampleCallback<T>);
+  }
+
+  public class SampleBase {
+    ctor public SampleBase(String, int);
+    ctor protected SampleBase(java.util.List<java.lang.String>, String, int);
+  }
+
+  public class SampleChild extends com.android.minato.sample.SampleBase {
+    ctor public SampleChild();
+  }
+
+  public final class SampleOther extends SampleBase {
+  }
+
+  public interface SampleListener extends java.util.EventListener java.lang.Runnable {
+  }
+
+}
+
