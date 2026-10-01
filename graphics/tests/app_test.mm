@@ -138,10 +138,19 @@ void on_end(void *, int status) {
     seen.changed.notify_all();
 }
 
+/// Waits up to `limit` until `predicate` holds, serving the main queue meanwhile as the App's main thread does:
+/// MoltenVK on macOS reads a layer's screen on the main queue (screenMVK through mvkDispatchToMainAndWait, e.g. in
+/// vkGetRefreshCycleDurationGOOGLE), which would wait forever on a main thread that only sleeps. On iOS MoltenVK
+/// reads UIScreen.mainScreen without the main queue.
 template <typename Predicate>
 bool wait_for(Predicate predicate, std::chrono::seconds limit) {
-    std::unique_lock hold(seen.lock);
-    return seen.changed.wait_for(hold, limit, predicate);
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    for (;;) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+        std::unique_lock hold(seen.lock);
+        if (seen.changed.wait_for(hold, 10ms, predicate)) return true;
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+    }
 }
 
 /// Whether `request` came.

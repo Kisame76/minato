@@ -68,12 +68,13 @@ LIBS = ["vulkan", "gles", "egl"]
 # without a driver. VK_ERROR_FEATURE_NOT_PRESENT and VK_ERROR_INCOMPATIBLE_DRIVER; EGL_SUCCESS and
 # EGL_NOT_INITIALIZED. Everything else answers 0 both times.
 ANSWERS = {"VkResult": (-8, -9), "eglGetError": (0x3000, 0x3001)}
-# Decision 11: the extensions libvulkan implements itself. And the structures whose pNext chains libvulkan
-# copies, for which it needs the size of every structure that may extend them.
+# Decision 11: the extensions libvulkan implements itself, with VK_GOOGLE_display_timing on its swapchains for
+# Swappy (ADR-0041 decision 11). And the structures whose pNext chains libvulkan copies, for which it needs the
+# size of every structure that may extend them.
 OWN_EXTENSIONS = {
     "VK_KHR_surface", "VK_KHR_surface_protected_capabilities", "VK_KHR_android_surface",
     "VK_EXT_swapchain_colorspace", "VK_KHR_get_surface_capabilities2", "VK_GOOGLE_surfaceless_query",
-    "VK_KHR_swapchain", "VK_KHR_incremental_present",
+    "VK_KHR_swapchain", "VK_KHR_incremental_present", "VK_GOOGLE_display_timing",
 }
 CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo", "VkSubmitInfo", "VkBindSparseInfo"}
 # Decision 11's extensions left out by name: Apple's and Metal's, what libvulkan pins or enables itself,
@@ -81,7 +82,7 @@ CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo", "VkSubmitInfo", "VkBindS
 LEFT_OUT = {
     "VK_EXT_metal_surface", "VK_EXT_headless_surface", "VK_EXT_metal_objects", "VK_EXT_external_memory_metal",
     "VK_KHR_portability_subset", "VK_EXT_layer_settings", "VK_KHR_portability_enumeration",
-    "VK_GOOGLE_display_timing", "VK_KHR_present_id", "VK_KHR_present_id2", "VK_KHR_present_wait",
+    "VK_KHR_present_id", "VK_KHR_present_id2", "VK_KHR_present_wait",
     "VK_KHR_present_wait2", "VK_EXT_swapchain_maintenance1", "VK_KHR_swapchain_maintenance1",
     "VK_EXT_surface_maintenance1", "VK_KHR_surface_maintenance1", "VK_KHR_swapchain_mutable_format",
     "VK_EXT_hdr_metadata", "VK_EXT_calibrated_timestamps", "VK_KHR_calibrated_timestamps",
@@ -406,8 +407,9 @@ def check_vulkan_lists(report, root):
     check(not wrong, f"vulkan: each name of vulkan_procs.inc has its function (the one written by hand, else its "
                      f"stub), its level from its first parameter and the own extensions that bring it "
                      f"({len(wrong)} differ{': ' + '; '.join(wrong[:6]) if wrong else ''})")
-    check(sum(1 for *_, text in listed if text != "0") == 17,
-          "vulkan: the 17 functions of the surface, the swapchain and VK_KHR_get_surface_capabilities2 have owners")
+    check(sum(1 for *_, text in listed if text != "0") == 19,
+          "vulkan: the 19 functions of the surface, the swapchain, VK_KHR_get_surface_capabilities2 and "
+          "VK_GOOGLE_display_timing have owners")
 
     # The offered extensions, sorted, each with its kind, the own ones marked.
     listed = read("vulkan_extensions.inc", r"^MINATO_EXTENSION\((\w+), (\w+), (MINATO_OWNER\(\w+\)|0)\)$")

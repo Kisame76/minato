@@ -1,4 +1,4 @@
-vulkan: 721 stubs, 654 declared in the NDK's headers and 67 in MoltenVK's
+vulkan: 723 stubs, 656 declared in the NDK's headers and 67 in MoltenVK's
 gles: 993 stubs, 847 declared in the NDK's headers and 146 in ANGLE's
 egl: 174 stubs, 150 declared in the NDK's headers and 24 in ANGLE's
-all 3776 calls arrived as Apple's ABI expects and returned the host function's results
+all 3780 calls arrived as Apple's ABI expects and returned the host function's results

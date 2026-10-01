@@ -10,6 +10,8 @@
    - turns (ADR-0038 c): a present answers VK_SUBOPTIMAL_KHR while the window's size differs from the one
      the swapchain was made at, as Android's does while the window's transform hint differs from the
      swapchain's, and VK_SUCCESS after a turn by 180 degrees, after a turn back and on a new swapchain;
+   - VK_GOOGLE_display_timing (ADR-0041 decision 11), offered as MoltenVK has it: its functions reach MoltenVK
+     with MoltenVK's swapchain, and a present's times reach it for the swapchains that go on, in their order;
    - the gates (decision 13): a present waits at the closed gate and takes a signal meanwhile; in the
      background every call that commits waits, also through the KHR aliases, while "scheduled" comes
      through the runtime; a present waiting there ends when the window goes; then VK_ERROR_SURFACE_LOST_KHR
@@ -46,6 +48,7 @@ static VkPhysicalDevice physical;
 static VkDevice device;
 static VkQueue queue, other_queue;
 static VkSurfaceKHR surface;
+static int display_timing;  /* VK_GOOGLE_display_timing is offered, and enabled */
 static pthread_t program;
 static volatile uint64_t handled_at;
 
@@ -105,9 +108,15 @@ static void setup(void) {
          .pQueuePriorities = &priority},
         {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = 1, .queueCount = 1,
          .pQueuePriorities = &priority}};
-    const char *device_extensions[] = {"VK_KHR_swapchain", "VK_KHR_synchronization2"};
+    VkExtensionProperties offered[64];
+    uint32_t offered_count = 64;
+    vkEnumerateDeviceExtensionProperties(physical, NULL, &offered_count, offered);
+    for (uint32_t index = 0; index < offered_count; index++) {
+        display_timing |= strcmp(offered[index].extensionName, "VK_GOOGLE_display_timing") == 0;
+    }
+    const char *device_extensions[] = {"VK_KHR_swapchain", "VK_KHR_synchronization2", "VK_GOOGLE_display_timing"};
     const VkDeviceCreateInfo created = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .queueCreateInfoCount = 2,
-                                        .pQueueCreateInfos = families, .enabledExtensionCount = 2,
+                                        .pQueueCreateInfos = families, .enabledExtensionCount = display_timing ? 3 : 2,
                                         .ppEnabledExtensionNames = device_extensions};
     check("vkCreateDevice", vkCreateDevice(physical, &created, NULL, &device));
     vkGetDeviceQueue(device, 0, 0, &queue);
@@ -424,6 +433,73 @@ static void turn_part(void) {
     vkDestroySemaphore(device, rendered, NULL);
 }
 
+/* VK_GOOGLE_display_timing: a present with a time, the refresh duration and the past timing of the swapchain,
+   then a present to a replaced swapchain and a new one, whose time must reach MoltenVK as the new one's. */
+static void timing_part(void) {
+    printf("VK_GOOGLE_display_timing: %s\n", display_timing ? "offered" : "not offered");
+    PFN_vkGetRefreshCycleDurationGOOGLE refresh =
+        (PFN_vkGetRefreshCycleDurationGOOGLE)vkGetDeviceProcAddr(device, "vkGetRefreshCycleDurationGOOGLE");
+    PFN_vkGetPastPresentationTimingGOOGLE past =
+        (PFN_vkGetPastPresentationTimingGOOGLE)vkGetDeviceProcAddr(device, "vkGetPastPresentationTimingGOOGLE");
+    if (refresh == NULL || past == NULL) {
+        printf("its functions: not there\n");
+        return;
+    }
+    const VkSemaphore acquired = semaphore(), rendered = semaphore();
+    const VkSwapchainKHR first = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                           VK_NULL_HANDLE);
+    uint32_t index = 9;
+    check("vkAcquireNextImageKHR", acquire(first, acquired, &index));
+    check("vkQueueSubmit", signal_after(acquired, rendered));
+    const VkPresentTimeGOOGLE time = {.presentID = 1, .desiredPresentTime = 1000000};
+    const VkPresentTimesInfoGOOGLE times = {.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE, .swapchainCount = 1,
+                                            .pTimes = &time};
+    const VkPresentInfoKHR timed = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &times,
+                                    .waitSemaphoreCount = 1, .pWaitSemaphores = &rendered, .swapchainCount = 1,
+                                    .pSwapchains = &first, .pImageIndices = &index};
+    printf("a present at 1 ms: %d\n", vkQueuePresentKHR(queue, &timed));
+    VkRefreshCycleDurationGOOGLE duration = {0};
+    const VkResult refreshed = refresh(device, first, &duration);
+    printf("refresh duration: %d, %llu ns\n", refreshed, (unsigned long long)duration.refreshDuration);
+    uint32_t count = 0;
+    const VkResult counted = past(device, first, &count, NULL);
+    VkPastPresentationTimingGOOGLE timings[4] = {{0}};
+    uint32_t room = 4;
+    const VkResult handed = past(device, first, &room, timings);
+    printf("past timing: %d, %u; %d, %u: ID %u, desired %llu, actual %llu, earliest %llu, margin %llu\n", counted,
+           count, handed, room, timings[0].presentID, (unsigned long long)timings[0].desiredPresentTime,
+           (unsigned long long)timings[0].actualPresentTime, (unsigned long long)timings[0].earliestPresentTime,
+           (unsigned long long)timings[0].presentMargin);
+    /* The first swapchain is replaced, so only the second goes on, with the second time. */
+    const VkSwapchainKHR second = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                            first);
+    uint32_t indices[2] = {index, 9};
+    check("vkAcquireNextImageKHR", acquire(second, acquired, &indices[1]));
+    check("vkQueueSubmit", signal_after(acquired, rendered));
+    const VkSwapchainKHR both[2] = {first, second};
+    const VkPresentTimeGOOGLE two[2] = {{.presentID = 2, .desiredPresentTime = 2000000},
+                                        {.presentID = 3, .desiredPresentTime = 3000000}};
+    const VkPresentTimesInfoGOOGLE both_times = {.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE,
+                                                 .swapchainCount = 2, .pTimes = two};
+    VkResult results[2] = {9, 9};
+    const VkPresentInfoKHR replaced = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &both_times,
+                                       .waitSemaphoreCount = 1, .pWaitSemaphores = &rendered, .swapchainCount = 2,
+                                       .pSwapchains = both, .pImageIndices = indices, .pResults = results};
+    const VkResult presented = vkQueuePresentKHR(queue, &replaced);
+    printf("the replaced swapchain and a new one at 2 and 3 ms: %d, results %d %d\n", presented, results[0],
+           results[1]);
+    room = 4;
+    const VkResult replaced_past = past(device, first, &room, timings);
+    room = 4;
+    const VkResult new_past = past(device, second, &room, timings);
+    printf("past timing: of the replaced swapchain %d; of the new one %d, %u: ID %u, desired %llu\n", replaced_past,
+           new_past, room, timings[0].presentID, (unsigned long long)timings[0].desiredPresentTime);
+    vkDestroySwapchainKHR(device, first, NULL);
+    vkDestroySwapchainKHR(device, second, NULL);
+    vkDestroySemaphore(device, acquired, NULL);
+    vkDestroySemaphore(device, rendered, NULL);
+}
+
 /* A thread that sends the program's thread SIGUSR1 after 50 ms. */
 static void *nudging(void *unused) {
     (void)unused;
@@ -533,6 +609,8 @@ int main(void) {
     swapchain_part();
     fprintf(stderr, "vulkan-window-test: turns\n");
     turn_part();
+    fprintf(stderr, "vulkan-window-test: display timing\n");
+    timing_part();
     fprintf(stderr, "vulkan-window-test: the gates\n");
     gate_part();
     fprintf(stderr, "vulkan-window-test: the end\n");

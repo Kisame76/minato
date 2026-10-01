@@ -10,7 +10,7 @@ fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, fir
 fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
 fake: vkCreateDevice, allocator NULL, 2 queue families, features NULL
 fake:   layers: none
-fake:   extensions: VK_KHR_swapchain VK_KHR_synchronization2 VK_KHR_portability_subset VK_EXT_metal_objects
+fake:   extensions: VK_KHR_swapchain VK_KHR_synchronization2 VK_GOOGLE_display_timing VK_KHR_portability_subset VK_EXT_metal_objects
 fake:   chain:
 fake:     timeline semaphore features, timelineSemaphore 1
 fake: vkExportMetalObjectsEXT, the command queue of queue 0.0
@@ -319,58 +319,87 @@ fake: vkDestroySwapchainKHR swapchain 7, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 8, allocator NULL
 fake: vkDestroySemaphore s14, allocator NULL
 fake: vkDestroySemaphore s15, allocator NULL
-vulkan-window-test: the gates
+vulkan-window-test: display timing
 fake: vkCreateSemaphore, allocator NULL, binary: s16
 fake: vkCreateSemaphore, allocator NULL, binary: s17
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 9
 fake:   chain: empty
-fake: the gate closes
 fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s16, 0 command buffers, signals s17=0 s1=20
-fake: the gate opens
 fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 9 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 1 at 1000000
+fake: vkGetRefreshCycleDurationGOOGLE swapchain 9
+fake: vkGetPastPresentationTimingGOOGLE swapchain 9, the count
+fake: vkGetPastPresentationTimingGOOGLE swapchain 9, the timings
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 9: swapchain 10
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s16, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s16, 0 command buffers, signals s17=0 s1=21
+fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 10 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 3 at 3000000
+fake: vkGetPastPresentationTimingGOOGLE swapchain 10, the timings
+fake: vkDestroySwapchainKHR swapchain 9, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 10, allocator NULL
+fake: vkDestroySemaphore s16, allocator NULL
+fake: vkDestroySemaphore s17, allocator NULL
+vulkan-window-test: the gates
+fake: vkCreateSemaphore, allocator NULL, binary: s18
+fake: vkCreateSemaphore, allocator NULL, binary: s19
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 11
+fake:   chain: empty
+fake: the gate closes
+fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s18, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s18, 0 command buffers, signals s19=0 s1=22
+fake: the gate opens
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 11 image 0, with results
 fake:   chain: empty
 fake: background
 fake: "scheduled": 1
 fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=21
-fake: background
-fake: "scheduled": 1
-fake: foreground
-fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=22 at 0x10000 on device 0
-fake: background
-fake: "scheduled": 1
-fake: foreground
-fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
 fake:   0: waits none, 0 command buffers, signals s1=23
 fake: background
 fake: "scheduled": 1
 fake: foreground
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 1
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s16, 0 command buffers, signals s17=0 s1=24
+fake: vkQueueSubmit2 on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=24 at 0x10000 on device 0
 fake: background
 fake: "scheduled": 1
 fake: foreground
-fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 9 image 1, with results
-fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s16, fence none: 2
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s16, 0 command buffers, signals s17=0 s1=25
+fake: vkQueueBindSparse on queue 0.0, 1 batches, fence none
+fake:   0: waits none, 0 command buffers, signals s1=25
 fake: background
-fake: the window's presents: 15
+fake: "scheduled": 1
+fake: foreground
+fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s18, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s18, 0 command buffers, signals s19=0 s1=26
+fake: background
+fake: "scheduled": 1
+fake: foreground
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 11 image 1, with results
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s18, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s18, 0 command buffers, signals s19=0 s1=27
+fake: background
+fake: the window's presents: 17
 fake: the window is gone
 fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits none, 0 command buffers, signals s1=26
+fake:   0: waits none, 0 command buffers, signals s1=28
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkDestroySwapchainKHR swapchain 9, allocator NULL
-fake: vkDestroySemaphore s16, allocator NULL
-fake: vkDestroySemaphore s17, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 11, allocator NULL
+fake: vkDestroySemaphore s18, allocator NULL
+fake: vkDestroySemaphore s19, allocator NULL
 vulkan-window-test: the end
 fake: vkDestroySurfaceKHR surface 1, allocator NULL
 fake: vkDestroySemaphore s1, allocator NULL

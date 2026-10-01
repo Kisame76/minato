@@ -17,7 +17,8 @@
    window's gate before anything else (closed waits, gone answers VK_ERROR_SURFACE_LOST_KHR without GPU
    work, the app's semaphores left as they are); an acquire answers VK_ERROR_SURFACE_LOST_KHR for a window
    that is gone and waits in the background; MoltenVK's acquire and present, and the copies' submits, go
-   through graphics/host's background gate. */
+   through graphics/host's background gate. VK_GOOGLE_display_timing (ADR-0041 decision 11) is MoltenVK's on the
+   swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,6 +30,8 @@ MINATO_HOST(vkGetSwapchainImagesKHR);
 MINATO_HOST(vkAcquireNextImageKHR);
 MINATO_HOST(vkQueuePresentKHR);
 MINATO_HOST(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+MINATO_HOST(vkGetRefreshCycleDurationGOOGLE);
+MINATO_HOST(vkGetPastPresentationTimingGOOGLE);
 
 /* An image of the copy way: the app's, with its memory and the command buffer of its copy. */
 struct image {
@@ -467,6 +470,7 @@ static VkResult worse(VkResult one, VkResult other) {
 
 /* What a present hands MoltenVK, per swapchain that goes on, and per copy. */
 struct going {
+    VkPresentTimeGOOGLE *times;
     VkSwapchainKHR *handles;
     uint64_t *windows;
     VkSemaphore *semaphores;
@@ -486,7 +490,12 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
                          : replaced(swapchain)                                   ? VK_ERROR_OUT_OF_DATE_KHR
                                                                                  : VK_SUCCESS;
     }
-    /* Those that go on, with the copies recorded; every image comes back to its swapchain. */
+    /* Those that go on, with the copies recorded and their times (VK_GOOGLE_display_timing); every image comes
+       back to its swapchain. */
+    const VkPresentTimesInfoGOOGLE *times = minato_chain_find(info->pNext, VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE);
+    if (times != NULL && times->pTimes == NULL) {
+        times = NULL;
+    }
     struct minato_queue *ours = minato_queue(queue);
     uint32_t on = 0, copies = 0;
     VkResult result = VK_SUCCESS;
@@ -502,6 +511,9 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
             continue;
         }
         going->which[on] = index;
+        if (times != NULL) {
+            going->times[on] = times->pTimes[index];
+        }
         going->handles[on] = swapchain->moltenvk;
         going->windows[on] = swapchain->surface->id;
         going->indices[on] = image != NULL ? image->target : image_index;
@@ -537,8 +549,11 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
         }
     }
     if (on > 0 && result == VK_SUCCESS) {
-        /* graphics/host counts the presents of each window. */
-        const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, on, going->windows};
+        /* graphics/host counts the presents of each window, and hands MoltenVK the rest of the chain. */
+        const VkPresentTimesInfoGOOGLE their_times = {VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE, NULL, on,
+                                                      going->times};
+        const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, times != NULL ? &their_times : NULL, on,
+                                               going->windows};
         const VkPresentInfoKHR moltenvk = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &windows,
                                            .waitSemaphoreCount = copies > 0 ? copies : info->waitSemaphoreCount,
                                            .pWaitSemaphores = copies > 0 ? going->semaphores : info->pWaitSemaphores,
@@ -568,15 +583,17 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
 
 VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info) {
     const size_t count = info->swapchainCount, waits = info->waitSemaphoreCount;
-    /* One allocation: the arrays of 8-byte items, then those of 4-byte ones. */
-    char *memory = malloc(count * (sizeof(VkSwapchainKHR) + sizeof(uint64_t) + sizeof(VkSemaphore) +
-                                   sizeof(VkCommandBuffer) + 2 * sizeof(uint32_t) + 2 * sizeof(VkResult)) +
+    /* One allocation: the arrays of 16-byte and 8-byte items, then those of 4-byte ones. */
+    char *memory = malloc(count * (sizeof(VkPresentTimeGOOGLE) + sizeof(VkSwapchainKHR) + sizeof(uint64_t) +
+                                   sizeof(VkSemaphore) + sizeof(VkCommandBuffer) + 2 * sizeof(uint32_t) +
+                                   2 * sizeof(VkResult)) +
                           waits * sizeof(VkPipelineStageFlags) + 1);
     if (memory == NULL) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     struct going going;
-    going.handles = (VkSwapchainKHR *)(void *)memory;
+    going.times = (VkPresentTimeGOOGLE *)(void *)memory;
+    going.handles = (VkSwapchainKHR *)(going.times + count);
     going.windows = (uint64_t *)(going.handles + count);
     going.semaphores = (VkSemaphore *)(going.windows + count);
     going.buffers = (VkCommandBuffer *)(going.semaphores + count);
@@ -591,4 +608,19 @@ VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info) {
     }
     free(memory);
     return result;
+}
+
+/* VK_GOOGLE_display_timing (ADR-0041 decision 11): MoltenVK's, on the swapchain's own. As on Android 15, a replaced
+   swapchain gives no past timings (swapchain.cpp, GetPastPresentationTimingGOOGLE). */
+VkResult vkGetRefreshCycleDurationGOOGLE(VkDevice device, VkSwapchainKHR handle, VkRefreshCycleDurationGOOGLE *duration) {
+    return minato_host_vkGetRefreshCycleDurationGOOGLE(device, swapchain_of(handle)->moltenvk, duration);
+}
+
+VkResult vkGetPastPresentationTimingGOOGLE(VkDevice device, VkSwapchainKHR handle, uint32_t *count,
+                                           VkPastPresentationTimingGOOGLE *timings) {
+    const struct swapchain *swapchain = swapchain_of(handle);
+    if (replaced(swapchain)) {
+        return VK_ERROR_OUT_OF_DATE_KHR;
+    }
+    return minato_host_vkGetPastPresentationTimingGOOGLE(device, swapchain->moltenvk, count, timings);
 }

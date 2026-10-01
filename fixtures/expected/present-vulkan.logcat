@@ -1,0 +1,6 @@
+I/present-vulkan: VK_GOOGLE_display_timing: there
+I/present-vulkan: rate 60: 600 frames presented 1, 2 and 3 periods on, 600 times taken, 600 presents
+I/present-vulkan: rate 120: 600 frames presented 1, 2 and 3 periods on, 600 times taken, 600 presents
+I/present-vulkan: present.csv: written
+I/present-vulkan: ANativeActivity_finish
+I/present-vulkan: android_main returns

@@ -2,8 +2,9 @@
    MoltenVK's environment variables set against what libvulkan pins (decision 8): asynchronous submits,
    prefilled command buffers, semaphores by callbacks and Vulkan 1.0 advertised; the app passes its own
    MoltenVK settings as well. It prints what libvulkan hands out: the start of both extension lists and
-   none of what they hide (decision 11), a device at Vulkan 1.3 for an app that asks for 1.0, and a few
-   answers of vkGet*ProcAddr (decision 10). Then it submits one fill with a semaphore to signal, with
+   none of what they hide (decision 11), VK_GOOGLE_display_timing among the device's (ADR-0041, decision
+   11), a device at Vulkan 1.3 for an app that asks for 1.0, and a few answers of vkGet*ProcAddr (decision
+   10). Then it submits one fill with a semaphore to signal, with
    markers on stderr, between which graphics-run's Metal hook prints what Metal sees: the settings hold
    when the command buffer is made, signaled with MTLEvents (the app's semaphore, then libvulkan's timeline
    semaphore of the queue, decision 13) and committed inside vkQueueSubmit, on the calling thread, a guest
@@ -16,11 +17,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The names neither list may hold (decision 11). */
+/* The names neither list may hold (decision 11). VK_GOOGLE_display_timing left them: libvulkan offers it for
+   Swappy (ADR-0041, decision 11). */
 static const char *const hidden[] = {
     "VK_EXT_metal_surface", "VK_EXT_headless_surface", "VK_EXT_metal_objects", "VK_EXT_external_memory_metal",
     "VK_KHR_portability_subset", "VK_KHR_portability_enumeration", "VK_EXT_layer_settings",
-    "VK_GOOGLE_display_timing", "VK_KHR_present_id", "VK_KHR_present_id2", "VK_KHR_present_wait",
+    "VK_KHR_present_id", "VK_KHR_present_id2", "VK_KHR_present_wait",
     "VK_KHR_present_wait2", "VK_EXT_swapchain_maintenance1", "VK_KHR_swapchain_maintenance1",
     "VK_EXT_surface_maintenance1", "VK_KHR_surface_maintenance1", "VK_KHR_swapchain_mutable_format",
     "VK_EXT_hdr_metadata", "VK_EXT_calibrated_timestamps", "VK_KHR_calibrated_timestamps",
@@ -121,6 +123,11 @@ int main(void) {
           vkEnumerateDeviceExtensionProperties(physical, NULL, &count, properties));
     static const char *const device_first[] = {"VK_KHR_incremental_present"};
     examine("device extensions", properties, count, device_first, 1);
+    int timing = 0;
+    for (uint32_t index = 0; index < count; index++) {
+        timing |= strcmp(properties[index].extensionName, "VK_GOOGLE_display_timing") == 0;
+    }
+    printf("device extensions offer VK_GOOGLE_display_timing: %s\n", timing ? "yes" : "no");
 
     const float priority = 1;
     const VkDeviceQueueCreateInfo queue_info = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,

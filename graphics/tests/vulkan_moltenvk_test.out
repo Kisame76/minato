@@ -3,6 +3,7 @@ instance extensions start with VK_KHR_surface VK_KHR_surface_protected_capabilit
 vkCreateInstance with the surfaces and the app's own MoltenVK settings: 0
 a device at Vulkan 1.3 for an app that asked for 1.0
 device extensions start with VK_KHR_incremental_present: yes; none hidden, each once: yes
+device extensions offer VK_GOOGLE_display_timing: yes
 vkCreateDevice with the swapchain: 0
 vkGetInstanceProcAddr: vkCreateAndroidSurfaceKHR ours, vkGetPhysicalDeviceSurfaceCapabilities2KHR NULL, vkCmdPushDescriptorSet NULL
 vkGetDeviceProcAddr: vkCmdDraw ours, vkCmdPushDescriptorSet NULL, vkGetPhysicalDeviceProperties NULL, vkCreateSwapchainKHR ours

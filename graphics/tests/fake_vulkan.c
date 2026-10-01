@@ -21,7 +21,9 @@
      BACKGROUND_THEN_GONE removes the window after 100 ms of background and comes back after 200 ms;
      BACKGROUND_IN_WAIT does what BACKGROUND does when the next wait of the fake's succeeds, so from inside
      the call that waits; TURN gives the window its height and width as its new size, as a turn by 90
-     degrees does, and TURN_180 its own size again, as a turn by 180 degrees does (ADR-0038 c). */
+     degrees does, and TURN_180 its own size again, as a turn by 180 degrees does (ADR-0038 c).
+   - VK_GOOGLE_display_timing (ADR-0041 decision 11): a refresh duration of 120 Hz, and per swapchain the timings
+     of its presents with a time, each handed out once, presented 0.1 ms after the time asked for. */
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
@@ -180,6 +182,16 @@ static void chain(const void *next) {
             fprintf(stderr, "fake:     timeline semaphore features, timelineSemaphore %u\n",
                     ((const VkPhysicalDeviceTimelineSemaphoreFeatures *)(const void *)structure)->timelineSemaphore);
             break;
+        case VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE: {
+            const VkPresentTimesInfoGOOGLE *times = (const void *)structure;
+            fprintf(stderr, "fake:     present times, %u:", times->swapchainCount);
+            for (uint32_t index = 0; index < times->swapchainCount; index++) {
+                fprintf(stderr, " ID %u at %llu", times->pTimes[index].presentID,
+                        (unsigned long long)times->pTimes[index].desiredPresentTime);
+            }
+            fprintf(stderr, "\n");
+            break;
+        }
         default:
             fprintf(stderr, "fake:     sType %d\n", structure->sType);
             break;
@@ -743,6 +755,8 @@ struct swapchain {
     unsigned number;
     VkExtent2D extent;
     uint32_t count, next;
+    uint32_t timings;  /* VK_GOOGLE_display_timing: the presents with a time, not yet handed out */
+    VkPastPresentationTimingGOOGLE past[8];
 };
 static unsigned swapchains;
 
@@ -761,7 +775,7 @@ EXPORTED VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                                        const VkAllocationCallbacks *allocator, VkSwapchainKHR *made) {
     (void)device;
     struct swapchain *swapchain = calloc(1, sizeof *swapchain);
-    *swapchain = (struct swapchain){++swapchains, info->imageExtent, info->minImageCount, 0};
+    *swapchain = (struct swapchain){.number = ++swapchains, .extent = info->imageExtent, .count = info->minImageCount};
     fprintf(stderr, "fake: vkCreateSwapchainKHR on surface %u, allocator %s: format %d, colors %d, %u images, "
             "%u x %u, %u layers, usage 0x%x, sharing %d, transform 0x%x, alpha 0x%x, mode %d, clipped %u, old ",
             (unsigned)((uintptr_t)info->surface - 0x50000000u), allocator != NULL ? "given" : "NULL",
@@ -833,18 +847,56 @@ EXPORTED VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info)
         fprintf(stderr, " %s", semaphore_name(info->pWaitSemaphores[index]));
     }
     fprintf(stderr, "%s;", info->waitSemaphoreCount == 0 ? " none" : "");
+    const VkPresentTimesInfoGOOGLE *times = NULL;
+    for (const VkBaseInStructure *structure = info->pNext; structure != NULL; structure = structure->pNext) {
+        if (structure->sType == VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE) times = (const void *)structure;
+    }
     for (uint32_t index = 0; index < info->swapchainCount; index++) {
-        const struct swapchain *fake = (const void *)info->pSwapchains[index];
+        struct swapchain *fake = (void *)info->pSwapchains[index];
         const VkResult own = suboptimal(fake) ? VK_SUBOPTIMAL_KHR : VK_SUCCESS;
         fprintf(stderr, " swapchain %u image %u", fake->number, info->pImageIndices[index]);
         if (info->pResults != NULL) {
             info->pResults[index] = own;
         }
         result = own != VK_SUCCESS ? own : result;
+        /* Its timing: presented 0.1 ms after the time asked for, which it was ready 0.05 ms before. */
+        if (times != NULL && index < times->swapchainCount && fake->timings < 8) {
+            const VkPresentTimeGOOGLE *time = &times->pTimes[index];
+            fake->past[fake->timings++] = (VkPastPresentationTimingGOOGLE){
+                time->presentID, time->desiredPresentTime, time->desiredPresentTime + 100000,
+                time->desiredPresentTime, 50000};
+        }
     }
     fprintf(stderr, "%s\n", info->pResults != NULL ? ", with results" : "");
     chain(info->pNext);
     return result;
+}
+
+/* VK_GOOGLE_display_timing: a refresh of 120 Hz, and the timings of the presents with a time, each once. */
+EXPORTED VkResult vkGetRefreshCycleDurationGOOGLE(VkDevice device, VkSwapchainKHR swapchain,
+                                                  VkRefreshCycleDurationGOOGLE *duration) {
+    (void)device;
+    fprintf(stderr, "fake: vkGetRefreshCycleDurationGOOGLE swapchain %u\n", swapchain_number(swapchain));
+    duration->refreshDuration = 8333333;
+    return VK_SUCCESS;
+}
+
+EXPORTED VkResult vkGetPastPresentationTimingGOOGLE(VkDevice device, VkSwapchainKHR swapchain, uint32_t *count,
+                                                    VkPastPresentationTimingGOOGLE *timings) {
+    (void)device;
+    struct swapchain *fake = (void *)swapchain;
+    fprintf(stderr, "fake: vkGetPastPresentationTimingGOOGLE swapchain %u, %s\n", fake->number,
+            timings == NULL ? "the count" : "the timings");
+    if (timings == NULL) {
+        *count = fake->timings;
+        return VK_SUCCESS;
+    }
+    const uint32_t given = *count < fake->timings ? *count : fake->timings;
+    memcpy(timings, fake->past, given * sizeof *timings);
+    memmove(fake->past, fake->past + given, (fake->timings - given) * sizeof *timings);
+    fake->timings -= given;
+    *count = given;
+    return fake->timings > 0 ? VK_INCOMPLETE : VK_SUCCESS;
 }
 
 /* Memory type 0 is the host's only, type 1 the device's. */

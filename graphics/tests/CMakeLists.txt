@@ -236,8 +236,9 @@ if(TARGET minato_graphics_host)
     "tools/build-fixtures.sh's build directory, with the test apps' libraries in bin/ and their APKs in apks/")
   # With the Metal hook (metal_hook.m, the counters in app_counts.c), which counts guest commits for the live
   # variants and does nothing unless MINATO_METAL_HOOK is set.
+  # app_test.mm is Objective-C++ (OBJCXX, enabled above) and relies on ARC for the layers it keeps.
   add_executable(graphics-app-test app_test.mm app_counts.c metal_hook.m)
-  target_compile_options(graphics-app-test PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fobjc-arc>)
+  target_compile_options(graphics-app-test PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
   target_link_libraries(graphics-app-test PRIVATE minato_graphics_host apkrt apkconv apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   foreach(app_presents IN ITEMS gles:132 vulkan:372)

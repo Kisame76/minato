@@ -14,7 +14,9 @@
 # through the window manager's user rotation, which the script restores afterwards. audio-live, which plays until it
 # is quit, is sent HOME 3 s after it plays and started again, and quit with BACK 2 s after it plays again; no adb
 # command of the emulator disconnects its stream (killing audioserver restores the stream without an error
-# callback), so its error callback has no reference here (ADR-0036, after M3). Its lines of
+# callback), so its error callback has no reference here (ADR-0036, after M3). present-gles and present-vulkan run
+# with service.sf.present_timestamp at 1, as on a device with reliable present fences (ADR-0041, decision 11),
+# through a root adbd; a running emulator gets the property and adbd back afterwards. A test app's lines of
 # logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
@@ -156,6 +158,44 @@ wait_for() {
   done
   echo "$1 did not log \"$2\" within $seconds s." >&2
   return 1
+}
+
+# Waits up to 20 s until adbd, restarted by adb root or unroot, runs the shell as root ($1 = 0) or not (else).
+wait_for_adbd() {
+  local uid
+  for _ in $(seq 1 40); do
+    uid=$(run id -u 2>/dev/null | tr -d '\r') || true
+    if [[ "$1" == 0 && "$uid" == 0 ]] || [[ "$1" != 0 && "$uid" =~ ^[1-9][0-9]*$ ]]; then return 0; fi
+    sleep 0.5
+  done
+  echo "adbd did not come back within 20 s." >&2
+  return 1
+}
+
+# present-test's apps run as on a device with reliable present fences, which Minato is (ADR-0041, decision 11):
+# Android 15's loader offers VK_GOOGLE_display_timing only with service.sf.present_timestamp at 1
+# (vulkan/libvulkan/driver.cpp, EnumerateDeviceExtensionProperties), and SurfaceFlinger sets it to 0 because the
+# emulator's composer reports PRESENT_FENCE_IS_NOT_RELIABLE. Setting it takes a root adbd.
+timestamp_was="" rooted=""
+present_timestamp_on() {
+  if [[ "$(run id -u | tr -d '\r')" != 0 ]]; then
+    rooted=yes
+    device root >/dev/null
+    wait_for_adbd 0
+  fi
+  timestamp_was=$(run getprop service.sf.present_timestamp | tr -d '\r')
+  run setprop service.sf.present_timestamp 1 || true
+  if [[ "$(run getprop service.sf.present_timestamp | tr -d '\r')" != 1 ]]; then
+    echo "Could not set service.sf.present_timestamp to 1." >&2
+    return 1
+  fi
+}
+present_timestamp_back() {
+  [[ -z "$timestamp_was" ]] || run setprop service.sf.present_timestamp "$timestamp_was" || true
+  if [[ -n "$rooted" ]]; then
+    device unroot >/dev/null || true
+    wait_for_adbd shell || true
+  fi
 }
 
 run_app() {
@@ -309,6 +349,11 @@ run_app() {
 }
 
 if [[ -n "$app" ]]; then
+  if [[ "$app" == present-gles || "$app" == present-vulkan ]]; then
+    # An emulator this script started stops at the end, and boots with both as they were.
+    [[ -n "$started" ]] || trap present_timestamp_back EXIT
+    present_timestamp_on
+  fi
   run_app
   exit $?
 fi

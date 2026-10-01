@@ -40,10 +40,11 @@ the app's report callback: "a report of the app", flags 0x8, object type 1, obje
 vkEnumeratePhysicalDevices: 0, 1: Minato's fake Vulkan at Vulkan 1.3 for an app that asked for 1.0
 vkEnumerateDeviceLayerProperties: 0, 0 layers
 vkEnumerateDeviceExtensionProperties of a layer: -6
-device extensions: 0, 5
+device extensions: 0, 6
   VK_KHR_incremental_present 2
   VK_KHR_swapchain 70
   VK_KHR_16bit_storage 1
+  VK_GOOGLE_display_timing 1
   VK_KHR_draw_indirect_count 1
   VK_KHR_maintenance1 2
 vkCreateDevice with VK_KHR_portability_subset: -7

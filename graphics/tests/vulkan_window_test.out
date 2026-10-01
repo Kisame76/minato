@@ -34,6 +34,12 @@ turned, the swapchain made at 64 x 48 again: acquire 0, present 1000001003, its 
 turned back, the swapchain made at 64 x 48: acquire 0, present 0, its result 0
 turned again, a new swapchain at 48 x 64: acquire 0, present 0, its result 0
 turned back, the swapchain made at 48 x 64: acquire 0, present 1000001003, its result 1000001003
+VK_GOOGLE_display_timing: offered
+a present at 1 ms: 0
+refresh duration: 0, 8333333 ns
+past timing: 0, 1; 0, 1: ID 1, desired 1000000, actual 1100000, earliest 1000000, margin 50000
+the replaced swapchain and a new one at 2 and 3 ms: -1000001004, results -1000001004 0
+past timing: of the replaced swapchain -1000001004; of the new one 0, 1: ID 3, desired 3000000
 the closed gate: present 0, waited at least 100 ms: yes, the signal handled meanwhile: yes
 in the background: vkQueueSubmit 0, waited at least 100 ms: yes
 in the background: vkQueueSubmit2KHR 0, waited at least 100 ms: yes

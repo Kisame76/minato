@@ -37,6 +37,9 @@ hand vkCreateDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT
 # Decision 11: the extensions libvulkan implements itself.
 own VK_KHR_surface VK_KHR_surface_protected_capabilities VK_KHR_android_surface VK_EXT_swapchain_colorspace
 own VK_KHR_get_surface_capabilities2 VK_GOOGLE_surfaceless_query VK_KHR_swapchain VK_KHR_incremental_present
+# ADR-0041 decision 11, for Swappy: MoltenVK's VK_GOOGLE_display_timing on libvulkan's swapchains.
+own VK_GOOGLE_display_timing
+hand vkGetRefreshCycleDurationGOOGLE vkGetPastPresentationTimingGOOGLE
 
 # Decision 11, never offered: what is Apple's or Metal's,
 exclude VK_EXT_metal_surface VK_EXT_headless_surface VK_EXT_metal_objects VK_EXT_external_memory_metal
