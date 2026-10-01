@@ -564,6 +564,15 @@ void resume(const GuestContext &context) {
     ::pthread_sigmask(SIG_UNBLOCK, &runtime, nullptr);
     ::pthread_setspecific(request_key, &context);
     ::pthread_kill(::pthread_self(), runtime_signal);
+    // The handler did not run: XNU drops a signal that a thread sends itself once another thread's exit is under
+    // way, and holds the thread a moment later. After the program's end the thread stops, as the handler would
+    // have stopped it; before it, the thread sends the signal again until it arrives or the exit holds it. Only a
+    // signal that does not arrive within a second is the runtime's failure.
+    for (int attempt = 0; attempt < 1000; ++attempt) {
+        if (process::ended()) process::stop();
+        ::usleep(1000);
+        ::pthread_kill(::pthread_self(), runtime_signal);
+    }
     static const char message[] = "apkrt: a thread could not resume guest code\n";
     static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
     process::exit(127);

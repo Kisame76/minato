@@ -152,7 +152,8 @@ void set_default_restorer(std::uint64_t address);
 
 /// Continues the calling guest thread in `context`, and first delivers the guest signals it can
 /// take, as the Linux kernel does on its way back to user space. The thread stays in the runtime
-/// until the runtime signal's handler switches to the context. Never returns.
+/// until the runtime signal's handler switches to the context; after the program's end it stops
+/// instead (process::stop), also when an exit under way drops the signal. Never returns.
 [[noreturn]] void resume(const GuestContext &context);
 
 /// Starts guest code at `entry` the way Linux starts an executable: the stack pointer at

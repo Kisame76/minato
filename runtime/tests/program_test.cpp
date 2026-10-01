@@ -485,6 +485,59 @@ void exit_group_once_inside(void *) {
     finish_case();
 }
 
+/// XNU drops the runtime signal that resume() sends its own thread once another thread's exit is under way, and
+/// the thread runs on for a moment (graphics.gles_glue: the end handler's _exit met the app's thread on its way
+/// back into guest code). SIG_IGN drops it the same way, for as long as the case wants. Before the program's end
+/// the thread sends the signal again until it arrives; after the end it stops, as the signal's handler would have
+/// stopped it, without a report.
+[[noreturn]] void run_dropped_resume() {
+    begin_session();
+    CHECK(probe_syscall(nr_pipe2, address(stop_view.read_pipe), 0) == 0);
+    Child reader, ender;
+    reader.start(read_pipe);  // the runtime's handlers are in place from its start on
+    ender.start(exit_group_when_told);
+    CHECK(wait_for([&] { return reader.sleeps_in_syscall(); }));
+    struct sigaction runtime {};
+    CHECK(::sigaction(SIGURG, nullptr, &runtime) == 0);
+    ::signal(SIGURG, SIG_IGN);
+    static std::atomic<int> early_ran{0};
+    Child early;
+    early.start([](void *) { early_ran.store(1); });
+    std::this_thread::sleep_for(20ms);
+    CHECK(early_ran.load() == 0);
+    CHECK(::sigaction(SIGURG, &runtime, nullptr) == 0);
+    CHECK(wait_for([] { return early_ran.load() == 1; }));
+    // The end wakes the reader, which goes back to guest code for its SIGKILL.
+    ::signal(SIGURG, SIG_IGN);
+    stop_view.go.store(true);
+    check_end(5);
+    CHECK(wait_for([&] { return reader.stopped() && ender.stopped(); }));
+    CHECK(stop_view.read_returned.load() == 0);
+    static std::atomic<int> late_ran{0};
+    Child late;
+    late.start([](void *) { late_ran.store(1); });
+    CHECK(wait_for([&] { return late.stopped(); }));
+    CHECK(late_ran.load() == 0);
+    finish_case();
+}
+
+/// A runtime signal that never arrives: the thread gives up after a second and ends the process, as before.
+[[noreturn]] void run_resume_never() {
+    static std::atomic<int> first_ran{0};
+    Child first;  // the runtime's handlers are in place from its start on; it lives on, so its end is not the end
+    first.start([](void *) {
+        first_ran.store(1);
+        while (first_ran.load() != 2) {
+        }
+    });
+    CHECK(wait_for([] { return first_ran.load() == 1; }));
+    ::signal(SIGURG, SIG_IGN);
+    Child never;
+    never.start([](void *) {});
+    std::this_thread::sleep_for(10s);
+    ::_exit(3);  // the thread should have ended the process
+}
+
 /// linker64's failure ends the program as well: the dynamic program in `container` lacks its library.
 [[noreturn]] void run_cannot_link(const char *container) {
     begin_session();
@@ -514,6 +567,8 @@ void exit_group_once_inside(void *) {
     if (mode == "--reader-goes") run_reader_goes();
     if (mode == "--stop") run_stop();
     if (mode == "--host-call") run_host_call();
+    if (mode == "--dropped-resume") run_dropped_resume();
+    if (mode == "--resume-never") run_resume_never();
     if (mode == "--cannot-link") run_cannot_link(argument);
     if (mode == "--no-session") run_no_session();
     std::fprintf(stderr, "unknown case %.*s\n", static_cast<int>(mode.size()), mode.data());
@@ -677,6 +732,21 @@ TEST(the_program_s_end_stops_every_other_guest_thread) {
 // the call returns.
 TEST(a_thread_in_a_host_call_stops_when_the_call_returns) {
     CHECK(succeeded(run_child("--host-call")));
+}
+
+// Decision 5 with signals::resume: a runtime signal that an exit under way drops is sent again before the
+// program's end, and after the end its thread stops; neither reports that the thread could not resume.
+TEST(a_dropped_runtime_signal_is_sent_again_and_after_the_end_its_thread_stops) {
+    const auto ended = run_child("--dropped-resume");
+    CHECK(succeeded(ended));
+    CHECK(ended.output.find("could not resume") == std::string::npos);
+}
+
+// Only a runtime signal that never arrives still ends the process, with the report.
+TEST(a_runtime_signal_that_never_arrives_ends_the_process) {
+    const auto ended = run_child("--resume-never", "", 127);
+    CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 127);
+    CHECK(ended.output.find("apkrt: a thread could not resume guest code") != std::string::npos);
 }
 
 /// The NDK fixture raw-dyn as an ELF file, or nothing while it is not built.
