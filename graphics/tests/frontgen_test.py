@@ -38,7 +38,7 @@ import ndk_headers
 
 # The counts of ADR-0029, decision 14 (with ADR-0030's change) and of ADR-0030, test 1 and decision 10. B1
 # writes glGetBooleanv, glGetFloatv, glGetIntegerv and glGetInteger64v by hand too, whose GL_NUM_EXTENSIONS
-# must count the extensions glGetStringi lists.
+# must count the extensions glGetStringi lists. V5's guard writes vkCreateImageView by hand (ADR-0030).
 ABI_COUNTS = {
     "gles": {"same": 420, "extend": 33, "repack": 8},
     "egl": {"same": 73},
@@ -47,7 +47,7 @@ ABI_COUNTS = {
 KIND_COUNTS = {
     "gles": {"plain": 409, "extend": 33, "repack": 8, "by hand": 11},
     "egl": {"plain": 58, "by hand": 15},
-    "vulkan": {"plain": 149, "without allocator": 46, "by hand": 38},
+    "vulkan": {"plain": 149, "without allocator": 45, "by hand": 39},
 }
 # ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the
 # private exports beside the NDK's names (B1: libEGL finds libGLES's functions with minato_gles_proc).

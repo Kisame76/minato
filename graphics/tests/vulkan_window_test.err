@@ -26,6 +26,7 @@ fake: vkCreateSemaphore, allocator NULL, binary: s4
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 1
 fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
 fake: vkAcquireNextImageKHR swapchain 1, timeout 10000000, semaphore s3, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s3, 0 command buffers, signals s4=0 s1=1
@@ -54,6 +55,7 @@ fake:   chain: empty
 fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 4
 fake:   chain: empty
 fake: vkBindImageMemory image 4, memory 4, offset 0
+I/libvulkan: swapchain 64 x 48, format 37, entry 0 of the surface's 6, the copy way
 fake: vkAcquireNextImageKHR swapchain 2, timeout 10000000, semaphore s3, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s3, 0 command buffers, signals s4=0 s1=2
@@ -171,6 +173,7 @@ fake:   chain: empty
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 32 x 24, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 2: swapchain 3
 fake:   chain: empty
+I/libvulkan: swapchain 32 x 24, format 44, entry 4 of the surface's 6, the direct way
 fake: vkAcquireNextImageKHR swapchain 3, timeout 10000000, semaphore s3, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s3, 0 command buffers, signals s4=0 s1=13
@@ -197,6 +200,7 @@ fake:   chain: empty
 fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 7
 fake:   chain: empty
 fake: vkBindImageMemory image 7, memory 7, offset 0
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the copy way
 fake: vkAcquireNextImageKHR swapchain 4, timeout 10000000, semaphore s3, fence none: 0
 fake: vkAcquireNextImageKHR swapchain 4, timeout 0, semaphore s3, fence none: 1
 fake: vkAcquireNextImageKHR swapchain 4, timeout 0, semaphore s3, fence none: 2
@@ -225,15 +229,57 @@ fake:   chain: empty
 fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 11
 fake:   chain: empty
 fake: vkBindImageMemory image 11, memory 11, offset 0
+I/libvulkan: swapchain 64 x 48, format 97, entry 2 of the surface's 6, the copy way
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 50, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 5: swapchain 6
 fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 50, entry 5 of the surface's 6, the direct way
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x1, mode 2, clipped 1, old swapchain 6: swapchain 7
 fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
 fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 7: swapchain 8
 fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
+fake: vkCreateImageView, allocator NULL: swapchain 8 image 0, format 44: view 1
+fake: vkDestroyImageView view 1, allocator NULL
+W/libvulkan: a view of a swapchain image in format 37, the swapchain's is 44
+fake: vkCreateImageView, allocator NULL: swapchain 8 image 0, format 37: view 2
+fake: vkDestroyImageView view 2, allocator NULL
+fake: vkCreateImageView, allocator NULL: swapchain 8 image 0, format 43: view 3
+fake: vkDestroyImageView view 3, allocator NULL
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x12, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 8: swapchain 9
+fake:   chain: empty
+fake: vkCreateSemaphore, allocator NULL, binary: s14
+fake: vkCreateSemaphore, allocator NULL, binary: s15
+fake: vkCreateSemaphore, allocator NULL, binary: s16
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 12
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 12
+fake:   chain: empty
+fake: vkBindImageMemory image 12, memory 12, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 13
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 13
+fake:   chain: empty
+fake: vkBindImageMemory image 13, memory 13, offset 0
+fake: vkCreateImage, allocator NULL: type 1, format 37, 64 x 48 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x11, sharing 0, flags 0x0, layout 0: image 14
+fake:   chain: empty
+fake: vkAllocateMemory, allocator NULL: 65536 bytes, type 1: memory 14
+fake:   chain: empty
+fake: vkBindImageMemory image 14, memory 14, offset 0
+I/libvulkan: swapchain 64 x 48, format 37, entry 0 of the surface's 6, the copy way
+fake: vkCreateImageView, allocator NULL: image 12, format 37: view 4
+fake: vkDestroyImageView view 4, allocator NULL
+W/libvulkan: a view of a swapchain image in format 44, the swapchain's is 37
+fake: vkCreateImageView, allocator NULL: image 12, format 44: view 5
+fake: vkDestroyImageView view 5, allocator NULL
+fake: vkCreateImage, allocator NULL: type 1, format 37, 16 x 16 x 1, 1 levels, 1 layers, 1 samples, tiling 0, usage 0x4, sharing 0, flags 0x0, layout 0: image 15
+fake:   chain: empty
+fake: vkCreateImageView, allocator NULL: image 15, format 44: view 6
+fake: vkDestroyImageView view 6, allocator NULL
+fake: vkDestroyImage image 15, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 1, allocator NULL
 fake: vkWaitSemaphores, all: s2=1 s1=11, timeout 10000000
 fake: vkWaitSemaphores, all: s2=1 s1=11, timeout 10000000
@@ -277,97 +323,112 @@ fake: vkDestroySwapchainKHR swapchain 5, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 6, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 7, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 8, allocator NULL
+fake: vkDestroyImage image 12, allocator NULL
+fake: vkFreeMemory memory 12, allocator NULL
+fake: vkDestroyImage image 13, allocator NULL
+fake: vkFreeMemory memory 13, allocator NULL
+fake: vkDestroyImage image 14, allocator NULL
+fake: vkFreeMemory memory 14, allocator NULL
+fake: vkDestroySemaphore s14, allocator NULL
+fake: vkDestroySemaphore s15, allocator NULL
+fake: vkDestroySemaphore s16, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 9, allocator NULL
 fake: vkDestroySemaphore s3, allocator NULL
 fake: vkDestroySemaphore s4, allocator NULL
 vulkan-window-test: turns
-fake: vkCreateSemaphore, allocator NULL, binary: s14
-fake: vkCreateSemaphore, allocator NULL, binary: s15
-fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 9
-fake:   chain: empty
-fake: the window turns by 180 degrees to 64 x 48: 0
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s14, fence none: 0
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=14
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 9 image 0, with results
-fake:   chain: empty
-fake: the window turns by 90 degrees to 48 x 64: 0
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s14, fence none: 1
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=15
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 9 image 1, with results
-fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s14, fence none: 2
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=16
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 9 image 2, with results
-fake:   chain: empty
-fake: the window turns by 90 degrees to 64 x 48: 0
-fake: vkAcquireNextImageKHR swapchain 9, timeout 10000000, semaphore s14, fence none: 0
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=17
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 9 image 0, with results
-fake:   chain: empty
-fake: the window turns by 90 degrees to 48 x 64: 0
-fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 48 x 64, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 9: swapchain 10
-fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s14, fence none: 0
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=18
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 10 image 0, with results
-fake:   chain: empty
-fake: the window turns by 90 degrees to 64 x 48: 0
-fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s14, fence none: 1
-fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s14, 0 command buffers, signals s15=0 s1=19
-fake: vkQueuePresentKHR on queue 0.0: waits s15; swapchain 10 image 1, with results
-fake:   chain: empty
-fake: vkDestroySwapchainKHR swapchain 9, allocator NULL
-fake: vkDestroySwapchainKHR swapchain 10, allocator NULL
-fake: vkDestroySemaphore s14, allocator NULL
-fake: vkDestroySemaphore s15, allocator NULL
-vulkan-window-test: display timing
-fake: vkCreateSemaphore, allocator NULL, binary: s16
 fake: vkCreateSemaphore, allocator NULL, binary: s17
+fake: vkCreateSemaphore, allocator NULL, binary: s18
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 11
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 10
 fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s16, fence none: 0
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
+fake: the window turns by 180 degrees to 64 x 48: 0
+fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s17, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s16, 0 command buffers, signals s17=0 s1=20
-fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 11 image 0, with results
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=14
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 10 image 0, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 48 x 64: 0
+fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s17, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=15
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 10 image 1, with results
+fake:   chain: empty
+fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s17, fence none: 2
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=16
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 10 image 2, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 64 x 48: 0
+fake: vkAcquireNextImageKHR swapchain 10, timeout 10000000, semaphore s17, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=17
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 10 image 0, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 48 x 64: 0
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 48 x 64, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 10: swapchain 11
+fake:   chain: empty
+I/libvulkan: swapchain 48 x 64, format 44, entry 4 of the surface's 6, the direct way
+fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s17, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=18
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 11 image 0, with results
+fake:   chain: empty
+fake: the window turns by 90 degrees to 64 x 48: 0
+fake: vkAcquireNextImageKHR swapchain 11, timeout 10000000, semaphore s17, fence none: 1
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s17, 0 command buffers, signals s18=0 s1=19
+fake: vkQueuePresentKHR on queue 0.0: waits s18; swapchain 11 image 1, with results
+fake:   chain: empty
+fake: vkDestroySwapchainKHR swapchain 10, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 11, allocator NULL
+fake: vkDestroySemaphore s17, allocator NULL
+fake: vkDestroySemaphore s18, allocator NULL
+vulkan-window-test: display timing
+fake: vkCreateSemaphore, allocator NULL, binary: s19
+fake: vkCreateSemaphore, allocator NULL, binary: s20
+fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 12
+fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 0
+fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
+fake:   0: waits s19, 0 command buffers, signals s20=0 s1=20
+fake: vkQueuePresentKHR on queue 0.0: waits s20; swapchain 12 image 0, with results
 fake:   chain:
 fake:     present times, 1: ID 1 at 1000000
-fake: vkGetRefreshCycleDurationGOOGLE swapchain 11
-fake: vkGetPastPresentationTimingGOOGLE swapchain 11, the count
-fake: vkGetPastPresentationTimingGOOGLE swapchain 11, the timings
+fake: vkGetRefreshCycleDurationGOOGLE swapchain 12
+fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the count
+fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 11: swapchain 12
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old swapchain 12: swapchain 13
 fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s16, fence none: 0
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
+fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s19, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s16, 0 command buffers, signals s17=0 s1=21
-fake: vkQueuePresentKHR on queue 0.0: waits s17; swapchain 12 image 0, with results
+fake:   0: waits s19, 0 command buffers, signals s20=0 s1=21
+fake: vkQueuePresentKHR on queue 0.0: waits s20; swapchain 13 image 0, with results
 fake:   chain:
 fake:     present times, 1: ID 3 at 3000000
-fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
-fake: vkDestroySwapchainKHR swapchain 11, allocator NULL
+fake: vkGetPastPresentationTimingGOOGLE swapchain 13, the timings
 fake: vkDestroySwapchainKHR swapchain 12, allocator NULL
-fake: vkDestroySemaphore s16, allocator NULL
-fake: vkDestroySemaphore s17, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 13, allocator NULL
+fake: vkDestroySemaphore s19, allocator NULL
+fake: vkDestroySemaphore s20, allocator NULL
 vulkan-window-test: the gates
-fake: vkCreateSemaphore, allocator NULL, binary: s18
-fake: vkCreateSemaphore, allocator NULL, binary: s19
+fake: vkCreateSemaphore, allocator NULL, binary: s21
+fake: vkCreateSemaphore, allocator NULL, binary: s22
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 13
+fake: vkCreateSwapchainKHR on surface 1, allocator NULL: format 44, colors 0, 3 images, 64 x 48, 1 layers, usage 0x10, sharing 0, transform 0x1, alpha 0x8, mode 2, clipped 1, old none: swapchain 14
 fake:   chain: empty
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
 fake: the gate closes
-fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s18, fence none: 0
+fake: vkAcquireNextImageKHR swapchain 14, timeout 10000000, semaphore s21, fence none: 0
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s18, 0 command buffers, signals s19=0 s1=22
+fake:   0: waits s21, 0 command buffers, signals s22=0 s1=22
 fake: the gate opens
-fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 13 image 0, with results
+fake: vkQueuePresentKHR on queue 0.0: waits s22; swapchain 14 image 0, with results
 fake:   chain: empty
 fake: background
 fake: "scheduled": 1
@@ -387,17 +448,17 @@ fake:   0: waits none, 0 command buffers, signals s1=25
 fake: background
 fake: "scheduled": 1
 fake: foreground
-fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s18, fence none: 1
+fake: vkAcquireNextImageKHR swapchain 14, timeout 10000000, semaphore s21, fence none: 1
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s18, 0 command buffers, signals s19=0 s1=26
+fake:   0: waits s21, 0 command buffers, signals s22=0 s1=26
 fake: background
 fake: "scheduled": 1
 fake: foreground
-fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 13 image 1, with results
+fake: vkQueuePresentKHR on queue 0.0: waits s22; swapchain 14 image 1, with results
 fake:   chain: empty
-fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s18, fence none: 2
+fake: vkAcquireNextImageKHR swapchain 14, timeout 10000000, semaphore s21, fence none: 2
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
-fake:   0: waits s18, 0 command buffers, signals s19=0 s1=27
+fake:   0: waits s21, 0 command buffers, signals s22=0 s1=27
 fake: background
 fake: the window's presents: 17
 fake: the window is gone
@@ -405,9 +466,9 @@ fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits none, 0 command buffers, signals s1=28
 fake: vkGetPhysicalDeviceSurfaceCapabilitiesKHR on surface 1
-fake: vkDestroySwapchainKHR swapchain 13, allocator NULL
-fake: vkDestroySemaphore s18, allocator NULL
-fake: vkDestroySemaphore s19, allocator NULL
+fake: vkDestroySwapchainKHR swapchain 14, allocator NULL
+fake: vkDestroySemaphore s21, allocator NULL
+fake: vkDestroySemaphore s22, allocator NULL
 vulkan-window-test: the end
 fake: vkDestroySurfaceKHR surface 1, allocator NULL
 fake: vkDestroySemaphore s1, allocator NULL

@@ -20,7 +20,13 @@
    through graphics/host's background gate. VK_GOOGLE_display_timing (ADR-0041 decision 11) is MoltenVK's on the
    swapchain's own; a present's times reach MoltenVK for the swapchains that go on, in their order. With
    MINATO_VULKAN_OPAQUE=1 in the environment, MoltenVK's swapchain gets OPAQUE for the app's INHERIT (V5's late
-   frames). */
+   frames).
+   Minato's own log, which Android's loader does not write: one line per swapchain made, with its size, format,
+   entry in the surface's list and way, for the data on V5's copy (which formats apps take); and the guard, a
+   warning once per swapchain at a view of one of its images in another format than its own, as an app makes
+   that takes the first format but names R8G8B8A8 elsewhere, once B8G8R8A8 comes first. */
+#include <android/log.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +40,7 @@ MINATO_HOST(vkQueuePresentKHR);
 MINATO_HOST(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
 MINATO_HOST(vkGetRefreshCycleDurationGOOGLE);
 MINATO_HOST(vkGetPastPresentationTimingGOOGLE);
+MINATO_HOST(vkCreateImageView);
 
 /* An image of the copy way: the app's, with its memory and the command buffer of its copy. */
 struct image {
@@ -62,9 +69,17 @@ struct swapchain {
     VkCommandPool pool;
     uint32_t family;
     uint64_t given_back;
+    VkFormat format;          /* the app's */
+    VkImage given[3];         /* the direct way: MoltenVK's images as the app got them */
+    int warned;               /* the guard warned for this swapchain; under `live_lock` */
+    struct swapchain *next;   /* in `live` */
     uint32_t count;
     struct image images[];
 };
+
+/* The swapchains not destroyed yet, for the guard. */
+static struct swapchain *live;
+static pthread_mutex_t live_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static struct swapchain *swapchain_of(VkSwapchainKHR handle) {
     return (struct swapchain *)(uintptr_t)handle;
@@ -100,6 +115,21 @@ static VkCompositeAlphaFlagBitsKHR composite_alpha(VkCompositeAlphaFlagBitsKHR a
     return asked == VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR && value != NULL && strcmp(value, "1") == 0
                ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
                : asked;
+}
+
+/* Minato's own line for a swapchain made. */
+static void log_made(const struct swapchain *swapchain, const VkSwapchainCreateInfoKHR *info) {
+    uint32_t count = 0;
+    const int entry = minato_surface_format_entry(info->imageFormat, info->imageColorSpace, &count);
+    const char *way = swapchain->copy ? "copy" : "direct";
+    if (entry >= 0) {
+        __android_log_print(ANDROID_LOG_INFO, "libvulkan", "swapchain %u x %u, format %d, entry %d of the surface's %u, "
+                            "the %s way", info->imageExtent.width, info->imageExtent.height, info->imageFormat, entry,
+                            count, way);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "libvulkan", "swapchain %u x %u, format %d, not in the surface's list, the "
+                            "%s way", info->imageExtent.width, info->imageExtent.height, info->imageFormat, way);
+    }
 }
 
 /* A memory type of the device's own among `bits`, else the first of them. */
@@ -236,6 +266,7 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
     swapchain->extent = info->imageExtent;
     swapchain->window = minato_window_size(surface);
     swapchain->copy = copy;
+    swapchain->format = info->imageFormat;
     swapchain->count = count;
     /* MoltenVK's, on MoltenVK's surface; graphics/host checks that the window is there. */
     const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, 1, &surface->id};
@@ -264,6 +295,11 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
         free(swapchain);
         return result;
     }
+    pthread_mutex_lock(&live_lock);
+    swapchain->next = live;
+    live = swapchain;
+    pthread_mutex_unlock(&live_lock);
+    log_made(swapchain, info);
     __atomic_store_n(&surface->swapchain, (VkSwapchainKHR)(uintptr_t)swapchain, __ATOMIC_RELEASE);
     *made = (VkSwapchainKHR)(uintptr_t)swapchain;
     return VK_SUCCESS;
@@ -278,6 +314,14 @@ void vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR handle, const VkAlloc
     VkSwapchainKHR current = handle;
     __atomic_compare_exchange_n(&swapchain->surface->swapchain, &current, VK_NULL_HANDLE, 0, __ATOMIC_ACQ_REL,
                                 __ATOMIC_ACQUIRE);
+    pthread_mutex_lock(&live_lock);
+    for (struct swapchain **at = &live; *at != NULL; at = &(*at)->next) {
+        if (*at == swapchain) {
+            *at = swapchain->next;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&live_lock);
     if (swapchain->copy) {
         wait_copies(swapchain);
         copy_teardown(swapchain);
@@ -287,9 +331,16 @@ void vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR handle, const VkAlloc
 }
 
 VkResult vkGetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR handle, uint32_t *count, VkImage *images) {
-    const struct swapchain *swapchain = swapchain_of(handle);
+    struct swapchain *swapchain = swapchain_of(handle);
     if (!swapchain->copy) {
-        return minato_host_vkGetSwapchainImagesKHR(device, swapchain->moltenvk, count, images);
+        /* The images as the app gets them, for the guard. */
+        const VkResult result = minato_host_vkGetSwapchainImagesKHR(device, swapchain->moltenvk, count, images);
+        for (uint32_t index = 0; images != NULL && (result == VK_SUCCESS || result == VK_INCOMPLETE) &&
+                                 index < *count && index < sizeof swapchain->given / sizeof *swapchain->given;
+             index++) {
+            __atomic_store_n(&swapchain->given[index], images[index], __ATOMIC_RELAXED);
+        }
+        return result;
     }
     if (images == NULL) {
         *count = swapchain->count;
@@ -301,6 +352,51 @@ VkResult vkGetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR handle, uint32_
     }
     *count = copied;
     return copied < swapchain->count ? VK_INCOMPLETE : VK_SUCCESS;
+}
+
+/* Whether the app got `image` from the swapchain. */
+static int holds(const struct swapchain *swapchain, VkImage image) {
+    if (image == VK_NULL_HANDLE) {
+        return 0;
+    }
+    if (swapchain->copy) {
+        for (uint32_t index = 0; index < swapchain->count; index++) {
+            if (swapchain->images[index].image == image) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    for (size_t index = 0; index < sizeof swapchain->given / sizeof *swapchain->given; index++) {
+        if (__atomic_load_n(&swapchain->given[index], __ATOMIC_RELAXED) == image) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The guard: a warning, once per swapchain, at a view of one of its images in another format than its own. The
+   view goes to MoltenVK as asked, without the app's allocator, as every stub passes it. */
+VkResult vkCreateImageView(VkDevice device, const VkImageViewCreateInfo *info, const VkAllocationCallbacks *allocator,
+                           VkImageView *view) {
+    (void)allocator;
+    VkFormat own = VK_FORMAT_UNDEFINED;
+    pthread_mutex_lock(&live_lock);
+    for (struct swapchain *swapchain = live; swapchain != NULL; swapchain = swapchain->next) {
+        if (swapchain->device == device && holds(swapchain, info->image)) {
+            if (info->format != swapchain->format && !swapchain->warned) {
+                swapchain->warned = 1;
+                own = swapchain->format;
+            }
+            break;
+        }
+    }
+    pthread_mutex_unlock(&live_lock);
+    if (own != VK_FORMAT_UNDEFINED) {
+        __android_log_print(ANDROID_LOG_WARN, "libvulkan", "a view of a swapchain image in format %d, the swapchain's "
+                            "is %d", info->format, own);
+    }
+    return minato_host_vkCreateImageView(device, info, NULL, view);
 }
 
 /* The copy way's image for the next acquire: the least recently given back that the app does not hold,

@@ -8,7 +8,9 @@
    - swapchains the direct way and the copy way: what reaches MoltenVK, the copy's commands, the order the
      app's images come back in, a replaced swapchain, and VK_SUBOPTIMAL_KHR for the size (decision 12); OPAQUE
      for MoltenVK in place of the app's INHERIT when the environment has MINATO_VULKAN_OPAQUE=1, and only then
-     (V5's late frames);
+     (V5's late frames); for each swapchain made, libvulkan's line with its size, format, entry in the surface's
+     list and way, and its warning, once per swapchain, at a view of a swapchain image in another format than
+     the swapchain's, on either way, never at a view of another image (the data for V5's copy);
    - turns (ADR-0038 c): a present answers VK_SUBOPTIMAL_KHR while the window's size differs from the one
      the swapchain was made at, as Android's does while the window's transform hint differs from the
      swapchain's, and VK_SUCCESS after a turn by 180 degrees, after a turn back and on a new swapchain;
@@ -286,6 +288,30 @@ static VkSwapchainKHR swapchain(VkFormat format, uint32_t images, uint32_t width
     return made;
 }
 
+/* A view of `image` in `format`, destroyed again. */
+static VkResult view(VkImage image, VkFormat format) {
+    const VkImageViewCreateInfo info = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = image,
+                                        .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = format,
+                                        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
+    VkImageView made = VK_NULL_HANDLE;
+    const VkResult result = vkCreateImageView(device, &info, NULL, &made);
+    if (result == VK_SUCCESS) {
+        vkDestroyImageView(device, made, NULL);
+    }
+    return result;
+}
+
+/* The first of a swapchain's images. */
+static VkImage first_image(VkSwapchainKHR which) {
+    uint32_t count = 1;
+    VkImage image = VK_NULL_HANDLE;
+    const VkResult result = vkGetSwapchainImagesKHR(device, which, &count, &image);
+    if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+        check("vkGetSwapchainImagesKHR", result);
+    }
+    return image;
+}
+
 static uint32_t image_count(VkSwapchainKHR which) {
     uint32_t count = 0;
     check("vkGetSwapchainImagesKHR", vkGetSwapchainImagesKHR(device, which, &count, NULL));
@@ -399,6 +425,30 @@ static void swapchain_part(void) {
     const VkSwapchainKHR inherit = swapchain(VK_FORMAT_B8G8R8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                                              opaque);
     printf("with MINATO_VULKAN_OPAQUE=1, then without: %u and %u images\n", image_count(opaque), image_count(inherit));
+
+    /* The guard (V5's copy): libvulkan warns once per swapchain at a view of one of its images in another format
+       than the swapchain's, the direct way's B8G8R8A8 and the copy way's R8G8B8A8 alike, never at another image. */
+    const VkImage direct_image = first_image(inherit);
+    const VkResult direct_same = view(direct_image, VK_FORMAT_B8G8R8A8_UNORM);
+    const VkResult direct_other = view(direct_image, VK_FORMAT_R8G8B8A8_UNORM);
+    const VkResult direct_again = view(direct_image, VK_FORMAT_R8G8B8A8_SRGB);
+    const VkSwapchainKHR rgba = swapchain(VK_FORMAT_R8G8B8A8_UNORM, 3, 64, 48, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                          inherit);
+    const VkImage copy_image = first_image(rgba);
+    const VkResult copy_same = view(copy_image, VK_FORMAT_R8G8B8A8_UNORM);
+    const VkResult copy_other = view(copy_image, VK_FORMAT_B8G8R8A8_UNORM);
+    const VkImageCreateInfo plain_info = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
+                                          .format = VK_FORMAT_R8G8B8A8_UNORM, .extent = {16, 16, 1}, .mipLevels = 1,
+                                          .arrayLayers = 1, .samples = VK_SAMPLE_COUNT_1_BIT,
+                                          .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_SAMPLED_BIT,
+                                          .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+    VkImage plain = VK_NULL_HANDLE;
+    check("vkCreateImage", vkCreateImage(device, &plain_info, NULL, &plain));
+    const VkResult plain_other = view(plain, VK_FORMAT_B8G8R8A8_UNORM);
+    vkDestroyImage(device, plain, NULL);
+    printf("views: the direct way's image in its format %d, in R8G8B8A8 %d, in R8G8B8A8_SRGB %d; the copy way's in "
+           "its format %d, in B8G8R8A8 %d; another image in B8G8R8A8 %d\n", direct_same, direct_other, direct_again,
+           copy_same, copy_other, plain_other);
     vkDestroySwapchainKHR(device, direct, NULL);
     vkDestroySwapchainKHR(device, copied, NULL);
     vkDestroySwapchainKHR(device, small, NULL);
@@ -407,6 +457,7 @@ static void swapchain_part(void) {
     vkDestroySwapchainKHR(device, srgb, NULL);
     vkDestroySwapchainKHR(device, opaque, NULL);
     vkDestroySwapchainKHR(device, inherit, NULL);
+    vkDestroySwapchainKHR(device, rgba, NULL);
     vkDestroySemaphore(device, acquired, NULL);
     vkDestroySemaphore(device, rendered, NULL);
 }

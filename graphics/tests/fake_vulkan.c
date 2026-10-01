@@ -711,7 +711,7 @@ static const char *yes(int condition) {
     return condition ? "yes" : "no";
 }
 
-static unsigned surfaces, images, memories, pools, command_buffers;
+static unsigned surfaces, images, memories, pools, command_buffers, views;
 
 EXPORTED VkResult vkCreateMetalSurfaceEXT(VkInstance instance, const VkMetalSurfaceCreateInfoEXT *info,
                                           const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) {
@@ -927,6 +927,21 @@ EXPORTED VkResult vkCreateImage(VkDevice device, const VkImageCreateInfo *info, 
 EXPORTED void vkDestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks *allocator) {
     (void)device;
     fprintf(stderr, "fake: vkDestroyImage %s, allocator %s\n", image_name(image), allocator != NULL ? "given" : "NULL");
+}
+
+EXPORTED VkResult vkCreateImageView(VkDevice device, const VkImageViewCreateInfo *info,
+                                    const VkAllocationCallbacks *allocator, VkImageView *view) {
+    (void)device;
+    fprintf(stderr, "fake: vkCreateImageView, allocator %s: %s, format %d: view %u\n",
+            allocator != NULL ? "given" : "NULL", image_name(info->image), info->format, ++views);
+    *view = (VkImageView)(uintptr_t)(0x65000000u + views);
+    return VK_SUCCESS;
+}
+
+EXPORTED void vkDestroyImageView(VkDevice device, VkImageView view, const VkAllocationCallbacks *allocator) {
+    (void)device;
+    fprintf(stderr, "fake: vkDestroyImageView view %u, allocator %s\n", (unsigned)((uintptr_t)view - 0x65000000u),
+            allocator != NULL ? "given" : "NULL");
 }
 
 EXPORTED void vkGetImageMemoryRequirements(VkDevice device, VkImage image, VkMemoryRequirements *requirements) {

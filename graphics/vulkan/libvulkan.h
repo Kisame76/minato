@@ -128,4 +128,8 @@ static inline struct minato_surface *minato_surface(VkSurfaceKHR surface) {
    geometry; 0 x 0 when the window cannot tell. */
 MINATO_HIDDEN VkExtent2D minato_window_size(const struct minato_surface *surface);
 
+/* Where `format` in `color_space` stands in the list the surfaces hand out now, Android's order or B8G8R8A8 first
+   (surface.c), with the list's length in *count; -1 when the list lacks it. */
+MINATO_HIDDEN int minato_surface_format_entry(VkFormat format, VkColorSpaceKHR color_space, uint32_t *count);
+
 #endif

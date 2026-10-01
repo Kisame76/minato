@@ -165,6 +165,17 @@ static const VkSurfaceFormatKHR *surface_formats(void) {
     return value != NULL && strcmp(value, "1") == 0 ? bgra8_first : formats;
 }
 
+int minato_surface_format_entry(VkFormat format, VkColorSpaceKHR color_space, uint32_t *count) {
+    const VkSurfaceFormatKHR *order = surface_formats();
+    *count = FORMATS;
+    for (uint32_t index = 0; index < FORMATS; index++) {
+        if (order[index].format == format && order[index].colorSpace == color_space) {
+            return (int)index;
+        }
+    }
+    return -1;
+}
+
 /* With VK_GOOGLE_surfaceless_query, `surface` may be VK_NULL_HANDLE: the same lists. */
 VkResult vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physical, VkSurfaceKHR surface, uint32_t *count,
                                               VkSurfaceFormatKHR *list) {

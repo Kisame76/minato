@@ -1,6 +1,11 @@
+I/libvulkan: swapchain 64 x 48, format 44, entry 4 of the surface's 6, the direct way
+I/libvulkan: swapchain 64 x 48, format 37, entry 0 of the surface's 6, the copy way
 metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 b6dc3819
+I/libvulkan: swapchain 64 x 48, format 43, entry 1 of the surface's 6, the copy way
 metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 1dddd7a3
+I/libvulkan: swapchain 32 x 24, format 37, entry 0 of the surface's 6, the copy way
 metal: drawable 3: 64 x 48, BGRA8Unorm_sRGB, CRC-32 1dddd7a3
+I/libvulkan: swapchain 64 x 48, format 37, entry 0 of the surface's 6, the copy way
 metal: drawable 4: 32 x 24, BGRA8Unorm, CRC-32 993284fb
 host: in the background
 host: "scheduled": 1, command buffers committed meanwhile by other threads than the guest's: 1

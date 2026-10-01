@@ -85,7 +85,7 @@ add_library(vulkan SHARED "${vulkan}/common.c" "${vulkan}/instance.c" "${vulkan}
   "${vulkan}/queue.c" "${vulkan}/surface.c" "${vulkan}/swapchain.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
 target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}" "${repo}/runtime/include")
 # The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
-target_link_libraries(vulkan PRIVATE minato_bind nativewindow dl)
+target_link_libraries(vulkan PRIVATE minato_bind nativewindow dl log)
 target_link_options(vulkan PRIVATE "-Wl,--version-script=${gen}/libvulkan.map" -Wl,-Bsymbolic)
 set_target_properties(vulkan PROPERTIES LINK_DEPENDS "${gen}/libvulkan.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
