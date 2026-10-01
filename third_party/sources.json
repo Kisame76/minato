@@ -1,5 +1,5 @@
 {
-  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021), fetched by tools/fetch-sources.py into build/sources/. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
   "tag": "android-15.0.0_r1",
   "host": "https://android.googlesource.com",
   "sources": [
@@ -66,6 +66,156 @@
         "tools/fs_config/fs_config_generator.py"
       ],
       "digest": "579c68b6515583a5c1fd8c4f291fad7422d18a3c2aa8e93ff988937df55510b3"
+    }
+  ],
+  "art": [
+    {
+      "name": "art",
+      "project": "platform/art",
+      "commit": "bebbc3cc49f2d9d5420197df0a336fbc3fcbea40",
+      "license": "Apache-2.0; libopenjdkjvm GPL-2.0 WITH Classpath-exception-2.0",
+      "digest": "fefabf856a48bd615fcff15d853ad983a480d26bee304ab4c1ffab5b58325cf7"
+    },
+    {
+      "name": "libcore",
+      "project": "platform/libcore",
+      "commit": "a996d969fdd17c6707b84544e5d1c35e0c25b5cb",
+      "license": "Apache-2.0; ojluni GPL-2.0 WITH Classpath-exception-2.0; others per file",
+      "digest": "1ea713f1d56724e5d70d6224e4223ea3df97687aca3791f38d37f001e0ad1314"
+    },
+    {
+      "name": "icu",
+      "project": "platform/external/icu",
+      "commit": "cf305aeb6df416fa81cfc98bd73d913ee781175d",
+      "license": "Unicode-3.0 and others",
+      "digest": "143d3d32e9b4dc224a69da70706590b18b97378fd00f171dc2b44a3bb437de19"
+    },
+    {
+      "name": "boringssl",
+      "project": "platform/external/boringssl",
+      "commit": "23a87e389eb925678c6766f7d0fcd189c2f9303c",
+      "license": "Apache-2.0, ISC, OpenSSL, BSD, MIT",
+      "digest": "e362c3ffd30a22ec23e1b5b76fc0dc5fd7c76ee8a78953ddd6bbb939b5132ce6"
+    },
+    {
+      "name": "libnativehelper",
+      "project": "platform/libnativehelper",
+      "commit": "3ca43dfe2bf4613852df0303531fa8ecf4b7063c",
+      "license": "Apache-2.0",
+      "digest": "72cd2301d239a430b8c6a88f4ef2cb346b29de5081e76c37f39d23040dbf2484"
+    },
+    {
+      "name": "fdlibm",
+      "project": "platform/external/fdlibm",
+      "commit": "1e651e1ef2b613db2c4b29ae59c1de74cf0222ae",
+      "license": "Sun notice",
+      "digest": "bec23b37ca58a9446ff0f91f8abcc48207d1e5383a7a875566c53e2ca68f219d"
+    },
+    {
+      "name": "expat",
+      "project": "platform/external/expat",
+      "commit": "8ae3fff00472acf17b96871c7cdeaccfa7430c73",
+      "license": "MIT",
+      "digest": "115bf553602638784325d8c7cf3d7e1d18a9c6dc831a3771fc756fcfbe947a1b"
+    },
+    {
+      "name": "zlib",
+      "project": "platform/external/zlib",
+      "commit": "86056a43326ceb4d9f5c3ca2410e51dcdcb4517d",
+      "license": "Zlib",
+      "digest": "64e5e33293ffc95d60844f4be180e237f99560370ac5152a98976274e7dd60b9"
+    },
+    {
+      "name": "lz4",
+      "project": "platform/external/lz4",
+      "commit": "1d69e78024385c335dc5b42752b96623c31d8e5d",
+      "license": "BSD-2-Clause (lib)",
+      "digest": "096e97c701549f42be78738638f344ba9b9daa757f5a5373d56856354758aa0c"
+    },
+    {
+      "name": "lzma",
+      "project": "platform/external/lzma",
+      "commit": "b744809d5506de926da56108065051d970692ec7",
+      "license": "public domain",
+      "digest": "2c538fa1edc90c9dafc258fa2d0f8803d154036652be16c3c5d47000032e2511"
+    },
+    {
+      "name": "libcap",
+      "project": "platform/external/libcap",
+      "commit": "c2c4eed91fe31630c2ad4476e0fb6755a02481be",
+      "license": "BSD-3-Clause",
+      "digest": "349391182b3597ed72f2abffe1db630f52adab0c1233e7b7c66411e9945a51ae"
+    },
+    {
+      "name": "tinyxml2",
+      "project": "platform/external/tinyxml2",
+      "commit": "d3f5ba7b82e0f97c06dc8eca7048cd5098323c2f",
+      "license": "Zlib",
+      "digest": "8d3f6f18edb4d0651494ec31f272783aeadbe854818f323fa46af455b9ea1218"
+    },
+    {
+      "name": "cpu_features",
+      "project": "platform/external/cpu_features",
+      "commit": "eca53ba6d2e951e174b64682eaf56a36b8204c89",
+      "license": "Apache-2.0",
+      "digest": "a90c7cd576e7556bd8d11950a579ec9286f598644276dc37fd2c01aa48697be9"
+    },
+    {
+      "name": "fmtlib",
+      "project": "platform/external/fmtlib",
+      "commit": "360e74bb8ec766ee05e5c4e8956c811391e3e9e5",
+      "license": "MIT",
+      "digest": "b9a7725cd6d11da00e6995668cf852182c2c0fcd9b56878d64b9613ff487b8dc"
+    },
+    {
+      "name": "libbase",
+      "project": "platform/system/libbase",
+      "commit": "68f963c62f7fddc70c34df141d943ae0f7631020",
+      "license": "Apache-2.0",
+      "digest": "f6757a251115d94ad0287a3a5882d68f3a67e2b499d8935178b09878d4599325"
+    },
+    {
+      "name": "libziparchive",
+      "project": "platform/system/libziparchive",
+      "commit": "13b815f485784ed356869746796bb405ec86a7d4",
+      "license": "Apache-2.0",
+      "digest": "c8238ba77cc360006b282c33f843b7914999e18f975334f6a545f5a9e812b9a1"
+    },
+    {
+      "name": "libprocinfo",
+      "project": "platform/system/libprocinfo",
+      "commit": "e2d8c69e0454afe6defccb62152738888a1cbd22",
+      "license": "Apache-2.0",
+      "digest": "e7ceb28c2893457504ac05a781334d55453c2d561aa60c258b5b39f627f45793"
+    },
+    {
+      "name": "timezone",
+      "project": "platform/system/timezone",
+      "commit": "fba551ac75e9a9270714e1de5cb0bc036c3d9d3f",
+      "license": "Apache-2.0",
+      "digest": "a808f86bcdf6e91e3e9fef5c7c772e1c8050f140a56910299c16aca41e42f37c"
+    },
+    {
+      "name": "unwinding",
+      "project": "platform/system/unwinding",
+      "commit": "63e40770259ea336f17be2ba6af791e89419169c",
+      "license": "Apache-2.0",
+      "digest": "6949c063af92ce24995695d1f9eff0a932fee784d82de4cf127ed7c2f14c5133"
+    },
+    {
+      "name": "r8",
+      "project": "platform/prebuilts/r8",
+      "commit": "535c14aebec54e8b67a8ca2889d34cb7c38a29b4",
+      "license": "BSD-3-Clause",
+      "digest": "b1b5f2375c8467459595dd48193bc2801fb45d9afff2e256c92517cb5fffac7b"
+    },
+    {
+      "name": "jdk-17",
+      "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
+      "sha256": "196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8",
+      "directory": "build/tools/jdk-17",
+      "license": "GPL-2.0 WITH Classpath-exception-2.0",
+      "digest": "558919585b825161ad536f13ae29e3f57f4c1593cdac0c7598ed26c28f761a8c"
     }
   ],
   "angle": {

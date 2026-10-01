@@ -1,6 +1,6 @@
 # Third-party code
 
-What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted.
+What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted, with one exception (ADR-0033): ART's code under GPL-2.0 with the Classpath Exception, which ships as separate components with its license text and its source code (below).
 
 The app carries the license texts of what it embeds in `Licenses/`: `tools/bundle-licenses.py` copies them at build time as [`third_party/licenses.json`](third_party/licenses.json) lists them, and `tools/license-check.py` fails a built app that lacks a text for a table row of an embedded section below.
 
@@ -76,6 +76,43 @@ Used only to build: the NDK's `glslc` (Apache-2.0), which compiles the scene's s
 ## Time zones
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.
+
+## ART and its libraries (ADR-0033)
+
+AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of [`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK; from step d) on, the app embeds what that build makes, and until then nothing of them is in the app.
+
+| Source | Commit | License | Which parts |
+|---|---|---|---|
+| `platform/art` | `bebbc3cc49f2` | Apache-2.0 (`NOTICE`); `openjdkjvm/` GPL-2.0 with Classpath Exception (`openjdkjvm/LICENSE`), as are `openjdkjvmti/` and `dt_fd_forward/`, which are not built | the runtime (`libart`), `dalvikvm`, `libopenjdkjvm` |
+| `platform/libcore` | `a996d969fdd1` | Apache-2.0 with the notices in `NOTICE` (Android, Apache Harmony, ICU, KXML, W3C); `ojluni/` GPL-2.0 with Classpath Exception (`LICENSE`) | the boot jars, among them core-oj from `ojluni/`; their natives `libjavacore` and `libopenjdk` |
+| `platform/external/icu` | `cf305aeb6df4` (ICU 75.1) | Unicode-3.0 and the notices in `LICENSE`; the GPL texts there cover ICU4C's Autoconf files, which are not used | ICU's libraries and data, `libicu_jni` |
+| `platform/external/boringssl` | `23a87e389eb9` | OpenSSL, SSLeay, ISC and others, as in `LICENSE` | `libcrypto` of ART's module |
+| `platform/libnativehelper` | `3ca43dfe2bf4` | Apache-2.0 | `libnativehelper` (JNI helpers) |
+| `platform/external/fdlibm` | `1e651e1ef2b6` | Sun Microsystems' notice (`NOTICE`) | math for libcore's `StrictMath` |
+| `platform/external/expat` | `8ae3fff00472` | MIT (`COPYING`) | XML parser for libcore |
+| `platform/external/zlib` | `86056a43326c` | Zlib | compression for libcore and `libziparchive` |
+| `platform/external/lz4` | `1d69e7802438` | BSD-2-Clause for `lib/`, the only part used; the rest of the repository GPL-2.0, not used | LZ4 for ART |
+| `platform/external/lzma` | `b744809d5506` | public domain | xz for ART |
+| `platform/external/libcap` | `c2c4eed91fe3` | BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause | for ART |
+| `platform/external/tinyxml2` | `d3f5ba7b82e0` | Zlib | XML for ART |
+| `platform/external/cpu_features` | `eca53ba6d2e9` | Apache-2.0 | CPU features for ART |
+| `platform/external/fmtlib` | `360e74bb8ec7` | MIT | formatting, which `libbase` links |
+| `platform/system/libbase` | `68f963c62f7f` | Apache-2.0 | `libbase` |
+| `platform/system/libziparchive` | `13b815f48578` | Apache-2.0 | `libziparchive` (APKs and jars) |
+| `platform/system/libprocinfo` | `e2d8c69e0454` | Apache-2.0 | `libprocinfo` |
+| `platform/system/unwinding` | `63e40770259e` | Apache-2.0 | `libunwindstack`, for ART's stack dumps |
+| `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 | only read: the format of the time zone files (ADR-0033, decision 9); nothing of it ships |
+
+**GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm` ship as separate components, each with its license text and its source code. ADR-0033 also names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is BoringSSL's. Which parts the build links exactly comes with step a)'s build list.
+
+## Build tools for ART (ADR-0033)
+
+Used only to build ART's Java part, not in the app. `tools/fetch-sources.py --set art` fetches them with the sources above, the JDK checked against Adoptium's SHA-256 before it is unpacked.
+
+| Tool | Version | License |
+|---|---|---|
+| Eclipse Temurin JDK, macOS aarch64, in `build/tools/jdk-17/` | `17.0.20.1+1` (SHA-256 `196d13ba5f10`) | GPL-2.0 with Classpath Exception |
+| D8 (`platform/prebuilts/r8`), the one the boot jars of the tag were built with | `535c14aebec5` | BSD-3-Clause |
 
 ## References without adopted code
 

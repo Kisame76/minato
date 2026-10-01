@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Fetches the AOSP sources of the guest libc listed in third_party/sources.json (ADR-0021).
+"""Fetches the sources listed in third_party/sources.json: the AOSP sources of the guest libc (the list "sources",
+ADR-0021) or, with --set art, those of ART and its libraries and the tools that build them (the list "art",
+ADR-0033 a).
 
 Each source is an archive of one commit, or single files and folders of it, from
-android.googlesource.com, extracted to build/sources/<name>/. The content is checked against the pinned digest in the list:
+android.googlesource.com, extracted to build/sources/<name>/. A source with a "url" is an archive from elsewhere,
+checked against its "sha256" before anything of it is extracted into its "directory" below the repository.
+The content is checked against the pinned digest in the list:
 SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not depend on how the
 server packs the archive. A source whose digest matches is not fetched again.
 
-Usage: tools/fetch-sources.py [--pin] [name...]
+Usage: tools/fetch-sources.py [--set <list>] [--pin] [name...]
+  --set   the list to fetch: sources (the default) or art
   --pin   write the digests of what was fetched into the list (only for a new or changed entry)
 """
 import base64
@@ -66,23 +71,33 @@ def extract(archive, directory):
 def main():
     arguments = sys.argv[1:]
     pin = "--pin" in arguments
+    chosen = "sources"
+    if "--set" in arguments:
+        index = arguments.index("--set")
+        if index + 1 == len(arguments):
+            raise SystemExit("--set needs the name of a list: sources or art")
+        chosen = arguments[index + 1]
+        del arguments[index:index + 2]
     wanted = [argument for argument in arguments if argument != "--pin"]
     with open(MANIFEST) as handle:
         manifest = json.load(handle)
+    if not isinstance(manifest.get(chosen), list):
+        raise SystemExit(f"{os.path.relpath(MANIFEST, ROOT)} has no list {chosen!r}: sources or art")
     host = manifest["host"]
     changed = False
     os.makedirs(DESTINATION, exist_ok=True)
 
-    for source in manifest["sources"]:
+    for source in manifest[chosen]:
         name = source["name"]
         if wanted and name not in wanted:
             continue
-        target = os.path.join(DESTINATION, name)
+        target = os.path.join(ROOT, source["directory"]) if "directory" in source else os.path.join(DESTINATION, name)
         if source["digest"] and os.path.isdir(target) and digest(target) == source["digest"]:
             print(f"{name}: up to date")
             continue
 
-        staging = tempfile.mkdtemp(dir=DESTINATION, prefix=f".{name}-")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        staging = tempfile.mkdtemp(dir=os.path.dirname(target), prefix=f".{name}-")
         try:
             downloaded = 0
             if "files" in source or "directories" in source:
@@ -98,6 +113,14 @@ def main():
                     os.makedirs(os.path.dirname(file_path), exist_ok=True)
                     with open(file_path, "wb") as handle:
                         handle.write(base64.b64decode(data))
+            elif "url" in source:
+                data = fetch(source["url"])
+                downloaded = len(data)
+                archive_sha256 = hashlib.sha256(data).hexdigest()
+                if archive_sha256 != source["sha256"]:
+                    raise SystemExit(f"{name}: the archive's SHA-256 {archive_sha256} does not match the pinned "
+                                     f"{source['sha256']}")
+                extract(data, staging)
             else:
                 data = fetch(f"{host}/{source['project']}/+archive/{source['commit']}.tar.gz")
                 downloaded = len(data)

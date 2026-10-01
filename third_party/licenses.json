@@ -1,10 +1,12 @@
 {
-  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary.",
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'never' until ADR-0033 d) puts them into the app; their build tools stay 'never'.",
   "sections": {
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
     "Graphics: MoltenVK": "MoltenVK.framework",
     "Parity benchmark": "MinatoBench.framework",
+    "ART and its libraries": "never",
+    "Build tools for ART": "never",
     "References without adopted code": "never"
   },
   "components": [

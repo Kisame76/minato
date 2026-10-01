@@ -137,6 +137,10 @@ if(APK_HOST_BUILD)
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/android/stubgen.py" check --built "${APK_BIONIC_DIR}")
   set_tests_properties(runtime.android_libraries PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:")
 
+  # tools/fetch-sources.py's two lists (ADR-0021, ADR-0033 a): the guest libc's by default, ART's with --set art,
+  # against a host in memory.
+  add_test(NAME runtime.fetch_sources COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/fetch_sources_test.py")
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)
