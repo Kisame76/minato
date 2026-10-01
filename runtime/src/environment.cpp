@@ -11,10 +11,14 @@ constexpr std::string_view boot_class_path =
     "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
     "/apex/com.android.art/javalib/core-icu4j.jar";
 
-/// init.environ.rc of Android 15 (system/core/rootdir/init.environ.rc.in), in its order, then the class
-/// paths that init loads after derive_classpath. DEX2OATBOOTCLASSPATH is the part of BOOTCLASSPATH
-/// before the mainline framework's jars, of which we have none: all of it.
+/// An app's environment on Android 15, in its order (the emulator's, 2026-10-01): init's PATH, then
+/// init.environ.rc (system/core/rootdir/init.environ.rc.in), then the class paths that init loads after
+/// derive_classpath. BOOTCLASSPATH names our jars; DEX2OATBOOTCLASSPATH is the part of it before the
+/// mainline framework's jars, of which we have none: all of it. Zygote's socket numbers stay out.
 constexpr std::pair<std::string_view, std::string_view> init_environment[] = {
+    {"PATH",
+     "/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:"
+     "/odm/bin:/vendor/bin:/vendor/xbin"},
     {"ANDROID_BOOTLOGO", "1"},
     {"ANDROID_ROOT", "/system"},
     {"ANDROID_ASSETS", "/system/app"},
@@ -25,8 +29,27 @@ constexpr std::pair<std::string_view, std::string_view> init_environment[] = {
     {"ANDROID_TZDATA_ROOT", "/apex/com.android.tzdata"},
     {"EXTERNAL_STORAGE", "/sdcard"},
     {"ASEC_MOUNTPOINT", "/mnt/asec"},
+    {"DOWNLOAD_CACHE", "/data/cache"},
     {"BOOTCLASSPATH", boot_class_path},
     {"DEX2OATBOOTCLASSPATH", boot_class_path},
+    {"SYSTEMSERVERCLASSPATH",
+     "/system/framework/com.android.location.provider.jar:/system/framework/services.jar:"
+     "/apex/com.android.adservices/javalib/service-adservices.jar:"
+     "/apex/com.android.adservices/javalib/service-sdksandbox.jar:"
+     "/apex/com.android.appsearch/javalib/service-appsearch.jar:/apex/com.android.art/javalib/service-art.jar:"
+     "/apex/com.android.configinfrastructure/javalib/service-configinfrastructure.jar:"
+     "/apex/com.android.healthfitness/javalib/service-healthfitness.jar:"
+     "/apex/com.android.media/javalib/service-media-s.jar:"
+     "/apex/com.android.ondevicepersonalization/javalib/service-ondevicepersonalization.jar:"
+     "/apex/com.android.permission/javalib/service-permission.jar:/apex/com.android.rkpd/javalib/service-rkp.jar:"
+     "/apex/com.android.virt/javalib/service-virtualization.jar"},
+    {"STANDALONE_SYSTEMSERVER_JARS",
+     "/apex/com.android.btservices/javalib/service-bluetooth.jar:"
+     "/apex/com.android.devicelock/javalib/service-devicelock.jar:"
+     "/apex/com.android.os.statsd/javalib/service-statsd.jar:/apex/com.android.profiling/javalib/service-profiling.jar:"
+     "/apex/com.android.scheduling/javalib/service-scheduling.jar:"
+     "/apex/com.android.tethering/javalib/service-connectivity.jar:/apex/com.android.uwb/javalib/service-uwb.jar:"
+     "/apex/com.android.wifi/javalib/service-wifi.jar"},
 };
 
 std::string_view name_of(std::string_view entry) {

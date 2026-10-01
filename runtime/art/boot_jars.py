@@ -6,9 +6,9 @@ As Soong compiles them against core-all, javac compiles all their sources at onc
 the compile-time sources of runtime/art/java and of core-all (java.base's module-info and the lambda stubs): JDK
 17, -source 17 -target 17, string concatenation inline. The classes are then split by the source file they come
 from (their package and SourceFile attribute), so that each jar gets its own sources' classes and none of the
-compile-time ones. D8 dexes each jar as a platform build for API 31, with all classes as its library. A jar holds
-its dex files uncompressed and 4-byte aligned, as Android's boot jars do, and its Java resources; every entry has
-the same time, so that a build makes the same bytes.
+compile-time ones. D8 dexes each jar as a platform build for API 31, with all classes as its library, and keeps
+records and sealed classes as the platform's own. A jar holds its dex files uncompressed and 4-byte aligned, as
+Android's boot jars do, and its Java resources; every entry has the same time, so that a build makes the same bytes.
 
 Usage: boot_jars.py <description.json> <jdk-home> <r8.jar> <output-directory> <work-directory>
 """
@@ -24,6 +24,11 @@ import zipfile
 JAVAC_FLAGS = ["-J-Xmx4g", "-source", "17", "-target", "17", "-XDstringConcat=inline", "-encoding", "UTF-8",
                "-nowarn", "-g", "--system=none", "--patch-module", "java.base=."]
 D8_FLAGS = ["--release", "--min-api", "31", "--android-platform-build"]
+# The platform defines records and sealed classes itself: without these, D8 turns java.lang.Record into its own
+# record tag, and ART, which looks java.lang.Record up at start (well_known_classes.cc), finds no such class. With
+# them, records and permitted subclasses go into the dex as annotations, which ART reads.
+D8_PROPERTIES = ["-Dcom.android.tools.r8.emitRecordAnnotationsInDex",
+                 "-Dcom.android.tools.r8.emitPermittedSubclassesAnnotationsInDex"]
 TIMESTAMP = (2008, 1, 1, 0, 0, 0)  # soong_zip's
 ALIGNMENT_EXTRA = 0xD935  # zipalign's extra field for the alignment of a stored entry
 PACKAGE = re.compile(r"^package\s+([\w.]+)\s*;", re.M)
@@ -138,7 +143,7 @@ def main():
             for relative, data in split[name]:
                 handle.writestr(relative, data)
         dexed = os.path.join(work, f"{name}.dex.jar")
-        subprocess.run([java, "-Xmx4g", "-cp", r8, "com.android.tools.r8.D8"] + D8_FLAGS
+        subprocess.run([java, "-Xmx4g"] + D8_PROPERTIES + ["-cp", r8, "com.android.tools.r8.D8"] + D8_FLAGS
                        + ["--lib", os.path.join(work, "all-classes.jar"), "--output", dexed, program], check=True)
         entries = []
         with zipfile.ZipFile(dexed) as handle:

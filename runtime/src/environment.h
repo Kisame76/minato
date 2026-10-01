@@ -1,6 +1,6 @@
 // The environment every guest program starts with (ADR-0039, decision 2): init's global environment,
-// which every process on Android inherits from init, with the boot class path of our jars
-// (ADR-0033, decision 10). The caller's entries come on top of it.
+// which every process on Android inherits from init, as an app on Android 15 has it, with the boot class
+// path of our jars (ADR-0033, decision 10). The caller's entries come on top of it.
 #pragma once
 
 #include <string>

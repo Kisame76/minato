@@ -221,3 +221,20 @@ file(GLOB_RECURSE art_changes CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ove
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${APK_ROOT}/tools/art-plan.py"
   "${APK_ROOT}/tools/blueprint.py" "${CMAKE_CURRENT_SOURCE_DIR}/modules.bp" ${art_changes})
 include("${CMAKE_BINARY_DIR}/plan.cmake")
+
+# The Java test programs of fixtures/java, one jar each in <build>/test (test_jars.py), compiled against the classes
+# of the boot jars that boot_jars.py leaves in <build>/java.
+file(GLOB art_test_programs LIST_DIRECTORIES true CONFIGURE_DEPENDS "${APK_ROOT}/fixtures/java/*")
+foreach(program IN LISTS art_test_programs)
+  if(NOT IS_DIRECTORY "${program}")
+    continue()
+  endif()
+  get_filename_component(name "${program}" NAME)
+  file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${program}/*.java")
+  set(jar "${CMAKE_BINARY_DIR}/test/${name}.jar")
+  add_custom_command(OUTPUT "${jar}"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_jars.py" "${APK_JDK_HOME}" "${APK_R8_JAR}"
+      "${CMAKE_BINARY_DIR}/java" "${jar}" ${sources}
+    DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/test_jars.py" art_boot_jars VERBATIM)
+  add_custom_target(art_test_${name} ALL DEPENDS "${jar}")
+endforeach()

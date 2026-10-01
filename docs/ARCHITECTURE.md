@@ -214,15 +214,16 @@ The host reaches the guest through channels: guest descriptors whose pipe holds 
   - Our own `libaaudio` (the NDK's 70 names) keeps each output stream's ring of float32 frames in the runtime's memory, behind syscalls 4111 to 4117. The app's `AVAudioEngine` (category `.ambient`) plays each stream through an `AVAudioSourceNode` whose render block reads the ring without a lock; guests that wait for room sleep on their signal words, and stream threads join the output's audio workgroup.
   - Our own `libOpenSLES` (the NDK's 56 names) runs buffer-queue players on `libaaudio` streams; written for Minato from the headers and Android 15's answers, not AOSP's wilhelm.
 
-### 4.9 ART and framework (M4, outlook)
-- **Goal: ART as a guest library with the Android ABI**, built as for a device. This keeps JNI calls with their varargs (`Call*Method(...)`) in one ABI, and through the personality ART sees the same Linux semantics as the rest. The alternative, building ART for Darwin, is decided in M4.
+### 4.9 ART and framework (M4: ADR-0033, ADR-0039, ADR-0045)
+- **ART as guest code** (ADR-0033): built from AOSP's sources at android-15.0.0_r1 with the NDK (`tools/build-art.sh` into `build/art`), loaded by our loader like any guest library, so JNI with its varargs stays in one ABI and ART sees the same Linux personality as the rest. Since b2 (2026-10-01) it starts on the Mac: `dalvikvm` prints Android 15's lines.
 - **Configuration:**
-  - interpreter (`-Xint`, no JIT);
-  - imageless boot from the boot jars;
-  - GC without userfaultfd (no CMC);
-  - **heap-relative 32-bit references** because of F6 (ARTBox approach, so far only tested in isolation).
-- **nterp** does not generate code at runtime, but is part of `libart` [inferred]. So it does not fall under the JIT ban, but must be adapted to the heap-relative references.
-- **Framework:** Like ATL, we cut between the app and the Java framework: the framework is reimplemented on real ART, cleanly rewritten without ATL code. No Binder processes, system services are in-process objects.
+  - interpreter only (`-Xint`, no JIT, no dex2oat yet); nterp generates no code at run time;
+  - imageless boot from the boot jars (core-oj, core-libart, core-icu4j), built with javac and D8 from libcore;
+  - **a 4 GiB heap window** at a base B aligned to 4 GiB, its first page never mapped, and 32-bit references as offsets from B, decoded as `r ? B | r : 0` (patches 0002 to 0004), because iOS gives no memory below 4 GiB (F6);
+  - minimal linker namespaces in `ld-android.so` (`default`, `com_android_art`) until ADR-0040's port.
+- **Framework** (ADR-0039): AOSP's own Java framework where it stands on the device (`framework.jar`, built in steps, with interim classes of ours until then), our `ActivityThread` as the driver, `app_process` started by the runtime, and `framework-res` built from `core/res` with our host aapt2, equal byte for byte to Android 15's table. No Binder processes: system services are in-process objects behind our `ServiceManager` table, with `java.lang.reflect.Proxy` stubs that log and answer Android's defaults where nothing is written (ADR-0045).
+- **Host tools** in `build/`, never shipped: aapt2, aidl (with Bison 3) and a Python generator for the feature flags in place of aconfig.
+- **Where:** `runtime/art/` (ART's build, patches, stand-ins), `framework/` (the framework's Java, natives and `app_process`; the App chat's), `tools/` (the host tools' builds and checks).
 - **License:** The project license is Apache-2.0 (ADR-0017). libcore is under GPL-2.0 with the Classpath Exception and therefore stays a separate component.
 - **M6:** The dex2oat output goes through the same pipeline as `.so` files (convert, sign, `dlopen`). For this, the compiler must generate heap-relative references.
 

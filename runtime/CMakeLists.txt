@@ -150,6 +150,24 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
+  # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello. The jars come
+  # from tools/build-art.sh (<art>/test); skipped while they are missing.
+  foreach(flavor IN ITEMS release debug)
+    set(suffix "")
+    set(flag "")
+    if(flavor STREQUAL "debug")
+      set(suffix "_debug")
+      set(flag "--debug")
+    endif()
+    add_test(NAME runtime.art_hello${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag})
+    set_tests_properties(runtime.art_hello${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 400)
+  endforeach()
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

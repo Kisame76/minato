@@ -1,0 +1,213 @@
+References as offsets in the heap window (ADR-0033 decision 3).
+
+A reference is the object's offset from the window's base: encoding keeps the address's low 32 bits, decoding
+puts the base in front (base/heap_window.h), inline. The debug flavor checks that every encoded or decoded
+address lies in the window, past its first page, and is aligned. Places that convert without PtrCompression
+convert the same way: the forwarding address in the lock word, the class table's slots, the interpreter's
+comparison of a vreg with its reference, the string builder's arguments and ObjPtr's poisoning in the debug
+flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects and keep their bits as they are.
+
+--- a/art/runtime/mirror/object_reference.h
++++ b/art/runtime/mirror/object_reference.h
+@@ -22,6 +22,7 @@
+ 
+ #include "base/atomic.h"
+ #include "base/casts.h"
++#include "base/heap_window.h"
+ #include "base/locks.h"  // For Locks::mutator_lock_.
+ #include "base/macros.h"
+ #include "heap_poisoning.h"
+@@ -95,16 +96,21 @@
+ template<bool kPoisonReferences, class MirrorType>
+ class PtrCompression {
+  public:
+-  // Compress reference to its bit representation.
++  // Compress reference to its bit representation: the object's offset in the heap window (Minato,
++  // ADR-0033 decision 3, base/heap_window.h).
+   static uint32_t Compress(MirrorType* mirror_ptr) {
+-    uint32_t as_bits = reinterpret_cast32<uint32_t>(mirror_ptr);
++    const uintptr_t address = reinterpret_cast<uintptr_t>(mirror_ptr);
++    DCHECK(address == 0u || HeapWindowHolds(address, kObjectAlignment)) << mirror_ptr;
++    uint32_t as_bits = HeapWindowEncode(address);
+     return kPoisonReferences ? -as_bits : as_bits;
+   }
+ 
+-  // Uncompress an encoded reference from its bit representation.
++  // Uncompress an encoded reference from its bit representation: the window's base and the offset.
+   static MirrorType* Decompress(uint32_t ref) {
+     uint32_t as_bits = kPoisonReferences ? -ref : ref;
+-    return reinterpret_cast32<MirrorType*>(as_bits);
++    const uintptr_t address = HeapWindowDecode(as_bits);
++    DCHECK(address == 0u || HeapWindowHolds(address, kObjectAlignment)) << std::hex << as_bits;
++    return reinterpret_cast<MirrorType*>(address);
+   }
+ 
+   // Convert an ObjPtr to a compressed reference.
+--- a/art/runtime/obj_ptr.h
++++ b/art/runtime/obj_ptr.h
+@@ -21,6 +21,7 @@
+ #include <type_traits>
+ 
+ #include "base/locks.h"  // For Locks::mutator_lock_.
++#include "base/heap_window.h"
+ #include "base/macros.h"
+ #include "runtime_globals.h"
+ 
+@@ -91,8 +92,9 @@
+   // Ptr unchecked does not check that object pointer is valid. Do not use if you can avoid it.
+   OBJPTR_INLINE MirrorType* PtrUnchecked() const {
+     if (kObjPtrPoisoning) {
++      // Minato (ADR-0033 decision 3): the cookie's companion is the offset in the heap window.
+       return reinterpret_cast<MirrorType*>(
+-          static_cast<uintptr_t>(static_cast<uint32_t>(reference_ << kObjectAlignmentShift)));
++          HeapWindowDecode(static_cast<uint32_t>(reference_ << kObjectAlignmentShift)));
+     } else {
+       return reinterpret_cast<MirrorType*>(reference_);
+     }
+--- a/art/runtime/obj_ptr-inl.h
++++ b/art/runtime/obj_ptr-inl.h
+@@ -55,7 +55,9 @@
+   uintptr_t ref = reinterpret_cast<uintptr_t>(ptr);
+   DCHECK_ALIGNED(ref, kObjectAlignment);
+   if (kObjPtrPoisoning && ref != 0) {
+-    DCHECK_LE(ref, 0xFFFFFFFFU);
++    // Minato (ADR-0033 decision 3): the object's offset in the heap window, which fits the low 32 bits.
++    DCHECK(HeapWindowHolds(ref, kObjectAlignment)) << ptr;
++    ref = HeapWindowEncode(ref);
+     ref >>= kObjectAlignmentShift;
+     // Put cookie in high bits.
+     ref |= GetCurrentTrimedCookie() << kCookieShift;
+--- a/art/runtime/lock_word.h
++++ b/art/runtime/lock_word.h
+@@ -23,6 +23,7 @@
+ #include <android-base/logging.h>
+ 
+ #include "base/bit_utils.h"
++#include "base/heap_window.h"
+ #include "base/macros.h"
+ #include "read_barrier.h"
+ 
+@@ -151,7 +152,8 @@
+ 
+   static LockWord FromForwardingAddress(size_t target) {
+     DCHECK_ALIGNED(target, (1 << kStateSize));
+-    return LockWord((target >> kForwardingAddressShift) | kStateForwardingAddressShifted);
++    // Minato (ADR-0033 decision 3): the target's offset in the heap window, as a reference keeps it.
++    return LockWord((HeapWindowEncode(target) >> kForwardingAddressShift) | kStateForwardingAddressShifted);
+   }
+ 
+   static LockWord FromHashCode(uint32_t hash_code, uint32_t gc_state) {
+--- a/art/runtime/lock_word-inl.h
++++ b/art/runtime/lock_word-inl.h
+@@ -43,7 +43,8 @@
+ 
+ inline size_t LockWord::ForwardingAddress() const {
+   DCHECK_EQ(GetState(), kForwardingAddress);
+-  return value_ << kForwardingAddressShift;
++  // Minato (ADR-0033 decision 3): the shift drops the state bits; the window's base comes in front.
++  return HeapWindowDecode(value_ << kForwardingAddressShift);
+ }
+ 
+ inline LockWord::LockWord() : value_(0) {
+--- a/art/runtime/class_table-inl.h
++++ b/art/runtime/class_table-inl.h
+@@ -214,12 +214,13 @@
+ }
+ 
+ inline ObjPtr<mirror::Class> ClassTable::TableSlot::ExtractPtr(uint32_t data) {
+-  return reinterpret_cast<mirror::Class*>(data & ~kHashMask);
++  // Minato (ADR-0033 decision 3): the slot keeps the class's offset in the heap window.
++  return reinterpret_cast<mirror::Class*>(HeapWindowDecode(data & ~kHashMask));
+ }
+ 
+ inline uint32_t ClassTable::TableSlot::Encode(ObjPtr<mirror::Class> klass, uint32_t hash_bits) {
+   DCHECK_LE(hash_bits, kHashMask);
+-  return reinterpret_cast<uintptr_t>(klass.Ptr()) | hash_bits;
++  return HeapWindowEncode(reinterpret_cast<uintptr_t>(klass.Ptr())) | hash_bits;
+ }
+ 
+ inline ClassTable::TableSlot::TableSlot(ObjPtr<mirror::Class> klass, uint32_t descriptor_hash)
+--- a/art/runtime/interpreter/interpreter_common.cc
++++ b/art/runtime/interpreter/interpreter_common.cc
+@@ -280,11 +280,11 @@
+   // Set the string init result into all aliases.
+   for (uint32_t i = 0, e = shadow_frame->NumberOfVRegs(); i < e; ++i) {
+     if (shadow_frame->GetVRegReference(i) == existing) {
+-      DCHECK_EQ(shadow_frame->GetVRegReference(i),
+-                reinterpret_cast32<mirror::Object*>(shadow_frame->GetVReg(i)));
++      DCHECK_EQ(shadow_frame->GetVRegReference(i),  // Minato (ADR-0033): the vreg's encoded reference
++                reinterpret_cast<mirror::Object*>(HeapWindowDecode(shadow_frame->GetVReg(i))));
+       shadow_frame->SetVRegReference(i, result.GetL());
+-      DCHECK_EQ(shadow_frame->GetVRegReference(i),
+-                reinterpret_cast32<mirror::Object*>(shadow_frame->GetVReg(i)));
++      DCHECK_EQ(shadow_frame->GetVRegReference(i),  // Minato (ADR-0033): the vreg's encoded reference
++                reinterpret_cast<mirror::Object*>(HeapWindowDecode(shadow_frame->GetVReg(i))));
+     }
+   }
+ }
+@@ -1188,7 +1188,7 @@
+   // If both register locations contains the same value, the register probably holds a reference.
+   // Note: As an optimization, non-moving collectors leave a stale reference value
+   // in the references array even after the original vreg was overwritten to a non-reference.
+-  if (src_value == reinterpret_cast32<uint32_t>(o.Ptr())) {
++  if (src_value == HeapWindowEncode(reinterpret_cast<uintptr_t>(o.Ptr()))) {  // Minato (ADR-0033)
+     new_shadow_frame->SetVRegReference(dest_reg, o);
+   } else {
+     new_shadow_frame->SetVReg(dest_reg, src_value);
+--- a/art/runtime/string_builder_append.cc
++++ b/art/runtime/string_builder_append.cc
+@@ -345,7 +345,7 @@
+     switch (static_cast<Argument>(f & kArgMask)) {
+       case Argument::kString: {
+         Handle<mirror::String> str =
+-            hs_.NewHandle(reinterpret_cast32<mirror::String*>(*current_arg));
++            hs_.NewHandle(reinterpret_cast<mirror::String*>(HeapWindowDecode(*current_arg)));  // Minato
+         if (str != nullptr) {
+           length += str->GetLength();
+           compressible = compressible && str->IsCompressed();
+--- a/art/runtime/jni/local_reference_table.cc
++++ b/art/runtime/jni/local_reference_table.cc
+@@ -509,7 +509,9 @@
+   if (is_top_entry) {
+     // Top-most entry. Scan up and consume holes created with the current CheckJNI setting.
+     constexpr uint32_t kDeadLocalValue = 0xdead10c0;
+-    entry->SetReference(reinterpret_cast32<mirror::Object*>(kDeadLocalValue));
++    // Minato (ADR-0033 decision 3): a marker, no object; its bits as they are.
++    *entry->GetRootAddress() = GcRoot<mirror::Object>(
++        mirror::CompressedReference<mirror::Object>::FromVRegValue(kDeadLocalValue));
+ 
+     // TODO: Maybe we should not prune free entries from the top of the segment
+     // because it has quadratic worst-case complexity. We could still prune while
+@@ -554,7 +556,8 @@
+         DCHECK_NE(free_index, kFreeListEnd);
+         LrtEntry* pruned_entry = GetEntry(free_index);
+         free_index = pruned_entry->GetNextFree();
+-        pruned_entry->SetReference(reinterpret_cast32<mirror::Object*>(kDeadLocalValue));
++        *pruned_entry->GetRootAddress() = GcRoot<mirror::Object>(
++            mirror::CompressedReference<mirror::Object>::FromVRegValue(kDeadLocalValue));
+         --remaining;
+       }
+       free_entries_list_ = FirstFreeField::Update(free_index, free_entries_list_);
+@@ -570,7 +573,8 @@
+         }
+         LrtEntry* pruned_entry = GetEntry(free_entry->GetNextFree());
+         free_entry->SetNextFree(pruned_entry->GetNextFree());
+-        pruned_entry->SetReference(reinterpret_cast32<mirror::Object*>(kDeadLocalValue));
++        *pruned_entry->GetRootAddress() = GcRoot<mirror::Object>(
++            mirror::CompressedReference<mirror::Object>::FromVRegValue(kDeadLocalValue));
+         --remaining;
+       }
+       DCHECK(free_index == kFreeListEnd || free_index < prune_start)
+--- a/art/runtime/handle_scope-inl.h
++++ b/art/runtime/handle_scope-inl.h
+@@ -41,7 +41,9 @@
+   if (kIsDebugBuild) {
+     // Fill storage with "DEAD HAndleSCope", mapping H->"4" and S->"5".
+     for (size_t i = 0; i < kNumReferences; ++i) {
+-      GetReferences()[i].Assign(reinterpret_cast32<mirror::Object*>(0xdead4a5c));
++      // Minato (ADR-0033 decision 3): a marker, no object; its bits as they are.
++      static_cast<mirror::CompressedReference<mirror::Object>&>(GetReferences()[i]) =
++          mirror::CompressedReference<mirror::Object>::FromVRegValue(0xdead4a5c);
+     }
+   }
+ }

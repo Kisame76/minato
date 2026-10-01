@@ -1,0 +1,220 @@
+The heap window: every low_4gb mapping lies in one window at a base aligned to 4 GiB (ADR-0033 decision 3).
+
+ART keeps a reference to an object as its address in 32 bits and asks MemMap for its heap with low_4gb, which
+on arm64 scans [64 KiB, 4 GiB). iOS maps nothing below 4 GiB. At its first low_4gb request, MemMap now reserves a
+window of 4 GiB without access at a base aligned to 4 GiB, so that the low 32 bits of an address in it are its
+offset. Every low_4gb mapping takes a range of the window: at the address it asks for, where that lies in the
+window and is free, else in the first gap that holds it, as mmap treats a hint. The window's first page stays
+without access for good, so no object has the offset 0, which is null. What MemMap unmaps in the window goes back
+to the reservation.
+
+--- a/art/libartbase/base/mem_map.h
++++ b/art/libartbase/base/mem_map.h
+@@ -356,6 +356,11 @@
+     return GetPageSizeSlow();
+   }
+ #endif
++
++  // Minato (ADR-0033 decision 3): the heap window of base/heap_window.h, where every low_4gb mapping lies.
++  // Reserved at the first call or the first low_4gb mapping, and never given back.
++  static uint8_t* HeapWindowBegin();
++  static size_t HeapWindowSize();
+ 
+  private:
+   MemMap(const std::string& name,
+@@ -444,6 +449,11 @@
+   static void* TargetMMap(void* start, size_t len, int prot, int flags, int fd, off_t fd_off);
+   static int TargetMUnmap(void* start, size_t len);
+ 
++  // Minato: a low_4gb mapping, placed in the heap window; and a range of the window that goes back to the
++  // window's reservation, which TargetMUnmap does instead of unmapping it.
++  static void* MapInHeapWindow(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
++  static bool ReturnToHeapWindow(void* start, size_t length);
++
+   static std::mutex* mem_maps_lock_;
+ 
+ #ifdef ART_PAGE_SIZE_AGNOSTIC
+--- a/art/libartbase/base/mem_map.cc
++++ b/art/libartbase/base/mem_map.cc
+@@ -26,6 +26,7 @@
+ #include <sys/prctl.h>
+ #endif
+ 
++#include <algorithm>
+ #include <map>
+ #include <memory>
+ #include <sstream>
+@@ -36,6 +37,7 @@
+ #include "allocator.h"
+ #include "bit_utils.h"
+ #include "globals.h"
++#include "heap_window.h"
+ #include "logging.h"  // For VLOG_IS_ON.
+ #include "memory_tool.h"
+ #include "mman.h"  // For the PROT_* and MAP_* constants.
+@@ -151,6 +153,140 @@
+ uintptr_t MemMap::next_mem_pos_;
+ #endif
+ 
++// Minato (ADR-0033 decision 3): the heap window (base/heap_window.h).
++uintptr_t gHeapWindowBase = 0u;
++size_t gHeapWindowSize = 0u;
++uintptr_t gHeapWindowFirst = 0u;
++
++// 4 GiB, as far as 32-bit offsets reach.
++static constexpr size_t kHeapWindowSize = 4 * GB;
++
++// Guards the window's reservation and its ranges.
++static std::mutex& HeapWindowLock() {
++  static std::mutex* lock = new std::mutex();
++  return *lock;
++}
++
++// The ranges of the window that are mapped, begin to end; its allocator gives out only the gaps between them.
++static std::map<uintptr_t, uintptr_t>& HeapWindowRanges() {
++  static std::map<uintptr_t, uintptr_t>* ranges = new std::map<uintptr_t, uintptr_t>();
++  return *ranges;
++}
++
++// Reserves the window: twice its size without access, cut to the part aligned to 4 GiB.
++static void ReserveHeapWindow() {
++  const size_t length = kHeapWindowSize + 4 * GB;
++  void* reservation = mmap(nullptr, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
++  if (reservation == MAP_FAILED) {
++    PLOG(FATAL) << "Could not reserve the heap window of " << kHeapWindowSize << " bytes";
++  }
++  const uintptr_t begin = reinterpret_cast<uintptr_t>(reservation);
++  const uintptr_t base = RoundUp(begin, 4 * GB);
++  if (base != begin) {
++    CHECK_EQ(munmap(reservation, base - begin), 0);
++  }
++  CHECK_EQ(munmap(reinterpret_cast<void*>(base + kHeapWindowSize), begin + length - (base + kHeapWindowSize)), 0);
++  gHeapWindowSize = kHeapWindowSize;
++  gHeapWindowFirst = base + MemMap::GetPageSize();
++  gHeapWindowBase = base;
++}
++
++uint8_t* MemMap::HeapWindowBegin() {
++  std::lock_guard<std::mutex> lock(HeapWindowLock());
++  if (gHeapWindowBase == 0u) {
++    ReserveHeapWindow();
++  }
++  return reinterpret_cast<uint8_t*>(gHeapWindowBase);
++}
++
++size_t MemMap::HeapWindowSize() {
++  HeapWindowBegin();
++  return gHeapWindowSize;
++}
++
++void* MemMap::MapInHeapWindow(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
++  const uintptr_t window = reinterpret_cast<uintptr_t>(HeapWindowBegin());
++  // The window's first page stays without access for good: no object has the offset 0, which is null.
++  const uintptr_t first = window + GetPageSize();
++  const uintptr_t end = window + gHeapWindowSize;
++  uintptr_t begin = reinterpret_cast<uintptr_t>(addr);
++  if ((flags & MAP_FIXED) != 0) {
++    // Into a mapping of the caller's own (reuse, a reservation, the tail of RemapAtEnd), in the window already.
++    if (begin < first || begin > end || length > end - begin) {
++      errno = EINVAL;
++      return MAP_FAILED;
++    }
++    return TargetMMap(reinterpret_cast<void*>(begin), length, prot, flags, fd, offset);
++  }
++  std::lock_guard<std::mutex> lock(HeapWindowLock());
++  std::map<uintptr_t, uintptr_t>& ranges = HeapWindowRanges();
++  // An address without MAP_FIXED is a hint, as for mmap: taken where the window has room for the mapping
++  // there; else, as Linux would, the mapping goes elsewhere, and ART, which checks the address it gets, gives
++  // it back and asks again without one. A low address, which ART asks for on Android, lies outside the window.
++  bool hint_taken = false;
++  if (begin != 0u && begin >= first && begin <= end && length <= end - begin) {
++    auto next = ranges.upper_bound(begin);
++    hint_taken = (next == ranges.end() || next->first >= begin + length) &&
++                 (next == ranges.begin() || std::prev(next)->second <= begin);
++  }
++  if (!hint_taken) {
++    // The first gap that holds it, from the window's start.
++    uintptr_t cursor = first;
++    for (const auto& [range_begin, range_end] : ranges) {
++      if (range_begin >= cursor && range_begin - cursor >= length) {
++        break;
++      }
++      cursor = std::max(cursor, range_end);
++    }
++    if (cursor > end || length > end - cursor) {
++      LOG(ERROR) << "The heap window has no room for " << length << " bytes.";
++      errno = ENOMEM;
++      return MAP_FAILED;
++    }
++    begin = cursor;
++  }
++  void* actual = TargetMMap(reinterpret_cast<void*>(begin), length, prot, flags | MAP_FIXED, fd, offset);
++  if (actual != MAP_FAILED) {
++    ranges.emplace(begin, begin + length);
++  }
++  return actual;
++}
++
++bool MemMap::ReturnToHeapWindow(void* start, size_t length) {
++  const uintptr_t begin = reinterpret_cast<uintptr_t>(start);
++  if (gHeapWindowBase == 0u || begin < gHeapWindowBase || begin - gHeapWindowBase >= gHeapWindowSize) {
++    return false;
++  }
++  std::lock_guard<std::mutex> lock(HeapWindowLock());
++  // Without access again, as reserved, before the allocator gives the range out again.
++  void* actual =
++      mmap(start, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
++  CHECK_EQ(actual, start) << "Could not give " << length << " bytes back to the heap window";
++  // Every range that overlaps [begin, end) keeps only what lies outside it.
++  const uintptr_t end = begin + length;
++  std::map<uintptr_t, uintptr_t>& ranges = HeapWindowRanges();
++  auto it = ranges.upper_bound(begin);
++  if (it != ranges.begin()) {
++    --it;
++  }
++  while (it != ranges.end() && it->first < end) {
++    const uintptr_t range_begin = it->first;
++    const uintptr_t range_end = it->second;
++    if (range_end <= begin) {
++      ++it;
++      continue;
++    }
++    it = ranges.erase(it);
++    if (range_begin < begin) {
++      ranges.emplace(range_begin, begin);
++    }
++    if (range_end > end) {
++      ranges.emplace(end, range_end);
++    }
++  }
++  return true;
++}
++
+ // Return true if the address range is contained in a single memory map by either reading
+ // the gMaps variable or the /proc/self/map entry.
+ bool MemMap::ContainedWithinExistingMap(uint8_t* ptr, size_t size, std::string* error_msg) {
+@@ -1174,6 +1310,11 @@
+                           off_t offset,
+                           bool low_4gb) {
+ #ifdef __LP64__
++  // Minato (ADR-0033 decision 3): every low_4gb mapping lies in the heap window.
++  if (low_4gb) {
++    DCHECK_ALIGNED_PARAM(length, GetPageSize());
++    return MapInHeapWindow(addr, length, prot, flags, fd, offset);
++  }
+   // When requesting low_4g memory and having an expectation, the requested range should fit into
+   // 4GB.
+   if (low_4gb && (
+--- a/art/libartbase/base/mem_map_unix.cc
++++ b/art/libartbase/base/mem_map_unix.cc
+@@ -29,6 +29,10 @@
+ }
+ 
+ int MemMap::TargetMUnmap(void* start, size_t len) {
++  // Minato (ADR-0033 decision 3): the heap window stays reserved as a whole.
++  if (ReturnToHeapWindow(start, len)) {
++    return 0;
++  }
+   return munmap(start, len);
+ }
+ 

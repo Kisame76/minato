@@ -113,12 +113,15 @@ def dex_classes(data):
 
 
 def classes_art_checks(sources):
-    """The class descriptors of ART's class roots and well-known classes, from its sources."""
+    """The class descriptors of ART's class roots and well-known classes, from its sources. A well-known class is
+    named by its descriptor or, where ART finds it through JNI (CacheClass), by its JNI name."""
     runtime = os.path.join(sources, "art", "runtime")
     with open(os.path.join(runtime, "class_root.h")) as handle:
         roots = re.findall(r'M\(k\w+,\s*"([^"]+)"', handle.read())
     with open(os.path.join(runtime, "well_known_classes.cc")) as handle:
-        well_known = re.findall(r'"(L[\w/$]+;)"', handle.read())
+        text = handle.read()
+    well_known = re.findall(r'"(L[\w/$]+;)"', text)
+    well_known += [f"L{name};" for name in re.findall(r'CacheClass\(env,\s*"([\w/$]+)"\)', text)]
     descriptors = set()
     for descriptor in roots + well_known:
         element = descriptor.lstrip("[")

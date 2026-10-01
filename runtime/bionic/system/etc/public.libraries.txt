@@ -1,0 +1,17 @@
+# The guest's /system/etc/public.libraries.txt (ADR-0040 decision 3): the public libraries of Android 15's list that
+# Minato's guest system has, in Android's order and format. libnativeloader preloads each of them when the VM starts
+# and aborts the start if one fails, so a library comes in only with the step that brings it. The graphics front
+# libraries (libEGL.so, libGLESv2.so, libGLESv3.so, libvulkan.so) wait for step e, which measures the preload.
+libandroid.so
+libaaudio.so
+libc.so
+libdl.so
+libicu.so
+libicui18n.so
+libicuuc.so
+liblog.so
+libm.so
+libnativehelper.so
+libnativewindow.so
+libOpenSLES.so
+libz.so

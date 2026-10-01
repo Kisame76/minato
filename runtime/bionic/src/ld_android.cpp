@@ -5,7 +5,8 @@
 //   - dl_iterate_phdr walks the objects the runtime loaded (apkrt_loader.objects); the unwinder
 //     finds .eh_frame through it. Their TLS blocks are found as linker64 finds them.
 //   - dlopen, dlsym, dladdr and friends ask the runtime through apkrt_loader, which it fills in
-//     before any guest code runs. Namespaces do not exist here: one program per process (ADR-0003).
+//     before any guest code runs. Namespaces are names for the loader's one scope with folders of
+//     their own (ADR-0033 decision 7, until step e).
 //   - They take a lock of their own where linker64 takes g_dl_mutex, so that a thread waits for
 //     another one's dlopen here, in guest code, where signals reach it (ADR-0025, decision 8).
 // Built without the stack protector: libc.so calls in before the thread pointer is set up.
@@ -118,12 +119,73 @@ void* __loader_dlopen(const char* filename, int flags, const void* caller) {
   return handle;
 }
 
+namespace {
+
+// Namespaces as ADR-0033 decision 7 has them until step e (ADR-0040): every namespace is the loader's one
+// global scope, and a namespace only names the folders where android_dlopen_ext looks for a library by name
+// first. ART's start loads its JNI libraries into the exported namespace com_android_art; libnativeloader asks
+// for the exported "system" or "default" namespace and creates one for each class loader.
+struct Namespace {
+  char name[64];
+  char search_path[1024];  // folders, separated by colons
+};
+
+Namespace default_namespace = {"default", ""};
+Namespace art_namespace = {"com_android_art", "/apex/com.android.art/lib64"};
+// Room for the namespaces of class loaders: ld-android.so has no allocator. Guarded by loader_lock.
+Namespace created_namespaces[32];
+size_t created_count = 0;
+
+bool same(const char* a, const char* b) {
+  while (*a != '\0' && *a == *b) {
+    ++a;
+    ++b;
+  }
+  return *a == *b;
+}
+
+// Appends `text` to the string in `buffer`, as far as it fits; false when it does not fit whole.
+bool append(char* buffer, size_t size, const char* text) {
+  size_t at = 0;
+  while (at < size && buffer[at] != '\0') ++at;
+  for (; *text != '\0'; ++text) {
+    if (at + 1 >= size) return false;
+    buffer[at++] = *text;
+  }
+  buffer[at] = '\0';
+  return true;
+}
+
+}  // namespace
+
 void* __loader_android_dlopen_ext(const char* filename, int flags, const android_dlextinfo* extinfo,
                                   const void* caller) {
-  // Namespaces, file descriptors and reserved addresses have no meaning for the runtime's loader.
-  if (extinfo != nullptr && extinfo->flags != 0) {
+  // File descriptors and reserved addresses have no meaning for the runtime's loader.
+  if (extinfo != nullptr && (extinfo->flags & ~ANDROID_DLEXT_USE_NAMESPACE) != 0) {
     pending_error = "android_dlopen_ext: extended options are not supported";
     return nullptr;
+  }
+  if (extinfo != nullptr && (extinfo->flags & ANDROID_DLEXT_USE_NAMESPACE) != 0 &&
+      extinfo->library_namespace != nullptr && filename != nullptr) {
+    bool plain_name = true;
+    for (const char* at = filename; *at != '\0'; ++at) plain_name = plain_name && *at != '/';
+    const auto* space = reinterpret_cast<const Namespace*>(extinfo->library_namespace);
+    // The namespace's folders first, in their order, then wherever a plain dlopen looks.
+    for (const char* folder = space->search_path; plain_name && *folder != '\0';) {
+      // Not zeroed as a whole, -ftrivial-auto-var-init or not: ld-android.so has no memset.
+      [[clang::uninitialized]] char path[1024];
+      size_t length = 0;
+      while (folder[length] != '\0' && folder[length] != ':' && length + 1 < sizeof path) {
+        path[length] = folder[length];
+        ++length;
+      }
+      path[length] = '\0';
+      folder += length;
+      if (*folder == ':') ++folder;
+      if (length != 0 && append(path, sizeof path, "/") && append(path, sizeof path, filename)) {
+        if (void* handle = __loader_dlopen(path, flags, caller)) return handle;
+      }
+    }
   }
   return __loader_dlopen(filename, flags, caller);
 }
@@ -220,10 +282,30 @@ bool __loader_android_init_anonymous_namespace(const char*, const char*) {
   return true;
 }
 
-android_namespace_t* __loader_android_create_namespace(const char*, const char*, const char*, uint64_t, const char*,
+android_namespace_t* __loader_android_create_namespace(const char* name, const char* ld_library_path,
+                                                       const char* default_library_path, uint64_t, const char*,
                                                        android_namespace_t*, const void*) {
-  pending_error = "android_create_namespace: namespaces are not supported";
-  return nullptr;
+  Locked locked;
+  if (created_count == sizeof created_namespaces / sizeof created_namespaces[0]) {
+    pending_error = "android_create_namespace: no room for another namespace";
+    return nullptr;
+  }
+  Namespace& space = created_namespaces[created_count];
+  space.name[0] = '\0';
+  space.search_path[0] = '\0';
+  append(space.name, sizeof space.name, name != nullptr ? name : "");
+  // Its search path: LD_LIBRARY_PATH's part first, then the default library path, as linker64 searches them.
+  const char* const parts[] = {ld_library_path, default_library_path};
+  for (const char* part : parts) {
+    if (part == nullptr || *part == '\0') continue;
+    if ((space.search_path[0] != '\0' && !append(space.search_path, sizeof space.search_path, ":")) ||
+        !append(space.search_path, sizeof space.search_path, part)) {
+      pending_error = "android_create_namespace: the search path is too long";
+      return nullptr;
+    }
+  }
+  ++created_count;
+  return reinterpret_cast<android_namespace_t*>(&space);
 }
 
 bool __loader_android_link_namespaces(android_namespace_t*, android_namespace_t*, const char*) {
@@ -234,7 +316,12 @@ bool __loader_android_link_namespaces_all_libs(android_namespace_t*, android_nam
   return true;
 }
 
-android_namespace_t* __loader_android_get_exported_namespace(const char*) {
+// "default" stands for the program's namespace, as for a program in /system/bin (ADR-0040 decision 2), and
+// com_android_art for ART's APEX.
+android_namespace_t* __loader_android_get_exported_namespace(const char* name) {
+  if (name == nullptr) return nullptr;
+  if (same(name, "default")) return reinterpret_cast<android_namespace_t*>(&default_namespace);
+  if (same(name, "com_android_art")) return reinterpret_cast<android_namespace_t*>(&art_namespace);
   return nullptr;
 }
 

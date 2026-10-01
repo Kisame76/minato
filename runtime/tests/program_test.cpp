@@ -550,6 +550,22 @@ void exit_group_once_inside(void *) {
     finish_case();
 }
 
+/// A program in an APEX's bin finds its libraries in the APEX's lib64 without LD_LIBRARY_PATH, as
+/// linkerconfig links an APEX binary's namespace to its APEX's libraries (ADR-0033 b): raw-dyn as
+/// /apex/com.android.test/bin/raw-dyn, its library in /apex/com.android.test/lib64, the host directory
+/// lib64 next to the program's container's.
+[[noreturn]] void run_apex_program(const char *container) {
+    begin_session();
+    const auto libraries = std::filesystem::path(container).parent_path().parent_path() / "lib64";
+    char error[512] = "";
+    CHECK(apkrt_add_library_directory("/apex/com.android.test/lib64", libraries.c_str(), error, sizeof error) == 0);
+    const char *const argv[] = {"/apex/com.android.test/bin/raw-dyn", nullptr};
+    const char *const envp[] = {nullptr};
+    CHECK(apkrt_start_program(container, argv, envp, error, sizeof error) == 0);
+    check_end(0);
+    finish_case();
+}
+
 /// Without a session the program's end ends the process, as before: exit_group(9), reported on
 /// descriptor 3.
 [[noreturn]] void run_no_session() {
@@ -571,6 +587,7 @@ void exit_group_once_inside(void *) {
     if (mode == "--dropped-resume") run_dropped_resume();
     if (mode == "--resume-never") run_resume_never();
     if (mode == "--cannot-link") run_cannot_link(argument);
+    if (mode == "--apex-program") run_apex_program(argument);
     if (mode == "--no-session") run_no_session();
     std::fprintf(stderr, "unknown case %.*s\n", static_cast<int>(mode.size()), mode.data());
     ::_exit(2);
@@ -687,12 +704,16 @@ TEST(a_session_needs_an_end_handler_and_begins_once) {
     CHECK(apkrt_session_begin(&session) == -1);
 }
 
-// ADR-0039, decision 2: every program starts with init's environment, and the caller's entries on top.
+// ADR-0039, decision 2: every program starts with init's environment, and the caller's entries on top. The
+// names, values and order are an app's on Android 15 in the emulator, except our boot class path and zygote's
+// socket numbers.
 TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
     const std::string boot_class_path =
         "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
         "/apex/com.android.art/javalib/core-icu4j.jar";
     const std::vector<std::string> init = {
+        "PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:"
+        "/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin",
         "ANDROID_BOOTLOGO=1",
         "ANDROID_ROOT=/system",
         "ANDROID_ASSETS=/system/app",
@@ -703,13 +724,31 @@ TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
         "ANDROID_TZDATA_ROOT=/apex/com.android.tzdata",
         "EXTERNAL_STORAGE=/sdcard",
         "ASEC_MOUNTPOINT=/mnt/asec",
+        "DOWNLOAD_CACHE=/data/cache",
         "BOOTCLASSPATH=" + boot_class_path,
         "DEX2OATBOOTCLASSPATH=" + boot_class_path,
+        "SYSTEMSERVERCLASSPATH=/system/framework/com.android.location.provider.jar:/system/framework/services.jar:"
+        "/apex/com.android.adservices/javalib/service-adservices.jar:"
+        "/apex/com.android.adservices/javalib/service-sdksandbox.jar:"
+        "/apex/com.android.appsearch/javalib/service-appsearch.jar:/apex/com.android.art/javalib/service-art.jar:"
+        "/apex/com.android.configinfrastructure/javalib/service-configinfrastructure.jar:"
+        "/apex/com.android.healthfitness/javalib/service-healthfitness.jar:"
+        "/apex/com.android.media/javalib/service-media-s.jar:"
+        "/apex/com.android.ondevicepersonalization/javalib/service-ondevicepersonalization.jar:"
+        "/apex/com.android.permission/javalib/service-permission.jar:/apex/com.android.rkpd/javalib/service-rkp.jar:"
+        "/apex/com.android.virt/javalib/service-virtualization.jar",
+        "STANDALONE_SYSTEMSERVER_JARS=/apex/com.android.btservices/javalib/service-bluetooth.jar:"
+        "/apex/com.android.devicelock/javalib/service-devicelock.jar:"
+        "/apex/com.android.os.statsd/javalib/service-statsd.jar:"
+        "/apex/com.android.profiling/javalib/service-profiling.jar:"
+        "/apex/com.android.scheduling/javalib/service-scheduling.jar:"
+        "/apex/com.android.tethering/javalib/service-connectivity.jar:/apex/com.android.uwb/javalib/service-uwb.jar:"
+        "/apex/com.android.wifi/javalib/service-wifi.jar",
     };
     CHECK(apkrt::environment::at_start({}) == init);
     // A name of init's keeps its place with the caller's value; the caller's others follow in order.
     auto expected = init;
-    expected[3] = "ANDROID_DATA=/elsewhere";
+    expected[4] = "ANDROID_DATA=/elsewhere";
     expected.push_back("LD_LIBRARY_PATH=/data/local/tmp");
     expected.push_back("OWN=1");
     CHECK(apkrt::environment::at_start({"LD_LIBRARY_PATH=/data/local/tmp", "ANDROID_DATA=/elsewhere", "OWN=1"}) ==
@@ -779,9 +818,9 @@ TEST(a_runtime_signal_that_never_arrives_ends_the_process) {
     CHECK(ended.output.find("apkrt: a thread could not resume guest code") != std::string::npos);
 }
 
-/// The NDK fixture raw-dyn as an ELF file, or nothing while it is not built.
-std::optional<std::vector<std::byte>> raw_dyn() {
-    const auto path = fixtures / "raw-dyn";
+/// The NDK fixture `name` as an ELF file, or nothing while it is not built.
+std::optional<std::vector<std::byte>> fixture_elf(const char *name) {
+    const auto path = fixtures / name;
     if (!std::filesystem::exists(path)) {
         std::printf("skipped: %s is not built, see tools/build-fixtures.sh\n", path.c_str());
         return std::nullopt;
@@ -790,6 +829,11 @@ std::optional<std::vector<std::byte>> raw_dyn() {
     std::vector<std::byte> elf(std::filesystem::file_size(path));
     file.read(reinterpret_cast<char *>(elf.data()), static_cast<std::streamsize>(elf.size()));
     return elf;
+}
+
+/// The NDK fixture raw-dyn as an ELF file, or nothing while it is not built.
+std::optional<std::vector<std::byte>> raw_dyn() {
+    return fixture_elf("raw-dyn");
 }
 
 /// Sets the value of the dynamic entry `tag` in the ELF file `elf`; false when it has none.
@@ -837,6 +881,16 @@ TEST(a_program_with_a_broken_dynamic_section_ends_as_linker64_ends_it) {
     CHECK(succeeded(ended));
     CHECK(ended.output.find("CANNOT LINK EXECUTABLE") != std::string::npos);
     CHECK(ended.output.find("symbol entries of 16 bytes") != std::string::npos);
+}
+
+// ADR-0033 b: dalvikvm64 lives in /apex/com.android.art/bin and finds ART's libraries in its APEX's lib64.
+TEST(a_program_in_an_apex_finds_the_apex_s_libraries) {
+    const auto elf = raw_dyn();
+    const auto library = fixture_elf("libraw-dyn.so");
+    if (!elf || !library) return;
+    write_container("libraw-dyn.so", *library, scratch / "apex" / "lib64");
+    const auto ended = run_child("--apex-program", write_container("raw-dyn", *elf, scratch / "apex" / "bin"));
+    CHECK(succeeded(ended));
 }
 
 // Decision 5: without a session the program's end ends the process as before, after the report.

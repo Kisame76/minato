@@ -77,6 +77,7 @@ struct State {
     std::deque<Library> libraries;  // load order, the program first; a deque keeps handles stable
     std::vector<Directory> directories;
     std::vector<std::string> library_path;  // LD_LIBRARY_PATH as linker64 keeps it
+    std::string apex_libraries;             // /apex/<module>/lib64 for a program in /apex/<module>/bin
     std::string program_name;               // argv[0], for linker64's messages
     apkrt_start_main_thread_function start_main_thread = nullptr;
     apkrt_register_tls_module_function register_tls = nullptr;
@@ -148,8 +149,9 @@ std::optional<Found> library_at(const State &state, std::string path) {
 
 /// Looks for a library file as linker64's open_library does: a name with a slash is a path, taken
 /// as it is (against the working directory when relative); a plain name is looked for in
-/// LD_LIBRARY_PATH, then in the default directories. Every place without the file is an open() that
-/// fails on Android and leaves ENOENT in errno; `missed` records that.
+/// LD_LIBRARY_PATH, then, for a program of an APEX, in the APEX's libraries, then in the default
+/// directories. Every place without the file is an open() that fails on Android and leaves ENOENT in
+/// errno; `missed` records that.
 std::optional<Found> find_library(const State &state, std::string_view name, bool &missed) {
     const auto look = [&](std::string path) {
         auto found = library_at(state, std::move(path));
@@ -159,6 +161,12 @@ std::optional<Found> find_library(const State &state, std::string_view name, boo
     if (name.find('/') != std::string_view::npos) return look(vfs::absolute(name, vfs::working_directory()));
     for (const auto &directory : state.library_path) {
         if (auto found = look(std::format("{}/{}", directory, name))) return found;
+    }
+    // linkerconfig links the namespace of a program in /apex/<module>/bin to its APEX's namespace with all
+    // of its libraries, then to the system's (/linkerconfig/com.android.art/ld.config.txt on Android 15).
+    // In the loader's one scope that is the APEX's folder first (ADR-0033 decision 7, step b).
+    if (!state.apex_libraries.empty()) {
+        if (auto found = look(std::format("{}/{}", state.apex_libraries, name))) return found;
     }
     for (const auto directory : default_library_paths) {
         if (auto found = look(std::format("{}/{}", directory, name))) return found;
@@ -548,6 +556,10 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         const auto slash = path.rfind('/');
         state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
         state.library_path = library_path(state, envp);
+        if (const auto bin = path.find("/bin/", 6); path.starts_with("/apex/") && bin != std::string::npos &&
+                                                    path.find('/', 6) == bin) {
+            state.apex_libraries = path.substr(0, bin) + "/lib64";
+        }
 
         auto &program = state.libraries.emplace_back();
         program.object = Object{.name = container.stem().string(), .image = image,

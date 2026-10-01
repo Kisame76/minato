@@ -243,3 +243,11 @@ set_target_properties(guest_activity_host PROPERTIES OUTPUT_NAME activity-host L
 target_link_options(guest_activity_host PRIVATE ${apk_link_flags} -pie -Wl,-dynamic-linker,/system/bin/linker64)
 target_link_libraries(guest_activity_host PRIVATE guest_libandroid guest_libnativewindow guest_liblog guest_libdl
   guest_libc "${ndk_builtins}" "${ndk_crt}/crtend_android.o")
+
+# The guest's /system/etc/public.libraries.txt (ADR-0040 decision 3), which libnativeloader reads when ART starts
+# (ADR-0033 b), into <build>/system next to the time zone file of tools/build-bionic.sh.
+set(public_libraries "${CMAKE_BINARY_DIR}/system/etc/public.libraries.txt")
+add_custom_command(OUTPUT "${public_libraries}"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" "${public_libraries}"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" VERBATIM)
+add_custom_target(guest_public_libraries ALL DEPENDS "${public_libraries}")
