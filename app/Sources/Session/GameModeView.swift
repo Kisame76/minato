@@ -55,7 +55,7 @@ struct GameModeView: View {
                 }
             }
             .background(.black)
-            .statusBarHidden(true)
+            .statusBarHidden(!Self.showsStatusBar)
             .persistentSystemOverlays(.hidden)
             .defersSystemGestures(on: .all)
             .confirmationDialog(session.entry.displayName, isPresented: menuShown, titleVisibility: .visible) {
@@ -90,6 +90,15 @@ struct GameModeView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
                 session.memoryWarning()
             }
+    }
+
+    /// Hidden in every session; the Debug build shows it on session-check's request (ADR-0038, step e).
+    private static var showsStatusBar: Bool {
+        #if DEBUG
+        SessionCheck.showsStatusBar
+        #else
+        false
+        #endif
     }
 
     private var menuShown: Binding<Bool> {

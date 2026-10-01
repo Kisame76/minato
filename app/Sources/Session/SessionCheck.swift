@@ -36,6 +36,7 @@ import UIKit
 ///   turn-session  2 s after the guest's start, game mode asks its scene to turn to landscape, as a turned
 ///            device would, then a second after that layout back to portrait, logging the orientation and the
 ///            window's pixels after each, and removes the file (ADR-0038, test 3).
+///   status-bar  game mode shows the status bar, for the Game Mode check of ADR-0038 step e.
 ///   audio-disconnect  that many seconds after the guest's start (1 for "yes"), the audio host disconnects every
 ///            open stream, as a reroute that changes the rate does, for audio-live's error callback; the file goes.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
@@ -59,6 +60,9 @@ enum SessionCheck {
 
     /// Whether game mode runs without a guest.
     static var withoutGuest: Bool { requested("no-guest") }
+
+    /// Whether game mode shows the status bar (ADR-0038, step e).
+    static var showsStatusBar: Bool { requested("status-bar") }
 
     /// The guest is about to start: its stderr, which the runtime hands it as descriptor 2, goes to the
     /// file the script reads.

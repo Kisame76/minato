@@ -70,6 +70,7 @@
 #   PORTRAIT    only the round of the library's orientation
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
 #   AUDIO_LIVE  only the round of audio-live
+#   WAY         with AUDIO_LIVE: the restart's way ("url" when unset; "workspace" past a second Minato)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -193,7 +194,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -978,6 +979,8 @@ run_audio_live() {
   echo yes > "$CHECK/guest-log"
   echo 10 > "$CHECK/audio-disconnect"
   echo 15 > "$CHECK/quit"
+  # WAY=workspace when another app also answers minato://, such as a second Minato from SideStore.
+  [[ -z "${WAY:-}" ]] || echo "$WAY" > "$CHECK/way"
   send_requests
   launch
   await_event "process gameMode $AUDIO_LIVE_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
