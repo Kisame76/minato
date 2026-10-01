@@ -2,7 +2,7 @@
 # Checks the framework's plain-Java parts on the host's JVM (ADR-0045 step b): the classes under
 # framework/java/com/android/minato that use no android.* class, with the tests under framework/tests/java, which
 # run without JUnit (each test class has its own main). Today: ADR-0045 decision 3's stubs (ServiceStub) and the
-# managers' generator (tools/managergen):
+# managers' generator (tools/managergen), and the policy and table of decision 6's runtime permissions:
 #   - framework/tests/managergen_test.py checks the generator on framework/tests/managergen's samples, whose
 #     output goes into the build folder for GeneratedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
@@ -29,6 +29,8 @@ mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes"
 } >"$OUT/gen/com/android/minato/services/Wide.java"
 
 python3 framework/tests/managergen_test.py
+# ADR-0045 decision 6's protection levels in our framework-res against the AVD's; skipped while not built.
+python3 framework/tests/platform_permissions_test.py
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \
   --hand framework/tests/managergen/hand --out "$OUT/gen" \
   --class com.android.minato.sample.SampleManager --class com.android.minato.sample.SampleDevice \
