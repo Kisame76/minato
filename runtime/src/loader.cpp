@@ -1,5 +1,6 @@
 #include "loader.h"
 
+#include "identity.h"
 #include "islands.h"
 #include "syscall_frame.h"
 
@@ -155,12 +156,16 @@ std::uint64_t build_start_stack(const StartInfo &start, std::span<std::byte> sta
         return at;
     };
 
-    const auto platform = place_string("aarch64");
+    // The strings as Linux's exec copies them (fs/exec.c), each below the one before: AT_EXECFN's, then the
+    // environment's and the arguments' from the last to the first. So they lie in order from argv[0] on, and the
+    // arguments form the one block that AndroidRuntime::setArgv0 clears and /proc/self/cmdline reads. The
+    // platform's name goes below them, as create_elf_tables puts it.
     const auto execfn = place_string(start.arguments.empty() ? std::string() : start.arguments.front());
-    std::vector<std::uint64_t> environment;
-    for (const auto &entry : start.environment) environment.push_back(place_string(entry));
-    std::vector<std::uint64_t> arguments;
-    for (const auto &argument : start.arguments) arguments.push_back(place_string(argument));
+    std::vector<std::uint64_t> environment(start.environment.size());
+    for (auto index = environment.size(); index-- > 0;) environment[index] = place_string(start.environment[index]);
+    std::vector<std::uint64_t> arguments(start.arguments.size());
+    for (auto index = arguments.size(); index-- > 0;) arguments[index] = place_string(start.arguments[index]);
+    const auto platform = place_string("aarch64");
 
     const auto random = reserve(16, 16);
     arc4random_buf(reinterpret_cast<void *>(random), 16);
@@ -192,10 +197,10 @@ std::uint64_t build_start_stack(const StartInfo &start, std::span<std::byte> sta
         {at_base, 0},  // no interpreter
         {at_flags, 0},
         {at_entry, start.entry},
-        {at_uid, getuid()},
-        {at_euid, geteuid()},
-        {at_gid, getgid()},
-        {at_egid, getegid()},
+        {at_uid, app_uid},  // the app uid, also as the gid (ADR-0039 decision 3)
+        {at_euid, app_uid},
+        {at_gid, app_uid},
+        {at_egid, app_uid},
         {at_platform, platform},
         {at_hwcap, guest_hwcap},
         {at_hwcap2, 0},

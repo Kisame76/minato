@@ -1,12 +1,14 @@
-// The files of /proc and /sys that the runtime writes (proc.h, ADR-0033 decision 8). Each open writes
-// what Linux would show at that moment into an unlinked temporary file of the host and gives the guest
-// that file, so that reads, seeks and fstat work as on any file. The formats are Linux 6.6's, the kernel
-// of Android 15's emulator: fs/proc/array.c (stat), fs/proc/task_mmu.c (maps), drivers/base/cpu.c
-// (possible, online), fs/proc/fd.c and the anonymous inodes (the links of fd/).
+// The files of /proc and /sys that the runtime writes (proc.h, ADR-0033 decision 8), and the property area
+// (properties.h). Each open writes what Linux would show at that moment into an unlinked temporary file of
+// the host and gives the guest that file, so that reads, seeks, fstat and mmap work as on any file. The
+// formats are Linux 6.6's, the kernel of Android 15's emulator: fs/proc/array.c (stat), fs/proc/base.c
+// (cmdline), fs/proc/task_mmu.c (maps), drivers/base/cpu.c (possible, online), fs/proc/fd.c and the anonymous
+// inodes (the links of fd/).
 #include "proc.h"
 
 #include "descriptors.h"
 #include "dl.h"
+#include "properties.h"
 #include "syscalls.h"
 #include "threads.h"
 #include "vfs.h"
@@ -169,6 +171,28 @@ std::string stat_line() {
         ticks_of(usage.ru_utime), ticks_of(usage.ru_stime), std::max(threads, 1L), start_ticks, task.virtual_size,
         task.resident_size / page_size(), program.start_code, program.end_code, stack_start, program.start_data,
         program.end_data, program.start_brk, arguments_begin, arguments_end, environment_begin, environment_end);
+}
+
+// --- /proc/self/cmdline --------------------------------------------------------------------------------
+
+/// What Linux 6.6's get_mm_cmdline reads from the argument block as it is now: [arg_start, arg_end); or, when
+/// the block's last byte is no NUL anymore (setproctitle), the string at arg_start with its NUL, read within a
+/// page (get_mm_proctitle) and up to the environment's end where the environment follows the arguments.
+std::string cmdline() {
+    auto &current = state();
+    std::unique_lock lock(current.mutex);
+    const auto begin = current.arguments_begin, end = current.arguments_end, stack_high = current.stack_high;
+    auto environment_begin = current.environment_begin, environment_end = current.environment_end;
+    lock.unlock();
+    if (begin >= end) return {};
+    if (environment_begin != end || environment_end < environment_begin) environment_begin = environment_end = end;
+    const auto *const text = reinterpret_cast<const char *>(begin);
+    if (text[end - begin - 1] == '\0') return std::string(text, end - begin);
+    // A page from arg_start, as far as the stack's memory goes.
+    const std::size_t readable = std::min(page_size(), stack_high > begin ? stack_high - begin : 0);
+    std::size_t length = ::strnlen(text, readable);
+    if (length < readable) ++length;  // with its NUL
+    return std::string(text, std::min<std::uint64_t>(length, environment_end - begin));
 }
 
 // --- /proc/self/maps -----------------------------------------------------------------------------------
@@ -421,13 +445,16 @@ void set_main_thread(pthread_t thread, std::string_view program) {
 std::optional<long> open(std::string_view path, int linux_flags) {
     std::optional<std::string> contents;
     std::string name(path);
-    if (path == "/sys/devices/system/cpu/possible") {
+    if (path == properties::path) {
+        contents = properties::area();  // root's, read-only (sys_files.cpp)
+    } else if (path == "/sys/devices/system/cpu/possible") {
         contents = cpu_list("hw.ncpu");
     } else if (path == "/sys/devices/system/cpu/online") {
         contents = cpu_list("hw.activecpu");  // as sched_getaffinity
     } else if (const auto entry = own_entry(path)) {
         if (*entry == "stat") contents = stat_line();
         if (*entry == "maps") contents = maps();
+        if (*entry == "cmdline") contents = cmdline();
         name = std::format("/proc/{}/{}", ::getpid(), *entry);  // /proc/self is a link to it
     }
     if (!contents) return std::nullopt;

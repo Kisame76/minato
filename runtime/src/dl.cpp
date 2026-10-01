@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -43,6 +44,16 @@ constexpr int linux_enoent = 2;
 constexpr std::string_view default_library_paths[] = {"/system/lib64", "/system_ext/lib64", "/odm/lib64",
                                                       "/vendor/lib64", "/product/lib64"};
 
+// The libraries that linkerconfig's [system] section links from the default namespace, that of a program
+// outside the APEXes, to com_android_art and com_android_i18n (/linkerconfig/ld.config.txt on Android 15). They
+// resolve in ART's folder, after the default directories. ICU's libraries live with ART's there, in
+// com_android_art, not in com_android_i18n: ADR-0040 decision 2's departure.
+constexpr std::string_view art_libraries = "/apex/com.android.art/lib64";
+constexpr std::string_view linked_to_art[] = {"libdexfile.so", "libjdwp.so", "libnativebridge.so",
+                                              "libnativehelper.so", "libnativeloader.so", "libsigchain.so",
+                                              // com_android_i18n's on Android
+                                              "libandroidicu.so", "libicu.so", "libicui18n.so", "libicuuc.so"};
+
 // Android 15 keeps libc.so, libm.so and libdl.so in the runtime APEX and has symlinks to them in
 // /system/lib64; linker64 names a library by its real path.
 constexpr std::pair<std::string_view, std::string_view> system_links[] = {
@@ -58,6 +69,7 @@ struct Library {
     Library *group_root = nullptr;    // the program, or the library dlopen loaded it with
     bool global = false;              // RTLD_GLOBAL, or loaded with the program
     bool linked = false;              // relocated and listed
+    std::string apex_libraries;       // its APEX's lib64 when the APEX holds it: its namespace's folder
 };
 
 /// Library containers (<file name>.dylib) the guest finds as the files of a directory.
@@ -77,7 +89,6 @@ struct State {
     std::deque<Library> libraries;  // load order, the program first; a deque keeps handles stable
     std::vector<Directory> directories;
     std::vector<std::string> library_path;  // LD_LIBRARY_PATH as linker64 keeps it
-    std::string apex_libraries;             // /apex/<module>/lib64 for a program in /apex/<module>/bin
     std::string program_name;               // argv[0], for linker64's messages
     apkrt_start_main_thread_function start_main_thread = nullptr;
     apkrt_register_tls_module_function register_tls = nullptr;
@@ -108,6 +119,17 @@ void set_error(std::string_view message) {
 std::string_view base_name(std::string_view path) {
     const auto slash = path.rfind('/');
     return slash == std::string_view::npos ? path : path.substr(slash + 1);
+}
+
+/// The lib64 folder of the APEX whose bin or lib64 holds `path`, or nothing: the search path of the namespace
+/// that linkerconfig gives a program or a library of that APEX on Android 15.
+std::string apex_libraries_of(std::string_view path) {
+    if (!path.starts_with("/apex/")) return {};
+    const auto module_end = path.find('/', 6);
+    if (module_end == std::string_view::npos) return {};
+    const auto rest = path.substr(module_end);
+    if (!rest.starts_with("/bin/") && !rest.starts_with("/lib64/")) return {};
+    return std::string(path.substr(0, module_end)) + "/lib64";
 }
 
 /// A loaded library by the name it was asked for, its path or its soname, as linker64's
@@ -149,10 +171,12 @@ std::optional<Found> library_at(const State &state, std::string path) {
 
 /// Looks for a library file as linker64's open_library does: a name with a slash is a path, taken
 /// as it is (against the working directory when relative); a plain name is looked for in
-/// LD_LIBRARY_PATH, then, for a program of an APEX, in the APEX's libraries, then in the default
-/// directories. Every place without the file is an open() that fails on Android and leaves ENOENT in
+/// LD_LIBRARY_PATH, then, for a program or library of an APEX (`apex_libraries`, its folder), in the
+/// APEX's libraries, then in the default directories, and for the others through [system]'s links in
+/// ART's folder. Every place without the file is an open() that fails on Android and leaves ENOENT in
 /// errno; `missed` records that.
-std::optional<Found> find_library(const State &state, std::string_view name, bool &missed) {
+std::optional<Found> find_library(const State &state, std::string_view name, std::string_view apex_libraries,
+                                  bool &missed) {
     const auto look = [&](std::string path) {
         auto found = library_at(state, std::move(path));
         if (!found) missed = true;
@@ -162,14 +186,18 @@ std::optional<Found> find_library(const State &state, std::string_view name, boo
     for (const auto &directory : state.library_path) {
         if (auto found = look(std::format("{}/{}", directory, name))) return found;
     }
-    // linkerconfig links the namespace of a program in /apex/<module>/bin to its APEX's namespace with all
-    // of its libraries, then to the system's (/linkerconfig/com.android.art/ld.config.txt on Android 15).
-    // In the loader's one scope that is the APEX's folder first (ADR-0033 decision 7, step b).
-    if (!state.apex_libraries.empty()) {
-        if (auto found = look(std::format("{}/{}", state.apex_libraries, name))) return found;
+    // linkerconfig gives a program or library of an APEX a namespace that searches the APEX's lib64 and is
+    // linked to the system's (/linkerconfig/com.android.art/ld.config.txt for a program of ART's, [system]'s
+    // com_android_art for its libraries, on Android 15). In the loader's one scope that is the APEX's folder
+    // first (ADR-0033 decision 7, step b).
+    if (!apex_libraries.empty()) {
+        if (auto found = look(std::format("{}/{}", apex_libraries, name))) return found;
     }
     for (const auto directory : default_library_paths) {
         if (auto found = look(std::format("{}/{}", directory, name))) return found;
+    }
+    if (apex_libraries.empty() && std::ranges::find(linked_to_art, name) != std::end(linked_to_art)) {
+        if (auto found = look(std::format("{}/{}", art_libraries, name))) return found;
     }
     return std::nullopt;
 }
@@ -181,6 +209,7 @@ Library &load_library(State &state, std::string_view name, Found found) {
     library.object = Object{.name = std::string(base_name(name)), .image = image, .dynamic = linker::read_dynamic(image),
                             .path = std::move(found.path)};
     library.container = std::move(found.container);
+    library.apex_libraries = apex_libraries_of(library.object.path);
     return library;
 }
 
@@ -194,7 +223,7 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
         for (const auto &name : library.object.dynamic.needed) {
             Library *dependency = find_loaded(state, name);
             if (dependency == nullptr) {
-                auto found = find_library(state, name, missed);
+                auto found = find_library(state, name, library.apex_libraries, missed);
                 if (!found) {
                     if (program && &library == &root) {
                         throw LoadError(std::format("library \"{}\" not found: needed by main executable", name));
@@ -338,7 +367,7 @@ void *address_of(State &state, const Library &library, const linker::Symbol &sym
 // runs guest code under the lock only on the program's thread before it starts any other (the ifunc
 // resolvers of load_program, ADR-0028): a plain lock is enough here (decision 9).
 
-void *guest_dlopen(const char *name, int flags, const void *, int *error_number) {
+void *guest_dlopen(const char *name, int flags, const void *caller, int *error_number) {
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
     if (name == nullptr) return &state.libraries.front();
@@ -355,8 +384,11 @@ void *guest_dlopen(const char *name, int flags, const void *, int *error_number)
     Library *loaded = find_loaded(state, wanted);
     std::optional<Found> found;
     if (loaded == nullptr || !loaded->linked) {
-        // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
-        found = find_library(state, wanted, report.missed);
+        // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all. It looks
+        // where the caller's namespace does, as linker64 takes the caller's (get_caller_namespace).
+        const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
+        found = find_library(state, wanted, calling != nullptr ? std::string_view(calling->apex_libraries) : "",
+                             report.missed);
         if (!found) {
             set_error(std::format("dlopen failed: library \"{}\" not found", wanted));
             return nullptr;
@@ -556,15 +588,12 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         const auto slash = path.rfind('/');
         state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
         state.library_path = library_path(state, envp);
-        if (const auto bin = path.find("/bin/", 6); path.starts_with("/apex/") && bin != std::string::npos &&
-                                                    path.find('/', 6) == bin) {
-            state.apex_libraries = path.substr(0, bin) + "/lib64";
-        }
 
         auto &program = state.libraries.emplace_back();
         program.object = Object{.name = container.stem().string(), .image = image,
                                 .dynamic = linker::read_dynamic(image), .path = path};
         program.container = container;
+        program.apex_libraries = apex_libraries_of(path);
         bool missed = false;  // libc.so's start sets errno to 0 anyway
         const auto added = load_needed(state, program, true, missed);
         for (auto *library : added) {

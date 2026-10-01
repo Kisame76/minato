@@ -50,6 +50,9 @@ start-test system
 # What ART's start asks of the kernel, /proc and /sys, and init's environment (ADR-0033 decision 8,
 # ADR-0039 decision 2).
 kernel-test system
+# The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
+# emulator's differ (its AVD's heap, a userdebug build).
+property-test system runtime-only
 # ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 looper-test system
 configuration-test system

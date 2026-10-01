@@ -6,7 +6,7 @@ enable_language(ASM)
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
-  src/proc.cpp)
+  src/proc.cpp src/properties.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -167,6 +167,14 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag})
     set_tests_properties(runtime.art_hello${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 400)
   endforeach()
+
+  # A program in /system/bin and ART's folder (ADR-0039 a, ADR-0040 decision 2): the fixture ns-test reaches a
+  # library there only through [system]'s link list, and that library finds its own in its folder.
+  add_test(NAME runtime.system_links
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/ns_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/ns_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/ns-test.out")
+  set_tests_properties(runtime.system_links PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)

@@ -2,6 +2,7 @@
 // structures on Darwin's file descriptors. Every path goes through the path table (vfs.h), every
 // descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
 #include "descriptors.h"
+#include "identity.h"
 #include "proc.h"
 #include "syscalls.h"
 #include "vfs.h"
@@ -154,14 +155,46 @@ std::uint64_t to_linux_device(dev_t device) {
     return (minor_number & 0xff) | (major_number << 8) | ((minor_number & ~std::uint64_t{0xff}) << 12);
 }
 
-LinuxStat to_linux_stat(const struct stat &host) {
+/// A file's owner and group.
+struct Owner {
+    std::uint32_t uid = 0, gid = 0;
+};
+
+constexpr std::uint32_t system_uid = 1000;       // AID_SYSTEM
+constexpr std::uint32_t ext_data_rw_gid = 1078;  // AID_EXT_DATA_RW
+
+/// The owner Android 15 gives the file at the guest path `path` (ADR-0039 decision 3) [verified: the emulator,
+/// 2026-10-01]: an app's code folder under /data/app belongs to system, the rest of /data to the app, external
+/// storage to the app with the group ext_data_rw, /proc's files to the process, and everything else to root.
+Owner android_owner(std::string_view path) {
+    const auto below = [path](std::string_view folder) {
+        return path.starts_with(folder) && (path.size() == folder.size() || path[folder.size()] == '/');
+    };
+    if (below("/data/app")) return {system_uid, system_uid};
+    if (below("/data") || below("/proc")) return {app_uid, app_uid};
+    if (below("/storage") || below("/sdcard")) return {app_uid, ext_data_rw_gid};
+    return {};
+}
+
+/// The owner of the file a descriptor holds, by the path the runtime wrote it for or where the guest sees its
+/// host file. A pipe, which has no path, belongs to the process, as on Linux; a host file outside the guest's
+/// paths belongs to root.
+Owner owner_of(const Description &description) {
+    if (!description.written_path.empty()) return android_owner(description.written_path);
+    char host[MAXPATHLEN];
+    if (::fcntl(description.host(), F_GETPATH, host) != 0) return {app_uid, app_uid};
+    const auto guest = vfs::guest_path(host);
+    return guest ? android_owner(*guest) : Owner{};
+}
+
+LinuxStat to_linux_stat(const struct stat &host, Owner owner) {
     LinuxStat result{};
     result.dev = to_linux_device(host.st_dev);
     result.ino = host.st_ino;
     result.mode = host.st_mode;
     result.nlink = host.st_nlink;
-    result.uid = host.st_uid;
-    result.gid = host.st_gid;
+    result.uid = owner.uid;
+    result.gid = owner.gid;
     result.rdev = to_linux_device(host.st_rdev);
     result.size = host.st_size;
     result.blksize = host.st_blksize;
@@ -198,7 +231,7 @@ long sys_fstat(int fd, std::uint64_t buffer) {
     }
     struct stat status;
     if (::fstat(description->host(), &status) != 0) return -to_linux_errno(errno);
-    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status);
+    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, owner_of(*description));
     return 0;
 }
 
@@ -404,7 +437,13 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     if (host.error != 0) return host.error;
     struct stat status;
     if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags)) != 0) return -to_linux_errno(errno);
-    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status);
+    // The owner by the guest path: as given, or, relative to a directory descriptor, below that directory's.
+    auto guest = guest_absolute(directory, path);
+    if (!guest && host.directory != AT_FDCWD) {
+        char base[MAXPATHLEN];
+        if (::fcntl(host.directory, F_GETPATH, base) == 0) guest = vfs::guest_path(std::string(base) + "/" + host.path);
+    }
+    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, guest ? android_owner(*guest) : Owner{});
     return 0;
 }
 

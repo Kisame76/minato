@@ -11,6 +11,7 @@
 #include "dl.h"
 #include "guest_context.h"
 #include "host_calls.h"
+#include "identity.h"
 #include "loader_syscalls.h"
 #include "process_exit.h"
 #include "session.h"
@@ -101,7 +102,7 @@ void raise_sigpipe() {
     signals::LinuxSiginfo info{};
     info.signo = 13;  // SIGPIPE
     info.fields.sender.pid = ::getpid();
-    info.fields.sender.uid = ::getuid();
+    info.fields.sender.uid = app_uid;
     signals::send_to_thread(static_cast<std::int32_t>(sys_gettid()), 13, info);
 }
 
@@ -201,6 +202,8 @@ constexpr std::uint64_t rt_sigtimedwait = 137;
 constexpr std::uint64_t rt_sigqueueinfo = 138;
 constexpr std::uint64_t rt_sigreturn = 139;
 constexpr std::uint64_t setpriority = 140;
+constexpr std::uint64_t getresuid = 148;
+constexpr std::uint64_t getresgid = 150;
 constexpr std::uint64_t uname = 160;
 constexpr std::uint64_t getrlimit = 163;
 constexpr std::uint64_t setrlimit = 164;
@@ -590,10 +593,17 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return 0;
 
         case nr::getppid: return ::getppid();
-        case nr::getuid: return ::getuid();
-        case nr::geteuid: return ::geteuid();
-        case nr::getgid: return ::getgid();
-        case nr::getegid: return ::getegid();
+        // The app uid, also as the gid (ADR-0039 decision 3).
+        case nr::getuid:
+        case nr::geteuid:
+        case nr::getgid:
+        case nr::getegid:
+            return apkrt::app_uid;
+        case nr::getresuid:
+        case nr::getresgid:
+            if (x[0] == 0 || x[1] == 0 || x[2] == 0) return -linux_errno::efault;
+            for (int index = 0; index < 3; ++index) *reinterpret_cast<std::uint32_t *>(x[index]) = apkrt::app_uid;
+            return 0;
 
         case nr::mmap:
             return sys_mmap(x[0], x[1], as_int(x[2]), as_int(x[3]), as_int(x[4]), x[5]);

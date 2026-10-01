@@ -710,7 +710,7 @@ TEST(a_session_needs_an_end_handler_and_begins_once) {
 TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
     const std::string boot_class_path =
         "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
-        "/apex/com.android.art/javalib/core-icu4j.jar";
+        "/system/framework/framework.jar:/apex/com.android.art/javalib/core-icu4j.jar";
     const std::vector<std::string> init = {
         "PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:"
         "/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin",

@@ -2,6 +2,7 @@
 // signal state of signals.h: masks, dispositions, alternate stacks, sending and waiting, and the sleep
 // of every blocking syscall on the thread's signal word (ADR-0026) or in its kqueue (ADR-0027). No
 // guest disposition or mask reaches a host signal.
+#include "identity.h"
 #include "signals.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -42,7 +43,7 @@ LinuxSiginfo sender_info(int signal, std::int32_t code) {
     info.signo = signal;
     info.code = code;
     info.fields.sender.pid = ::getpid();
-    info.fields.sender.uid = ::getuid();
+    info.fields.sender.uid = app_uid;  // the sender's uid (ADR-0039 decision 3)
     return info;
 }
 

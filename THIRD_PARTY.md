@@ -23,6 +23,9 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 - `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: our own code (Apache-2.0), built with Bionic's private headers.
 - `src/liblog.cpp`, `src/libnetd_client.cpp`: our own small versions of `liblog.so` and `libnetd_client.so` (Apache-2.0), based on the NDK documentation and on what Bionic expects of the library, respectively; no AOSP code adopted.
 
+**Derived from Bionic in the runtime** (host code, ADR-0039 a):
+- `runtime/src/properties.cpp`: the system property area that the runtime writes for `/dev/__properties__`, in Bionic's pre-split format. It follows `libc/system_properties/prop_area.cpp` (`prop_area::add` and the trie functions) and the layouts of `prop_area.h` and `prop_info.h` at `361ba86734fb`. License as in the original: AOSP's BSD header, kept in the file.
+
 **From the Android NDK r30** (`30.0.16248370`) in the guest libraries:
 
 | Part | License | What for |

@@ -1,0 +1,2 @@
+dlopen(libns-dep.so): dlopen failed: library "libns-dep.so" not found
+dlopen(libjdwp.so): dep 1, plugin 2

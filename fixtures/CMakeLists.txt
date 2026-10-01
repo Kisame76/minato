@@ -84,6 +84,17 @@ add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)
 add_executable(dl-lock-test suite/dl-lock-test.c)
 target_link_libraries(dl-lock-test PRIVATE dl)
+# ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2): a program outside the APEXes, and a library for
+# ART's folder that needs libns-dep.so and opens libns-plugin.so, both beside it only; runtime.system_links
+# places them (runtime/tests/ns_run.py).
+add_library(ns-dep SHARED suite/libns-dep.c)
+add_library(ns-plugin SHARED suite/libns-plugin.c)
+add_library(ns-lib SHARED suite/libns-lib.c)
+target_link_libraries(ns-lib PRIVATE ns-dep dl)
+add_executable(ns-test suite/ns-test.c)
+target_link_libraries(ns-test PRIVATE dl)
+# property-test: bionic's property calls on the runtime's property area (ADR-0039 decisions 4 and 9).
+add_executable(property-test suite/property-test.c)
 # fd-test: descriptor numbers as Linux hands them out, whatever the process holds on the host (ADR-0027).
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).

@@ -299,7 +299,7 @@ TEST(fstat_fills_the_linux_struct_stat) {
     CHECK((linux_stat.mode & 0170000) == 0100000);  // S_IFREG, same bits on both systems
     CHECK((linux_stat.mode & 0777) == (host.st_mode & 0777));
     CHECK(linux_stat.ino == host.st_ino);
-    CHECK(linux_stat.nlink == 1 && linux_stat.uid == host.st_uid);
+    CHECK(linux_stat.nlink == 1 && linux_stat.uid == 0 && linux_stat.gid == 0);  // outside the guest's paths: root's
     CHECK(linux_stat.blksize > 0);
     CHECK(linux_stat.mtime == host.st_mtimespec.tv_sec && linux_stat.mtime_nsec == host.st_mtimespec.tv_nsec);
     CHECK(linux_stat.pad1 == 0 && linux_stat.pad2 == 0 && linux_stat.unused4 == 0 && linux_stat.unused5 == 0);
@@ -449,6 +449,60 @@ TEST(files_under_a_mount_are_host_files) {
     CHECK(read_text(again, 16).empty());  // end of file
     CHECK(call(nr_close, {unsigned_of(again)}) == 0);
     CHECK(call(nr_close, {unsigned_of(again)}) == -ebadf);
+}
+
+// ADR-0039 decision 3: every app runs as one app uid, 10100 (u0_a100), with the same number as its gid.
+TEST(the_program_runs_as_the_app_uid) {
+    constexpr std::uint64_t nr_getresuid = 148, nr_getresgid = 150, nr_getuid = 174, nr_geteuid = 175,
+                            nr_getgid = 176, nr_getegid = 177;
+    for (const auto number : {nr_getuid, nr_geteuid, nr_getgid, nr_getegid}) CHECK(call(number, {}) == 10100);
+    for (const auto number : {nr_getresuid, nr_getresgid}) {
+        std::uint32_t ids[3] = {1, 1, 1};
+        CHECK(call(number, {address(&ids[0]), address(&ids[1]), address(&ids[2])}) == 0);
+        CHECK(ids[0] == 10100 && ids[1] == 10100 && ids[2] == 10100);
+    }
+}
+
+// ADR-0039 decision 3, with the owners Android 15 gives an app's files (the emulator, 2026-10-01): its code
+// folder under /data/app is system's (1000), the rest of /data is the app's, external storage the app's with
+// the group ext_data_rw (1078), a pipe the process's, and the rest root's.
+TEST(files_belong_to_whom_android_15_gives_them) {
+    Scratch scratch;
+    for (const char *folder : {"code", "data", "storage", "system"}) {
+        CHECK(::mkdir((scratch.host + "/" + folder).c_str(), 0755) == 0);
+    }
+    apkrt::vfs::mount("/data/app/~~AAAA/io.example-BBBB", scratch.host + "/code");
+    apkrt::vfs::mount("/data/user/0/io.example", scratch.host + "/data");
+    apkrt::vfs::mount("/storage/emulated/0/Android/data/io.example", scratch.host + "/storage");
+    apkrt::vfs::mount("/system", scratch.host + "/system");
+    const auto owner = [](const char *path) {  // "uid:gid"
+        LinuxStat status{};
+        CHECK(call(nr_newfstatat, {at_fdcwd, address(path), address(&status), 0}) == 0);
+        return std::to_string(status.uid) + ":" + std::to_string(status.gid);
+    };
+    CHECK(owner("/data/app/~~AAAA/io.example-BBBB") == "1000:1000");
+    CHECK(owner("/data/user/0/io.example") == "10100:10100");
+    CHECK(owner("/data/local/tmp") == "10100:10100");
+    CHECK(owner("/storage/emulated/0/Android/data/io.example") == "10100:1078");
+    CHECK(owner("/system") == "0:0");
+    CHECK(owner("/dev/null") == "0:0");
+
+    // fstat finds the owner by the descriptor's file; a pipe and the files of /proc/self belong to the process.
+    const auto fd = open_guest(at_fdcwd, "/data/user/0/io.example/new", o_creat | o_wronly, 0600);
+    LinuxStat status{};
+    CHECK(call(nr_fstat, {unsigned_of(fd), address(&status)}) == 0 && status.uid == 10100 && status.gid == 10100);
+    call(nr_close, {unsigned_of(fd)});
+    const auto code = open_guest(at_fdcwd, "/data/app/~~AAAA/io.example-BBBB", o_rdonly | o_directory);
+    CHECK(call(nr_fstat, {unsigned_of(code), address(&status)}) == 0 && status.uid == 1000 && status.gid == 1000);
+    call(nr_close, {unsigned_of(code)});
+    int ends[2];
+    guest_pipe(ends);
+    CHECK(call(nr_fstat, {unsigned_of(ends[0]), address(&status)}) == 0 && status.uid == 10100 &&
+          status.gid == 10100);
+    for (const int end : ends) call(nr_close, {unsigned_of(end)});
+    const auto proc = open_guest(at_fdcwd, "/proc/self/stat", o_rdonly);
+    CHECK(call(nr_fstat, {unsigned_of(proc), address(&status)}) == 0 && status.uid == 10100 && status.gid == 10100);
+    call(nr_close, {unsigned_of(proc)});
 }
 
 TEST(relative_paths_start_at_the_working_directory_or_a_directory_fd) {
@@ -1223,6 +1277,44 @@ TEST(proc_self_stat_reads_as_linux_writes_it) {
     const std::string again = read_guest_file(std::format("/proc/{}/stat", ::getpid()).c_str());
     CHECK(again.find(" (renamed) R ") != std::string::npos);
     CHECK(read_guest_file("/proc/1/stat") == "error 2");  // other processes are not there
+}
+
+// ADR-0039 decision 3: /proc/self/cmdline reads the arguments where the program's start put them, as they are
+// now, as Linux 6.6's get_mm_cmdline does. So app_process can rename the process as AndroidRuntime::setArgv0
+// does, over the whole block; and a program that writes past the arguments' last NUL into the environment
+// (setproctitle) shows its first string.
+TEST(proc_self_cmdline_reads_the_arguments_as_they_are_now) {
+    const MainStack stack;
+    // As Linux's exec lays the start out: the strings of argv, then those of envp, at the top of the stack.
+    const std::string arguments = std::string("/system/bin/app_process64\0--nice-name=io.example\0--x\0", 53);
+    const std::string environment = std::string("A=1\0B=2\0", 8);
+    char *const strings = reinterpret_cast<char *>(stack.high) - 128;
+    std::memcpy(strings, (arguments + environment).data(), arguments.size() + environment.size());
+    auto *const words = reinterpret_cast<std::uint64_t *>(stack.start);
+    const std::size_t argument_starts[] = {0, 26, 49}, environment_starts[] = {53, 57};
+    words[0] = 3;  // argc
+    for (std::size_t index = 0; index < 3; ++index) words[1 + index] = address(strings + argument_starts[index]);
+    words[4] = 0;
+    for (std::size_t index = 0; index < 2; ++index) words[5 + index] = address(strings + environment_starts[index]);
+    words[7] = 0;
+    apkrt::proc::set_main_stack(stack.low, stack.high, stack.start);
+    CHECK(read_guest_file("/proc/self/cmdline") == arguments);
+    CHECK(read_guest_file(std::format("/proc/{}/cmdline", ::getpid()).c_str()) == arguments);
+
+    // setArgv0: the block cleared, the name at its start; the NULs up to the old end stay part of the file.
+    std::memset(strings, 0, arguments.size());
+    std::memcpy(strings, "io.example", 10);
+    CHECK(read_guest_file("/proc/self/cmdline") == "io.example" + std::string(arguments.size() - 10, '\0'));
+
+    // setproctitle: the last byte of the arguments is no NUL now, so the file is the first string with its NUL,
+    // which may reach into the environment, but not past its end.
+    const std::string title = "a title of 56 characters, past the arguments' last byte";
+    CHECK(title.size() > arguments.size() && title.size() < arguments.size() + environment.size());
+    std::memcpy(strings, title.c_str(), title.size() + 1);
+    CHECK(read_guest_file("/proc/self/cmdline") == title + std::string(1, '\0'));
+    const std::string longer(arguments.size() + environment.size() + 5, 't');
+    std::memcpy(strings, longer.c_str(), longer.size() + 1);
+    CHECK(read_guest_file("/proc/self/cmdline") == longer.substr(0, arguments.size() + environment.size()));
 }
 
 TEST(proc_self_maps_shows_the_main_stack_and_no_host_path) {

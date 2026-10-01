@@ -1,0 +1,16 @@
+get dalvik.vm.heapstartsize: 3 "16m"
+get dalvik.vm.heapgrowthlimit: 4 "256m"
+get dalvik.vm.heapsize: 4 "512m"
+get dalvik.vm.heaptargetutilization: 3 "0.5"
+get dalvik.vm.heapminfree: 2 "8m"
+get dalvik.vm.heapmaxfree: 3 "32m"
+get ro.build.version.sdk: 2 "35"
+get ro.build.version.release: 2 "15"
+get ro.build.version.release_or_codename: 2 "15"
+get ro.build.version.codename: 3 "REL"
+get ro.build.version.security_patch: 10 "2024-09-05"
+get ro.debuggable: 1 "0"
+read_callback: ro.build.version.sdk = 35
+get missing.property: 0
+find missing.property: none
+foreach: 12 properties

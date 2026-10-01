@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 extern "C" {
 // probe_clone loads x19-x28 and v8-v15 from probe_marks and stores the child's into
@@ -38,7 +39,8 @@ namespace {
 // Linux: include/uapi/linux/sched.h, asm-generic/unistd.h, asm-generic/signal.h, errno.h.
 constexpr std::uint64_t pthread_flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x40000 | 0x100000 | 0x200000;
 constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134, nr_gettid = 178;
-constexpr std::uint64_t sigusr1 = 10;
+constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
+constexpr std::int32_t si_tkill = -6;
 constexpr std::uint64_t sa_siginfo = 0x4, sa_restorer = 0x0400'0000;
 constexpr long eagain = 11;
 // The Linux ucontext on arm64: struct sigcontext's regs[31] after fault_address (signals.cpp).
@@ -112,6 +114,51 @@ TEST(the_signal_frame_carries_x18) {
     CHECK(seen.at_handler_entry.load() == x18_before);
     CHECK(seen.in_frame.load() == x18_before);
     CHECK(seen.after_return.load() == x18_returned);
+    ::munmap(stack, stack_size);
+}
+
+/// What the handler of the next test found in its siginfo: si_code, si_pid and si_uid.
+struct Sender {
+    std::atomic<int> handled{0};
+    std::atomic<std::int32_t> code{0}, pid{0};
+    std::atomic<std::uint32_t> uid{0};
+};
+Sender sender;
+
+void on_signal_from_sender(int, void *info, void *) {
+    std::int32_t code, pid;
+    std::uint32_t uid;
+    std::memcpy(&code, static_cast<char *>(info) + 8, sizeof code);  // struct siginfo: signo, errno, code
+    std::memcpy(&pid, static_cast<char *>(info) + 16, sizeof pid);   // then the union: si_pid, si_uid
+    std::memcpy(&uid, static_cast<char *>(info) + 20, sizeof uid);
+    sender.code.store(code);
+    sender.pid.store(pid);
+    sender.uid.store(uid);
+    sender.handled.fetch_add(1);
+}
+
+void send_to_itself(void *) {
+    struct {
+        std::uint64_t handler, flags, restorer, mask;
+    } action{reinterpret_cast<std::uint64_t>(&on_signal_from_sender), sa_siginfo | sa_restorer,
+             reinterpret_cast<std::uint64_t>(&probe_sigreturn), 0};
+    probe_syscall(nr_rt_sigaction, sigusr2, reinterpret_cast<std::uint64_t>(&action), 0, 8);
+    const long tid = probe_syscall(nr_gettid, 0);
+    probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), static_cast<std::uint64_t>(tid), sigusr2);
+}
+
+// ADR-0039 decision 3: a signal a thread of the program sends names the process and the app's uid, 10100, as
+// its sender, as Linux's do_send_specific fills si_pid and si_uid.
+TEST(a_signal_names_the_process_and_the_app_uid_as_its_sender) {
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, send_to_itself, nullptr) > 0);
+    join(&tid_word);
+    CHECK(sender.handled.load() == 1);
+    CHECK(sender.code.load() == si_tkill);
+    CHECK(sender.pid.load() == ::getpid());
+    CHECK(sender.uid.load() == 10100);
     ::munmap(stack, stack_size);
 }
 

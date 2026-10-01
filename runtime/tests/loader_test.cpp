@@ -32,6 +32,10 @@ constexpr std::uint64_t at_phnum = 5;
 constexpr std::uint64_t at_pagesz = 6;
 constexpr std::uint64_t at_base = 7;
 constexpr std::uint64_t at_entry = 9;
+constexpr std::uint64_t at_uid = 11;
+constexpr std::uint64_t at_euid = 12;
+constexpr std::uint64_t at_gid = 13;
+constexpr std::uint64_t at_egid = 14;
 constexpr std::uint64_t at_platform = 15;
 constexpr std::uint64_t at_hwcap = 16;
 constexpr std::uint64_t at_secure = 23;
@@ -202,6 +206,9 @@ TEST(the_start_stack_looks_like_linux_built_it) {
     CHECK(view.aux(at_phent) == 56);
     CHECK(view.aux(at_phnum) == 3);
     CHECK(view.aux(at_secure) == 0);
+    // ADR-0039 decision 3: the app uid, also as the gid.
+    CHECK(view.aux(at_uid) == 10100 && view.aux(at_euid) == 10100);
+    CHECK(view.aux(at_gid) == 10100 && view.aux(at_egid) == 10100);
     CHECK(view.aux(at_hwcap) == 0b11);  // FP and ASIMD, nothing XNU would not run (no CPUID, SVE, SME)
     CHECK(view.aux(at_hwcap2) == 0);
     CHECK(std::string(reinterpret_cast<const char *>(view.aux(at_platform))) == "aarch64");
@@ -222,6 +229,32 @@ TEST(the_start_stack_looks_like_linux_built_it) {
     CHECK(seen[0].type == pt_phdr && seen[0].vaddr == phdr && seen[0].paddr == phdr);
     CHECK(seen[1].type == pt_load && seen[1].vaddr == bias && seen[1].offset == 0);
     CHECK(seen[2].type == pt_note && seen[2].vaddr == bias + 0x270 && seen[2].memory_size == 0x20);
+}
+
+// The strings lie in order, as Linux's exec copies them (fs/exec.c): argv's from argv[0] on, envp's right after
+// them, then AT_EXECFN's. AndroidRuntime::setArgv0 clears the arguments as one block, from argv[0] to the end of
+// the last one, and /proc/self/cmdline reads that block.
+TEST(the_start_strings_lie_in_order_as_linux_copies_them) {
+    std::vector<std::byte> stack(64 * 1024);
+    const apkrt::loader::StartInfo start{
+        .arguments = {"/system/bin/app_process64", "-Xzygote", "/system/bin", "--application"},
+        .environment = {"ANDROID_ROOT=/system", "ANDROID_DATA=/data"},
+        .program_headers = {},
+        .program_header_count = 0,
+        .bias = 0,
+        .entry = 0,
+        .static_program = false,
+    };
+    const auto stack_pointer = apkrt::loader::build_start_stack(start, stack);
+    const auto *words = reinterpret_cast<const std::uint64_t *>(stack_pointer);
+    CHECK(words[0] == 4 && words[5] == 0 && words[8] == 0);
+    const std::uint64_t strings[] = {words[1], words[2], words[3], words[4], words[6], words[7],
+                                     read_start_stack(stack_pointer).aux(at_execfn)};
+    for (std::size_t index = 1; index < std::size(strings); ++index) {
+        // Each string starts where the one before it ends.
+        const auto *before = reinterpret_cast<const char *>(strings[index - 1]);
+        CHECK(strings[index] == strings[index - 1] + std::strlen(before) + 1);
+    }
 }
 
 TEST(a_start_stack_that_does_not_fit_is_refused) {

@@ -6,7 +6,7 @@ files of ADR-0033 decision 9 where Android has them:
     /apex/com.android.art/javalib;
   - bionic's libraries in /system/lib64, and bionic's /system;
   - ICU's data in /apex/com.android.i18n/etc/icu, bionic's time zone file in /apex/com.android.tzdata/etc/tz;
-  - /data with an empty dalvik-cache for arm64, and the program's jar in /data/local/tmp.
+  - /data with an empty dalvik-cache for arm64, and the program's jar in /data/local/tmp, read-only.
 The options are those of decision 11: the interpreter only, no boot image, the three boot jars. The program must
 print exactly <expected> on stdout and exit with 0. What ART logs goes to stderr, which is shown when the run fails.
 --debug runs ART's debug flavor (libartd.so, under libart.so's name) with -Xcheck:jni.
@@ -81,7 +81,10 @@ def main():
                    "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
                    "apex/com.android.tzdata/etc/tz"):
         os.makedirs(os.path.join(run, folder))
-    shutil.copy(jar, os.path.join(run, "data", "local", "tmp"))
+    # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
+    # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
+    copied = shutil.copy(jar, os.path.join(run, "data", "local", "tmp"))
+    os.chmod(copied, 0o444)
     for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
                            (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
                             "apex/com.android.tzdata/etc/tz/tzdata")):
