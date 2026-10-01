@@ -1,5 +1,5 @@
 {
-  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. Host tools of the framework's build (ADR-0045 decision 1: aidl) in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. The framework's sources and the host tools that build it (ADR-0039 b, ADR-0045 decision 1: aidl, aapt2, libandroidfw, framework-res) in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
   "tag": "android-15.0.0_r1",
   "host": "https://android.googlesource.com",
   "sources": [
@@ -245,6 +245,123 @@
       "commit": "d1304733b74b69f26dbe2d3c40c797aaac22f163",
       "license": "Apache-2.0",
       "digest": "bb840f880c2b4bd6f92d96d1f8a5fecae8317f382393c32fce2b0e96e7ef10e6"
+    },
+    {
+      "name": "frameworks_base",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "NOTICE",
+        "cmds/idmap2/libidmap2_policies/include/idmap2/Policies.h",
+        "tools/aapt2/Android.bp",
+        "tools/aapt2/ApkInfo.proto",
+        "tools/aapt2/AppInfo.h",
+        "tools/aapt2/Configuration.proto",
+        "tools/aapt2/Debug.cpp",
+        "tools/aapt2/Debug.h",
+        "tools/aapt2/Diagnostics.h",
+        "tools/aapt2/DominatorTree.cpp",
+        "tools/aapt2/DominatorTree.h",
+        "tools/aapt2/LoadedApk.cpp",
+        "tools/aapt2/LoadedApk.h",
+        "tools/aapt2/Main.cpp",
+        "tools/aapt2/NameMangler.h",
+        "tools/aapt2/Resource.cpp",
+        "tools/aapt2/Resource.h",
+        "tools/aapt2/ResourceMetadata.proto",
+        "tools/aapt2/ResourceParser.cpp",
+        "tools/aapt2/ResourceParser.h",
+        "tools/aapt2/ResourceTable.cpp",
+        "tools/aapt2/ResourceTable.h",
+        "tools/aapt2/ResourceUtils.cpp",
+        "tools/aapt2/ResourceUtils.h",
+        "tools/aapt2/ResourceValues.cpp",
+        "tools/aapt2/ResourceValues.h",
+        "tools/aapt2/Resources.proto",
+        "tools/aapt2/ResourcesInternal.proto",
+        "tools/aapt2/SdkConstants.cpp",
+        "tools/aapt2/SdkConstants.h",
+        "tools/aapt2/ValueTransformer.cpp",
+        "tools/aapt2/ValueTransformer.h",
+        "tools/aapt2/ValueTransformer_inline.h",
+        "tools/aapt2/ValueVisitor.h"
+      ],
+      "directories": [
+        "libs/androidfw",
+        "core/res",
+        "core/jni",
+        "core/java/android",
+        "core/java/com/android/internal",
+        "opengl/java",
+        "tools/aapt2/cmd",
+        "tools/aapt2/compile",
+        "tools/aapt2/configuration",
+        "tools/aapt2/dump",
+        "tools/aapt2/filter",
+        "tools/aapt2/format",
+        "tools/aapt2/io",
+        "tools/aapt2/java",
+        "tools/aapt2/link",
+        "tools/aapt2/optimize",
+        "tools/aapt2/process",
+        "tools/aapt2/split",
+        "tools/aapt2/text",
+        "tools/aapt2/trace",
+        "tools/aapt2/util",
+        "tools/aapt2/xml"
+      ],
+      "digest": "c7f0472a7b70ddffd9399e542ad2ff0d58091f3d78d0883c408e220ab2020c9c"
+    },
+    {
+      "name": "protobuf",
+      "project": "platform/external/protobuf",
+      "commit": "aeea14007d1a5841e2499322e232beb6c7717814",
+      "license": "BSD-3-Clause",
+      "files": [
+        "LICENSE",
+        "Android.bp"
+      ],
+      "directories": [
+        "src"
+      ],
+      "digest": "949647138c1b3c14e809f401b4b45d566ca07ee76c9be0b5021e493c12ef8aed"
+    },
+    {
+      "name": "libpng",
+      "project": "platform/external/libpng",
+      "commit": "6a336e4372cfb5f4a128a6c454d43de359a7ef95",
+      "license": "libpng-2.0",
+      "digest": "f957cbfc78f59596d258e5e59a7a58b942ebde6455592ba96a67f98778c3d747"
+    },
+    {
+      "name": "system_core_framework",
+      "project": "platform/system/core",
+      "commit": "fc7bc8c4bfb4c6095e34ea784509dae56f25b486",
+      "license": "Apache-2.0",
+      "directories": [
+        "libutils",
+        "libcutils",
+        "libsystem"
+      ],
+      "digest": "ec07e20d5b63cc10c426cde13652ccd3122686b5ae75cb4fc5804b522864a218"
+    },
+    {
+      "name": "incremental_delivery",
+      "project": "platform/system/incremental_delivery",
+      "commit": "fcd1a7622ab49905e2bd3e3fd46bd2b15ca75389",
+      "license": "Apache-2.0",
+      "digest": "9724fb7fd03904b35f3291f78b707725e6bb1b65975bda80b7a71911cb693b5a"
+    },
+    {
+      "name": "build_soong",
+      "project": "platform/build/soong",
+      "commit": "3fe78dc9b32f1ac3f7eb279ae9376d7037b18452",
+      "license": "Apache-2.0",
+      "directories": [
+        "cc/libbuildversion"
+      ],
+      "digest": "2cc2f85d35662c294ecc524938b984c25632a0a7f934a30588bb988dbd9914ff"
     }
   ],
   "angle": {

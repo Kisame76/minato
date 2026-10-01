@@ -23,6 +23,8 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,9 +32,29 @@ MANIFEST = os.path.join(ROOT, "third_party", "sources.json")
 DESTINATION = os.path.join(ROOT, "build", "sources")
 
 
+# The host's answer and the wait between tries; the test puts its own in their place.
+urlopen = urllib.request.urlopen
+sleep = time.sleep
+TRIES = 5
+LONGEST_WAIT = 120
+
+
 def fetch(url):
-    with urllib.request.urlopen(url, timeout=120) as response:
-        return response.read()
+    """The body at url. A 429 (Too Many Requests) is asked again after its Retry-After, at most 120 s, or after
+    5, 10, 20 and 40 s without one; after 5 tries it gives up. Any other error ends the run as before."""
+    for attempt in range(TRIES):
+        try:
+            with urlopen(url, timeout=120) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code != 429:
+                raise
+            if attempt == TRIES - 1:
+                raise SystemExit(f"{url}: the host answered 429 (Too Many Requests) {TRIES} tries in a row; "
+                                 "run again later")
+            retry_after = (error.headers or {}).get("Retry-After", "")
+            wait = int(retry_after) if retry_after.isdigit() else 5 * 2 ** attempt
+            sleep(min(wait, LONGEST_WAIT))
 
 
 def digest(directory):

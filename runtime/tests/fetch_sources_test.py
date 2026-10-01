@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/fetch-sources.py's lists (ADR-0021, ADR-0033 a): a plain run fetches and pins only "sources", the guest
 libc's; --set art only "art"; an archive with a "url" is checked against its SHA-256 before anything of it is
-extracted into its "directory". Against a host in memory, in a scratch directory."""
+extracted into its "directory". Against a host in memory, in a scratch directory. And its fetch: a host that answers
+429 (Too Many Requests) is asked again after its Retry-After, at most 120 s, or after a backoff, 5 tries in all."""
 import contextlib
 import hashlib
 import importlib.util
@@ -11,6 +12,7 @@ import os
 import sys
 import tarfile
 import tempfile
+import urllib.error
 
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "fetch-sources.py")
 HOST = "https://source.example"
@@ -92,7 +94,58 @@ def run(module, root, listed, arguments):
         return fetched, error, json.load(handle)
 
 
+class Response:
+    def __init__(self, data):
+        self.data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def read(self):
+        return self.data
+
+
+def fetch_with(module, answers):
+    """module.fetch against a host that gives `answers` in turn, each bytes or an HTTP status with its headers:
+    what it returned or its error, and the seconds it waited."""
+    answers = list(answers)
+    waits = []
+
+    def urlopen(url, timeout):
+        answer = answers.pop(0)
+        if isinstance(answer, bytes):
+            return Response(answer)
+        status, headers = answer
+        raise urllib.error.HTTPError(url, status, "refused", headers, None)
+
+    module.urlopen = urlopen
+    module.sleep = waits.append
+    try:
+        return module.fetch(f"{HOST}/a.tar.gz"), waits
+    except (SystemExit, urllib.error.HTTPError) as error:
+        return error, waits
+
+
+def check_retries(module):
+    result, waits = fetch_with(module, [(429, {"Retry-After": "7"}), b"data"])
+    check(result == b"data" and waits == [7], f"a 429 is asked again after its Retry-After: {result!r} {waits}")
+    result, waits = fetch_with(module, [(429, {"Retry-After": "600"}), b"data"])
+    check(result == b"data" and waits == [120], f"a Retry-After waits at most 120 s: {result!r} {waits}")
+    result, waits = fetch_with(module, [(429, {})] * 5)
+    check(isinstance(result, SystemExit) and "429" in str(result) and "5 tries" in str(result),
+          f"5 answers of 429 give up with a message: {result!r}")
+    check(waits == [5, 10, 20, 40], f"without Retry-After it backs off: {waits}")
+    result, waits = fetch_with(module, [(404, {}), b"data"])
+    check(isinstance(result, urllib.error.HTTPError) and result.code == 404 and waits == [],
+          f"another status is not asked again: {result!r} {waits}")
+
+
 def main():
+    module = load()
+    check_retries(module)
     module = load()
 
     with tempfile.TemporaryDirectory() as root:
