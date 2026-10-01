@@ -374,6 +374,27 @@
       "digest": "07969887b5371c984cc6a368485fceb4a705d9c7dcf6565fdd2d542c65e0c49b"
     },
     {
+      "name": "frameworks_base_graphics",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "graphics/java",
+        "ravenwood/annotations-src"
+      ],
+      "digest": "54ae50e3bfb615096e29eaba45154bb78458f6aa622f7845f00c9d4eb2dbd945"
+    },
+    {
+      "name": "modules_utils",
+      "project": "platform/frameworks/libs/modules-utils",
+      "commit": "810bd8c57bb39c232cad66e5aa007839dd4e55e3",
+      "license": "Apache-2.0",
+      "directories": [
+        "java"
+      ],
+      "digest": "fddabd50c8fb2b495788d71891ef44b3c7e8a83f6bff72ff074ad43873370529"
+    },
+    {
       "name": "frameworks_base_api",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

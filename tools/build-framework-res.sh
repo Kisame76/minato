@@ -15,7 +15,9 @@
 #     compiled files go to aapt2 link in the order of their names, which makes resources.arsc the AVD's, byte for
 #     byte (tools/framework-res-check.py).
 # Results: build/framework-res/framework-res.apk, and build/framework-res/framework-res/, the folder Minato ships
-# as /system/framework/framework-res/ (ApkAssets.loadFromDir): the APK's entries unpacked.
+# as /system/framework/framework-res/ (ApkAssets.loadFromDir): the APK's entries unpacked. The same link writes
+# android.R, com.android.internal.R and android.Manifest into build/framework-res/java (--java), which
+# tools/build-framework.sh compiles into framework.jar (ADR-0039 b3.1).
 # Usage: tools/build-framework-res.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -95,7 +97,7 @@ while IFS= read -r flat; do flats+=("$flat"); done < <(
   --private-symbols com.android.internal --no-auto-version --auto-add-overlay --enable-sparse-encoding -c "$locales" \
   --enable-compact-entries \
   --min-sdk-version 35 --target-sdk-version 35 --version-code 35 --version-name 15 \
-  --feature-flags "@$OUT/feature-flags.txt" \
+  --feature-flags "@$OUT/feature-flags.txt" --java "$OUT/java" \
   "${flats[@]}" "$OUT/compiled/remote.zip"
 
 mkdir -p "$OUT/framework-res"

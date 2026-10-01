@@ -26,7 +26,8 @@ public final class Unwritten {
      */
     public static void log(String method, String returns) {
         if (logged.add(method)) {
-            logger.log("Unwritten: " + method + " is not implemented" + (returns == null ? "" : ", returns " + returns));
+            String value = returns == null ? "" : ", returns " + returns;
+            logger.log("Unwritten: " + method + " is not implemented" + value);
         }
     }
 

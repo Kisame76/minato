@@ -1,30 +1,50 @@
 #!/usr/bin/env bash
-# Builds framework.jar (ADR-0039 decision 11) from framework/java into build/framework/framework.jar, which Minato
-# ships as /system/framework/framework.jar on the boot class path:
+# Builds framework.jar (ADR-0039 decision 11) into build/framework/framework.jar, which Minato ships as
+# /system/framework/framework.jar on the boot class path, from bounded sources (b3.1):
 #   - a system image of the boot jars' classes, as Soong makes its system modules: jmod create over
 #     build/art/java/all-classes.jar, which holds java.base's module-info, then jlink --add-modules java.base;
-#   - javac -source 17 -XDstringConcat=inline against that image;
+#   - the generated sources in build/framework/gen: aconfig's Java classes with ap3a's values
+#     (tools/aconfig-flags.py java), android.R, com.android.internal.R and android.Manifest from framework-res's link
+#     (tools/build-framework-res.sh), and aidl's Java for the .aidl files framework/sources.txt names;
+#   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
+#     API of core, location and the Connectivity and Wi-Fi modules, with the hidden members of
+#     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
+#     annotations of modules-utils and ravenwood; and the hidden types of framework/stubs/types/, which win over the
+#     rest. stubs.jar leaves out every type framework.jar defines;
+#   - javac -source 17 -XDstringConcat=inline of framework/java, the AOSP files of framework/sources.txt and the
+#     generated sources, as a patch of java.base as Soong compiles the framework, with -implicit:none so that only
+#     those become classes: the stubs come in through the same patch path, which is where a split package's types
+#     must be, and never ship. AOSP's files compile with Soong's flags, without lints; ours get a second pass with
+#     every lint as an error;
 #   - D8 as for the boot jars (runtime/art/boot_jars.py): --release --min-api 31 --android-platform-build, with the
 #     boot jars' classes as its library;
 #   - the jar: its DEX files stored and 4-byte aligned, as the boot jars' are.
-# In step a it holds our ActivityThread and the interim Process and Application (framework/java); the tag's sources
-# come with step b3/c.
-# Needs the JDK and D8 of tools/fetch-sources.py --set art and the boot jars' classes of tools/build-art.sh.
+# tools/framework-check.sh checks the result. Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars'
+# classes of tools/build-art.sh, the sources of --set framework, build/aidl/aidl (tools/build-aidl.sh) and framework-res
+# with its R classes (tools/build-framework-res.sh).
 # Usage: tools/build-framework.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-JDK=$(echo build/tools/jdk-17/*/Contents/Home)
+JDK=$PWD/$(echo build/tools/jdk-17/*/Contents/Home)
 R8=build/sources/r8/r8.jar
 BOOT_CLASSES=build/art/java/all-classes.jar
+SOURCES=build/sources
+AIDL=build/aidl/aidl
+R_JAVA=build/framework-res/java
 OUT=build/framework
-if [[ ! -x "$JDK/bin/javac" || ! -f "$R8" || ! -f "$BOOT_CLASSES" ]]; then
-  echo "No JDK, D8 or $BOOT_CLASSES: run tools/fetch-sources.py --set art and tools/build-art.sh first." >&2
-  exit 1
-fi
+GEN=$OUT/gen
+for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" "$AIDL" "$R_JAVA/android/R.java" \
+    "$SOURCES/modules_utils/java" "$SOURCES/frameworks_base_api/core/api/current.txt"; do
+  if [[ ! -e "$needed" ]]; then
+    echo "$needed is missing: tools/fetch-sources.py --set art and --set framework, tools/build-art.sh," \
+      "tools/build-aidl.sh and tools/build-framework-res.sh make it." >&2
+    exit 1
+  fi
+done
 
 rm -rf "$OUT"
-mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex"
+mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex" "$OUT/src" "$GEN/aidl" "$GEN/r" "$OUT/stubs-src" "$OUT/stub-classes"
 "$JDK/bin/jmod" create --module-version 17 --target-platform android --class-path "$BOOT_CLASSES" \
   "$OUT/jmod/java.base.jmod"
 "$JDK/bin/jlink" --module-path "$OUT/jmod" --add-modules java.base --output "$OUT/system" \
@@ -32,10 +52,87 @@ mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex"
 # javac reads a system image through its jrt file system.
 cp "$JDK/lib/jrt-fs.jar" "$OUT/system/lib/"
 
+# The taken files, linked into their packages' folders; .aidl files go through aidl. A taken file that would replace
+# one of ours is an error: framework/java wins by being left out of AOSP's list.
+taken=()
+while IFS= read -r line; do taken+=("$line"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' framework/sources.txt)
+for path in "${taken[@]}"; do
+  source="$SOURCES/$path"
+  [[ -f "$source" ]] || { echo "framework/sources.txt: $path is not in $SOURCES" >&2; exit 1; }
+  package=$(sed -n 's/^package \([a-zA-Z0-9_.]*\);.*/\1/p' "$source" | head -1)
+  name=$(basename "$path")
+  if [[ "$name" == *.aidl ]]; then
+    "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
+      -o "$GEN/aidl" "$source"
+    continue
+  fi
+  if [[ -f "framework/java/${package//.//}/$name" ]]; then
+    echo "framework/sources.txt: $path would replace framework/java's ${package//.//}/$name" >&2
+    exit 1
+  fi
+  mkdir -p "$OUT/src/${package//.//}"
+  ln -s "$PWD/$source" "$OUT/src/${package//.//}/$name"
+done
+python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
+  --values "$SOURCES/build_release/aconfig/ap3a" --out "$GEN/aconfig" >/dev/null
+cp -R "$R_JAVA/." "$GEN/r/"
+
+# The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
+# one before.
+python3 tools/managergen/managergen.py --stubs --hand framework/stubs/members \
+  --library-api "$SOURCES/libcore/api/current.txt" --library-api "$SOURCES/icu/android_icu4j/api/public/current.txt" \
+  --all-of "$SOURCES/frameworks_base_api/core/api/current.txt" \
+  --all-of "$SOURCES/location_api/location/api/current.txt" \
+  --all-of "$SOURCES/connectivity_api/framework/api/current.txt" \
+  --all-of "$SOURCES/connectivity_t_api/framework-t/api/current.txt" \
+  --all-of "$SOURCES/wifi_api/framework/api/current.txt" --out "$OUT/stubs-src" >/dev/null
+for annotations in modules_utils/java/android/annotation modules_utils/java/com/android/internal/annotations \
+    frameworks_base_graphics/ravenwood/annotations-src/android/ravenwood/annotation; do
+  target="$OUT/stubs-src/${annotations#*/java/}"
+  [[ "$annotations" == *ravenwood* ]] && target="$OUT/stubs-src/android/ravenwood/annotation"
+  mkdir -p "$target"
+  cp "$SOURCES/$annotations/"*.java "$target/"
+done
+(cd framework/stubs/types && find . -name '*.java') | while IFS= read -r stub; do
+  mkdir -p "$OUT/stubs-src/$(dirname "$stub")"
+  cp "framework/stubs/types/$stub" "$OUT/stubs-src/$stub"
+done
+# framework.jar's sources and the top-level types they define: no stub stands in for those.
+{ find framework/java "$GEN" -name '*.java'; find -L "$OUT/src" -name '*.java'; } | sort > "$OUT/sources.txt"
+sed -e "s|^framework/java/||" -e "s|^$GEN/[a-z]*/||" -e "s|^$OUT/src/||" -e 's|\.java$||' "$OUT/sources.txt" \
+  | sort > "$OUT/defined.txt"
+while IFS= read -r type; do
+  rm -f "$OUT/stubs-src/$type.java"
+done < "$OUT/defined.txt"
+find "$OUT/stubs-src" -name '*.java' | sort > "$OUT/stub-sources.txt"
 # -XDstringConcat=inline as for the boot jars: their StringConcatFactory lacks makeConcatWithConstants.
-"$JDK/bin/javac" -J-Xmx2g -source 17 -target 17 --system="$OUT/system" -XDstringConcat=inline -encoding UTF-8 -g \
-  -d "$OUT/classes" \
-  $(find framework/java -name '*.java' | sort)
+JAVAC=("$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system="$OUT/system" -XDstringConcat=inline
+  -XDskipDuplicateBridges=true -encoding UTF-8 -g -Xmaxerrs 9999 -proc:none)
+# The stubs name framework.jar's types too (and their bodies Unwritten): those sources stand behind them on the patch
+# path, and only the stubs themselves become classes.
+"${JAVAC[@]}" -nowarn --patch-module java.base="$OUT/stubs-src:framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r" \
+  -implicit:none -d "$OUT/stub-classes" \
+  @"$OUT/stub-sources.txt"
+
+# stubs.jar leaves out framework.jar's types, should a stub have made one.
+python3 - "$OUT/stub-classes" "$OUT/defined.txt" > "$OUT/stub-list.txt" <<'PY'
+import os, sys
+classes, defined = sys.argv[1], set(open(sys.argv[2]).read().split())
+for directory, _, names in sorted(os.walk(classes)):
+    for name in sorted(names):
+        path = os.path.relpath(os.path.join(directory, name), classes)
+        if name.endswith(".class") and path[:-len(".class")].split("$")[0] not in defined:
+            print(path)
+PY
+(cd "$OUT/stub-classes" && "$JDK/bin/jar" --create --file ../stubs.jar @../stub-list.txt)
+
+PATCH="framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$OUT/stubs.jar"
+"${JAVAC[@]}" -nowarn --patch-module java.base="$PATCH" -implicit:none -d "$OUT/classes" @"$OUT/sources.txt"
+# Ours with every lint, against what was just compiled.
+mkdir -p "$OUT/lint"
+"${JAVAC[@]}" -Xlint:all -Werror --patch-module java.base="framework/java:$OUT/classes:$OUT/stubs.jar" -implicit:none \
+  -d "$OUT/lint" $(find framework/java -name '*.java' | sort)
+
 "$JDK/bin/jar" --create --file "$OUT/classes.jar" -C "$OUT/classes" .
 "$JDK/bin/java" -Xmx2g -cp "$R8" com.android.tools.r8.D8 --release --min-api 31 --android-platform-build \
   --lib "$BOOT_CLASSES" --output "$OUT/dex" "$OUT/classes.jar"

@@ -9,11 +9,15 @@ whole public API, so that a method no one has written logs once instead of faili
 - Nested types (Outer.Inner in the file) go into their outer class. A class without a ctor in the API gets a
   package-private one, so that Java adds no public ctor Android lacks.
 - A hand file, <hand>/<package path>/<Class>.java, holds the written part: imports, then one class body. Its
-  members replace the generated ones with the same name and erased parameter types (fields and nested types by
-  name). A member the API lacks is added when it is private or its javadoc says @hide, as AOSP marks its hidden
-  members; any other is an error, so that a typo does not leave the API's method unwritten.
+  members replace the generated ones with the same name and erased parameter types (fields by name); a nested
+  class of the API adds its members to the generated nested class in the same way. A member the API lacks is added
+  when it is private or its javadoc says @hide, as AOSP marks its hidden members; any other is an error, so that a
+  typo does not leave the API's method unwritten.
+- --stubs writes compile-only stubs (ADR-0039 b3.1): members and types that name another module's types go, and
+  hand files add the hidden members AOSP's taken files call. references() gives the types a set of classes reaches.
 
-Usage: managergen.py --api <current.txt>... --class <qualified name>... [--hand <folder>] --out <folder>
+Usage: managergen.py [--api|--all-of|--library-api <current.txt>]... [--class <qualified name>]... [--hand <folder>]
+                     [--stubs] [--references-out <folder>] --out <folder>
 """
 import argparse
 import os
@@ -394,6 +398,11 @@ def read_hand(path, decl):
     # The body in the source, with its comments: from the class's "{" to the last "}".
     source_open = re.search(r"\bclass\s+" + decl.name + r"\s*\{", source).end()
     body = source[source_open:source.rindex("}")]
+    return imports, members_of(body)
+
+
+def members_of(body):
+    """The hand members of a class body: each with its key, and whether it may stand beside the API."""
     members = []
     for text in split_members(body):
         javadoc = " ".join(re.findall(r"/\*\*.*?\*/", text, flags=re.S))
@@ -419,7 +428,23 @@ def read_hand(path, decl):
             name = re.findall(r"(\w+)\s*$", head.rstrip(";").strip())[0]
             key = f"field:{name}"
         members.append(HandMember(key, text, added))
-    return imports, members
+    return members
+
+
+def nested_body(text, name):
+    """The body of the nested type `name` in a hand member's text, between its braces."""
+    start = re.search(r"\b(class|interface|enum)\s+" + name + r"\b[^{]*\{", text).end()
+    return text[start:text.rindex("}")]
+
+
+def check_members(decl, members, where):
+    """Every hand member is in decl's API, or private, an initializer, or marked @hide."""
+    known = {f"field:{f.name}" for f in decl.fields} | {c.key for c in decl.ctors} \
+        | {m.key for m in decl.methods} | {f"type:{t.name}" for t in decl.nested}
+    for member in members:
+        if member.key not in known and not member.added:
+            raise GeneratorError(f"{where}: {member.key.removeprefix('field:').removeprefix('type:')} "
+                                 f"is not in the API of {decl.qualified}; mark it @hide if AOSP's classes call it")
 
 
 # The writer.
@@ -549,8 +574,14 @@ def write_type(decl, hand_members, depth, api, stubs=False):
     for nested in decl.nested:
         if unknown(nested.extends, nested.implements):
             continue
-        written = take(f"type:{nested.name}")
-        out.append(written if written else write_type(nested, [], depth + 1, api, stubs))
+        # A nested class of the hand file adds its members to the generated one.
+        key = f"type:{nested.name}"
+        inner = []
+        if key in hand:
+            used.add(key)
+            inner = members_of(nested_body(hand[key].text, nested.name))
+            check_members(nested, inner, f"the hand file's {nested.qualified}")
+        out.append(write_type(nested, inner, depth + 1, api, stubs))
     for member in hand_members:
         if member.key not in used:
             out.append(member.text + "\n")
@@ -604,17 +635,15 @@ def generate(api, classes, hand_folder=None, stubs=False):
             raise GeneratorError(f"{name} is nested: name its outer class")
         if decl.library:
             raise GeneratorError(f"{name} comes from a library's API file, whose classes exist already")
+        if stubs and any(unknown_names(api, text) for text in (decl.extends, decl.implements, decl.type_parameters)):
+            # A stub whose supertypes are another module's cannot compile; javac names what still needs it.
+            continue
         relative = f"{decl.package.replace('.', '/')}/{decl.name}.java"
         imports, members = [], []
         hand_path = os.path.join(hand_folder, relative) if hand_folder else None
         if hand_path and os.path.exists(hand_path):
             imports, members = read_hand(hand_path, decl)
-            known = {f"field:{f.name}" for f in decl.fields} | {c.key for c in decl.ctors} \
-                | {m.key for m in decl.methods} | {f"type:{t.name}" for t in decl.nested}
-            for member in members:
-                if member.key not in known and not member.added:
-                    raise GeneratorError(f"{hand_path}: {member.key.removeprefix('field:').removeprefix('type:')} "
-                                         f"is not in the API of {name}; mark it @hide if AOSP's classes call it")
+            check_members(decl, members, hand_path)
         text = [HEADER, f"package {decl.package};\n\n", "import com.android.minato.services.Unwritten;\n"]
         text += [f"{i}\n" for i in sorted(set(imports))]
         text.append("\n")
@@ -690,6 +719,9 @@ def main():
     parser.add_argument("--class", dest="classes", action="append", default=[])
     parser.add_argument("--hand")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--stubs", action="store_true",
+                        help="write the classes as compile-only stubs: unknown types' members left out; a hand file "
+                             "adds the hidden members that taken AOSP files call")
     parser.add_argument("--references-out",
                         help="where the types the classes reach go, without hand files: compile-only stubs")
     args = parser.parse_args()
@@ -704,7 +736,7 @@ def main():
                 classes += sorted(n for n in set(api.types) - before if "." not in api.types[n].dotted)
         if not classes:
             raise GeneratorError("no class to write: name one with --class or --all-of")
-        outputs = [(args.out, generate(api, classes, args.hand))]
+        outputs = [(args.out, generate(api, classes, args.hand, stubs=args.stubs))]
         if args.references_out:
             outputs.append((args.references_out, generate(api, references(api, classes), stubs=True)))
     except GeneratorError as error:

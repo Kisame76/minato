@@ -31,6 +31,14 @@ class SampleManager {
         return 1;
     }
 
+    /** Its hidden member joins the generated nested class, whose API members stay. */
+    public static final class Settings {
+        /** @hide What AOSP's classes call on the nested class. */
+        public int hidden() {
+            return 3;
+        }
+    }
+
     /** @hide What AOSP's classes call. */
     public List<String> calls() {
         return calls;

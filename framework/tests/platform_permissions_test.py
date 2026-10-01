@@ -6,7 +6,8 @@ The oracle for b3's Java reader, not shipped: aapt2 dumps the manifest's tree, a
 <manifest> gives its name and android:protectionLevel (normal when absent). A permission behind an
 android:featureFlag is skipped as Android 15's parser skips it (AconfigFlags.skipCurrentElement): when the flag is
 off, or on for "!flag", or unknown; the values are those framework-res was built with
-(build/aconfig/feature-flags.txt, tools/aconfig-flags.py). The level goes through
+(build/framework-res/feature-flags.txt, which tools/build-framework-res.sh writes with tools/aconfig-flags.py). The
+level goes through
 PermissionInfo.fixProtectionLevel, as Android's parser applies it, and is written as
 PermissionInfo.protectionToString writes it. The result must equal fixtures/expected/platform-permissions.txt:
 the reference AVD's permissions of the package "android" from `pm list permissions -f`, one "<name> <level>" per
@@ -132,7 +133,7 @@ def main():
     aapt2, apk, flags_file, expected = (sys.argv[1:5] if len(sys.argv) == 5 else
                                         (os.path.join(ROOT, "build/aapt2/aapt2"),
                                          os.path.join(ROOT, "build/framework-res/framework-res.apk"),
-                                         os.path.join(ROOT, "build/aconfig/feature-flags.txt"),
+                                         os.path.join(ROOT, "build/framework-res/feature-flags.txt"),
                                          os.path.join(ROOT, "fixtures/expected/platform-permissions.txt")))
     for needed, how in ((aapt2, "tools/build-aapt2.sh"), (apk, "tools/build-framework-res.sh"),
                         (flags_file, "tools/build-framework-res.sh")):

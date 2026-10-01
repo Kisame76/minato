@@ -142,6 +142,8 @@ Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 M
 | `platform/system/incremental_delivery` | `fcd1a7622ab4` | Apache-2.0 | libincfs-utils, which libandroidfw links |
 | `platform/build/soong` | `3fe78dc9b32f` | Apache-2.0 | only `cc/libbuildversion`, which aapt2 links |
 | `platform/build/release` | `e1dfb3dc7831` | Apache-2.0 | only `aconfig/ap3a`: Android 15's flag values, read by our flag generator |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `graphics/java` and `ravenwood/annotations-src` (3.0 MB): the graphics and annotation classes that framework.jar's taken files name, as compile-only stubs or taken files (ADR-0039 b3) |
+| `platform/frameworks/libs/modules-utils` | `810bd8c57bb3` | Apache-2.0 | only `java/` (0.5 MB): `Preconditions`, the typed XML parsers and annotations that framework.jar's taken files use (ADR-0039 b3) |
 
 The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files themselves never ship.
 

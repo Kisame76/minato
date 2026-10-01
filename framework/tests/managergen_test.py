@@ -15,6 +15,7 @@
 tools/framework-host-check.sh runs it, then compiles the samples' output with GeneratedSampleTest on the JVM.
 """
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -188,6 +189,12 @@ class WriterTest(unittest.TestCase):
         self.assertIn("public SampleManager(String name) {", self.manager)
         self.assertIn("public List<String> calls() {", self.manager)
         self.assertIn("private final List<String> calls = new ArrayList<>();", self.manager)
+        # A nested class in the hand file adds its members to the generated one.
+        settings = self.manager[self.manager.index("class Settings {"):]
+        self.assertIn("public int hidden() {", settings)
+        self.assertIn("public int value() {", settings)
+        self.assertIn("public Settings(int p0) {", settings)
+        self.assertEqual(self.manager.count("class Settings {"), 1)
         self.assertIn("import static java.util.Objects.requireNonNull;", self.manager)
         self.assertIn("    static {\n        READY = true;\n    }\n", self.manager)
 
@@ -249,6 +256,39 @@ class ReferencesTest(unittest.TestCase):
         self.assertNotIn("token", stub)
         self.assertIn("public int count() {", stub)
 
+    def test_stubs_take_hand_members(self):
+        # A compile-only stub gains the hidden members AOSP's taken files call, from its hand file.
+        files = managergen.generate(read_api(), [f"{PACKAGE}.SampleManager"], HAND, stubs=True)
+        self.assertIn("public List<String> calls() {", files["com/android/minato/sample/SampleManager.java"])
+
+    def test_stubs_drop_types_whose_header_names_unknown_types(self):
+        extra = ("// Signature format: 2.0\npackage com.android.minato.other {\n\n"
+                 "  public final class Filter implements "
+                 "java.util.function.Predicate<android.bluetooth.BluetoothDevice> {\n"
+                 "    method public boolean test(android.bluetooth.BluetoothDevice);\n  }\n\n"
+                 "  public class Kept {\n  }\n\n}\n")
+        api = self.api(extra)
+        files = managergen.generate(api, ["com.android.minato.other.Filter", "com.android.minato.other.Kept"],
+                                    stubs=True)
+        self.assertEqual(sorted(files), ["com/android/minato/other/Kept.java"])
+
+
+class CommandLineTest(unittest.TestCase):
+    def test_stubs_flag(self):
+        # --stubs writes the classes themselves as compile-only stubs: a member naming an unknown type goes.
+        api = ("// Signature format: 2.0\npackage com.android.minato.other {\n\n  public class Stubbed {\n"
+               "    method public android.media.Session2Token token();\n    method public int count();\n  }\n\n}\n")
+        with tempfile.TemporaryDirectory() as folder:
+            with open(os.path.join(folder, "api.txt"), "w") as handle:
+                handle.write(api)
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools/managergen/managergen.py"), "--stubs",
+                            "--all-of", os.path.join(folder, "api.txt"), "--out", os.path.join(folder, "out")],
+                           check=True, capture_output=True)
+            with open(os.path.join(folder, "out/com/android/minato/other/Stubbed.java")) as handle:
+                text = handle.read()
+        self.assertNotIn("token", text)
+        self.assertIn("public int count() {", text)
+
 
 class ErrorTest(unittest.TestCase):
     def hand(self, body):
@@ -268,6 +308,12 @@ class ErrorTest(unittest.TestCase):
     def test_overload_outside_the_api(self):
         folder = self.hand("    public int getMode(int which) {\n        return 1;\n    }")
         with self.assertRaisesRegex(managergen.GeneratorError, r"getMode\(int\).*not in the API"):
+            generate(folder)
+
+    def test_nested_member_outside_the_api(self):
+        folder = self.hand("    public static final class Settings {\n        public int other() {\n"
+                           "            return 1;\n        }\n    }")
+        with self.assertRaisesRegex(managergen.GeneratorError, r"other\(\).*not in the API"):
             generate(folder)
 
     def test_hand_file_for_another_class(self):

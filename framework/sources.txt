@@ -1,0 +1,89 @@
+# The AOSP Java files framework.jar takes (ADR-0039 decision 8, b3.1's bounded sources): one path per line below
+# build/sources/, roots first. Every type they name that is neither here, in framework/java, nor generated comes from
+# compile-only stubs (tools/build-framework.sh); a class an app touches that none of these give is missing at run
+# time, and tests 3 and 2 grow this list test-first. "#" starts a comment, which names who needs the group.
+
+# Roots: the resources of decision 8 and the natives of decision 10.
+frameworks_base/core/java/android/content/res/AssetManager.java
+frameworks_base/core/java/android/content/res/ApkAssets.java
+frameworks_base/core/java/android/content/res/Resources.java
+frameworks_base/core/java/android/content/res/ResourcesImpl.java
+frameworks_base/core/java/android/content/res/Configuration.java
+frameworks_base/core/java/android/content/res/XmlBlock.java
+frameworks_base/core/java/android/util/DisplayMetrics.java
+frameworks_base/core/java/android/util/Log.java
+frameworks_base/core/java/android/os/SystemProperties.java
+
+# The resources' own machinery, which the roots call: blocks, typed arrays, caches, colors, fonts and loaders.
+frameworks_base/core/java/android/content/res/StringBlock.java
+frameworks_base/core/java/android/content/res/TypedArray.java
+frameworks_base/core/java/android/content/res/ComplexColor.java
+frameworks_base/core/java/android/content/res/GradientColor.java
+frameworks_base/core/java/android/content/res/ColorStateList.java
+frameworks_base/core/java/android/content/res/ConfigurationBoundResourceCache.java
+frameworks_base/core/java/android/content/res/ThemedResourceCache.java
+frameworks_base/core/java/android/content/res/DrawableCache.java
+frameworks_base/core/java/android/content/res/ConstantState.java
+frameworks_base/core/java/android/content/res/CompatibilityInfo.java
+frameworks_base/core/java/android/content/res/FontResourcesParser.java
+frameworks_base/core/java/android/content/res/FontScaleConverterFactory.java
+frameworks_base/core/java/android/content/res/FontScaleConverter.java
+frameworks_base/core/java/android/content/res/Validator.java
+frameworks_base/core/java/android/content/res/loader/ResourcesLoader.java
+frameworks_base/core/java/android/content/res/loader/ResourcesProvider.java
+frameworks_base/core/java/android/content/res/loader/AssetsProvider.java
+
+# Configuration's parts: locales, the window's configuration, the display's adjustments, ActivityInfo's config bits.
+frameworks_base/core/java/android/os/LocaleList.java
+frameworks_base/core/java/android/app/WindowConfiguration.java
+frameworks_base/core/java/android/view/DisplayAdjustments.java
+frameworks_base/core/java/android/content/pm/ActivityInfo.java
+
+# Build and Trace (Build.VERSION.RESOURCES_SDK_INT, TRACE_TAG_RESOURCES); Trace's natives do nothing (decision 10).
+frameworks_base/core/java/android/os/Build.java
+frameworks_base/core/java/android/os/Trace.java
+
+# Logging (Log's writers, Slog) and the utilities the roots call.
+frameworks_base/core/java/android/util/Slog.java
+frameworks_base/core/java/android/util/Pools.java
+frameworks_base/core/java/com/android/internal/util/XmlUtils.java
+frameworks_base/core/java/com/android/internal/util/ArrayUtils.java
+frameworks_base/core/java/com/android/internal/util/GrowingArrayUtils.java
+frameworks_base/core/java/com/android/internal/util/FastPrintWriter.java
+frameworks_base/core/java/com/android/internal/util/LineBreakBufferedWriter.java
+modules_utils/java/com/android/internal/util/Preconditions.java
+
+# Configuration's and Resources' proto reader and writer (dumpDebug, readFromProto).
+frameworks_base/core/java/android/util/proto/ProtoInputStream.java
+frameworks_base/core/java/android/util/proto/ProtoOutputStream.java
+frameworks_base/core/java/android/util/proto/ProtoStream.java
+frameworks_base/core/java/android/util/proto/WireTypeMismatchException.java
+
+# Round 2 of b3.1: what round 1's files call. XML (TypedXml*, the wrappers, HexDump), proto streams' parts, fonts'
+# scale converters, colors' math (ColorUtils, Cam), arrays (EmptyArray, LongArray), MathUtils, Parcelling,
+# Validator's Element, Ravenwood's environment check in Build's static initializer, and Build's device service.
+modules_utils/java/com/android/modules/utils/TypedXmlPullParser.java
+modules_utils/java/com/android/modules/utils/TypedXmlSerializer.java
+frameworks_base/core/java/com/android/internal/util/XmlPullParserWrapper.java
+frameworks_base/core/java/com/android/internal/util/XmlSerializerWrapper.java
+frameworks_base/core/java/com/android/internal/util/HexDump.java
+frameworks_base/core/java/com/android/internal/util/Parcelling.java
+frameworks_base/core/java/android/util/proto/ProtoParseException.java
+frameworks_base/core/java/android/util/proto/EncodedBuffer.java
+frameworks_base/core/java/android/content/res/FontScaleConverterImpl.java
+frameworks_base/core/java/android/content/res/Element.java
+frameworks_base/core/java/com/android/internal/graphics/ColorUtils.java
+frameworks_base/core/java/com/android/internal/graphics/cam/Cam.java
+frameworks_base/core/java/com/android/internal/graphics/cam/CamUtils.java
+frameworks_base/core/java/com/android/internal/graphics/cam/Frame.java
+frameworks_base/core/java/com/android/internal/graphics/cam/HctSolver.java
+frameworks_base/core/java/android/util/EmptyArray.java
+frameworks_base/core/java/android/util/LongArray.java
+frameworks_base/core/java/android/util/MathUtils.java
+frameworks_base/core/java/com/android/internal/ravenwood/RavenwoodEnvironment.java
+frameworks_base/core/java/android/os/IDeviceIdentifiersPolicyService.aidl
+frameworks_base/core/java/android/content/res/TagCounter.java
+frameworks_base/core/java/com/android/internal/util/CollectionUtils.java
+frameworks_base/core/java/android/util/ExceptionUtils.java
+frameworks_base/core/java/com/android/internal/util/FunctionalUtils.java
+frameworks_base/core/java/android/os/ParcelableException.java

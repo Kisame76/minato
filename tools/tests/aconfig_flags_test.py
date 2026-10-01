@@ -2,7 +2,9 @@
 """tools/aconfig-flags.py (ADR-0039 decision 11, the lead's refinement): from aconfig's flag declarations and a
 release's values it writes what aapt2's --feature-flags reads, one '<package>.<name>=<true|false>' per line, as
 Soong's aconfig_text rule writes it (`aconfig dump-cache --format='{fully_qualified_name}={state:bool}'`). A flag
-without a value is DISABLED, aconfig's default. First on files in a scratch directory, then on the tag's sources."""
+without a value is DISABLED, aconfig's default. With `java` it writes aconfig's Java classes per package, Flags,
+FeatureFlags, FeatureFlagsImpl and CustomFeatureFlags, with the release's values as constants; javac must compile
+them. First on files in a scratch directory, then on the tag's sources."""
 import os
 import subprocess
 import sys
@@ -75,6 +77,74 @@ VALUE_ONLY = """flag_value {
 """
 
 
+# A second file of the same package, and a name with a digit: aconfig's method and constant names.
+MORE = """package: "android.example"
+container: "system"
+
+flag {
+    name: "enable_v2_api"
+    namespace: "example"
+    description: "A second file of the same package."
+    bug: "3"
+}
+"""
+
+
+def run_java(declarations, values):
+    """The tool's exit status, {relative path: text} of its Java output, and its error text."""
+    scratch = tempfile.mkdtemp()
+    out = os.path.join(scratch, "java")
+    result = subprocess.run([sys.executable, TOOL, "java", "--declarations", declarations, "--values", values,
+                             "--out", out], capture_output=True, text=True)
+    files = {}
+    for directory, _, names in os.walk(out):
+        for name in names:
+            path = os.path.join(directory, name)
+            files[os.path.relpath(path, out)] = open(path).read()
+    return result.returncode, files, result.stderr, out
+
+
+def compiles(out):
+    """javac 17 of the step 1 JDK on every file below out, when the JDK is there."""
+    jdks = [os.path.join(ROOT, "build/tools/jdk-17", d, "Contents/Home/bin/javac")
+            for d in sorted(os.listdir(os.path.join(ROOT, "build/tools/jdk-17")))] \
+        if os.path.isdir(os.path.join(ROOT, "build/tools/jdk-17")) else []
+    if not jdks:
+        print("note  no JDK: the Java output is not compiled")
+        return True
+    sources = [os.path.join(d, n) for d, _, ns in os.walk(out) for n in ns if n.endswith(".java")]
+    with tempfile.TemporaryDirectory() as classes:
+        result = subprocess.run([jdks[0], "-Xlint:all", "-Werror", "-d", classes] + sources,
+                                capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr)
+    return result.returncode == 0
+
+
+def check_java(declarations, values):
+    status, files, error, out = run_java(declarations, values)
+    check(status == 0, f"java runs: {error}")
+    folder = "android/example/"
+    check(sorted(files) == [folder + n for n in ("CustomFeatureFlags.java", "FeatureFlags.java",
+                                                   "FeatureFlagsImpl.java", "Flags.java")],
+          f"the four classes of android.example, none for a package only a value names: {sorted(files)}")
+    flags = files.get(folder + "Flags.java", "")
+    for line in ('public static final String FLAG_SHOWN = "android.example.shown";',
+                 'public static final String FLAG_HIDDEN = "android.example.hidden";',
+                 'public static final String FLAG_ENABLE_V2_API = "android.example.enable_v2_api";',
+                 "public static boolean shown() {", "public static boolean enableV2Api() {",
+                 "return FEATURE_FLAGS.enableV2Api();"):
+        check(line in flags, f"Flags.java has {line}")
+    check("boolean enableV2Api();" in files.get(folder + "FeatureFlags.java", ""), "FeatureFlags declares it")
+    impl = files.get(folder + "FeatureFlagsImpl.java", "")
+    for method, value in (("shown", "true"), ("hidden", "false"), ("enableV2Api", "false")):
+        check(f"public boolean {method}() {{\n        return {value};\n    }}" in impl,
+              f"FeatureFlagsImpl.{method} returns {value}")
+    custom = files.get(folder + "CustomFeatureFlags.java", "")
+    check("return getValue(Flags.FLAG_SHOWN, FeatureFlags::shown);" in custom, "CustomFeatureFlags asks its getter")
+    check(compiles(out), "javac compiles the output with every lint")
+
+
 def main():
     with tempfile.TemporaryDirectory() as scratch:
         declarations = os.path.join(scratch, "declarations")
@@ -83,11 +153,15 @@ def main():
         write(os.path.join(values, "android.example/shown_flag_values.textproto"), VALUE)
         write(os.path.join(values, "com.android.internal.camera.flags/camera_hsum_permission_flag_values.textproto"),
               VALUE_ONLY)
+        write(os.path.join(declarations, "core/java/android/example/more.aconfig"), MORE)
         status, lines, error = run(declarations, values)
         check(status == 0, f"the tool runs: {error}")
-        check(lines == ["android.example.hidden=false", "android.example.shown=true",
+        check(lines == ["android.example.enable_v2_api=false", "android.example.hidden=false",
+                        "android.example.shown=true",
                         "com.android.internal.camera.flags.camera_hsum_permission=true"],
               f"every flag once, sorted, with its value or false: {lines}")
+
+        check_java(declarations, values)
 
         write(os.path.join(values, "android.example/broken_flag_values.textproto"),
               'flag_value {\n  package: "android.example"\n  state: ENABLED\n}\n')
