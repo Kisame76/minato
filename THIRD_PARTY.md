@@ -116,6 +116,16 @@ Used only to build ART's Java part, not in the app. `tools/fetch-sources.py --se
 | Eclipse Temurin JDK, macOS aarch64, in `build/tools/jdk-17/` | `17.0.20.1+1` (SHA-256 `196d13ba5f10`) | GPL-2.0 with Classpath Exception |
 | D8 (`platform/prebuilts/r8`), the one the boot jars of the tag were built with | `535c14aebec5` | BSD-3-Clause |
 
+## Build tools for the framework (ADR-0045)
+
+Host tools in `build/`, not in the app. The Java that `aidl` writes comes from AOSP's own AIDL files.
+
+| Tool | Version | License |
+|---|---|---|
+| `aidl` (`platform/system/tools/aidl`), built for the Mac by `tools/build-aidl.sh` into `build/aidl/`, fetched by `tools/fetch-sources.py --set framework` | `d1304733b74b` (android-15.0.0_r1) | Apache-2.0 |
+| GNU Bison, from Homebrew (keg-only, `/opt/homebrew/opt/bison`), which generates `aidl`'s parser | 3.8.2 | GPL-3.0-or-later; the generated parser falls under Bison's skeleton exception |
+| fmtlib's `src/format.cc`, linked into the host `aidl` as Soong links its static fmtlib | the ART row's commit | MIT |
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.

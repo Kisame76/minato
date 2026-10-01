@@ -1,5 +1,5 @@
 {
-  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. Host tools of the framework's build (ADR-0045 decision 1: aidl) in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
   "tag": "android-15.0.0_r1",
   "host": "https://android.googlesource.com",
   "sources": [
@@ -236,6 +236,15 @@
       "directory": "build/tools/jdk-17",
       "license": "GPL-2.0 WITH Classpath-exception-2.0",
       "digest": "558919585b825161ad536f13ae29e3f57f4c1593cdac0c7598ed26c28f761a8c"
+    }
+  ],
+  "framework": [
+    {
+      "name": "aidl",
+      "project": "platform/system/tools/aidl",
+      "commit": "d1304733b74b69f26dbe2d3c40c797aaac22f163",
+      "license": "Apache-2.0",
+      "digest": "bb840f880c2b4bd6f92d96d1f8a5fecae8317f382393c32fce2b0e96e7ef10e6"
     }
   ],
   "angle": {
