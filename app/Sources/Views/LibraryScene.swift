@@ -44,6 +44,7 @@ struct LibraryScene: View {
                         await library.refresh()
                         #if DEBUG
                         await SessionCheck.tapIfRequested(in: library)
+                        await SessionCheck.turnLibraryIfRequested()
                         await SessionCheck.endIfRequested(in: library)
                         await UpdateCheck.endIfRequested(in: library)
                         #endif

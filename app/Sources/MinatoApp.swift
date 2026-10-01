@@ -23,6 +23,8 @@ struct MinatoApp: App {
         }
         #endif
         mode = Self.chooseMode()
+        // Before the first window, so that the library never turns.
+        AppDelegate.orientations = UIInterfaceOrientationMask(mode.orientations)
         // Game mode creates no signing coordinator, scans no imports and shows no sheet.
         if case .library = mode {
             let library = LibraryModel()

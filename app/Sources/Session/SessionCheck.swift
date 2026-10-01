@@ -31,6 +31,8 @@ import UIKit
 ///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log.
 ///   extra-session  once the guest starts, game mode builds a second GameSession for the same app and keeps
 ///            it, as SwiftUI may build a view's state more than once; it must change nothing.
+///   turn-library  the library asks its scene to turn to landscape, as a turned device would, logs whether iOS
+///            refused and the orientation a second later, and removes the file (ADR-0038, decision 1.1).
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -137,6 +139,30 @@ enum SessionCheck {
         case nil: break
         case .openSigning: event("blocked openSigning")
         case .explain(_, let reason): event("blocked \(reason)")
+        }
+    }
+
+    /// The library asks to turn to landscape once; in portrait only, iOS refuses and the scene stays portrait.
+    @MainActor
+    static func turnLibraryIfRequested() async {
+        guard requested("turn-library"),
+              let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene
+        else { return }
+        try? FileManager.default.removeItem(at: folder.appending(path: "turn-library"))
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { @Sendable error in
+            event("library turn refused \(error.localizedDescription)")
+        }
+        try? await Task.sleep(for: .seconds(1))
+        event("library orientation \(orientationName(scene.effectiveGeometry.interfaceOrientation))")
+    }
+
+    private static func orientationName(_ orientation: UIInterfaceOrientation) -> String {
+        switch orientation {
+        case .portrait: "portrait"
+        case .portraitUpsideDown: "portraitUpsideDown"
+        case .landscapeLeft: "landscapeLeft"
+        case .landscapeRight: "landscapeRight"
+        default: "unknown"
         }
     }
 

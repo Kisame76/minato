@@ -57,6 +57,7 @@
 #   LIVE        only test 8, with the live variants
 #   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
+#   PORTRAIT    only the round of the library's orientation
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -176,7 +177,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -640,6 +641,17 @@ run_frames() {
   tail -n +$((seen + 1)) "$EVENTS" | grep -q " frames " && fail "  ticks after the pause" || ok "  no ticks after the pause"
 }
 
+# ADR-0038, decision 1.1: the library stays in portrait when it is asked to turn, as a turned device asks.
+run_portrait() {
+  begin_round "the library stays in portrait"
+  echo yes > "$CHECK/turn-library"
+  send_requests
+  launch
+  await_event "library orientation .*" 30 || { abort_round "the library did not say its orientation"; return; }
+  expect "  the library stays in portrait" "library orientation portrait" "$(event_of "$EVENT")"
+  grep -q " library turn refused " "$EVENTS" && ok "  iOS refuses the turn" || fail "  iOS did not refuse the turn"
+}
+
 # ADR-0036, decision 4: a test tone through the audio host's session, engine and render block.
 run_audio() {
   local line frames expected xruns
@@ -1051,11 +1063,12 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
   [[ -n "${AUDIO:-}" ]] && run_audio
+  [[ -n "${PORTRAIT:-}" ]] && run_portrait
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
   if [[ -n "${LIVE:-}" ]]; then
@@ -1080,6 +1093,7 @@ fi
 folder=$(field folder)
 has "$SUPPORT_REL/apps/$PKG/$folder/lib/libraw-dyn.so.dylib" && ok "its container is in lib/" || fail "no container in lib/"
 run_way workspace "not shown" landscape
+run_portrait
 run_fallback
 run_timeout
 

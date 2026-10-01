@@ -9,7 +9,7 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 /// which orientations the window may take.
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    /// The library's are Info.plist's three.
+    /// Info.plist's three until the launch mode sets its own (ADR-0038, decision 1.1): a benchmark run keeps them.
     static var orientations: UIInterfaceOrientationMask = .allButUpsideDown
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
@@ -188,5 +188,14 @@ struct MetalLayerView: UIViewRepresentable {
         view.onTopEdgeSwipe = onTopEdgeSwipe
         view.onLayout = onLayout
         view.onTouches = onTouches
+    }
+}
+
+extension UIInterfaceOrientationMask {
+    init(_ orientations: InterfaceOrientations) {
+        self = []
+        if orientations.contains(.portrait) { insert(.portrait) }
+        if orientations.contains(.landscapeLeft) { insert(.landscapeLeft) }
+        if orientations.contains(.landscapeRight) { insert(.landscapeRight) }
     }
 }
