@@ -5,8 +5,10 @@
 // itself after 1080 frames; bench_test.py then checks its scene.csv and compares the CRC with the APK's.
 // With `record` (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the layer records, and a
 // nextDrawable of the test's own before and after the recording. It passes when the recording holds every
-// drawable once and in order (recording_check.h), taken on the render thread at QoS user-interactive.
-//   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib> [record]
+// drawable once and in order (recording_check.h), taken on the render thread at QoS user-interactive, or at default
+// when the program's own arguments end with -benchmarkRenderQoS default, which MinatoBench reads (ADR-0030 V5).
+//   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>
+//                       [record [-benchmarkRenderQoS <value>]]
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -54,12 +56,14 @@ bool drawn(std::uint64_t count, std::chrono::milliseconds limit) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    const bool record = argc == 6 && std::strcmp(argv[5], "record") == 0;
-    if (argc != 5 && !record) {
+    const bool record = (argc == 6 || argc == 8) && std::strcmp(argv[5], "record") == 0;
+    const bool qos = argc == 8 && std::strcmp(argv[6], "-benchmarkRenderQoS") == 0;
+    if (argc != 5 && !(record && (argc == 6 || qos))) {
         std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
-                             "<libMoltenVK.dylib> [record]\n");
+                             "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>]]\n");
         return 2;
     }
+    const bool at_default = qos && std::strcmp(argv[7], "default") == 0;
     const std::string api = argv[1], load = argv[2];
     const fs::path scratch = fs::path(argv[3]) / (api + "-" + load), moltenvk = argv[4];
     const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
@@ -125,9 +129,10 @@ int main(int argc, char **argv) {
             std::printf("recorder: %s, host build: %llu drawables; %s\n", api.c_str(),
                         static_cast<unsigned long long>(recording.count), recording_notes(recording).c_str());
             std::vector<std::string> problems = recording_problems(recording, posts, frames);
-            if (recording != nil && recording.qosClass != QOS_CLASS_USER_INTERACTIVE) {
+            const qos_class_t expected = at_default ? QOS_CLASS_DEFAULT : QOS_CLASS_USER_INTERACTIVE;
+            if (recording != nil && recording.qosClass != expected) {
                 problems.push_back("taken at QoS " + std::string(recording.qosName.UTF8String) +
-                                   ", not the render thread's user-interactive");
+                                   ", not the render thread's " + (at_default ? "default" : "user-interactive"));
             }
             for (const auto &problem : problems) std::printf("FAIL: recorder: %s\n", problem.c_str());
             failures += static_cast<int>(problems.size());

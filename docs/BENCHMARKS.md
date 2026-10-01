@@ -11,7 +11,8 @@ between them is what Minato costs.
 **Result: parity does not hold yet. 5 of 6 configurations pass; `vulkan-120-heavy` fails, with the APK at 90.83 % of
 the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max. V5 then measured
 the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK still
-fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)).
+fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)). V5's QoS A/B then ruled out the render thread's QoS
+class as the rest.
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -51,7 +52,8 @@ The GLES APK shares the loader, the glue, the vsync channel and the QoS class. I
 and at the same load it matches the native build (1.0036 and 1.0000).
 
 The copy was therefore the likely cause, but this series did not measure it; ADR-0037 names this risk. V5 below
-measured it: the copy explains about half of the gap, and the rest lies elsewhere in the Vulkan APK's path.
+measured it: the copy explains about half of the gap, and the rest lies elsewhere in the Vulkan APK's path, not in
+the render thread's QoS class.
 
 The mean interval gives the cost of the APK's path per frame, though not the copy's alone: 12.78 ms against 11.61 ms,
 1.17 ms more. The step shares fit a pipeline that the GPU keeps busy, whose frame period is the mean interval. A
@@ -157,12 +159,44 @@ are at 16.67 ms or more, against none of N's. The late frames fit either suspect
   - B's late frames took more CPU time than its other frames (4.94 and 4.85 ms against 4.40 and 4.47 ms), as a thread
     on a slower core would [guess].
   - The GLES APK has the same QoS and matches its native build, but at a load where both variants show late frames.
-- *The cheapest A/B to separate them* (proposed, not run): the native build with its render thread at QoS default,
-  against user-interactive, in one sitting.
+- *The cheapest A/B to separate them* (run on 2026-10-01, below): the native build with its render thread at QoS
+  default, against user-interactive, in one sitting.
   - It needs a launch argument that `graphics/bench/native/native.m` reads (red first), and about 25 min of the
     iPhone for two runs.
   - If the native build at default loses about 0.48 ms a frame and shows the late frames, QoS is the rest.
   - If it matches user-interactive, the queue path is left, and its A/B comes next.
+
+**The QoS A/B, 2026-10-01: the render thread's QoS is not the rest.** By the rule fixed before the runs, the QoS is
+ruled out. At QoS default the native build draws as it does at user-interactive. Its period is 0.012 ms shorter,
+within the native runs' spread of about 0.02 ms, its p99 is the same and it shows no late frames. Of the two suspects,
+`libvulkan`'s queue path is left. Measured 2026-10-01 from 09:16 to 09:29 on the same iPhone.
+
+| Run | Arm | QoS | FPS | p99 | at 8.33 / 12.50 / 16.67 / 20.83 ms | CPU p50 | Period | Late |
+|---|---|---|---:|---:|---|---:|---:|---:|
+| native-60 | NU | user-interactive | 86.20 | 12.503 ms | 21.6 / 78.4 / 0.0 / 0.0 % | 4.33 ms | 11.60 ms | 0.0 % |
+| native-61 | ND | default | 86.27 | 12.503 ms | 21.9 / 78.1 / 0.0 / 0.0 % | 4.33 ms | 11.59 ms | 0.0 % |
+
+The runs are `vulkan-120-heavy-<run>`, cut as above. Late is the share of intervals at 16.67 ms or more. So the
+guess above about B's late frames does not hold: at QoS default the native render thread spends the same CPU time per
+frame and draws no late frame.
+
+- *NU:* the native build as in the series and V5, its render thread at user-interactive. The control.
+- *ND:* the same build launched with `-benchmarkRenderQoS default`, which `graphics/bench/native/native.m` reads. Its
+  render thread runs at QoS default, as the APK's guest render thread does. `run.csv`'s `qos` column, which the layer
+  takes from the presenting thread, says so.
+- *The rule:* P is the period, L the share of late intervals.
+  1. ND's period at least 0.24 ms above NU's (half of the rest) and L at least 0.5 %: QoS explains the rest.
+  2. ND's period at most 0.05 ms above NU's and L at most 0.1 %: QoS is ruled out, and the queue path is left.
+  3. In between: QoS's share of the rest is (P_ND − P_NU) / 0.48 ms, and two more runs follow.
+- *The build:* `tools/benchmark.sh --api vulkan` at 09:06, 281cf00 with the switch (uncommitted). Against V5's second
+  build only `MinatoBench` differs. Minato's binary, `libvulkan`, `libc.so` and the APKs are byte-identical.
+- *Tests,* red first: `graphics.recorder` runs the GLES host build with `-benchmarkRenderQoS default` and checks that
+  the recording notes QoS default. Another value fails the start with its reason. Graphics CTest 28 of 28 in debug
+  and release; `MinatoBench` builds for iphoneos and iphonesimulator.
+- *How it ran:* `build/v5-qos/scripts/qos.sh` (not in git), as V5's driver: a pause of 10 min with Minato closed
+  before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-qos/` only. It stops if
+  `run.csv`'s `qos` does not match the arm. Both runs were valid at the first attempt, in portrait, nominal from
+  start to end, and charging at 80 %. The setup was the series'.
 
 The remedies stay ADR-0030's: B8G8R8A8 first through an app profile in M6, or a MoltenVK patch. Either removes the
 copy's share. Neither reaches parity alone.

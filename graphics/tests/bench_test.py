@@ -9,7 +9,9 @@ has a row per frame: the indices 0 to 1079 in order, the ticks rising, the CPU t
 
 With --record, ADR-0037 b): graphics.recorder. For each API, both builds draw the light load for 1 s, 120 frames, on
 graphics/host's layer, which records the run; each program checks in-process that the recording holds every drawable
-once and in order (recording_check.h) and prints a "recorder:" line with the layer's notes."""
+once and in order (recording_check.h) and prints a "recorder:" line with the layer's notes. Then the host build's
+GLES run again with -benchmarkRenderQoS default, its render thread at the APK's QoS (ADR-0030 V5), and once with a
+value MinatoBench must refuse."""
 import argparse
 import pathlib
 import re
@@ -90,6 +92,17 @@ def record(args, scratch):
         guest = run([args.app_test, str(scratch / "record-guest"), f"bench-{api}", args.bench, args.bionic,
                      args.system, args.front, args.manifests, args.angle, args.moltenvk, "record:light"], f"{api}, APK")
         recorder_line(guest, f"{api}, APK")
+    what = "gles, host build at QoS default"
+    host = run([args.host, "gles", "light", str(scratch / "record-host"), args.moltenvk, "record",
+                "-benchmarkRenderQoS", "default"], what)
+    recorder_line(host, what)
+    refused = subprocess.run([args.host, "gles", "light", str(scratch / "record-host"), args.moltenvk, "record",
+                              "-benchmarkRenderQoS", "fast"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, errors="replace", timeout=300)
+    reason = "-benchmarkRenderQoS takes default or user-interactive, not fast"
+    if refused.returncode == 0 or reason not in refused.stdout:
+        fail(f"gles, host build with -benchmarkRenderQoS fast: not refused ({refused.returncode}): "
+             f"{refused.stdout.strip()[-300:]}")
     print(f"{len(failures)} failures" if failures else "PASS: graphics.recorder")
     return 1 if failures else 0
 

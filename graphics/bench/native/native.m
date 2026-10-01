@@ -2,8 +2,9 @@
 // bench-vulkan. The same scene files draw with ANGLE and MoltenVK directly: EGL through ANGLE's EGL_* entries with
 // libEGL's Metal display and fixed-size surface (metal_display.h), Vulkan through MoltenVK's own vkGetInstanceProcAddr
 // with libvulkan's pinned settings (moltenvk_settings.h). MoltenVK is opened by dlopen, since it has no Simulator
-// slice (ADR-0030, decision 8). A render thread at QOS_CLASS_USER_INTERACTIVE draws a frame per tick that
-// minato_bench_tick passes in, the latest it has not drawn, until bench.conf's seconds from the first frame's tick.
+// slice (ADR-0030, decision 8). A render thread at QOS_CLASS_USER_INTERACTIVE (QOS_CLASS_DEFAULT with the launch
+// argument -benchmarkRenderQoS default, ADR-0030 V5) draws a frame per tick that minato_bench_tick passes in, the
+// latest it has not drawn, until bench.conf's seconds from the first frame's tick.
 #define VK_NO_PROTOTYPES
 #import <QuartzCore/QuartzCore.h>
 
@@ -134,6 +135,25 @@ static void *render(void *unused) {
     return NULL;
 }
 
+/* The render thread's QoS: user-interactive, or default, the APK's guest render thread's, when the process was
+   launched with -benchmarkRenderQoS default (ADR-0030 V5). 0, or -1 with the reason for another value. */
+static int render_qos(qos_class_t *qos, char *error, size_t size) {
+    @autoreleasepool {
+        *qos = QOS_CLASS_USER_INTERACTIVE;
+        NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
+        const NSUInteger flag = [arguments indexOfObject:@"-benchmarkRenderQoS"];
+        if (flag == NSNotFound) return 0;
+        NSString *value = flag + 1 < arguments.count ? arguments[flag + 1] : @"";
+        if ([value isEqualToString:@"default"]) {
+            *qos = QOS_CLASS_DEFAULT;
+        } else if (![value isEqualToString:@"user-interactive"]) {
+            snprintf(error, size, "-benchmarkRenderQoS takes default or user-interactive, not %s", value.UTF8String);
+            return -1;
+        }
+        return 0;
+    }
+}
+
 int minato_bench_start(const char *api, const char *conf, void *layer, const char *moltenvk, const char *scene_csv,
                        char *error, size_t size) {
     pthread_mutex_lock(&bench.lock);
@@ -153,6 +173,11 @@ int minato_bench_start(const char *api, const char *conf, void *layer, const cha
     }
     bench_conf_defaults(&bench.conf);
     if (conf != NULL && bench_conf_parse(conf, &bench.conf, error, size) != 0) {
+        end_run(-1, error);
+        return -1;
+    }
+    qos_class_t qos;
+    if (render_qos(&qos, error, size) != 0) {
         end_run(-1, error);
         return -1;
     }
@@ -180,7 +205,7 @@ int minato_bench_start(const char *api, const char *conf, void *layer, const cha
     pthread_attr_t attributes;
     pthread_attr_init(&attributes);
     pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
-    pthread_attr_set_qos_class_np(&attributes, QOS_CLASS_USER_INTERACTIVE, 0);
+    pthread_attr_set_qos_class_np(&attributes, qos, 0);
     pthread_t thread;
     const int created = pthread_create(&thread, &attributes, render, NULL);
     pthread_attr_destroy(&attributes);

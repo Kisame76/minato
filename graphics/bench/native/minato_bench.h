@@ -15,8 +15,9 @@ extern "C" {
 /// Starts a run of `api` ("gles" or "vulkan") on `layer`, a CAMetalLayer that the run retains until it ends,
 /// at the layer's size in pixels. `conf` is bench.conf's text (ASCII key=value lines: run, rate, load,
 /// seconds); `moltenvk` is the path MoltenVK is opened from (the Vulkan scene only); scene.csv goes to
-/// `scene_csv` when the run ends. 0, or -1 with the reason in `error` (a second run, a bad argument, an
-/// unknown key in `conf`).
+/// `scene_csv` when the run ends. The render thread is at QoS user-interactive, or at default when the process
+/// was launched with -benchmarkRenderQoS default. 0, or -1 with the reason in `error` (a second run, a bad
+/// argument, an unknown key in `conf`, another value of -benchmarkRenderQoS).
 int minato_bench_start(const char *api, const char *conf, void *layer, const char *moltenvk, const char *scene_csv,
                        char *error, size_t size);
 
