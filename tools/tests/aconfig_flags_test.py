@@ -4,7 +4,10 @@ release's values it writes what aapt2's --feature-flags reads, one '<package>.<n
 Soong's aconfig_text rule writes it (`aconfig dump-cache --format='{fully_qualified_name}={state:bool}'`). A flag
 without a value is DISABLED, aconfig's default. With `java` it writes aconfig's Java classes per package, Flags,
 FeatureFlags, FeatureFlagsImpl and CustomFeatureFlags, with the release's values as constants; javac must compile
-them. First on files in a scratch directory, then on the tag's sources."""
+them. With `cc` (ADR-0043 a) it writes one declared package's header of C and C++ accessors, constants of the
+release's values, from declarations in two folders; it must compile as C11 and as C++20 with -Werror, only declared
+flags get an accessor, and a package that only values name is refused. First on files in a scratch directory, then
+on the tag's sources."""
 import os
 import subprocess
 import sys
@@ -145,6 +148,85 @@ def check_java(declarations, values):
     check(compiles(out), "javac compiles the output with every lint")
 
 
+# A value for a flag its package does not declare: the cc mode writes no accessor for it.
+VALUE_UNDECLARED = """flag_value {
+  package: "android.example"
+  name: "undeclared"
+  state: ENABLED
+  permission: READ_ONLY
+}
+"""
+
+# A C and a C++ caller of the cc mode's header, as minikin (C names) and hwui (C++ names) call theirs.
+C_CALLER = """#include <android_example.h>
+int main(void) {
+    return android_example_shown() && !android_example_hidden() && !android_example_enable_v2_api() ? 0 : 1;
+}
+"""
+CPP_CALLER = """#include <android_example.h>
+static_assert(android::example::shown(), "a constant expression");
+static_assert(!android::example::hidden() && !android::example::enable_v2_api(), "DISABLED");
+int main() { return android_example_shown() ? 0 : 1; }
+"""
+
+
+def run_cc(declaration_folders, values, package):
+    """The cc mode's exit status, {relative path: text} of its output, and its error text."""
+    out = os.path.join(tempfile.mkdtemp(), "include")
+    command = [sys.executable, TOOL, "cc"]
+    for folder in declaration_folders:
+        command += ["--declarations", folder]
+    result = subprocess.run(command + ["--values", values, "--package", package, "--out", out],
+                            capture_output=True, text=True)
+    files = {}
+    for directory, _, names in os.walk(out):
+        for name in names:
+            path = os.path.join(directory, name)
+            files[os.path.relpath(path, out)] = open(path).read()
+    return result.returncode, files, result.stderr, out
+
+
+def compiles_c(out):
+    """The header compiled as C11 and as C++20, each with every warning an error, and both programs run."""
+    ok = True
+    with tempfile.TemporaryDirectory() as scratch:
+        for compiler, standard, name, text in (("cc", "-std=c11", "caller.c", C_CALLER),
+                                               ("c++", "-std=c++20", "caller.cpp", CPP_CALLER)):
+            source, program = os.path.join(scratch, name), os.path.join(scratch, name + ".out")
+            write(source, text)
+            result = subprocess.run([compiler, standard, "-Wall", "-Wextra", "-Werror", "-I", out, source, "-o", program],
+                                    capture_output=True, text=True)
+            if result.returncode != 0:
+                print(result.stderr)
+                ok = False
+                continue
+            ok = ok and subprocess.run([program]).returncode == 0
+    return ok
+
+
+def check_cc(declarations, more, values):
+    # The two files of android.example in two folders, as hwui's and the text flags lie in two projects.
+    status, files, error, out = run_cc([declarations, more], values, "android.example")
+    check(status == 0, f"cc runs: {error}")
+    check(sorted(files) == ["android_example.h"], f"one header named after the package: {sorted(files)}")
+    header = files.get("android_example.h", "")
+    check("namespace android::example {" in header, "the C++ names live in the package's namespace")
+    for flag, value in (("shown", "true"), ("hidden", "false"), ("enable_v2_api", "false")):
+        check(f"constexpr inline bool {flag}() {{\n    return {value};\n}}" in header,
+              f"C++ {flag}() returns {value}, its snake_case name unchanged")
+        check(f"static inline bool android_example_{flag}(void) {{\n    return {value};\n}}" in header,
+              f"C android_example_{flag}() returns {value}")
+    check("undeclared" not in header, "a flag only a value names gets no accessor")
+    check("provider_" not in header and "ANDROID_EXAMPLE_" not in header,
+          "neither aconfig's provider_ nor its macros, which no caller of ours uses")
+    check(compiles_c(out), "the header compiles as C11 and C++20 with -Werror, and the values hold")
+
+    status, files, error, _ = run_cc([declarations, more], values, "com.android.internal.camera.flags")
+    check(status == 1 and "no declarations of the package com.android.internal.camera.flags" in error
+          and "Traceback" not in error and not files,
+          f"a package that only values name is refused with a message, and nothing is written: {status} {error}")
+
+
 def main():
     with tempfile.TemporaryDirectory() as scratch:
         declarations = os.path.join(scratch, "declarations")
@@ -162,6 +244,13 @@ def main():
               f"every flag once, sorted, with its value or false: {lines}")
 
         check_java(declarations, values)
+
+        split_declarations, split_more = os.path.join(scratch, "split", "a"), os.path.join(scratch, "split", "b")
+        write(os.path.join(split_declarations, "flags.aconfig"), DECLARATIONS)
+        write(os.path.join(split_more, "more.aconfig"), MORE)
+        write(os.path.join(values, "android.example/undeclared_flag_values.textproto"), VALUE_UNDECLARED)
+        check_cc(split_declarations, split_more, values)
+        os.remove(os.path.join(values, "android.example/undeclared_flag_values.textproto"))
 
         write(os.path.join(values, "android.example/broken_flag_values.textproto"),
               'flag_value {\n  package: "android.example"\n  state: ENABLED\n}\n')
