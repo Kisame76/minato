@@ -9,7 +9,9 @@
 // onDestroy was answered. A sixth argument names a variant: polling starts the app at
 // activity_test_polling_onCreate, whose onStart polls the main thread's looper first, and must give the same
 // log; leftovers leaves NATIVE_WINDOW_DESTROYED out, so activity-host destroys the window before the next one
-// and before onDestroy, as NativeActivity does; missing-library, missing-function and missing-apk start
+// and before onDestroy, as NativeActivity does; translucent starts the app at activity_test_translucent_onCreate,
+// which asks for WINDOW_FORMAT_RGBA_8888 in onCreate, and must give the same log with WINDOW_OPAQUE 0 as the
+// first request (Grafik's opaque layer); missing-library, missing-function and missing-apk start
 // activity-host with what is not there and pass when it reports the reason as START_FAILED and ends with
 // status 1.
 //   activity_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> [<case>]
@@ -69,10 +71,11 @@ int main(int argc, char **argv) {
     const std::string variant = argc == 7 ? argv[6] : "";
     const bool failing = variant.starts_with("missing-"), leftovers = variant == "leftovers";
     if ((argc != 6 && argc != 7) || (argc == 7 && variant != "polling" && variant != "leftovers" &&
-                                     variant != "missing-library" && variant != "missing-function" &&
-                                     variant != "missing-apk")) {
+                                     variant != "translucent" && variant != "missing-library" &&
+                                     variant != "missing-function" && variant != "missing-apk")) {
         std::fprintf(stderr, "usage: activity_test <scratch> <fixtures bin> <bionic lib> <guest system> <expected> "
-                             "[polling | leftovers | missing-library | missing-function | missing-apk]\n");
+                             "[polling | leftovers | translucent | missing-library | missing-function | "
+                             "missing-apk]\n");
         return 2;
     }
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
@@ -90,6 +93,7 @@ int main(int argc, char **argv) {
     const char *const library = variant == "missing-library" ? "missing" : "activity-test";
     const char *const function = variant == "missing-function" ? "missing_onCreate"
                                  : variant == "polling"        ? "activity_test_polling_onCreate"
+                                 : variant == "translucent"    ? "activity_test_translucent_onCreate"
                                                                : "ANativeActivity_onCreate";
     if (!start(app, apk, library, function)) _exit(1);
 
@@ -158,7 +162,9 @@ int main(int argc, char **argv) {
     if (seen.status != 0) fail("activity-host ended with status " + std::to_string(seen.status));
     std::string requests;
     for (const auto &request : seen.requests) requests += "[" + request + "]";
-    if (requests != "[KEEP_SCREEN_ON 1][FINISH]") fail("the requests were " + requests);
+    const std::string wanted = std::string(variant == "translucent" ? "[WINDOW_OPAQUE 0]" : "") +
+                               "[KEEP_SCREEN_ON 1][FINISH]";
+    if (requests != wanted) fail("the requests were " + requests);
     const std::string app_lines = lines_with(log, "I/activity-test: ");
     const std::string reference = read_text(paths.expected / "activity-test.logcat");
     if (app_lines != (leftovers ? without_window_destroyed(reference) : reference)) {

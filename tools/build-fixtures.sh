@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the NDK test programs in fixtures/ for arm64-v8a into build/fixtures/bin (ADR-0016), and packs
 # each test app of fixtures/apps/<app>/ (its AndroidManifest.xml, lib<app>.so and assets/, if any) into
-# build/fixtures/apks/<app>.apk with tools/make-apk.sh (ADR-0028, decision 15).
+# build/fixtures/apks/<app>.apk with tools/make-apk.sh (ADR-0028, decision 15). An app without native code,
+# for which the build makes no lib<app>.so, has a script of its own (tools/build-app-start-test.sh).
 # Usage: tools/build-fixtures.sh
 # Optional environment:
 #   ANDROID_NDK     NDK to build with, default: r30 in ~/Library/Android/sdk/ndk
@@ -28,6 +29,7 @@ mkdir -p "$build/apks"
 for manifest in fixtures/apps/*/AndroidManifest.xml; do
   [[ -e "$manifest" ]] || continue
   app=$(basename "$(dirname "$manifest")")
+  [[ -f "$build/bin/lib$app.so" ]] || continue
   assets=()
   [[ ! -d "fixtures/apps/$app/assets" ]] || assets=(--assets "fixtures/apps/$app/assets")
   tools/make-apk.sh --manifest "$manifest" --lib "$build/bin/lib$app.so" ${assets[@]+"${assets[@]}"} \

@@ -1,10 +1,11 @@
 // Checks the session's channel (ADR-0028, decisions 2 to 4): events arrive in order at the guest
 // descriptor that session_connect gives, with the session's configuration; an answer wakes the host's
 // wait, which ends at its time limit otherwise; a full pipe makes the post fail instead of blocking, and
-// every later post fails too; the guest's requests reach the host's handler, and KEEP_SCREEN_ON only when
-// it changes. A process has one session, so the tests build on each other in their order: first without
-// a session, last the full pipe. The test's thread plays activity-host and calls the dispatcher directly,
-// as syscalls_test.cpp does. The program's end is program_test.cpp's (--session-ends).
+// every later post fails too; the guest's requests reach the host's handler, KEEP_SCREEN_ON only when it
+// changes and WINDOW_OPAQUE only when the window's format changes its opacity. A process has one session,
+// so the tests build on each other in their order: first without a session, last the full pipe. The test's
+// thread plays activity-host and calls the dispatcher directly, as syscalls_test.cpp does. The program's end
+// is program_test.cpp's (--session-ends).
 #include "signals.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -297,6 +298,7 @@ TEST(a_request_of_another_type_is_refused) {
     CHECK(call(APKRT_NR_SESSION_REQUEST, 0) == -einval);
     CHECK(call(APKRT_NR_SESSION_REQUEST, 99) == -einval);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_KEEP_SCREEN_ON, 1) == -einval);  // the host's
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_OPAQUE, 1) == -einval);   // the host's too
     CHECK(take_requests().empty());
 }
 
@@ -354,6 +356,86 @@ TEST(keep_screen_on_is_reported_in_the_order_it_changes_across_threads) {
     // Turning it off now reports a change exactly when the last report said on.
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FLAGS, 0, keep_screen_on) == 0);
     CHECK(take_requests().size() == (seen.size() % 2 == 1 ? 1U : 0U));
+}
+
+// --- The window's format (Grafik's opaque layer, after Android 15's ViewRootImpl.updateOpacity) ---------
+
+// PixelFormat's values (android.graphics.PixelFormat at android-15.0.0_r1).
+constexpr std::int32_t translucent = -3, transparent = -2, opaque = -1, unknown = 0, rgba_8888 = 1, rgbx_8888 = 2,
+                       rgb_888 = 3, rgb_565 = 4, rgba_5551 = 6, rgba_4444 = 7, a_8 = 8, l_8 = 9, la_88 = 0xA,
+                       rgb_332 = 0xB, ycbcr_420_sp = 0x11, rgba_f16 = 0x16, rgba_1010102 = 0x2B;
+
+/// Asks for the window format `format`, as ANativeActivity_setWindowFormat passes an int32_t, and returns the
+/// requests the host saw.
+std::vector<Request> window_format(std::int32_t format) {
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FORMAT, static_cast<std::uint64_t>(format)) == 0);
+    return take_requests();
+}
+
+/// Whether `seen` is exactly one WINDOW_OPAQUE report with the argument `value`.
+bool reported_opaque(const std::vector<Request> &seen, std::uint64_t value) {
+    return seen.size() == 1 && seen[0].type == APKRT_REQUEST_WINDOW_OPAQUE && seen[0].argument == value &&
+           !seen[0].had_text && seen[0].runtime_signal_blocked;
+}
+
+TEST(the_window_starts_opaque_and_only_a_change_of_its_opacity_is_reported) {
+    // The session began with RGB_565, NativeActivity's format, and reported nothing for it.
+    for (const auto &request : take_requests()) CHECK(request.type != APKRT_REQUEST_WINDOW_OPAQUE);
+    CHECK(window_format(rgbx_8888).empty());
+    CHECK(window_format(rgb_565).empty());
+    CHECK(reported_opaque(window_format(rgba_8888), 0));
+    CHECK(window_format(rgba_8888).empty());
+    CHECK(window_format(translucent).empty());  // another format, but with alpha too
+    CHECK(reported_opaque(window_format(rgb_565), 1));
+    CHECK(window_format(rgbx_8888).empty());
+    // Only the low 32 bits count, as libandroid passes an int32_t.
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FORMAT, 0xFFFF'FFFDULL) == 0);  // -3
+    CHECK(reported_opaque(take_requests(), 0));
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FORMAT, 0x1'0000'0004ULL) == 0);  // 4
+    CHECK(reported_opaque(take_requests(), 1));
+}
+
+TEST(a_format_makes_the_window_non_opaque_exactly_when_format_has_alpha_says_so) {
+    for (const auto format : {a_8, la_88, rgba_4444, rgba_5551, rgba_8888, rgba_f16, rgba_1010102, translucent,
+                              transparent}) {
+        CHECK(reported_opaque(window_format(format), 0));
+        CHECK(reported_opaque(window_format(rgb_565), 1));
+    }
+    // Every other value is opaque, also one PixelFormat does not know.
+    for (const auto format : {opaque, unknown, rgbx_8888, rgb_888, rgb_565, l_8, rgb_332, ycbcr_420_sp, 12345}) {
+        CHECK(window_format(format).empty());
+    }
+}
+
+TEST(the_window_s_opacity_is_reported_in_the_order_it_changes_across_threads) {
+    // Two threads ask for a format with alpha and one without at once. Every report is a change, so 0 and 1
+    // alternate, and the last report is what the format says.
+    constexpr int rounds = 20'000;
+    take_requests();
+    std::atomic<bool> go{false};
+    const auto ask = [&go](std::int32_t format) {
+        return std::thread([&go, format] {
+            while (!go.load()) {
+            }
+            for (int round = 0; round < rounds; ++round) {
+                call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FORMAT, static_cast<std::uint64_t>(format));
+            }
+        });
+    };
+    std::thread with_alpha = ask(rgba_8888), without = ask(rgb_565);
+    go.store(true);
+    with_alpha.join();
+    without.join();
+    const auto seen = take_requests();
+    bool alternating = true;
+    std::uint64_t expected = 0;  // the window was opaque before
+    for (const auto &request : seen) {
+        alternating = alternating && request.type == APKRT_REQUEST_WINDOW_OPAQUE && request.argument == expected;
+        expected ^= 1;
+    }
+    CHECK(alternating);
+    // RGB_565 now reports a change exactly when the last report said non-opaque.
+    CHECK(window_format(rgb_565).size() == (seen.size() % 2 == 1 ? 1U : 0U));
 }
 
 // --- The frame rate (ADR-0036, decision 2) ------------------------------------------------------

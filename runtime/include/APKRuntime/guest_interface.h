@@ -158,6 +158,9 @@ enum apkrt_request_type {
     APKRT_REQUEST_FRAME_RATE,      // ANativeWindow_setFrameRate (ADR-0036, decision 2): a0 the window's ID, a1 the rate
                                    // in frames per second as a float's bits, 0 for no preference; the host gets the
                                    // bits when the rate of a window it has not removed changes
+    APKRT_REQUEST_WINDOW_FORMAT,   // guest only: a0 the window's format, a PixelFormat value in its low 32 bits
+                                   // (ANativeActivity_setWindowFormat)
+    APKRT_REQUEST_WINDOW_OPAQUE,   // host only: the argument is 1 or 0, reported when the window's opacity changes
 };
 
 /// The kinds of the window's gate.
@@ -182,8 +185,12 @@ enum apkrt_gate_kind {
 /// session_request: x0 an enum apkrt_request_type, x1 and x2 its arguments. Returns 0; -ENOENT without a
 /// session, -EFAULT for APKRT_REQUEST_START_FAILED without a text, -EINVAL for another type. The runtime
 /// keeps the window flags and reports only APKRT_REQUEST_KEEP_SCREEN_ON to the host, when
-/// AWINDOW_FLAG_KEEP_SCREEN_ON (0x80) changes, in the order of the changes. It keeps each window's frame rate
-/// as well and reports APKRT_REQUEST_FRAME_RATE when it changes, only for a window the host has not removed.
+/// AWINDOW_FLAG_KEEP_SCREEN_ON (0x80) changes, in the order of the changes. It keeps the window's format too,
+/// from RGB_565 on, which NativeActivity sets at its start, and reports APKRT_REQUEST_WINDOW_OPAQUE when the
+/// window's opacity changes, in the order of the changes: a window is opaque unless its format has alpha, by
+/// Android 15's PixelFormat.formatHasAlpha. So the session starts opaque, without a report. It keeps each
+/// window's frame rate as well and reports APKRT_REQUEST_FRAME_RATE when it changes, only for a window the host
+/// has not removed.
 #define APKRT_NR_SESSION_REQUEST 4104
 /// window_gate, the front libs': x0 the window's ID, x1 an enum apkrt_gate_kind. Returns 0 to go on and
 /// 1 when the window is gone, or waits:

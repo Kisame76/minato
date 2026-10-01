@@ -41,10 +41,30 @@ std::uint32_t answered = 0;  // the last serial number answered
 bool broken = false;         // a post found the pipe full, or no reader: final
 bool ended = false;          // the program has ended
 
-// The window flags. Their change and its report happen under one lock, so the reports come in the order
-// of the changes, from whichever threads.
+// The window flags and format. A change and its report happen under one lock, so the reports come in the
+// order of the changes, from whichever threads.
 std::mutex flags_lock;
 std::uint64_t window_flags = 0;
+std::int32_t window_format = 4;  // PixelFormat.RGB_565, which NativeActivity.onCreate sets
+
+/// PixelFormat.formatHasAlpha (Android 15): these have alpha, every other value has none. ViewRootImpl makes
+/// a window's surface opaque when its format has none.
+bool has_alpha(std::int32_t format) {
+    switch (format) {
+        case 8:     // A_8
+        case 0xA:   // LA_88
+        case 7:     // RGBA_4444
+        case 6:     // RGBA_5551
+        case 1:     // RGBA_8888
+        case 0x16:  // RGBA_F16
+        case 0x2B:  // RGBA_1010102
+        case -3:    // TRANSLUCENT
+        case -2:    // TRANSPARENT
+            return true;
+        default:
+            return false;
+    }
+}
 
 /// Calls the host's request handler, with the runtime signal blocked: the handler is host code, whose
 /// calls must not end with EINTR.
@@ -120,6 +140,16 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             window_flags = (window_flags & ~a1) | a0;
             const bool on = (window_flags & keep_screen_on) != 0;
             if (on != before) report(APKRT_REQUEST_KEEP_SCREEN_ON, on ? 1 : 0, nullptr);
+            return 0;
+        }
+        case APKRT_REQUEST_WINDOW_FORMAT: {
+            // libandroid passes an int32_t: its low 32 bits.
+            const auto format = static_cast<std::int32_t>(static_cast<std::uint32_t>(a0));
+            const std::lock_guard<std::mutex> hold(flags_lock);
+            const bool before = !has_alpha(window_format);
+            window_format = format;
+            const bool opaque = !has_alpha(format);
+            if (opaque != before) report(APKRT_REQUEST_WINDOW_OPAQUE, opaque ? 1 : 0, nullptr);
             return 0;
         }
         case APKRT_REQUEST_START_FAILED: {

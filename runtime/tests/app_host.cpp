@@ -42,6 +42,7 @@ void record_request(void *, int type, std::uint64_t argument, const char *text) 
                           : type == APKRT_REQUEST_KEEP_SCREEN_ON ? "KEEP_SCREEN_ON " + std::to_string(argument)
                           : type == APKRT_REQUEST_START_FAILED   ? std::string("START_FAILED ") + (text ? text : "")
                           : type == APKRT_REQUEST_FRAME_RATE     ? "FRAME_RATE " + rate(argument)
+                          : type == APKRT_REQUEST_WINDOW_OPAQUE  ? "WINDOW_OPAQUE " + std::to_string(argument)
                                                                  : "request " + std::to_string(type);
     if (on_request != nullptr) on_request(type, argument);
     const std::lock_guard hold(seen.lock);

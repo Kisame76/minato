@@ -262,6 +262,14 @@ __attribute__((visibility("default"))) void activity_test_polling_onCreate(ANati
     activity->callbacks->onStart = polling_on_start;
 }
 
+// For the Mac's scripted host only (runtime.activity.translucent), never called on Android: onCreate asks for a
+// window format with alpha, so the host hears that the window is no longer opaque before any other request.
+__attribute__((visibility("default"))) void activity_test_translucent_onCreate(ANativeActivity *activity,
+                                                                               void *state, size_t size) {
+    ANativeActivity_setWindowFormat(activity, WINDOW_FORMAT_RGBA_8888);
+    ANativeActivity_onCreate(activity, state, size);
+}
+
 void android_main(struct android_app *app) {
     struct state state = {0};
     app->userData = &state;

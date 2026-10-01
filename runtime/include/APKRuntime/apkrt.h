@@ -117,8 +117,11 @@ typedef void (*apkrt_end_handler)(void *context, int status);
 /// apkrt_add_scheduled_provider): then apkrt_window_remove returns only after a report of that window that is
 /// under way has returned, and none starts after it. The report names no window, since the host has one at a
 /// time (ADR-0028, decision 6), and the host drops that window's preference itself after the removal: a new
-/// window has none, as a new Surface on Android. `text` is NULL for all but START_FAILED. The
-/// KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate. The
+/// window has none, as a new Surface on Android. APKRT_REQUEST_WINDOW_OPAQUE comes with `argument` 1 or 0 when
+/// the window's opacity changes: the runtime keeps the window's format, so APKRT_REQUEST_WINDOW_FORMAT never
+/// comes here, and the session starts opaque without a report. `text` is NULL for all but START_FAILED. The
+/// KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate, and so do the
+/// WINDOW_OPAQUE reports. The
 /// handler runs with the runtime signal blocked, on that thread's stack, which the guest chose and which
 /// may be small (an alternate signal stack): a handler that needs more hands its work to another thread.
 typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument, const char *text);

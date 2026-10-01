@@ -1,8 +1,8 @@
 // ANativeActivity's requests of libandroid.so (ADR-0028, decision 4). On Android they write a command for the
 // main thread, which then calls Java; here the runtime reports them to the host at once (session_request):
 // ANativeActivity_finish asks for the quit sequence, and the runtime keeps the window flags and tells the host
-// when AWINDOW_FLAG_KEEP_SCREEN_ON changes. The window's format is the front libs' business and M3 has no
-// keyboard, so the other three only log, once each.
+// when AWINDOW_FLAG_KEEP_SCREEN_ON changes, and keeps the window's format and tells the host when the window's
+// opacity changes. M3 has no keyboard, so the other two only log, once each.
 #include <android/log.h>
 #include <android/native_activity.h>
 #include <unistd.h>
@@ -29,9 +29,10 @@ void ANativeActivity_setWindowFlags(ANativeActivity *, uint32_t addFlags, uint32
     syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FLAGS, addFlags, removeFlags);
 }
 
-void ANativeActivity_setWindowFormat(ANativeActivity *, int32_t) {
-    static char logged;
-    log_once(&logged, "ANativeActivity_setWindowFormat: the graphics libraries choose the format");
+// The window's format decides only its opacity (PixelFormat.formatHasAlpha), which the runtime reports to
+// the host; the buffers' format stays the graphics libraries' choice, as on Android.
+void ANativeActivity_setWindowFormat(ANativeActivity *, int32_t format) {
+    syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW_FORMAT, static_cast<long>(format), 0);
 }
 
 void ANativeActivity_showSoftInput(ANativeActivity *, uint32_t) {
