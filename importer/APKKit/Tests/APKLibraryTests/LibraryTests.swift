@@ -153,10 +153,28 @@ struct LibraryTests {
         #expect(entry.base?.sha256.count == 64)
         let icon = try #require(entry.iconFile.map { sandbox.paths.applicationSupport.appendingPathComponent($0) })
         #expect(try Data(contentsOf: icon).prefix(8) == SampleAPK.pngSignature)
-        for folder in ["data", "external", "obb"] {
+        // installd's createAppData makes cache and code_cache in the app's data at the install (ADR-0039 d6).
+        for folder in ["data", "data/cache", "data/code_cache", "external", "obb"] {
             #expect(sandbox.exists(sandbox.paths.dataDirectory(for: "org.example.game").appendingPathComponent(folder)))
         }
         #expect(await library.entries.map(\.id) == ["org.example.game"])
+    }
+
+    /// An app imported before ADR-0039's decision 6 gets installd's folders at its next start; its files stay.
+    @Test func preparingTheDataAddsWhatIsMissingAndKeepsTheRest() throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let data = sandbox.paths.dataDirectory(for: "org.example.game")
+        let save = data.appendingPathComponent("data/save.dat")
+        try FileManager.default.createDirectory(at: save.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("kept".utf8).write(to: save)
+
+        try sandbox.paths.prepareData(for: "org.example.game")
+
+        for folder in ["data/cache", "data/code_cache", "external", "obb"] {
+            #expect(sandbox.exists(data.appendingPathComponent(folder)))
+        }
+        #expect(try Data(contentsOf: save) == Data("kept".utf8))
     }
 
     @Test func importOfIncompatibleAPKKeepsReportButNoCopy() async throws {

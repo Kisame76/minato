@@ -1,3 +1,5 @@
+import Foundation
+
 /// What game mode sets up before activity-host runs (ADR-0028, decision 14; the header of
 /// runtime/activity-host/activity_host.cpp): the guest paths of the app and the system, the library
 /// folders, and the program with its arguments and environment.
@@ -13,6 +15,9 @@ public struct GuestStart: Sendable, Equatable {
         }
     }
 
+    /// The installed version's folder in the guest, /data/app/~~<a>/<package>-<b> (ADR-0039, decision 6): the
+    /// sourceDir's folder, with base.apk and lib/arm64.
+    public let codePath: String
     /// For `apkrt_mount`, in order.
     public let mounts: [Path]
     /// For `apkrt_add_library_directory`: the system's containers, then the app's.
@@ -28,11 +33,14 @@ public struct GuestStart: Sendable, Equatable {
     /// `library` and `function` are the manifest's `android.app.lib_name` and `android.app.func_name`, the
     /// latter nil in a report from before the import read it. The host paths: the installed version's
     /// base.apk and lib/ (its containers), the app's data, external and OBB folders, and the guest system in
-    /// the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `environment` follows
+    /// the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `apkSHA256` is base.apk's
+    /// digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
     /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5).
-    public init(package: String, library: String, function: String?, apk: String, appLibraries: String, data: String,
-                external: String, obb: String, guestSystem: String, environment extra: [String] = []) {
-        let app = "/data/app/\(package)"
+    public init?(package: String, library: String, function: String?, apk: String, apkSHA256: String,
+                 appLibraries: String, data: String, external: String, obb: String, guestSystem: String,
+                 environment extra: [String] = []) {
+        guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
+        codePath = app
         mounts = [
             Path(guest: "\(app)/base.apk", host: apk),
             Path(guest: "/data/user/0/\(package)", host: data),
@@ -51,6 +59,33 @@ public struct GuestStart: Sendable, Equatable {
         arguments = ["/system/bin/activity-host", "--package", package, "--apk", "\(app)/base.apk",
                      "--library", library, "--function", function ?? Self.defaultFunction]
         environment = ["LD_LIBRARY_PATH=\(app)/lib/arm64"] + extra
+    }
+
+    /// Android 15's form, from PackageManagerServiceUtils.getNextCodePath: "~~" and 16 bytes, then the package,
+    /// "-" and 16 more, each in Base64 URL_SAFE | NO_WRAP, which keeps the padding. Android draws the bytes at
+    /// random at each install; here they are the digest's halves, so a version keeps its path and an update
+    /// moves it, as every install on Android does.
+    static func codePath(package: String, apkSHA256: String) -> String? {
+        guard let digest = bytes(hex: apkSHA256), digest.count == 32 else { return nil }
+        return "/data/app/~~\(base64URL(digest.prefix(16)))/\(package)-\(base64URL(digest.suffix(16)))"
+    }
+
+    private static func bytes(hex: String) -> [UInt8]? {
+        let digits = Array(hex.utf8)
+        // UInt8(_:radix:) would take a sign too.
+        guard digits.count.isMultiple(of: 2), hex.allSatisfy(\.isHexDigit) else { return nil }
+        var bytes: [UInt8] = []
+        for index in stride(from: 0, to: digits.count, by: 2) {
+            guard let byte = UInt8(String(decoding: digits[index..<index + 2], as: UTF8.self), radix: 16) else {
+                return nil
+            }
+            bytes.append(byte)
+        }
+        return bytes
+    }
+
+    private static func base64URL(_ bytes: ArraySlice<UInt8>) -> String {
+        Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
     }
 }
 

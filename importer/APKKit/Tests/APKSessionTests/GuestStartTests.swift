@@ -7,19 +7,43 @@ import Testing
 @Suite("GuestStart")
 struct GuestStartTests {
     static let package = "io.github.kisame76.minato.test.activity"
+    /// base.apk's SHA-256: its first 16 bytes give "~~<a>", its last 16 "<package>-<b>", each in Base64 URL_SAFE
+    /// with its padding, as PackageManagerServiceUtils.getNextCodePath writes Android's random bytes.
+    static let sha256 = "fbffbf00000000000000000000000000101112131415161718191a1b1c1d1e1f"
+    static let codePath = "/data/app/~~-_-_AAAAAAAAAAAAAAAAAA==/\(package)-EBESExQVFhcYGRobHB0eHw=="
 
-    static func start(library: String = "activity-test", function: String? = nil,
-                      environment: [String] = []) -> GuestStart {
+    static func start(library: String = "activity-test", function: String? = nil, sha256: String = Self.sha256,
+                      environment: [String] = []) -> GuestStart? {
         GuestStart(
             package: package, library: library, function: function,
-            apk: "/v/apps/p/1/base.apk", appLibraries: "/v/apps/p/1/lib",
+            apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", external: "/v/data/p/external", obb: "/v/data/p/obb",
             guestSystem: "/b/Minato.app/Guest", environment: environment)
     }
 
+    /// ADR-0039, decision 6: Android 15's code path, /data/app/~~<a>/<package>-<b>.
+    @Test func theCodePathIsAndroid15s() {
+        #expect(Self.start()?.codePath == Self.codePath)
+    }
+
+    /// Android draws new bytes at each install; ours come from the version, so an update moves the path.
+    @Test func eachVersionHasItsOwnCodePath() {
+        let other = String(repeating: "ab", count: 32)
+        #expect(Self.start(sha256: other)?.codePath
+            == "/data/app/~~q6urq6urq6urq6urq6urqw==/\(Self.package)-q6urq6urq6urq6urq6urqw==")
+        #expect(Self.start()?.codePath == Self.start()?.codePath)
+        #expect(Self.start(sha256: Self.sha256.uppercased())?.codePath == Self.codePath)
+    }
+
+    @Test func aHashThatIsNotSHA256StartsNothing() {
+        #expect(Self.start(sha256: "") == nil)
+        #expect(Self.start(sha256: String(Self.sha256.dropLast(2))) == nil)
+        #expect(Self.start(sha256: String(Self.sha256.dropLast(2)) + "zz") == nil)
+    }
+
     @Test func mountsThePathsOfDecision14() {
-        let app = "/data/app/\(Self.package)"
-        #expect(Self.start().mounts == [
+        let app = Self.codePath
+        #expect(Self.start()?.mounts == [
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "/data/user/0/\(Self.package)", host: "/v/data/p/data"),
             .init(guest: "/data/data/\(Self.package)", host: "/v/data/p/data"),
@@ -32,33 +56,33 @@ struct GuestStartTests {
     }
 
     @Test func findsTheSystemsLibrariesThenTheApps() {
-        #expect(Self.start().libraryDirectories == [
+        #expect(Self.start()?.libraryDirectories == [
             .init(guest: "/system/lib64", host: "/b/Minato.app/Guest/lib64"),
-            .init(guest: "/data/app/\(Self.package)/lib/arm64", host: "/v/apps/p/1/lib"),
+            .init(guest: "\(Self.codePath)/lib/arm64", host: "/v/apps/p/1/lib"),
         ])
     }
 
     @Test func startsActivityHostWithTheAppsLibrary() {
         let start = Self.start(library: "main", function: "game_onCreate")
-        #expect(start.program == "/b/Minato.app/Guest/bin/activity-host.dylib")
-        #expect(start.arguments == [
+        #expect(start?.program == "/b/Minato.app/Guest/bin/activity-host.dylib")
+        #expect(start?.arguments == [
             "/system/bin/activity-host", "--package", Self.package,
-            "--apk", "/data/app/\(Self.package)/base.apk", "--library", "main", "--function", "game_onCreate",
+            "--apk", "\(Self.codePath)/base.apk", "--library", "main", "--function", "game_onCreate",
         ])
-        #expect(start.environment == ["LD_LIBRARY_PATH=/data/app/\(Self.package)/lib/arm64"])
+        #expect(start?.environment == ["LD_LIBRARY_PATH=\(Self.codePath)/lib/arm64"])
     }
 
     /// V5 (ADR-0030, F15): a benchmark run's extra entries, such as libvulkan's MINATO_VULKAN_BGRA8_FIRST, come
     /// after LD_LIBRARY_PATH.
     @Test func addsTheExtraEnvironmentAfterTheLibraryPath() {
-        #expect(Self.start(environment: ["MINATO_VULKAN_BGRA8_FIRST=1"]).environment == [
-            "LD_LIBRARY_PATH=/data/app/\(Self.package)/lib/arm64", "MINATO_VULKAN_BGRA8_FIRST=1",
+        #expect(Self.start(environment: ["MINATO_VULKAN_BGRA8_FIRST=1"])?.environment == [
+            "LD_LIBRARY_PATH=\(Self.codePath)/lib/arm64", "MINATO_VULKAN_BGRA8_FIRST=1",
         ])
     }
 
     /// A report from before the import read `android.app.func_name` has none: Android's default.
     @Test func withoutAFunctionNameItIsAndroidsDefault() {
-        #expect(Self.start(function: nil).arguments.suffix(2) == ["--function", "ANativeActivity_onCreate"])
+        #expect(Self.start(function: nil)?.arguments.suffix(2) == ["--function", "ANativeActivity_onCreate"])
     }
 
     @Test func theConfigurationHasTheScreenInTheSessionsOrientation() {

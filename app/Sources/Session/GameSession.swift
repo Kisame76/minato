@@ -238,24 +238,32 @@ final class GameSession {
     }
 
     /// What activity-host needs for this app (ADR-0028, decisions 3 and 14), with the window's size as the
-    /// screen's in the session's orientation. Nil for an app without a NativeActivity.
+    /// screen's in the session's orientation. Nil for an app without a NativeActivity or without base.apk's
+    /// digest, which names its code path (ADR-0039, decision 6).
     private func guestStart(scale: CGFloat) -> (GuestStart, GuestConfiguration)? {
         guard case .nativeActivity(let library) = entry.report?.runtime, let paths = try? LibraryPaths.standard(),
-              let bundle = Bundle.main.resourceURL
+              let bundle = Bundle.main.resourceURL, let digest = entry.base?.sha256
         else { return nil }
+        // An app imported before decision 6 gets installd's cache and code_cache now.
+        do {
+            try paths.prepareData(for: entry.id)
+        } catch {
+            log.error("\(self.entry.id, privacy: .public): its data folders: \(error.localizedDescription, privacy: .public)")
+        }
         let data = paths.dataDirectory(for: entry.id)
         #if BENCHMARK
         let environment = BenchmarkMode.guestEnvironment
         #else
         let environment: [String] = []
         #endif
-        let start = GuestStart(
+        guard let start = GuestStart(
             package: entry.id, library: library, function: entry.report?.nativeFunction,
-            apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path,
+            apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path, apkSHA256: digest,
             appLibraries: paths.libraryDirectory(for: entry).path,
             data: data.appending(path: "data").path, external: data.appending(path: "external").path,
             obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path,
             environment: environment)
+        else { return nil }
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(

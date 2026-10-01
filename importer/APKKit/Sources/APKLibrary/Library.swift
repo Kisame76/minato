@@ -164,9 +164,7 @@ public actor Library {
             // On APFS the copy is a clone and takes no extra space.
             try fileManager.copyItem(at: url, to: versionDirectory.appendingPathComponent("base.apk"))
             base = PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest)
-            for name in ["data", "external", "obb"] {
-                try fileManager.createDirectory(at: paths.dataDirectory(for: package).appendingPathComponent(name), withIntermediateDirectories: true)
-            }
+            try paths.prepareData(for: package)
         }
         progress(0.85)
 

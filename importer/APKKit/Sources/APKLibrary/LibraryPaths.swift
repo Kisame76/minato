@@ -52,4 +52,15 @@ public struct LibraryPaths: Sendable {
     public func dataDirectory(for package: String) -> URL {
         applicationSupport.appendingPathComponent("data", isDirectory: true).appendingPathComponent(package, isDirectory: true)
     }
+
+    /// Makes the app's data, external and OBB folders, with the two that installd's createAppData makes at an
+    /// install in /data/user/0/<package>: cache and code_cache (ADR-0039, decision 6). What is there stays; the
+    /// app's files, shared_prefs and the rest come when Context first asks for them, as on Android.
+    public func prepareData(for package: String) throws {
+        let data = dataDirectory(for: package)
+        for folder in ["data/cache", "data/code_cache", "external", "obb"] {
+            try FileManager.default.createDirectory(at: data.appendingPathComponent(folder, isDirectory: true),
+                                                    withIntermediateDirectories: true)
+        }
+    }
 }
