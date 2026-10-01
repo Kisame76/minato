@@ -16,8 +16,9 @@ struct MinatoApp: App {
 
     init() {
         #if BENCHMARK
-        // A benchmark run (ADR-0037) touches neither the launch request nor the library.
-        if BenchmarkMode.run != nil {
+        // A benchmark run (ADR-0037) or a recorded session (ADR-0041 d) touches neither the launch request nor
+        // the library's start.
+        if BenchmarkMode.run != nil || BenchmarkMode.recordSession != nil {
             mode = .library(nil)
             return
         }
@@ -53,6 +54,8 @@ struct MinatoApp: App {
             #if BENCHMARK
             if let run = BenchmarkMode.run {
                 BenchmarkView(run: run)
+            } else if let package = BenchmarkMode.recordSession {
+                SessionRecordingView(package: package)
             } else {
                 modeView
             }

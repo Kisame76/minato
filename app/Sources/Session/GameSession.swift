@@ -103,6 +103,11 @@ final class GameSession {
         showsHint = false
         showsFPS = false
     }
+
+    /// The guest's presents in this session, through every window it had (ADR-0041 d).
+    var guestPresents: UInt64 {
+        (runtime?.presentsOfRemovedWindows ?? 0) + (bridge.window == 0 ? 0 : presents(bridge.window))
+    }
     #endif
 
     /// The session takes over the process once its view is there: it becomes the runtime's session, writes
@@ -269,7 +274,7 @@ final class GameSession {
         SessionCheck.event("could not start \(reason)")
         #endif
         #if BENCHMARK
-        if let benchmark { return benchmark.ended(reason) }
+        if let benchmark { return benchmark.ended(nil, reason) }
         #endif
         startFailure = reason
         SessionEndReport.startFailed(reason)
@@ -284,7 +289,9 @@ final class GameSession {
         SessionCheck.event("program ended \(status)")
         #endif
         #if BENCHMARK
-        if let benchmark { return benchmark.ended(status == 0 ? nil : "the variant ended with status \(status)") }
+        if let benchmark {
+            return benchmark.ended(status, status == 0 ? nil : "the variant ended with status \(status)")
+        }
         #endif
         Restart.now { [weak self] in self?.restartFailed = true }
     }
@@ -453,7 +460,7 @@ final class GameSession {
         }
         if bridge.lifecycle.hasEnded || bridge.isBroken {
             #if BENCHMARK
-            if let benchmark { return benchmark.ended(bridge.isBroken ? "the session's channel broke" : nil) }
+            if let benchmark { return benchmark.ended(nil, bridge.isBroken ? "the session's channel broke" : nil) }
             #endif
             Restart.now { [weak self] in self?.restartFailed = true }
         }

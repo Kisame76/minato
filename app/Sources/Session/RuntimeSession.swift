@@ -15,6 +15,11 @@ final class RuntimeSessionHost: SessionHost {
     /// The frame clock's `setPreferredRate`: the request handler calls it on the guest's thread, and a
     /// window's removal with 0.
     private let preferRate: @Sendable (Float) -> Void
+    #if BENCHMARK
+    /// The presents of the session's removed windows, whose own count is 0 once they are gone: a recorded
+    /// session compares the guest's presents with the layer's drawables (ADR-0041 d).
+    private(set) var presentsOfRemovedWindows: UInt64 = 0
+    #endif
 
     init(preferRate: @escaping @Sendable (Float) -> Void) {
         self.preferRate = preferRate
@@ -36,6 +41,10 @@ final class RuntimeSessionHost: SessionHost {
     /// No FRAME_RATE request for the window comes once it is removed, and its preference goes with it: a
     /// new window has none, as a new Surface on Android (ADR-0036, decision 2).
     func removeWindow(_ window: UInt64) {
+        #if BENCHMARK
+        // The gate is closed by now, so no present comes between the count and the removal.
+        presentsOfRemovedWindows += apkrt_window_presents(window)
+        #endif
         _ = apkrt_window_remove(window)
         preferRate(0)
     }

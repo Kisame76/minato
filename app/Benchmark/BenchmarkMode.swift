@@ -42,8 +42,9 @@ enum BenchmarkMode {
 struct BenchmarkHooks {
     let ticks: FrameTickSink
     let layer: (CAMetalLayer) -> Void
-    /// nil, or why the variant did not end well.
-    let ended: (String?) -> Void
+    /// The program's exit status, nil when it did not end by itself; then nil, or why the variant did not end
+    /// well.
+    let ended: (Int32?, String?) -> Void
 }
 
 /// Hands each tick to two sinks.
@@ -147,26 +148,25 @@ final class BenchmarkRunner {
                 return end("\(error)")
             }
         }
-        await waitUntilCool()
+        await BenchmarkConditions.waitUntilCool()
         observe()
         let rate = run.configuration.rate
         record.requestedRate = Float(rate)
-        record.maxFPS = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }
-            .first?.maximumFramesPerSecond ?? 0
-        record.thermalStart = Self.thermal()
+        record.maxFPS = BenchmarkConditions.maxFPS()
+        record.thermalStart = BenchmarkConditions.thermal()
         record.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         UIDevice.current.isBatteryMonitoringEnabled = true
-        record.batteryState = Self.batteryState()
+        record.batteryState = BenchmarkConditions.batteryState()
         record.batteryLevel = UIDevice.current.batteryLevel
-        record.commit = Bundle.main.object(forInfoDictionaryKey: "MinatoCommit") as? String ?? ""
+        record.commit = BenchmarkConditions.commit()
         record.configuration = "Release"
-        record.debugger = Self.isTraced()
-        record.startNs = Self.now()
+        record.debugger = BenchmarkConditions.isTraced()
+        record.startNs = BenchmarkConditions.now()
 
         if let session {
             // The APK asks for the rate itself (ANativeWindow_setFrameRate), on game mode's frame clock.
             session.runBenchmark(BenchmarkHooks(ticks: periods, layer: { [weak self] in self?.startRecording($0) },
-                                                ended: { [weak self] in self?.end($0) }))
+                                                ended: { [weak self] in self?.end($1) }))
             stage = .apk(session)
         } else {
             stage = .native
@@ -235,19 +235,7 @@ final class BenchmarkRunner {
         guard var entry, entry.id == api.package, entry.source.sha256 == sha256 else {
             throw BenchmarkError("\(api.apkFile) was not installed")
         }
-        let signer = signing.currentSigner()
-        switch LaunchDecision(entry: entry, isUpdating: false, signer: signer) {
-        case .start:
-            break
-        case .signFirst:
-            guard let fingerprint = signer.fingerprint, let converter = signing.converter(for: signer) else {
-                throw BenchmarkError("nothing signs \(api.apkFile)'s native code")
-            }
-            _ = try await library.resign(id: entry.id, fingerprint: fingerprint, with: converter)
-            entry = await library.entries.first { $0.id == api.package } ?? entry
-        case let decision:
-            throw BenchmarkError("\(api.apkFile) cannot start: \(decision)")
-        }
+        entry = try await BenchmarkConditions.startable(entry, named: api.apkFile, library: library, signing: signing)
 
         // internalDataPath: /data/user/0/<package>/files (GuestStart's paths).
         let files = paths.dataDirectory(for: entry.id).appending(path: "data/files", directoryHint: .isDirectory)
@@ -267,7 +255,7 @@ final class BenchmarkRunner {
         guard self.layer == nil else { return }
         self.layer = layer
         let capacity = BenchPlan.recordingCapacity(seconds: seconds, rate: run.configuration.rate)
-        if (layer as? MinatoMetalLayer)?.startRecording(UInt(capacity)) != true {
+        if !BenchmarkConditions.startRecording(layer, capacity: capacity) {
             notes.append("no recording (the Simulator's layer records nothing)")
         }
     }
@@ -280,7 +268,7 @@ final class BenchmarkRunner {
         clock?.run(false)
         if let reason { notes.insert(reason, at: 0) }
         record.linkPeriodMedianNs = periods.median()
-        record.debugger = record.debugger || Self.isTraced()
+        record.debugger = record.debugger || BenchmarkConditions.isTraced()
         let recording = stopRecording()
         record.take(recording)
 
@@ -304,55 +292,18 @@ final class BenchmarkRunner {
     }
 
     private func stopRecording() -> BenchRecording {
-        guard let layer else {
-            return BenchRecording(qos: "", pixelFormat: 0, drawableWidth: 0, drawableHeight: 0, maxDrawableCount: 0,
-                                  drawables: [], lost: 0)
+        let (recording, unanswered) = BenchmarkConditions.stopRecording(layer)
+        if unanswered > 0 {
+            notes.append("\(unanswered) presented handlers did not run")
         }
-        guard let recording = (layer as? MinatoMetalLayer)?.stopRecording(2) else {
-            return BenchRecording(qos: "", pixelFormat: layer.pixelFormat.rawValue,
-                                  drawableWidth: Int(layer.drawableSize.width),
-                                  drawableHeight: Int(layer.drawableSize.height),
-                                  maxDrawableCount: layer.maximumDrawableCount, drawables: [], lost: 0)
-        }
-        if recording.unanswered > 0 {
-            notes.append("\(recording.unanswered) presented handlers did not run")
-        }
-        let drawables = (0..<recording.count).map { index in
-            let drawable = recording.drawable(index)
-            return BenchDrawable(nextDrawableNs: drawable.next_drawable_ns, presentedNs: drawable.presented_ns)
-        }
-        return BenchRecording(qos: recording.qosName, pixelFormat: recording.pixelFormat.rawValue,
-                              drawableWidth: Int(recording.drawableSize.width),
-                              drawableHeight: Int(recording.drawableSize.height),
-                              maxDrawableCount: Int(recording.maximumDrawableCount), drawables: drawables,
-                              lost: Int(recording.lost))
-    }
-
-    /// Decision 3: a black screen until the thermal state is nominal, at most 10 minutes.
-    private func waitUntilCool() async {
-        let deadline = ContinuousClock.now + .seconds(BenchPlan.thermalWaitSeconds)
-        while ProcessInfo.processInfo.thermalState != .nominal && ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .seconds(1))
-        }
+        return recording
     }
 
     private func observe() {
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification, object: nil,
-                                            queue: .main) { _ in
-            let change = BenchRunRecord.ThermalChange(timeNs: Self.now(), state: Self.thermal())
-            MainActor.assumeIsolated { self.record.thermalChanges.append(change) }
-        })
-        observers.append(center.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil,
-                                            queue: .main) { _ in
-            let low = ProcessInfo.processInfo.isLowPowerModeEnabled
-            MainActor.assumeIsolated { self.record.lowPower = self.record.lowPower || low }
-        })
-        observers.append(center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil,
-                                            queue: .main) { _ in
-            let time = Self.now()
-            MainActor.assumeIsolated { self.record.focusLosses.append(time) }
-        })
+        observers = BenchmarkConditions.observe(
+            thermal: { self.record.thermalChanges.append($0) },
+            lowPower: { self.record.lowPower = self.record.lowPower || $0 },
+            focusLoss: { self.record.focusLosses.append($0) })
     }
 
     private func write(frames: [BenchFrame]) {
@@ -362,36 +313,6 @@ final class BenchmarkRunner {
             try? (notes.joined(separator: "; ") + "\n").write(to: folder.appending(path: "error"), atomically: true,
                                                               encoding: .utf8)
         }
-    }
-
-    /// Host time, the guest's CLOCK_MONOTONIC (F10), and the display link's clock.
-    nonisolated static func now() -> Int64 { Int64(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) }
-
-    nonisolated static func thermal() -> BenchThermal {
-        switch ProcessInfo.processInfo.thermalState {
-        case .nominal: .nominal
-        case .fair: .fair
-        case .serious: .serious
-        default: .critical
-        }
-    }
-
-    private static func batteryState() -> String {
-        switch UIDevice.current.batteryState {
-        case .unplugged: "unplugged"
-        case .charging: "charging"
-        case .full: "full"
-        default: "unknown"
-        }
-    }
-
-    /// Whether a debugger traces the process (P_TRACED), as Apple's Technical Q&A QA1361 checks it.
-    private static func isTraced() -> Bool {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&name, UInt32(name.count), &info, &size, nil, 0) == 0 else { return false }
-        return info.kp_proc.p_flag & P_TRACED != 0
     }
 }
 
@@ -455,27 +376,6 @@ private final class NativeTicks: FrameTickSink, @unchecked Sendable {
 
     func tick(_ tick: FrameTick) {
         self.tick(tick.time)
-    }
-}
-
-/// The display link's intervals during a run, for its median period (decision 6).
-private final class PeriodSink: FrameTickSink, @unchecked Sendable {
-    private let lock = NSLock()
-    private var last: Int64?
-    private var intervals: [Int64] = []
-
-    func tick(_ tick: FrameTick) {
-        lock.withLock {
-            if let last { intervals.append(tick.time - last) }
-            last = tick.time
-        }
-    }
-
-    /// The median by nearest rank, 0 without intervals.
-    func median() -> Int64 {
-        let sorted = lock.withLock { intervals.sorted() }
-        guard !sorted.isEmpty else { return 0 }
-        return sorted[(sorted.count + 1) / 2 - 1]
     }
 }
 #endif
