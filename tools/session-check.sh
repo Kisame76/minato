@@ -33,7 +33,9 @@
 # (build/fixtures/apks/activity-test.apk) on activity-host (ADR-0028 d), through its start, Home and back, and
 # the end that follows its ANativeActivity_finish; its log must be Android 15's
 # (fixtures/expected/activity-test.logcat) apart from the recorded departure: the focus goes at "inactive",
-# before onPause, where Android pauses first. LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
+# before onPause, where Android pauses first; its layer is opaque. TRANSLUCENT=1 runs activity-test's entry
+# activity_test_translucent_onCreate, packed as an app of its own, which asks for RGBA_8888 in onCreate: the
+# session reports the window translucent before any other request, and the layer follows (ADR-0030 V5). LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
 # (build/fixtures/apks/gles-live.apk and, on the iPhone, vulkan-live.apk, which needs MoltenVK): each draws paced
 # by AChoreographer and asks for 120 and 60 Hz in turn every 5 s; game mode goes Home and back, and Quit returns
 # to the library. It checks that the FPS label counts in both windows, that the app ends with "windows 2,
@@ -69,6 +71,7 @@
 #   AWAY        with AUDIO: the seconds the second round stays in Settings (2 when unset)
 #   FPS         only the rounds of the FPS label
 #   ACTIVITY    only test 7, with activity-test
+#   TRANSLUCENT only the round of activity-test's translucent entry
 #   LIVE        only test 8, with the live variants
 #   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
@@ -83,6 +86,7 @@ BUNDLE_ID="io.github.kisame76.minato"
 PKG="io.github.kisame76.minato.check.session"
 ACTIVITY_PKG="io.github.kisame76.minato.test.activity"
 ACTIVITY_APK="build/fixtures/apks/activity-test.apk"
+TRANSLUCENT_PKG="io.github.kisame76.minato.test.activity.translucent"
 GLES_LIVE_PKG="io.github.kisame76.minato.test.gles.live"
 VULKAN_LIVE_PKG="io.github.kisame76.minato.test.vulkan.live"
 AAUDIO_PKG="io.github.kisame76.minato.test.aaudio"
@@ -148,6 +152,20 @@ EOF
 [[ -f build/fixtures/bin/libraw-dyn.so ]] || tools/build-fixtures.sh >/dev/null
 tools/make-apk.sh --manifest "$WORK/AndroidManifest.xml" --lib build/fixtures/bin/libraw-dyn.so \
   --out "$WORK/session-check.apk" >/dev/null
+# activity-test's library under a package of its own, started at its translucent entry (ADR-0030 V5).
+if [[ -n "${TRANSLUCENT:-}" ]]; then
+  mkdir -p "$WORK/translucent"
+  sed -e "s/package=\"$ACTIVITY_PKG\"/package=\"$TRANSLUCENT_PKG\"/" \
+    -e 's|android:label="Activity Test"|android:label="Translucent Test"|' \
+    -e 's|<meta-data android:name="android.app.lib_name" android:value="activity-test"/>|&\
+      <meta-data android:name="android.app.func_name" android:value="activity_test_translucent_onCreate"/>|' \
+    fixtures/apps/activity-test/AndroidManifest.xml > "$WORK/translucent/AndroidManifest.xml"
+  grep -q activity_test_translucent_onCreate "$WORK/translucent/AndroidManifest.xml" \
+    || { echo "The translucent variant's manifest lacks its func_name." >&2; exit 1; }
+  tools/make-apk.sh --manifest "$WORK/translucent/AndroidManifest.xml" --lib build/fixtures/bin/libactivity-test.so \
+    --out "$WORK/translucent/activity-translucent.apk" >/dev/null
+  GUEST_APPS+="$TRANSLUCENT_PKG $WORK/translucent/activity-translucent.apk"$'\n'
+fi
 
 # The app's container: in the Simulator the folder itself, on the iPhone a copy of the files the check
 # uses, which the helpers below fetch and send.
@@ -902,6 +920,39 @@ print("\n".join(lines))
 PY
 }
 
+# The requests of process `pid`, and the opacity its layer had at the start and after each report.
+requests_of() {
+  head -n "$seen" "$EVENTS" | awk -v pid="$1" '$2 == pid && $3 == "request" { printf "%s%s", sep, $4; sep = " " }'
+}
+opacity_of() {
+  head -n "$seen" "$EVENTS" \
+    | awk -v pid="$1" '$2 == pid && $3 == "layer" && $4 == "opaque" { printf "%s%s", sep, $5; sep = " " }'
+}
+
+# ADR-0030 V5: activity-test's translucent entry asks for RGBA_8888 in onCreate. Only the requests and the
+# layer's opacity are checked, since the package's own name changes the paths in its log.
+run_translucent() {
+  begin_round "the translucent window: activity-test's RGBA_8888 entry" || return 0
+  rm -f "$CHECK/no-guest"
+  echo "$TRANSLUCENT_PKG" > "$CHECK/tap"
+  send_requests
+  launch
+  await_event "process gameMode $TRANSLUCENT_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  local pid
+  pid=$(pid_of "$EVENT")
+  await_event 'callback onWindowFocusChanged\(true\)' 20 || { abort_round "the app did not gain the focus"; return; }
+  sleep 1
+  launch com.apple.Preferences
+  await_event "callback onSaveInstanceState" 10 || fail "  no onSaveInstanceState in the background"
+  sleep 1
+  launch
+  await_event "request finish" 20 && ok "  the app finishes itself after its return" || fail "  no FINISH"
+  await_event "program ended .*" 10 || fail "  activity-host did not end"
+  await_event "process library.*" 30 || fail "  no library after the end"
+  expect "  the requests" "windowOpaque(false) keepScreenOn(true) finish" "$(requests_of "$pid")"
+  expect "  the layer's opacity" "1 0" "$(opacity_of "$pid")"
+}
+
 # Test 7: activity-test on activity-host, from the tap through Home and back to the end it asks for itself.
 run_activity() {
   begin_round "test 7: activity-test on activity-host" || return 0
@@ -928,8 +979,9 @@ run_activity() {
     || fail "  no library after the end"
   expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
     "$(callbacks_of "$pid")"
-  expect "  the requests" "keepScreenOn(true) finish" \
-    "$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "request" { printf "%s%s", sep, $4; sep = " " }')"
+  expect "  the requests" "keepScreenOn(true) finish" "$(requests_of "$pid")"
+  # The layer starts opaque, as Android's window from NativeActivity's RGB_565, and stays so (ADR-0030 V5).
+  expect "  the layer's opacity" "1" "$(opacity_of "$pid")"
 
   # The app's lines against Android 15's, with test 7's departure: LOST_FOCUS before PAUSE.
   has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
@@ -1290,7 +1342,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1298,6 +1350,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}
   [[ -n "${PORTRAIT:-}" ]] && run_portrait
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
+  [[ -n "${TRANSLUCENT:-}" ]] && run_translucent
   [[ -n "${ROTATION:-}" ]] && run_rotation
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   if [[ -n "${LIVE:-}" ]]; then

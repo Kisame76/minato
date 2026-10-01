@@ -193,6 +193,7 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_KEEP_SCREEN_ON.rawValue: .keepScreenOn(argument != 0)
         case APKRT_REQUEST_START_FAILED.rawValue: .startFailed(text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_FRAME_RATE.rawValue: .frameRate(bits: argument)
+        case APKRT_REQUEST_WINDOW_OPAQUE.rawValue: .windowOpaque(argument != 0)
         default: nil
         }
     }

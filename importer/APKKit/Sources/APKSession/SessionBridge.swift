@@ -46,6 +46,10 @@ public enum SessionRequest: Sendable, Equatable {
     /// `ANativeWindow_setFrameRate` changed the rate the window prefers, in frames per second, 0 for none
     /// (ADR-0036, decision 2).
     case frameRate(Float)
+    /// The window's opacity changed by Android's `PixelFormat.formatHasAlpha` for the format the app set
+    /// (ADR-0030 V5): opaque from NativeActivity's RGB_565 on, so the first report is false. The host's layer
+    /// follows it.
+    case windowOpaque(Bool)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {

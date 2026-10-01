@@ -349,6 +349,8 @@ struct SessionBridgeTests {
         #expect(SessionRequest.keepScreenOn(true).event == nil)
         #expect(SessionRequest.startFailed("dlopen failed").event == nil)
         #expect(SessionRequest.frameRate(60).event == nil)
+        #expect(SessionRequest.windowOpaque(false).event == nil)
+        #expect(SessionRequest.windowOpaque(true).event == nil)
     }
 
     /// APKRT_REQUEST_FRAME_RATE's argument holds a float's bits (ADR-0036, decision 2).

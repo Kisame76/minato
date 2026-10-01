@@ -26,6 +26,8 @@ final class GameSession {
 
     /// The window's size in pixels at its last layout.
     @ObservationIgnored private(set) var windowPixels = CGSize.zero
+    /// The view's layer, whose opacity follows the window's (ADR-0030 V5).
+    @ObservationIgnored private weak var layer: CAMetalLayer?
     /// The orientation iOS was asked to hold the window in.
     @ObservationIgnored private var heldOrientation: SessionOrientation?
 
@@ -186,6 +188,7 @@ final class GameSession {
 
     /// The view's layer, the host side of every window the guest gets.
     func attach(_ layer: CAMetalLayer) {
+        self.layer = layer
         runtime?.layer = layer
         #if BENCHMARK
         benchmark?.layer(layer)
@@ -424,6 +427,11 @@ final class GameSession {
         motionSink.post(events)
     }
 
+    #if DEBUG
+    /// The layer's opacity, as session-check logs it.
+    var layerIsOpaque: Bool { layer?.isOpaque ?? false }
+    #endif
+
     /// A request of the guest (ADR-0028, decision 4), on the main thread.
     func received(_ request: SessionRequest) {
         #if DEBUG
@@ -437,6 +445,11 @@ final class GameSession {
         case .frameRate:
             // The request handler gave it to the frame clock already.
             break
+        case .windowOpaque(let opaque):
+            layer?.isOpaque = opaque
+            #if DEBUG
+            SessionCheck.event("layer opaque \(layerIsOpaque ? 1 : 0)")
+            #endif
         case .startFailed(let reason):
             log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
             startFailure = reason

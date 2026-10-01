@@ -81,6 +81,9 @@ final class MetalLayerHostView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         isOpaque = true
+        // A background color clears the layer's opacity in UIKit, so the layer is set after it (ADR-0030 V5):
+        // opaque as Android's window from NativeActivity's RGB_565, until the guest's format has alpha.
+        metalLayer.isOpaque = true
         isMultipleTouchEnabled = true
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swipe.maximumNumberOfTouches = 1

@@ -223,6 +223,7 @@ enum SessionCheck {
     static func gameModeStarted(_ session: GameSession) {
         guard isOn else { return }
         event("start window \(Int(session.windowPixels.width))x\(Int(session.windowPixels.height))")
+        event("layer opaque \(session.layerIsOpaque ? 1 : 0)")
         if let status = text(of: "crash").flatMap(Int32.init) {
             try? FileManager.default.removeItem(at: folder.appending(path: "crash"))
             event("crash \(status)")
