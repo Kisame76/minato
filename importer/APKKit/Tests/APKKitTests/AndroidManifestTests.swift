@@ -159,6 +159,24 @@ struct AndroidManifestTests {
         #expect(unset.screenOrientation == nil)
     }
 
+    /// ADR-0038, decision 1.3: whether a session may turn depends on the launcher's `configChanges`, which
+    /// aapt2 writes as a hexadecimal integer.
+    @Test func readsTheLaunchersConfigChanges() throws {
+        let direct = try Self.parse(Self.manifest([], [
+            E("application", [], [
+                E("activity", [.android("name", 0x0101_0003, .string(".Other")), .android("configChanges", 0x0101_001F, .hex(0x80))]),
+                E("activity", [.android("name", 0x0101_0003, .string(".Main")), .android("configChanges", 0x0101_001F, .hex(0x480))],
+                  [Self.launcherFilter]),
+            ]),
+        ]))
+        let unset = try Self.parse(Self.manifest([], [
+            E("application", [], [E("activity", [.android("name", 0x0101_0003, .string(".Main"))], [Self.launcherFilter])]),
+        ]))
+
+        #expect(direct.configChanges == 0x480)
+        #expect(unset.configChanges == nil)
+    }
+
     @Test func defaultsNativeLibraryNameToMain() throws {
         let manifest = try Self.parse(Self.manifest([], [
             E("application", [], [

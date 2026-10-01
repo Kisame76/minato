@@ -84,6 +84,7 @@ final class RuntimeSessionHost: SessionHost {
         case .contentRectChanged(let left, let top, let right, let bottom):
             (APKRT_EVENT_CONTENT_RECT_CHANGED, pair(left, top), pair(right, bottom), 0)
         case .nativeWindowRedrawNeeded(let window): (APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window, 0, 0)
+        case .configurationChanged: (APKRT_EVENT_CONFIGURATION_CHANGED, 0, 0, 0)
         }
     }
 

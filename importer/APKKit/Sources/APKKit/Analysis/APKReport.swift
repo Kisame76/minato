@@ -27,6 +27,9 @@ public struct APKReport: Sendable, Equatable, Codable {
     /// The launcher activity's `android:screenOrientation`, one of ActivityInfo's constants; nil when
     /// unset. Game mode holds the screen by it (ADR-0032).
     public var screenOrientation: Int?
+    /// The launcher activity's `android:configChanges`, ActivityInfo's CONFIG_ flags; nil when unset or in
+    /// reports from before the import read it. Whether a session turns depends on it (ADR-0038).
+    public var configChanges: Int? = nil
     public var runtime: Runtime
     /// For a NativeActivity, the function it calls (`android.app.func_name`); nil in reports from before
     /// the import read it, which then mean Android's default.

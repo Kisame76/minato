@@ -30,6 +30,9 @@ public enum SessionEvent: Sendable, Equatable {
     case nativeWindowResized(window: UInt64, width: Int32, height: Int32)
     case contentRectChanged(left: Int32, top: Int32, right: Int32, bottom: Int32)
     case nativeWindowRedrawNeeded(window: UInt64)
+    /// A turn the activity handles itself (ADR-0038); the configuration keeps its start values, as Android 15's
+    /// asset manager does for such a turn (rotation-test).
+    case configurationChanged
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -116,6 +119,17 @@ public struct SessionBridge: Sendable {
 
     public init(lifecycle: Lifecycle) {
         self.lifecycle = lifecycle
+    }
+
+    /// The window was laid out in `size`: the size the next window gets and, when it changed while the guest
+    /// has a window, a turn of that window (ADR-0038, decision 1.4). A turn between the landscape sides keeps
+    /// the size and changes nothing for the guest.
+    @discardableResult
+    public mutating func windowLaidOut(_ size: PixelSize, host: SessionHost) -> Handled {
+        guard size != windowSize else { return Handled() }
+        windowSize = size
+        guard window != 0 else { return Handled() }
+        return handle(.turned, host: host)
     }
 
     /// Hands `event` to the lifecycle and its callbacks to the host.
@@ -223,6 +237,13 @@ public struct SessionBridge: Sendable {
                 events.append(.contentRectChanged(left: 0, top: 0, right: width, bottom: height))
             }
             return events + [.nativeWindowRedrawNeeded(window: window)]
+        case .onNativeWindowResized:
+            var events = [event]
+            if contentRect != windowSize {
+                contentRect = windowSize
+                events.append(.contentRectChanged(left: 0, top: 0, right: windowSize.width, bottom: windowSize.height))
+            }
+            return events + [.nativeWindowRedrawNeeded(window: window)]
         default:
             return [event]
         }
@@ -241,6 +262,8 @@ public struct SessionBridge: Sendable {
         case .onStop: .stop
         case .onDestroy: .destroy
         case .onLowMemory: .lowMemory
+        case .onConfigurationChanged: .configurationChanged
+        case .onNativeWindowResized: .nativeWindowResized(window: window, width: windowSize.width, height: windowSize.height)
         }
     }
 }

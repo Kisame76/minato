@@ -46,7 +46,54 @@ struct SessionOrientationTests {
         #expect(SessionOrientation.atStart.fits(width: 1320, height: 2868))
     }
 
-    @Test(arguments: [SessionOrientation.landscape, .portrait, .atStart])
+    // ADR-0038, decisions 1.2 and 1.3: a session turns where Android turns the activity without creating it anew.
+
+    /// `orientation` and `screenSize` of ActivityInfo's CONFIG_ constants.
+    static let turnFlags = 0x0080 | 0x0400
+
+    @Test(arguments: [
+        (-1, "unspecified"), (2, "user"), (3, "behind"), (4, "sensor"), (10, "fullSensor"), (13, "fullUser"),
+        (15, "a value from a later Android"),
+    ])
+    func turnsWithBothFlags(value: Int, name: String) {
+        #expect(SessionOrientation(screenOrientation: value, configChanges: Self.turnFlags, targetSdk: 35) == .turns, "\(name)")
+    }
+
+    @Test func turnsWithBothFlagsWithoutAValue() {
+        #expect(SessionOrientation(screenOrientation: nil, configChanges: Self.turnFlags | 0x0020, targetSdk: 35) == .turns)
+    }
+
+    /// Below targetSdk 13 a turn changes no screen size for the app (PackageParser adds CONFIG_SCREEN_SIZE to it).
+    @Test func needsOnlyOrientationBelowTargetSdk13() {
+        #expect(SessionOrientation(screenOrientation: nil, configChanges: 0x0080, targetSdk: 12) == .turns)
+        #expect(SessionOrientation(screenOrientation: nil, configChanges: 0x0080, targetSdk: 13) == .atStart)
+    }
+
+    /// Android creates the activity anew at a turn; Minato keeps the orientation at start instead.
+    @Test(arguments: [nil, 0x0080, 0x0400, 0x0020] as [Int?])
+    func keepsTheOrientationAtStartWithoutBothFlags(flags: Int?) {
+        #expect(SessionOrientation(screenOrientation: -1, configChanges: flags, targetSdk: 35) == .atStart)
+    }
+
+    @Test func aFixedOrLockedValueDoesNotTurnWithTheFlags() {
+        #expect(SessionOrientation(screenOrientation: 6, configChanges: Self.turnFlags, targetSdk: 35) == .landscape)
+        #expect(SessionOrientation(screenOrientation: 1, configChanges: Self.turnFlags, targetSdk: 35) == .portrait)
+        #expect(SessionOrientation(screenOrientation: 5, configChanges: Self.turnFlags, targetSdk: 35) == .portrait)
+        #expect(SessionOrientation(screenOrientation: 14, configChanges: Self.turnFlags, targetSdk: 35) == .atStart)
+    }
+
+    @Test func aTurningSessionAllowsPortraitAndBothLandscapeSides() {
+        #expect(SessionOrientation.turns.orientations == [.portrait, .landscape])
+        #expect(SessionOrientation.landscape.orientations == .landscape)
+        #expect(SessionOrientation.portrait.orientations == .portrait)
+    }
+
+    @Test func anyLaidOutWindowFitsATurningSession() {
+        #expect(SessionOrientation.turns.fits(width: 2868, height: 1320))
+        #expect(SessionOrientation.turns.fits(width: 1320, height: 2868))
+    }
+
+    @Test(arguments: [SessionOrientation.landscape, .portrait, .atStart, .turns])
     func aWindowWithoutASizeFitsNone(orientation: SessionOrientation) {
         #expect(!orientation.fits(width: 0, height: 0))
         #expect(!orientation.fits(width: 1320, height: 0))

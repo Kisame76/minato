@@ -275,4 +275,44 @@ struct LifecycleTests {
         #expect(Self.run([.active, .memoryWarning, .background, .quit], on: &lifecycle) == [[], [], [], []])
         #expect(lifecycle.gate == .gone)
     }
+
+    // ADR-0038, decision 1.4 and test 2: a turn the activity handles itself, in rotation-test's order on
+    // Android 15 (fixtures/expected/rotation-test.logcat): the configuration, then the same window resized.
+
+    @Test func aTurnWhileRunningGivesTheConfigurationThenTheResizeAndKeepsTheFocus() {
+        var lifecycle = Self.running()
+
+        #expect(lifecycle.handle(.turned) == [.onConfigurationChanged, .onNativeWindowResized])
+        #expect(lifecycle.gate == .open)
+    }
+
+    @Test func aTurnWithTheMenuOpenKeepsTheGateClosed() {
+        var lifecycle = Self.running()
+        _ = lifecycle.handle(.menuOpened)
+
+        #expect(lifecycle.handle(.turned) == [.onConfigurationChanged, .onNativeWindowResized])
+        #expect(lifecycle.gate == .closed)
+    }
+
+    /// Without a window there is nothing to resize: the next window has the new size.
+    @Test func aTurnWithoutAWindowGivesNothing() {
+        var fresh = Lifecycle(targetSdk: Self.targetSdk)
+        #expect(fresh.handle(.turned) == [])
+
+        var lifecycle = Self.running()
+        _ = Self.run([.inactive, .background, .answered(.onNativeWindowDestroyed)], on: &lifecycle)
+        #expect(lifecycle.handle(.turned) == [])
+    }
+
+    /// A turn while the host waits for an answer runs after it, as every event does.
+    @Test func aTurnWhileTheHostWaitsComesAfterTheAnswer() {
+        var lifecycle = Self.running()
+        _ = Self.run([.inactive, .background], on: &lifecycle)
+        _ = lifecycle.handle(.foreground)
+        #expect(lifecycle.awaits == .onNativeWindowDestroyed)
+
+        #expect(lifecycle.handle(.turned) == [])
+        let after = lifecycle.handle(.answered(.onNativeWindowDestroyed))
+        #expect(after.suffix(2) == [.onConfigurationChanged, .onNativeWindowResized])
+    }
 }

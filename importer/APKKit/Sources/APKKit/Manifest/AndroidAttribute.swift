@@ -16,6 +16,7 @@ struct AndroidAttribute: Sendable {
     static let enabled = AndroidAttribute(name: "enabled", id: 0x0101_000E)
     static let debuggable = AndroidAttribute(name: "debuggable", id: 0x0101_000F)
     static let screenOrientation = AndroidAttribute(name: "screenOrientation", id: 0x0101_001E)
+    static let configChanges = AndroidAttribute(name: "configChanges", id: 0x0101_001F)
     static let value = AndroidAttribute(name: "value", id: 0x0101_0024)
     static let drawable = AndroidAttribute(name: "drawable", id: 0x0101_0199)
     static let resource = AndroidAttribute(name: "resource", id: 0x0101_0025)

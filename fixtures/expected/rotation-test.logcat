@@ -1,0 +1,35 @@
+I/rotation-test: android_main
+I/rotation-test: start: orientation port
+I/rotation-test: APP_CMD_START
+I/rotation-test: APP_CMD_RESUME
+I/rotation-test: APP_CMD_INPUT_CHANGED
+I/rotation-test: APP_CMD_INIT_WINDOW
+I/rotation-test: init: window portrait
+I/rotation-test: APP_CMD_WINDOW_RESIZED
+I/rotation-test: resized: window portrait
+I/rotation-test: APP_CMD_CONTENT_RECT_CHANGED
+I/rotation-test: content rect portrait
+I/rotation-test: APP_CMD_WINDOW_REDRAW_NEEDED
+I/rotation-test: APP_CMD_GAINED_FOCUS
+I/rotation-test: ready
+I/rotation-test: APP_CMD_CONFIG_CHANGED
+I/rotation-test: APP_CMD_WINDOW_RESIZED
+I/rotation-test: resized: window landscape
+I/rotation-test: APP_CMD_CONTENT_RECT_CHANGED
+I/rotation-test: content rect landscape
+I/rotation-test: APP_CMD_WINDOW_REDRAW_NEEDED
+I/rotation-test: APP_CMD_CONFIG_CHANGED
+I/rotation-test: APP_CMD_WINDOW_RESIZED
+I/rotation-test: resized: window portrait
+I/rotation-test: APP_CMD_CONTENT_RECT_CHANGED
+I/rotation-test: content rect portrait
+I/rotation-test: APP_CMD_WINDOW_REDRAW_NEEDED
+I/rotation-test: before the finish: window portrait
+I/rotation-test: ANativeActivity_finish
+I/rotation-test: APP_CMD_PAUSE
+I/rotation-test: APP_CMD_LOST_FOCUS
+I/rotation-test: APP_CMD_TERM_WINDOW
+I/rotation-test: APP_CMD_STOP
+I/rotation-test: APP_CMD_INPUT_CHANGED
+I/rotation-test: APP_CMD_DESTROY
+I/rotation-test: android_main returns

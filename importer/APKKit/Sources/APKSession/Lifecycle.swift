@@ -20,6 +20,8 @@ public struct Lifecycle: Sendable, Equatable {
         case quit
         /// The guest called ANativeActivity_finish.
         case finish
+        /// The window took another size while the session turns (ADR-0038, decision 1.4).
+        case turned
         /// The guest's callback that the host waits for returned. The answer to one it no longer waits
         /// for, after a timeout, changes nothing.
         case answered(Callback)
@@ -39,6 +41,9 @@ public struct Lifecycle: Sendable, Equatable {
         case onStop
         case onDestroy
         case onLowMemory
+        /// A turn the activity handles itself: the configuration, then its window's new size (ADR-0038).
+        case onConfigurationChanged
+        case onNativeWindowResized
     }
 
     /// Whether the guest may reach the GPU (decision 6).
@@ -135,6 +140,10 @@ public struct Lifecycle: Sendable, Equatable {
             return updateFocus()
         case .memoryWarning:
             return phase == .notStarted ? [] : [.onLowMemory]
+        case .turned:
+            // Android 15's order for a turn the activity handles (rotation-test); without a window, the next
+            // one has the new size.
+            return phase == .resumed ? [.onConfigurationChanged, .onNativeWindowResized] : []
         case .background:
             isInBackground = true
             guard phase == .resumed else { return [] }

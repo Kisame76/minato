@@ -177,3 +177,5 @@ add_subdirectory(apps/vulkan-test)
 # The App chat's audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
 add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)
+# The App chat's turn test app (ADR-0038, test 3).
+add_subdirectory(apps/rotation-test)

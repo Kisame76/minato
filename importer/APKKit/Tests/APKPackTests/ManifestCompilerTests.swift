@@ -71,7 +71,7 @@ struct ManifestCompilerTests {
             <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
             <uses-feature android:name="f" android:required="true" android:glEsVersion="0x00030000" android:version="1"/>
             <application android:label="L" android:hasCode="false" android:extractNativeLibs="false">
-            <activity android:name="a" android:exported="true" android:screenOrientation="landscape"><meta-data android:name="k" android:value="v"/></activity>
+            <activity android:name="a" android:exported="true" android:screenOrientation="landscape" android:configChanges="orientation"><meta-data android:name="k" android:value="v"/></activity>
             </application>
             """).replacingOccurrences(of: #"package="org.example.app""#,
                                       with: #"package="org.example.app" android:versionCode="1" android:versionName="1.0""#)
@@ -88,6 +88,7 @@ struct ManifestCompilerTests {
             "hasCode": 16_842_764,
             "exported": 16_842_768,
             "screenOrientation": 16_842_782,
+            "configChanges": 16_842_783,
             "value": 16_842_788,
             "minSdkVersion": 16_843_276,
             "versionCode": 16_843_291,
@@ -197,6 +198,31 @@ struct ManifestCompilerTests {
         """
     }
 
+    /// The flags of `configChanges` in AOSP's attrs_manifest.xml (android15-release, read 2026-10-01): aapt2
+    /// ORs the names and writes the result as a hexadecimal integer (`TryParseFlagSymbol`), which APKKit
+    /// reads back (ADR-0038, decision 1.3).
+    @Test(arguments: [
+        ("mcc", 0x0001), ("mnc", 0x0002), ("locale", 0x0004), ("touchscreen", 0x0008), ("keyboard", 0x0010),
+        ("keyboardHidden", 0x0020), ("navigation", 0x0040), ("orientation", 0x0080), ("screenLayout", 0x0100),
+        ("uiMode", 0x0200), ("screenSize", 0x0400), ("smallestScreenSize", 0x0800), ("density", 0x1000),
+        ("layoutDirection", 0x2000), ("colorMode", 0x4000), ("grammaticalGender", 0x8000),
+        ("fontScale", 0x4000_0000), ("fontWeightAdjustment", 0x1000_0000),
+        ("orientation|screenSize", 0x0480), ("orientation|screenSize|screenLayout|keyboardHidden", 0x05A0),
+    ] as [(String, UInt32)])
+    func encodesConfigChanges(names: String, value: UInt32) throws {
+        let text = Self.nativeActivity.replacingOccurrences(
+            of: #"android:name="android.app.NativeActivity""#,
+            with: #"android:name="android.app.NativeActivity" android:configChanges="\#(names)""#)
+        let data = try Self.compile(text)
+
+        let attribute = try RawXML(data).element("activity")?.attribute("configChanges")
+        #expect(attribute?.resourceID == 0x0101_001F)
+        #expect(attribute?.type == 0x11)
+        #expect(attribute?.data == value)
+        #expect(attribute?.rawValue == nil)
+        #expect(try AndroidManifest(xml: BinaryXML.parse(data)).configChanges == Int(value))
+    }
+
     @Test(arguments: [
         (#"<application android:theme="x"/>"#, "android:theme"),
         (#"<application debuggable="true"/>"#, "debuggable"),
@@ -211,6 +237,11 @@ struct ManifestCompilerTests {
         (#"<activity android:screenOrientation="sideways"/>"#, "android:screenOrientation"),
         (#"<activity android:screenOrientation="0"/>"#, "android:screenOrientation"),
         (#"<activity android:screenOrientation="Landscape"/>"#, "android:screenOrientation"),
+        (#"<activity android:configChanges="sideways"/>"#, "android:configChanges"),
+        (#"<activity android:configChanges="orientation|"/>"#, "android:configChanges"),
+        (#"<activity android:configChanges="orientation| screenSize"/>"#, "android:configChanges"),
+        (#"<activity android:configChanges=""/>"#, "android:configChanges"),
+        (#"<activity android:configChanges="0x480"/>"#, "android:configChanges"),
         (#"<uses-sdk android:minSdkVersion="Baklava"/>"#, "android:minSdkVersion"),
         (#"<uses-sdk android:minSdkVersion="4294967296"/>"#, "android:minSdkVersion"),
         (#"<application android:hasCode=" true"/>"#, "android:hasCode"),

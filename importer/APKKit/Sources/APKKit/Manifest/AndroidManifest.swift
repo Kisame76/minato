@@ -28,6 +28,8 @@ public struct AndroidManifest: Sendable, Equatable {
     public var launcherActivity: String?
     /// The launcher activity's `android:screenOrientation`, one of ActivityInfo's constants; nil when unset.
     public var screenOrientation: Int?
+    /// The launcher activity's `android:configChanges`, ActivityInfo's CONFIG_ flags; nil when unset.
+    public var configChanges: Int?
     public var usesNativeActivity: Bool
     /// Library that NativeActivity loads (`android.app.lib_name`, default "main").
     public var nativeLibraryName: String?
@@ -109,6 +111,7 @@ public struct AndroidManifest: Sendable, Equatable {
         let launcher = application.flatMap { Self.launcher(in: $0, package: package) }
         launcherActivity = launcher?.className
         screenOrientation = launcher?.element.android(.screenOrientation)?.integer
+        configChanges = launcher?.element.android(.configChanges)?.integer
         usesNativeActivity = launcher?.className == "android.app.NativeActivity"
         if usesNativeActivity {
             // NativeActivity.onCreate reads both from the launcher's meta-data, with these defaults.

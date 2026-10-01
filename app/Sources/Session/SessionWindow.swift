@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         let (mask, held): (UIInterfaceOrientationMask, SessionOrientation) = switch orientation {
         case .landscape: (.landscape, .landscape)
         case .portrait: (.portrait, .portrait)
+        // A session that turns (ADR-0038) allows all three; game mode passes it from step d on.
+        case .turns: (.allButUpsideDown, .turns)
         case .atStart:
             switch scene.effectiveGeometry.interfaceOrientation {
             case .landscapeLeft: (.landscapeLeft, .landscape)

@@ -8,7 +8,7 @@ public enum SampleAPK {
     /// when given; `v3` adds a v3 block, and `sign` signs the archive instead.
     public static func make(package: String = "org.example.game", versionCode: Int32 = 1, label: String = "Sample Game",
                             abis: [String] = ["arm64-v8a"], splitRequired: Bool = false, nativeActivity: Bool = false,
-                            screenOrientation: Int32? = nil, signers: [TestKey] = [.ec],
+                            screenOrientation: Int32? = nil, configChanges: UInt32? = nil, signers: [TestKey] = [.ec],
                             v3: [TestSigner.Signer] = [], signingBlock: Data? = nil,
                             sign: ((ZipBuilder) -> Data)? = nil) -> Data {
         var resources = ARSCBuilder()
@@ -28,6 +28,9 @@ public enum SampleAPK {
             var activityAttributes: [AXMLBuilder.Attribute] = [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))]
             if let screenOrientation {
                 activityAttributes.append(.android("screenOrientation", 0x0101_001E, .int(screenOrientation)))
+            }
+            if let configChanges {
+                activityAttributes.append(.android("configChanges", 0x0101_001F, .hex(configChanges)))
             }
             activities.append(AXMLBuilder.Element("activity", activityAttributes, [
                 AXMLBuilder.Element("meta-data", [

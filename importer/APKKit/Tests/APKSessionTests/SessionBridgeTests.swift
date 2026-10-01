@@ -351,4 +351,42 @@ struct SessionBridgeTests {
         #expect(SessionRequest.frameRate(bits: UInt64(Float(90).bitPattern)) == .frameRate(90))
         #expect(SessionRequest.frameRate(bits: 0) == .frameRate(0))
     }
+
+    // ADR-0038, decision 1.4 and test 2: a layout in another size turns the running window, in rotation-test's
+    // order on Android 15: CONFIG_CHANGED, then the same window resized, its content's rectangle, redraw needed.
+
+    @Test func aTurnPostsTheConfigurationAndTheNewSizeToTheSameWindow() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [
+            .post(.configurationChanged),
+            .post(.nativeWindowResized(window: 1, width: Self.height, height: Self.width)),
+            .post(.contentRectChanged(left: 0, top: 0, right: Self.height, bottom: Self.width)),
+            .post(.nativeWindowRedrawNeeded(window: 1)),
+        ])
+        #expect(bridge.window == 1)
+        #expect(bridge.windowSize == PixelSize(width: Self.height, height: Self.width))
+    }
+
+    /// A turn between the landscape sides keeps the window's size: nothing changes for the guest, as on Android.
+    @Test func aLayoutOfTheSameSizeGivesNothing() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.windowLaidOut(PixelSize(width: Self.width, height: Self.height), host: host)
+        #expect(host.take() == [])
+    }
+
+    /// Before the start and without a window, a layout only sets the size the next window gets.
+    @Test func aLayoutWithoutAWindowSetsTheNextWindowsSize() {
+        let host = FakeHost()
+        var bridge = Self.bridge()
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [])
+
+        bridge.handle(.start, host: host)
+        #expect(host.take().first == .addWindow(width: Self.height, height: Self.width))
+    }
 }

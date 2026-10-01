@@ -306,4 +306,14 @@ struct APKAnalyzerTests {
         #expect(landscape.screenOrientation == 6)
         #expect(unset.screenOrientation == nil)
     }
+
+    @Test func reportsTheLaunchersConfigChanges() throws {
+        // Whether a session may turn (ADR-0038).
+        let turning = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true, configChanges: 0x480)),
+                                              preferredLanguages: [])
+        let unset = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true)), preferredLanguages: [])
+
+        #expect(turning.configChanges == 0x480)
+        #expect(unset.configChanges == nil)
+    }
 }

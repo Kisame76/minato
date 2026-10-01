@@ -9,7 +9,9 @@
 # A test app of fixtures/apps (ADR-0028, test 3; ADR-0036) is installed fresh from build/fixtures/apks,
 # started as the launcher starts it, and left until it finishes itself; activity-test is sent HOME a second
 # after it has its first window and the focus, and started again, before that; input-test gets the gestures
-# of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready". Its lines of
+# of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready"; rotation-test is
+# turned to landscape once it logs "ready" and back to portrait a second after its first change (ADR-0038, test 3),
+# through the window manager's user rotation, which the script restores afterwards. Its lines of
 # logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
@@ -171,7 +173,24 @@ run_app() {
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
   run logcat -c
+  local rotation=""
+  if [[ "$app" == rotation-test ]]; then
+    # The activity leaves its orientation unspecified, so with the rotation locked it follows the user rotation.
+    # "cmd window user-rotation" says "free" or "lock <rotation>", which it takes back as it is.
+    rotation=$(run cmd window user-rotation | tr -d '\r')
+    run cmd window user-rotation lock 0 >/dev/null
+  fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  if [[ "$app" == rotation-test ]]; then
+    local turned=yes
+    { wait_for "$app" ready && run cmd window user-rotation lock 1 >/dev/null &&
+      wait_for "$app" "resized: window landscape" && sleep 1 && run cmd window user-rotation lock 0 >/dev/null; } ||
+      turned=no
+    # Word splitting is wanted: "lock 1" is two arguments.
+    # shellcheck disable=SC2086
+    run cmd window user-rotation $rotation >/dev/null
+    [[ "$turned" == yes ]] || return 1
+  fi
   if [[ "$app" == activity-test ]]; then
     wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
     sleep 1

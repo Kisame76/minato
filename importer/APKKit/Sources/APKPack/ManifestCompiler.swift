@@ -15,6 +15,8 @@ public enum ManifestCompiler {
         case inferred
         /// An enum attribute: one of its names, written as its value in decimal (aapt2's `TryParseEnumSymbol`).
         case enumeration([String: Int32])
+        /// A flag attribute: names joined by "|", written as their OR in hexadecimal (aapt2's `TryParseFlagSymbol`).
+        case flags([String: UInt32])
     }
 
     /// `screenOrientation`'s enum in AOSP's attrs_manifest.xml (read 2026-09-26).
@@ -22,6 +24,15 @@ public enum ManifestCompiler {
         "unspecified": -1, "landscape": 0, "portrait": 1, "user": 2, "behind": 3, "sensor": 4, "nosensor": 5,
         "sensorLandscape": 6, "sensorPortrait": 7, "reverseLandscape": 8, "reversePortrait": 9, "fullSensor": 10,
         "userLandscape": 11, "userPortrait": 12, "fullUser": 13, "locked": 14,
+    ]
+
+    /// `configChanges`' flags in AOSP's attrs_manifest.xml (android15-release, read 2026-10-01).
+    static let configChanges: [String: UInt32] = [
+        "mcc": 0x0001, "mnc": 0x0002, "locale": 0x0004, "touchscreen": 0x0008, "keyboard": 0x0010,
+        "keyboardHidden": 0x0020, "navigation": 0x0040, "orientation": 0x0080, "screenLayout": 0x0100,
+        "uiMode": 0x0200, "screenSize": 0x0400, "smallestScreenSize": 0x0800, "density": 0x1000,
+        "layoutDirection": 0x2000, "colorMode": 0x4000, "grammaticalGender": 0x8000,
+        "fontScale": 0x4000_0000, "fontWeightAdjustment": 0x1000_0000,
     ]
 
     struct Definition: Sendable {
@@ -37,6 +48,7 @@ public enum ManifestCompiler {
         "hasCode": Definition(id: 0x0101_000C, encoding: .boolean),
         "exported": Definition(id: 0x0101_0010, encoding: .boolean),
         "screenOrientation": Definition(id: 0x0101_001E, encoding: .enumeration(screenOrientations)),
+        "configChanges": Definition(id: 0x0101_001F, encoding: .flags(configChanges)),
         "value": Definition(id: 0x0101_0024, encoding: .inferred),
         "minSdkVersion": Definition(id: 0x0101_020C, encoding: .integer),
         "versionCode": Definition(id: 0x0101_021B, encoding: .integer),
@@ -207,6 +219,12 @@ public enum ManifestCompiler {
                     throw fail(line, "\(name) must be one of \(values.keys.sorted().joined(separator: ", ")), not \"\(value)\"")
                 }
                 return .int(number)
+            case .flags(let values):
+                let names = value.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                guard let flags = names.map({ values[$0] }) as? [UInt32] else {
+                    throw fail(line, "\(name) must be names of \(values.keys.sorted().joined(separator: ", ")) joined by |, not \"\(value)\"")
+                }
+                return .hex(flags.reduce(0, |))
             }
         }
 
