@@ -72,6 +72,7 @@
 #   FPS         only the rounds of the FPS label
 #   ACTIVITY    only test 7, with activity-test
 #   TRANSLUCENT only the round of activity-test's translucent entry
+#   GUEST_ENV   only the round of the Debug guest environment
 #   LIVE        only test 8, with the live variants
 #   LIVE_BY_HAND  with --device: only test 8's round by hand, with vulkan-live
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
@@ -117,7 +118,7 @@ fi
 # The fixture apps this run imports beside the test app, one "<package> <APK>" per line. The Simulator has no
 # MoltenVK (ADR-0030, decision 8), so vulkan-live runs only on the iPhone.
 GUEST_APPS=""
-[[ -z "${ACTIVITY:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
+[[ -z "${ACTIVITY:-}${GUEST_ENV:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 [[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
@@ -953,6 +954,38 @@ run_translucent() {
   expect "  the layer's opacity" "1 0" "$(opacity_of "$pid")"
 }
 
+# The Debug guest environment (ADR-0030 V5's data step): the file goes into the container's tmp/ as that one file;
+# on the iPhone devicectl copies only it, never with --remove-existing-content, which empties the container.
+put_guest_environment() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$1" --destination "tmp/guest-environment"
+  else
+    mkdir -p "$CONTAINER/tmp"
+    cp "$1" "$CONTAINER/tmp/guest-environment"
+  fi
+}
+
+# A Debug build hands the file's MINATO_* entries to the guest at its start and skips the rest, naming each.
+run_guest_env() {
+  begin_round "the Debug guest environment: tmp/guest-environment" || return 0
+  rm -f "$CHECK/no-guest"
+  printf '# session-check\nMINATO_CHECK=1\nPATH=/nowhere\n' > "$WORK/guest-environment"
+  put_guest_environment "$WORK/guest-environment"
+  echo "$ACTIVITY_PKG" > "$CHECK/tap"
+  echo 2 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $ACTIVITY_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "guest environment MINATO_CHECK=1" 20 && ok "  MINATO_CHECK=1 reaches the guest's start" \
+    || fail "  no MINATO_CHECK=1 at the guest's start"
+  await_event "guest environment skipped PATH" 5 && ok "  PATH is skipped" || fail "  PATH was not skipped"
+  await_event "quit" 15 && ok "  Quit" || fail "  no Quit"
+  await_event "process library.*" 30 || fail "  no library after Quit"
+  # An empty file passes nothing; on the iPhone it cannot be deleted.
+  : > "$WORK/guest-environment"
+  put_guest_environment "$WORK/guest-environment"
+}
+
 # Test 7: activity-test on activity-host, from the tap through Home and back to the end it asks for itself.
 run_activity() {
   begin_round "test 7: activity-test on activity-host" || return 0
@@ -1342,7 +1375,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1351,6 +1384,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   [[ -n "${FPS:-}" ]] && run_fps
   [[ -n "${ACTIVITY:-}" ]] && run_activity
   [[ -n "${TRANSLUCENT:-}" ]] && run_translucent
+  [[ -n "${GUEST_ENV:-}" ]] && run_guest_env
   [[ -n "${ROTATION:-}" ]] && run_rotation
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   if [[ -n "${LIVE:-}" ]]; then

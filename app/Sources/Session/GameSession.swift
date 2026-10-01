@@ -257,6 +257,8 @@ final class GameSession {
         let data = paths.dataDirectory(for: entry.id)
         #if BENCHMARK
         let environment = BenchmarkMode.guestEnvironment
+        #elseif DEBUG
+        let environment = Self.debugGuestEnvironment()
         #else
         let environment: [String] = []
         #endif
@@ -278,6 +280,26 @@ final class GameSession {
             regionCode: language.region?.identifier ?? Locale.current.region?.identifier)
         return (start, configuration)
     }
+
+    #if DEBUG
+    /// tmp/guest-environment's MINATO_* entries for the guest (ADR-0030 V5's data step), such as libvulkan's
+    /// MINATO_VULKAN_BGRA8_FIRST=1: a restarted process gets no launch arguments, so a file in Minato's
+    /// container carries them. Each entry and each skipped line is logged. Release builds have none of it.
+    private static func debugGuestEnvironment() -> [String] {
+        let file = URL.temporaryDirectory.appending(path: "guest-environment")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        let parsed = DebugGuestEnvironment.parse(text)
+        for entry in parsed.entries {
+            log.notice("guest environment (Debug): \(entry, privacy: .public)")
+            SessionCheck.event("guest environment \(entry)")
+        }
+        for skipped in parsed.skipped {
+            log.error("guest environment (Debug): \(skipped, privacy: .public) skipped, only MINATO_* keys pass")
+            SessionCheck.event("guest environment skipped \(skipped)")
+        }
+        return parsed.entries
+    }
+    #endif
 
     /// The guest cannot start: the library tells why at its next start (decision 8).
     private func couldNotStart(_ reason: String) {
