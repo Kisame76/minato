@@ -6,13 +6,22 @@ import Testing
 
 @Suite("APKLayout")
 struct LayoutTests {
-    static func manifest(extractNativeLibs: String? = "false", libraryName: String = "activity-test") throws -> Data {
+    static func manifest(extractNativeLibs: String? = "false", libraryName: String = "activity-test",
+                         hasCode: String? = "false") throws -> Data {
         var text = ManifestCompilerTests.nativeActivity
             .replacingOccurrences(of: #"android:value="activity-test""#, with: #"android:value="\#(libraryName)""#)
         let attribute = #" android:extractNativeLibs="false""#
         text = text.replacingOccurrences(of: attribute, with: extractNativeLibs.map { #" android:extractNativeLibs="\#($0)""# } ?? "")
+        text = text.replacingOccurrences(of: #" android:hasCode="false""#, with: hasCode.map { #" android:hasCode="\#($0)""# } ?? "")
         return try ManifestCompiler.compile(Data(text.utf8), file: "AndroidManifest.xml")
     }
+
+    /// A DEX file as far as make-apk reads it: the magic "dex\n", a version of three digits and a NUL.
+    static func dex(_ fill: UInt8 = 0x44, version: String = "035") -> Data {
+        Data("dex\n\(version)\0".utf8) + Data(repeating: fill, count: 300)
+    }
+
+    static let nativeActivityLibrary = PackFile(name: "libactivity-test.so", contents: library())
 
     /// The start of an AArch64 shared library (e_machine 183), as ELFProbe reads it.
     static func library(machine: UInt16 = 183) -> Data {
@@ -197,6 +206,104 @@ struct LayoutTests {
         }
 
         #expect(error.file == "a.txt")
+    }
+
+    // MARK: - Java code (ADR-0039, decision 11)
+
+    static func packCode(_ dex: [PackFile], hasCode: String? = nil) throws -> Data {
+        try APKLayout.build(manifest: manifest(hasCode: hasCode), dex: dex, libraries: [nativeActivityLibrary],
+                            assets: [PackFile(name: "a.txt", contents: Data("a".utf8))])
+    }
+
+    /// ART maps a DEX entry in place when it is stored and 4-byte aligned, and extracts it otherwise
+    /// (dex_file_loader.cc); its names run classes.dex, classes2.dex, … in that order.
+    @Test func storesDexFilesAlignedRightAfterTheManifest() throws {
+        let archive = try ZipArchive(data: Self.packCode([
+            PackFile(name: "classes10.dex", contents: Self.dex(0x0A)),
+            PackFile(name: "classes2.dex", contents: Self.dex(0x02)),
+            PackFile(name: "classes.dex", contents: Self.dex(0x01)),
+        ] + (3...9).map { PackFile(name: "classes\($0).dex", contents: Self.dex(UInt8($0))) }))
+
+        #expect(archive.entries.map(\.name) == ["AndroidManifest.xml", "classes.dex"]
+            + (2...10).map { "classes\($0).dex" } + ["lib/arm64-v8a/libactivity-test.so", "assets/a.txt"])
+        for entry in archive.entries where entry.name.hasSuffix(".dex") {
+            #expect(entry.method == .stored, "\(entry.name)")
+            #expect(try archive.dataOffset(of: entry) % 4 == 0, "\(entry.name)")
+        }
+        #expect(try archive.data(named: "classes.dex") == Self.dex(0x01))
+        #expect(try archive.data(named: "classes10.dex") == Self.dex(0x0A))
+    }
+
+    @Test(arguments: [nil, "true"] as [String?])
+    func readsBackAsAnAppWithJavaCode(hasCode: String?) throws {
+        let report = try APKAnalyzer.analyze(
+            ZipArchive(data: Self.packCode([PackFile(name: "classes.dex", contents: Self.dex())], hasCode: hasCode)),
+            preferredLanguages: ["en"])
+
+        #expect(report.compatibility.issues.contains(.needsART))
+    }
+
+    /// ART opens classes.dex, then classes2.dex and up; it never looks for any other name.
+    @Test(arguments: ["dex.dex", "classes1.dex", "classes02.dex", "Classes.dex", "classes.dex.bak", "classes2.DEX"])
+    func refusesDexNamesARTNeverOpens(name: String) throws {
+        let error = try #require(throws: PackError.self) {
+            try Self.packCode([PackFile(name: "classes.dex", contents: Self.dex()), PackFile(name: name, contents: Self.dex())])
+        }
+
+        #expect(error.file == name)
+        #expect(error.message.contains("classes.dex, classes2.dex"), "\(error.message)")
+    }
+
+    /// ART stops at the first missing name, so every DEX file after a gap would never load.
+    @Test(arguments: [(["classes.dex", "classes3.dex"], "classes3.dex", "classes2.dex"),
+                      (["classes2.dex"], "classes2.dex", "classes.dex")])
+    func refusesAGapInTheDexNames(names: [String], file: String, missing: String) throws {
+        let error = try #require(throws: PackError.self) {
+            try Self.packCode(names.map { PackFile(name: $0, contents: Self.dex()) })
+        }
+
+        #expect(error.file == file)
+        #expect(error.message.contains("\(missing) is missing"), "\(error.message)")
+    }
+
+    @Test func refusesTwoDexFilesWithTheSameName() throws {
+        let error = try #require(throws: PackError.self) {
+            try Self.packCode([PackFile(name: "classes.dex", contents: Self.dex()),
+                               PackFile(name: "classes.dex", contents: Self.dex(0x01))])
+        }
+
+        #expect(error.file == "classes.dex")
+        #expect(error.message == "given twice")
+    }
+
+    @Test(arguments: [Data("not a dex file".utf8), LayoutTests.dex(version: "03x"), Data("dex\n035".utf8),
+                      LayoutTests.library()])
+    func refusesFilesThatAreNotDex(contents: Data) throws {
+        let error = try #require(throws: PackError.self) {
+            try Self.packCode([PackFile(name: "classes.dex", contents: contents, origin: "build/classes.dex")])
+        }
+
+        #expect(error.file == "build/classes.dex")
+        #expect(error.message.hasPrefix("not a DEX file"), "\(error.message)")
+    }
+
+    /// Android never loads the code of an app that says it has none.
+    @Test func refusesDexWhenTheManifestSaysThereIsNoCode() throws {
+        let error = try #require(throws: PackError.self) {
+            try Self.packCode([PackFile(name: "classes.dex", contents: Self.dex())], hasCode: "false")
+        }
+
+        #expect(error.file == "classes.dex")
+        #expect(error.message.contains(#"android:hasCode="false""#), "\(error.message)")
+    }
+
+    /// Android 15 refuses to install it: ScanPackageUtils.assertCodePolicy, "code is missing".
+    @Test(arguments: [nil, "true"] as [String?])
+    func refusesAManifestWithCodeButNoDex(hasCode: String?) throws {
+        let error = try #require(throws: PackError.self) { try Self.packCode([], hasCode: hasCode) }
+
+        #expect(error.file == "classes.dex")
+        #expect(error.message.contains("code is missing"), "\(error.message)")
     }
 
     @Test func takesAssetsFromAFolderWithoutHiddenFiles() throws {

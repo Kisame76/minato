@@ -9,25 +9,30 @@ public struct MakeAPKOptions: Equatable, Sendable {
     public var output: String
     /// The folder of the key that signs, instead of the debug key: a test app of another signer (ADR-0034).
     public var key: String?
+    /// D8's output, classes.dex, classes2.dex, …: the app's Java code (ADR-0039, decision 11).
+    public var dex: [String]
 
-    public init(manifest: String, libraries: [String], assets: String?, output: String, key: String? = nil) {
+    public init(manifest: String, libraries: [String], assets: String?, output: String, key: String? = nil,
+                dex: [String] = []) {
         self.manifest = manifest
         self.libraries = libraries
         self.assets = assets
         self.output = output
         self.key = key
+        self.dex = dex
     }
 
-    /// `--manifest` and `--out` once each, `--lib` any number of times, `--assets` and `--key` at most once.
+    /// `--manifest` and `--out` once each, `--lib` and `--dex` any number of times, `--assets` and `--key` at most once.
     public static func parse(_ arguments: [String]) throws -> MakeAPKOptions {
         var manifest: String?
         var libraries: [String] = []
         var assets: String?
         var output: String?
         var key: String?
+        var dex: [String] = []
         var remaining = arguments[...]
         while let option = remaining.popFirst() {
-            guard ["--manifest", "--lib", "--assets", "--out", "--key"].contains(option) else {
+            guard ["--manifest", "--lib", "--dex", "--assets", "--out", "--key"].contains(option) else {
                 throw UsageError(message: "unknown argument \(option)")
             }
             // A value that is empty or looks like an option means the value was left out.
@@ -37,6 +42,8 @@ public struct MakeAPKOptions: Equatable, Sendable {
             switch option {
             case "--lib":
                 libraries.append(value)
+            case "--dex":
+                dex.append(value)
             case "--manifest":
                 guard manifest == nil else { throw UsageError(message: "--manifest is given twice") }
                 manifest = value
@@ -53,7 +60,8 @@ public struct MakeAPKOptions: Equatable, Sendable {
         }
         guard let manifest else { throw UsageError(message: "--manifest is missing") }
         guard let output else { throw UsageError(message: "--out is missing") }
-        return MakeAPKOptions(manifest: manifest, libraries: libraries, assets: assets, output: output, key: key)
+        return MakeAPKOptions(manifest: manifest, libraries: libraries, assets: assets, output: output, key: key,
+                              dex: dex)
     }
 }
 
@@ -63,7 +71,7 @@ public struct UsageError: Error, Equatable, Sendable {
 
     public static let exitStatus: Int32 = 64
     public static let usage =
-        "usage: make-apk --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--assets <folder>] [--key <folder>] --out <file.apk>"
+        "usage: make-apk --manifest <AndroidManifest.xml> [--lib <lib*.so>]... [--dex <classes*.dex>]... [--assets <folder>] [--key <folder>] --out <file.apk>"
 }
 
 /// make-apk: packs one of our test apps into an APK signed with the debug key (ADR-0031).
@@ -116,8 +124,11 @@ public enum MakeAPK {
         let libraries = try options.libraries.map { path in
             PackFile(name: URL(fileURLWithPath: path).lastPathComponent, contents: try read(path), origin: path)
         }
+        let dex = try options.dex.map { path in
+            PackFile(name: URL(fileURLWithPath: path).lastPathComponent, contents: try read(path), origin: path)
+        }
         let assets = try options.assets.map(Self.assets(in:)) ?? []
-        let unsigned = try APKLayout.build(manifest: manifest, libraries: libraries, assets: assets)
+        let unsigned = try APKLayout.build(manifest: manifest, dex: dex, libraries: libraries, assets: assets)
         let key = options.key.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? keyFolder
         return try APKSigner.sign(unsigned, with: DebugKey.load(from: key))
     }

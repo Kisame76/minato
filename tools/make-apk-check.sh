@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks make-apk from end to end (ADR-0031 c): packs three sample apps with tools/make-apk.sh and
+# Checks make-apk from end to end (ADR-0031 c): packs four sample apps with tools/make-apk.sh and
 # checks each signature with tools/apk-check.py. With --android it also installs them on the running
 # Android emulator, compares what `dumpsys package` read with their manifests, and uninstalls them.
 #   manifest-only     a manifest without code and without a library
@@ -8,7 +8,11 @@
 #                     and screenOrientation="sensorLandscape"
 #   deflated-library  a NativeActivity with extractNativeLibs="true": a deflated library, assets, and
 #                     screenOrientation="reversePortrait"
+#   java-code         the stored library's app with Java code (ADR-0039, decision 11): hasCode left
+#                     out, so true, and a classes.dex that javac and D8 make from one class against the
+#                     boot jars, never android.jar; Android's install verifies the DEX file
 # The library is build/fixtures/bin/libraw-dyn.so from tools/build-fixtures.sh; Android only installs it.
+# The JDK and D8 come from tools/fetch-sources.py --set art, the boot jars' classes from tools/build-art.sh.
 # Usage: tools/make-apk-check.sh [--android]
 # Results: build/make-apk-check/<sample>.apk, and with --android <sample>.dumpsys and <sample>.resolve
 # Optional environment:
@@ -27,9 +31,20 @@ SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 ADB="$SDK/platform-tools/adb"
 LIBRARY=build/fixtures/bin/libraw-dyn.so
 OUT=build/make-apk-check
+JDK=$(echo build/tools/jdk-17/*/Contents/Home)
+R8=build/sources/r8/r8.jar
+BOOT_CLASSES=build/art/java/all-classes.jar
 
 if [[ ! -f "$LIBRARY" ]]; then
   echo "No $LIBRARY: run tools/build-fixtures.sh first." >&2
+  exit 1
+fi
+if [[ ! -x "$JDK/bin/javac" || ! -f "$R8" ]]; then
+  echo "No JDK 17 in build/tools/jdk-17 or no D8 in $R8: run tools/fetch-sources.py --set art." >&2
+  exit 1
+fi
+if [[ ! -f "$BOOT_CLASSES" ]]; then
+  echo "No $BOOT_CLASSES: run tools/build-art.sh first." >&2
   exit 1
 fi
 serial=""
@@ -56,13 +71,34 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 failed=0
 
-# sample <name> <package> <versionCode> <extractNativeLibs, or empty> <library: yes or no>
+# The classes.dex of the java-code sample in <folder>/dex: javac against the boot jars' classes, then D8.
+dex() {
+  local folder=$1
+  mkdir -p "$folder/src" "$folder/classes" "$folder/dex"
+  cat >"$folder/src/Hello.java" <<'JAVA'
+package io.github.kisame76.minato.check.code;
+
+public final class Hello {
+    public static String greeting() {
+        return "hello from classes.dex";
+    }
+}
+JAVA
+  "$JDK/bin/javac" -source 8 -target 8 -bootclasspath "$BOOT_CLASSES" -nowarn -d "$folder/classes" \
+    "$folder/src/Hello.java" 2>/dev/null \
+    && "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
+      --output "$folder/dex" "$folder/classes/io/github/kisame76/minato/check/code/Hello.class"
+}
+
+# sample <name> <package> <versionCode> <extractNativeLibs, or empty> <library: yes or no> <code: yes or no>
 #        [<screenOrientation> <its value in ActivityInfo>]
 sample() {
-  local name=$1 package=$2 version=$3 extract=$4 library=$5 orientation=${6:-} orientation_value=${7:-}
-  local folder="$OUT/$name" apk="$OUT/$name.apk" attribute="" activity=""
+  local name=$1 package=$2 version=$3 extract=$4 library=$5 code=$6 orientation=${7:-} orientation_value=${8:-}
+  local folder="$OUT/$name" apk="$OUT/$name.apk" attribute="" activity="" has_code=' android:hasCode="false"'
   mkdir -p "$folder/assets/sub"
   [[ -z "$extract" ]] || attribute=" android:extractNativeLibs=\"$extract\""
+  # Left out, hasCode is true.
+  [[ "$code" == no ]] || has_code=""
   if [[ "$library" == yes ]]; then
     activity="    <activity android:name=\"android.app.NativeActivity\" android:exported=\"true\" android:screenOrientation=\"$orientation\">"
     activity+='
@@ -78,7 +114,7 @@ sample() {
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="$package" android:versionCode="$version" android:versionName="1.$version">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
-  <application android:label="make-apk check $name" android:hasCode="false"$attribute>
+  <application android:label="make-apk check $name"$has_code$attribute>
 $activity
   </application>
 </manifest>
@@ -88,6 +124,14 @@ EOF
 
   local arguments=(--manifest "$folder/AndroidManifest.xml" --out "$apk")
   [[ "$library" == yes ]] && arguments+=(--lib "$LIBRARY" --assets "$folder/assets")
+  if [[ "$code" == yes ]]; then
+    if ! dex "$folder"; then
+      echo "FAILED   $name: javac or D8"
+      failed=$((failed + 1))
+      return
+    fi
+    arguments+=(--dex "$folder/dex/classes.dex")
+  fi
   if ! tools/make-apk.sh "${arguments[@]}"; then
     echo "FAILED   $name: make-apk"
     failed=$((failed + 1))
@@ -126,8 +170,10 @@ EOF
   flags=$(grep -E "^ +pkgFlags=" <<<"$dump") || true
   if [[ -z "$flags" ]]; then
     problems+=" dumpsys package has no pkgFlags line;"
-  elif [[ "$flags" == *HAS_CODE* ]]; then
+  elif [[ "$code" == no && "$flags" == *HAS_CODE* ]]; then
     problems+=" dumpsys package shows HAS_CODE, although hasCode is false;"
+  elif [[ "$code" == yes && "$flags" != *HAS_CODE* ]]; then
+    problems+=" dumpsys package lacks HAS_CODE, although the app has classes.dex;"
   fi
   # ActivityInfo.dump prints screenOrientation when it is not unspecified.
   if [[ "$library" == yes ]]; then
@@ -149,12 +195,13 @@ EOF
   fi
 }
 
-sample manifest-only io.github.kisame76.minato.check.manifest 1 "" no
-sample stored-library io.github.kisame76.minato.check.stored 2 false yes sensorLandscape 6
-sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes reversePortrait 9
+sample manifest-only io.github.kisame76.minato.check.manifest 1 "" no no
+sample stored-library io.github.kisame76.minato.check.stored 2 false yes no sensorLandscape 6
+sample deflated-library io.github.kisame76.minato.check.deflated 3 true yes no reversePortrait 9
+sample java-code io.github.kisame76.minato.check.code 4 false yes yes sensorLandscape 6
 
 if [[ $failed -gt 0 ]]; then
-  echo "make-apk check: $failed of 3 samples failed"
+  echo "make-apk check: $failed of 4 samples failed"
   exit 1
 fi
-echo "make-apk check: 3 of 3 samples fine${android:+ on Android}"
+echo "make-apk check: 4 of 4 samples fine${android:+ on Android}"

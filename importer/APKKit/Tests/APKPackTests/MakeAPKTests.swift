@@ -12,11 +12,13 @@ struct MakeAPKTests {
     @Test func readsEveryOption() throws {
         let options = try MakeAPKOptions.parse([
             "--manifest", "app/AndroidManifest.xml", "--lib", "build/liba.so", "--assets", "app/assets",
-            "--lib", "build/libb.so", "--out", "build/app.apk", "--key", "keys/other",
+            "--lib", "build/libb.so", "--out", "build/app.apk", "--key", "keys/other", "--dex", "build/classes.dex",
+            "--dex", "build/classes2.dex",
         ])
 
         #expect(options == MakeAPKOptions(manifest: "app/AndroidManifest.xml", libraries: ["build/liba.so", "build/libb.so"],
-                                          assets: "app/assets", output: "build/app.apk", key: "keys/other"))
+                                          assets: "app/assets", output: "build/app.apk", key: "keys/other",
+                                          dex: ["build/classes.dex", "build/classes2.dex"]))
     }
 
     @Test func needsNeitherLibrariesNorAssets() throws {
@@ -37,6 +39,8 @@ struct MakeAPKTests {
         ["--manifest", "m.xml", "--out", "a.apk", "--out", "b.apk"],
         ["--manifest", "m.xml", "--out", "a.apk", "--lib"],
         ["--manifest", "m.xml", "--out", "a.apk", "--key"],
+        ["--manifest", "m.xml", "--out", "a.apk", "--dex"],
+        ["--manifest", "m.xml", "--dex", "--out", "a.apk"],
         ["--manifest", "m.xml", "--key", "a", "--key", "b", "--out", "a.apk"],
         ["--manifest", "--out", "--out", "a.apk"],
         ["--manifest", "", "--out", "a.apk"],
@@ -127,6 +131,45 @@ struct MakeAPKTests {
         let certificate = try DebugKey.load(from: other).certificate
         #expect(signer?.current == [SigningCertificate(der: certificate).sha256])
         #expect(try DebugKey.load(from: Self.keyFolder).certificate != certificate)
+    }
+
+    /// An app with Java code: the manifest leaves hasCode at its default, true, and D8's output comes with --dex
+    /// (ADR-0039, decision 11).
+    @Test func packsJavaCode() throws {
+        let project = try Self.project()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let manifest = project.appending(path: "AndroidManifest.xml")
+        try Data(ManifestCompilerTests.nativeActivity.replacingOccurrences(of: #" android:hasCode="false""#, with: "").utf8)
+            .write(to: manifest)
+        let d8 = project.appending(path: "build/d8", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: d8, withIntermediateDirectories: true)
+        try LayoutTests.dex(0x01).write(to: d8.appending(path: "classes.dex"))
+        try LayoutTests.dex(0x02).write(to: d8.appending(path: "classes2.dex"))
+        let apk = project.appending(path: "java.apk")
+
+        let (status, errors) = Self.run(project, ["--dex", d8.appending(path: "classes2.dex").path,
+                                                  "--dex", d8.appending(path: "classes.dex").path, "--out", apk.path])
+
+        #expect(status == 0, "\(errors)")
+        let data = try Data(contentsOf: apk)
+        let archive = try ZipArchive(data: data)
+        #expect(archive.entries.map(\.name) == ["AndroidManifest.xml", "classes.dex", "classes2.dex",
+                                                "lib/arm64-v8a/libactivity-test.so"])
+        #expect(try archive.data(named: "classes2.dex") == LayoutTests.dex(0x02))
+        #expect(try SigningTests.apkCheck(data).contains("RESULT: signatures valid"))
+    }
+
+    @Test func namesADexFileByItsPath() throws {
+        let project = try Self.project()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let dex = project.appending(path: "deep/dir/classes.dex")
+        try FileManager.default.createDirectory(at: dex.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not dex".utf8).write(to: dex)
+
+        let (status, errors) = Self.run(project, ["--dex", dex.path, "--out", project.appending(path: "app.apk").path])
+
+        #expect(status == 1)
+        #expect(errors.contains("\(dex.path): not a DEX file"), "\(errors)")
     }
 
     @Test func namesTheFileAndLineOfAProblemAndWritesNothing() throws {

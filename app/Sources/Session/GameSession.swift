@@ -218,7 +218,8 @@ final class GameSession {
         started = true
         guard let runtime else { return deliver(.start) }
         guard let (start, configuration) = guestStart(scale: runtime.layer?.contentsScale ?? 1) else {
-            return couldNotStart("it is not a NativeActivity app")
+            guard case .nativeActivity = entry.report?.runtime else { return couldNotStart("it is not a NativeActivity app") }
+            return couldNotStart("its base.apk has no valid SHA-256, which names its code path")
         }
         #if DEBUG
         SessionCheck.guestStarts()

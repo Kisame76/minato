@@ -1,7 +1,7 @@
 import APKKit
 import Foundation
 
-/// A file to pack: its name in the APK below `lib/arm64-v8a/` or `assets/`, its bytes, and where it
+/// A file to pack: its name in the APK (at the top for DEX files, below `lib/arm64-v8a/` or `assets/`), its bytes, and where it
 /// comes from, which a message names; by default its name.
 public struct PackFile: Sendable, Equatable {
     public var name: String
@@ -16,7 +16,8 @@ public struct PackFile: Sendable, Equatable {
 }
 
 /// The unsigned APK, laid out as aapt2 and `zipalign -P 16 4` lay it out (ADR-0031): the manifest
-/// first and deflated, then the libraries, then the assets, each group in byte order of its names.
+/// first and deflated, then the DEX files in ART's order, then the libraries, then the assets, each of
+/// these two groups in byte order of its names.
 public enum APKLayout {
     /// Extensions that aapt2 stores uncompressed because they are compressed already (the defaults
     /// in aapt2's Link.cpp; it compares case-sensitively, and so does make-apk).
@@ -32,9 +33,11 @@ public enum APKLayout {
     /// Where every other stored entry starts, as zipalign's default.
     static let storedAlignment = 4
 
-    /// `manifest` is the compiled binary XML; libraries go to `lib/arm64-v8a/`, assets to `assets/`.
-    public static func build(manifest: Data, libraries: [PackFile], assets: [PackFile]) throws -> Data {
+    /// `manifest` is the compiled binary XML; DEX files go to the top, named classes.dex, classes2.dex, …
+    /// (ADR-0039, decision 11), libraries to `lib/arm64-v8a/`, assets to `assets/`.
+    public static func build(manifest: Data, dex: [PackFile] = [], libraries: [PackFile], assets: [PackFile]) throws -> Data {
         let parsed = try AndroidManifest(xml: BinaryXML.parse(manifest))
+        let code = try inARTsOrder(dex, for: parsed)
         try check(libraries, for: parsed)
         // Android's zip reader refuses an APK with two entries of the same name.
         var assetNames = Set<String>()
@@ -46,6 +49,10 @@ public enum APKLayout {
         let storesLibraries = parsed.extractNativeLibs == false
         var zip = ZipBuilder()
         zip.add("AndroidManifest.xml", manifest, method: .deflated)
+        // Stored and aligned, ART maps a DEX file in place; otherwise it extracts it to memory (dex_file_loader.cc).
+        for file in code {
+            zip.add(file.name, file.contents, method: .stored, alignment: storedAlignment)
+        }
         for library in libraries.sorted(by: inByteOrder) {
             zip.add("lib/arm64-v8a/\(library.name)", library.contents, method: storesLibraries ? .stored : .deflated,
                     alignment: storesLibraries ? libraryAlignment : nil)
@@ -56,6 +63,58 @@ public enum APKLayout {
                     alignment: stored ? storedAlignment : nil)
         }
         return zip.build().data
+    }
+
+    /// The DEX files ordered as ART opens them: classes.dex, then classes2.dex and up, until the first
+    /// missing name (dex_file_loader.cc). Refuses a file ART would never open, and code that does not
+    /// agree with the manifest's `android:hasCode`.
+    private static func inARTsOrder(_ dex: [PackFile], for manifest: AndroidManifest) throws -> [PackFile] {
+        var byIndex: [Int: PackFile] = [:]
+        for file in dex {
+            guard let index = multidexIndex(file.name) else {
+                throw PackError(file: file.origin, message: "ART opens only DEX files named classes.dex, classes2.dex, classes3.dex and up")
+            }
+            guard byIndex[index] == nil else { throw PackError(file: file.origin, message: "given twice") }
+            guard isDex(file.contents) else {
+                throw PackError(file: file.origin, message: #"not a DEX file: it does not start with "dex\n", three digits and a NUL"#)
+            }
+            byIndex[index] = file
+        }
+        let ordered = byIndex.keys.sorted().compactMap { byIndex[$0] }
+        for (position, file) in ordered.enumerated() where multidexIndex(file.name) != position + 1 {
+            throw PackError(file: file.origin,
+                            message: "\(multidexName(position + 1)) is missing; ART stops at the first missing name and never opens this one")
+        }
+        if manifest.hasCode && ordered.isEmpty {
+            // Android 15 refuses to install it (ScanPackageUtils.assertCodePolicy).
+            throw PackError(file: "classes.dex", message: "missing: the manifest has code (android:hasCode is true or left out), "
+                + #"and Android refuses an APK without it: "code is missing""#)
+        }
+        if !manifest.hasCode, let first = ordered.first {
+            throw PackError(file: first.origin, message: #"the manifest sets android:hasCode="false", so Android never loads it"#)
+        }
+        return ordered
+    }
+
+    /// 1 for classes.dex, n for classes<n>.dex with n from 2 and no leading zero; nil for any other name.
+    static func multidexIndex(_ name: String) -> Int? {
+        if name == "classes.dex" { return 1 }
+        guard name.hasPrefix("classes"), name.hasSuffix(".dex") else { return nil }
+        let digits = name.dropFirst("classes".count).dropLast(".dex".count)
+        guard let first = digits.first, first != "0", digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let index = Int(digits), index >= 2 else { return nil }
+        return index
+    }
+
+    static func multidexName(_ index: Int) -> String {
+        index == 1 ? "classes.dex" : "classes\(index).dex"
+    }
+
+    /// A DEX file starts with "dex\n", a version of three digits and a NUL (DexFile::Header's magic).
+    static func isDex(_ contents: Data) -> Bool {
+        let magic = Array(contents.prefix(8))
+        return magic.count == 8 && magic[0..<4].elementsEqual("dex\n".utf8)
+            && magic[4..<7].allSatisfy { (0x30...0x39).contains($0) } && magic[7] == 0
     }
 
     /// Refuses what Android would skip or Minato could not run, before anything is written.
