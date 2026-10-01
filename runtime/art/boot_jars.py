@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""ART's boot jars (ADR-0033 decision 10): core-oj, core-libart and core-icu4j, from the sources and Java resources
+that tools/art-plan.py takes from their Android.bp modules into <description.json>.
+
+As Soong compiles them against core-all, javac compiles all their sources at once, as the module java.base, with
+the compile-time sources of runtime/art/java and of core-all (java.base's module-info and the lambda stubs): JDK
+17, -source 17 -target 17, string concatenation inline. The classes are then split by the source file they come
+from (their package and SourceFile attribute), so that each jar gets its own sources' classes and none of the
+compile-time ones. D8 dexes each jar as a platform build for API 31, with all classes as its library. A jar holds
+its dex files uncompressed and 4-byte aligned, as Android's boot jars do, and its Java resources; every entry has
+the same time, so that a build makes the same bytes.
+
+Usage: boot_jars.py <description.json> <jdk-home> <r8.jar> <output-directory> <work-directory>
+"""
+import json
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import zipfile
+
+JAVAC_FLAGS = ["-J-Xmx4g", "-source", "17", "-target", "17", "-XDstringConcat=inline", "-encoding", "UTF-8",
+               "-nowarn", "-g", "--system=none", "--patch-module", "java.base=."]
+D8_FLAGS = ["--release", "--min-api", "31", "--android-platform-build"]
+TIMESTAMP = (2008, 1, 1, 0, 0, 0)  # soong_zip's
+ALIGNMENT_EXTRA = 0xD935  # zipalign's extra field for the alignment of a stored entry
+PACKAGE = re.compile(r"^package\s+([\w.]+)\s*;", re.M)
+
+
+def source_key(path):
+    """<package path>/<file name> of a Java source, as its classes' package and SourceFile attribute name it."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        found = PACKAGE.search(handle.read())
+    return (found.group(1).replace(".", "/") + "/" if found else "") + os.path.basename(path)
+
+
+def class_source(data):
+    """The SourceFile attribute of a class file."""
+    count = struct.unpack_from(">H", data, 8)[0]
+    strings, offset, index = {}, 10, 1
+    while index < count:
+        tag = data[offset]
+        if tag == 1:  # Utf8
+            length = struct.unpack_from(">H", data, offset + 1)[0]
+            strings[index] = data[offset + 3:offset + 3 + length].decode("utf-8", "replace")
+            offset += 3 + length
+        else:
+            offset += 1 + {3: 4, 4: 4, 5: 8, 6: 8, 7: 2, 8: 2, 9: 4, 10: 4, 11: 4, 12: 4, 15: 3, 16: 2, 17: 4, 18: 4,
+                           19: 2, 20: 2}[tag]
+        index += 2 if tag in (5, 6) else 1  # longs and doubles take two slots
+    offset += 6
+    interfaces = struct.unpack_from(">H", data, offset)[0]
+    offset += 2 + 2 * interfaces
+    for _ in range(2):  # fields, then methods
+        members = struct.unpack_from(">H", data, offset)[0]
+        offset += 2
+        for _ in range(members):
+            attributes = struct.unpack_from(">H", data, offset + 6)[0]
+            offset += 8
+            for _ in range(attributes):
+                offset += 6 + struct.unpack_from(">I", data, offset + 2)[0]
+    attributes = struct.unpack_from(">H", data, offset)[0]
+    offset += 2
+    for _ in range(attributes):
+        name, length = struct.unpack_from(">HI", data, offset)
+        if strings.get(name) == "SourceFile":
+            return strings[struct.unpack_from(">H", data, offset + 6)[0]]
+        offset += 6 + length
+    return None
+
+
+def write_jar(path, entries):
+    """A jar of (name, bytes) entries in name order: dex files stored and 4-byte aligned, the rest deflated."""
+    temporary = path + ".tmp"
+    with zipfile.ZipFile(temporary, "w") as jar:
+        for name, data in sorted(entries):
+            info = zipfile.ZipInfo(name, TIMESTAMP)
+            info.external_attr = 0o644 << 16
+            if name.endswith(".dex"):
+                info.compress_type = zipfile.ZIP_STORED
+                start = jar.fp.tell() + 30 + len(name.encode()) + 6
+                padding = -start % 4
+                info.extra = struct.pack("<HHH", ALIGNMENT_EXTRA, 2 + padding, 4) + bytes(padding)
+            else:
+                info.compress_type = zipfile.ZIP_DEFLATED
+            jar.writestr(info, data)
+    os.replace(temporary, path)
+
+
+def main():
+    if len(sys.argv) != 6:
+        raise SystemExit(__doc__)
+    description, jdk, r8, output, work = sys.argv[1:]
+    with open(description) as handle:
+        jars = json.load(handle)
+    shutil.rmtree(work, ignore_errors=True)
+    classes = os.path.join(work, "classes")
+    os.makedirs(classes)
+
+    sources = [path for jar in jars["jars"].values() for path in jar["sources"]] + jars["compile_only"]
+    with open(os.path.join(work, "sources.args"), "w") as handle:
+        handle.write("\n".join(sources) + "\n")
+    subprocess.run([os.path.join(jdk, "bin", "javac")] + JAVAC_FLAGS + ["-d", classes, "@" + os.path.join(work, "sources.args")],
+                   check=True)
+
+    owner = {}
+    for name, jar in jars["jars"].items():
+        for path in jar["sources"]:
+            owner[source_key(path)] = name
+    compile_only = {source_key(path) for path in jars["compile_only"]}
+    split = {name: [] for name in jars["jars"]}
+    for directory, _, files in os.walk(classes):
+        for file in files:
+            path = os.path.join(directory, file)
+            relative = os.path.relpath(path, classes)
+            if relative == "module-info.class":
+                continue
+            with open(path, "rb") as handle:
+                data = handle.read()
+            key = os.path.dirname(relative) + "/" + (class_source(data) or "")
+            if key in owner:
+                split[owner[key]].append((relative, data))
+            elif key not in compile_only:
+                raise SystemExit(f"boot_jars: {relative} comes from {key}, which no jar and no compile-time source has")
+
+    with zipfile.ZipFile(os.path.join(work, "all-classes.jar"), "w") as library:
+        for directory, _, files in os.walk(classes):
+            for file in files:
+                path = os.path.join(directory, file)
+                library.write(path, os.path.relpath(path, classes))
+    os.makedirs(output, exist_ok=True)
+    java = os.path.join(jdk, "bin", "java")
+    for name, jar in jars["jars"].items():
+        program = os.path.join(work, f"{name}.classes.jar")
+        with zipfile.ZipFile(program, "w") as handle:
+            for relative, data in split[name]:
+                handle.writestr(relative, data)
+        dexed = os.path.join(work, f"{name}.dex.jar")
+        subprocess.run([java, "-Xmx4g", "-cp", r8, "com.android.tools.r8.D8"] + D8_FLAGS
+                       + ["--lib", os.path.join(work, "all-classes.jar"), "--output", dexed, program], check=True)
+        entries = []
+        with zipfile.ZipFile(dexed) as handle:
+            entries += [(entry, handle.read(entry)) for entry in handle.namelist() if entry.endswith(".dex")]
+        for path, entry in jar["resources"]:
+            with open(path, "rb") as handle:
+                entries.append((entry, handle.read()))
+        write_jar(os.path.join(output, f"{name}.jar"), entries)
+        print(f"boot_jars: {name}.jar: {len(split[name])} classes, {len(jar['resources'])} resources")
+
+
+if __name__ == "__main__":
+    main()

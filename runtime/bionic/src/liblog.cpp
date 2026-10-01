@@ -1,5 +1,5 @@
-// Minato's liblog.so (ADR-0021): the NDK's logging API (android/log.h), guest code next to
-// bionic. Android's liblog sends messages to the logd service; there is none here, so the device's
+// Minato's liblog.so (ADR-0021): the NDK's logging API (android/log.h), and what platform code calls beyond it
+// (ADR-0033 a), guest code next to bionic. Android's liblog sends messages to the logd service; there is none here, so the device's
 // logger writes "<priority>/<tag>: <message>" lines to stderr, which the runtime owns. Everything a
 // program can observe follows the NDK's documentation: return values, loggability (no log.tag
 // properties exist here, so only the minimum priority and the caller's default count), loggers,
@@ -188,6 +188,67 @@ void __android_log_assert(const char* condition, const char* tag, const char* fo
   __android_log_write(ANDROID_LOG_FATAL, tag, buffer);
   __android_log_call_aborter(buffer);
   abort();
+}
+
+// Platform code's SafetyNet event (log/log_safetynet.h, ADR-0033 a), which libziparchive and ART write on a malformed
+// input. Android puts it into the events buffer, whose binary entries logcat leaves out unless asked; the guest has
+// no events buffer, so the event goes nowhere, and the call reports success as a write does.
+int __android_log_error_write(int, const char*, int32_t, const char*, uint32_t) {
+  return 1;
+}
+
+// Platform code's events (log/log_event_list.h, ADR-0033 a), which ART writes on lock contention: a context collects
+// a list of values for the events buffer. The guest has none (see __android_log_error_write): a context holds only
+// its tag, the values go nowhere, and the list's write reports success. As Android's, the calls fail with -EBADF
+// without a context from create_android_logger.
+struct android_log_context_internal {
+  uint32_t tag;
+};
+typedef android_log_context_internal* android_log_context;
+
+android_log_context create_android_logger(uint32_t tag) {
+  auto* context = static_cast<android_log_context>(malloc(sizeof(android_log_context_internal)));
+  if (context != nullptr) context->tag = tag;
+  return context;
+}
+
+int android_log_write_list_begin(android_log_context context) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_list_end(android_log_context context) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_int32(android_log_context context, int32_t) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_int64(android_log_context context, int64_t) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_string8(android_log_context context, const char*) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_string8_len(android_log_context context, const char*, size_t) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_float32(android_log_context context, float) {
+  return context != nullptr ? 0 : -EBADF;
+}
+
+int android_log_write_list(android_log_context context, log_id_t) {
+  return context != nullptr ? 1 : -EBADF;
+}
+
+int android_log_destroy(android_log_context* context) {
+  if (context == nullptr || *context == nullptr) return -EBADF;
+  free(*context);
+  *context = nullptr;
+  return 0;
 }
 
 }  // extern "C"

@@ -141,6 +141,14 @@ if(APK_HOST_BUILD)
   # against a host in memory.
   add_test(NAME runtime.fetch_sources COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/fetch_sources_test.py")
 
+  # ART as guest code from tools/build-art.sh (ADR-0033 a): its libraries link within the set, apk-convert takes them,
+  # and the boot jars hold the classes ART checks at start. Skipped while the build is missing.
+  set(APK_ART_DIR "${PROJECT_SOURCE_DIR}/build/art" CACHE PATH "Directory of the built ART (tools/build-art.sh)")
+  add_test(NAME runtime.art_build
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_build_test.py" "${APK_ART_DIR}"
+      "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
+  set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

@@ -1,0 +1,110 @@
+// Minato's modules for ART's build (ADR-0033 a), in Soong's syntax: tools/art-plan.py reads this file after the
+// Android.bp files of the fetched projects, and a module here takes the place of AOSP's of the same name. They stand
+// in for modules of projects we do not fetch and for services the iPhone does not have, each as small as what the
+// set calls. Paths are relative to runtime/art, which the plan calls minato/art.
+
+// liblog: the guest system's own liblog.so (runtime/bionic/src/liblog.cpp) with the headers of system/logging,
+// which platform code includes (log/log.h).
+cc_library {
+    name: "liblog",
+    export_include_dirs: ["../../system/logging/liblog/include"],
+}
+
+cc_library_headers {
+    name: "liblog_headers",
+    export_include_dirs: ["../../system/logging/liblog/include"],
+}
+
+// googletest's FRIEND_TEST for libziparchive's headers.
+cc_library_headers {
+    name: "libgtest_prod_headers",
+    export_include_dirs: ["gtest/include"],
+}
+
+// heapprofd's client (Perfetto), which ART registers its Java heap with: heapprofd never runs here, so the heap is
+// never enabled for sampling.
+cc_library_shared {
+    name: "heapprofd_client_api",
+    srcs: ["heapprofd/heapprofd_client_api.c"],
+    export_include_dirs: ["heapprofd/include"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    stl: "none",
+}
+
+// The palette's system half (libartpalette opens it at start and aborts without it), after AOSP's
+// palette_fake.cc: thread priorities kept in a table, no tracing, no ashmem.
+cc_library_shared {
+    name: "libartpalette-system",
+    srcs: ["palette/palette_system.cc"],
+    header_libs: ["jni_headers"],
+    include_dirs: ["art/libartpalette/include"],
+    shared_libs: ["liblog"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+// frameworks/libs/modules-utils' SDK level checks, answered for the guest system, Android 15.
+cc_library_static {
+    name: "libmodules-utils-build",
+    export_include_dirs: ["modules-utils/include"],
+}
+
+// The sysprop library of libnativeloader's VNDK properties: Android 15 has no VNDK, and neither does the guest.
+cc_library_static {
+    name: "libPlatformProperties",
+    export_include_dirs: ["sysprop/include"],
+}
+
+// What xsdc generates from the APEX info list's and ART's cache info's schemas. Neither file exists on the guest
+// (there is no apexd and no odrefresh), and ART reads them only when they do; the parsers say so.
+filegroup {
+    name: "apex-info-list-tinyxml",
+    srcs: ["xsd/com_android_apex.cpp"],
+    export_include_dirs: ["xsd"],
+}
+
+filegroup {
+    name: "art-apex-cache-info",
+    srcs: ["xsd/com_android_art.cpp"],
+    export_include_dirs: ["xsd"],
+}
+
+// odrefresh's metrics upload to statsd, which ART calls at start: there is no odrefresh, so there is nothing to
+// upload.
+cc_library_static {
+    name: "libodrstatslog",
+    srcs: ["odrefresh/odr_statslog.cc"],
+    export_include_dirs: ["../../art/odrefresh/include"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+// libart-compiler and vixl are left out (ADR-0033 decision 2): ART runs without a JIT in M4 (-Xint). What libart
+// takes from them is only jit_create, which ends the process if a JIT is ever asked for.
+art_cc_library_static {
+    name: "libart-compiler",
+    defaults: ["art_defaults"],
+    srcs: ["jit/jit_create.cc"],
+    header_libs: ["libart-compiler_jit_headers", "art_libartbase_headers", "libbase_headers"],
+}
+
+art_cc_library_static {
+    name: "libartd-compiler",
+    defaults: ["art_debug_defaults"],
+    srcs: ["jit/jit_create.cc"],
+    header_libs: ["libart-compiler_jit_headers", "art_libartbase_headers", "libbase_headers"],
+}
+
+// What libunwindstack links for Rust names and zstd-compressed debug sections: Rust names stay mangled in ART's
+// stack dumps, and such sections are not read (zlib's still are).
+cc_library_static {
+    name: "librustc_demangle_static",
+    srcs: ["unwinding/rustc_demangle.c"],
+    export_include_dirs: ["unwinding/include"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+cc_library_static {
+    name: "libzstd",
+    srcs: ["unwinding/zstd.c"],
+    export_include_dirs: ["unwinding/include"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}

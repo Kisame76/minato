@@ -1,0 +1,16 @@
+FillVRegs' end case takes only the empty argument list (ADR-0033 a).
+
+The NDK's clang (newer than Android 15's) orders the two FillVRegs templates differently: with explicit template
+arguments, the end case, whose parameter pack is not deduced, is as specialized as the recursive case, and every
+call of ArtMethod's Invoke* is ambiguous. A constraint keeps the end case to the empty pack it is meant for.
+
+--- a/art/runtime/art_method-inl.h
++++ b/art/runtime/art_method-inl.h
+@@ -149,6 +149,7 @@
+ }
+ 
+ template <char... ArgType>
++  requires(sizeof...(ArgType) == 0)
+ inline ALWAYS_INLINE void FillVRegs([[maybe_unused]] uint32_t* vregs,
+                                     [[maybe_unused]] typename ShortyTraits<ArgType>::Type... args)
+     REQUIRES_SHARED(Locks::mutator_lock_) {}

@@ -1,6 +1,7 @@
 # The guest libc (ADR-0021): AOSP bionic android-15.0.0_r1 (tools/fetch-sources.py), built with the
 # NDK's clang as Android arm64 platform code: ld-android.so (the stub libc.so links against),
-# libdl.so, libc.so and libm.so. Which sources and flags come from bionic's own Android.bp files
+# libdl.so, libdl_android.so (the linker's namespace functions, for ART: ADR-0033), libc.so and
+# libm.so. Which sources and flags come from bionic's own Android.bp files
 # (tools/bionic-plan.py). Built by tools/build-bionic.sh; the results go to <build>/lib.
 cmake_minimum_required(VERSION 4.0)
 project(MinatoBionic LANGUAGES C CXX ASM)

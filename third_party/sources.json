@@ -203,6 +203,26 @@
       "digest": "6949c063af92ce24995695d1f9eff0a932fee784d82de4cf127ed7c2f14c5133"
     },
     {
+      "name": "dlmalloc",
+      "project": "platform/external/dlmalloc",
+      "commit": "ea4e2b4f801a6cd72148ab7a26d00aefc47a582d",
+      "license": "CC0-1.0 (public domain)",
+      "digest": "de8c92e33fd5829811ac297c49ee51c4a90652e4af4ca067cfef0180cf8966b4"
+    },
+    {
+      "name": "logging",
+      "project": "platform/system/logging",
+      "commit": "efbed624fef7eaf28f8bd50686302a5576f544a1",
+      "license": "Apache-2.0",
+      "files": [
+        "liblog/NOTICE"
+      ],
+      "digest": "109bf450105b60b4a68256529b2604c54afa9684271affe3fee806eed96b125f",
+      "directories": [
+        "liblog/include"
+      ]
+    },
+    {
       "name": "r8",
       "project": "platform/prebuilts/r8",
       "commit": "535c14aebec54e8b67a8ca2889d34cb7c38a29b4",
