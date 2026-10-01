@@ -259,6 +259,15 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.${app}_live PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120
       ENVIRONMENT "MINATO_METAL_HOOK=count")
   endforeach()
+  # ADR-0041 test 3 on the Mac: present-gles and present-vulkan, which ask for their presents' times at 60 and 120
+  # frames a second until they finish by themselves. The Mac checks the calls, the app's lines against Android 15's
+  # and present.csv; the iPhone judges the timing.
+  foreach(api IN ITEMS gles vulkan)
+    add_test(NAME graphics.present_${api} COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs"
+      present-${api} "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+      "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" present)
+    set_tests_properties(graphics.present_${api} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 150)
+  endforeach()
   # ADR-0037 a): the parity benchmark's scene built for the Mac (graphics/bench, graphics-bench-host) and as the
   # APKs of tools/build-bench.sh (graphics-app-test's bench mode), each API and load with ticks scripted in
   # lockstep (bench_test.py): both must draw the same frame 1000, and the APK must end by itself.
@@ -297,7 +306,8 @@ if(TARGET minato_graphics_host)
   # (graphics.vulkan_live once saw a frame interval of 108 ms in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.gles_front graphics.gles_gate graphics.gles_glue
     graphics.vulkan_queue graphics.vulkan_present graphics.gles_app graphics.vulkan_app graphics.gles_live
-    graphics.vulkan_live graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
+    graphics.vulkan_live graphics.present_gles graphics.present_vulkan graphics.bench graphics.recorder PROPERTIES
+    RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -313,8 +323,8 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live bench
-      recorder)
+      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app vulkan_app gles_live vulkan_live
+      present_gles present_vulkan bench recorder)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

@@ -28,6 +28,12 @@
 //   apps' device lines), guest threads committed no command buffer from "scheduled" to the foreground (metal_hook.m
 //   with MINATO_METAL_HOOK=count), the only requests were FRAME_RATE, with 120 and 60 among them, the app's
 //   onDestroy line says "windows 2, failures 0", and activity-host ended with status 0.
+// - present-gles and present-vulkan (<mode> present), ADR-0041 test 3: present-test's library, which asks for its
+//   presents' times. The start with the frame clock; the app's frames at 60 and then 120 frames a second until its
+//   own ANativeActivity_finish; the App's quit. It passes when the window counted 1200 presents, the requests were
+//   FRAME_RATE 60, FRAME_RATE 120 and FINISH, onNativeWindowDestroyed and onDestroy were answered within 500 ms, the
+//   app's lines are fixtures/expected/<app>.logcat, Android 15's, and its present.csv holds the frames in order
+//   with each time asked for its interval of periods after the frame time. Timing is judged on the iPhone only.
 // - bench-gles and bench-vulkan (<mode> bench:<load>), ADR-0037 a): the parity benchmark's APKs from
 //   tools/build-bench.sh (<fixtures build>), their manifests in graphics/bench/android (<expected>). bench.conf asks
 //   for 120 Hz, the load, 9 s and the CRC of frame 1000. Ticks in lockstep with the presents: the first once the
@@ -40,7 +46,8 @@
 //   layer records, and a nextDrawable of the test's own before and after the recording. It passes as above with 120
 //   presents, and when the recording holds every drawable once and in order (recording_check.h).
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
-//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib> <presents | live | bench:<load> | record:<load>>
+//                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib>
+//                     <presents | live | present | bench:<load> | record:<load>>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -565,6 +572,84 @@ void play_live(const std::string &app, Capture &capture) {
     ::dprintf(report, "%s", device_lines.c_str());
 }
 
+/// present.csv of present-gles or present-vulkan: a row per frame in order, 600 at 60 and then 600 at 120 frames a
+/// second, each rate in blocks of 200 at the intervals 1, 2 and 3, the frame times rising, and each time asked for its
+/// interval times the rate's period after its frame time, the period within 1 % of the clock's.
+void check_present_csv(const fs::path &path) {
+    std::ifstream file(path);
+    std::string line;
+    if (!std::getline(file, line) ||
+        line != "api,rate,interval,frame,frame_time_ns,asked_ns,present_id,desired_ns,actual_ns,earliest_ns,margin_ns") {
+        fail("present.csv lacks its header");
+        return;
+    }
+    int rows = 0;
+    long long previous = 0, period = 0;
+    for (; std::getline(file, line); ++rows) {
+        std::vector<std::string> fields;
+        std::istringstream values(line);
+        for (std::string value; std::getline(values, value, ',');) fields.push_back(value);
+        const int rate = rows < 600 ? 60 : 120, interval = 1 + rows % 600 / 200;
+        if (fields.size() != 11 || fields[1] != std::to_string(rate) || fields[2] != std::to_string(interval) ||
+            fields[3] != std::to_string(rows)) {
+            fail("present.csv row " + std::to_string(rows) + " is " + line);
+            return;
+        }
+        const long long frame_time = std::stoll(fields[4]), asked = std::stoll(fields[5]);
+        if (rows % 600 == 0) period = (asked - frame_time) / interval;
+        if (frame_time <= previous || asked - frame_time != interval * period ||
+            std::abs(static_cast<double>(period) * rate / 1e9 - 1) > 0.01) {
+            fail("present.csv row " + std::to_string(rows) + " is " + line + " with a period of " +
+                 std::to_string(period) + " ns");
+            return;
+        }
+        previous = frame_time;
+    }
+    if (rows != 1200) fail("present.csv has " + std::to_string(rows) + " rows, not 1200");
+}
+
+/// present-gles and present-vulkan (ADR-0041 test 3): the start with the frame clock, the app's frames at 60 and then
+/// 120 frames a second until its own ANativeActivity_finish, then the App's quit.
+void play_present(const std::string &app, const fs::path &expected, const fs::path &data, Capture &capture) {
+    Vsync vsync;
+    vsync.start();
+    const std::uint64_t window = add_window();
+    if (!start(window, &vsync)) {
+        vsync.stop();
+        return;
+    }
+    if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end(); },
+                  90s)) {
+        fail("no FINISH within 90 s");
+    }
+    const std::uint64_t counted = apkrt_window_presents(window);
+    focus_lost(window, &vsync);
+    apkrt_window_remove(window);
+    preferred_rate = 0;
+    post(APKRT_EVENT_PAUSE);
+    const double destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window), 2);
+    post(APKRT_EVENT_STOP);
+    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
+    wait_for([] { return seen.ended; }, 10s);
+    vsync.stop();
+
+    const std::string log = capture.drain();
+    const std::string requests = requests_text();
+    ::dprintf(report, "host: presents counted: %llu; %d ticks; requests: %s\n",
+              static_cast<unsigned long long>(counted), vsync.ticks.load(), requests.c_str());
+    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
+    if (counted != 1200) fail("the window counted " + std::to_string(counted) + " presents, not 1200");
+    check_answer(destroyed, "onNativeWindowDestroyed");
+    check_answer(destroy, "onDestroy");
+    if (requests != "[FRAME_RATE 60][FRAME_RATE 120][FINISH]") fail("the requests were " + requests);
+    const std::string app_lines = lines_with(log, "I/" + app + ": ");
+    if (app_lines != read_text(expected / (app + ".logcat"))) {
+        fail("the app's lines differ from Android 15's:\n" + app_lines);
+    }
+    check_present_csv(data / "files" / "present.csv");
+    ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
+}
+
 /// Waits until the window counted `count` presents or the app asked to finish: true for the presents.
 bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseconds limit) {
     const auto deadline = std::chrono::steady_clock::now() + limit;
@@ -666,7 +751,7 @@ int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
                              "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
-                             "<presents | live | bench:<load> | record:<load>>\n");
+                             "<presents | live | present | bench:<load> | record:<load>>\n");
         return 2;
     }
     const std::string app = argv[2];
@@ -674,7 +759,8 @@ int main(int argc, char **argv) {
                    front = argv[6], expected = argv[7], angle = argv[8], moltenvk = argv[9];
     const bool record = std::strncmp(argv[10], "record:", 7) == 0;
     const bool live = std::strcmp(argv[10], "live") == 0, bench = record || std::strncmp(argv[10], "bench:", 6) == 0;
-    const std::uint64_t presents = live || bench ? 0 : std::strtoull(argv[10], nullptr, 10);
+    const bool present = std::strcmp(argv[10], "present") == 0;
+    const std::uint64_t presents = live || bench || present ? 0 : std::strtoull(argv[10], nullptr, 10);
     // tools/build-bench.sh puts the APKs at the top of its build, tools/build-fixtures.sh into apks/; the bench's
     // manifests are in <expected>/<app>/, the test apps' in fixtures/apps/<app>/.
     const fs::path apk = bench ? fixtures / (app + ".apk") : fixtures / "apks" / (app + ".apk");
@@ -776,6 +862,8 @@ int main(int argc, char **argv) {
 
     if (live) {
         play_live(app, capture);
+    } else if (present) {
+        play_present(app, expected, data, capture);
     } else if (bench) {
         play_bench(app, capture, record);
     } else {

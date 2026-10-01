@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- present-gles (ADR-0041 decision 11, test 3): present-test's library as a copy of its own, started at
+     ANativeActivity_onCreateGLES, which asks for its presents' times with EGL_ANDROID_presentation_time. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.present.gles"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-feature android:glEsVersion="0x00030000" android:required="true"/>
+  <application android:label="Present GLES" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="present-gles"/>
+      <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreateGLES"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

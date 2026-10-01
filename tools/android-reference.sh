@@ -147,24 +147,29 @@ logcat_line='^[VDIWEFS]/[^:]+: '
 
 # The app's lines of logcat with the tag $1.
 app_lines() { run logcat -d -v tag -s "$1:V" | grep -v '^--------- ' || true; }
-# Waits up to 30 s until the app's lines with the tag $1 contain the text $2.
+# Waits up to $3 seconds (30 without it) until the app's lines with the tag $1 contain the text $2.
 wait_for() {
-  for _ in $(seq 1 60); do
+  local seconds=${3:-30}
+  for _ in $(seq 1 $((seconds * 2))); do
     app_lines "$1" | grep -q -F "$2" && return 0
     sleep 0.5
   done
-  echo "$1 did not log \"$2\" within 30 s." >&2
+  echo "$1 did not log \"$2\" within $seconds s." >&2
   return 1
 }
 
 run_app() {
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
-  local last="android_main returns" package activity
+  local last="android_main returns" limit=30 package activity
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
   case "$app" in
     bench-gles | bench-vulkan)
       apk="$BENCH/$app.apk" manifest="graphics/bench/android/$app/AndroidManifest.xml" build=tools/build-bench.sh
       last=" failures"
+      ;;
+    # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
+    present-gles | present-vulkan)
+      limit=120
       ;;
   esac
   if [[ ! -f "$apk" ]]; then
@@ -266,7 +271,7 @@ run_app() {
         device emu event send $command >/dev/null
       done
   fi
-  wait_for "$app" "$last" || return 1
+  wait_for "$app" "$last" "$limit" || return 1
   sleep 1
   app_lines "$app" >"$RESULTS/$app.logcat"
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"

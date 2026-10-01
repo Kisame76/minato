@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- present-vulkan (ADR-0041 decision 11, test 3): present-test's library as a copy of its own, started at
+     ANativeActivity_onCreateVulkan, which asks for its presents' times with VK_GOOGLE_display_timing. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.present.vulkan"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true"/>
+  <application android:label="Present Vulkan" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="present-vulkan"/>
+      <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreateVulkan"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
