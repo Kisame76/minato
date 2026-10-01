@@ -32,6 +32,15 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle);
    Frameworks and the app exits with its result. */
 int minato_graphics_probe(const char *moltenvk);
 
+/* ADR-0044 a)'s probe, host code only: whether the last vertex provokes in a Metal render pass set up as MoltenVK
+   sets it up with Apple's private API, OpenGL mode on and setProvokingVertexMode: with MoltenVK's value for the last
+   vertex, each called only when Metal responds to it, as MoltenVK does. It draws one triangle whose flat color
+   differs per vertex four times (neither call, the mode only, OpenGL mode only, both) and prints to stdout which
+   vertex's color it read back. Returns 0 when both give the last vertex and neither gives the first, else 1 after
+   printing why. A debug build of the app, launched with MINATO_PROVOKING_PROBE set, runs it once it is active
+   (probe.m) and exits with its result. */
+int minato_provoking_probe(void);
+
 /* "Scheduled" for Vulkan (ADR-0030, decision 13), from a host thread, which need not be the main thread:
    waits until no call of libvulkan that makes MoltenVK commit is in flight, then commits one empty command
    buffer on each queue of every device libvulkan made and waits until Metal has scheduled them, which it

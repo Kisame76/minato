@@ -345,3 +345,16 @@ else()
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
   endforeach()
 endif()
+
+# ADR-0044 a): graphics/host's probe of the last vertex in a pass set up as MoltenVK's private API sets it up, on the
+# Mac's GPU. It passes when the last vertex provokes (the iPhone runs it in a debug build of the app).
+if(TARGET minato_graphics_host)
+  add_executable(graphics-provoking-probe provoking_probe.c)
+  target_link_libraries(graphics-provoking-probe PRIVATE minato_graphics_host apk_defaults)
+  add_test(NAME graphics.provoking_probe COMMAND graphics-provoking-probe)
+  set_tests_properties(graphics.provoking_probe PROPERTIES TIMEOUT 60)
+else()
+  add_test(NAME graphics.provoking_probe COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
+  set_tests_properties(graphics.provoking_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+endif()

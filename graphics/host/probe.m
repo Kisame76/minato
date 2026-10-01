@@ -1,5 +1,6 @@
 /* ADR-0030 V3's check for the iPhone; see minato_graphics.h. Host code only: it opens MoltenVK as
-   graphics/host's "vulkan" provider does (providers.c), and no guest code runs. */
+   graphics/host's "vulkan" provider does (providers.c), and no guest code runs. Also the launch hook of
+   ADR-0044 a)'s probe, which debug builds of the app get with this file. */
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
@@ -163,4 +164,32 @@ __attribute__((constructor)) static void probe_on_launch(void) {
     fflush(stdout);
     fflush(stderr);
     _exit(status);
+}
+
+/* ADR-0044 a): a debug build of the app, launched with MINATO_PROVOKING_PROBE set, runs the probe of the last vertex
+   (provoking.m) once the app is active, since iOS refuses GPU work from an app that is not in the foreground, and
+   ends with the probe's result. Without the variable it does nothing. */
+__attribute__((constructor)) static void provoking_probe_on_launch(void) {
+    if (getenv("MINATO_PROVOKING_PROBE") == NULL) {
+        return;
+    }
+    @autoreleasepool {
+        // UIKit's name for the notification, from UIKit itself: graphics/host does not link it.
+        NSString *const *active = dlsym(RTLD_DEFAULT, "UIApplicationDidBecomeActiveNotification");
+        if (active == NULL) {
+            fprintf(stderr, "provoking probe: no UIKit app to wait for\n");
+            fflush(stderr);
+            _exit(1);
+        }
+        [NSNotificationCenter.defaultCenter addObserverForName:*active
+                                                        object:nil
+                                                         queue:nil
+                                                    usingBlock:^(NSNotification *notification) {
+                                                        (void)notification;
+                                                        const int status = minato_provoking_probe();
+                                                        fflush(stdout);
+                                                        fflush(stderr);
+                                                        _exit(status);
+                                                    }];
+    }
 }
