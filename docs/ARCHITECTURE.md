@@ -94,6 +94,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 4. The app's `.so` files are loaded: `dlopen` of the containers, data relocations, constructors.
 5. Start of the game: in M3 the guest program `activity-host` (ADR-0028) plays Android's app process. It opens the app's library and calls `ANativeActivity_onCreate`, then each NativeActivity callback in Android 15's order as the host posts events through the session (an event pipe with answers). The host's windows reach the guest through a registry whose gate (syscall 4105) holds presents while the app may not draw. From M4, ART starts the `Activity`.
 6. Quitting via the overlay ends the process, then the app restarts into the launcher.
+7. *Orientation* (ADR-0038): the library is portrait only. A session takes its orientation from the app's `screenOrientation`, and it turns while it runs when the activity declares `configChanges` for it: the window gets its new size between CONFIGURATION_CHANGED and NATIVE_WINDOW_RESIZED, as on Android, and the menu gesture and the FPS label turn with it.
 
 ## 4. Components
 
@@ -102,7 +103,7 @@ Importer:                               GUEST WORLD (Android ABI, loaded as sign
 - **Info.plist:**
   - `UILaunchScreen` (mandatory with the iOS 27 SDK);
   - from M1: `LSSupportsOpeningDocumentsInPlace`, `CFBundleDocumentTypes`, `UTImportedTypeDeclarations`, no `UIFileSharingEnabled` (ADR-0018);
-  - from M3: `CADisableMinimumFrameDurationOnPhone`; iOS Game Mode in every build (`LSSupportsGameMode`, `LSApplicationCategoryType` `public.app-category.games`, ADR-0037); `MinatoCommit`, the commit a benchmark build names in its CSVs.
+  - from M3: `CADisableMinimumFrameDurationOnPhone`; iOS Game Mode in every build (`LSSupportsGameMode`, `LSApplicationCategoryType` `public.app-category.games`, ADR-0037), which iOS keeps on in the library too, since it has no switch per launch (ADR-0038 e); `MinatoCommit`, the commit a benchmark build names in its CSVs.
 - **Benchmark builds** (ADR-0037): a Release build of the Release libraries with `APK_EMBED_BENCHMARK=YES` also holds `MinatoBench.framework` and the two bench APKs, and the mode `-runBenchmark <run>`, which draws one variant on the game view and writes its CSVs; `tools/benchmark.sh` runs the series and `tools/bench-summary.py` judges it. Other builds hold none of it.
 - **Storage locations:**
   - `Documents/` stays empty; only iOS puts copies into `Inbox/` on "Open with", which the app takes in and deletes;
@@ -225,8 +226,8 @@ The host reaches the guest through channels: guest descriptors whose pipe holds 
 - **M6:** The dex2oat output goes through the same pipeline as `.so` files (convert, sign, `dlopen`). For this, the compiler must generate heap-relative references.
 
 ### 4.10 Process model (ADR-0003)
-- **Restart:** The launcher writes the target package into the UserDefaults, opens its own app via `LSApplicationWorkspace` (private SPI, like LiveContainer) and exits. At launch, the app reads the target and boots straight into game mode.
-- **Fallback:** the app exits, and the user taps the icon again.
+- **Restart:** The launcher writes the launch request, then asks iOS to open Minato again: first through `LSApplicationWorkspace` with this install's own bundle ID (private SPI, like LiveContainer), then through its own URL `minato://open`, each way with 3 s for an answer, and exits once one is answered (ADR-0032 decision 2, refined 2026-10-01: a second install, such as SideStore's beside Xcode's, answers the URL too). At launch, the app reads the request and boots straight into game mode.
+- **Fallback:** when no way is answered, an alert asks the user to open Minato again; the request stays for that launch.
 - **Why restart:** only one game runs per process, because loaded libs and ART cannot be unloaded cleanly.
 
 ## 5. Reference projects: what we adopt, what we don't

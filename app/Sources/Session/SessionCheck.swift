@@ -10,7 +10,7 @@ import UIKit
 /// gets no launch arguments, so the script leaves its requests as files in tmp/session-check/, which every process
 /// reads; nothing happens without that folder. Each process appends what it does to
 /// tmp/session-check/events, one line per event: "<seconds since 1970> <pid> <event>".
-///   way      "url", "workspace" or "none": how both modes restart (Restart.way).
+///   way      "url", "workspace" or "none": the only way both modes restart (Restart.requestedWay).
 ///   tap      a package: the library taps that app once its entries are loaded, and removes the file.
 ///   quit     game mode opens its menu 1.5 s after its start, or 0.5 s plus the seconds the file names,
 ///            and chooses Quit 1.5 s later.

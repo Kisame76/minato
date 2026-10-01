@@ -8,13 +8,17 @@
 # every edge defers the system's gestures, and the hint shows at the first start only. The test app's
 # lifecycle callbacks follow decision 7. The fallback's alert comes up in both modes, also right after the
 # menu, and game mode restarts once, also after Home and back; a restart whose request goes unanswered
-# ends in the fallback after 3 s. The Debug build answers through app/Sources/Session/SessionCheck.swift.
+# ends in the fallback after 3 s. Without a requested way, a restart tries the workspace first, then the URL; in
+# the Simulator the workspace's answer goes unanswered once, and the URL restarts after its 3 s, without the
+# alert. On the iPhone the rounds that force the URL are skipped while a second Minato, such as SideStore's, is
+# installed, since it answers minato:// too. The Debug build answers through app/Sources/Session/SessionCheck.swift.
 # The test app is removed afterwards, the hint counts as not shown yet, and the FPS label is off.
 # On the iPhone (--device), devicectl sends the requests and fetches the events, and the app must stay
-# unlocked. BY_HAND=1 runs one round there in which the user taps the test app, swipes down from the top
-# edge and taps Quit; the script waits for each step. TOUCH=1 runs one round in which the touches come by hand
-# (ADR-0036, decision 3): a tap, two fingers down and up, then the swipe down from the top edge and Quit; it
-# checks what reaches the motion sink and prints how far each new touch's time lies before now on the
+# unlocked. BY_HAND=1 runs two rounds there, in portrait and in landscape, in which the user taps the test app,
+# swipes along the top edge and down from it and taps Quit; the script waits for each step and prints where each
+# pan near the top edge started and whether it reached the menu. TOUCH=1 runs one round in which the touches
+# come by hand (ADR-0036, decision 3): a tap, two fingers down and up, then the swipe down from the top edge and
+# Quit; it checks what reaches the motion sink and prints how far each new touch's time lies before now on the
 # uptime clock and on CLOCK_MONOTONIC_RAW. FRAMES=1 runs one round in which game mode stays 5 s before its
 # menu and Quit (ADR-0036, decision 2): the frame clock runs while the gate is open, off the main thread, and
 # pauses with the menu; it prints the intervals between ticks. ENDS=1 runs the rounds of decision 8: a crash and
@@ -56,7 +60,8 @@
 # Optional environment:
 #   SHOTS       a folder for screenshots of game mode, its menu and the fallback's alerts
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
-#   BY_HAND     with --device: only the round by hand
+#   BY_HAND     with --device: only the rounds by hand, in portrait, then in landscape
+#   ORIENTATION with BY_HAND: only the round in this orientation, "portrait" or "landscape"
 #   TOUCH       only the round of touches by hand
 #   FRAMES      only the round of the frame clock
 #   ENDS        only the rounds of ends that go wrong
@@ -70,7 +75,7 @@
 #   PORTRAIT    only the round of the library's orientation
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
 #   AUDIO_LIVE  only the round of audio-live
-#   WAY         with AUDIO_LIVE: the restart's way ("url" when unset; "workspace" past a second Minato)
+#   WAY         with AUDIO_LIVE: the restart's only way, "url" or "workspace" (the default order when unset)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -149,6 +154,16 @@ tools/make-apk.sh --manifest "$WORK/AndroidManifest.xml" --lib build/fixtures/bi
 SUPPORT_REL="Library/Application Support"
 CHECK_REL="tmp/session-check"
 REQUEST_REL="$SUPPORT_REL/launch-request.json"
+# Another install of Minato on the iPhone, such as SideStore's beside Xcode's, answers minato:// too, and the
+# rounds that force the URL would open it: they are skipped while it is there. Read only; empty without one.
+SECOND_MINATO=""
+if [[ "$ON_DEVICE" == yes ]]; then
+  if xcrun devicectl device info apps --device "$DEVICE_ID" --json-output "$WORK/apps.json" >/dev/null 2>&1; then
+    SECOND_MINATO=$(python3 tools/second-minato.py "$WORK/apps.json" "$BUNDLE_ID")
+  else
+    echo "note  the iPhone's apps could not be listed; the rounds through the URL run" >&2
+  fi
+fi
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${SKIP_BUILD:-}" ]]; then
     xcrun devicectl device install app --device "$DEVICE_ID" -q build/DerivedData/Build/Products/Debug-iphoneos/Minato.app >/dev/null
@@ -409,10 +424,18 @@ check_game_mode() {
 }
 
 # Ends the library the last round restarted into before the new round's requests are written: while it
-# still starts up, it would take the tap meant for the new round.
+# still starts up, it would take the tap meant for the new round. A launch request an earlier round left, such
+# as one that ended early, would start game mode without the tap: the Simulator removes it, and on the iPhone,
+# where devicectl cannot delete a file, the round fails instead.
 begin_round() {
   echo "== $1"
   terminate
+  if [[ "$ON_DEVICE" == no ]]; then
+    rm -f "$REQUEST"
+  elif has "$REQUEST_REL"; then
+    fail "a launch request is left from an earlier round"
+    return 1
+  fi
   fetch_requests || mkdir -p "$CHECK"
   : > "$EVENTS"
   seen=0
@@ -434,7 +457,7 @@ check_exit() {
 # orientation game mode holds: portrait, the test app's orientation at start, or landscape by request.
 run_way() {
   local way=$1 hint=$2 orientation=$3 library_pid game_pid tap_time restart_time
-  begin_round "$way, $orientation"
+  begin_round "$way, $orientation" || return 0
   echo "$way" > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
   echo yes > "$CHECK/quit"
@@ -489,7 +512,7 @@ check_alert() {
 # process; opening Minato then (here: launch) goes on.
 run_fallback() {
   local library_pid game_pid restarts
-  begin_round "none (the fallback)"
+  begin_round "none (the fallback)" || return 0
   echo none > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
   echo 1 > "$CHECK/confirm"
@@ -538,7 +561,7 @@ run_fallback() {
 # as when neither way works, and the request stays.
 run_timeout() {
   local library_pid game_pid restart_time waited
-  begin_round "url, unanswered (the timeout)"
+  begin_round "url, unanswered (the timeout)" || return 0
   echo url > "$CHECK/way"
   echo "$PKG" > "$CHECK/tap"
   echo 1 > "$CHECK/confirm"
@@ -575,13 +598,67 @@ run_timeout() {
   has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
 }
 
-# By hand, on the iPhone: the user taps the test app, swipes down from the top edge and taps Quit. Only the
-# hint is requested; the restarts take the default way, our own URL.
+# The default order (ADR-0032, decision 2, as refined on 2026-10-01): the workspace first, since it reaches this
+# install only, then the URL. With $1 "unanswered", the workspace's first answer is dropped: after its 3 s the URL
+# restarts, without the alert; the restart back to the library takes the workspace again.
+run_order() {
+  local answer=$1 library_pid game_pid restart_time waited
+  begin_round "the default order, workspace $answer" || return 0
+  echo "$PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/quit"
+  rm -f "$CHECK/way" "$CHECK/confirm" "$CHECK/orientation"
+  if [[ "$answer" == unanswered ]]; then echo yes > "$CHECK/unanswered"; fi
+  send_requests
+  launch
+  await_event "process library" || { abort_round "the library did not start"; return; }
+  library_pid=$(pid_of "$EVENT")
+  await_event "restart workspace" 60 || { abort_round "the library did not try the workspace first"; return; }
+  restart_time=$(time_of "$EVENT")
+  if [[ "$answer" == unanswered ]]; then
+    await_event "answer dropped" || fail "the workspace's answer was not dropped"
+    await_event "restartFailed workspace" 10 || { abort_round "the unanswered workspace did not give up"; return; }
+    waited=$(seconds "$restart_time" "$(time_of "$EVENT")")
+    python3 -c 'import sys; sys.exit(not 2.9 <= float(sys.argv[1]) <= 4.0)' "$waited" \
+      && ok "the workspace gives up after $waited s" || fail "the workspace gave up after $waited s, wanted 3 s"
+    await_event "restart url" || { abort_round "the URL did not follow the workspace"; return; }
+  fi
+  check_exit "$library_pid" "the library"
+  if ! await_event "process gameMode $PKG .*"; then
+    abort_round "no game mode after the restart"
+    return
+  fi
+  game_pid=$(pid_of "$EVENT")
+  [[ "$game_pid" != "$library_pid" ]] && ok "game mode is a new process" || fail "game mode runs in the library's process"
+  check_game_mode workspace "$game_pid" "not shown" portrait
+  check_exit "$game_pid" "game mode"
+  await_event "process library" && ok "Quit returns to the library" || fail "no library after Quit"
+  local tried expected="restart workspace,restart workspace"
+  [[ "$answer" == unanswered ]] && expected="restart workspace,restartFailed workspace,restart url,restart workspace"
+  tried=$(head -n "$seen" "$EVENTS" | awk '$3 == "restart" || $3 == "restartFailed" { print $3 " " $4 }' | paste -sd , -)
+  expect "  the ways tried" "$expected" "$tried"
+  head -n "$seen" "$EVENTS" | grep -q " fallback " && fail "  the alert showed" || ok "  no alert"
+  has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
+}
+
+# The swipe log (ADR-0032, decision 9): each pan near the top edge, where it started, in points, and whether it
+# reached the menu. A swipe the user made without a line here was taken by iOS before game mode saw it.
+print_edge_pans() {
+  local pans
+  pans=$(head -n "$seen" "$EVENTS" | awk '$3 == "edge" && $4 == "pan" { $1 = $2 = ""; sub(/^ +/, ""); print }')
+  echo "      the pans near the top edge: $(grep -c '^edge pan [0-9-]' <<< "$pans" || true)"
+  [[ -z "$pans" ]] || sed 's/^/        /' <<< "$pans"
+}
+
+# By hand, on the iPhone: the user taps the test app, swipes along the top edge, then down from it, and taps Quit.
+# $1 is the orientation game mode holds, $2 "shown" when the hint is due; the restarts take the default order,
+# whose workspace answers.
 run_by_hand() {
-  local library_pid game_pid
+  local orientation=$1 hint=$2 library_pid game_pid
   PATIENCE=180
-  begin_round "by hand: tap “Session Check”, then swipe down from the top edge and tap Quit"
-  echo yes > "$CHECK/forget-hint"
+  begin_round "by hand, $orientation: tap “Session Check”, then swipe down from the top edge and tap Quit" || return 0
+  rm -f "$CHECK/way" "$CHECK/orientation"
+  if [[ "$orientation" == landscape ]]; then echo landscape > "$CHECK/orientation"; fi
+  if [[ "$hint" == shown ]]; then echo yes > "$CHECK/forget-hint"; fi
   send_requests
   launch
   await_event "process library" || { abort_round "the library did not start"; return; }
@@ -589,18 +666,21 @@ run_by_hand() {
   echo "      waiting for the tap on “Session Check”"
   await_event "decision .*" 180 || { abort_round "no tap on “Session Check”"; return; }
   ok "decision: $(event_of "$EVENT")"
-  await_event "restart url" 60 || { abort_round "the library did not restart through url"; return; }
+  await_event "restart workspace" 60 || { abort_round "the library did not restart through workspace"; return; }
   check_exit "$library_pid" "the library"
   if ! await_event "process gameMode $PKG .*"; then
     abort_round "no game mode after the restart"
     return
   fi
   game_pid=$(pid_of "$EVENT")
-  echo "      waiting for the swipe down from the top edge, then Quit"
-  check_game_mode url "$game_pid" shown portrait
+  echo "      swipe down a few times at the left, the middle and the right of the top edge, each where it feels"
+  echo "      natural; then the swipe that opens the menu, and Quit"
+  check_game_mode workspace "$game_pid" "$hint" "$orientation"
   check_exit "$game_pid" "game mode"
   await_event "process library" && ok "Quit returns to the library" || fail "no library after Quit"
   has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
+  print_edge_pans
+  rm -f "$CHECK/orientation"
 }
 
 # By hand: the touches in game mode reach the motion sink as ADR-0036's decision 3 says, and each new
@@ -608,7 +688,7 @@ run_by_hand() {
 run_touch() {
   local clocks
   PATIENCE=180
-  begin_round "touches by hand: tap once, touch with two fingers and lift them, then swipe down from the top edge and tap Quit"
+  begin_round "touches by hand: tap once, touch with two fingers and lift them, then swipe down from the top edge and tap Quit" || return 0
   echo "$PKG" > "$CHECK/tap"
   send_requests
   launch
@@ -636,12 +716,13 @@ run_touch() {
   echo "      moves with history: $(head -n "$seen" "$EVENTS" | grep -c -E 'motion move .* history [1-9]' || true)"
   echo "      the events: action, history, failed posts, pressure/touch major in pixels per pointer"
   head -n "$seen" "$EVENTS" | awk '$3 == "motion" { print "        " $4, $8, $12, $14 }' | head -n 60
+  print_edge_pans
 }
 
 # The frame clock ticks while the gate is open, off the main thread, and pauses when the menu takes the focus.
 run_frames() {
   local summaries
-  begin_round "the frame clock"
+  begin_round "the frame clock" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo 5 > "$CHECK/quit"
   send_requests
@@ -660,7 +741,7 @@ run_frames() {
 
 # ADR-0038, decision 1.1: the library stays in portrait when it is asked to turn, as a turned device asks.
 run_portrait() {
-  begin_round "the library stays in portrait"
+  begin_round "the library stays in portrait" || return 0
   echo yes > "$CHECK/turn-library"
   send_requests
   launch
@@ -672,7 +753,7 @@ run_portrait() {
 # ADR-0036, decision 4: a test tone through the audio host's session, engine and render block.
 run_audio() {
   local line frames expected xruns
-  begin_round "the test tone"
+  begin_round "the test tone" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo 2 > "$CHECK/tone"
   echo 3 > "$CHECK/quit"
@@ -703,7 +784,7 @@ run_audio() {
   # before Settings is in front, and a tone that ends in the background has no engine to start again.
   local away=${AWAY:-2} slack=6
   [[ "$ON_DEVICE" == yes ]] && slack=16
-  begin_round "the test tone across Home and back, $away s away"
+  begin_round "the test tone across Home and back, $away s away" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo $((away + slack)) > "$CHECK/tone"
   echo $((away + slack + 2)) > "$CHECK/quit"
@@ -729,7 +810,7 @@ run_audio() {
 # ADR-0032, decision 9: the FPS label, from the presents of the guest's window sampled once a second. Nothing draws
 # without a guest, so the Debug build counts 60 fake presents a second for every window.
 run_fps() {
-  begin_round "the FPS label"
+  begin_round "the FPS label" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo 60 > "$CHECK/fps"
   echo 9 > "$CHECK/quit"
@@ -751,7 +832,7 @@ run_fps() {
     || fail "  it did not count 60 in window 2"
   await_event "quit" 15 && ok "  Quit" || fail "  no Quit"
 
-  begin_round "the FPS label at the next start"
+  begin_round "the FPS label at the next start" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo hide > "$CHECK/fps"
   echo 3 > "$CHECK/quit"
@@ -769,7 +850,7 @@ run_fps() {
 # Decision 8: game mode ends as the runtime ends a crashed program, or its app cannot start, or it quits; the
 # library's next start shows the first two once, and the Quit not at all.
 run_ends() {
-  begin_round "a crash (SIGSEGV)"
+  begin_round "a crash (SIGSEGV)" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo 139 > "$CHECK/crash"
   send_requests
@@ -785,7 +866,7 @@ run_ends() {
   await_event "process library.*" && expect "  and only once" "process library" "$(event_of "$EVENT")" \
     || fail "  no library at the second start"
 
-  begin_round "an app that cannot start"
+  begin_round "an app that cannot start" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo "libmain.so is missing" > "$CHECK/start-failed"
   echo yes > "$CHECK/quit"
@@ -797,7 +878,7 @@ run_ends() {
     || fail "  no library after Quit"
   shot "ends-2-start-failed"
 
-  begin_round "a Quit"
+  begin_round "a Quit" || return 0
   echo "$PKG" > "$CHECK/tap"
   echo yes > "$CHECK/quit"
   send_requests
@@ -823,7 +904,7 @@ PY
 
 # Test 7: activity-test on activity-host, from the tap through Home and back to the end it asks for itself.
 run_activity() {
-  begin_round "test 7: activity-test on activity-host"
+  begin_round "test 7: activity-test on activity-host" || return 0
   rm -f "$CHECK/no-guest"
   echo "$ACTIVITY_PKG" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
@@ -877,7 +958,7 @@ run_activity() {
 # Test 3 of ADR-0038: rotation-test turns to landscape and back with the session, on the same window, and ends
 # itself after the second turn.
 run_rotation() {
-  begin_round "test 3 of ADR-0038: rotation-test turns"
+  begin_round "test 3 of ADR-0038: rotation-test turns" || return 0
   rm -f "$CHECK/no-guest"
   echo "$ROTATION_PKG" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
@@ -947,7 +1028,7 @@ compare_guest_log() {
 # zeros; what the audio host did goes with its log.
 run_guest_audio() {
   local package=$1 tag=$2 pid audio
-  begin_round "$tag in game mode"
+  begin_round "$tag in game mode" || return 0
   rm -f "$CHECK/no-guest"
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
@@ -973,7 +1054,7 @@ run_guest_audio() {
 
 # audio-live (ADR-0036, after M3): a guest stream through Home and back and a disconnect, until Quit.
 run_audio_live() {
-  begin_round "audio-live: a guest stream until Quit, with Home and a disconnect"
+  begin_round "audio-live: a guest stream until Quit, with Home and a disconnect" || return 0
   rm -f "$CHECK/no-guest" "$CHECK/tone"
   echo "$AUDIO_LIVE_PKG" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
@@ -1040,7 +1121,7 @@ run_audio_live() {
 # and 60 Hz in turn every 5 s.
 run_live() {
   local pkg=$1 tag=$2 by_hand=${3:-} pid lines
-  begin_round "test 8: $tag${by_hand:+, Home and Quit by hand}"
+  begin_round "test 8: $tag${by_hand:+, Home and Quit by hand}" || return 0
   # The folder keeps the last round's requests.
   rm -f "$CHECK/no-guest" "$CHECK/quit" "$CHECK/tone"
   echo "$pkg" > "$CHECK/tap"
@@ -1199,7 +1280,12 @@ else
 fi
 
 if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
-  run_by_hand
+  if [[ -n "${ORIENTATION:-}" ]]; then
+    run_by_hand "$ORIENTATION" shown
+  else
+    run_by_hand portrait shown
+    run_by_hand landscape "not shown"
+  fi
   echo "session check: $failures failed"
   exit $((failures > 0))
 fi
@@ -1227,7 +1313,12 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${LIVE:-}
   exit $((failures > 0))
 fi
 
-run_way url shown portrait
+if [[ -z "$SECOND_MINATO" ]]; then
+  run_way url shown portrait
+else
+  echo "skip  the rounds through the URL: $SECOND_MINATO, a second Minato, answers minato:// too"
+  run_way workspace shown portrait
+fi
 if [[ "$ON_DEVICE" == yes ]]; then
   expect "still signed with the certificate after the tap" "$signer" "$(field signedWith)"
 else
@@ -1238,7 +1329,10 @@ has "$SUPPORT_REL/apps/$PKG/$folder/lib/libraw-dyn.so.dylib" && ok "its containe
 run_way workspace "not shown" landscape
 run_portrait
 run_fallback
-run_timeout
+[[ -n "$SECOND_MINATO" ]] || run_timeout
+run_order answered
+# The Simulator only: on the iPhone the URL after the workspace may reach a second Minato, such as SideStore's.
+[[ "$ON_DEVICE" == yes ]] || run_order unanswered
 
 echo "session check: $failures failed"
 exit $((failures > 0))

@@ -1,3 +1,4 @@
+import APKSession
 import UIKit
 import os
 
@@ -6,91 +7,105 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 /// Ends Minato and starts it again (ADR-0032, decision 2): into game mode after the library wrote the
 /// launch request, or back to the library without one. Each mode is a process of its own.
 enum Restart {
-    /// The ways of decision 2; the first that works in the Simulator and on the iPhone is the default.
-    enum Way: String, CaseIterable, Sendable {
-        /// minato://open, opened twice with UIApplication.open (public API).
-        case ownURL = "url"
-        /// LSApplicationWorkspace (private API, RestartWorkspace.m).
-        case workspace
-        /// Neither: the alert asks the user to open Minato again.
-        case none
-    }
+    /// The ways of decision 2, tried in RestartSequence's order: the workspace, then our own URL.
+    typealias Way = RestartWay
 
-    /// The way this build restarts. A Debug build takes another from tools/session-check.sh, whose request
-    /// the restarted process reads too, or from the launch argument -restartWay.
-    static var way: Way {
+    /// The only way a Debug build tries when tools/session-check.sh, whose request the restarted process reads
+    /// too, or the launch argument -restartWay asks for one; nil for the default order.
+    static var requestedWay: Way? {
         #if DEBUG
-        if let way = SessionCheck.requestedWay ?? UserDefaults.standard.string(forKey: "restartWay").flatMap(Way.init) {
-            return way
-        }
+        return SessionCheck.requestedWay ?? UserDefaults.standard.string(forKey: "restartWay").flatMap(Way.init)
+        #else
+        return nil
         #endif
-        return .ownURL
     }
 
-    /// How long the first request may go unanswered before the fallback shows. The answer comes in well
-    /// under a second; a way that stops answering on a later iOS (R10) still ends in the fallback.
+    /// How long each way's request may go unanswered before the next way, or the fallback after the last. The
+    /// answer comes in well under a second; a way that stops answering on a later iOS (R10) still ends there.
     static let answerTimeout: Duration = .seconds(3)
 
     /// Whether this process restarts already. It restarts once, whatever asks again: a second tap, or a
     /// change of the scene while the fallback's alert waits.
     @MainActor private(set) static var isUnderway = false
-    /// The first answer or the timeout decided; what comes later changes nothing.
-    @MainActor private static var isSettled = false
+    /// The ways tried so far; an answer or a timeout of a way it has left behind changes nothing.
+    @MainActor private static var sequence = RestartSequence(requested: nil)
 
-    /// Asks iOS to start Minato again and ends this process once the first request is answered. When the
-    /// way cannot restart, or no answer comes within `answerTimeout`, `failed` runs instead, on the main
-    /// actor: the caller shows the fallback, and the launch request stays for the next launch.
+    /// Asks iOS to start Minato again and ends this process once a way's request is answered. When no way
+    /// restarts, refused, unable to run or unanswered within `answerTimeout` each, `failed` runs instead, on
+    /// the main actor: the caller shows the fallback, and the launch request stays for the next launch.
     @MainActor
-    static func now(through way: Way = way, failed: @escaping @MainActor @Sendable () -> Void) {
+    static func now(through requested: Way? = requestedWay, failed: @escaping @MainActor @Sendable () -> Void) {
         guard !isUnderway else { return }
         isUnderway = true
+        sequence = RestartSequence(requested: requested)
+        follow(sequence.start(), failed: failed)
+    }
+
+    @MainActor
+    private static func follow(_ step: RestartSequence.Step?, failed: @escaping @MainActor @Sendable () -> Void) {
+        switch step {
+        case .attempt(let way):
+            attempt(way, failed: failed)
+        case .exit:
+            #if DEBUG
+            SessionCheck.event("exit")
+            #endif
+            // Without destructors: a guest's threads may still run or hold locks that they would meet
+            // (apkrt.h, the end handler).
+            _exit(0)
+        case .fallback:
+            #if DEBUG
+            SessionCheck.restartFailed()
+            #endif
+            failed()
+        case nil:
+            break
+        }
+    }
+
+    @MainActor
+    private static func attempt(_ way: Way, failed: @escaping @MainActor @Sendable () -> Void) {
         log.info("Restarting through \(way.rawValue, privacy: .public)")
         #if DEBUG
         SessionCheck.event("restart \(way.rawValue)")
         #endif
-        let settle: @MainActor @Sendable (_ opened: Bool, _ why: String) -> Void = { opened, why in
-            guard !Restart.isSettled else { return }
-            Restart.isSettled = true
-            if opened {
-                #if DEBUG
-                SessionCheck.event("exit")
-                #endif
-                // Without destructors: a guest's threads may still run or hold locks that they would meet
-                // (apkrt.h, the end handler).
-                _exit(0)
-            }
+        let giveUp: @MainActor @Sendable (_ why: String) -> Void = { why in
+            guard let next = Restart.sequence.failed(way) else { return }
             log.error("Restarting through \(way.rawValue, privacy: .public) failed: \(why, privacy: .public)")
             #if DEBUG
             SessionCheck.event("restartFailed \(way.rawValue)")
-            SessionCheck.restartFailed()
             #endif
-            failed()
+            follow(next, failed: failed)
         }
         let answered: @Sendable (Bool) -> Void = { opened in
             Task { @MainActor in
                 #if DEBUG
                 if SessionCheck.dropsAnswer() { return }
                 #endif
-                settle(opened, "the request was refused")
+                if opened {
+                    follow(Restart.sequence.answered(way), failed: failed)
+                } else {
+                    giveUp("the request was refused")
+                }
             }
         }
         Task { @MainActor in
             try? await Task.sleep(for: answerTimeout)
-            settle(false, "no answer")
+            giveUp("no answer")
         }
         switch way {
         case .ownURL:
-            guard let url = URL(string: "minato://open") else { return settle(false, "no URL") }
+            guard let url = URL(string: "minato://open") else { return giveUp("no URL") }
             // The first request reaches this process, which ends once it is answered; the second starts
             // Minato again when the process is gone.
             UIApplication.shared.open(url) { answered($0) }
             UIApplication.shared.open(url)
         case .workspace:
             if !MinatoReopenThroughWorkspace(Bundle.main.bundleIdentifier ?? "io.github.kisame76.minato", answered) {
-                settle(false, "LSApplicationWorkspace is missing")
+                giveUp("LSApplicationWorkspace is missing")
             }
         case .none:
-            settle(false, "no way")
+            giveUp("no way")
         }
     }
 

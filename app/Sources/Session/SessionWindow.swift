@@ -115,12 +115,21 @@ final class MetalLayerHostView: UIView {
     }
 
     /// Only a pan that starts at the top edge and goes down is the menu's swipe; the view spans the
-    /// screen, so its top is the screen's in every orientation.
+    /// screen, so its top is the screen's in every orientation. A Debug build logs each pan near the top.
     override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
-        let start = pan.location(in: self).y - pan.translation(in: self).y
+        let location = pan.location(in: self)
+        let translation = pan.translation(in: self)
+        let start = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
         let velocity = pan.velocity(in: self)
-        return start < Self.topEdge && velocity.y > abs(velocity.x)
+        #if DEBUG
+        if let report = EdgePanReport.start(x: start.x, y: start.y, width: bounds.width, height: bounds.height,
+                                            velocityX: velocity.x, velocityY: velocity.y, topEdge: Self.topEdge) {
+            note(report.line)
+        }
+        #endif
+        return EdgePanReport.verdict(startY: start.y, velocityX: velocity.x, velocityY: velocity.y,
+                                     topEdge: Self.topEdge) == .accepted
     }
 
     // Every callback of its own, none handed on: the view is the guest's whole screen.
@@ -163,10 +172,22 @@ final class MetalLayerHostView: UIView {
         case .changed where !swipeOpenedMenu && pan.translation(in: self).y > Self.swipeDistance:
             swipeOpenedMenu = true
             onTopEdgeSwipe()
+        #if DEBUG
+        case .ended, .cancelled, .failed:
+            note(EdgePanReport.end(distance: pan.translation(in: self).y, menu: swipeOpenedMenu))
+        #endif
         default:
             break
         }
     }
+
+    #if DEBUG
+    /// The swipe log of ADR-0032's decision 9: what tools/session-check.sh prints after its rounds by hand.
+    private func note(_ line: String) {
+        log.debug("\(line, privacy: .public)")
+        SessionCheck.event(line)
+    }
+    #endif
 }
 
 struct MetalLayerView: UIViewRepresentable {
