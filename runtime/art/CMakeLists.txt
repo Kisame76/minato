@@ -219,7 +219,8 @@ endif()
 file(GLOB_RECURSE art_changes CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/overlay/*"
   "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${APK_ROOT}/tools/art-plan.py"
-  "${APK_ROOT}/tools/blueprint.py" "${CMAKE_CURRENT_SOURCE_DIR}/modules.bp" ${art_changes})
+  "${APK_ROOT}/tools/soong_plan.py" "${APK_ROOT}/tools/blueprint.py" "${CMAKE_CURRENT_SOURCE_DIR}/modules.bp"
+  ${art_changes})
 include("${CMAKE_BINARY_DIR}/plan.cmake")
 
 # The Java test programs of fixtures/java, one jar each in <build>/test (test_jars.py), compiled against the classes

@@ -142,11 +142,14 @@ class Module:
 
 
 class Tree:
-    """Android.bp files of a partial source tree; `roots` maps tree paths to local folders."""
+    """Android.bp files of a partial source tree; `roots` maps tree paths to local folders. `target_groups` are the
+    target variants its modules are resolved for: TARGET_GROUPS's, Android's, unless given (a host flavor's for
+    ADR-0043 a)."""
 
-    def __init__(self, roots):
+    def __init__(self, roots, target_groups=None):
         self.roots = roots
         self.modules = {}
+        self.target_groups = list(TARGET_GROUPS if target_groups is None else target_groups)
 
     def local(self, tree_path):
         for prefix, folder in sorted(self.roots.items(), key=lambda item: -len(item[0])):
@@ -179,7 +182,7 @@ MISSING_DEFAULTS = set()
 
 
 def flatten(tree, module, linkage):
-    """The module's properties with its defaults and every variant for ARCH, OS and `linkage`
+    """The module's properties with its defaults and every variant for ARCH, the tree's target groups and `linkage`
     ("shared" or "static") merged in, as Soong would see them."""
     properties = {}
     for default in module.properties.get("defaults", []):
@@ -191,7 +194,7 @@ def flatten(tree, module, linkage):
     properties = merge(properties, own)
     for group in ("arch", "target", "multilib"):
         variants = properties.pop(group, {})
-        keys = {"arch": [ARCH], "target": TARGET_GROUPS, "multilib": ["lib64"]}[group]
+        keys = {"arch": [ARCH], "target": tree.target_groups, "multilib": ["lib64"]}[group]
         for key in keys:
             if key in variants:
                 properties = merge(properties, variants[key])

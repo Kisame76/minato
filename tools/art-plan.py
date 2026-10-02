@@ -16,16 +16,14 @@ and includes that climb out of their project ("../../external/fdlibm/fdlibm.h") 
 
 Usage: tools/art-plan.py <sources-directory> <output.cmake>
 """
-import glob
 import json
 import os
-import re
-import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import blueprint  # noqa: E402
+import soong_plan  # noqa: E402
+from soong_plan import cmake_list, cmake_quote  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OURS = "minato/art"  # runtime/art in the tree, with modules.bp
@@ -97,138 +95,27 @@ ART_KINDS = {
     "art_cc_test": "cc_test", "art_cc_test_library": "cc_test_library", "art_cc_defaults": "cc_defaults",
     "art_global_defaults": "cc_defaults", "art_debug_defaults": "cc_defaults",
 }
-SOURCE_EXTENSIONS = (".c", ".cpp", ".cc", ".S", ".s")
-GENERATORS = ("genrule", "gensrcs", "cc_genrule")
 
 
-def cmake_quote(value):
-    """A quoted CMake argument. `$` stays: the generated paths use ${APK_ART_GENERATED}."""
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace(";", "\\;") + '"'
+class ArtPlanner(soong_plan.Planner):
+    """ART's set: runtime/art's modules.bp, overlay and patches, art.go's additions, and the boot jars."""
 
+    TREE = TREE
+    OURS = OURS
+    OURS_FOLDER = os.path.join(ROOT, "runtime", "art")
+    OVERLAY = OVERLAY
+    PATCHES = PATCHES
+    GUEST_SYSTEM = GUEST_SYSTEM
+    DROPPED = DROPPED
+    LIBRARIES = LIBRARIES
+    PROGRAMS = PROGRAMS
+    PREFIX = "art"
+    GENERATED = "APK_ART_GENERATED"
+    TREE_VARIABLE = "APK_ART_TREE"
 
-def cmake_list(values):
-    return " ".join(cmake_quote(value) for value in values)
-
-
-def cmake_flags(values):
-    """Compile flags. A flag string can hold an option and its argument ("-include foo.h"); CMake would drop the
-    repeated option when de-duplicating, so such strings go through SHELL:."""
-    return " ".join(cmake_quote("SHELL:" + value if " " in value.strip() else value.strip()) for value in values)
-
-
-def identifier(name):
-    return re.sub(r"[^A-Za-z0-9_]", "_", name)
-
-
-def unique(values):
-    result = []
-    for value in values:
-        if value not in result:
-            result.append(value)
-    return result
-
-
-def read(path):
-    with open(path, "rb") as handle:
-        return handle.read()
-
-
-def make_tree(tree, projects):
-    """Brings <tree> up to date: a symbolic link for every file of `projects` (tree path -> folder) and of the
-    overlay, real files for what the patches change. Files that already are what they should be stay untouched, so
-    that their builds stay current. Returns the problems."""
-    wanted = {}
-    for tree_path, folder in projects.items():
-        for directory, folders, files in os.walk(folder):
-            links = [name for name in folders if os.path.islink(os.path.join(directory, name))]
-            for name in files + links:
-                path = os.path.join(directory, name)
-                wanted[os.path.normpath(os.path.join(tree_path, os.path.relpath(path, folder)))] = path
-    for directory, _, files in os.walk(OVERLAY):
-        for name in files:
-            path = os.path.join(directory, name)
-            wanted[os.path.relpath(path, OVERLAY)] = path
-    patched, problems = {}, []
-    for patch in sorted(glob.glob(os.path.join(PATCHES, "*.patch"))):
-        changed = re.findall(r"^\+\+\+ b/(\S+)", read(patch).decode(), re.M)
-        with tempfile.TemporaryDirectory() as scratch:
-            for tree_path in changed:
-                os.makedirs(os.path.dirname(os.path.join(scratch, tree_path)), exist_ok=True)
-                with open(os.path.join(scratch, tree_path), "wb") as handle:
-                    handle.write(patched[tree_path] if tree_path in patched else read(wanted[tree_path]))
-            result = subprocess.run(["patch", "-p1", "-F", "0", "-s", "-d", scratch, "-i", patch],
-                                    capture_output=True, text=True)
-            if result.returncode != 0:
-                problems.append(f"{os.path.basename(patch)} does not apply: {(result.stdout + result.stderr).strip()}")
-                continue
-            for tree_path in changed:
-                patched[tree_path] = read(os.path.join(scratch, tree_path))
-    present = set()
-    for directory, folders, files in os.walk(tree):
-        for name in files + [name for name in folders if os.path.islink(os.path.join(directory, name))]:
-            present.add(os.path.relpath(os.path.join(directory, name), tree))
-    for tree_path in present - wanted.keys():
-        os.remove(os.path.join(tree, tree_path))
-    for tree_path, target in wanted.items():
-        path = os.path.join(tree, tree_path)
-        if tree_path in patched:
-            if os.path.isfile(path) and not os.path.islink(path) and read(path) == patched[tree_path]:
-                continue
-        elif os.path.islink(path) and os.readlink(path) == target:
-            continue
-        if os.path.lexists(path):
-            os.remove(path)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if tree_path in patched:
-            with open(path, "wb") as handle:
-                handle.write(patched[tree_path])
-        else:
-            os.symlink(target, path)
-    for directory, folders, files in os.walk(tree, topdown=False):
-        if directory != tree and not os.listdir(directory):
-            os.rmdir(directory)
-    return problems
-
-
-class Planner:
-    def __init__(self, sources, tree):
-        self.tree_root = tree
-        projects = {tree_path: os.path.join(sources, folder) for tree_path, folder in TREE.items()}
-        projects[OURS] = os.path.join(ROOT, "runtime", "art")
-        self.problems = make_tree(tree, projects)
-        self.tree = blueprint.Tree({tree_path: os.path.join(tree, tree_path) for tree_path in projects})
-        for tree_path in TREE:
-            for path in sorted(glob.glob(os.path.join(tree, tree_path, "**", "Android.bp"), recursive=True)):
-                self.load(os.path.relpath(path, tree))
-        self.load(f"{OURS}/modules.bp")  # last: Minato's modules take the place of those of the same name
-        for module in self.tree.modules.values():
-            self.adapt(module)
-        self.system_includes = unique(include for name in ("libc", "libm", "libdl")
-                                      for include in blueprint.exported_includes(self.tree, name, set()))
-        self.lines = [f"set(APK_ART_TREE {cmake_quote(tree)})"]
-        self.units = {}  # (module, linkage) -> its object library, or None with nothing to compile
-        self.linked = set()  # the shared libraries and programs
-        self.generated = {}
-
-    def load(self, tree_path):
-        """One Blueprint file, and the files its top-level `build` list names, as Soong reads them."""
-        path = self.tree.local(tree_path)
-        variables = {}
-        with open(path) as handle:
-            modules = blueprint.Parser(handle.read(), path, variables).file()
-        for kind, properties in modules:
-            if "name" in properties and kind not in ("ndk_library", "ndk_headers", "versioned_ndk_headers"):
-                self.tree.modules[properties["name"]] = blueprint.Module(kind, properties, os.path.dirname(tree_path))
-        for extra in variables.get("build", []):
-            self.load(os.path.normpath(os.path.join(os.path.dirname(tree_path), extra)))
-
-    def adapt(self, module):
-        """What Soong's load hooks and configuration add: art.go's for ART's module types, the default branch of
-        soong_config_variables, and nothing of product_variables (a user build)."""
+    def adapt_kind(self, module):
+        """art.go's additions for ART's module types."""
         properties = module.properties
-        properties.pop("product_variables", None)
-        for settings in properties.pop("soong_config_variables", {}).values():
-            module.properties = properties = blueprint.merge(properties, settings.get("conditions_default", {}))
         if module.kind not in ART_KINDS:
             return
         kind = module.kind
@@ -243,273 +130,6 @@ class Planner:
                     "art_cc_test_library"):
             additions = blueprint.merge(additions, {"target": {"android": {"cflags": IMPLICIT_CFLAGS}}})
         module.properties = blueprint.merge(properties, additions)
-
-    def local(self, tree_path):
-        path = self.tree.local(tree_path)
-        if path is None:
-            self.problems.append(f"{tree_path} lies outside the fetched projects")
-            return tree_path
-        return os.path.abspath(path)
-
-    def properties(self, name, linkage):
-        properties = blueprint.flatten(self.tree, self.tree.module(name), linkage)
-        for key in ("shared_libs", "static_libs", "whole_static_libs", "header_libs"):
-            excluded = properties.get("exclude_" + key, [])
-            properties[key] = unique(value for value in properties.get(key, []) if value not in excluded
-                                     and value not in DROPPED)
-        return properties
-
-    # Generated files ------------------------------------------------------------------------------------------
-
-    def tool_command(self, module, command, tools, tool_files):
-        """The command with $(location ...) of its tools and tool files resolved, Python scripts run with python3;
-        and the files the command runs. Paths go in as they are, as Soong's: the commands quote them where they
-        need to, and ours hold no spaces."""
-        locations, paths = {}, []
-        for tool in tools:
-            tool_module = self.tree.module(tool.lstrip(":"))
-            if tool_module.kind == "cc_binary":
-                path = self.host_tool(tool_module)
-                locations[tool] = path
-            else:
-                script = tool_module.properties.get("main") or tool_module.properties["srcs"][0]
-                path = self.local(os.path.normpath(os.path.join(tool_module.directory, script)))
-                locations[tool] = "python3 " + path
-            paths.append(path)
-        for tool_file in tool_files:
-            if tool_file.startswith(":"):
-                continue  # a filegroup the tool reads by itself
-            path = self.local(os.path.normpath(os.path.join(module.directory, tool_file)))
-            locations[tool_file] = ("python3 " + path) if path.endswith(".py") else path
-            paths.append(path)
-        return re.sub(r"\$\(location ([^)]+)\)", lambda match: locations[match.group(1)], command), paths
-
-    def host_tool(self, module):
-        """A cc_binary that a generator runs on the Mac, built with the Mac's compiler, after the headers it has
-        generated."""
-        name = module.properties["name"]
-        output = f"${{APK_ART_GENERATED}}/host/{name}"
-        if name in self.generated:
-            return output
-        properties = blueprint.flatten(self.tree, module, "static")
-        sources = [self.local(path) for path in blueprint.expand_sources(self.tree, module, properties.get("srcs", []))]
-        includes = [self.local(os.path.normpath(os.path.join(module.directory, path)))
-                    for path in [""] + properties.get("local_include_dirs", [])]
-        headers = []
-        for generator in properties.get("generated_headers", []):
-            outputs, directory = self.generated_outputs(generator)
-            headers += outputs
-            includes.append(directory)
-        self.lines.append(f"art_host_tool({cmake_quote(output)}\n  SOURCES {cmake_list(sources)}\n"
-                          f"  INCLUDES {cmake_list(includes)}\n  DEPENDS {cmake_list(headers)})")
-        self.generated[name] = output
-        return output
-
-    def object_text(self, module):
-        """A cc_object compiled with -S (asm_defines.s): its assembly text."""
-        name = module.properties["name"]
-        output = f"${{APK_ART_GENERATED}}/{name}/{name}"
-        unit = blueprint.compile_unit(self.tree, name, "static", set())
-        sources = [self.local(source) for source in unit["sources"]]
-        includes, system = self.includes(unit)
-        self.lines.append(
-            f"art_object_text({cmake_quote(output)}\n  SOURCES {cmake_list(sources)}\n"
-            f"  CFLAGS {cmake_flags(unit['cflags'])}\n  CPPFLAGS {cmake_flags(unit['cppflags'])}\n"
-            f"  INCLUDES {cmake_list(includes)}\n  SYSTEM_INCLUDES {cmake_list(system)})")
-        return output
-
-    def generated_outputs(self, reference):
-        """Adds the generator `reference` (":name" or "name") and returns (outputs, include directory)."""
-        name = reference.lstrip(":").split("{")[0]
-        if name in self.generated:
-            return self.generated[name]
-        if name not in self.tree.modules:
-            self.problems.append(f"{name}: a generator we do not have")
-            return [], None
-        module = self.tree.module(name)
-        properties = module.properties
-        directory = f"${{APK_ART_GENERATED}}/{name}"
-        if module.kind == "filegroup":  # one of ours in place of a generator, with the sources it would make
-            sources = [self.local(path) for path in
-                       blueprint.expand_sources(self.tree, module, properties.get("srcs", []))]
-            includes = [self.local(os.path.normpath(os.path.join(module.directory, path)))
-                        for path in properties.get("export_include_dirs", [])]
-            self.generated[name] = (sources, includes[0] if includes else None)
-            return self.generated[name]
-        if module.kind not in GENERATORS:
-            self.problems.append(f"{name} is a {module.kind}, not a generator")
-            return [], None
-        command, tool_paths = self.tool_command(module, properties["cmd"], properties.get("tools", []),
-                                                properties.get("tool_files", []))
-        inputs = []
-        for source in properties.get("srcs", []):
-            if source.startswith(":") and self.tree.module(source[1:]).kind == "cc_object":
-                inputs.append(self.object_text(self.tree.module(source[1:])))
-            else:
-                inputs += [self.local(path) for path in blueprint.expand_sources(self.tree, module, [source])]
-        command = command.replace("$(genDir)", directory)
-        if module.kind == "gensrcs":
-            # One output per input, named after it, with the command run in the tree's root so that the tool sees
-            # tree paths, as under Soong.
-            outputs = []
-            extension = properties.get("output_extension", "cpp")
-            for path in inputs:
-                relative = os.path.relpath(path, self.tree_root)
-                output = f"{directory}/{os.path.splitext(relative)[0]}.{extension}"
-                single = command.replace("$(in)", relative).replace("$(out)", output)
-                self.lines.append(f"art_generate({cmake_quote(output)}\n  COMMAND {cmake_quote(single)}\n"
-                                  f"  DEPENDS {cmake_list([path] + tool_paths)})")
-                outputs.append(output)
-        else:
-            outputs = [f"{directory}/{out}" for out in properties["out"]]
-            single = command.replace("$(in)", " ".join(inputs)).replace("$(out)", " ".join(outputs))
-            self.lines.append(f"art_generate({cmake_list(outputs)}\n  COMMAND {cmake_quote(single)}\n"
-                              f"  DEPENDS {cmake_list(inputs + tool_paths)})")
-        self.generated[name] = (outputs, directory)
-        return self.generated[name]
-
-    def exported_generated(self, name, seen=None):
-        """Generated headers a module exports through its header libraries (export_generated_headers)."""
-        seen = set() if seen is None else seen
-        if name in seen or name not in self.tree.modules:
-            return []
-        seen.add(name)
-        properties = blueprint.flatten(self.tree, self.tree.module(name), "static")
-        result = list(properties.get("export_generated_headers", []))
-        for key in ("export_header_lib_headers", "export_static_lib_headers", "export_shared_lib_headers",
-                    "whole_static_libs"):
-            for dependency in properties.get(key, []):
-                result += self.exported_generated(dependency, seen)
-        return result
-
-    # Compile units and libraries --------------------------------------------------------------------------------
-
-    def includes(self, unit):
-        """The unit's include directories, and bionic's as system directories after libc++'s."""
-        includes, system = [], []
-        for include in unit["includes"]:
-            if self.tree.local(include) is None:
-                continue
-            (system if include in self.system_includes else includes).append(self.local(include))
-        return includes, system + [self.local(include) for include in self.system_includes
-                                   if self.local(include) not in system]
-
-    def add_unit(self, name, linkage):
-        key = (name, linkage)
-        if key in self.units:
-            return self.units[key]
-        module = self.tree.module(name)
-        properties = self.properties(name, linkage)
-        unit = blueprint.compile_unit(self.tree, name, linkage, set())
-        sources, generated_headers = [], []
-        for source in unit["sources"]:
-            if source.startswith(":"):
-                outputs, _ = self.generated_outputs(source)
-                sources += [output for output in outputs if output.endswith(SOURCE_EXTENSIONS)]
-                continue
-            if not source.endswith(SOURCE_EXTENSIONS):
-                continue
-            path = self.local(source)
-            if not os.path.exists(path):
-                self.problems.append(f"{name}: missing source {source}")
-                continue
-            sources.append(path)
-        includes, system = self.includes(unit)
-        for generator in properties.get("generated_sources", []):
-            outputs, directory = self.generated_outputs(generator)
-            sources += [output for output in outputs if output.endswith(SOURCE_EXTENSIONS)]
-            generated_headers += [output for output in outputs if not output.endswith(SOURCE_EXTENSIONS)]
-            if directory:
-                includes.append(directory)
-        header_generators = list(properties.get("generated_headers", []))
-        for dependency in (properties.get("header_libs", []) + properties.get("static_libs", [])
-                           + properties.get("whole_static_libs", []) + properties.get("shared_libs", [])):
-            header_generators += self.exported_generated(dependency)
-        for generator in unique(header_generators):
-            outputs, directory = self.generated_outputs(generator)
-            generated_headers += outputs
-            if directory:
-                includes.append(directory)
-        cflags = list(unit["cflags"])
-        cppflags = list(unit["cppflags"]) + (["-frtti"] if properties.get("rtti") else [])
-        if properties.get("cpp_std"):
-            cppflags.append(f"-std={properties['cpp_std']}")
-        if properties.get("c_std"):
-            unit["conlyflags"] = [f"-std={properties['c_std']}"] + list(unit["conlyflags"])
-        target = f"art_{identifier(name)}_{linkage}"
-        self.units[key] = target if sources else None
-        if not sources:
-            self.lines.append(f"# {name} ({linkage}): nothing to compile")
-            return None
-        self.lines.append(
-            f"art_unit({target}\n"
-            f"  SOURCES {cmake_list(sources)}\n"
-            f"  GENERATED_HEADERS {cmake_list(unique(generated_headers))}\n"
-            f"  CFLAGS {cmake_flags(cflags)}\n"
-            f"  CONLYFLAGS {cmake_flags(unit['conlyflags'])}\n"
-            f"  CPPFLAGS {cmake_flags(cppflags)}\n"
-            f"  ASFLAGS {cmake_flags(unit['asflags'])}\n"
-            f"  INCLUDES {cmake_list(unique(includes))}\n"
-            f"  SYSTEM_INCLUDES {cmake_list(system)})")
-        return target
-
-    def static_closure(self, name):
-        """The units a static library brings into a link: its own, those of its whole_static_libs, and, as
-        archives, those of its static_libs, recursively (Soong passes them all to the final link)."""
-        whole, archives, seen = [], [], set()
-
-        def visit(dependency, whole_archive):
-            if dependency in seen or dependency in DROPPED:
-                return
-            seen.add(dependency)
-            if dependency not in self.tree.modules:
-                self.problems.append(f"{name}: links {dependency}, which we do not have")
-                return
-            target = self.add_unit(dependency, "static")
-            if target:
-                (whole if whole_archive else archives).append(target)
-            properties = self.properties(dependency, "static")
-            for inner in properties.get("whole_static_libs", []):
-                visit(inner, whole_archive)
-            for inner in properties.get("static_libs", []):
-                visit(inner, False)
-
-        properties = self.properties(name, "shared")
-        for dependency in properties.get("whole_static_libs", []):
-            visit(dependency, True)
-        for dependency in properties.get("static_libs", []):
-            visit(dependency, False)
-        return whole, archives
-
-    def add_linked(self, name, program=False):
-        """A shared library or program, and every shared library of the set it needs."""
-        if name in self.linked:
-            return
-        self.linked.add(name)
-        if name not in self.tree.modules:
-            self.problems.append(f"{name}: a library we do not have")
-            return
-        module = self.tree.module(name)
-        properties = self.properties(name, "shared")
-        own = self.add_unit(name, "shared")
-        whole, archives = self.static_closure(name)
-        system = properties.get("system_shared_libs", ["libc", "libm", "libdl"])
-        needed = unique(properties.get("shared_libs", []) + [library for library in system if library != name])
-        for library in needed:
-            if library not in GUEST_SYSTEM:
-                self.add_linked(library)
-        version_script = properties.get("version_script")
-        if version_script:
-            version_script = self.local(os.path.normpath(os.path.join(module.directory, version_script)))
-        self.lines.append(
-            f"art_{'program' if program else 'library'}({name}\n"
-            f"  UNITS {' '.join(target for target in [own] + whole if target)}\n"
-            f"  ARCHIVES {' '.join(archives)}\n"
-            f"  NEEDED {cmake_list(needed)}\n"
-            f"  STL {cmake_quote(properties.get('stl', 'libc++'))}\n"
-            f"  VERSION_SCRIPT {cmake_quote(version_script or '')}\n"
-            f"  LDFLAGS {cmake_flags(properties.get('ldflags', []))}\n"
-            f"  NOCRT {'TRUE' if properties.get('nocrt') else 'FALSE'})")
 
     # The boot jars -----------------------------------------------------------------------------------------------
 
@@ -564,10 +184,9 @@ class Planner:
                           f"  DEPENDS {cmake_list(inputs + compile_only)})")
 
     def plan(self, description):
-        for library in LIBRARIES:
-            self.add_linked(library)
-        for program in PROGRAMS:
-            self.add_linked(program, program=True)
+        """The plan's lines: the libraries and programs, then the boot jars, whose description goes to
+        `description`."""
+        self.plan_linked()
         self.boot_jars(description)
         return self.lines
 
@@ -576,7 +195,7 @@ def main():
     if len(sys.argv) != 3:
         raise SystemExit(__doc__)
     build = os.path.dirname(os.path.abspath(sys.argv[2]))
-    planner = Planner(os.path.abspath(sys.argv[1]), os.path.join(build, "tree"))
+    planner = ArtPlanner(os.path.abspath(sys.argv[1]), os.path.join(build, "tree"))
     lines = planner.plan(os.path.join(build, "boot_jars.json"))
     if planner.problems:
         raise SystemExit("art-plan: " + "\n  ".join(["cannot plan the build:"] + sorted(set(planner.problems))))
