@@ -2,7 +2,9 @@
    on the refresh grid less half a period. At 60 and 120 Hz, on a grid whose phase is no round number: a time on a
    refresh, 1 ms before and after it (the limits of that refresh), past the limit by 1 ns, 1 ns after a refresh,
    a third of the way between two, before the grid's tick; and on a grid with a negative phase. Then on the grid of
-   the runtime's ticks, posted here as the app's display link posts them, with the times that stay as they are. */
+   the runtime's ticks, posted here as the app's display link posts them, with the times that stay as they are and
+   decision 11 b)'s presents without a time: a refresh at most 2 periods after the tick's, at 100 and 120 Hz up to
+   its limit and 1 ns beyond, also on the tick's refresh and before it. */
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,9 +15,21 @@
 static int failures;
 
 static void expect_time(const char *what, int64_t asked, int64_t wanted) {
-    const int64_t got = minato_present_time(asked);
-    if (got != wanted) {
-        printf("present-time: %s: %" PRId64 ", not %" PRId64 "\n", what, got, wanted);
+    int64_t got = -1;
+    const enum minato_present_kind kind = minato_present_time(asked, &got);
+    if (kind != MINATO_PRESENT_WITH_TIME || got != wanted) {
+        printf("present-time: %s: %s %" PRId64 ", not with the time %" PRId64 "\n", what,
+               kind == MINATO_PRESENT_WITH_TIME ? "with the time" : "without a time, with", got, wanted);
+        failures++;
+    }
+}
+
+static void expect_without(const char *what, int64_t asked) {
+    int64_t got = -1;
+    const enum minato_present_kind kind = minato_present_time(asked, &got);
+    if (kind != MINATO_PRESENT_WITHOUT_TIME || got != 0) {
+        printf("present-time: %s: %s %" PRId64 ", not without a time\n", what,
+               kind == MINATO_PRESENT_WITH_TIME ? "with the time" : "without a time, with", got);
         failures++;
     }
 }
@@ -48,21 +62,29 @@ int main(void) {
     expect("a negative phase, before it", 8333333, -20000000, -7000000, -15333333);
 
     /* On the grid of the runtime's last tick: none before the first one, nor after a tick without a period (no
-       session), then grids of 10 ms from 1 s and from 1.007 s. */
+       session), then grids of 10 ms from 1 s and from 1.007 s, and of 120 Hz from 1 s. */
     expect_time("before the first tick", 2000000000, 2000000000);
     apkrt_vsync_post(1500000000, 1500000000);
     expect_time("after a tick without a period", 2000000000, 2000000000);
     apkrt_vsync_post(1000000000, 1010000000);
     expect_time("on a refresh of the tick's grid", 2000000000, 1995000000);
     expect_time("1 ms and 1 ns after a refresh of the tick's grid", 2001000001, 2005000000);
-    expect_time("a time that would land before 0", 1000000, 1000000);
+    expect_without("on the refresh 2 periods after the tick's", 1020000000);
+    expect_without("1 ms after it, its limit", 1021000000);
+    expect_time("1 ns beyond, the refresh 3 periods after the tick's", 1021000001, 1025000000);
+    expect_without("on the tick's refresh", 1000000000);
+    expect_without("before the tick's refresh", 900000000);
+    expect_without("a time that would land before 0", 1000000);
     expect_time("Android's NATIVE_WINDOW_TIMESTAMP_AUTO", INT64_MIN, INT64_MIN);
     expect_time("a time within a period of INT64_MAX", INT64_MAX - 5000000, INT64_MAX - 5000000);
     apkrt_vsync_post(1007000000, 1017000000);
     expect_time("on a refresh of the next tick's grid", 2007000000, 2002000000);
     expect_time("0, which would land 2 ms after 0 on that grid", 0, 0);
+    apkrt_vsync_post(1000000000, 1008333333);
+    expect_without("at 120 Hz, 2 periods and 1 ms after the tick's refresh", 1000000000 + 2 * 8333333 + 1000000);
+    expect_time("at 120 Hz, 1 ns beyond", 1000000000 + 2 * 8333333 + 1000001, 1000000000 + 3 * 8333333 - 8333333 / 2);
     if (failures == 0) {
-        printf("present-time: 18 times on the grid, 9 from the runtime's ticks\n");
+        printf("present-time: 18 times on the grid, 16 from the runtime's ticks, 6 of them without a time\n");
     }
     return failures == 0 ? 0 : 1;
 }

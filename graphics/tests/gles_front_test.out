@@ -33,7 +33,8 @@ window surfaces:
   presents counted: 4
   eglPresentationTimeANDROID: EGL_TRUE
   through eglGetProcAddress at 2 s, on a grid of 10 ms from 1 s: EGL_TRUE, the drawable at 1995000000 ns
-  the same with MINATO_PRESENTS_WITHOUT_TIME=1: EGL_TRUE, the drawable without a time
+  at 1.02 s, 2 periods after the grid's tick: EGL_TRUE, the drawable without a time
+  at 2 s with MINATO_PRESENTS_WITHOUT_TIME=1: EGL_TRUE, the drawable without a time
   on a pointer that is no window: EGL_NO_SURFACE, EGL_BAD_NATIVE_WINDOW
   eglDestroySurface: EGL_TRUE
 waits:

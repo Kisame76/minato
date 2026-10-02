@@ -36,6 +36,7 @@
 
 /* EGL's and GLES's types and names as ANGLE has them. */
 typedef unsigned int egl_boolean;
+#define EGL_TRUE 1u
 typedef int32_t egl_int;
 typedef intptr_t egl_attrib;
 typedef unsigned int gl_enum;
@@ -170,9 +171,14 @@ static egl_boolean swapped(void *display, void *surface) {
     return result;
 }
 
-/* The time of a window surface's next present, for Core Animation. */
+/* The time of a window surface's next present, for Core Animation; none for a present without a time (decision 11
+   b)), which ANGLE's swap then presents as it would without the call. */
 static egl_boolean presentation_time_set(void *display, void *surface, int64_t time) {
-    return presentation_time(display, surface, minato_present_time(time));
+    int64_t ours = 0;
+    if (minato_present_time(time, &ours) == MINATO_PRESENT_WITHOUT_TIME) {
+        return EGL_TRUE;
+    }
+    return presentation_time(display, surface, ours);
 }
 
 /* The app's debug callback: the user data graphics/host's function gets from ANGLE. */

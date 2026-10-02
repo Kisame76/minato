@@ -16,10 +16,10 @@
      swapchain's, and VK_SUCCESS after a turn by 180 degrees, after a turn back and on a new swapchain;
    - VK_GOOGLE_display_timing (ADR-0041 decision 11), offered as MoltenVK has it: its functions reach MoltenVK
      with MoltenVK's swapchain, and a present's times reach it for the swapchains that go on, in their order, on
-     the refresh grid that graphics-run's test control sets (test_control.h) less half a period, 0 as 0; the past
-     timings give the app its own times back, in its order, also for presents with one ID, of which MoltenVK's
-     history dropped the oldest; with MINATO_PRESENTS_WITHOUT_TIME=1 MoltenVK gets every time as 0, and the app its
-     own back;
+     the refresh grid that graphics-run's test control sets (test_control.h) less half a period, 0 as 0, and a
+     time whose refresh lies at most 2 periods after the grid's tick as 0 (decision 11 b)); the past timings give
+     the app its own times back, in its order, also for presents with one ID, of which MoltenVK's history dropped
+     the oldest; with MINATO_PRESENTS_WITHOUT_TIME=1 MoltenVK gets every time as 0, and the app its own back;
    - the gates (decision 13): a present waits at the closed gate and takes a signal meanwhile; in the
      background every call that commits waits, also through the KHR aliases, while "scheduled" comes
      through the runtime; a present waiting there ends when the window goes; then VK_ERROR_SURFACE_LOST_KHR
@@ -621,6 +621,21 @@ static void timing_part(void) {
     const VkResult seven_past = past(device, second, &room, timings);
     printf("with MINATO_PRESENTS_WITHOUT_TIME=1, at 7 s with ID 7: %d; past timing: %d, %u: ID %u, desired %llu, "
            "actual %llu\n", untimed_result, seven_past, room, timings[0].presentID,
+           (unsigned long long)timings[0].desiredPresentTime, (unsigned long long)timings[0].actualPresentTime);
+    /* Near on the grid of 10 ms from 1 s, 2 periods after its tick: MoltenVK gets 0, the app its own time back. */
+    next = 9;
+    check("vkAcquireNextImageKHR", acquire(second, acquired, &next));
+    const VkPresentTimeGOOGLE soon = {.presentID = 8, .desiredPresentTime = 1020000000};
+    const VkPresentTimesInfoGOOGLE soon_times = {.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE,
+                                                 .swapchainCount = 1, .pTimes = &soon};
+    const VkPresentInfoKHR soon_present = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &soon_times,
+                                           .waitSemaphoreCount = 1, .pWaitSemaphores = &acquired,
+                                           .swapchainCount = 1, .pSwapchains = &second, .pImageIndices = &next};
+    const VkResult soon_result = vkQueuePresentKHR(queue, &soon_present);
+    room = 1;
+    const VkResult soon_past = past(device, second, &room, timings);
+    printf("at 1.02 s with ID 8, 2 periods after the grid's tick: %d; past timing: %d, %u: ID %u, desired %llu, "
+           "actual %llu\n", soon_result, soon_past, room, timings[0].presentID,
            (unsigned long long)timings[0].desiredPresentTime, (unsigned long long)timings[0].actualPresentTime);
     vkDestroySwapchainKHR(device, first, NULL);
     vkDestroySwapchainKHR(device, second, NULL);

@@ -46,6 +46,7 @@ past timing of those: 0, 3: ID 4, desired 0; ID 5, desired 5000000000; ID 5, des
 nine presents with ID 6, 10 ms apart from 6 s: 0 0 0 0 0 0 0 0 0
 past timing of those after the first was dropped: 0, 8: 6010000000 6020000000 6030000000 6040000000 6050000000 6060000000 6070000000 6080000000
 with MINATO_PRESENTS_WITHOUT_TIME=1, at 7 s with ID 7: 0; past timing: 0, 1: ID 7, desired 7000000000, actual 100000
+at 1.02 s with ID 8, 2 periods after the grid's tick: 0; past timing: 0, 1: ID 8, desired 1020000000, actual 100000
 the closed gate: present 0, waited at least 100 ms: yes, the signal handled meanwhile: yes
 in the background: vkQueueSubmit 0, waited at least 100 ms: yes
 in the background: vkQueueSubmit2KHR 0, waited at least 100 ms: yes

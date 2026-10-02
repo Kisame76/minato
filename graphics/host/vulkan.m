@@ -7,8 +7,9 @@
      libvulkan names; a swapchain takes a window that is there, and Core Animation gets MoltenVK's changes
      to the layer, made on a thread without a run loop, when it is created or destroyed; presents are
      counted per window for the FPS label;
-   - VK_GOOGLE_display_timing's times reach MoltenVK on the display's refresh grid, less half a period, and 0 as 0
-     (present_time.h, ADR-0041 decision 11), or all as 0 for a present libvulkan flags MINATO_WINDOWS_WITHOUT_TIME;
+   - VK_GOOGLE_display_timing's times reach MoltenVK on the display's refresh grid, less half a period, 0 as 0, and
+     as 0 for a refresh at most 2 periods after the display link's last tick (present_time.h, ADR-0041 decision 11
+     and its b)), or all as 0 for a present libvulkan flags MINATO_WINDOWS_WITHOUT_TIME;
      the past timings give the app the times it asked for back, as Android's do;
    - vkCreateDevice keeps each queue's MTLCommandQueue for "scheduled", and vkDestroyDevice lets them go;
    - the app's debug callbacks, from vkCreateInstance's chain or their create functions, reach MoltenVK as
@@ -232,9 +233,11 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
         /* 0, for no time, stays 0, and so does a time beyond INT64_MAX, which is negative as an int64_t. */
         const int without_time = windows != NULL && (windows->flags & MINATO_WINDOWS_WITHOUT_TIME) != 0;
         for (uint32_t index = 0; index < asked->swapchainCount; index++) {
+            int64_t time = 0;
+            const int without = without_time || minato_present_time((int64_t)asked->pTimes[index].desiredPresentTime,
+                                                                    &time) == MINATO_PRESENT_WITHOUT_TIME;
             times[index] = asked->pTimes[index];
-            times[index].desiredPresentTime =
-                without_time ? 0 : (uint64_t)minato_present_time((int64_t)asked->pTimes[index].desiredPresentTime);
+            times[index].desiredPresentTime = without ? 0 : (uint64_t)time;
         }
         handed = *asked;
         handed.pTimes = times;

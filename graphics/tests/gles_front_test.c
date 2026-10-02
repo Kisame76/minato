@@ -15,7 +15,8 @@
    - Window surfaces are fixed-size: the window's size, then its buffer geometry one swap later, then the
      window's size again after setBuffersGeometry(0, 0); the drawable follows with the frame after.
    - eglPresentationTimeANDROID, reached through eglGetProcAddress as Swappy reaches it, hands Core Animation the
-     time on the refresh grid graphics-run's test control sets, less half a period (ADR-0041 decision 11); with
+     time on the refresh grid graphics-run's test control sets, less half a period (ADR-0041 decision 11), and no
+     time for a refresh at most 2 periods after the grid's tick (decision 11 b)); with
      MINATO_PRESENTS_WITHOUT_TIME=1 in the environment it answers the same, and the drawable comes without a time.
    - The waits in slices: a signal's handler runs within 30 ms of its sending during eglClientWaitSyncKHR,
      and the wait goes on. */
@@ -407,8 +408,16 @@ static void window_surfaces(EGLDisplay display, EGLConfig config, EGLContext con
     minato_test(MINATO_TEST_VSYNC_GRID, 1000000000, 10000000, 0);
     const PFNEGLPRESENTATIONTIMEANDROIDPROC set_time =
         (PFNEGLPRESENTATIONTIMEANDROIDPROC)eglGetProcAddress("eglPresentationTimeANDROID");
-    for (int without = 0; without < 2; without++) {
-        if (without) {
+    /* Far on the grid, then near, 2 periods after the grid's tick, then far with the measurement's switch. */
+    const struct {
+        EGLnsecsANDROID time;
+        int without;
+        const char *what;
+    } cases[] = {{2000000000, 0, "through eglGetProcAddress at 2 s, on a grid of 10 ms from 1 s"},
+                 {1020000000, 0, "at 1.02 s, 2 periods after the grid's tick"},
+                 {2000000000, 1, "at 2 s with MINATO_PRESENTS_WITHOUT_TIME=1"}};
+    for (size_t index = 0; index < sizeof cases / sizeof *cases; index++) {
+        if (cases[index].without) {
             setenv("MINATO_PRESENTS_WITHOUT_TIME", "1", 1);
         }
         /* The earlier swaps' drawables first, then the one of this swap, which Metal hands its time (or none) once
@@ -416,7 +425,7 @@ static void window_surfaces(EGLDisplay display, EGLConfig config, EGLContext con
         glFinish();
         usleep(50000);
         minato_test(MINATO_TEST_PRESENTED_AT, 1, 0, 0);
-        const EGLBoolean timed = set_time != NULL && set_time(display, surface, 2000000000);
+        const EGLBoolean timed = set_time != NULL && set_time(display, surface, cases[index].time);
         frame(1.0f);
         eglSwapBuffers(display, surface);
         uint64_t at = 0;
@@ -425,10 +434,7 @@ static void window_surfaces(EGLDisplay display, EGLConfig config, EGLContext con
         }
         char where[48];
         snprintf(where, sizeof where, at == UINT64_MAX ? "without a time" : "at %llu ns", (unsigned long long)at);
-        printf("  %s: %s, the drawable %s\n",
-               without ? "the same with MINATO_PRESENTS_WITHOUT_TIME=1" : "through eglGetProcAddress at 2 s, on a grid "
-                                                                          "of 10 ms from 1 s",
-               timed ? "EGL_TRUE" : "EGL_FALSE", where);
+        printf("  %s: %s, the drawable %s\n", cases[index].what, timed ? "EGL_TRUE" : "EGL_FALSE", where);
     }
     unsetenv("MINATO_PRESENTS_WITHOUT_TIME");
 
