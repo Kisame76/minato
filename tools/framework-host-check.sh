@@ -5,6 +5,8 @@
 # managers' generator (tools/managergen), and the policy and table of decision 6's runtime permissions:
 #   - framework/tests/managergen_test.py checks the generator on framework/tests/managergen's samples, whose
 #     output goes into the build folder for GeneratedSampleTest;
+#   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
+#     SampleBaseManager, for ImplementedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
 #   - javac 17, then each *Test class's main; any FAIL fails the check.
 # The JDK comes from tools/fetch-sources.py --set art.
@@ -38,9 +40,15 @@ python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-c
   --class com.android.minato.sample.SampleListener --class com.android.minato.sample.SampleBase \
   --class com.android.minato.sample.SampleChild --class com.android.minato.sample.SampleOther \
   --class com.android.minato.sample.SampleShape --class com.android.minato.sample.SampleSquare
+# ADR-0039 b3.5a's --implement: SampleAppManager extends the AOSP-like abstract SampleBaseManager, as
+# ApplicationPackageManager extends PackageManager; ImplementedSampleTest runs it.
+python3 tools/managergen/managergen.py \
+  --implement framework/tests/managergen/java/com/android/minato/sample/pm/SampleBaseManager.java \
+  --as com.android.minato.sample.app.SampleAppManager --hand framework/tests/managergen/hand --out "$OUT/gen"
 
 "$JDK/bin/javac" -source 17 -target 17 -encoding UTF-8 -Xlint:all -Werror -d "$OUT/classes" \
-  $(find framework/java/com/android/minato framework/tests/java "$OUT/gen" -name '*.java' | sort)
+  $(find framework/java/com/android/minato framework/tests/java framework/tests/managergen/java "$OUT/gen" \
+    -name '*.java' | sort)
 
 failed=0
 for test in $(cd framework/tests/java && find . -name '*Test.java' | sed 's|^\./||; s|\.java$||; s|/|.|g' | sort); do
