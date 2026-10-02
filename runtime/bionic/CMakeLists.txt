@@ -116,6 +116,11 @@ execute_process(COMMAND ${Python3_EXECUTABLE} "${APK_ROOT}/tools/bionic-plan.py"
 if(NOT status EQUAL 0)
   message(FATAL_ERROR "tools/bionic-plan.py failed")
 endif()
+# A change to the planner plans again. So does a file that comes into the overlay or leaves it, since the plan names
+# the overlay's file in place of bionic's; a changed one only compiles again.
+file(GLOB_RECURSE bionic_overlay CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/overlay/*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${APK_ROOT}/tools/bionic-plan.py"
+  "${APK_ROOT}/tools/blueprint.py")
 include("${CMAKE_BINARY_DIR}/plan.cmake")
 
 # ld-android.so has no libc, because libc.so needs it. Its lock's atomics stay inline: the

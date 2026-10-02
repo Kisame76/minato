@@ -150,6 +150,14 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # The guest builds plan their trees when CMake configures them (tools/bionic-plan.py, tools/art-plan.py): a change to
+  # the planner or a module it imports, or a file that comes into the overlay folder or leaves it, configures them
+  # again. Skipped while no build is configured and up to date.
+  add_test(NAME runtime.plan_inputs
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/plan_inputs_test.py" "${APK_BIONIC_DIR}/.."
+      "${APK_ART_DIR}")
+  set_tests_properties(runtime.plan_inputs PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
   # Where ART's heap window places its mappings (ADR-0033 decision 3), with ART's own header for it.
   add_executable(heap_window_test tests/heap_window_test.cpp)
   target_include_directories(heap_window_test PRIVATE art/overlay/art/libartbase/base)
