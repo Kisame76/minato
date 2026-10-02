@@ -205,6 +205,14 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/environment_runs")
   set_tests_properties(runtime.app_environment PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
+  # apk-run's --configuration (ADR-0039, config-test): the fixture session-test sees the session it begins through
+  # session_configuration and libandroid, and no session without it.
+  add_test(NAME runtime.session_run
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/session_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/session_runs")
+  set_tests_properties(runtime.session_run PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

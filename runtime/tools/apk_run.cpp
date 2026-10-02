@@ -1,15 +1,21 @@
 // apk-run: runs the program in a container dylib on the Mac, one program per process (ADR-0019).
 // The tests start it once per fixture; the exit status is the program's own.
 //   apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...
-//           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>] <container.dylib>
-//           [argument...]
+//           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]
+//           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64.
 // --cwd sets the working directory the program starts in ("/" by default). The program starts with init's
 // environment (ADR-0039 decision 2) and on top of it what an Android shell sets (PATH, ANDROID_DATA,
 // ANDROID_ROOT, HOME); --app-environment leaves the shell's out, as an app starts, and --env adds entries on
 // top of either. --argv0 is how the program was started (/data/local/tmp/<container name> by default).
+// --configuration begins a session before the program starts (ADR-0039, config-test), whose configuration the
+// guest reads through session_configuration: a screen of <width> x <height> pixels at <scale>, portrait when it is
+// at least as high as wide and landscape else, without night mode, at 120 Hz, in en-US unless a locale is given.
+// The program's end then ends the process with its status, as without a session; requests go nowhere.
 #include "APKRuntime/apkrt.h"
+
+#include <unistd.h>
 
 #include <cstdio>
 #include <cstring>
@@ -24,8 +30,42 @@ int usage() {
     std::fprintf(stderr,
                  "usage: apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...\n"
                  "               [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]\n"
+                 "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
                  "               <container.dylib> [argument...]\n");
     return 2;
+}
+
+/// --configuration's value as a session's configuration; false when it does not parse.
+bool parse_configuration(const std::string &value, apkrt_configuration &configuration) {
+    int width = 0, height = 0, used = 0;
+    double scale = 0;
+    if (std::sscanf(value.c_str(), "%dx%d@%lf%n", &width, &height, &scale, &used) != 3 || width <= 0 || height <= 0 ||
+        !(scale > 0 && scale < 64)) {
+        return false;
+    }
+    std::string language = "en", country = "US";
+    const std::string_view rest = std::string_view(value).substr(static_cast<std::size_t>(used));
+    if (!rest.empty()) {
+        if (rest[0] != ',') return false;
+        const auto locale = rest.substr(1);
+        const auto dash = locale.find('-');
+        language = std::string(locale.substr(0, dash));
+        country = dash == std::string_view::npos ? "" : std::string(locale.substr(dash + 1));
+        if (language.size() < 2 || language.size() >= sizeof configuration.language ||
+            country.size() >= sizeof configuration.country) {
+            return false;
+        }
+    }
+    configuration = {};
+    configuration.scale = scale;
+    configuration.width = width;
+    configuration.height = height;
+    configuration.orientation = height >= width ? 1 : 2;  // ACONFIGURATION_ORIENTATION_PORT, _LAND
+    configuration.night = 1;                               // ACONFIGURATION_UI_MODE_NIGHT_NO
+    configuration.refresh_rate = 120;
+    std::memcpy(configuration.language, language.c_str(), language.size() + 1);
+    std::memcpy(configuration.country, country.c_str(), country.size() + 1);
+    return true;
 }
 
 /// Splits <left>=<right>; false without an equals sign.
@@ -50,6 +90,8 @@ int main(int argc, char **argv) {
     };
     std::vector<std::string> given;
     std::string argv0;
+    apkrt_session session{};
+    bool configured = false;
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
@@ -77,6 +119,9 @@ int main(int argc, char **argv) {
             given.push_back(value);
         } else if (option == "--argv0") {
             argv0 = value;
+        } else if (option == "--configuration") {
+            if (!parse_configuration(value, session.configuration)) return usage();
+            configured = true;
         } else {
             return usage();
         }
@@ -98,6 +143,14 @@ int main(int argc, char **argv) {
     for (const auto &entry : given) variables.push_back(entry.c_str());
     variables.push_back(nullptr);
 
+    if (configured) {
+        // The end handler runs on the guest's thread instead of the process's end: it ends the process as that would.
+        session.end = [](void *, int status) { ::_exit(status); };
+        if (apkrt_session_begin(&session) != 0) {
+            std::fprintf(stderr, "apk-run: the session did not begin\n");
+            return 2;
+        }
+    }
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);
     return 127;

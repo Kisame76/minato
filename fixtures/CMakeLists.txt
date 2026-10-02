@@ -98,6 +98,11 @@ add_executable(property-test suite/property-test.c)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
 # (runtime/tests/environment_run.py).
 add_executable(env-test suite/env-test.c)
+# session-test: the session's configuration through session_configuration and libandroid; runtime.session_run starts
+# it through apk-run with --configuration and without (runtime/tests/session_run.py).
+add_executable(session-test suite/session-test.c)
+target_include_directories(session-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include")
+target_link_libraries(session-test PRIVATE android dl)
 # libcodec-test.so: the JNI half of the Java fixture codec-test (fixtures/java/codec-test, ADR-0033 test 2), which
 # runtime.art_codec runs on ART.
 add_library(codec-test SHARED suite/libcodec-test.c)
