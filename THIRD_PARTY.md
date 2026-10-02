@@ -161,7 +161,7 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 
 ## Graphics sources (ADR-0043 a)
 
-Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go). Nothing of it ships before ADR-0043 a1 builds it.
+Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Nothing of it ships before ADR-0043 a1 builds it.
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
@@ -177,10 +177,11 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
 | `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
-| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0 | headers (`include/private`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect` |
+| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect` |
 | `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 (`NOTICE`) | the AIDL of graphics common and composer3, for their enum headers |
+| `platform/hardware/libhardware` | `58faa60aadb6` | Apache-2.0 (`NOTICE`) | `hardware.h`, which libui's `PixelFormat.h` includes |
 | `platform/system/server_configurable_flags` | `3b6d3e8d7d20` | Apache-2.0 | `libflags` |
 | `platform/external/googletest` | `c05eedac6f5e` | BSD-3-Clause | `gtest_prod.h`, which minikin includes |
 

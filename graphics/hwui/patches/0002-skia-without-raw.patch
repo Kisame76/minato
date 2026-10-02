@@ -1,0 +1,19 @@
+Skia without its RAW codec (ADR-0043 a1).
+
+The host flavor's Skia decodes RAW images through dng_sdk and piex, which Minato does not fetch (3 MB, and Android's
+BitmapFactory decodes no RAW either); hwui-plan.py leaves SkRawCodec.cpp and both libraries out, and the config stops
+asking for the codec.
+
+--- a/external/skia/linux/include/config/SkUserConfig.h
++++ b/external/skia/linux/include/config/SkUserConfig.h
+@@ -23,10 +23,6 @@
+ #define SK_CODEC_DECODES_PNG
+ #endif
+ 
+-#ifndef SK_CODEC_DECODES_RAW
+-#define SK_CODEC_DECODES_RAW
+-#endif
+-
+ #ifndef SK_CODEC_DECODES_WBMP
+ #define SK_CODEC_DECODES_WBMP
+ #endif

@@ -1,0 +1,45 @@
+minikin without its Rust hyphenator (ADR-0043 a).
+
+Android 15's release (ap3a) builds minikin with com.android.text.flags.rust_hyphenator false, so loadBinary makes
+the C++ hyphenator. The Rust one needs a Rust toolchain for the guest, which Minato does not have. With
+MINATO_WITHOUT_RUST, which graphics/hwui's build defines, minikin takes the path it has for Win32: the C++ hyphenator
+only, without the Rust bridge's header. loadBinaryForRust, which nothing of the set calls, aborts there.
+
+--- a/frameworks/minikin/libs/minikin/Hyphenator.cpp
++++ b/frameworks/minikin/libs/minikin/Hyphenator.cpp
+@@ -28,7 +28,7 @@
+ #include "MinikinInternal.h"
+ #include "minikin/Characters.h"
+ 
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(MINATO_WITHOUT_RUST)
+ #include "minikin_cxx_bridge.rs.h"
+ #endif  // _WIN32
+ 
+@@ -102,7 +102,7 @@
+     }
+ };
+ 
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(MINATO_WITHOUT_RUST)
+ class HyphenatorRust : public Hyphenator {
+ public:
+     HyphenatorRust(const uint8_t* patternData, size_t dataSize, size_t minPrefix, size_t minSuffix,
+@@ -125,7 +125,7 @@
+ // static
+ Hyphenator* Hyphenator::loadBinary(const uint8_t* patternData, size_t dataSize, size_t minPrefix,
+                                    size_t minSuffix, const std::string& locale) {
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(MINATO_WITHOUT_RUST)
+     return HyphenatorCXX::loadBinary(patternData, dataSize, minPrefix, minSuffix, locale);
+ #else   // _WIN32
+     if (features::rust_hyphenator()) {
+@@ -136,7 +136,7 @@
+ #endif  // _WIN32
+ }
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(MINATO_WITHOUT_RUST)
+ Hyphenator* Hyphenator::loadBinaryForRust(const uint8_t* /*patternData*/, size_t /*dataSize*/,
+                                           size_t /*minPrefix*/, size_t /*minSuffix*/,
+                                           const std::string& /*locale*/) {

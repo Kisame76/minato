@@ -22,6 +22,8 @@ import blueprint  # noqa: E402
 
 SOURCE_EXTENSIONS = (".c", ".cpp", ".cc", ".S", ".s")
 GENERATORS = ("genrule", "gensrcs", "cc_genrule")
+# What Soong compiles for cpp_std and c_std "experimental" (cc/config/global.go at the tag).
+EXPERIMENTAL_STD = {"cpp_std": "gnu++2b", "c_std": "gnu2x"}
 
 
 def cmake_quote(value):
@@ -122,7 +124,10 @@ class Planner:
     - GUEST_SYSTEM, the guest system's libraries, which the plan links but does not build; DROPPED, dependencies left
       out; LIBRARIES and PROGRAMS, what it builds;
     - PREFIX, the prefix of the plan's CMake functions and targets (<prefix>_unit, <prefix>_library, ...), GENERATED,
-      the CMake variable of the generated files' folder, and TREE_VARIABLE, the one of the tree.
+      the CMake variable of the generated files' folder, and TREE_VARIABLE, the one of the tree;
+    - GLOBAL_INCLUDES, Soong's global includes (cc/config/global.go's commonGlobalIncludes), which Soong gives
+      platform and host modules as -I after all of their own and their dependencies' (cc/compiler.go,
+      cc/builder.go), those the tree holds.
     adapt_kind adds what Soong's load hooks add for the set's own module types."""
     TREE = MappingProxyType({})
     OURS = None
@@ -137,6 +142,7 @@ class Planner:
     PREFIX = None
     GENERATED = None
     TREE_VARIABLE = None
+    GLOBAL_INCLUDES = ()
     NAMED = ("OURS", "OURS_FOLDER", "OVERLAY", "PATCHES", "PREFIX", "GENERATED", "TREE_VARIABLE")
 
     def __init__(self, sources, tree):
@@ -376,12 +382,16 @@ class Planner:
             generated_headers += outputs
             if directory:
                 includes.append(directory)
+        includes += [os.path.abspath(os.path.join(self.tree_root, include)) for include in self.GLOBAL_INCLUDES
+                     if os.path.isdir(os.path.join(self.tree_root, include))]
         cflags = list(unit["cflags"])
         cppflags = list(unit["cppflags"]) + (["-frtti"] if properties.get("rtti") else [])
-        if properties.get("cpp_std"):
-            cppflags.append(f"-std={properties['cpp_std']}")
-        if properties.get("c_std"):
-            unit["conlyflags"] = [f"-std={properties['c_std']}"] + list(unit["conlyflags"])
+        standards = {key: EXPERIMENTAL_STD[key] if properties.get(key) == "experimental" else properties.get(key)
+                     for key in EXPERIMENTAL_STD}
+        if standards["cpp_std"]:
+            cppflags.append(f"-std={standards['cpp_std']}")
+        if standards["c_std"]:
+            unit["conlyflags"] = [f"-std={standards['c_std']}"] + list(unit["conlyflags"])
         target = f"{self.PREFIX}_{identifier(name)}_{linkage}"
         self.units[key] = target if sources else None
         if not sources:
@@ -401,13 +411,22 @@ class Planner:
 
     def static_closure(self, name):
         """The units a static library brings into a link: its own, those of its whole_static_libs, and, as
-        archives, those of its static_libs, recursively (Soong passes them all to the final link)."""
-        whole, archives, seen = [], [], set()
+        archives, those of its static_libs, recursively (Soong passes them all to the final link); and the guest
+        system's libraries among them, which the guest has as shared libraries only. One it would take whole is a
+        problem: Soong would embed it and export its symbols from the shared library, which NEEDED does not."""
+        whole, archives, shared, seen = [], [], [], set()
 
         def visit(dependency, whole_archive):
+            if dependency in self.GUEST_SYSTEM and whole_archive:
+                self.problems.append(f"{name}: takes the guest system's {dependency} whole, which the guest has as a "
+                                     "shared library only")
+                return
             if dependency in seen or dependency in self.DROPPED:
                 return
             seen.add(dependency)
+            if dependency in self.GUEST_SYSTEM:
+                shared.append(dependency)
+                return
             if dependency not in self.tree.modules:
                 self.problems.append(f"{name}: links {dependency}, which we do not have")
                 return
@@ -425,7 +444,7 @@ class Planner:
             visit(dependency, True)
         for dependency in properties.get("static_libs", []):
             visit(dependency, False)
-        return whole, archives
+        return whole, archives, shared
 
     def add_linked(self, name, program=False):
         """A shared library or program, and every shared library of the set it needs."""
@@ -438,9 +457,9 @@ class Planner:
         module = self.tree.module(name)
         properties = self.properties(name, "shared")
         own = self.add_unit(name, "shared")
-        whole, archives = self.static_closure(name)
+        whole, archives, shared = self.static_closure(name)
         system = properties.get("system_shared_libs", ["libc", "libm", "libdl"])
-        needed = unique(properties.get("shared_libs", []) + [library for library in system if library != name])
+        needed = unique(properties.get("shared_libs", []) + shared + [library for library in system if library != name])
         for library in needed:
             if library not in self.GUEST_SYSTEM:
                 self.add_linked(library)

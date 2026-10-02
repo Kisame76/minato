@@ -786,6 +786,31 @@
       "digest": "de723cf4902f8fa735be0497dc890860b43b1bd8b8764c25c9ae5f36f3f7f8f8"
     },
     {
+      "name": "frameworks_native_headers",
+      "project": "platform/frameworks/native",
+      "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
+      "license": "Apache-2.0; in opengl/include the Khronos headers MIT (MODULE_LICENSE_MIT), ANGLE's EGL/eglext_angle.h and EGL/Platform.h BSD-3-Clause, GLES3/gl3ext.h SGI-B-2.0",
+      "directories": [
+        "include/android",
+        "opengl/include"
+      ],
+      "files": [
+        "libs/gui/include/gui/TraceUtils.h"
+      ],
+      "digest": "9dc210967fdb5a3606df2578ad0b78d651ae369713f3e2dc28b44afc640ceaa9"
+    },
+    {
+      "name": "libhardware",
+      "project": "platform/hardware/libhardware",
+      "commit": "58faa60aadb6e17fc0af9b0e5246a09ec046ec96",
+      "license": "Apache-2.0",
+      "files": [
+        "include_all/hardware/hardware.h",
+        "NOTICE"
+      ],
+      "digest": "150a8715547e6e70d6524523b7165d88c42788b0b6ef34914599146a7dfb2986"
+    },
+    {
       "name": "vulkan_headers_aosp",
       "project": "platform/external/vulkan-headers",
       "commit": "d3602c8e1b0b8268c336768e1a8cf1be17dcc087",
