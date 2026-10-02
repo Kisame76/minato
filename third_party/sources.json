@@ -205,14 +205,14 @@
     {
       "name": "dlmalloc",
       "project": "platform/external/dlmalloc",
-      "commit": "ea4e2b4f801a6cd72148ab7a26d00aefc47a582d",
+      "commit": "f18b9ade29f2be5126c85918c2354f1e09735220",
       "license": "CC0-1.0 (public domain)",
       "digest": "de8c92e33fd5829811ac297c49ee51c4a90652e4af4ca067cfef0180cf8966b4"
     },
     {
       "name": "logging",
       "project": "platform/system/logging",
-      "commit": "efbed624fef7eaf28f8bd50686302a5576f544a1",
+      "commit": "54d3fa266d2123c0b076c646fae60d049311052a",
       "license": "Apache-2.0",
       "files": [
         "liblog/NOTICE"
