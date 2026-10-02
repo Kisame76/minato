@@ -29,10 +29,12 @@
 // The system property area as init writes it (properties.h). Derived from bionic's
 // libc/system_properties/prop_area.cpp at android-15.0.0_r1 (commit 361ba86734fb2821a6adcfdf775db8abd04e0de0):
 // Area::add follows prop_area::add, find_property, find_prop_trie_node, new_prop_trie_node, new_prop_info and
-// allocate_obj, on the layout of prop_area.h and prop_info.h, writing into a buffer instead of a mapping. bionic's
-// ContextsPreSplit reads the area when /dev/__properties__ is no folder: one area for every property, without
-// property contexts or a serialized tree.
+// allocate_obj, and prop_info.cpp's two constructors, on the layout of prop_area.h and prop_info.h, writing into a
+// buffer instead of a mapping. bionic's ContextsPreSplit reads the area when /dev/__properties__ is no folder: one
+// area for every property, without property contexts or a serialized tree.
 #include "properties.h"
+
+#include <sys/sysctl.h>
 
 #include <cstdint>
 #include <cstring>
@@ -51,8 +53,11 @@ constexpr std::size_t header_size = 128;
 constexpr std::size_t value_max = 92;  // PROP_VALUE_MAX
 // struct prop_trie_node: namelen, then the offsets prop, left, right and children, then the name.
 constexpr std::uint32_t node_size = 20, node_prop = 4, node_left = 8, node_right = 12, node_children = 16;
-// struct prop_info: serial, the value, then the name.
-constexpr std::uint32_t info_size = 4 + value_max, info_value = 4;
+// struct prop_info: serial, the value, then the name. A long value (kLongFlag) lies on its own: the value's place
+// holds a message for __system_property_get in its first 56 bytes, then the value's offset from the prop_info.
+constexpr std::uint32_t info_size = 4 + value_max, info_value = 4, info_long_offset = info_value + 56;
+constexpr std::uint32_t long_flag = 1u << 16;
+constexpr std::string_view long_error = "Must use __system_property_read_callback() to read";
 
 // The properties the runtime sets, as init would from the build's property files.
 constexpr std::pair<std::string_view, std::string_view> properties[] = {
@@ -63,15 +68,46 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"dalvik.vm.heaptargetutilization", "0.5"},
     {"dalvik.vm.heapminfree", "8m"},
     {"dalvik.vm.heapmaxfree", "32m"},
-    // Android 15's version (ADR-0039 decision 9) [verified: the emulator's getprop, 2026-10-01], as a user build,
-    // which is not debuggable.
+    // Android 15's version (ADR-0039 decision 9) [verified: the emulator's getprop, 2026-10-01], as a user build
+    // with release keys, which is not debuggable. Build.VERSION.ACTIVE_CODENAMES reads the first of all_codenames.
     {"ro.build.version.sdk", "35"},
     {"ro.build.version.release", "15"},
     {"ro.build.version.release_or_codename", "15"},
+    {"ro.build.version.release_or_preview_display", "15"},
     {"ro.build.version.codename", "REL"},
+    {"ro.build.version.all_codenames", "REL"},
+    {"ro.build.version.known_codenames",
+     "Base,Base11,Cupcake,Donut,Eclair,Eclair01,EclairMr1,Froyo,Gingerbread,GingerbreadMr1,Honeycomb,HoneycombMr1,"
+     "HoneycombMr2,IceCreamSandwich,IceCreamSandwichMr1,JellyBean,JellyBeanMr1,JellyBeanMr2,Kitkat,KitkatWatch,"
+     "Lollipop,LollipopMr1,M,N,NMr1,O,OMr1,P,Q,R,S,Sv2,Tiramisu,UpsideDownCake,VanillaIceCream"},
+    {"ro.build.version.min_supported_target_sdk", "28"},
+    {"ro.build.version.incremental", "12368160"},
     {"ro.build.version.security_patch", "2024-09-05"},
+    {"ro.build.id", "AE3A.240806.019"},
+    {"ro.build.type", "user"},
+    {"ro.build.tags", "release-keys"},
     {"ro.debuggable", "0"},
+    // The device (decision 9): Apple's, with the model as the host names it (area()), not the emulator's; the ABI
+    // arm64-v8a alone, whose 64-bit list gives Build.CPU_ABI; the density that DisplayMetrics.DENSITY_DEVICE reads;
+    // and GLES 3.0. No ro.boot.qemu, and no ro.build.fingerprint, which Build then derives from these.
+    {"ro.product.manufacturer", "Apple"},
+    {"ro.product.brand", "Apple"},
+    {"ro.hardware", "minato"},
+    {"ro.product.cpu.abilist", "arm64-v8a"},
+    {"ro.product.cpu.abilist32", ""},
+    {"ro.product.cpu.abilist64", "arm64-v8a"},
+    {"ro.sf.lcd_density", "480"},
+    {"ro.opengles.version", "196608"},
 };
+
+/// The host's hw.machine, Apple's name of the device: "iPhone16,2" for the iPhone 15 Pro Max; on the Mac, its
+/// processor's. No table turns it into a marketing name (decision 9).
+std::string machine() {
+    char name[64] = "";
+    std::size_t size = sizeof name;
+    if (::sysctlbyname("hw.machine", name, &size, nullptr, 0) != 0) return {};
+    return name;
+}
 
 /// The area as it is written: data_'s objects at offsets from data_, which the trie's links hold.
 class Area {
@@ -84,9 +120,10 @@ public:
     }
 
     /// prop_area::add: the property `name` with `value`, under the nodes of its dot-separated parts; false when
-    /// a part is empty, the value too long or the area full. A name already there keeps its value.
+    /// a part is empty, the area full, or the value too long for a property that is not read-only, as
+    /// __system_property_add refuses it. A name already there keeps its value.
     bool add(std::string_view name, std::string_view value) {
-        if (value.size() >= value_max) return false;
+        if (value.size() >= value_max && !name.starts_with("ro.")) return false;
         std::uint32_t current = 0;  // the root node
         for (std::string_view rest = name;;) {
             const auto dot = rest.find('.');
@@ -151,12 +188,22 @@ private:
         return offset;
     }
 
-    /// new_prop_info for a short value: the serial holds the value's length in its top byte.
+    /// new_prop_info: a short value in the prop_info, its length in the serial's top byte; a value of
+    /// PROP_VALUE_MAX bytes or more after it, with kLongFlag and the message for get, as prop_info's long form.
     std::optional<std::uint32_t> new_info(std::string_view name, std::string_view value) {
         const auto offset = allocate(info_size + name.size() + 1);
         if (!offset) return offset;
-        store(*offset, static_cast<std::uint32_t>(value.size()) << 24);
-        std::memcpy(data() + *offset + info_value, value.data(), value.size());
+        if (value.size() >= value_max) {
+            const auto long_value = allocate(value.size() + 1);
+            if (!long_value) return long_value;
+            std::memcpy(data() + *long_value, value.data(), value.size());
+            store(*offset, static_cast<std::uint32_t>(long_error.size()) << 24 | long_flag);
+            std::memcpy(data() + *offset + info_value, long_error.data(), long_error.size());
+            store(*offset + info_long_offset, *long_value - *offset);
+        } else {
+            store(*offset, static_cast<std::uint32_t>(value.size()) << 24);
+            std::memcpy(data() + *offset + info_value, value.data(), value.size());
+        }
         std::memcpy(data() + *offset + info_size, name.data(), name.size());
         return offset;
     }
@@ -185,6 +232,9 @@ private:
 std::string area() {
     Area written;
     for (const auto &[name, value] : properties) written.add(name, value);
+    const std::string model = machine();
+    written.add("ro.product.model", model);
+    written.add("ro.product.device", model);
     return std::move(written).bytes();
 }
 

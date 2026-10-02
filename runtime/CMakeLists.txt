@@ -156,6 +156,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(heap_window_test PRIVATE apk_defaults apk_testing)
   add_test(NAME runtime.heap_window COMMAND heap_window_test)
 
+  # The property area's device and version values as android.os.Build reads them (ADR-0039 decision 9).
+  add_executable(properties_test tests/properties_test.cpp)
+  target_include_directories(properties_test PRIVATE src)
+  target_link_libraries(properties_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.properties COMMAND properties_test)
+
   # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
   # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello; test 2 is
   # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window. The jars

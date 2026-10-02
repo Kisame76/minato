@@ -13,4 +13,23 @@ get ro.debuggable: 1 "0"
 read_callback: ro.build.version.sdk = 35
 get missing.property: 0
 find missing.property: none
-foreach: 12 properties
+foreach: 30 properties
+build ro.build.id: "AE3A.240806.019"
+build ro.build.type: "user"
+build ro.build.tags: "release-keys"
+build ro.build.version.incremental: "12368160"
+build ro.build.version.release_or_preview_display: "15"
+build ro.build.version.all_codenames: "REL"
+build ro.build.version.known_codenames: "Base,Base11,Cupcake,Donut,Eclair,Eclair01,EclairMr1,Froyo,Gingerbread,GingerbreadMr1,Honeycomb,HoneycombMr1,HoneycombMr2,IceCreamSandwich,IceCreamSandwichMr1,JellyBean,JellyBeanMr1,JellyBeanMr2,Kitkat,KitkatWatch,Lollipop,LollipopMr1,M,N,NMr1,O,OMr1,P,Q,R,S,Sv2,Tiramisu,UpsideDownCake,VanillaIceCream"
+build ro.build.version.min_supported_target_sdk: "28"
+build ro.product.cpu.abilist: "arm64-v8a"
+build ro.product.cpu.abilist32: ""
+build ro.product.cpu.abilist64: "arm64-v8a"
+build ro.product.manufacturer: "Apple"
+build ro.product.brand: "Apple"
+build ro.hardware: "minato"
+build ro.sf.lcd_density: "480"
+build ro.opengles.version: "196608"
+build ro.build.fingerprint: none
+build ro.boot.qemu: none
+build ro.product.model and ro.product.device: the same, not empty: yes

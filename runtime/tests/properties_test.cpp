@@ -1,0 +1,138 @@
+// Checks the device and version values of the property area (ADR-0039 decision 9) as android.os.Build reads them at
+// its start: the ABI lists, whose 64-bit one gives Build.CPU_ABI; Android 15's version as a user build, whose code
+// names give Build.VERSION.ACTIVE_CODENAMES, the list of known ones too long for a short value; the device as the
+// host names it, not an emulator, and no fingerprint, so that Build derives one; the density and the GLES version.
+// The area is read as bionic reads it (prop_area.cpp's find_property, prop_info's short and long values);
+// fixture.property-test reads it through bionic itself.
+#include "properties.h"
+
+#include "check.h"
+
+#include <sys/sysctl.h>
+
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace {
+
+constexpr std::size_t header_size = 128;
+// struct prop_trie_node: namelen, prop, left, right, children, then the name.
+constexpr std::uint32_t node_prop = 4, node_left = 8, node_right = 12, node_children = 16, node_name = 20;
+// struct prop_info: serial, then the value, or for a long one a message for get and the value's offset.
+constexpr std::uint32_t info_value = 4, info_long_offset = info_value + 56, info_size = 96;
+constexpr std::uint32_t long_flag = 1u << 16;
+constexpr std::string_view long_error = "Must use __system_property_read_callback() to read";
+
+const std::string area = apkrt::properties::area();
+
+std::uint32_t load(std::uint32_t offset) {
+    std::uint32_t value;
+    std::memcpy(&value, area.data() + header_size + offset, sizeof value);
+    return value;
+}
+
+/// The offset of `name`'s prop_info, as bionic's find_property follows the trie; nothing when it is not there.
+std::optional<std::uint32_t> find(std::string_view name) {
+    std::uint32_t current = 0;  // the root node
+    for (std::string_view rest = name;;) {
+        const auto dot = rest.find('.');
+        const auto part = rest.substr(0, dot);
+        std::uint32_t node = load(current + node_children);
+        while (node != 0) {
+            const std::uint32_t length = load(node);
+            const std::string_view node_part(area.data() + header_size + node + node_name, length);
+            const int order = part.size() != length ? (part.size() < length ? -1 : 1) : part.compare(node_part);
+            if (order == 0) break;
+            node = load(node + (order < 0 ? node_left : node_right));
+        }
+        if (node == 0) return std::nullopt;
+        current = node;
+        if (dot == std::string_view::npos) break;
+        rest = rest.substr(dot + 1);
+    }
+    const std::uint32_t info = load(current + node_prop);
+    return info != 0 ? std::optional(info) : std::nullopt;
+}
+
+/// `name`'s value as __system_property_read_callback gives it, a long one whole; nothing when it is not there.
+std::optional<std::string> get(std::string_view name) {
+    const auto info = find(name);
+    if (!info) return std::nullopt;
+    const std::uint32_t serial = load(*info);
+    const char *const at = area.data() + header_size + *info;
+    if ((serial & long_flag) != 0) return std::string(at + load(*info + info_long_offset));
+    return std::string(at + info_value, serial >> 24);
+}
+
+/// The host's hw.machine, as iOS names the iPhone ("iPhone16,2") and macOS the Mac's processor.
+std::string machine() {
+    char name[64] = "";
+    std::size_t size = sizeof name;
+    CHECK(::sysctlbyname("hw.machine", name, &size, nullptr, 0) == 0);
+    return name;
+}
+
+TEST(the_abi_lists_name_arm64_v8a_alone) {
+    CHECK(get("ro.product.cpu.abilist") == "arm64-v8a");
+    CHECK(get("ro.product.cpu.abilist64") == "arm64-v8a");
+    CHECK(get("ro.product.cpu.abilist32") == "");
+}
+
+TEST(the_version_is_android_15s_as_a_user_build) {
+    // [verified: the emulator's getprop, 2026-10-01], but for the build's type and tags.
+    CHECK(get("ro.build.id") == "AE3A.240806.019");
+    CHECK(get("ro.build.version.incremental") == "12368160");
+    CHECK(get("ro.build.version.release_or_preview_display") == "15");
+    CHECK(get("ro.build.version.all_codenames") == "REL");
+    CHECK(get("ro.build.version.known_codenames") ==
+          "Base,Base11,Cupcake,Donut,Eclair,Eclair01,EclairMr1,Froyo,Gingerbread,GingerbreadMr1,Honeycomb,"
+          "HoneycombMr1,HoneycombMr2,IceCreamSandwich,IceCreamSandwichMr1,JellyBean,JellyBeanMr1,JellyBeanMr2,"
+          "Kitkat,KitkatWatch,Lollipop,LollipopMr1,M,N,NMr1,O,OMr1,P,Q,R,S,Sv2,Tiramisu,UpsideDownCake,"
+          "VanillaIceCream");
+    CHECK(get("ro.build.version.min_supported_target_sdk") == "28");
+    CHECK(get("ro.build.type") == "user");
+    CHECK(get("ro.build.tags") == "release-keys");
+}
+
+TEST(a_long_value_is_written_as_bionic_writes_it) {
+    const auto info = find("ro.build.version.known_codenames");
+    CHECK(info.has_value());
+    if (!info) return;
+    CHECK(load(*info) == (static_cast<std::uint32_t>(long_error.size()) << 24 | long_flag));
+    CHECK(std::string_view(area.data() + header_size + *info + info_value) == long_error);
+    // The value lies past the prop_info and its name, at an offset from the prop_info.
+    CHECK(load(*info + info_long_offset) >= info_size + std::strlen("ro.build.version.known_codenames") + 1);
+}
+
+TEST(the_device_is_the_host_and_no_emulator) {
+    CHECK(get("ro.product.manufacturer") == "Apple");
+    CHECK(get("ro.product.brand") == "Apple");
+    CHECK(get("ro.hardware") == "minato");
+    CHECK(get("ro.product.model") == machine());
+    CHECK(get("ro.product.device") == machine());
+    // Build derives its fingerprint from the values above; no emulator's flag.
+    CHECK(!get("ro.build.fingerprint"));
+    CHECK(!get("ro.boot.qemu"));
+    CHECK(!get("ro.kernel.qemu"));
+}
+
+TEST(the_density_is_480_and_gles_3_0) {
+    CHECK(get("ro.sf.lcd_density") == "480");
+    CHECK(get("ro.opengles.version") == "196608");
+}
+
+TEST(the_earlier_values_stay) {
+    CHECK(get("ro.build.version.sdk") == "35");
+    CHECK(get("ro.build.version.release") == "15");
+    CHECK(get("ro.debuggable") == "0");
+    CHECK(get("dalvik.vm.heapsize") == "512m");
+}
+
+}  // namespace
+
+int main() {
+    return apk::testing::run_all();
+}
