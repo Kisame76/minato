@@ -89,6 +89,11 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
         case MINATO_TEST_EVENT_SIGNAL:
             ((__bridge id<MTLSharedEvent>)(void *)(uintptr_t)a).signaledValue = b;
             return 0;
+        case MINATO_TEST_VSYNC_GRID:
+            apkrt_vsync_post((int64_t)a, (int64_t)(a + b));
+            return 0;
+        case MINATO_TEST_PRESENTED_AT:
+            return (uint64_t)minato_test_presented_at();
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);
             return 0;

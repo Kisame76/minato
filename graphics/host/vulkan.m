@@ -7,6 +7,9 @@
      libvulkan names; a swapchain takes a window that is there, and Core Animation gets MoltenVK's changes
      to the layer, made on a thread without a run loop, when it is created or destroyed; presents are
      counted per window for the FPS label;
+   - VK_GOOGLE_display_timing's times reach MoltenVK on the display's refresh grid, less half a period, and 0 as 0
+     (present_time.h, ADR-0041 decision 11); the past timings give the app the times it asked for back, as
+     Android's do;
    - vkCreateDevice keeps each queue's MTLCommandQueue for "scheduled", and vkDestroyDevice lets them go;
    - the app's debug callbacks, from vkCreateInstance's chain or their create functions, reach MoltenVK as
      graphics/host's functions, which call the app's through apkrt_call_guest on guest threads only and log
@@ -30,6 +33,7 @@
 #include "APKRuntime/apkrt.h"
 #include "host_protocol.h"
 #include "minato_graphics.h"
+#include "present_time.h"
 #include "vulkan_host.h"
 #include "vulkan_table.h"
 
@@ -45,6 +49,7 @@ static PFN_vkAcquireNextImageKHR acquire_image;
 static PFN_vkQueuePresentKHR queue_present;
 static PFN_vkCreateSwapchainKHR create_swapchain;
 static PFN_vkDestroySwapchainKHR destroy_swapchain;
+static PFN_vkGetPastPresentationTimingGOOGLE past_timing;
 static PFN_vkCreateDebugUtilsMessengerEXT create_messenger;
 static PFN_vkDestroyDebugUtilsMessengerEXT destroy_messenger;
 static PFN_vkCreateDebugReportCallbackEXT create_report;
@@ -114,15 +119,141 @@ static const struct minato_windows *windows_of(const void *chain) {
     return windows != NULL && windows->sType == MINATO_STRUCTURE_TYPE_WINDOWS ? windows : NULL;
 }
 
-static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
-    if (!entered()) {
-        return MINATO_VK_BACKGROUND;
+/* VK_GOOGLE_display_timing's times, right after libvulkan's windows in a present's chain (swapchain.c). */
+static const VkPresentTimesInfoGOOGLE *times_of(const void *chain) {
+    const VkPresentTimesInfoGOOGLE *times = chain;
+    return times != NULL && times->sType == VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE && times->pTimes != NULL
+               ? times
+               : NULL;
+}
+
+/* The times the app asked for, per MoltenVK swapchain in present order, with the ones MoltenVK got: MoltenVK's past
+   timings carry the time it got, and Android's carry the app's own (swapchain.cpp, TimingInfo). A ring of the last
+   64, more than MoltenVK keeps (60) with the presents on their way. */
+#define ASKED_KEPT 64u
+struct asked {
+    struct asked *next;
+    VkSwapchainKHR swapchain;
+    uint32_t first, count;
+    struct {
+        uint32_t id;
+        uint64_t handed, asked;
+    } times[ASKED_KEPT];
+};
+static struct asked *askeds;
+static pthread_mutex_t askeds_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Under the lock: the swapchain's ring, made when `make` is set; NULL without one or without memory. */
+static struct asked *asked_of(VkSwapchainKHR swapchain, int make) {
+    struct asked *entry = askeds;
+    while (entry != NULL && entry->swapchain != swapchain) {
+        entry = entry->next;
     }
+    if (entry == NULL && make && (entry = calloc(1, sizeof *entry)) != NULL) {
+        entry->swapchain = swapchain;
+        entry->next = askeds;
+        askeds = entry;
+    }
+    return entry;
+}
+
+static void asked_keep(const VkSwapchainKHR *swapchains, const VkPresentTimeGOOGLE *asked,
+                       const VkPresentTimeGOOGLE *handed, uint32_t count) {
+    pthread_mutex_lock(&askeds_lock);
+    for (uint32_t index = 0; index < count; index++) {
+        struct asked *entry = asked_of(swapchains[index], 1);
+        if (entry == NULL) {
+            continue;  /* its past timings keep MoltenVK's times */
+        }
+        if (entry->count == ASKED_KEPT) {
+            entry->first = (entry->first + 1) % ASKED_KEPT;
+            entry->count--;
+        }
+        const uint32_t slot = (entry->first + entry->count++) % ASKED_KEPT;
+        entry->times[slot].id = asked[index].presentID;
+        entry->times[slot].handed = handed[index].desiredPresentTime;
+        entry->times[slot].asked = asked[index].desiredPresentTime;
+    }
+    pthread_mutex_unlock(&askeds_lock);
+}
+
+/* Each timing gets the time of the oldest present kept with its ID and the time MoltenVK got. MoltenVK hands its
+   timings out in present order, so the presents before that one are gone. */
+static VkResult past_timings_given(VkDevice device, VkSwapchainKHR swapchain, uint32_t *count,
+                                   VkPastPresentationTimingGOOGLE *timings) {
+    const VkResult result = past_timing(device, swapchain, count, timings);
+    if (timings == NULL || (result != VK_SUCCESS && result != VK_INCOMPLETE)) {
+        return result;
+    }
+    pthread_mutex_lock(&askeds_lock);
+    struct asked *entry = asked_of(swapchain, 0);
+    for (uint32_t index = 0; entry != NULL && index < *count; index++) {
+        VkPastPresentationTimingGOOGLE *timing = &timings[index];
+        for (uint32_t kept = 0; kept < entry->count; kept++) {
+            const uint32_t slot = (entry->first + kept) % ASKED_KEPT;
+            if (entry->times[slot].id == timing->presentID && entry->times[slot].handed == timing->desiredPresentTime) {
+                timing->desiredPresentTime = entry->times[slot].asked;
+                entry->first = (slot + 1) % ASKED_KEPT;
+                entry->count -= kept + 1;
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&askeds_lock);
+    return result;
+}
+
+static void asked_forget(VkSwapchainKHR swapchain) {
+    pthread_mutex_lock(&askeds_lock);
+    for (struct asked **entry = &askeds; *entry != NULL; entry = &(*entry)->next) {
+        if ((*entry)->swapchain == swapchain) {
+            struct asked *gone = *entry;
+            *entry = gone->next;
+            free(gone);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&askeds_lock);
+}
+
+static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
     const struct minato_windows *windows = windows_of(info->pNext);
     VkPresentInfoKHR ours = *info;
     ours.pNext = windows != NULL ? windows->pNext : info->pNext;
+    const VkPresentTimesInfoGOOGLE *asked = times_of(ours.pNext);
+    VkPresentTimeGOOGLE few[4];
+    VkPresentTimeGOOGLE *const times =
+        asked == NULL || asked->swapchainCount <= 4 ? few : malloc(asked->swapchainCount * sizeof *times);
+    if (times == NULL) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    VkPresentTimesInfoGOOGLE handed = {0};
+    if (asked != NULL) {
+        /* 0, for no time, stays 0, and so does a time beyond INT64_MAX, which is negative as an int64_t. */
+        for (uint32_t index = 0; index < asked->swapchainCount; index++) {
+            times[index] = asked->pTimes[index];
+            times[index].desiredPresentTime =
+                (uint64_t)minato_present_time((int64_t)asked->pTimes[index].desiredPresentTime);
+        }
+        handed = *asked;
+        handed.pTimes = times;
+        ours.pNext = &handed;
+    }
+    if (!entered()) {
+        if (times != few) {
+            free(times);
+        }
+        return MINATO_VK_BACKGROUND;
+    }
+    if (asked != NULL) {
+        asked_keep(info->pSwapchains, asked->pTimes, times,
+                   asked->swapchainCount < info->swapchainCount ? asked->swapchainCount : info->swapchainCount);
+    }
     const VkResult result = queue_present(queue, &ours);
     left();
+    if (times != few) {
+        free(times);
+    }
     /* Each window's presents, for the FPS label. */
     for (uint32_t index = 0; windows != NULL && index < windows->count && index < info->swapchainCount; index++) {
         const VkResult own = info->pResults != NULL ? info->pResults[index] : result;
@@ -175,6 +306,7 @@ static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKH
 
 static void swapchain_destroyed(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *allocator) {
     destroy_swapchain(device, swapchain, allocator);
+    asked_forget(swapchain);
     [CATransaction flush];
 }
 
@@ -500,6 +632,7 @@ void minato_graphics_vulkan_wrap(void **table) {
     WRAP(vkQueuePresentKHR, queue_present, presented)
     WRAP(vkCreateSwapchainKHR, create_swapchain, swapchain_created)
     WRAP(vkDestroySwapchainKHR, destroy_swapchain, swapchain_destroyed)
+    WRAP(vkGetPastPresentationTimingGOOGLE, past_timing, past_timings_given)
     WRAP(vkCreateDebugUtilsMessengerEXT, create_messenger, messenger_created)
     WRAP(vkDestroyDebugUtilsMessengerEXT, destroy_messenger, messenger_destroyed)
     WRAP(vkCreateDebugReportCallbackEXT, create_report, report_created)

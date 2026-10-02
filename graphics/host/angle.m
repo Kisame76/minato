@@ -5,6 +5,8 @@
      ANGLE (none for the ID 0, which ANGLE answers with EGL_BAD_NATIVE_WINDOW); Core Animation gets ANGLE's
      changes to the layer, made on a thread without a run loop, when a surface is made or destroyed; the
      presents are counted per window for the FPS label;
+   - presentation times (EGL_ANDROID_presentation_time, patch 0005): ANGLE gets the time asked for on the display's
+     refresh grid, less half a period (present_time.h, ADR-0041 decision 11);
    - the debug callback: ANGLE gets graphics/host's function with a record of the app's function and user
      data, which calls the app's function through apkrt_call_guest on guest threads only and logs the
      message on any other thread (decision 16, ADR-0030's decision 5); glGetPointerv answers from the record;
@@ -30,6 +32,7 @@
 #include "angle_host.h"
 #include "egl_table.h"
 #include "gles_table.h"
+#include "present_time.h"
 
 /* EGL's and GLES's types and names as ANGLE has them. */
 typedef unsigned int egl_boolean;
@@ -44,6 +47,7 @@ typedef void *(*create_platform_window_surface_function)(void *display, void *co
                                                           const egl_attrib *attributes);
 typedef egl_boolean (*destroy_surface_function)(void *display, void *surface);
 typedef egl_boolean (*swap_buffers_function)(void *display, void *surface);
+typedef egl_boolean (*presentation_time_function)(void *display, void *surface, int64_t time);
 typedef egl_boolean (*terminate_function)(void *display);
 typedef void (*debug_function)(unsigned source, unsigned type, unsigned id, unsigned severity, int length,
                                const char *text, const void *user);
@@ -55,6 +59,7 @@ static create_window_surface_function create_window_surface;
 static create_platform_window_surface_function create_platform_window_surface;
 static destroy_surface_function destroy_surface;
 static swap_buffers_function swap_buffers;
+static presentation_time_function presentation_time;
 static terminate_function terminate;
 static debug_callback_function debug_callback, debug_callback_khr;
 static get_pointerv_function get_pointerv, get_pointerv_khr;
@@ -163,6 +168,11 @@ static egl_boolean swapped(void *display, void *surface) {
         apkrt_window_presented(window);
     }
     return result;
+}
+
+/* The time of a window surface's next present, for Core Animation. */
+static egl_boolean presentation_time_set(void *display, void *surface, int64_t time) {
+    return presentation_time(display, surface, minato_present_time(time));
 }
 
 /* The app's debug callback: the user data graphics/host's function gets from ANGLE. */
@@ -303,6 +313,7 @@ void minato_graphics_egl_wrap(void **table, void *library) {
     WRAP(EGL, eglCreatePlatformWindowSurface, create_platform_window_surface, platform_window_surface_created)
     WRAP(EGL, eglDestroySurface, destroy_surface, surface_destroyed)
     WRAP(EGL, eglSwapBuffers, swap_buffers, swapped)
+    WRAP(EGL, eglPresentationTimeANDROID, presentation_time, presentation_time_set)
     WRAP(EGL, eglTerminate, terminate, terminated)
     gates(library);
 }

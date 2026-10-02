@@ -11,10 +11,12 @@
    With MINATO_METAL_HOOK=present it prints none of that. It reads back the textures of the first four
    drawables presented, before they go to the screen, and prints their size, pixel format and CRC-32; and
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
-   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks. */
+   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps the time
+   the last drawable was presented at with presentAtTime: (ANGLE's patch 0005), which test_control.m answers. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
+#include <math.h>
 #include <objc/runtime.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -30,7 +32,7 @@
 /* The value graphics/tests/vulkan_queue_test.c waits at. */
 #define SCHEDULED_VALUE 1000
 
-static IMP commit, made, made_unretained, made_with_descriptor, signaled, waited, presented;
+static IMP commit, made, made_unretained, made_with_descriptor, signaled, waited, presented, presented_at_time;
 static int noting, scheduled_mode;
 static atomic_int drawables;          /* presented so far */
 static id<MTLCommandQueue> readback;  /* the hook's own, for reading drawables back */
@@ -39,6 +41,7 @@ static id<MTLSharedEvent> waiting_event;
 static __thread int asking;           /* on the hook's thread that asks for "scheduled" */
 static int marked;                    /* whether graphics/host's first command buffer is marked */
 static atomic_int scheduled_count, waiting_order, host_order;  /* the order Metal scheduled them in, from 1 */
+static _Atomic int64_t presented_at;  /* the last drawable's presentAtTime: time in nanoseconds, 0 before one */
 
 static void note(const char *what) {
     if (noting) {
@@ -88,6 +91,16 @@ static void hooked_present(id self, SEL selector) {
         read_back(self, number);
     }
     ((void (*)(id, SEL))presented)(self, selector);
+}
+
+/* Metal hands a drawable that presentDrawable:atTime: named its time with presentAtTime:. */
+static void hooked_present_at_time(id self, SEL selector, CFTimeInterval time) {
+    atomic_store(&presented_at, llround(time * 1e9));
+    ((void (*)(id, SEL, CFTimeInterval))presented_at_time)(self, selector, time);
+}
+
+int64_t minato_test_presented_at(void) {
+    return atomic_load(&presented_at);
 }
 
 static void *ask_scheduled(void *unused) {
@@ -179,18 +192,23 @@ __attribute__((constructor)) static void hook_metal(void) {
         return;
     }
     scheduled_mode = strcmp(mode, "scheduled") == 0;
-    const int present_mode = strcmp(mode, "present") == 0;
-    noting = !present_mode && strcmp(mode, "count") != 0;
+    const int present_mode = strcmp(mode, "present") == 0, count_mode = strcmp(mode, "count") == 0;
+    noting = !present_mode && !count_mode;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
         Class queues = [queue class], buffers = [buffer class];
-        if (present_mode) {
+        if (present_mode || count_mode) {
             CAMetalLayer *layer = [CAMetalLayer layer];
             layer.device = device;
             layer.drawableSize = CGSizeMake(1, 1);
-            presented = hook([[layer nextDrawable] class], @selector(present), (IMP)hooked_present);
+            Class drawable_class = [[layer nextDrawable] class];
+            if (present_mode) {
+                presented = hook(drawable_class, @selector(present), (IMP)hooked_present);
+            } else {
+                presented_at_time = hook(drawable_class, @selector(presentAtTime:), (IMP)hooked_present_at_time);
+            }
         }
         commit = hook(buffers, @selector(commit), (IMP)hooked_commit);
         signaled = hook(buffers, @selector(encodeSignalEvent:value:), (IMP)hooked_signaled);

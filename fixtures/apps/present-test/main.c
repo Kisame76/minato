@@ -2,8 +2,9 @@
 // asks when its frames are to be presented, as Swappy does. It is built once and started as two apps by the
 // function their manifests name: present-gles with EGL_ANDROID_presentation_time (ANativeActivity_onCreateGLES)
 // and present-vulkan with VK_GOOGLE_display_timing (ANativeActivity_onCreateVulkan).
-// It draws on AChoreographer's callbacks, at 60 and then at 120 frames a second (ANativeWindow_setFrameRate, by
-// dlsym above the minSdk). Per rate: 30 callbacks to settle, the period as the median of the last 16 intervals,
+// It draws on AChoreographer's vsync callbacks (AChoreographer_postVsyncCallback, by dlsym above the minSdk; its frame
+// callbacks where those are missing), at 60 and then at 120 frames a second (ANativeWindow_setFrameRate, by dlsym
+// above the minSdk). Per rate: 30 callbacks to settle, the period as the median of the last 16 intervals,
 // then 600 frames in three blocks of 200, a frame on every first, second and third callback, each presented 1, 2
 // and 3 periods after its callback's frame time, so the times asked for rise by 1, 2 and 3 periods. Each frame
 // clears the window to a color of its own.
@@ -11,8 +12,9 @@
 // extension is there, and per rate the frames, the times the API took and the presents that succeeded. Its tag with
 // "-device" logs the periods, Vulkan's refresh duration and how many past timings came. present.csv in
 // internalDataPath holds a row per frame in the order of the presents, so that a recorder's drawable k is frame k:
-// the rate, the interval, the callback's frame time, the time asked for, and for Vulkan the past timing of its
-// present ID (zeros where none came). Then it calls ANativeActivity_finish.
+// the rate, the interval, the callback's frame time, the time asked for, the expected presentation time of the
+// callback's frame timeline 0 (ADR-0041 decision 11; 0 without the vsync callbacks), and for Vulkan the past timing of
+// its present ID (zeros where none came). Then it calls ANativeActivity_finish.
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -46,7 +48,7 @@ static const int rates[kRates] = {60, 120};
 // A frame's row of present.csv.
 struct row {
     int rate, interval;
-    int64_t frame_time, asked;
+    int64_t frame_time, asked, timeline0;
     VkPastPresentationTimingGOOGLE past;  // presentID 0 until its timing came
 };
 
@@ -404,6 +406,30 @@ static void ask_rate(int rate) {
            set_frame_rate(test.app->window, (float)rate, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT));
 }
 
+// AChoreographer_postVsyncCallback and its frame data came with API 33, above the minSdk: from libandroid by dlsym.
+typedef void (*post_vsync_function)(AChoreographer *, AChoreographer_vsyncCallback, void *);
+typedef int64_t (*frame_time_function)(const AChoreographerFrameCallbackData *);
+typedef int64_t (*presentation_time_function)(const AChoreographerFrameCallbackData *, size_t);
+static struct {
+    post_vsync_function post;  // NULL where the three are not all there
+    frame_time_function frame_time;
+    presentation_time_function presentation_time;
+} vsync;
+
+static void find_vsync(void) {
+    void *library = dlopen("libandroid.so", RTLD_NOW);
+    if (library != NULL) {
+        vsync.post = (post_vsync_function)dlsym(library, "AChoreographer_postVsyncCallback");
+        vsync.frame_time = (frame_time_function)dlsym(library, "AChoreographerFrameCallbackData_getFrameTimeNanos");
+        vsync.presentation_time = (presentation_time_function)dlsym(
+            library, "AChoreographerFrameCallbackData_getFrameTimelineExpectedPresentationTimeNanos");
+    }
+    if (vsync.post == NULL || vsync.frame_time == NULL || vsync.presentation_time == NULL) {
+        vsync.post = NULL;
+        DEVICE("AChoreographer_postVsyncCallback: not there");
+    }
+}
+
 static int compare(const void *a, const void *b) {
     const int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
     return x < y ? -1 : x > y;
@@ -427,12 +453,13 @@ static void finish(void) {
     snprintf(path, sizeof path, "%s/present.csv", test.app->activity->internalDataPath);
     FILE *file = fopen(path, "w");
     if (file != NULL) {
-        fprintf(file, "api,rate,interval,frame,frame_time_ns,asked_ns,present_id,desired_ns,actual_ns,earliest_ns,"
-                      "margin_ns\n");
+        fprintf(file, "api,rate,interval,frame,frame_time_ns,asked_ns,timeline0_ns,present_id,desired_ns,actual_ns,"
+                      "earliest_ns,margin_ns\n");
         for (int frame = 0; frame < kRows; ++frame) {
             const struct row *row = &test.rows[frame];
-            fprintf(file, "%s,%d,%d,%d,%lld,%lld,%u,%llu,%llu,%llu,%llu\n", test.vulkan ? "vulkan" : "gles", row->rate,
-                    row->interval, frame, (long long)row->frame_time, (long long)row->asked, row->past.presentID,
+            fprintf(file, "%s,%d,%d,%d,%lld,%lld,%lld,%u,%llu,%llu,%llu,%llu\n", test.vulkan ? "vulkan" : "gles",
+                    row->rate, row->interval, frame, (long long)row->frame_time, (long long)row->asked,
+                    (long long)row->timeline0, row->past.presentID,
                     (unsigned long long)row->past.desiredPresentTime, (unsigned long long)row->past.actualPresentTime,
                     (unsigned long long)row->past.earliestPresentTime, (unsigned long long)row->past.presentMargin);
         }
@@ -444,10 +471,10 @@ static void finish(void) {
 }
 
 // One frame of the block, presented `interval` periods after the callback's frame time.
-static void draw(int64_t frame_time) {
+static void draw(int64_t frame_time, int64_t timeline0) {
     const int64_t asked = frame_time + test.interval * test.period;
     const int frame = test.frames++;
-    test.rows[frame] = (struct row){rates[test.rate], test.interval, frame_time, asked, {0}};
+    test.rows[frame] = (struct row){rates[test.rate], test.interval, frame_time, asked, timeline0, {0}};
     if (test.vulkan ? frame_vulkan(frame, asked) : frame_gles(frame, asked)) ++test.presents[test.rate];
     if (++test.block_frames < kBlock) return;
     test.block_frames = 0;
@@ -463,13 +490,24 @@ static void draw(int64_t frame_time) {
     ask_rate(rates[test.rate]);
 }
 
-static void on_frame(int64_t frame_time, void *data) {
-    (void)data;
+static void on_frame(int64_t frame_time, void *data);
+static void on_vsync(const AChoreographerFrameCallbackData *data, void *user);
+
+// The next callback: a vsync callback where they are there.
+static void post_next(void) {
+    if (vsync.post != NULL) {
+        vsync.post(test.choreographer, on_vsync, NULL);
+    } else {
+        AChoreographer_postFrameCallback64(test.choreographer, on_frame, NULL);
+    }
+}
+
+static void tick(int64_t frame_time, int64_t timeline0) {
     if (test.done || test.app->destroyRequested) {
         test.posting = false;
         return;
     }
-    AChoreographer_postFrameCallback64(test.choreographer, on_frame, NULL);
+    post_next();
     if (!test.ready) {
         test.previous = 0;
         return;
@@ -488,7 +526,17 @@ static void on_frame(int64_t frame_time, void *data) {
         DEVICE("rate %d: period %.3f ms", rates[test.rate], (double)test.period / 1e6);
         return;
     }
-    if (test.callbacks++ % test.interval == 0) draw(frame_time);
+    if (test.callbacks++ % test.interval == 0) draw(frame_time, timeline0);
+}
+
+static void on_frame(int64_t frame_time, void *data) {
+    (void)data;
+    tick(frame_time, 0);
+}
+
+static void on_vsync(const AChoreographerFrameCallbackData *data, void *user) {
+    (void)user;
+    tick(vsync.frame_time(data), vsync.presentation_time(data, 0));
 }
 
 static void on_command(struct android_app *app, int32_t command) {
@@ -500,7 +548,7 @@ static void on_command(struct android_app *app, int32_t command) {
                 ask_rate(rates[test.rate]);
                 if (!test.posting && test.choreographer != NULL) {
                     test.posting = true;
-                    AChoreographer_postFrameCallback64(test.choreographer, on_frame, NULL);
+                    post_next();
                 }
             } else {
                 LOG("the window cannot be drawn to");
@@ -547,6 +595,7 @@ void android_main(struct android_app *app) {
     app->onAppCmd = on_command;
     test.choreographer = AChoreographer_getInstance();
     if (test.choreographer == NULL) LOG("no AChoreographer");
+    find_vsync();
     while (!app->destroyRequested) {
         struct android_poll_source *source = NULL;
         const int result = ALooper_pollOnce(-1, NULL, NULL, (void **)&source);

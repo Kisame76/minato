@@ -16,10 +16,10 @@ extern "C" {
    path leaves its libs without a provider, so they answer "no driver" (the Simulator for Vulkan). With
    MoltenVK, it also sets MVK_CONFIG_LOG_LEVEL to warnings unless the environment has it, graphics/host's
    own functions stand in front of the MoltenVK functions that libvulkan's submits, surfaces, swapchains,
-   acquires, presents, devices and debug callbacks reach (ADR-0030, decisions 5, 12 and 13), and
-   minato_graphics_vulkan_scheduled becomes a provider of the runtime's "scheduled". With ANGLE, its own
-   functions stand in front of the ANGLE functions that libEGL's window surfaces and swaps and libGLES's debug
-   callbacks reach, ANGLE's commit gate holds commits in the background (ADR-0029, decisions 14 to 16), and
+   acquires, presents, past presentation timings, devices and debug callbacks reach (ADR-0030, decisions 5, 12
+   and 13; ADR-0041, decision 11), and minato_graphics_vulkan_scheduled becomes a provider of the runtime's
+   "scheduled". With ANGLE, its own functions stand in front of the ANGLE functions that libEGL's window
+   surfaces, swaps and presentation times and libGLES's debug callbacks reach, ANGLE's commit gate holds commits in the background (ADR-0029, decisions 14 to 16), and
    ANGLE's wait until its commits are scheduled becomes a provider of "scheduled" too.
    Returns 0, or -1 when a path is longer than 1023 bytes or the runtime refused a provider. */
 int minato_graphics_set_providers(const char *moltenvk, const char *angle);

@@ -100,6 +100,10 @@ foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vu
   target_link_libraries(${program} PRIVATE vulkan nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# vulkan-window-test sets the refresh grid for VK_GOOGLE_display_timing through graphics-run's test control.
+target_sources(vulkan-window-test PRIVATE "${tests}/test_control_guest.c")
+target_include_directories(vulkan-window-test PRIVATE "${tests}")
+target_link_libraries(vulkan-window-test PRIVATE minato_bind)
 
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv2

@@ -32,6 +32,7 @@ window surfaces:
   setBuffersGeometry(0, 0): after the next swap 64 x 48; after eglSwapBuffersWithDamageKHR drawable 64 x 48 (EGL_TRUE)
   presents counted: 4
   eglPresentationTimeANDROID: EGL_TRUE
+  through eglGetProcAddress at 2 s, on a grid of 10 ms from 1 s: EGL_TRUE, the drawable at 1995000000 ns
   on a pointer that is no window: EGL_NO_SURFACE, EGL_BAD_NATIVE_WINDOW
   eglDestroySurface: EGL_TRUE
 waits:

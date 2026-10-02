@@ -859,8 +859,13 @@ EXPORTED VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info)
             info->pResults[index] = own;
         }
         result = own != VK_SUCCESS ? own : result;
-        /* Its timing: presented 0.1 ms after the time asked for, which it was ready 0.05 ms before. */
-        if (times != NULL && index < times->swapchainCount && fake->timings < 8) {
+        /* Its timing: presented 0.1 ms after the time asked for, which it was ready 0.05 ms before. A full history
+           drops its oldest, as MoltenVK's does. */
+        if (times != NULL && index < times->swapchainCount) {
+            if (fake->timings == 8) {
+                memmove(fake->past, fake->past + 1, 7 * sizeof *fake->past);
+                fake->timings--;
+            }
             const VkPresentTimeGOOGLE *time = &times->pTimes[index];
             fake->past[fake->timings++] = (VkPastPresentationTimingGOOGLE){
                 time->presentID, time->desiredPresentTime, time->desiredPresentTime + 100000,
@@ -872,7 +877,7 @@ EXPORTED VkResult vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *info)
     return result;
 }
 
-/* VK_GOOGLE_display_timing: a refresh of 120 Hz, and the timings of the presents with a time, each once. */
+/* VK_GOOGLE_display_timing: a refresh of 120 Hz, and the timings of the last 8 presents with a time, each once. */
 EXPORTED VkResult vkGetRefreshCycleDurationGOOGLE(VkDevice device, VkSwapchainKHR swapchain,
                                                   VkRefreshCycleDurationGOOGLE *duration) {
     (void)device;

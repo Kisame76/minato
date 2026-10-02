@@ -358,3 +358,16 @@ else()
     "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
   set_tests_properties(graphics.provoking_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
+
+# ADR-0041 decision 11: graphics/host's time for Core Animation, the refresh asked for on the refresh grid less half a
+# period, at the limits of a refresh.
+if(TARGET minato_graphics_host)
+  add_executable(graphics-present-time-test present_time_test.c)
+  target_include_directories(graphics-present-time-test PRIVATE "${PROJECT_SOURCE_DIR}/graphics/host")
+  target_link_libraries(graphics-present-time-test PRIVATE minato_graphics_host apk_defaults)
+  add_test(NAME graphics.present_time COMMAND graphics-present-time-test)
+else()
+  add_test(NAME graphics.present_time COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
+  set_tests_properties(graphics.present_time PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+endif()

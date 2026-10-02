@@ -392,7 +392,7 @@ fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s19, 0 command buffers, signals s20=0 s1=20
 fake: vkQueuePresentKHR on queue 0.0: waits s20; swapchain 11 image 0, with results
 fake:   chain:
-fake:     present times, 1: ID 1 at 1000000
+fake:     present times, 1: ID 1 at 1995000000
 fake: vkGetRefreshCycleDurationGOOGLE swapchain 11
 fake: vkGetPastPresentationTimingGOOGLE swapchain 11, the count
 fake: vkGetPastPresentationTimingGOOGLE swapchain 11, the timings
@@ -405,7 +405,57 @@ fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s19, 0 command buffers, signals s20=0 s1=21
 fake: vkQueuePresentKHR on queue 0.0: waits s20; swapchain 12 image 0, with results
 fake:   chain:
-fake:     present times, 1: ID 3 at 3000000
+fake:     present times, 1: ID 3 at 4005000000
+fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 1
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 1, with results
+fake:   chain:
+fake:     present times, 1: ID 4 at 0
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 2
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 2, with results
+fake:   chain:
+fake:     present times, 1: ID 5 at 4995000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 0
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 5 at 5005000000
+fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 1
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 1, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 5995000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 2
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 2, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6005000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 0
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6015000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 1
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 1, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6025000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 2
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 2, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6035000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 0
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6045000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 1
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 1, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6055000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 2
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 2, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6065000000
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 0
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 0, with results
+fake:   chain:
+fake:     present times, 1: ID 6 at 6075000000
 fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
 fake: vkDestroySwapchainKHR swapchain 11, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 12, allocator NULL
@@ -455,7 +505,7 @@ fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s21, fence
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s21, 0 command buffers, signals s22=0 s1=27
 fake: background
-fake: the window's presents: 17
+fake: the window's presents: 29
 fake: the window is gone
 fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none

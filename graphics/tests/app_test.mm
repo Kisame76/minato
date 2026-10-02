@@ -613,13 +613,17 @@ void play_live(const std::string &app, Capture &capture) {
 }
 
 /// present.csv of present-gles or present-vulkan: a row per frame in order, 600 at 60 and then 600 at 120 frames a
-/// second, each rate in blocks of 200 at the intervals 1, 2 and 3, the frame times rising, and each time asked for its
-/// interval times the rate's period after its frame time, the period within 1 % of the clock's.
+/// second, each rate in blocks of 200 at the intervals 1, 2 and 3, the frame times rising, each time asked for its
+/// interval times the rate's period after its frame time, the period within 1 % of the clock's, and each frame's
+/// timeline 0 (ADR-0041 decision 11) a whole number of periods after its frame time, within 1 % of a period. A past
+/// timing that came gives the frame the time it asked for back as its desiredPresentTime, as Android's do, though
+/// graphics/host handed MoltenVK another (decision 11).
 void check_present_csv(const fs::path &path) {
     std::ifstream file(path);
     std::string line;
     if (!std::getline(file, line) ||
-        line != "api,rate,interval,frame,frame_time_ns,asked_ns,present_id,desired_ns,actual_ns,earliest_ns,margin_ns") {
+        line != "api,rate,interval,frame,frame_time_ns,asked_ns,timeline0_ns,present_id,desired_ns,actual_ns,"
+                "earliest_ns,margin_ns") {
         fail("present.csv lacks its header");
         return;
     }
@@ -630,17 +634,25 @@ void check_present_csv(const fs::path &path) {
         std::istringstream values(line);
         for (std::string value; std::getline(values, value, ',');) fields.push_back(value);
         const int rate = rows < 600 ? 60 : 120, interval = 1 + rows % 600 / 200;
-        if (fields.size() != 11 || fields[1] != std::to_string(rate) || fields[2] != std::to_string(interval) ||
+        if (fields.size() != 12 || fields[1] != std::to_string(rate) || fields[2] != std::to_string(interval) ||
             fields[3] != std::to_string(rows)) {
             fail("present.csv row " + std::to_string(rows) + " is " + line);
             return;
         }
-        const long long frame_time = std::stoll(fields[4]), asked = std::stoll(fields[5]);
+        const long long frame_time = std::stoll(fields[4]), asked = std::stoll(fields[5]),
+                        timeline0 = std::stoll(fields[6]);
         if (rows % 600 == 0) period = (asked - frame_time) / interval;
+        const double periods = static_cast<double>(timeline0 - frame_time) / static_cast<double>(period);
         if (frame_time <= previous || asked - frame_time != interval * period ||
-            std::abs(static_cast<double>(period) * rate / 1e9 - 1) > 0.01) {
+            std::abs(static_cast<double>(period) * rate / 1e9 - 1) > 0.01 || periods < 0.99 ||
+            std::abs(periods - std::round(periods)) > 0.01) {
             fail("present.csv row " + std::to_string(rows) + " is " + line + " with a period of " +
                  std::to_string(period) + " ns");
+            return;
+        }
+        if (fields[7] != "0" && std::stoll(fields[8]) != asked) {
+            fail("present.csv row " + std::to_string(rows) + " is " + line + ": its past timing's desired time is not "
+                 "the one it asked for");
             return;
         }
         previous = frame_time;

@@ -28,6 +28,11 @@ enum minato_test_command {
     MINATO_TEST_EVENT,          /* a new MTLSharedEvent of the system's GPU at 0, kept for the process's life:
                                    its address, for EGL_ANGLE_metal_shared_event_sync */
     MINATO_TEST_EVENT_SIGNAL,   /* a: such an event, b: the value it takes */
+    MINATO_TEST_VSYNC_GRID,     /* a, b: a tick of the display link at a with the period b, in nanoseconds of the
+                                   uptime clock (apkrt_vsync_post): the refresh grid graphics/host puts presentation
+                                   times on (ADR-0041 decision 11) */
+    MINATO_TEST_PRESENTED_AT,   /* the time the Metal hook (count mode) saw the last drawable presented at, with
+                                   presentAtTime:, in nanoseconds of the uptime clock; 0 before one */
 };
 
 #ifndef __APPLE__

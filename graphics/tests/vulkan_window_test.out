@@ -36,11 +36,15 @@ turned back, the swapchain made at 64 x 48: acquire 0, present 0, its result 0
 turned again, a new swapchain at 48 x 64: acquire 0, present 0, its result 0
 turned back, the swapchain made at 48 x 64: acquire 0, present 1000001003, its result 1000001003
 VK_GOOGLE_display_timing: offered
-a present at 1 ms: 0
+a present at 2 s on a grid of 10 ms from 1 s: 0
 refresh duration: 0, 8333333 ns
-past timing: 0, 1; 0, 1: ID 1, desired 1000000, actual 1100000, earliest 1000000, margin 50000
-the replaced swapchain and a new one at 2 and 3 ms: -1000001004, results -1000001004 0
-past timing: of the replaced swapchain -1000001004; of the new one 0, 1: ID 3, desired 3000000
+past timing: 0, 1; 0, 1: ID 1, desired 2000000000, actual 1995100000, earliest 1995000000, margin 50000
+the replaced swapchain and a new one at 3 and 4.003 s: -1000001004, results -1000001004 0
+past timing: of the replaced swapchain -1000001004; of the new one 0, 1: ID 3, desired 4003000000
+on the new one without a time on a grid from 1.007 s, then at 5 and 5.004 s with ID 5: 0 0 0
+past timing of those: 0, 3: ID 4, desired 0; ID 5, desired 5000000000; ID 5, desired 5004000000
+nine presents with ID 6, 10 ms apart from 6 s: 0 0 0 0 0 0 0 0 0
+past timing of those after the first was dropped: 0, 8: 6010000000 6020000000 6030000000 6040000000 6050000000 6060000000 6070000000 6080000000
 the closed gate: present 0, waited at least 100 ms: yes, the signal handled meanwhile: yes
 in the background: vkQueueSubmit 0, waited at least 100 ms: yes
 in the background: vkQueueSubmit2KHR 0, waited at least 100 ms: yes
