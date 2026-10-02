@@ -4,9 +4,12 @@ ART keeps a reference to an object as its address in 32 bits and asks MemMap for
 on arm64 scans [64 KiB, 4 GiB). iOS maps nothing below 4 GiB. At its first low_4gb request, MemMap now reserves a
 window of 4 GiB without access at a base aligned to 4 GiB, so that the low 32 bits of an address in it are its
 offset. Every low_4gb mapping takes a range of the window: at the address it asks for, where that lies in the
-window and is free, else in the first gap that holds it, as mmap treats a hint. The window's first page stays
-without access for good, so no object has the offset 0, which is null. What MemMap unmaps in the window goes back
-to the reservation.
+window and is free, as mmap treats a hint, else at the top of the highest gap that holds it. So the window fills
+from the top, and every object has an offset above 2^31 from the start, where a reference sign-extended somewhere
+shows at once. The window's first page stays without access for good, so no object has the offset 0, which is
+null, and so does its last page, so no mapping ends at 2^32, whose 32 bits are 0 as well. What MemMap unmaps in the
+window goes back to the reservation. Where a mapping goes and which ranges are mapped is base/heap_window_ranges.h,
+a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Mac.
 
 --- a/art/libartbase/base/mem_map.h
 +++ b/art/libartbase/base/mem_map.h
@@ -36,26 +39,20 @@ to the reservation.
  #ifdef ART_PAGE_SIZE_AGNOSTIC
 --- a/art/libartbase/base/mem_map.cc
 +++ b/art/libartbase/base/mem_map.cc
-@@ -26,6 +26,7 @@
- #include <sys/prctl.h>
- #endif
- 
-+#include <algorithm>
- #include <map>
- #include <memory>
- #include <sstream>
-@@ -36,6 +37,7 @@
+@@ -36,6 +36,8 @@
  #include "allocator.h"
  #include "bit_utils.h"
  #include "globals.h"
 +#include "heap_window.h"
++#include "heap_window_ranges.h"
  #include "logging.h"  // For VLOG_IS_ON.
  #include "memory_tool.h"
  #include "mman.h"  // For the PROT_* and MAP_* constants.
-@@ -151,6 +153,140 @@
+@@ -150,7 +152,98 @@
+ 
  uintptr_t MemMap::next_mem_pos_;
  #endif
- 
++
 +// Minato (ADR-0033 decision 3): the heap window (base/heap_window.h).
 +uintptr_t gHeapWindowBase = 0u;
 +size_t gHeapWindowSize = 0u;
@@ -70,11 +67,8 @@ to the reservation.
 +  return *lock;
 +}
 +
-+// The ranges of the window that are mapped, begin to end; its allocator gives out only the gaps between them.
-+static std::map<uintptr_t, uintptr_t>& HeapWindowRanges() {
-+  static std::map<uintptr_t, uintptr_t>* ranges = new std::map<uintptr_t, uintptr_t>();
-+  return *ranges;
-+}
++// Where mappings go in the window and which ranges they hold (base/heap_window_ranges.h), from the reservation on.
++static HeapWindowRanges* gHeapWindowRanges = nullptr;
 +
 +// Reserves the window: twice its size without access, cut to the part aligned to 4 GiB.
 +static void ReserveHeapWindow() {
@@ -89,8 +83,9 @@ to the reservation.
 +    CHECK_EQ(munmap(reservation, base - begin), 0);
 +  }
 +  CHECK_EQ(munmap(reinterpret_cast<void*>(base + kHeapWindowSize), begin + length - (base + kHeapWindowSize)), 0);
++  gHeapWindowRanges = new HeapWindowRanges(base, kHeapWindowSize, MemMap::GetPageSize());
 +  gHeapWindowSize = kHeapWindowSize;
-+  gHeapWindowFirst = base + MemMap::GetPageSize();
++  gHeapWindowFirst = gHeapWindowRanges->First();
 +  gHeapWindowBase = base;
 +}
 +
@@ -108,92 +103,51 @@ to the reservation.
 +}
 +
 +void* MemMap::MapInHeapWindow(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
-+  const uintptr_t window = reinterpret_cast<uintptr_t>(HeapWindowBegin());
-+  // The window's first page stays without access for good: no object has the offset 0, which is null.
-+  const uintptr_t first = window + GetPageSize();
-+  const uintptr_t end = window + gHeapWindowSize;
-+  uintptr_t begin = reinterpret_cast<uintptr_t>(addr);
++  HeapWindowBegin();
++  const uintptr_t begin = reinterpret_cast<uintptr_t>(addr);
 +  if ((flags & MAP_FIXED) != 0) {
 +    // Into a mapping of the caller's own (reuse, a reservation, the tail of RemapAtEnd), in the window already.
-+    if (begin < first || begin > end || length > end - begin) {
++    if (!gHeapWindowRanges->Holds(begin, length)) {
 +      errno = EINVAL;
 +      return MAP_FAILED;
 +    }
-+    return TargetMMap(reinterpret_cast<void*>(begin), length, prot, flags, fd, offset);
++    return TargetMMap(addr, length, prot, flags, fd, offset);
 +  }
 +  std::lock_guard<std::mutex> lock(HeapWindowLock());
-+  std::map<uintptr_t, uintptr_t>& ranges = HeapWindowRanges();
 +  // An address without MAP_FIXED is a hint, as for mmap: taken where the window has room for the mapping
 +  // there; else, as Linux would, the mapping goes elsewhere, and ART, which checks the address it gets, gives
 +  // it back and asks again without one. A low address, which ART asks for on Android, lies outside the window.
-+  bool hint_taken = false;
-+  if (begin != 0u && begin >= first && begin <= end && length <= end - begin) {
-+    auto next = ranges.upper_bound(begin);
-+    hint_taken = (next == ranges.end() || next->first >= begin + length) &&
-+                 (next == ranges.begin() || std::prev(next)->second <= begin);
++  const uintptr_t placed = gHeapWindowRanges->Place(begin, length);
++  if (placed == 0u) {
++    LOG(ERROR) << "The heap window has no room for " << length << " bytes.";
++    errno = ENOMEM;
++    return MAP_FAILED;
 +  }
-+  if (!hint_taken) {
-+    // The first gap that holds it, from the window's start.
-+    uintptr_t cursor = first;
-+    for (const auto& [range_begin, range_end] : ranges) {
-+      if (range_begin >= cursor && range_begin - cursor >= length) {
-+        break;
-+      }
-+      cursor = std::max(cursor, range_end);
-+    }
-+    if (cursor > end || length > end - cursor) {
-+      LOG(ERROR) << "The heap window has no room for " << length << " bytes.";
-+      errno = ENOMEM;
-+      return MAP_FAILED;
-+    }
-+    begin = cursor;
-+  }
-+  void* actual = TargetMMap(reinterpret_cast<void*>(begin), length, prot, flags | MAP_FIXED, fd, offset);
++  void* actual = TargetMMap(reinterpret_cast<void*>(placed), length, prot, flags | MAP_FIXED, fd, offset);
 +  if (actual != MAP_FAILED) {
-+    ranges.emplace(begin, begin + length);
++    gHeapWindowRanges->Add(placed, length);
 +  }
 +  return actual;
 +}
-+
+ 
 +bool MemMap::ReturnToHeapWindow(void* start, size_t length) {
 +  const uintptr_t begin = reinterpret_cast<uintptr_t>(start);
 +  if (gHeapWindowBase == 0u || begin < gHeapWindowBase || begin - gHeapWindowBase >= gHeapWindowSize) {
 +    return false;
 +  }
 +  std::lock_guard<std::mutex> lock(HeapWindowLock());
-+  // Without access again, as reserved, before the allocator gives the range out again.
++  // Without access again, as reserved, before the window gives the range out again.
 +  void* actual =
 +      mmap(start, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
 +  CHECK_EQ(actual, start) << "Could not give " << length << " bytes back to the heap window";
-+  // Every range that overlaps [begin, end) keeps only what lies outside it.
-+  const uintptr_t end = begin + length;
-+  std::map<uintptr_t, uintptr_t>& ranges = HeapWindowRanges();
-+  auto it = ranges.upper_bound(begin);
-+  if (it != ranges.begin()) {
-+    --it;
-+  }
-+  while (it != ranges.end() && it->first < end) {
-+    const uintptr_t range_begin = it->first;
-+    const uintptr_t range_end = it->second;
-+    if (range_end <= begin) {
-+      ++it;
-+      continue;
-+    }
-+    it = ranges.erase(it);
-+    if (range_begin < begin) {
-+      ranges.emplace(range_begin, begin);
-+    }
-+    if (range_end > end) {
-+      ranges.emplace(end, range_end);
-+    }
-+  }
++  gHeapWindowRanges->Remove(begin, length);
 +  return true;
 +}
 +
  // Return true if the address range is contained in a single memory map by either reading
  // the gMaps variable or the /proc/self/map entry.
  bool MemMap::ContainedWithinExistingMap(uint8_t* ptr, size_t size, std::string* error_msg) {
-@@ -1174,6 +1310,11 @@
+@@ -1174,6 +1267,11 @@
                            off_t offset,
                            bool low_4gb) {
  #ifdef __LP64__

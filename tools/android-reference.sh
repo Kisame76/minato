@@ -21,8 +21,13 @@
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
+# A Java program of fixtures/java (ADR-0033 b) runs with --art as `dalvikvm64 -Xint` runs it from
+# /data/local/tmp, its jar from build/art/test (tools/build-art.sh) and its JNI library, if it names one, from the
+# fixtures' build, found through -Djava.library.path: its stdout must be fixtures/expected/<program>.out, and the
+# last line of its stderr, which differs by device, is only shown.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 #        tools/android-reference.sh --app <app>
+#        tools/android-reference.sh --art <program> [<library>]
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
 # Optional environment:
 #   ANDROID_HOME      SDK with emulator, platform-tools and the system image, default: ~/Library/Android/sdk
@@ -68,8 +73,14 @@ field() {
 }
 
 app=""
+art=""
+art_library=""
 if [[ $# -eq 2 && "$1" == --app ]]; then
   app=$2
+  fixtures=()
+elif [[ ($# -eq 2 || $# -eq 3) && "$1" == --art ]]; then
+  art=$2
+  art_library=${3:-}
   fixtures=()
 elif [[ $# -gt 0 ]]; then
   fixtures=("$@")
@@ -356,6 +367,34 @@ if [[ -n "$app" ]]; then
   fi
   run_app
   exit $?
+fi
+
+if [[ -n "$art" ]]; then
+  jar=build/art/test/$art.jar
+  for needed in "$jar" ${art_library:+"$FIXTURES/$art_library"}; do
+    if [[ ! -f "$needed" ]]; then
+      echo "No $needed: run tools/build-art.sh and tools/build-fixtures.sh first." >&2
+      exit 1
+    fi
+  done
+  run "rm -rf $DEVICE_DIR/* $DEVICE_DIR/.[!.]*" >/dev/null
+  if ! device push "$jar" ${art_library:+"$FIXTURES/$art_library"} "$DEVICE_DIR/" >/dev/null 2>&1; then
+    echo "Cannot copy $art to the device." >&2
+    exit 1
+  fi
+  status=0
+  run "cd $DEVICE_DIR && dalvikvm64 -Xint -Djava.library.path=$DEVICE_DIR -cp $DEVICE_DIR/$art.jar Main" \
+    >"$RESULTS/$art.out" 2>"$RESULTS/$art.err" || status=$?
+  run "rm -rf $DEVICE_DIR/* $DEVICE_DIR/.[!.]*" >/dev/null
+  if [[ $status -eq 0 ]] && cmp -s "fixtures/expected/$art.out" "$RESULTS/$art.out"; then
+    echo "same     $art"
+    tail -n 1 "$RESULTS/$art.err" | sed 's/^/    /'
+    exit 0
+  fi
+  echo "DIFFERS  $art: exit status $status"
+  diff -u "fixtures/expected/$art.out" "$RESULTS/$art.out" | sed 's/^/    /' || true
+  tail -n 20 "$RESULTS/$art.err" | sed 's/^/    /'
+  exit 1
 fi
 
 failed=0

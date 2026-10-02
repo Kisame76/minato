@@ -150,9 +150,16 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # Where ART's heap window places its mappings (ADR-0033 decision 3), with ART's own header for it.
+  add_executable(heap_window_test tests/heap_window_test.cpp)
+  target_include_directories(heap_window_test PRIVATE art/overlay/art/libartbase/base)
+  target_link_libraries(heap_window_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.heap_window COMMAND heap_window_test)
+
   # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
-  # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello. The jars come
-  # from tools/build-art.sh (<art>/test); skipped while they are missing.
+  # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello; test 2 is
+  # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window. The jars
+  # come from tools/build-art.sh (<art>/test); skipped while they are missing.
   foreach(flavor IN ITEMS release debug)
     set(suffix "")
     set(flag "")
@@ -165,7 +172,15 @@ if(APK_HOST_BUILD)
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
         $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
         "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag})
-    set_tests_properties(runtime.art_hello${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 400)
+    # Only a first line skips: a failure shows ART's log, where libnativeloader writes "skipped:" too.
+    set_tests_properties(runtime.art_hello${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    add_test(NAME runtime.art_codec${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
+        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets)
+    set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
   endforeach()
 
   # A program in /system/bin and ART's folder (ADR-0039 a, ADR-0040 decision 2): the fixture ns-test reaches a

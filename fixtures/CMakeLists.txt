@@ -98,6 +98,9 @@ add_executable(property-test suite/property-test.c)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
 # (runtime/tests/environment_run.py).
 add_executable(env-test suite/env-test.c)
+# libcodec-test.so: the JNI half of the Java fixture codec-test (fixtures/java/codec-test, ADR-0033 test 2), which
+# runtime.art_codec runs on ART.
+add_library(codec-test SHARED suite/libcodec-test.c)
 # fd-test: descriptor numbers as Linux hands them out, whatever the process holds on the host (ADR-0027).
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).

@@ -223,10 +223,11 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${APK_ROOT}/tool
 include("${CMAKE_BINARY_DIR}/plan.cmake")
 
 # The Java test programs of fixtures/java, one jar each in <build>/test (test_jars.py), compiled against the classes
-# of the boot jars that boot_jars.py leaves in <build>/java.
+# of the boot jars that boot_jars.py leaves in <build>/java. Only folders with a Main.java of their own hold one, as
+# dalvikvm runs it; App's test apps there compile against the framework (tools/build-java-test-app.sh).
 file(GLOB art_test_programs LIST_DIRECTORIES true CONFIGURE_DEPENDS "${APK_ROOT}/fixtures/java/*")
 foreach(program IN LISTS art_test_programs)
-  if(NOT IS_DIRECTORY "${program}")
+  if(NOT IS_DIRECTORY "${program}" OR NOT EXISTS "${program}/Main.java")
     continue()
   endif()
   get_filename_component(name "${program}" NAME)

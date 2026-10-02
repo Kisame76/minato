@@ -1,0 +1,17 @@
+a) a graph of 100000 objects after 3 collections: intact yes
+a) non-movable arrays until the non-moving space was full: their references after 3 collections: kept yes
+a) a non-movable array once they were collected: allocated yes
+b) identity hash codes after 3 collections: the same 10000 of 10000
+b) weak references to live objects: kept 10000 of 10000; to dead ones: cleared 10000 of 10000, enqueued 10000
+b) soft references to live objects: kept 10000 of 10000
+b) finalizers of 1000 objects no longer reachable: run 1000
+c) JNI global references across 3 collections: the same object 1000 of 1000
+c) JNI weak global references: to live objects kept 1000 of 1000; to dead ones cleared 1000 of 1000
+c) JNI local references across 3 collections: the same object 1000 of 1000
+c) objects only JNI local references hold, after 3 collections: intact 1000 of 1000
+d) classes found again by name after 3 collections: the same 10 of 10
+d) a second class loader's Main$Node: its own yes, found again yes
+d) array classes after 3 collections: the same yes
+e) System.arraycopy after 3 collections: copied yes, overlapping both ways yes, into String[] up to the Integer yes
+e) clone after 3 collections: an array yes, an object yes
+e) Unsafe compare-and-swap across collections: a reference field yes, array elements yes
