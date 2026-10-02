@@ -76,6 +76,18 @@ add_test(NAME graphics.present_check
     --tool "${PROJECT_SOURCE_DIR}/tools/present-check.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/present_check")
 set_tests_properties(graphics.present_check PROPERTIES TIMEOUT 120)
 
+# ADR-0043 a1: tools/hwui-plan.py plans hwui's host flavor on the tag's sources, tools/soong_plan.py's planner on a
+# made-up set, its host side of __ANDROID__ through unifdef on made-up sources, and tools/sysprop.py's accessors.
+add_test(NAME graphics.hwui_plan
+  COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/hwui_plan_test.py"
+    --scratch "${CMAKE_CURRENT_BINARY_DIR}/hwui_plan")
+set_tests_properties(graphics.hwui_plan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 300)
+add_test(NAME graphics.soong_plan COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/soong_plan_test.py")
+add_test(NAME graphics.host_side COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/host_side_test.py")
+set_tests_properties(graphics.host_side PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+add_test(NAME graphics.sysprop COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/sysprop_test.py")
+set_tests_properties(graphics.sysprop PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them
 # from tools/build-graphics-host.sh, which CTest does not run.

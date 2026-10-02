@@ -7,7 +7,8 @@ planner of a set subclasses Planner with the set's names, as tools/art-plan.py d
 The build reads its sources from <tree> next to the plan: AOSP's tree layout of symbolic links to the fetched files,
 with the overlay's files in place of AOSP's at the same path, and the patches applied, in order, to real copies. So a
 patched header is the one every include finds, also a quoted one next to its includer, and includes that climb out of
-their project ("../../external/fdlibm/fdlibm.h") find the other as in AOSP's tree.
+their project ("../../external/fdlibm/fdlibm.h") find the other as in AOSP's tree. In a set's host-side folders,
+the copies also take the host side of every preprocessor test of __ANDROID__, which the NDK's compiler defines.
 """
 import glob
 import os
@@ -24,6 +25,13 @@ SOURCE_EXTENSIONS = (".c", ".cpp", ".cc", ".S", ".s")
 GENERATORS = ("genrule", "gensrcs", "cc_genrule")
 # What Soong compiles for cpp_std and c_std "experimental" (cc/config/global.go at the tag).
 EXPERIMENTAL_STD = {"cpp_std": "gnu++2b", "c_std": "gnu2x"}
+# The host side's tool, unifdef 2.12 of macOS's base system, the files it reads, and a test it left: one it cannot
+# decide, such as defined(__ANDROID__) || defined(X), or a macro defined from __ANDROID__.
+UNIFDEF = "/usr/bin/unifdef"
+C_FILES = (".c", ".cc", ".cpp", ".h", ".hpp", ".inc")
+ANDROID_TEST = re.compile(rb"^[ \t]*#[ \t]*(?:if|ifdef|ifndef|elif|define)\b.*__ANDROID__.*$", re.M)
+# A C++ raw string literal, which unifdef 2.12 does not know: it would read its quotes and its lines.
+RAW_STRING = re.compile(rb'R"([^()\\\s]{0,16})\((.*?)\)\1"', re.S)
 
 
 def cmake_quote(value):
@@ -58,10 +66,39 @@ def read(path):
         return handle.read()
 
 
-def make_tree(tree, projects, overlay, patches):
+def take_host_side(data):
+    """A C or C++ file's `data` with the host side of its preprocessor tests of __ANDROID__, as unifdef -U__ANDROID__
+    resolves them, and a problem or None. unifdef reads each raw string literal as a placeholder, which gets the
+    literal back after. It takes a comment at the end of a file without a newline for an unterminated one, so it reads
+    the file with the newline, which the last line loses again."""
+    raw_strings = []
+
+    def placeholder(match):
+        raw_strings.append(match.group(0))
+        return b"MINATO_RAW_STRING_%d_" % (len(raw_strings) - 1)
+
+    masked = RAW_STRING.sub(placeholder, data)
+    ended = data.endswith(b"\n")
+    result = subprocess.run([UNIFDEF, "-U__ANDROID__"], input=masked if ended else masked + b"\n",
+                            capture_output=True)
+    if result.returncode not in (0, 1):
+        return data, " ".join(result.stderr.decode(errors="replace").split())
+    output = result.stdout
+    for index, raw_string in enumerate(raw_strings):
+        output = output.replace(b"MINATO_RAW_STRING_%d_" % index, raw_string, 1)
+    if not ended and output.endswith(data.rsplit(b"\n", 1)[-1] + b"\n"):
+        output = output[:-1]
+    left = ANDROID_TEST.search(output)
+    if left:
+        return data, "unifdef leaves " + left.group(0).decode(errors="replace").strip()
+    return output, None
+
+
+def make_tree(tree, projects, overlay, patches, host_side=()):
     """Brings <tree> up to date: a symbolic link for every file of `projects` (tree path -> folder) and of `overlay`,
-    real files for what the patches in `patches` change, in their order. Files that already are what they should be
-    stay untouched, so that their builds stay current. Returns the problems."""
+    real files for what the patches in `patches` change, in their order, and for what the host side changes in the C
+    and C++ files below the folders `host_side` (tree paths), after the patches. Files that already are what they should
+    be stay untouched, so that their builds stay current. Returns the problems."""
     wanted = {}
     for tree_path, folder in projects.items():
         for directory, folders, files in os.walk(folder):
@@ -88,6 +125,18 @@ def make_tree(tree, projects, overlay, patches):
                 continue
             for tree_path in changed:
                 patched[tree_path] = read(os.path.join(scratch, tree_path))
+    for tree_path, target in wanted.items():
+        if not tree_path.endswith(C_FILES) or not any(tree_path.startswith(folder + "/")
+                                                      for folder in host_side):
+            continue
+        data = patched[tree_path] if tree_path in patched else read(target)
+        if b"__ANDROID__" not in data:
+            continue
+        output, problem = take_host_side(data)
+        if problem:
+            problems.append(f"{tree_path}: no host side: {problem}")
+        elif output != data:
+            patched[tree_path] = output
     present = set()
     for directory, folders, files in os.walk(tree):
         for name in files + [name for name in folders if os.path.islink(os.path.join(directory, name))]:
@@ -127,7 +176,8 @@ class Planner:
       the CMake variable of the generated files' folder, and TREE_VARIABLE, the one of the tree;
     - GLOBAL_INCLUDES, Soong's global includes (cc/config/global.go's commonGlobalIncludes), which Soong gives
       platform and host modules as -I after all of their own and their dependencies' (cc/compiler.go,
-      cc/builder.go), those the tree holds.
+      cc/builder.go), those the tree holds;
+    - HOST_SIDE, the tree's folders of a host flavor, whose files take the host side of __ANDROID__ (make_tree).
     adapt_kind adds what Soong's load hooks add for the set's own module types."""
     TREE = MappingProxyType({})
     OURS = None
@@ -143,6 +193,7 @@ class Planner:
     GENERATED = None
     TREE_VARIABLE = None
     GLOBAL_INCLUDES = ()
+    HOST_SIDE = ()
     NAMED = ("OURS", "OURS_FOLDER", "OVERLAY", "PATCHES", "PREFIX", "GENERATED", "TREE_VARIABLE")
 
     def __init__(self, sources, tree):
@@ -152,7 +203,7 @@ class Planner:
         self.tree_root = tree
         projects = {tree_path: os.path.join(sources, folder) for tree_path, folder in self.TREE.items()}
         projects[self.OURS] = self.OURS_FOLDER
-        self.problems = make_tree(tree, projects, self.OVERLAY, self.PATCHES)
+        self.problems = make_tree(tree, projects, self.OVERLAY, self.PATCHES, self.HOST_SIDE)
         self.tree = blueprint.Tree({tree_path: os.path.join(tree, tree_path) for tree_path in projects},
                                    self.TARGET_GROUPS)
         for tree_path in self.TREE:

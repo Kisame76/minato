@@ -5,7 +5,9 @@
   whole_static_libs, which the shared library links as an archive, is NEEDED and never compiled: the guest has it as a
   shared library only;
 - one the shared library takes whole, directly or through whole_static_libs, is a problem, also when an archive has
-  linked it before: Soong would embed it and export its symbols from the shared library, which NEEDED does not.
+  linked it before: Soong would embed it and export its symbols from the shared library, which NEEDED does not;
+- a Rust library gives its C and C++ users its own include directories and nothing of its whole_static_libs, neither
+  their include directories nor their generated headers (Soong's rust/library.go), also when it is left out.
 Usage: soong_plan_test.py"""
 import os
 import re
@@ -25,7 +27,29 @@ BLUEPRINT = """cc_library_shared {
     cpp_std: "experimental",
     c_std: "experimental",
     static_libs: ["libguest", "libarchive"],
-    whole_static_libs: ["libpart", "libwholeguest"],
+    whole_static_libs: ["libpart", "libwholeguest", "librustffi"],
+}
+
+rust_ffi_static {
+    name: "librustffi",
+    crate_name: "madeup",
+    srcs: ["lib.rs"],
+    export_include_dirs: ["rust_include"],
+    whole_static_libs: ["libbridge"],
+}
+
+cc_library_static {
+    name: "libbridge",
+    srcs: ["bridge.cpp"],
+    export_include_dirs: ["bridge_include"],
+    generated_headers: ["bridge_header"],
+    export_generated_headers: ["bridge_header"],
+}
+
+genrule {
+    name: "bridge_header",
+    cmd: "touch $(out)",
+    out: ["bridge.h"],
 }
 
 cc_library_static {
@@ -71,7 +95,8 @@ def main():
     scratch = tempfile.mkdtemp()
     try:
         write(os.path.join(scratch, "sources", "madeup", "Android.bp"), BLUEPRINT)
-        for name in ("front.cpp", "front.c", "archive.cpp", "part.cpp"):
+        for name in ("front.cpp", "front.c", "archive.cpp", "part.cpp", "lib.rs", "bridge.cpp", "rust_include/rust.h",
+                     "bridge_include/bridge.h"):
             write(os.path.join(scratch, "sources", "madeup", name), "int x;\n")
         write(os.path.join(scratch, "ours", "modules.bp"), "")
 
@@ -83,6 +108,7 @@ def main():
             PATCHES = os.path.join(scratch, "patches")
             GUEST_SYSTEM = ["libc", "libm", "libdl", "libguest", "libguestinarchive", "libwholeguest", "libguestinpart"]
             LIBRARIES = ["libfront"]
+            DROPPED = {"librustffi"}
             PREFIX = "madeup"
             GENERATED = "MADEUP_GENERATED"
             TREE_VARIABLE = "MADEUP_TREE"
@@ -102,6 +128,13 @@ def main():
             check(any(problem.startswith("libfront: ") and guest in problem for problem in planner.problems),
                   f"libfront taking {guest} whole is a problem: {planner.problems}")
         check(len(planner.problems) == 2, f"no other problems: {planner.problems}")
+        includes = field(front, "INCLUDES")
+        check(os.path.join(planner.tree_root, "external/madeup/rust_include") in includes,
+              f"libfront includes the Rust library's own include directory: {includes}")
+        check(not any("bridge_include" in include for include in includes),
+              f"libfront includes nothing the Rust library's whole_static_libs export: {includes}")
+        check(not any("bridge_header" in line for line in lines),
+              "the plan generates no header of the Rust library's whole_static_libs")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     print(f"soong-plan: {'all checks passed' if failures == 0 else f'{failures} failed'}")

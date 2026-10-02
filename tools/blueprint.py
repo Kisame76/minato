@@ -247,6 +247,11 @@ def exported_includes(tree, name, missing, seen=None):
         return []
     module = tree.module(name)
     properties = flatten(tree, module, "static")
+    if module.kind.startswith("rust_"):
+        # A Rust library gives C and C++ its own include directories only, none of its dependencies' (Soong's
+        # rust/library.go).
+        return [os.path.normpath(os.path.join(module.directory, path))
+                for key in ("include_dirs", "export_include_dirs") for path in properties.get(key, [])]
     result = [os.path.normpath(os.path.join(module.directory, path))
               for key in ("export_include_dirs", "export_system_include_dirs") for path in properties.get(key, [])]
     # What a module exports includes what its whole static libraries export: they are part of it.

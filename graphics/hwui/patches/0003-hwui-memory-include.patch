@@ -1,0 +1,16 @@
+hwui's HintSessionWrapper includes <memory> for its std::shared_ptr (ADR-0043 a1).
+
+HintSessionWrapper.h uses std::shared_ptr and std::make_shared but includes only <future>, <optional> and <vector>.
+Android 15's libc++ brought <memory> along; the NDK's newer one, at hwui's C++ standard (gnu++2b), no longer
+includes it through <future>.
+
+--- a/frameworks/base/libs/hwui/renderthread/HintSessionWrapper.h
++++ b/frameworks/base/libs/hwui/renderthread/HintSessionWrapper.h
+@@ -20,6 +20,7 @@
+ #include <private/performance_hint_private.h>
+ 
+ #include <future>
++#include <memory>
+ #include <optional>
+ #include <vector>
+ 

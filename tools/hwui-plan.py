@@ -88,14 +88,18 @@ GENERATED = "minato/hwui/generated"
 # - minikin's own folder is not an include directory: its sources include their headers by quotes from it, and on the
 #   Mac's case-insensitive file system its Locale.h would answer libc++'s #include <locale.h>;
 # - androidfw leaves CursorWindow out, which the host's Linux flavor builds on libbinder, a service Minato does not
-#   have.
+#   have;
+# - hwui and minikin link libicuuc and libicui18n themselves, as the host flavor does, so ICU's check for Android
+#   libraries that should use libandroidicu (android_icu4c's uconfig_local.h), which the NDK's __ANDROID__ wakes, lets
+#   them.
 ADDITIONS = {
     "libskia": {"exclude_srcs": ["src/codec/SkRawCodec.cpp"]},
-    "libminikin": {"cflags": ["-DMINATO_WITHOUT_RUST"], "header_libs": ["aconfig_text_flags_c_lib"],
+    "libminikin": {"cflags": ["-DMINATO_WITHOUT_RUST", "-DANDROID_LINK_SHARED_ICU4C"],
+                   "header_libs": ["aconfig_text_flags_c_lib"],
                    "include_build_directory": False},
     "libandroidfw": {"exclude_srcs": ["CursorWindow.cpp"]},
     "libhwui_defaults": {"srcs": [f"../../../../{GENERATED}/sysprop/HWUIProperties.sysprop.cpp"],
-                         "include_dirs": [f"{GENERATED}/sysprop"]},
+                         "include_dirs": [f"{GENERATED}/sysprop"], "cflags": ["-DANDROID_LINK_SHARED_ICU4C"]},
 }
 
 # Soong's global includes at the tag (cc/config/global.go's commonGlobalIncludes), which it gives platform and host
@@ -104,6 +108,11 @@ ADDITIONS = {
 GLOBAL_INCLUDES = ["system/core/include", "system/logging/liblog/include", "system/media/audio/include",
                    "hardware/libhardware/include", "hardware/libhardware_legacy/include", "hardware/ril/include",
                    "frameworks/native/include", "frameworks/native/opengl/include", "frameworks/av/include"]
+
+# The projects of hwui's host flavor: Soong builds it for the host, where __ANDROID__ is undefined, so their files take
+# the host side of its tests (tools/soong_plan.py's make_tree). The system code they build on keeps its Android side:
+# bionic, libc++, Skia, the codecs.
+HOST_SIDE = ["frameworks/base/libs", "system/core/libutils", "system/core/libcutils", "system/incremental_delivery"]
 
 # Soong's target groups of the linux_bionic host on arm64: the host flavor's branches with bionic's and arm64's.
 TARGET_GROUPS = ["host", "linux", "bionic", "linux_bionic", "not_windows", "host_linux", "linux_arm64", "bionic_arm64",
@@ -161,6 +170,7 @@ class HwuiPlanner(soong_plan.Planner):
     GENERATED = "APK_HWUI_GENERATED"
     TREE_VARIABLE = "APK_HWUI_TREE"
     GLOBAL_INCLUDES = GLOBAL_INCLUDES
+    HOST_SIDE = HOST_SIDE
 
     def __init__(self, sources, tree):
         generated = os.path.join(os.path.dirname(tree), "generated")

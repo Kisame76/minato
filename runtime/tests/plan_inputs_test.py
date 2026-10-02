@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The guest builds plan their trees when CMake configures them: runtime/bionic with tools/bionic-plan.py (ADR-0021),
-runtime/art with tools/art-plan.py (ADR-0033 a). A change to what a plan comes from configures the build again:
+runtime/art with tools/art-plan.py (ADR-0033 a), graphics/hwui with tools/hwui-plan.py (ADR-0043 a1). A change to
+what a plan comes from configures the build again:
   - the planner and every module of tools/ it imports, directly or through another, are inputs of build.ninja's
     regeneration;
   - each build globs the build's overlay folder again (CMakeFiles/VerifyGlobs.cmake), so that a file that comes or
@@ -18,7 +19,7 @@ import subprocess
 import sys
 
 # The planner of each source folder whose build plans its tree.
-PLANNERS = {"bionic": "bionic-plan.py", "art": "art-plan.py"}
+PLANNERS = {"bionic": "bionic-plan.py", "art": "art-plan.py", "hwui": "hwui-plan.py"}
 
 
 def cached(build, name):

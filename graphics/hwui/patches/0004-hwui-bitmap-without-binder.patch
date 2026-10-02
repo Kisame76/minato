@@ -1,0 +1,21 @@
+hwui's Bitmap.cpp without libbinder's IServiceManager.h (ADR-0043 a1).
+
+Bitmap.cpp includes <binder/IServiceManager.h> outside its Windows side, but uses nothing of it on either side of
+__ANDROID__. The header comes with libbinder, which Minato neither has nor fetches: there is no Binder in Minato
+(fixed decision 4). Without it, nothing Bitmap.cpp includes brings the <stdlib.h> of its calloc and free, so it
+includes that itself.
+
+--- a/frameworks/base/libs/hwui/hwui/Bitmap.cpp
++++ b/frameworks/base/libs/hwui/hwui/Bitmap.cpp
+@@ -33,10 +33,7 @@
+ 
+ #include <cutils/ashmem.h>
+ #include <log/log.h>
+-
+-#ifndef _WIN32
+-#include <binder/IServiceManager.h>
+-#endif
++#include <stdlib.h>
+ 
+ #include <Gainmap.h>
+ #include <SkCanvas.h>
