@@ -505,6 +505,52 @@ TEST(files_belong_to_whom_android_15_gives_them) {
     call(nr_close, {unsigned_of(proc)});
 }
 
+// ADR-0039 decision 3: access() checks reading, writing and executing for the app uid and gid against the mode
+// bits of the owner and group that stat reports, as Linux's generic_permission does; AT_EACCESS answers the same,
+// since the effective ids are the real ones. So an app's base.apk, system's with 0644 on Android 15 (the
+// emulator, 2026-10-01), is not writable to the app, which ART asks before it opens the app's dex.
+TEST(access_checks_the_mode_bits_of_the_owner_stat_reports) {
+    Scratch scratch;
+    for (const char *folder : {"code", "data", "system"}) {
+        CHECK(::mkdir((scratch.host + "/" + folder).c_str(), 0755) == 0);
+    }
+    for (const auto &[name, mode] : {std::pair{"code/base.apk", 0644}, std::pair{"data/own", 0600},
+                                     std::pair{"system/tool", 0755}, std::pair{"system/shared", 0666}}) {
+        const auto file = scratch.host + "/" + name;
+        CHECK(::close(::open(file.c_str(), O_CREAT | O_WRONLY, 0600)) == 0 &&
+              ::chmod(file.c_str(), static_cast<mode_t>(mode)) == 0);
+    }
+    apkrt::vfs::mount("/data/app/~~AAAA/io.example-BBBB", scratch.host + "/code");
+    apkrt::vfs::mount("/data/user/0/io.example", scratch.host + "/data");
+    apkrt::vfs::mount("/system", scratch.host + "/system");
+    constexpr std::uint64_t r_ok = 4, w_ok = 2, x_ok = 1, at_eaccess = 0x200;
+    const auto access = [](const char *path, std::uint64_t mode, std::uint64_t flags = 0) {
+        return call(nr_faccessat2, {at_fdcwd, address(path), mode, flags});
+    };
+    // System's code: the others' bits.
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB/base.apk", 0 /* F_OK */) == 0);
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB/base.apk", r_ok) == 0);
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB/base.apk", w_ok) == -eacces);
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB/base.apk", w_ok, at_eaccess) == -eacces);
+    CHECK(call(nr_faccessat, {at_fdcwd, address("/data/app/~~AAAA/io.example-BBBB/base.apk"), w_ok}) == -eacces);
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB", r_ok | x_ok) == 0);
+    CHECK(access("/data/app/~~AAAA/io.example-BBBB", w_ok) == -eacces);
+    // The app's own files: the owner's bits.
+    CHECK(access("/data/user/0/io.example", r_ok | w_ok | x_ok) == 0);
+    CHECK(access("/data/user/0/io.example/own", r_ok | w_ok) == 0);
+    CHECK(access("/data/user/0/io.example/own", x_ok) == -eacces);
+    // Root's: the others' bits.
+    CHECK(access("/system/tool", r_ok | x_ok) == 0);
+    CHECK(access("/system/tool", w_ok) == -eacces);
+    CHECK(access("/system/shared", r_ok | w_ok) == 0);
+    CHECK(access("/system/missing", 0) == -enoent);
+    // A path relative to a directory descriptor has the owner stat reports for it as well.
+    const auto code = open_guest(at_fdcwd, "/data/app/~~AAAA/io.example-BBBB", o_rdonly | o_directory);
+    CHECK(call(nr_faccessat, {unsigned_of(code), address("base.apk"), r_ok}) == 0);
+    CHECK(call(nr_faccessat, {unsigned_of(code), address("base.apk"), w_ok}) == -eacces);
+    call(nr_close, {unsigned_of(code)});
+}
+
 TEST(relative_paths_start_at_the_working_directory_or_a_directory_fd) {
     Scratch scratch;
     const auto fd = open_guest(at_fdcwd, "b.txt", o_creat | o_rdwr, 0600);

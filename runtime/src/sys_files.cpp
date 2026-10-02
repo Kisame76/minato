@@ -308,6 +308,25 @@ int host_at_flags(int linux_flags) {
     return (linux_flags & linux_at_symlink_nofollow) ? AT_SYMLINK_NOFOLLOW : 0;
 }
 
+/// The owner stat reports for a path argument: by its guest path as given, or, relative to a directory
+/// descriptor, below that directory's.
+Owner owner_at(int directory, std::uint64_t address, const HostPath &host) {
+    auto guest = guest_absolute(directory, address);
+    if (!guest && host.directory != AT_FDCWD) {
+        char base[MAXPATHLEN];
+        if (::fcntl(host.directory, F_GETPATH, base) == 0) guest = vfs::guest_path(std::string(base) + "/" + host.path);
+    }
+    return guest ? android_owner(*guest) : Owner{};
+}
+
+/// The bits of `mode` that Linux's generic_permission grants the app uid and gid on a file of `owner`: the
+/// owner's when the app owns it, the group's when the app's gid is its group, the others' else.
+int granted(mode_t mode, Owner owner) {
+    if (owner.uid == app_uid) return (mode >> 6) & 07;
+    if (owner.gid == app_uid) return (mode >> 3) & 07;
+    return mode & 07;
+}
+
 // --- Directory streams ---------------------------------------------------------------------------------
 //
 // getdents64 reads a directory through a DIR* of its open file description (descriptors.h), opened
@@ -426,7 +445,13 @@ long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     if (host.error != 0) return host.error;
     int host_flags = host_at_flags(flags);
     if (flags & linux_at_eaccess) host_flags |= AT_EACCESS;
-    return result_or_error(::faccessat(host.directory, host.path.c_str(), mode & 07, host_flags));
+    if (::faccessat(host.directory, host.path.c_str(), mode & 07, host_flags) != 0) return -to_linux_errno(errno);
+    if ((mode & 07) == 0) return 0;  // F_OK: the file is there
+    // Reading, writing and executing as Linux grants them to the app uid and gid (ADR-0039 decision 3), by the
+    // owner and group stat reports; AT_EACCESS answers the same, since the effective ids are the real ones.
+    struct stat status;
+    if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags)) != 0) return -to_linux_errno(errno);
+    return (mode & 07 & ~granted(status.st_mode, owner_at(directory, path, host))) == 0 ? 0 : -linux_errno::eacces;
 }
 
 long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int flags) {
@@ -437,13 +462,7 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     if (host.error != 0) return host.error;
     struct stat status;
     if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags)) != 0) return -to_linux_errno(errno);
-    // The owner by the guest path: as given, or, relative to a directory descriptor, below that directory's.
-    auto guest = guest_absolute(directory, path);
-    if (!guest && host.directory != AT_FDCWD) {
-        char base[MAXPATHLEN];
-        if (::fcntl(host.directory, F_GETPATH, base) == 0) guest = vfs::guest_path(std::string(base) + "/" + host.path);
-    }
-    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, guest ? android_owner(*guest) : Owner{});
+    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, owner_at(directory, path, host));
     return 0;
 }
 
