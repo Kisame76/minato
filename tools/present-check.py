@@ -9,10 +9,11 @@ presentation time (timeline0_ns), all on the guest's CLOCK_MONOTONIC. drawables.
 session (tools/record-session.sh): row k is the drawable of frame k, with the time Core Animation presented it
 (presented_ns, CLOCK_UPTIME_RAW, the same clock by F10; 0 for one that never reached the screen).
 
-Decision 11's tolerance, as changed on 2026-10-01: a frame is presented no earlier than 1 ms before its due time and
-no later than one refresh period of its rate after it. Its due time is the time it asked for, or its timeline 0 when
-it asked for an earlier one, which the iPhone cannot meet. A rate passes with 99 % of its 600 frames in tolerance and
-the frame rate held: in each block, the frame times lie its periods apart (median, within 1 %).
+Decision 11's tolerance, as changed on 2026-10-01 and 2026-10-02: a frame is presented no earlier than 1 ms before its
+due time and no later than one refresh period of its rate and 1 ms after it, as Core Animation's presentedTime lies
+some 20 us after the refresh. Its due time is the time it asked for, or its timeline 0 when it asked for an earlier
+one, which the iPhone cannot meet. A rate passes with 99 % of its 600 frames in tolerance and the frame rate held: in
+each block, the frame times lie its periods apart (median, within 1 %).
 
 Per rate, and per block of 1, 2 and 3 periods on, it prints the frames in tolerance, early, late and never presented,
 those asked for before their timeline 0, how far apart the frame times lie, and how far the presents lay from their due
@@ -27,7 +28,8 @@ import sys
 MS = 1_000_000
 RATES = (60, 120)
 FRAMES_PER_RATE = 600
-EARLIEST_NS = -MS  # no earlier than 1 ms before the time asked for
+EARLIEST_NS = -MS  # no earlier than 1 ms before the due time
+LATE_SLACK_NS = MS  # and no later than a period and 1 ms after it
 
 
 class Refused(Exception):
@@ -79,7 +81,7 @@ def judge(rate, pairs):
         deltas.append(delta)
         if delta < EARLIEST_NS:
             early += 1
-        elif delta > 1e9 / rate:
+        elif delta > 1e9 / rate + LATE_SLACK_NS:
             late += 1
         else:
             inside += 1

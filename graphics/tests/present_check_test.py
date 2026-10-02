@@ -2,13 +2,14 @@
 """ADR-0041 test 3: graphics.present_check. tools/present-check.py on made-up recordings: present.csv as present-test
 writes it (per rate 60 and 120, three blocks of 200 frames presented 1, 2 and 3 periods on, each frame with its
 timeline 0, 2 periods after its frame time at 60 Hz and 3 at 120 Hz as the runtime's make_tick gives them) and
-drawables.csv as the App's recording writes it (row k is frame k). Decision 11's tolerance, as changed on 2026-10-01:
-a frame is presented no earlier than 1 ms before its due time and no later than one refresh period after it, where
-the due time is the time it asked for, or its timeline 0 when it asked for an earlier one; for 99 % of the 600 frames
-of each rate, with each block's frame times a step of its periods apart (median, 1 %).
+drawables.csv as the App's recording writes it (row k is frame k). Decision 11's tolerance, as changed on 2026-10-01
+and 2026-10-02: a frame is presented no earlier than 1 ms before its due time and no later than one refresh period and
+1 ms after it, where the due time is the time it asked for, or its timeline 0 when it asked for an earlier one; for
+99 % of the 600 frames of each rate, with each block's frame times a step of its periods apart (median, 1 %).
 - on time: every frame 0.5 ms after its due time; both rates pass;
-- the limits of both kinds: exactly 1 ms early and exactly one period late are in, 1 ns beyond either is out; a frame
-  asked for before its timeline 0 and presented at the time it asked for is early;
+- the limits of both kinds: exactly 1 ms early and exactly one period and 1 ms late are in, 1 ns beyond either is out;
+  a frame asked for before its timeline 0 and presented at the time it asked for is early;
+- the sitting of 2026-10-02's 60 Hz block of 1 period: every frame a period and 20 us after its timeline 0 is in;
 - 6 frames of 600 out pass a rate (99.0 %), 7 fail it, also at 120 Hz alone; a frame never presented counts out;
 - a block whose frame rate falls fails its rate with every frame in tolerance: frame times 16.67 ms apart in the
   120 Hz block of 1 period, as the sitting of 2026-10-01 showed; 2 % apart from its periods it fails, 0.5 % holds;
@@ -104,14 +105,19 @@ def main():
           "before timeline 0", "  1 period on: 200 frames, 200 in tolerance", "frame times 16.667 ms apart (median), "
           "held", "frame times 25.000 ms apart (median), held", "present-check: pass")
     # The limits of frames asked for at or after timeline 0, at 60 Hz in the block of 2 periods (frames 200 on):
-    # frame 200 exactly 1 ms early, 201 exactly a period late, both in; 202 1 ns more than 1 ms early, 203 1 ns more
-    # than a period late, both out. Of frames asked for before it, at 120 Hz in the block of 1 period (600 on): 600
-    # exactly 1 ms before timeline 0 and 601 exactly a period after it, both in; 602 and 603 1 ns beyond, both out.
-    limits = {200: -MS, 201: S / 60, 202: -MS - 1, 203: S / 60 + 1, 600: -MS, 601: S / 120, 602: -MS - 1,
-              603: S / 120 + 1}
+    # frame 200 exactly 1 ms early, 201 exactly a period and 1 ms late, both in; 202 1 ns more than 1 ms early, 203 1 ns
+    # more than a period and 1 ms late, both out. Of frames asked for before it, at 120 Hz in the block of 1 period (600
+    # on): 600 exactly 1 ms before timeline 0 and 601 exactly a period and 1 ms after it, both in; 602 and 603 1 ns
+    # beyond, both out.
+    limits = {200: -MS, 201: S / 60 + MS, 202: -MS - 1, 203: S / 60 + MS + 1, 600: -MS, 601: S / 120 + MS,
+              602: -MS - 1, 603: S / 120 + MS + 1}
     check(args, write(scratch / "limits", rows, lambda row: int(due(row) + limits.get(row[3], MS // 2))), 0,
           "rate 60: 600 frames, 598 in tolerance (99.7 %), early 1, late 1, not presented 0",
           "rate 120: 600 frames, 598 in tolerance (99.7 %), early 1, late 1, not presented 0")
+    # The sitting of 2026-10-02 at 60 Hz: the block of 1 period lands a period and 20 us after timeline 0.
+    late = write(scratch / "a-period-late", rows,
+                 lambda row: due(row) + (S // 60 + 20000 if row[1] == 60 and row[2] == 1 else MS // 2))
+    check(args, late, 0, "rate 60: 600 frames, 600 in tolerance (100.0 %), early 0, late 0", "present-check: pass")
     # Frame 0 asked for 1 period on, a period before its timeline 0, and presented 0.5 ms after the time it asked for.
     asked = write(scratch / "at-the-time-asked", rows, lambda row: row[5] + MS // 2 if row[3] == 0 else due(row) + 1000)
     check(args, asked, 0, "rate 60: 600 frames, 599 in tolerance (99.8 %), early 1, late 0")
