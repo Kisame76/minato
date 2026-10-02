@@ -258,7 +258,7 @@ VkResult vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *i
     swapchain->format = info->imageFormat;
     swapchain->count = count;
     /* MoltenVK's, on MoltenVK's surface; graphics/host checks that the window is there. */
-    const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, 1, &surface->id};
+    const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, 1, &surface->id, 0};
     VkSwapchainCreateInfoKHR ours = *info;
     ours.pNext = &windows;
     ours.surface = surface->metal;
@@ -645,11 +645,14 @@ static VkResult present(VkQueue queue, const VkPresentInfoKHR *info, struct goin
         }
     }
     if (on > 0 && result == VK_SUCCESS) {
-        /* graphics/host counts the presents of each window, and hands MoltenVK the rest of the chain. */
+        /* graphics/host counts the presents of each window, and hands MoltenVK the rest of the chain, without the
+           times when MINATO_PRESENTS_WITHOUT_TIME=1 (host_protocol.h). */
         const VkPresentTimesInfoGOOGLE their_times = {VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE, NULL, on,
                                                       going->times};
-        const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, times != NULL ? &their_times : NULL, on,
-                                               going->windows};
+        const char *without_time = getenv("MINATO_PRESENTS_WITHOUT_TIME");
+        const struct minato_windows windows = {
+            MINATO_STRUCTURE_TYPE_WINDOWS, times != NULL ? &their_times : NULL, on, going->windows,
+            without_time != NULL && strcmp(without_time, "1") == 0 ? MINATO_WINDOWS_WITHOUT_TIME : 0};
         const VkPresentInfoKHR moltenvk = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &windows,
                                            .waitSemaphoreCount = copies > 0 ? copies : info->waitSemaphoreCount,
                                            .pWaitSemaphores = copies > 0 ? going->semaphores : info->pWaitSemaphores,

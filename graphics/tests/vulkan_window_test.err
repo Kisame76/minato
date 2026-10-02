@@ -457,6 +457,11 @@ fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 0, with resu
 fake:   chain:
 fake:     present times, 1: ID 6 at 6075000000
 fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
+fake: vkAcquireNextImageKHR swapchain 12, timeout 10000000, semaphore s19, fence none: 1
+fake: vkQueuePresentKHR on queue 0.0: waits s19; swapchain 12 image 1, with results
+fake:   chain:
+fake:     present times, 1: ID 7 at 0
+fake: vkGetPastPresentationTimingGOOGLE swapchain 12, the timings
 fake: vkDestroySwapchainKHR swapchain 11, allocator NULL
 fake: vkDestroySwapchainKHR swapchain 12, allocator NULL
 fake: vkDestroySemaphore s19, allocator NULL
@@ -505,7 +510,7 @@ fake: vkAcquireNextImageKHR swapchain 13, timeout 10000000, semaphore s21, fence
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none
 fake:   0: waits s21, 0 command buffers, signals s22=0 s1=27
 fake: background
-fake: the window's presents: 29
+fake: the window's presents: 30
 fake: the window is gone
 fake: foreground
 fake: vkQueueSubmit on queue 0.0, 1 batches, fence none

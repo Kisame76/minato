@@ -18,7 +18,8 @@
      with MoltenVK's swapchain, and a present's times reach it for the swapchains that go on, in their order, on
      the refresh grid that graphics-run's test control sets (test_control.h) less half a period, 0 as 0; the past
      timings give the app its own times back, in its order, also for presents with one ID, of which MoltenVK's
-     history dropped the oldest;
+     history dropped the oldest; with MINATO_PRESENTS_WITHOUT_TIME=1 MoltenVK gets every time as 0, and the app its
+     own back;
    - the gates (decision 13): a present waits at the closed gate and takes a signal meanwhile; in the
      background every call that commits waits, also through the KHR aliases, while "scheduled" comes
      through the runtime; a present waiting there ends when the window goes; then VK_ERROR_SURFACE_LOST_KHR
@@ -604,6 +605,23 @@ static void timing_part(void) {
         printf(" %llu", (unsigned long long)eight[n].desiredPresentTime);
     }
     printf("\n");
+    /* With MINATO_PRESENTS_WITHOUT_TIME=1, the measurement's switch (ADR-0041 decision 11). */
+    setenv("MINATO_PRESENTS_WITHOUT_TIME", "1", 1);
+    uint32_t next = 9;
+    check("vkAcquireNextImageKHR", acquire(second, acquired, &next));
+    const VkPresentTimeGOOGLE seven = {.presentID = 7, .desiredPresentTime = 7000000000};
+    const VkPresentTimesInfoGOOGLE seven_times = {.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE,
+                                                  .swapchainCount = 1, .pTimes = &seven};
+    const VkPresentInfoKHR untimed = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, .pNext = &seven_times,
+                                      .waitSemaphoreCount = 1, .pWaitSemaphores = &acquired, .swapchainCount = 1,
+                                      .pSwapchains = &second, .pImageIndices = &next};
+    const VkResult untimed_result = vkQueuePresentKHR(queue, &untimed);
+    unsetenv("MINATO_PRESENTS_WITHOUT_TIME");
+    room = 1;
+    const VkResult seven_past = past(device, second, &room, timings);
+    printf("with MINATO_PRESENTS_WITHOUT_TIME=1, at 7 s with ID 7: %d; past timing: %d, %u: ID %u, desired %llu, "
+           "actual %llu\n", untimed_result, seven_past, room, timings[0].presentID,
+           (unsigned long long)timings[0].desiredPresentTime, (unsigned long long)timings[0].actualPresentTime);
     vkDestroySwapchainKHR(device, first, NULL);
     vkDestroySwapchainKHR(device, second, NULL);
     vkDestroySemaphore(device, acquired, NULL);

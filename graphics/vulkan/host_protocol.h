@@ -15,11 +15,17 @@
    vkCreateAndroidSurfaceKHR (one window), vkCreateSwapchainKHR (one) and vkQueuePresentKHR (one per
    swapchain, which always gets pResults). graphics/host takes it out before MoltenVK sees the chain. */
 #define MINATO_STRUCTURE_TYPE_WINDOWS ((VkStructureType)0x6d696e62)
+
+/* A present's flag: graphics/host hands MoltenVK no times (0) and keeps the app's for its past timings. libvulkan
+   sets it with MINATO_PRESENTS_WITHOUT_TIME=1 in the environment, ADR-0041 decision 11's measurement switch, which
+   only the benchmark and Debug builds pass to the guest. */
+#define MINATO_WINDOWS_WITHOUT_TIME 1u
 struct minato_windows {
     VkStructureType sType;
     const void *pNext;
     uint32_t count;
     const uint64_t *windows;
+    uint32_t flags;  /* MINATO_WINDOWS_*, for a present */
 };
 
 #endif

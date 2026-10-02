@@ -11,8 +11,9 @@
    With MINATO_METAL_HOOK=present it prints none of that. It reads back the textures of the first four
    drawables presented, before they go to the screen, and prints their size, pixel format and CRC-32; and
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
-   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps the time
-   the last drawable was presented at with presentAtTime: (ANGLE's patch 0005), which test_control.m answers. */
+   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
+   first drawable presented after test_control.m's watch was presented: with presentAtTime: (ANGLE's patch 0005) and
+   its time, or with present. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -41,7 +42,7 @@ static id<MTLSharedEvent> waiting_event;
 static __thread int asking;           /* on the hook's thread that asks for "scheduled" */
 static int marked;                    /* whether graphics/host's first command buffer is marked */
 static atomic_int scheduled_count, waiting_order, host_order;  /* the order Metal scheduled them in, from 1 */
-static _Atomic int64_t presented_at;  /* the last drawable's presentAtTime: time in nanoseconds, 0 before one */
+static _Atomic int64_t presented_at;  /* the first drawable's since the watch: see test_host.h */
 
 static void note(const char *what) {
     if (noting) {
@@ -93,10 +94,26 @@ static void hooked_present(id self, SEL selector) {
     ((void (*)(id, SEL))presented)(self, selector);
 }
 
-/* Metal hands a drawable that presentDrawable:atTime: named its time with presentAtTime:. */
+/* The first present since the watch is kept: a drawable that presentDrawable:atTime: named gets its time with
+   presentAtTime:, one without a time present. */
+static void seen(int64_t how) {
+    int64_t none = 0;
+    atomic_compare_exchange_strong(&presented_at, &none, how);
+}
+
 static void hooked_present_at_time(id self, SEL selector, CFTimeInterval time) {
-    atomic_store(&presented_at, llround(time * 1e9));
+    const long long nanoseconds = llround(time * 1e9);
+    seen(nanoseconds > 0 ? nanoseconds : 1);
     ((void (*)(id, SEL, CFTimeInterval))presented_at_time)(self, selector, time);
+}
+
+static void hooked_plain_present(id self, SEL selector) {
+    seen(-1);
+    ((void (*)(id, SEL))presented)(self, selector);
+}
+
+void minato_test_watch_presents(void) {
+    atomic_store(&presented_at, 0);
 }
 
 int64_t minato_test_presented_at(void) {
@@ -208,6 +225,7 @@ __attribute__((constructor)) static void hook_metal(void) {
                 presented = hook(drawable_class, @selector(present), (IMP)hooked_present);
             } else {
                 presented_at_time = hook(drawable_class, @selector(presentAtTime:), (IMP)hooked_present_at_time);
+                presented = hook(drawable_class, @selector(present), (IMP)hooked_plain_present);
             }
         }
         commit = hook(buffers, @selector(commit), (IMP)hooked_commit);

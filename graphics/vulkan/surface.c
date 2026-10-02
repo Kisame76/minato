@@ -44,7 +44,7 @@ VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCr
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     /* graphics/host turns the window's ID into its layer and makes MoltenVK's surface on it. */
-    const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, 1, &window.id};
+    const struct minato_windows windows = {MINATO_STRUCTURE_TYPE_WINDOWS, NULL, 1, &window.id, 0};
     VkAndroidSurfaceCreateInfoKHR ours = *info;
     ours.pNext = &windows;
     const VkResult result = minato_host_vkCreateAndroidSurfaceKHR(instance, &ours, NULL, &made->metal);

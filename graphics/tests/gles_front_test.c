@@ -15,7 +15,8 @@
    - Window surfaces are fixed-size: the window's size, then its buffer geometry one swap later, then the
      window's size again after setBuffersGeometry(0, 0); the drawable follows with the frame after.
    - eglPresentationTimeANDROID, reached through eglGetProcAddress as Swappy reaches it, hands Core Animation the
-     time on the refresh grid graphics-run's test control sets, less half a period (ADR-0041 decision 11).
+     time on the refresh grid graphics-run's test control sets, less half a period (ADR-0041 decision 11); with
+     MINATO_PRESENTS_WITHOUT_TIME=1 in the environment it answers the same, and the drawable comes without a time.
    - The waits in slices: a signal's handler runs within 30 ms of its sending during eglClientWaitSyncKHR,
      and the wait goes on. */
 #define EGL_EGLEXT_PROTOTYPES
@@ -31,6 +32,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -405,16 +407,30 @@ static void window_surfaces(EGLDisplay display, EGLConfig config, EGLContext con
     minato_test(MINATO_TEST_VSYNC_GRID, 1000000000, 10000000, 0);
     const PFNEGLPRESENTATIONTIMEANDROIDPROC set_time =
         (PFNEGLPRESENTATIONTIMEANDROIDPROC)eglGetProcAddress("eglPresentationTimeANDROID");
-    const EGLBoolean timed = set_time != NULL && set_time(display, surface, 2000000000);
-    frame(1.0f);
-    eglSwapBuffers(display, surface);
-    /* Metal hands the drawable its time once the command buffer is scheduled. */
-    uint64_t at = 0;
-    for (int tries = 0; tries < 2000 && (at = minato_test(MINATO_TEST_PRESENTED_AT, 0, 0, 0)) == 0; tries++) {
-        usleep(1000);
+    for (int without = 0; without < 2; without++) {
+        if (without) {
+            setenv("MINATO_PRESENTS_WITHOUT_TIME", "1", 1);
+        }
+        /* The earlier swaps' drawables first, then the one of this swap, which Metal hands its time (or none) once
+           the command buffer is scheduled. */
+        glFinish();
+        usleep(50000);
+        minato_test(MINATO_TEST_PRESENTED_AT, 1, 0, 0);
+        const EGLBoolean timed = set_time != NULL && set_time(display, surface, 2000000000);
+        frame(1.0f);
+        eglSwapBuffers(display, surface);
+        uint64_t at = 0;
+        for (int tries = 0; tries < 2000 && (at = minato_test(MINATO_TEST_PRESENTED_AT, 0, 0, 0)) == 0; tries++) {
+            usleep(1000);
+        }
+        char where[48];
+        snprintf(where, sizeof where, at == UINT64_MAX ? "without a time" : "at %llu ns", (unsigned long long)at);
+        printf("  %s: %s, the drawable %s\n",
+               without ? "the same with MINATO_PRESENTS_WITHOUT_TIME=1" : "through eglGetProcAddress at 2 s, on a grid "
+                                                                          "of 10 ms from 1 s",
+               timed ? "EGL_TRUE" : "EGL_FALSE", where);
     }
-    printf("  through eglGetProcAddress at 2 s, on a grid of 10 ms from 1 s: %s, the drawable at %llu ns\n",
-           timed ? "EGL_TRUE" : "EGL_FALSE", (unsigned long long)at);
+    unsetenv("MINATO_PRESENTS_WITHOUT_TIME");
 
     static int not_a_window;
     const EGLSurface none = eglCreateWindowSurface(display, config, (EGLNativeWindowType)&not_a_window, NULL);

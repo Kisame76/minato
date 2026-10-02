@@ -9,7 +9,10 @@
      name EGL_KHR_platform_android, whose display libEGL gives.
    - eglGetProcAddress hands out libEGL's own functions and libGLESv2's, never ANGLE's.
    - eglPresentationTimeANDROID goes to ANGLE, whose Metal backend presents the surface's next swap at that time
-     (patch 0005, ADR-0041 decision 11); the guest's CLOCK_MONOTONIC is the uptime clock it expects (F10).
+     (patch 0005, ADR-0041 decision 11); the guest's CLOCK_MONOTONIC is the uptime clock it expects (F10). With
+     MINATO_PRESENTS_WITHOUT_TIME=1 in the environment, decision 11's measurement switch, which only the benchmark
+     and Debug builds pass to the guest, it answers EGL_TRUE and keeps the time from ANGLE: the swap comes without
+     one.
    - eglClientWaitSync and eglClientWaitSyncKHR wait in slices of at most 10 ms, their flush is glFlush; a
      reusable sync, on which ANGLE cannot wait, is asked without a wait between sleeps. */
 #include <android/native_window.h>
@@ -230,6 +233,10 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *name) {
 }
 
 EGLBoolean eglPresentationTimeANDROID(EGLDisplay display, EGLSurface surface, EGLnsecsANDROID time) {
+    const char *without_time = getenv("MINATO_PRESENTS_WITHOUT_TIME");
+    if (without_time != NULL && strcmp(without_time, "1") == 0) {
+        return EGL_TRUE;
+    }
     return minato_host_eglPresentationTimeANDROID(display, surface, time);
 }
 
