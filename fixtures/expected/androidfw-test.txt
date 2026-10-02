@@ -1,0 +1,48 @@
+# ADR-0039 b3.2: what framework/tests/native/androidfw_test.cpp prints without its "androidfw-test: " prefix.
+# The values are those of the resources' sources: core/res at android-15.0.0_r1 (strings.xml, values-de,
+# styles.xml's TextAppearance and TextAppearance.Medium, assets/) and tools/aapt2/check's res/ and assets/. A bag
+# lists its entries in key order, the parents' included; textStyle is a flags attribute, so aapt2 stores normal as
+# hex. An asset folder lists one level in AssetDir's order, the same from the folder as from the APK.
+# framework-res's resources.arsc holds six package chunks, all android's: it is byte-identical to Android 15's (b2).
+framework-res folder: 6 package chunks: android 01 system, android 01 system, android 01 system, android 01 system, android 01 system, android 01 system
+android:string/cancel () "Cancel"
+android:string/cancel (de) "Abbrechen"
+android:style/TextAppearance.Medium: 6 entries
+  android:attr/textSize 18sp
+  android:attr/textStyle 0x0
+  android:attr/textColor ?android:attr/textColorPrimary
+  android:attr/textColorHighlight ?android:attr/textColorHighlight
+  android:attr/textColorHint ?android:attr/textColorHint
+  android:attr/textColorLink ?android:attr/textColorLink
+asset geoid_map/README.md 110 bytes, "These binary protos are generated at runtime from the text protos in ../../geoid_map_assets and"
+asset folder "" 3 entries: geoid_map/ images/ webkit/
+asset folder "geoid_map" 15 entries: README.md expiration-distance-disk-tile-1.pb expiration-distance-disk-tile-3.pb expiration-distance-disk-tile-5.pb expiration-distance-disk-tile-7.pb expiration-distance-disk-tile-9.pb expiration-distance-disk-tile-b.pb expiration-distance-params.pb geoid-height-disk-tile-1.pb geoid-height-disk-tile-3.pb geoid-height-disk-tile-5.pb geoid-height-disk-tile-7.pb geoid-height-disk-tile-9.pb geoid-height-disk-tile-b.pb geoid-height-params.pb
+asset folder "no-such-folder" 0 entries:
+framework-res apk: 6 package chunks: android 01 system, android 01 system, android 01 system, android 01 system, android 01 system, android 01 system
+android:string/cancel () "Cancel"
+android:string/cancel (de) "Abbrechen"
+android:style/TextAppearance.Medium: 6 entries
+  android:attr/textSize 18sp
+  android:attr/textStyle 0x0
+  android:attr/textColor ?android:attr/textColorPrimary
+  android:attr/textColorHighlight ?android:attr/textColorHighlight
+  android:attr/textColorHint ?android:attr/textColorHint
+  android:attr/textColorLink ?android:attr/textColorLink
+asset geoid_map/README.md 110 bytes, "These binary protos are generated at runtime from the text protos in ../../geoid_map_assets and"
+asset folder "" 3 entries: geoid_map/ images/ webkit/
+asset folder "geoid_map" 15 entries: README.md expiration-distance-disk-tile-1.pb expiration-distance-disk-tile-3.pb expiration-distance-disk-tile-5.pb expiration-distance-disk-tile-7.pb expiration-distance-disk-tile-9.pb expiration-distance-disk-tile-b.pb expiration-distance-params.pb geoid-height-disk-tile-1.pb geoid-height-disk-tile-3.pb geoid-height-disk-tile-5.pb geoid-height-disk-tile-7.pb geoid-height-disk-tile-9.pb geoid-height-disk-tile-b.pb geoid-height-params.pb
+asset folder "no-such-folder" 0 entries:
+io.github.kisame76.minato.check.res:string/app_name () "Minato check"
+io.github.kisame76.minato.check.res:string/app_name (de) "Minato-Prüfung"
+io.github.kisame76.minato.check.res:string/greeting (de) "Hello, %1$s!"
+io.github.kisame76.minato.check.res:color/harbor () #ff1e5aa8
+io.github.kisame76.minato.check.res:integer/answer () 42
+io.github.kisame76.minato.check.res:dimen/gap () 16dp
+io.github.kisame76.minato.check.res:plurals/apps: 2 entries
+  other "%d apps"
+  one "%d app"
+io.github.kisame76.minato.check.res:raw/data res/raw/data.txt "raw bytes"
+io.github.kisame76.minato.check.res:layout/main res/layout/main.xml elements: View
+android:string/cancel (de) "Abbrechen"
+asset folder "notes" 2 entries: deep/ hello.txt
+asset notes/hello.txt 25 bytes, "Assets of the check app."

@@ -145,6 +145,8 @@ Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 M
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `graphics/java` and `ravenwood/annotations-src` (3.0 MB): the graphics and annotation classes that framework.jar's taken files name, as compile-only stubs or taken files (ADR-0039 b3) |
 | `platform/frameworks/libs/modules-utils` | `810bd8c57bb3` | Apache-2.0 | only `java/` (0.5 MB): `Preconditions`, the typed XML parsers and annotations that framework.jar's taken files use (ADR-0039 b3) |
 
+b3.2 builds `libandroidfw` for the guest, with `libbase`, fmtlib, `libcutils`, `libutils`, `libziparchive`, `libincfs-utils` and libpng, as static archives; they ship inside `libandroid_runtime.so` from b3.3 on. `libandroidfw` carries Minato's patch `framework/native/patches/androidfw-directory-listing.patch` (Apache-2.0 like the file it changes): it only changes `DirectoryAssetsProvider::ForEachFile` in `libs/androidfw/AssetsProvider.cpp` and adds three includes there.
+
 The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files themselves never ship.
 
 | Project | Commit | License | File | Size | SHA-256 |

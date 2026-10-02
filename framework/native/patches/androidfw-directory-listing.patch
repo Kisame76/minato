@@ -1,0 +1,58 @@
+Minato's patch to libandroidfw at android-15.0.0_r1 (frameworks/base, Apache-2.0), ADR-0039 b3.2: makes
+DirectoryAssetsProvider::ForEachFile list the folder.
+
+Why: Minato ships framework-res as the folder /system/framework/framework-res (ADR-0039 decision 8), which
+ApkAssets.loadFromDir reads through DirectoryAssetsProvider. AOSP's ForEachFile there returns true without listing,
+so AssetManager.list() of a framework asset folder is empty, where Android's framework-res.apk lists its files.
+The patch lists the way ZipAssetsProvider::ForEachFile lists an APK: one level, regular files, and each folder once
+as kFileTypeDirectory. A folder that is missing lists nothing and returns true, as a missing prefix does in an APK:
+AssetManager2::OpenDir asks every provider and gives null if one returns false, so list() would throw
+FileNotFoundException for an app's own asset folders.
+
+tools/build-framework-native.sh applies it to a copy in build/framework-native/patched, never to build/sources.
+Checked by tools/androidfw-check.sh, which compares the folder's listings with the APK's.
+
+--- a/libs/androidfw/AssetsProvider.cpp
++++ b/libs/androidfw/AssetsProvider.cpp
+@@ -16,6 +16,9 @@
+ 
+ #include "androidfw/AssetsProvider.h"
+ 
++#include <dirent.h>
++#include <errno.h>
++#include <fcntl.h>
+ #include <sys/stat.h>
+ 
+ #include <android-base/errors.h>
+@@ -333,9 +336,28 @@
+ }
+ 
+ bool DirectoryAssetsProvider::ForEachFile(
+-    const std::string& /* root_path */,
+-    base::function_ref<void(StringPiece, FileType)> /* f */) const {
+-  return true;
++    const std::string& root_path,
++    base::function_ref<void(StringPiece, FileType)> f) const {
++  // As ZipAssetsProvider::ForEachFile lists an APK: one level, regular files and folders. A folder that is
++  // missing lists nothing, as a missing prefix does in an APK.
++  std::unique_ptr<DIR, decltype(&closedir)> dir(opendir((dir_ + root_path).c_str()), closedir);
++  if (dir == nullptr) {
++    return errno == ENOENT || errno == ENOTDIR;
++  }
++  errno = 0;
++  while (const struct dirent* entry = readdir(dir.get())) {
++    const StringPiece name(entry->d_name);
++    struct stat sb{};
++    if (name != "." && name != ".." && fstatat(dirfd(dir.get()), entry->d_name, &sb, 0) == 0) {
++      if (S_ISREG(sb.st_mode)) {
++        f(name, kFileTypeRegular);
++      } else if (S_ISDIR(sb.st_mode)) {
++        f(name, kFileTypeDirectory);
++      }
++    }
++    errno = 0;
++  }
++  return errno == 0;
+ }
+ 
+ std::optional<std::string_view> DirectoryAssetsProvider::GetPath() const {
