@@ -97,10 +97,11 @@ def missing(art, bionic_system, app_process, framework_jar, apk, app):
 
 
 def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, apk,
-          package, application, mounts=()):
+          package, application, mounts=(), configuration=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
-    a timeout. libandroid_runtime.so beside app_process goes to /system/lib64, and `mounts` are more --mount
-    entries (guest path, host path)."""
+    a timeout. libandroid_runtime.so beside app_process goes to /system/lib64, `mounts` are more --mount entries
+    (guest path, host path), and `configuration` begins a session with apk-run's --configuration
+    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -138,6 +139,8 @@ def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, 
                "--mount", f"/system/framework={os.path.join(run, 'framework')}"]
     for guest, host in mounts:
         command += ["--mount", f"{guest}={host}"]
+    if configuration is not None:
+        command += ["--configuration", configuration]
     command += ["--libraries", f"/system/lib64={system_lib64}",
                 "--libraries", f"{ART_ROOT}/lib64={art_lib64}",
                 "--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",

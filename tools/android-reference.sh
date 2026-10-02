@@ -16,7 +16,11 @@
 # command of the emulator disconnects its stream (killing audioserver restores the stream without an error
 # callback), so its error callback has no reference here (ADR-0036, after M3). present-gles and present-vulkan run
 # with service.sf.present_timestamp at 1, as on a device with reliable present fences (ADR-0041, decision 11),
-# through a root adbd; a running emulator gets the property and adbd back afterwards. A test app's lines of
+# through a root adbd; a running emulator gets the property and adbd back afterwards. config-test (ADR-0039, test 3)
+# is a Java app from build/config-test (tools/build-java-test-app.sh), started through the framework's
+# android.app.Activity, on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at density 480: the AVD
+# apk-runner-35-iphone, the same image with that display, which the script creates and starts for it alone (the
+# window manager forces at most three times apk-runner-35's 320 x 480 px on a side). A test app's lines of
 # logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
@@ -91,6 +95,13 @@ else
   done
 fi
 
+# config-test's AVD has the M4 plan's display; every other test keeps apk-runner-35's, which its reference has.
+avd_display=""
+if [[ "$app" == config-test ]]; then
+  AVD=apk-runner-35-iphone
+  avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
+fi
+
 create_avd() {
   mkdir -p "$AVD_HOME/$AVD.avd"
   cat >"$AVD_HOME/$AVD.ini" <<EOF
@@ -113,6 +124,7 @@ image.sysdir.1=$IMAGE
 tag.id=default
 tag.display=Default Android System Image
 EOF
+  printf '%s' "$avd_display" >>"$AVD_HOME/$AVD.avd/config.ini"
 }
 
 mkdir -p "$RESULTS"
@@ -126,6 +138,13 @@ case "$app" in aaudio-test | opensl-test | audio-live) audio="" ;; esac
 if [[ -n "$serial" && -z "$audio" && "$(ps -Ao args | grep -e '-avd ' | grep -c -e '-no-audio')" != 0 ]]; then
   echo "The running emulator has no audio device (-no-audio): stop it, and this script starts it with audio." >&2
   exit 1
+fi
+if [[ -n "$serial" ]]; then
+  running=$("$ADB" -s "$serial" emu avd name 2>/dev/null | tr -d '\r' | head -n 1)
+  if [[ "$running" != "$AVD" ]]; then
+    echo "The running emulator is the AVD $running, and this test needs $AVD: stop it, and this script starts $AVD." >&2
+    exit 1
+  fi
 fi
 if [[ -z "$serial" ]]; then
   [[ -f "$AVD_HOME/$AVD.ini" ]] || create_avd
@@ -211,12 +230,16 @@ present_timestamp_back() {
 
 run_app() {
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
-  local last="android_main returns" limit=30 package activity
+  local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
   case "$app" in
     bench-gles | bench-vulkan)
       apk="$BENCH/$app.apk" manifest="graphics/bench/android/$app/AndroidManifest.xml" build=tools/build-bench.sh
       last=" failures"
+      ;;
+    # A Java app (ADR-0039) with the framework's activity, which ends its log with "done".
+    config-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       ;;
     # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
     present-gles | present-vulkan)
@@ -228,7 +251,7 @@ run_app() {
     return 1
   fi
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
-  activity="$package/android.app.NativeActivity"
+  activity="$package/$activity_class"
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
   run logcat -c

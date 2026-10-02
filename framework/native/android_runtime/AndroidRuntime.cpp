@@ -21,6 +21,7 @@ extern int register_android_content_XmlBlock(JNIEnv *env);
 extern int register_android_content_res_ApkAssets(JNIEnv *env);
 extern int register_android_os_SystemProperties(JNIEnv *env);
 extern int register_android_os_Trace(JNIEnv *env);
+extern int register_android_app_ActivityThread(JNIEnv *env);
 
 namespace {
 JavaVM *gJavaVM = nullptr;
@@ -50,7 +51,7 @@ int register_framework_natives(JNIEnv *env) {
     for (int (*registration)(JNIEnv *) :
          {register_android_util_Log, register_android_content_AssetManager, register_android_content_StringBlock,
           register_android_content_XmlBlock, register_android_content_res_ApkAssets,
-          register_android_os_SystemProperties, register_android_os_Trace}) {
+          register_android_os_SystemProperties, register_android_os_Trace, register_android_app_ActivityThread}) {
         if (registration(env) < 0) {
             env->PopLocalFrame(nullptr);
             return -1;

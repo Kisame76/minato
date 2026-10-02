@@ -6,7 +6,7 @@
 # classes alone, and make-apk packs them. An app with res/ goes through the host aapt2 first, linked against our
 # framework-res as an app is against android.jar's, and make-apk takes aapt2's APK (--resources); .txt files stay
 # stored, so a raw text resource opens as a file descriptor (openRawResourceFd). The apps: app-start-test (test 1),
-# asset-manager-test (b3.3) and resources-test (b3.4).
+# asset-manager-test (b3.3), resources-test (b3.4a) and config-test (b3.4c, test 3).
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, and for res/ tools/build-aapt2.sh and tools/build-framework-res.sh.
 # Usage: tools/build-java-test-app.sh <app>

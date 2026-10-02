@@ -5,7 +5,8 @@
  * Step a's driver is empty: main() records the package and the process name, points TMPDIR and java.io.tmpdir at
  * the app's cache folder as handleBindApplication's setupGraphicsSupport does, builds the app's class loader over
  * base.apk and its lib/arm64, and loads and initializes the manifest's Application class, as makeApplication starts
- * on Android. It creates no Context and runs no Looper or lifecycle; those come in step c.
+ * on Android. Before that it gives the system Resources the session's configuration and display metrics (b3.4c),
+ * as handleBindApplication does. It creates no Context and runs no Looper or lifecycle; those come in step c.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -13,8 +14,12 @@
  */
 package android.app;
 
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.os.LocaleList;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.util.DisplayMetrics;
 import dalvik.system.PathClassLoader;
 
 public final class ActivityThread {
@@ -95,6 +100,7 @@ public final class ActivityThread {
         String tmpdir = dataDir + "/cache";
         System.setProperty("java.io.tmpdir", tmpdir);
         Os.setenv("TMPDIR", tmpdir, true);
+        applySessionConfiguration();
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         sCurrentActivityThread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader);
@@ -103,4 +109,52 @@ public final class ActivityThread {
             Class.forName(application, true, loader);
         }
     }
+
+    /**
+     * The system Resources' configuration and display metrics from the session (ADR-0028's configuration), as
+     * handleBindApplication's ResourcesManager.applyConfigurationToResources gives them on Android before the
+     * Application class loads. Without a session (a host that began none) they keep their defaults.
+     */
+    @SuppressWarnings("deprecation") // scaledDensity, which apps still read.
+    private static void applySessionConfiguration() {
+        Configuration config = new Configuration();
+        config.setToDefaults();
+        DisplayMetrics metrics = new DisplayMetrics();
+        metrics.setToDefaults();
+        String locale = nativeSessionConfiguration(config, metrics);
+        if (locale == null) {
+            return;
+        }
+        // What AConfiguration does not hold: a touch phone's hidden states (WindowManager's computeScreenConfiguration
+        // with no keyboard or navigation device), the font settings' defaults, and the size compatibility bit,
+        // which reduceScreenLayout adds as the window manager does.
+        config.keyboardHidden = Configuration.KEYBOARDHIDDEN_NO;
+        config.hardKeyboardHidden = Configuration.HARDKEYBOARDHIDDEN_YES;
+        config.navigationHidden = Configuration.NAVIGATIONHIDDEN_YES;
+        config.fontScale = 1;
+        config.fontWeightAdjustment = 0;
+        config.screenLayout = Configuration.reduceScreenLayout(config.screenLayout,
+                Math.max(config.screenWidthDp, config.screenHeightDp),
+                Math.min(config.screenWidthDp, config.screenHeightDp));
+        config.setLocales(LocaleList.forLanguageTags(locale));
+        // As DisplayInfo.getMetricsWithSize gives the display's metrics: with the noncompat fields, from which
+        // CompatibilityInfo.applyToDisplayMetrics takes the size.
+        metrics.densityDpi = metrics.noncompatDensityDpi = config.densityDpi;
+        metrics.density = metrics.noncompatDensity = config.densityDpi * DisplayMetrics.DENSITY_DEFAULT_SCALE;
+        metrics.scaledDensity = metrics.noncompatScaledDensity = metrics.density;
+        metrics.xdpi = metrics.noncompatXdpi = config.densityDpi;
+        metrics.ydpi = metrics.noncompatYdpi = config.densityDpi;
+        metrics.noncompatWidthPixels = metrics.widthPixels;
+        metrics.noncompatHeightPixels = metrics.heightPixels;
+        // updateSystemConfiguration changes the system Resources only when they exist, as zygote's preloadResources
+        // has made them on Android; ours makes them here.
+        Resources.getSystem();
+        Resources.updateSystemConfiguration(config, metrics, null);
+    }
+
+    /**
+     * Fills {@code config} and {@code metrics} with the session's values that libandroid's AConfiguration holds and
+     * returns its locale as a language tag, or null without a session.
+     */
+    private static native String nativeSessionConfiguration(Configuration config, DisplayMetrics metrics);
 }
