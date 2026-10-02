@@ -1,0 +1,4 @@
+dlopen(libhwui.so): a handle
+init_android_graphics: found
+register_android_graphics_classes: found
+init_android_graphics(): returned

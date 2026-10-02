@@ -87,6 +87,15 @@ add_test(NAME graphics.host_side COMMAND Python3::Interpreter "${PROJECT_SOURCE_
 set_tests_properties(graphics.host_side PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 add_test(NAME graphics.sysprop COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/sysprop_test.py")
 set_tests_properties(graphics.sysprop PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+# ADR-0043 a1: libhwui.so through our loader. The fixture hwui-load opens it as /system/bin/hwui-load, with hwui's
+# set and the platform's copies of ART's build in /system/lib64 and ART's folder for ICU and libnativehelper, and
+# calls init_android_graphics (hwui_load_run.py).
+add_test(NAME graphics.hwui_load
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/hwui_load_run.py" "${APK_FIXTURES_DIR}"
+    "${APK_HWUI_DIR}/lib" "${APK_ART_DIR}/lib" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+    $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/hwui_load_runs"
+    "${PROJECT_SOURCE_DIR}/fixtures/expected/hwui-load.out")
+set_tests_properties(graphics.hwui_load PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
 
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them

@@ -93,6 +93,10 @@ add_library(ns-lib SHARED suite/libns-lib.c)
 target_link_libraries(ns-lib PRIVATE ns-dep dl)
 add_executable(ns-test suite/ns-test.c)
 target_link_libraries(ns-test PRIVATE dl)
+# hwui-load: opens libhwui.so and calls init_android_graphics (ADR-0043 a1); graphics.hwui_load places libhwui and
+# what it needs (graphics/tests/hwui_load_run.py).
+add_executable(hwui-load suite/hwui-load.c)
+target_link_libraries(hwui-load PRIVATE dl)
 # property-test: bionic's property calls on the runtime's property area (ADR-0039 decisions 4 and 9).
 add_executable(property-test suite/property-test.c)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
