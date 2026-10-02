@@ -209,6 +209,11 @@ enum apkrt_gate_kind {
 /// (apkrt_window_set_size). Returns 0; -EINVAL for a window that is removed or that the host never gave, -EFAULT
 /// for address 0. The number follows the audio's.
 #define APKRT_NR_WINDOW_SIZE 4118
+/// session_configuration, for any guest code (ADR-0039, config-test): x0 a struct apkrt_configuration, which the
+/// runtime fills with the session's, as session_connect does, but without the event pipe, from any thread and any
+/// number of times. It is the configuration of apkrt_session_begin: a turn does not change it (ADR-0038). Returns 0;
+/// -ENOENT without a session, -EFAULT for NULL.
+#define APKRT_NR_SESSION_CONFIGURATION 4119
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //
@@ -422,6 +427,15 @@ struct AInputQueue;
 /// APK; AConfiguration_fromAssetManager gives the values decision 9 chooses from `configuration`, the
 /// session's. NULL when the APK cannot be read or its central directory is not sound, or without memory.
 struct AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_configuration *configuration);
+
+struct AConfiguration;
+
+/// In libandroid.so, version APKRT_PRIVATE: `session` filled with the session's configuration
+/// (session_configuration), and `config` with the values decision 9 chooses from it, which
+/// AConfiguration_fromAssetManager gives for NativeActivity's asset manager too. For libandroid_runtime, so that
+/// Java's Configuration and DisplayMetrics come from the same source (ADR-0039, config-test). Returns 0; ENOENT
+/// without a session, EFAULT when `config` or `session` is NULL.
+int minato_AConfiguration_fromSession(struct AConfiguration *config, struct apkrt_configuration *session);
 
 /// In libandroid.so, version APKRT_PRIVATE: a new input queue of the input channel `channel` (ADR-0036), for
 /// onInputQueueCreated, connected to it (input_connect); for channel 0 or one it cannot connect to, a queue

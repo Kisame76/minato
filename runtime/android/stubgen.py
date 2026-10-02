@@ -58,7 +58,8 @@ LIBRARIES = {
         # forward once libnativewindow has buffers. Input's Java side waits for Java (M4).
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
                     "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava"],
-        "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete"],
+        "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete",
+                    "minato_AConfiguration_fromSession"],
     },
     "libnativewindow": {
         "version": "LIBNATIVEWINDOW",

@@ -116,6 +116,14 @@ long connect(std::uint64_t configuration) {
     return descriptors::add(host, true);
 }
 
+long configuration(std::uint64_t address) {
+    if (!begun.load(std::memory_order_acquire)) return -linux_errno::enoent;
+    if (address == 0) return -linux_errno::efault;
+    // Set at the begin, before `begun`, and never again: no lock.
+    std::memcpy(reinterpret_cast<void *>(address), &described.configuration, sizeof described.configuration);
+    return 0;
+}
+
 long answer(std::uint64_t serial) {
     if (!begun.load(std::memory_order_acquire)) return -linux_errno::enoent;
     const std::lock_guard<std::mutex> hold(lock);

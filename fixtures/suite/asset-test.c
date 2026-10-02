@@ -1,8 +1,9 @@
 // asset-test: libandroid's asset manager as activity-host makes it (ADR-0028, decision 10) on archives this
 // test writes, sound and broken ones, and AConfiguration_fromAssetManager with the values decision 9
 // chooses from the session's configuration. What Android fixes for assets, activity-test compares with
-// Android 15; this test adds what only Minato has: minato_AAssetManager_create, and APKs no installer
-// would accept. A broken central directory makes the manager fail, a broken entry only that entry.
+// Android 15; this test adds what only Minato has: minato_AAssetManager_create, APKs no installer would
+// accept, and minato_AConfiguration_fromSession without a session. A broken central directory makes the
+// manager fail, a broken entry only that entry.
 // A test of the runtime: Android has no minato_AAssetManager_create.
 // Expected output: fixtures/expected/asset-test.out
 #include <android/asset_manager.h>
@@ -477,6 +478,22 @@ int main(void) {
     print_screen(2, 1000, 604);
     print_screen(2.61, 1080, 2340);
     printf("missing file: %s\n", create("/data/local/tmp/missing.apk", &phone) == NULL ? "NULL" : "created");
+    // The session's configuration for libandroid_runtime (ADR-0039, config-test): this program runs without a
+    // session, so only the errors; rotation-test compares it with the asset manager's in a session.
+    int (*from_session)(AConfiguration *, struct apkrt_configuration *) =
+        (int (*)(AConfiguration *, struct apkrt_configuration *))dlsym(android, "minato_AConfiguration_fromSession");
+    if (from_session == NULL) {
+        printf("no minato_AConfiguration_fromSession\n");
+    } else {
+        AConfiguration *config = AConfiguration_new();
+        struct apkrt_configuration session;
+        const int without_session = from_session(config, &session);
+        const int without_config = from_session(NULL, &session);
+        const int without_struct = from_session(config, NULL);
+        printf("configuration from the session: without one %d, without a configuration %d, without a struct %d\n",
+               without_session, without_config, without_struct);
+        AConfiguration_delete(config);
+    }
 
     memset(&zip, 0, sizeof zip);
     broken("empty file", &zip);

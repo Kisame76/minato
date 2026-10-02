@@ -24,8 +24,9 @@ void end();
 int refresh_rate();
 
 /// The private syscalls (guest_interface.h): session_connect with the guest's struct apkrt_configuration,
-/// session_answer and session_request.
+/// session_configuration, session_answer and session_request.
 long connect(std::uint64_t configuration);
+long configuration(std::uint64_t address);
 long answer(std::uint64_t serial);
 long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1);
 

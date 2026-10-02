@@ -3,11 +3,14 @@
 // keeps it, several as bits of one byte, so a value beyond its range reads back cut to those bits; the
 // language and the country are their first two characters. diff sets one ACONFIGURATION_* bit for each
 // kind of field that differs. AConfiguration_fromAssetManager (asset_manager.cpp) gives the values that
-// minato_configuration_from_session chose from the session (decision 9).
+// minato_configuration_from_session chose from the session (decision 9), and minato_AConfiguration_fromSession
+// gives them to libandroid_runtime.
 #include <android/configuration.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "internal.h"
 
@@ -242,4 +245,13 @@ void minato_configuration_from_session(AConfiguration* config, const struct apkr
     AConfiguration_setLayoutDirection(config, right_to_left(session->language) ? ACONFIGURATION_LAYOUTDIR_RTL
                                                                                : ACONFIGURATION_LAYOUTDIR_LTR);
     AConfiguration_setSdkVersion(config, 35);
+}
+
+// The session's configuration for libandroid_runtime (ADR-0039, config-test): read through session_configuration,
+// with the values above.
+extern "C" int minato_AConfiguration_fromSession(AConfiguration* config, struct apkrt_configuration* session) {
+    if (config == nullptr || session == nullptr) return EFAULT;
+    if (syscall(APKRT_NR_SESSION_CONFIGURATION, session) != 0) return errno;
+    minato_configuration_from_session(config, session);
+    return 0;
 }

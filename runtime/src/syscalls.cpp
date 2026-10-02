@@ -806,6 +806,8 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return apkrt::windows::gate(x[0], x[1]);
         case APKRT_NR_WINDOW_SIZE:
             return apkrt::windows::size(x[0], x[1]);  // ADR-0038 c)
+        case APKRT_NR_SESSION_CONFIGURATION:
+            return apkrt::session::configuration(x[0]);  // ADR-0039, config-test
         // The vsync channel (ADR-0036, decision 1).
         case APKRT_NR_VSYNC_CONNECT:
             return apkrt::channels::vsync_connect();

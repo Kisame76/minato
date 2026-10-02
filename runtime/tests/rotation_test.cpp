@@ -4,8 +4,9 @@
 // NATIVE_WINDOW_REDRAW_NEEDED: to landscape, and once the app has seen that window, back to portrait, as
 // tools/android-reference.sh turns the emulator. Then comes the quit that follows the app's ANativeActivity_finish. It
 // passes when the app's lines are fixtures/expected/rotation-test.logcat, its device lines show the window's sizes and
-// the configuration's start values throughout (Android 15 keeps them through a turn the activity handles), the only
-// request was FINISH, and activity-host ended with status 0 once onDestroy was answered.
+// the configuration's start values throughout (Android 15 keeps them through a turn the activity handles), and at the
+// start minato_AConfiguration_fromSession's values as the activity's (ADR-0039, config-test), the only request was
+// FINISH, and activity-host ended with status 0 once onDestroy was answered.
 //   rotation_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected>
 #include "app_host.h"
 
@@ -23,6 +24,7 @@ using namespace std::chrono_literals;
 // The configuration's start values (decision 9 of ADR-0028), which the turns leave as they are, and the window's sizes.
 constexpr const char *device_lines =
     "I/rotation-test-device: start: orientation port, screen 430 x 932 dp\n"
+    "I/rotation-test-device: session: 0, screen 1290 x 2796 px at scale 3.0, the activity's configuration: yes\n"
     "I/rotation-test-device: init: window 1290 x 2796\n"
     "I/rotation-test-device: resized: window 1290 x 2796\n"
     "I/rotation-test-device: content rect: 6, 120, 1284, 2760\n"

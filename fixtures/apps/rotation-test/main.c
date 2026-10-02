@@ -4,7 +4,9 @@
 // wider than high. Sizes, which differ by device, go to the tag "rotation-test-device", and so does the
 // configuration after the start: at APP_CMD_CONFIG_CHANGED (the glue's) and at each redraw (read anew from the
 // asset manager). Android 15's asset manager keeps the orientation at start through a turn the activity handles,
-// so a NativeActivity learns of the turn from its window, not from its configuration. It
+// so a NativeActivity learns of the turn from its window, not from its configuration. At the start, it also logs
+// Minato's configuration of the session (minato_AConfiguration_fromSession, ADR-0039 config-test) and whether it is
+// the activity's, to the device tag, as Android has no such function. It
 // logs "ready" a second after it first gained the focus; the check then turns the device to landscape and
 // back. A second after the second change of the configuration it calls ANativeActivity_finish.
 #include <android/asset_manager.h>
@@ -13,8 +15,11 @@
 #include <android/looper.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
+#include <dlfcn.h>
 #include <stdint.h>
 #include <time.h>
+
+#include "APKRuntime/guest_interface.h"
 
 #include "android_native_app_glue.h"
 
@@ -58,6 +63,25 @@ static const char *orientation_name(int32_t orientation) {
 static void log_configuration(const char *when, AConfiguration *config) {
     DEVICE("%s: orientation %s, screen %d x %d dp", when, orientation_name(AConfiguration_getOrientation(config)),
            AConfiguration_getScreenWidthDp(config), AConfiguration_getScreenHeightDp(config));
+}
+
+// Minato's configuration of the session, and whether it is `activity`; "none" where libandroid lacks the function.
+static void log_session_configuration(AConfiguration *activity) {
+    void *android = dlopen("libandroid.so", RTLD_NOW);
+    int (*from_session)(AConfiguration *, struct apkrt_configuration *) =
+        android != NULL ? (int (*)(AConfiguration *, struct apkrt_configuration *))dlsym(
+                              android, "minato_AConfiguration_fromSession")
+                        : NULL;
+    if (from_session == NULL) {
+        DEVICE("session: none");
+        return;
+    }
+    AConfiguration *config = AConfiguration_new();
+    struct apkrt_configuration session;
+    const int result = from_session(config, &session);
+    DEVICE("session: %d, screen %d x %d px at scale %.1f, the activity's configuration: %s", result, session.width,
+           session.height, session.scale, result == 0 && AConfiguration_diff(config, activity) == 0 ? "yes" : "no");
+    AConfiguration_delete(config);
 }
 
 // The asset manager's configuration now.
@@ -124,6 +148,7 @@ void android_main(struct android_app *app) {
     LOG("android_main");
     LOG("start: orientation %s", orientation_name(AConfiguration_getOrientation(app->config)));
     log_configuration("start", app->config);
+    log_session_configuration(app->config);
 
     while (!app->destroyRequested) {
         int timeout = -1;

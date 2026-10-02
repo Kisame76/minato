@@ -29,6 +29,7 @@ screen 1000 x 602 at 2: 500 x 301 dp, smallest 301, size 2, long 2, density 320
 screen 1000 x 604 at 2: 500 x 302 dp, smallest 302, size 2, long 1, density 320
 screen 1080 x 2340 at 2.61: 413 x 895 dp, smallest 413, size 2, long 2, density 418
 missing file: NULL
+configuration from the session: without one 2, without a configuration 14, without a struct 14
 broken, empty file: NULL
 broken, no end record: NULL
 broken, comment longer than the file: NULL

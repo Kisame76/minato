@@ -1,5 +1,6 @@
 // Checks the session's channel (ADR-0028, decisions 2 to 4): events arrive in order at the guest
-// descriptor that session_connect gives, with the session's configuration; an answer wakes the host's
+// descriptor that session_connect gives, with the session's configuration, which session_configuration gives
+// again and again without the pipe (ADR-0039, config-test); an answer wakes the host's
 // wait, which ends at its time limit otherwise; a full pipe makes the post fail instead of blocking, and
 // every later post fails too; the guest's requests reach the host's handler, KEEP_SCREEN_ON only when it
 // changes and WINDOW_OPAQUE only when the window's format changes its opacity. A process has one session,
@@ -35,7 +36,7 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/asm-generic/unistd.h, fcntl.h, errno.h.
 constexpr std::uint64_t nr_fcntl = 25, nr_read = 63;
 constexpr std::uint64_t f_getfd = 1, f_setfl = 4, fd_cloexec = 1, o_nonblock = 04000;
-constexpr long enoent = 2, eagain = 11, ebusy = 16, einval = 22;
+constexpr long enoent = 2, eagain = 11, efault = 14, ebusy = 16, einval = 22;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -121,6 +122,12 @@ apkrt_configuration iphone() {
     return configuration;
 }
 
+bool same(const apkrt_configuration &a, const apkrt_configuration &b) {
+    return a.scale == b.scale && a.width == b.width && a.height == b.height && a.orientation == b.orientation &&
+           a.night == b.night && a.refresh_rate == b.refresh_rate && std::strcmp(a.language, b.language) == 0 &&
+           std::strcmp(a.country, b.country) == 0;
+}
+
 int events = -1;  // activity-host's descriptor of the event pipe
 
 /// Reads `count` records from the event pipe.
@@ -149,6 +156,7 @@ TEST(without_a_session_nothing_goes_through) {
     CHECK(apkrt_session_wait(1, 0.01) == -1);
     apkrt_configuration received{};
     CHECK(call(APKRT_NR_SESSION_CONNECT, address(&received)) == -enoent);
+    CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == -enoent);
     CHECK(call(APKRT_NR_SESSION_ANSWER, 1) == -enoent);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FINISH) == -enoent);
     const auto window = apkrt_window_add(nullptr, 64, 64);
@@ -167,6 +175,9 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     CHECK(apkrt_session_begin(&session) == 0);
     session.configuration.width = 1;  // the runtime keeps its own copy
     CHECK(apkrt_session_post(APKRT_EVENT_CREATE, 0, 0, 0) == 1);
+    // session_configuration before the connect leaves the connect to activity-host.
+    apkrt_configuration early{};
+    CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&early)) == 0 && same(early, iphone()));
     apkrt_configuration received{};
     const long descriptor = call(APKRT_NR_SESSION_CONNECT, address(&received));
     CHECK(descriptor >= 0);
@@ -186,6 +197,14 @@ TEST(a_second_connect_is_refused_and_the_descriptor_closes_on_exec) {
     apkrt_configuration received{};
     CHECK(call(APKRT_NR_SESSION_CONNECT, address(&received)) == -ebusy);
     CHECK(call(nr_fcntl, static_cast<std::uint64_t>(events), f_getfd) == fd_cloexec);
+}
+
+TEST(the_configuration_comes_again_and_again_without_the_pipe) {
+    for (int round = 0; round < 3; ++round) {
+        apkrt_configuration received{};
+        CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == 0 && same(received, iphone()));
+    }
+    CHECK(call(APKRT_NR_SESSION_CONFIGURATION, 0) == -efault);
 }
 
 TEST(events_arrive_in_order_with_their_serial_numbers_and_arguments) {
