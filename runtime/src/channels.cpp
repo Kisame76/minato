@@ -90,8 +90,13 @@ private:
 class VsyncChannel;
 std::vector<VsyncChannel *> vsyncs;  // the open ones, under `lock`
 std::int64_t ticks = 0;              // posted so far, under `lock`
+std::int64_t last_time = 0;          // the last tick's time, under `lock`
 std::int64_t period = 0;             // the display's, once a tick came, under `lock`
 bool period_known = false;           // whether one came
+
+// ADR-0041 decision 11: the least time from a drawable to the screen on the iPhone, as V5 measured it for the
+// opaque layer (BENCHMARKS.md). No frame timeline offers a present sooner after its frame time.
+constexpr std::int64_t least_delay = 22'860'000;
 
 class VsyncChannel final : public Channel {
 public:
@@ -122,13 +127,21 @@ bool differs(std::int64_t length, std::int64_t base) {
     return std::llabs(length - base) > base / 100;
 }
 
+/// A tick with its frame timelines. Timeline 0 presents at the first refresh of the tick's grid,
+/// target_time + m × length, at least the least delay after the frame time, and never before
+/// target_time + length, so that its deadline is never the frame time (ADR-0036). The others follow a period
+/// apart, each deadline a period before its present.
 apkrt_vsync make_tick(std::int64_t number, std::int64_t time, std::int64_t target_time, std::int64_t length) {
     apkrt_vsync tick{};
     tick.time = time;
     tick.target_time = target_time;
     tick.period = length;
+    std::int64_t first = target_time + length;
+    if (const std::int64_t short_by = least_delay - (first - time); length > 0 && short_by > 0) {
+        first += (short_by + length - 1) / length * length;
+    }
     for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
-        tick.timelines[k] = {number + k, target_time + (k + 1) * length, target_time + k * length};
+        tick.timelines[k] = {number + k, first + k * length, first + (k - 1) * length};
     }
     return tick;
 }
@@ -467,6 +480,7 @@ extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
     const std::int64_t number = ++ticks;
     const std::int64_t base = current_period(), length = target_time - time;
     const bool changed = length > 0 && (base <= 0 || differs(length, base));
+    last_time = time;
     period = changed ? length : base;
     period_known = true;
     for (VsyncChannel *channel : vsyncs) {
@@ -479,6 +493,14 @@ extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
         }
         if (arrived) channel->arrived();
     }
+}
+
+extern "C" int apkrt_vsync_grid(int64_t *time_ns, int64_t *period_ns) {
+    const std::lock_guard hold(lock);
+    if (ticks == 0) return -1;
+    if (time_ns != nullptr) *time_ns = last_time;
+    if (period_ns != nullptr) *period_ns = period;
+    return 0;
 }
 
 extern "C" uint64_t apkrt_input_add(void) {

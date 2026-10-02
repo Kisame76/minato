@@ -241,6 +241,11 @@ int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *contex
 /// one makes it the current one and wakes every channel, for the refresh-rate callbacks.
 void apkrt_vsync_post(int64_t time, int64_t target_time);
 
+/// For graphics/host: the display's refresh grid, for presentation times on it (ADR-0041 decision 11): the last
+/// tick's time and the period as that tick left it, both of the same tick. A NULL pointer is skipped. Returns 0,
+/// or -1 before the first tick, filling nothing.
+int apkrt_vsync_grid(int64_t *time_ns, int64_t *period_ns);
+
 /// A new input channel, whose ID the host sends with APKRT_EVENT_INPUT_QUEUE_CREATED. Returns the ID, from 1,
 /// never reused; 0 without memory. The events posted before the guest's queue connects wait in it.
 uint64_t apkrt_input_add(void);

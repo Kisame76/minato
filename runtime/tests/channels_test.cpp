@@ -1,9 +1,12 @@
 // Checks the vsync channel (ADR-0036, decisions 1 and 2): a channel's descriptor is readable only while it
 // holds a tick it asked for or a period it has not read; a tick goes only to the channels that asked since
 // their last, each of which keeps only the newest; the read gives the tick with its three timelines and ends
-// the readiness; the period is the session's refresh rate until a tick's differs by more than 1 %, which
-// wakes every channel; the syscalls refuse descriptors of another kind; a guest waiting in epoll wakes at a
-// tick; closing the descriptor ends the channel, also while another thread posts ticks. The runtime counts
+// the readiness, timeline 0 at the first refresh at least 22.86 ms after the frame time (ADR-0041 decision 11)
+// and never sooner than 2 periods after it;
+// the period is the session's refresh rate until a tick's differs by more than 1 %, which wakes every channel;
+// apkrt_vsync_grid gives the last tick's time with the period it left, none before the first tick and never
+// two ticks' values together; the syscalls refuse descriptors of another kind; a guest waiting in epoll wakes
+// at a tick; closing the descriptor ends the channel, also while another thread posts ticks. The runtime counts
 // ticks and keeps the period for the process, so the tests build on each other in their order: first without
 // a session, then with one. The test's thread plays the guest and calls the dispatcher directly, as
 // session_test.cpp does.
@@ -31,6 +34,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -45,7 +49,11 @@ constexpr std::int16_t pollin = 0x1, pollout = 0x4;
 constexpr std::uint32_t epollin = 0x1;
 constexpr std::int64_t enoent = 2, ebadf = 9, eagain = 11, efault = 14, ebusy = 16, einval = 22, emfile = 24;
 
-constexpr std::int64_t sixty = 16'666'667, hundred_twenty = 8'333'333;  // periods in ns
+constexpr std::int64_t thirty = 33'333'333, sixty = 16'666'667, ninety = 11'111'111,
+                       hundred_twenty = 8'333'333;  // periods in ns
+// ADR-0041 decision 11: the least time from a drawable to the screen on the iPhone, as V5 measured it for the
+// opaque layer (BENCHMARKS.md).
+constexpr std::int64_t least_delay = 22'860'000;
 
 std::int64_t call(std::uint64_t number, std::initializer_list<std::uint64_t> arguments = {}) {
     apkrt_syscall_frame frame{};
@@ -114,16 +122,25 @@ std::int64_t tick(std::int64_t period = sixty) {
     return ++posted;
 }
 
+/// Timeline 0's expected present for a tick at `time`, due at `target_time`: the first refresh of its grid,
+/// target_time + m × period, at least the least delay after the frame time, and never before target_time + period.
+std::int64_t first_reachable(std::int64_t time, std::int64_t target_time, std::int64_t period) {
+    std::int64_t refresh = target_time + period;
+    while (refresh - time < least_delay) refresh += period;
+    return refresh;
+}
+
 /// Whether `read` holds the tick with the number `number`, which began at `time`, with the period `period`
-/// and its three timelines.
+/// and its three timelines a period apart, each deadline a period before its present.
 bool holds_tick(const Read &read, std::int64_t number, std::int64_t time, std::int64_t period) {
     const apkrt_vsync &vsync = read.vsync;
+    const std::int64_t first = first_reachable(time, vsync.target_time, period);
     bool timelines = true;
     for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
         const apkrt_frame_timeline &timeline = vsync.timelines[k];
         timelines = timelines && timeline.vsync_id == number + k &&
-                    timeline.expected_present_time == vsync.target_time + (k + 1) * period &&
-                    timeline.deadline == vsync.target_time + k * period;
+                    timeline.expected_present_time == first + k * period &&
+                    timeline.deadline == first + (k - 1) * period;
     }
     return read.result == 1 && vsync.time == time && vsync.target_time == time + period && vsync.period == period &&
            vsync.preferred_timeline == 0 && vsync.reserved == 0 && timelines;
@@ -152,6 +169,12 @@ TEST(before_any_tick_and_session_a_read_gives_nothing) {
         CHECK(timeline.vsync_id == 0 && timeline.expected_present_time == 0 && timeline.deadline == 0);
     }
     call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(before_the_first_tick_there_is_no_grid) {
+    std::int64_t time = 5, period = 7;
+    CHECK(apkrt_vsync_grid(&time, &period) == -1);
+    CHECK(time == 5 && period == 7);
 }
 
 TEST(the_syscalls_refuse_descriptors_of_another_kind_and_null) {
@@ -198,6 +221,9 @@ TEST(before_the_first_tick_the_period_is_the_sessions_refresh_rate) {
     CHECK(before.result == 0 && before.vsync.time == 0 && before.vsync.period == hundred_twenty);
     CHECK(!readable(channel));
     call(nr_close, {unsigned_of(channel)});
+    // The session's rate makes no grid: that needs a tick's time.
+    std::int64_t time = 5, period = 7;
+    CHECK(apkrt_vsync_grid(&time, &period) == -1 && time == 5 && period == 7);
 }
 
 TEST(the_first_tick_at_another_period_makes_it_the_period_and_wakes_every_channel) {
@@ -307,6 +333,42 @@ TEST(a_period_change_of_more_than_one_percent_wakes_every_channel_once) {
     call(nr_close, {unsigned_of(idle)});
 }
 
+TEST(the_grid_is_the_last_ticks_time_with_the_period_it_left) {
+    std::int64_t time = 0, period = 0;
+    tick(sixty);
+    CHECK(apkrt_vsync_grid(&time, &period) == 0 && time == now && period == sixty);
+    tick(hundred_twenty);
+    CHECK(apkrt_vsync_grid(&time, &period) == 0 && time == now && period == hundred_twenty);
+    // A tick whose period differs by 1 % or less leaves the period, and gives its time.
+    tick(hundred_twenty + hundred_twenty / 100);
+    CHECK(apkrt_vsync_grid(&time, &period) == 0 && time == now && period == hundred_twenty);
+    // A NULL pointer is skipped.
+    time = period = 0;
+    CHECK(apkrt_vsync_grid(nullptr, &period) == 0 && period == hundred_twenty);
+    CHECK(apkrt_vsync_grid(&time, nullptr) == 0 && time == now);
+}
+
+TEST(timeline_zero_is_the_first_refresh_at_least_the_least_delay_after_the_frame_time) {
+    // 22.86 ms are 2 periods at 60 Hz and 3 at 90 and at 120 Hz. Never sooner than 2 periods, so that timeline 0's
+    // deadline is never the frame time (ADR-0036): 2 at 30 Hz, its deadline at target_time. The other timelines
+    // follow a period apart, each deadline a period before its present.
+    const auto channel = connect();
+    for (const auto &[period, periods] :
+         {std::pair{thirty, 2}, std::pair{sixty, 2}, std::pair{ninety, 3}, std::pair{hundred_twenty, 3}}) {
+        CHECK(request(channel) == 0);
+        const auto number = tick(period);
+        const Read got = read(channel);
+        CHECK(got.result == 1 && got.vsync.time == now && got.vsync.period == period);
+        for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
+            const apkrt_frame_timeline &timeline = got.vsync.timelines[k];
+            CHECK(timeline.vsync_id == number + k);
+            CHECK(timeline.expected_present_time == now + (periods + k) * period);
+            CHECK(timeline.deadline == now + (periods + k - 1) * period);
+        }
+    }
+    call(nr_close, {unsigned_of(channel)});
+}
+
 TEST(a_tick_without_a_positive_period_changes_no_period) {
     const auto channel = connect();
     const auto before = read(channel).vsync.period;
@@ -402,7 +464,7 @@ TEST(closing_a_channel_ends_it_and_the_others_go_on) {
     CHECK(apkrt::channels::vsync_count() == before);
 }
 
-// The last of the vsync tests, since its ticks leave the count of the ticks unknown.
+// The last two vsync tests, since their ticks leave the count of the ticks unknown.
 TEST(ticks_go_on_while_channels_come_and_go) {
     const auto before = apkrt::channels::vsync_count();
     std::atomic<bool> stop{false};
@@ -419,6 +481,31 @@ TEST(ticks_go_on_while_channels_come_and_go) {
     host.join();
     CHECK(failed == 0);
     CHECK(apkrt::channels::vsync_count() == before);
+}
+
+TEST(a_grid_never_mixes_two_ticks_while_the_host_posts) {
+    // The period changes at each tick, from 60 to 120 Hz and back; the times at 60 Hz are even and those at
+    // 120 Hz odd, so a time with another tick's period shows.
+    constexpr std::int64_t start = 4'000'000'000'000;
+    apkrt_vsync_post(start, start + sixty);
+    std::atomic<bool> stop{false};
+    std::thread host(
+        [&stop](std::int64_t time) {
+            for (; !stop.load(); time += sixty) apkrt_vsync_post(time, time + (time % 2 == 0 ? sixty : hundred_twenty));
+        },
+        start + sixty);
+    int missing = 0, mixed = 0;
+    for (int round = 0; round < 100'000; ++round) {
+        std::int64_t time = 0, period = 0;
+        if (apkrt_vsync_grid(&time, &period) != 0) {
+            ++missing;
+        } else if (period != (time % 2 == 0 ? sixty : hundred_twenty)) {
+            ++mixed;
+        }
+    }
+    stop.store(true);
+    host.join();
+    CHECK(missing == 0 && mixed == 0);
 }
 
 // --- The input channel ----------------------------------------------------------------------------
