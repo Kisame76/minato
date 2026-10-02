@@ -1,12 +1,14 @@
 // apk-run: runs the program in a container dylib on the Mac, one program per process (ADR-0019).
 // The tests start it once per fixture; the exit status is the program's own.
 //   apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...
-//           [--cwd <guest path>] [--env <name>=<value>]... [--argv0 <text>] <container.dylib> [argument...]
+//           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>] <container.dylib>
+//           [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64.
-// --cwd sets the working directory the program starts in ("/" by default), --env adds to the
-// environment an Android shell gives a program, and --argv0 is how the program was started
-// (/data/local/tmp/<container name> by default).
+// --cwd sets the working directory the program starts in ("/" by default). The program starts with init's
+// environment (ADR-0039 decision 2) and on top of it what an Android shell sets (PATH, ANDROID_DATA,
+// ANDROID_ROOT, HOME); --app-environment leaves the shell's out, as an app starts, and --env adds entries on
+// top of either. --argv0 is how the program was started (/data/local/tmp/<container name> by default).
 #include "APKRuntime/apkrt.h"
 
 #include <cstdio>
@@ -21,8 +23,8 @@ namespace {
 int usage() {
     std::fprintf(stderr,
                  "usage: apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...\n"
-                 "               [--cwd <guest path>] [--env <name>=<value>]... [--argv0 <text>] <container.dylib> "
-                 "[argument...]\n");
+                 "               [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]\n"
+                 "               <container.dylib> [argument...]\n");
     return 2;
 }
 
@@ -39,17 +41,22 @@ bool split(const std::string &value, std::string &left, std::string &right) {
 
 int main(int argc, char **argv) {
     char error[1024] = "";
-    // The environment an Android shell gives a program rather than the Mac's.
-    std::vector<std::string> environment{
+    // What an Android shell sets for a program rather than the Mac's environment, and --env's entries.
+    std::vector<std::string> shell{
         "PATH=/product/bin:/apex/com.android.runtime/bin:/system/bin:/system/xbin",
         "ANDROID_DATA=/data",
         "ANDROID_ROOT=/system",
         "HOME=/",
     };
+    std::vector<std::string> given;
     std::string argv0;
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
+        if (option == "--app-environment") {
+            shell.clear();
+            continue;
+        }
         if (index + 1 >= argc) return usage();
         const std::string value = argv[++index];
         std::string left, right;
@@ -64,8 +71,10 @@ int main(int argc, char **argv) {
             result = apkrt_set_working_directory(value.c_str(), error, sizeof error);
         } else if (option == "--env") {
             if (!split(value, left, right)) return usage();
-            std::erase_if(environment, [&](const std::string &entry) { return entry.starts_with(left + "="); });
-            environment.push_back(value);
+            const auto named = [&](const std::string &entry) { return entry.starts_with(left + "="); };
+            std::erase_if(shell, named);
+            std::erase_if(given, named);
+            given.push_back(value);
         } else if (option == "--argv0") {
             argv0 = value;
         } else {
@@ -85,7 +94,8 @@ int main(int argc, char **argv) {
     for (++index; index < argc; ++index) arguments.push_back(argv[index]);
     arguments.push_back(nullptr);
     std::vector<const char *> variables;
-    for (const auto &entry : environment) variables.push_back(entry.c_str());
+    for (const auto &entry : shell) variables.push_back(entry.c_str());
+    for (const auto &entry : given) variables.push_back(entry.c_str());
     variables.push_back(nullptr);
 
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);

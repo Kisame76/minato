@@ -176,6 +176,14 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/ns_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/ns-test.out")
   set_tests_properties(runtime.system_links PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
+  # apk-run's --app-environment (ADR-0039 decision 2): the fixture env-test starts with init's environment
+  # alone, as an app on Android 15, without apk-run's shell defaults.
+  add_test(NAME runtime.app_environment
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/environment_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/environment_runs")
+  set_tests_properties(runtime.app_environment PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

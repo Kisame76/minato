@@ -95,6 +95,9 @@ add_executable(ns-test suite/ns-test.c)
 target_link_libraries(ns-test PRIVATE dl)
 # property-test: bionic's property calls on the runtime's property area (ADR-0039 decisions 4 and 9).
 add_executable(property-test suite/property-test.c)
+# env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
+# (runtime/tests/environment_run.py).
+add_executable(env-test suite/env-test.c)
 # fd-test: descriptor numbers as Linux hands them out, whatever the process holds on the host (ADR-0027).
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
