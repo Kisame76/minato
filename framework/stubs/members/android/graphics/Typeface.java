@@ -1,5 +1,5 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 b3.1), which tools/managergen joins with it:
-// ResourcesImpl's fonts call them.
+// ResourcesImpl's fonts call them; TextUtils calls getSystemFontMap (b3.4).
 import android.content.res.AssetManager;
 import android.content.res.FontResourcesParser.FamilyResourceEntry;
 
@@ -21,6 +21,11 @@ class Typeface {
 
     /** @hide */
     public static Typeface createFromResources(FamilyResourceEntry entry, AssetManager mgr, String path) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public static java.util.Map<String, Typeface> getSystemFontMap() {
         throw new RuntimeException("stub");
     }
 }

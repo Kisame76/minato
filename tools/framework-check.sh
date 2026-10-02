@@ -5,7 +5,9 @@
 #   - our ActivityThread (framework/java) is the one there: its main throws, AOSP's has getApplicationThread;
 #   - AssetManager is the one with Minato's patch (framework/patches, b3.3): its system path loads framework-res's
 #     folder with loadFromDir and never calls OverlayConfig;
-#   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship.
+#   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship;
+#   - no class stands on a stub supertype, which would compile but not load, beyond framework/stub-supertypes.txt's
+#     entries, and each entry still does (tools/stub_supertypes.py, b3.4).
 # Prints the counts of taken files, hand stubs and classes, and framework.jar's size.
 # Usage: tools/framework-check.sh   (SKIP_BUILD=1 checks the build there is)
 set -euo pipefail
@@ -51,6 +53,15 @@ if [[ -z "$leaked" ]]; then
   ok "no stub class in framework.jar ($(wc -l < "$OUT/stub-classes.txt" | tr -d ' ') stub classes)"
 else
   fail "stub classes in framework.jar: $(echo "$leaked" | head -5 | tr '\n' ' ')"
+fi
+
+"$JDK/bin/jar" tf build/art/java/all-classes.jar | grep '\.class$' | sed 's|\.class$||' | sort > "$OUT/boot-classes.txt"
+supertypes=$(sed 's|/|.|g' "$OUT/classes.txt" | xargs "$JDK/bin/javap" -cp "$OUT/classes.jar" \
+  | python3 tools/stub_supertypes.py "$OUT/classes.txt" "$OUT/boot-classes.txt" framework/stub-supertypes.txt)
+if [[ -z "$supertypes" ]]; then
+  ok "no class stands on a stub supertype beyond framework/stub-supertypes.txt"
+else
+  fail "stub supertypes: $(echo "$supertypes" | tr '\n' ';')"
 fi
 
 taken=$(grep -cv '^#\|^$' framework/sources.txt)

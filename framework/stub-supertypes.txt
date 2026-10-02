@@ -1,0 +1,7 @@
+# Classes of framework.jar that may still stand on a stub supertype (ADR-0039 b3.4): such a class compiles against a
+# stub and cannot load, so tools/framework-check.sh fails on any other. Each entry names the step that removes it;
+# the check also fails on an entry that no longer stands on a stub, so the list only shrinks.
+# <class> -> <supertype>  # <the step that removes it>
+android.os.IDeviceIdentifiersPolicyService$Stub -> android.os.Binder  # step c: our Binder (decision 10)
+android.os.ParcelFileDescriptor$1 -> android.os.MessageQueue$OnFileDescriptorEventListener  # step c: our MessageQueue (decision 10)
+android.text.style.LineHeightSpan$Standard -> android.text.ParcelableSpan  # b3.4b, styled text (android.text's spans)

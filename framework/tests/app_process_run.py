@@ -19,7 +19,7 @@ runtime/tests/art_run.py lays them out for dalvikvm:
 The comparison takes the reference's lines without logcat's "I/System.out: " and leaves out what ADR-0039 lets
 differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100 for every app, decision 3), and
 zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Prints "skipped: ..." while a part is
-not built. framework/tests/asset_manager_run.py starts its app with this file's start().
+not built. framework/tests/java_app_run.py starts its apps with this file's start().
 
 Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work>
                           <app_process64> <framework.jar> <app-start-test.apk> <expected>

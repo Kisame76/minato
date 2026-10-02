@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Builds one of ADR-0039's Java test apps, fixtures/java/<app> with fixtures/apps/<app>/AndroidManifest.xml and its
-# assets/, if any, into build/<app>/<app>.apk: javac compiles the app against the boot jars' classes and
+# assets/ and res/, if any, into build/<app>/<app>.apk: javac compiles the app against the boot jars' classes and
 # framework.jar's classes with b3.1's stubs (build/framework/classes.jar and stubs.jar of tools/build-framework.sh;
 # compile only: on Android the system's framework serves them, in Minato our framework.jar), D8 dexes the app's
-# classes alone, and make-apk packs them. The apps: app-start-test (test 1) and asset-manager-test (b3.3).
-# Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh and
-# tools/build-framework.sh's output.
+# classes alone, and make-apk packs them. An app with res/ goes through the host aapt2 first, linked against our
+# framework-res as an app is against android.jar's, and make-apk takes aapt2's APK (--resources); .txt files stay
+# stored, so a raw text resource opens as a file descriptor (openRawResourceFd). The apps: app-start-test (test 1),
+# asset-manager-test (b3.3) and resources-test (b3.4).
+# Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
+# tools/build-framework.sh's output, and for res/ tools/build-aapt2.sh and tools/build-framework-res.sh.
 # Usage: tools/build-java-test-app.sh <app>
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -39,5 +42,11 @@ mkdir -p "$OUT/classes" "$OUT/dex"
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()
 [[ ! -d "fixtures/apps/$APP/assets" ]] || assets=(--assets "fixtures/apps/$APP/assets")
-tools/make-apk.sh --manifest "fixtures/apps/$APP/AndroidManifest.xml" --dex "$OUT/dex/classes.dex" \
-  ${assets[@]+"${assets[@]}"} --out "$OUT/$APP.apk"
+manifest=(--manifest "fixtures/apps/$APP/AndroidManifest.xml")
+if [[ -d "fixtures/apps/$APP/res" ]]; then
+  build/aapt2/aapt2 compile --dir "fixtures/apps/$APP/res" -o "$OUT/compiled.zip"
+  build/aapt2/aapt2 link -o "$OUT/resources.apk" -I build/framework-res/framework-res.apk -0 txt \
+    --manifest "fixtures/apps/$APP/AndroidManifest.xml" "$OUT/compiled.zip"
+  manifest=(--resources "$OUT/resources.apk")
+fi
+tools/make-apk.sh "${manifest[@]}" --dex "$OUT/dex/classes.dex" ${assets[@]+"${assets[@]}"} --out "$OUT/$APP.apk"

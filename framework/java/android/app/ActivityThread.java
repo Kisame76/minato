@@ -18,6 +18,9 @@ import android.system.Os;
 import dalvik.system.PathClassLoader;
 
 public final class ActivityThread {
+    /** As AOSP's: off. ResourcesManager logs configuration changes when it is on (b3.4). */
+    public static final boolean DEBUG_CONFIGURATION = false;
+
     private static volatile ActivityThread sCurrentActivityThread;
 
     private final String mPackageName;

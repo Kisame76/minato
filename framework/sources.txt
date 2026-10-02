@@ -111,3 +111,32 @@ frameworks_base_graphics/graphics/java/android/graphics/Rect.java
 frameworks_base/core/java/android/util/ArraySet.java
 frameworks_base/core/java/android/content/res/XmlResourceParser.java
 frameworks_base/core/java/android/util/AttributeSet.java
+
+# b3.4: the supertypes framework.jar's classes stood on as stubs, so they could not load (tools/framework-check.sh's
+# guard): ComponentInfo and PackageItemInfo under ActivityInfo; LineHeightSpan with ParagraphStyle and
+# WrapTogetherSpan under StringBlock's Height span; IInterface under aidl's IDeviceIdentifiersPolicyService.
+frameworks_base/core/java/android/content/pm/ComponentInfo.java
+frameworks_base/core/java/android/content/pm/PackageItemInfo.java
+frameworks_base/core/java/android/text/style/LineHeightSpan.java
+frameworks_base/core/java/android/text/style/ParagraphStyle.java
+frameworks_base/core/java/android/text/style/WrapTogetherSpan.java
+frameworks_base/core/java/android/os/IInterface.java
+
+# b3.4: TextUtils, which PackageItemInfo, Resources' styled text and ApkAssets.getAssetPath call. Its text layout
+# (MeasuredParagraph, Typeface's font map), the hidden spans it unparcels and ParcelableSpan with its hidden methods
+# stay compile-only stubs. GetChars, which TextUtils' Reverser implements.
+frameworks_base/core/java/android/text/TextUtils.java
+frameworks_base/core/java/android/text/GetChars.java
+
+# b3.4: Resources' manager with its keys and compat Resources, and what its construction makes (LocaleConfig), and
+# CloseGuard, which ParcelFileDescriptor's constructor gets for openRawResourceFd. The display it asks for metrics
+# (DisplayManagerGlobal), WindowContext and its dump's IndentingPrintWriter stay compile-only stubs.
+frameworks_base/core/java/android/app/ResourcesManager.java
+frameworks_base/core/java/android/content/res/ResourcesKey.java
+frameworks_base/core/java/android/content/res/CompatResources.java
+frameworks_base/core/java/android/app/LocaleConfig.java
+frameworks_base/core/java/android/util/CloseGuard.java
+# LongSparseArray, which ResourcesImpl's static initializer makes for the preloaded drawables, with the predicate its
+# removeIf takes.
+frameworks_base/core/java/android/util/LongSparseArray.java
+frameworks_base/core/java/com/android/internal/util/function/LongObjPredicate.java

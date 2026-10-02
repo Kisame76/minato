@@ -9,13 +9,26 @@ package android.sysprop;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The generated sysprop classes' parsing: an empty value is none, a list is split at commas. */
+/**
+ * The generated sysprop classes' parsing: an empty value is none, a boolean is "true" or "1" against "false" or "0",
+ * and a list is split at commas.
+ */
 final class SyspropValues {
     private SyspropValues() {
     }
 
     static String string(String value) {
         return value.isEmpty() ? null : value;
+    }
+
+    static Boolean bool(String value) {
+        if (value.equals("true") || value.equals("1")) {
+            return Boolean.TRUE;
+        }
+        if (value.equals("false") || value.equals("0")) {
+            return Boolean.FALSE;
+        }
+        return null;
     }
 
     static Integer integer(String value) {

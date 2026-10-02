@@ -1,0 +1,20 @@
+# ADR-0039 b3.4: what resources-test (fixtures/java/resources-test) prints without its "resources-test: " prefix. The
+# values are those of the sources: core/res at android-15.0.0_r1 (strings.xml's cancel and values-de's Abbrechen;
+# styles.xml's TextAppearance.Medium: textSize 18sp, textStyle normal) and fixtures/apps/resources-test/res. The app's
+# Resources have decision 9's density 480: density and scaledDensity 3 at font scale 1, where sp scales linearly
+# (FontScaleConverterFactory starts its curves above 1), so 16dp is 48 px and 14sp and 18sp are 42 and 54 px.
+# raw/data.txt is "raw bytes" and a newline, 10 bytes, stored as build-java-test-app.sh links .txt.
+system cancel "Cancel"
+app_name (en-US) "Resources Test"
+color harbor #ff1e5aa8
+integer answer 42
+dimen gap 48.0 px, 48 px whole
+dimen text 42.0 px
+plurals apps 1 app, 5 apps
+raw data "raw bytes"
+raw data as a file descriptor 10 bytes
+layout main elements: LinearLayout TextView
+TextAppearance.Medium textSize 18.0sp, 54.0 px, textStyle 0
+app_name (de-DE) "Ressourcen-Test"
+greeting (de-DE) "Hello, Minato!"
+system cancel through the app (de-DE) "Abbrechen"

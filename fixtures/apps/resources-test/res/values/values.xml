@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="harbor">#1E5AA8</color>
+  <integer name="answer">42</integer>
+  <dimen name="gap">16dp</dimen>
+  <dimen name="text">14sp</dimen>
+  <plurals name="apps">
+    <item quantity="one">%d app</item>
+    <item quantity="other">%d apps</item>
+  </plurals>
+</resources>
