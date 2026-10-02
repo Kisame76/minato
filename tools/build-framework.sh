@@ -11,6 +11,7 @@
 #     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
 #     annotations of modules-utils and ravenwood; and the hidden types of framework/stubs/types/, which win over the
 #     rest. stubs.jar leaves out every type framework.jar defines;
+#   - Minato's patches to taken files (framework/patches), applied to copies in build/framework/src;
 #   - javac -source 17 -XDstringConcat=inline of framework/java, the AOSP files of framework/sources.txt and the
 #     generated sources, as a patch of java.base as Soong compiles the framework, with -implicit:none so that only
 #     those become classes: the stubs come in through the same patch path, which is where a split package's types
@@ -72,6 +73,15 @@ for path in "${taken[@]}"; do
   fi
   mkdir -p "$OUT/src/${package//.//}"
   ln -s "$PWD/$source" "$OUT/src/${package//.//}/$name"
+done
+# Minato's patches to taken files of frameworks/base (framework/patches), each applied to a copy in place of the
+# file's link, so build/sources keeps the fetched files and their digests.
+for patch in framework/patches/*.patch; do
+  target=$(sed -n 's|^+++ b/||p' "$patch")
+  copy="$OUT/src/${target#core/java/}"
+  [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
+  rm "$copy"
+  patch --quiet -o "$copy" "$SOURCES/frameworks_base/$target" "$patch"
 done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --values "$SOURCES/build_release/aconfig/ap3a" --out "$GEN/aconfig" >/dev/null

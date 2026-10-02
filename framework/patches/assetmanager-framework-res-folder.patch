@@ -1,0 +1,37 @@
+Minato's patch to frameworks/base's core/java/android/content/res/AssetManager.java at android-15.0.0_r1
+(Apache-2.0), ADR-0039 b3.3 (b3.4's patch brought forward): the system path opens framework-res's folder and asks
+for no overlay idmaps.
+
+Why: every AssetManager an app gets goes through createSystemAssetsInZygoteLocked (getSystem(), the public
+constructor and AssetManager.Builder; setApkAssets needs the system set it makes). AOSP's version
+  - opens /system/framework/framework-res.apk, while Minato ships framework-res as the folder
+    /system/framework/framework-res (ADR-0039 decision 8), which ApkAssets.loadFromDir opens; and
+  - asks OverlayConfig.getZygoteInstance() for the framework's immutable overlay idmaps, which scans the overlay
+    partitions and runs idmap2. Minato has no overlay partitions, so there are no RROs and no idmaps, and
+    OverlayConfig is not in framework.jar.
+The patch keeps FRAMEWORK_APK_PATH and the method's signature: the folder is the given path without ".apk", and the
+idmap list is empty.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources. tools/framework-check.sh
+checks that framework.jar's AssetManager is the patched one; tools/asset-manager-check.sh reads framework-res
+through it.
+
+--- a/core/java/android/content/res/AssetManager.java
++++ b/core/java/android/content/res/AssetManager.java
+@@ -258,10 +258,13 @@
+ 
+         try {
+             final ArrayList<ApkAssets> apkAssets = new ArrayList<>();
+-            apkAssets.add(ApkAssets.loadFromPath(frameworkPath, ApkAssets.PROPERTY_SYSTEM));
++            // Minato: framework-res ships as the folder of the APK's path without ".apk" (ADR-0039 decision 8).
++            final String frameworkDir = frameworkPath.endsWith(".apk")
++                    ? frameworkPath.substring(0, frameworkPath.length() - ".apk".length()) : frameworkPath;
++            apkAssets.add(ApkAssets.loadFromDir(frameworkDir, ApkAssets.PROPERTY_SYSTEM, null));
+ 
+-            final String[] systemIdmapPaths =
+-                    OverlayConfig.getZygoteInstance().createImmutableFrameworkIdmapsInZygote();
++            // Minato has no overlay partitions, so there are no RROs and no idmaps.
++            final String[] systemIdmapPaths = new String[0];
+             for (String idmapPath : systemIdmapPaths) {
+                 apkAssets.add(ApkAssets.loadOverlayFromPath(idmapPath, ApkAssets.PROPERTY_SYSTEM));
+             }

@@ -12,7 +12,7 @@ cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
-tools/build-app-start-test.sh >/dev/null
+tools/build-java-test-app.sh app-start-test >/dev/null
 
 python3 framework/tests/app_process_run.py build/art build/bionic/lib build/bionic/system \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \

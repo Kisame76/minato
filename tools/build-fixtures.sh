@@ -2,7 +2,7 @@
 # Builds the NDK test programs in fixtures/ for arm64-v8a into build/fixtures/bin (ADR-0016), and packs
 # each test app of fixtures/apps/<app>/ (its AndroidManifest.xml, lib<app>.so and assets/, if any) into
 # build/fixtures/apks/<app>.apk with tools/make-apk.sh (ADR-0028, decision 15). An app without native code,
-# for which the build makes no lib<app>.so, has a script of its own (tools/build-app-start-test.sh).
+# for which the build makes no lib<app>.so, has a script of its own (tools/build-java-test-app.sh).
 # Usage: tools/build-fixtures.sh
 # Optional environment:
 #   ANDROID_NDK     NDK to build with, default: r30 in ~/Library/Android/sdk/ndk

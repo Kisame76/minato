@@ -6,7 +6,8 @@
 // The process name is --nice-name's, as Android's app_process takes it, else argv[0]. It names the process as
 // AndroidRuntime::setArgv0 does for an app: the argument block is overwritten with the name, so that
 // /proc/self/cmdline, which reads the live block, shows it, and the main thread takes the name's last 15
-// characters, as zygote's SetThreadName does. The arguments are copied first, for ActivityThread.main.
+// characters, as zygote's SetThreadName does, which also makes them liblog's default tag (base::SetDefaultTag), the
+// tag of a LOG without LOG_TAG, as libandroidfw's. The arguments are copied first, for ActivityThread.main.
 //
 // As AndroidRuntime::startVm and dalvikvm do, it finds JNI_CreateJavaVM through libnativehelper's JniInvocation
 // (libart.so) and creates the VM on the main thread:
@@ -27,11 +28,16 @@
 //     image replaces it with a real -Ximage;
 //   - -Xhidden-api-policy:disabled: our boot jars carry no hidden-API access flags, so ART enforces nothing either
 //     way (decision 4).
+// On the main thread right after the VM, as AndroidRuntime::start does, it registers framework.jar's natives with
+// libandroid_runtime.so's register_framework_natives, our stand-in for the private AndroidRuntime::startReg
+// (decision 10); their FindClass goes to the boot class path.
 // Then it calls android.app.ActivityThread.main(String[]) with the arguments after argv[0] and the process name.
 // It ends with 0 when main returns, and with 1 and a line on stderr when the VM, the class or main fails.
 //
 // It links libsigchain ahead of libc, as Android's app_process and dalvikvm do (ADR-0033 decision 6), so that ART's
 // signal handlers come first.
+#include <android/log.h>
+#include <register_framework_natives.h>
 #include <jni.h>
 #include <nativehelper/JniInvocation.h>
 #include <stdio.h>
@@ -56,11 +62,14 @@ std::string property_option(const char *property, const char *prefix, const char
     return std::string(prefix) + value;
 }
 
-// AndroidRuntime::setArgv0(name, true): the thread's name from the name's last 15 characters, then the whole
-// argument block, from argv[0] to the last argument's NUL, cleared and given the name.
+// AndroidRuntime::setArgv0(name, true): the thread's name from the name's last 15 characters, which zygote's
+// SetThreadName also makes liblog's default tag, then the whole argument block, from argv[0] to the last argument's
+// NUL, cleared and given the name.
 void set_argv0(int argc, char **argv, const char *name) {
     size_t length = strlen(name);
-    pthread_setname_np(pthread_self(), length < 15 ? name : name + length - 15);
+    const char *short_name = length < 15 ? name : name + length - 15;
+    pthread_setname_np(pthread_self(), short_name);
+    __android_log_set_default_tag(short_name);
     size_t block = static_cast<size_t>(argv[argc - 1] + strlen(argv[argc - 1]) + 1 - argv[0]);
     memset(argv[0], 0, block);
     strlcpy(argv[0], name, block);
@@ -122,6 +131,9 @@ int main(int argc, char **argv) {
         return fail("cannot create the VM");
     }
 
+    if (android::register_framework_natives(env) < 0) {
+        return fail("cannot register the framework's natives");
+    }
     jclass driver = env->FindClass(kDriver);
     if (driver == nullptr) {
         env->ExceptionDescribe();

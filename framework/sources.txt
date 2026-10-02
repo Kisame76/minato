@@ -87,3 +87,27 @@ frameworks_base/core/java/com/android/internal/util/CollectionUtils.java
 frameworks_base/core/java/android/util/ExceptionUtils.java
 frameworks_base/core/java/com/android/internal/util/FunctionalUtils.java
 frameworks_base/core/java/android/os/ParcelableException.java
+
+# b3.3: the classes libandroid_runtime.so's registration looks up (GetFieldID and GetMethodID initialize them), with
+# what they extend and what their looked-up members call: TypedValue, SparseArray and ArrayMap with their helpers for
+# AssetManager's natives; OverlayableInfo, AssetFileDescriptor, ParcelFileDescriptor and Parcelable for ApkAssets';
+# DataClass, the source-only annotation of OverlayableInfo, as in AOSP's framework; UtilConfig, which SparseArray and
+# ArrayMap read. AnnotationValidations, which OverlayableInfo's constructor calls, stays a stub (framework/stubs/types).
+# Rect, which WindowConfiguration's constructor makes and Configuration's static initializer reaches.
+# What AssetManager's system path calls: ArraySet, the system set. XmlBlock.Parser's interfaces, XmlResourceParser and
+# AttributeSet, without which the class cannot load.
+frameworks_base/core/java/android/util/TypedValue.java
+frameworks_base/core/java/android/util/SparseArray.java
+frameworks_base/core/java/android/util/ArrayMap.java
+frameworks_base/core/java/android/util/MapCollections.java
+frameworks_base/core/java/android/util/ContainerHelpers.java
+frameworks_base/core/java/android/content/om/OverlayableInfo.java
+frameworks_base/core/java/android/content/res/AssetFileDescriptor.java
+frameworks_base/core/java/android/os/ParcelFileDescriptor.java
+frameworks_base/core/java/android/os/Parcelable.java
+frameworks_base/core/java/com/android/internal/util/DataClass.java
+frameworks_base/core/java/android/util/UtilConfig.java
+frameworks_base_graphics/graphics/java/android/graphics/Rect.java
+frameworks_base/core/java/android/util/ArraySet.java
+frameworks_base/core/java/android/content/res/XmlResourceParser.java
+frameworks_base/core/java/android/util/AttributeSet.java

@@ -1,0 +1,23 @@
+# ADR-0039 b3.3: what asset-manager-test (fixtures/java/asset-manager-test) prints without its "asset-manager-test: "
+# prefix, and, as "logcat " lines, what its process logs. The values are those of the sources: core/res at
+# android-15.0.0_r1 (assets/, res/layout/simple_list_item_1.xml: one TextView with 8 attributes, the xmlns
+# declaration being none; values-de and the pseudolocale en-XA among the locales) and fixtures/apps/asset-manager-test.
+# The system's ApkAssets is decision 8's folder. Its debug name is MultiAssetsProvider's "<primary> and <secondary>":
+# ApkAssets' natives put an EmptyAssetsProvider ("<empty>") for the missing loader before the folder, whose path
+# DirectoryAssetsProvider gives with a "/". An app's AssetManager holds the system's ApkAssets and its own.
+# libandroidfw's LOG(ERROR) has no LOG_TAG, so it goes out under the default tag, which zygote's SetThreadName sets to
+# the process name's last 15 characters.
+system ApkAssets <empty> and /system/framework/framework-res/
+list "" 3: geoid_map images webkit
+list "geoid_map" 15: README.md expiration-distance-disk-tile-1.pb expiration-distance-disk-tile-3.pb expiration-distance-disk-tile-5.pb expiration-distance-disk-tile-7.pb expiration-distance-disk-tile-9.pb expiration-distance-disk-tile-b.pb expiration-distance-params.pb geoid-height-disk-tile-1.pb geoid-height-disk-tile-3.pb geoid-height-disk-tile-5.pb geoid-height-disk-tile-7.pb geoid-height-disk-tile-9.pb geoid-height-disk-tile-b.pb geoid-height-params.pb
+list "no-such-folder" 0:
+open geoid_map/README.md 110 bytes, "These binary protos are generated at runtime from the text protos in ../../geoid_map_assets and"
+xml res/layout/simple_list_item_1.xml elements: TextView, 8 attributes
+system locales include de true, en-XA true
+app ApkAssets 2, the last true
+list "notes" 2: deep hello.txt
+open notes/hello.txt 30 bytes, "Assets of asset-manager-test."
+ro.build.version.sdk 35
+loadFromDir of a missing folder throws java.io.IOException
+logcat I/asset-manager-test: Log.i reaches logcat
+logcat E/st.assetmanager: Failed to find directory '/system/framework/no-such-folder'.

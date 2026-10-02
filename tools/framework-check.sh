@@ -3,6 +3,8 @@
 # AOSP files with framework/java and the generated sources against the boot jars and compile-only stubs, then:
 #   - every root of sources.txt (its first group) is a class in framework.jar;
 #   - our ActivityThread (framework/java) is the one there: its main throws, AOSP's has getApplicationThread;
+#   - AssetManager is the one with Minato's patch (framework/patches, b3.3): its system path loads framework-res's
+#     folder with loadFromDir and never calls OverlayConfig;
 #   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship.
 # Prints the counts of taken files, hand stubs and classes, and framework.jar's size.
 # Usage: tools/framework-check.sh   (SKIP_BUILD=1 checks the build there is)
@@ -32,6 +34,14 @@ if [[ "$thread" == *"void main(java.lang.String[]) throws"* && "$thread" != *"ge
   ok "android.app.ActivityThread is ours"
 else
   fail "android.app.ActivityThread is not ours"
+fi
+
+system_path=$("$JDK/bin/javap" -c -p -cp "$OUT/classes.jar" android.content.res.AssetManager \
+  | awk '/static void createSystemAssetsInZygoteLocked\(/ { on = 1 } on && /^$/ { exit } on')
+if [[ "$system_path" == *"ApkAssets.loadFromDir"* && "$system_path" != *"OverlayConfig"* ]]; then
+  ok "android.content.res.AssetManager is patched: its system path loads the framework-res folder"
+else
+  fail "android.content.res.AssetManager is not patched"
 fi
 
 [[ -f "$OUT/stubs.jar" ]] || { fail "no $OUT/stubs.jar"; exit 1; }

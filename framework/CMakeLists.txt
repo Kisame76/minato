@@ -1,5 +1,6 @@
 # The framework's guest code (ADR-0039), built with the NDK's toolchain as the fixtures are
-# (tools/build-framework-native.sh): app_process, and libandroidfw with the libraries it links (b3.2).
+# (tools/build-framework-native.sh): app_process, libandroidfw with the libraries it links (b3.2), and
+# libandroid_runtime.so with framework.jar's natives (b3.3), which app_process registers.
 # app_process links the guest's ART libraries of tools/build-art.sh as dalvikvm does
 # (runtime/art, build/art/plan.cmake): libnativehelper and libsigchain ahead of libc, liblog, and --export-dynamic.
 # Its C++ library is static: a /system/bin program finds no libc++_shared.so, since ART's copy stays in its APEX.
@@ -162,3 +163,32 @@ set_target_properties(androidfw-test PROPERTIES CXX_STANDARD 23)
 target_compile_options(androidfw-test PRIVATE -Wall -Wextra -Werror)
 target_link_options(androidfw-test PRIVATE -Wl,-z,max-page-size=16384)
 target_link_libraries(androidfw-test PRIVATE androidfw)
+
+# --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
+# files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
+# for AndroidRuntime's statics, Trace without Perfetto and the one function of android_util_Binder.cpp they call.
+# libandroidfw and the libraries under it are linked in statically with --exclude-libs,ALL: ART's APEX has its own
+# libbase.so and libziparchive.so, which our copies must not interpose (Android keeps the two in separate
+# namespaces). Their state is ours too: our libbase's LOG goes straight to the guest's liblog. Flags: the
+# libandroid_runtime module's for the android target, with cpp_std gnu++20, without GCC's -Wno-maybe-uninitialized,
+# which this clang refuses.
+set(jni "${SOURCES}/frameworks_base/core/jni")
+sources_in(android_runtime_sources "${jni}"
+  android_util_Log.cpp android_util_AssetManager.cpp android_util_StringBlock.cpp android_util_XmlBlock.cpp
+  android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp core_jni_helpers.cpp)
+add_library(android_runtime SHARED ${android_runtime_sources} native/android_runtime/AndroidRuntime.cpp
+            native/android_runtime/android_os_Trace.cpp native/android_runtime/android_util_Binder.cpp)
+target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"
+                           PRIVATE "${jni}" native/include "${NATIVEHELPER}/include" "${NATIVEHELPER}/include_platform"
+                           "${NATIVEHELPER}/header_only_include")
+set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
+soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -Wno-parentheses
+  -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES -DU_USING_ICU_NAMESPACE=0 -Wall -Werror -Wextra
+  -Wthread-safety -Wno-error=deprecated-declarations -Wunused -Wunreachable-code
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
+target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
+target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log)
+
+# app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
+# Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.
+target_link_libraries(app_process PRIVATE android_runtime)
