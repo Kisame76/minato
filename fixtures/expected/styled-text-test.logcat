@@ -1,0 +1,37 @@
+I/styled-text-test: phrase android.text.SpannedString "Plain italic underlined mono big small H2O x2 gone both"
+I/styled-text-test: phrase span 6-12 flags 0x21 android.text.style.StyleSpan type 7 style 2, fontWeightAdjustment 2147483647
+I/styled-text-test: phrase span 13-23 flags 0x21 android.text.style.UnderlineSpan type 6
+I/styled-text-test: phrase span 24-28 flags 0x21 android.text.style.TypefaceSpan type 13 family monospace
+I/styled-text-test: phrase span 29-32 flags 0x21 android.text.style.RelativeSizeSpan type 3 sizeChange 1.25
+I/styled-text-test: phrase span 33-38 flags 0x21 android.text.style.RelativeSizeSpan type 3 sizeChange 0.8
+I/styled-text-test: phrase span 40-41 flags 0x21 android.text.style.SubscriptSpan type 15
+I/styled-text-test: phrase span 44-45 flags 0x21 android.text.style.SuperscriptSpan type 14
+I/styled-text-test: phrase span 46-50 flags 0x21 android.text.style.StrikethroughSpan type 5
+I/styled-text-test: phrase span 51-55 flags 0x21 android.text.style.StyleSpan type 7 style 2, fontWeightAdjustment 2147483647
+I/styled-text-test: phrase span 51-55 flags 0x21 android.text.style.UnderlineSpan type 6
+I/styled-text-test: font android.text.SpannedString "Font size fg named short bg serif tall list listbg all"
+I/styled-text-test: font span 5-9 flags 0x21 android.text.style.AbsoluteSizeSpan type 16 size 20, dip true
+I/styled-text-test: font span 10-12 flags 0x21 android.text.style.ForegroundColorSpan type 2 color #ff1e5aa8
+I/styled-text-test: font span 13-18 flags 0x21 android.text.style.ForegroundColorSpan type 2 color #ffff0000
+I/styled-text-test: font span 19-24 flags 0x21 android.text.style.ForegroundColorSpan type 2 color #ff000000
+I/styled-text-test: font span 25-27 flags 0x21 android.text.style.BackgroundColorSpan type 12 color #80ffff00
+I/styled-text-test: font span 28-33 flags 0x21 android.text.style.TypefaceSpan type 13 family serif
+I/styled-text-test: font span 0-54 flags 0x33 android.content.res.StringBlock$Height
+I/styled-text-test: font span 39-43 flags 0x21 android.text.style.TextAppearanceSpan type 17 family null, style 0, size 0, color ColorStateList{mThemeAttrs=nullmChangingConfigurations=0mStateSpecs=[[-16842910], [-16842909], [16842919], [16842913], [16843518], []]mColors=[-2130706433, -1, -16777216, -16777216, -16777216, -1]mDefaultColor=-1}, linkColor null
+I/styled-text-test: font span 44-50 flags 0x21 android.text.style.BackgroundColorSpan type 12 color #ffffffff
+I/styled-text-test: font span 51-54 flags 0x21 android.text.style.AbsoluteSizeSpan type 16 size 12, dip true
+I/styled-text-test: font span 51-54 flags 0x21 android.text.style.ForegroundColorSpan type 2 color #ff00ff00
+I/styled-text-test: font span 51-54 flags 0x21 android.text.style.TypefaceSpan type 13 family sans-serif
+I/styled-text-test: link android.text.SpannedString "See the page and this."
+I/styled-text-test: link span 4-12 flags 0x21 android.text.style.URLSpan type 11 url https://example.com/a?b=c
+I/styled-text-test: link span 17-21 flags 0x21 android.text.Annotation type 18 id=tag
+I/styled-text-test: link span 17-21 flags 0x21 android.text.Annotation type 18 kind=note
+I/styled-text-test: list android.text.SpannedString "First line\nSecond item end\nThird line"
+I/styled-text-test: list span 11-27 flags 0x33 android.text.style.BulletSpan type 8 gapWidth 10, bulletRadius 4, color 0, leadingMargin 18
+I/styled-text-test: breaks android.text.SpannedString "scrolling no break unhyphenated strict none"
+I/styled-text-test: breaks span 0-9 flags 0x12 android.text.TextUtils$TruncateAt MARQUEE
+I/styled-text-test: breaks span 10-18 flags 0x11 android.text.style.LineBreakConfigSpan type 30 LineBreakConfig{mLineBreakStyle=4, mLineBreakWordStyle=-1, mHyphenation= -1}
+I/styled-text-test: breaks span 19-31 flags 0x11 android.text.style.LineBreakConfigSpan type 30 LineBreakConfig{mLineBreakStyle=-1, mLineBreakWordStyle=-1, mHyphenation= 0}
+I/styled-text-test: breaks span 32-38 flags 0x21 android.text.style.LineBreakConfigSpan type 30 LineBreakConfig{mLineBreakStyle=3, mLineBreakWordStyle=1, mHyphenation= -1}
+I/styled-text-test: breaks span 39-43 flags 0x21 android.text.style.LineBreakConfigSpan type 30 LineBreakConfig{mLineBreakStyle=0, mLineBreakWordStyle=-1, mHyphenation= -1}
+I/styled-text-test: done

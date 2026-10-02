@@ -1,5 +1,6 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 b3.1), which tools/managergen joins with it:
-// ResourcesImpl's fonts call them; TextUtils calls getSystemFontMap (b3.4).
+// ResourcesImpl's fonts call them; TextUtils calls getSystemFontMap (b3.4); StyleSpan's constructor names @Style
+// (b3.4b).
 import android.content.res.AssetManager;
 import android.content.res.FontResourcesParser.FamilyResourceEntry;
 
@@ -10,6 +11,10 @@ class Typeface {
             throw new RuntimeException("stub");
         }
     }
+
+    /** @hide */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+    public @interface Style {}
 
     /** @hide */
     public static final int RESOLVE_BY_FONT_TABLE = -1;

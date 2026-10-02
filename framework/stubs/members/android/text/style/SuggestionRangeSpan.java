@@ -1,8 +1,21 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 b3.4), which tools/managergen joins with it:
-// TextUtils.CHAR_SEQUENCE_CREATOR unparcels the span with it.
+// TextUtils.CHAR_SEQUENCE_CREATOR unparcels the span with it, and AOSP's ParcelableSpan (b3.4b) declares the two
+// hidden methods abstract. They go when step c takes the span from AOSP.
+import android.os.Parcel;
+
 class SuggestionRangeSpan {
     /** @hide */
-    public SuggestionRangeSpan(android.os.Parcel src) {
+    public SuggestionRangeSpan(Parcel src) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public int getSpanTypeIdInternal() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void writeToParcelInternal(Parcel dest, int flags) {
         throw new RuntimeException("stub");
     }
 }

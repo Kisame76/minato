@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every tag StringBlock.applyStyles turns into a span, except <b>: its StyleSpan reads the font weight adjustment
+     through ActivityThread.currentApplication(), which is null before the Application exists, on Android as here
+     (StringBlock.java:251). It comes with step c, when the driver creates the Application. -->
+<resources>
+  <string name="app_name">Styled Text Test</string>
+  <string name="phrase">Plain <i>italic</i> <u>underlined</u> <tt>mono</tt> <big>big</big> <small>small</small> H<sub>2</sub>O x<sup>2</sup> <strike>gone</strike> <i><u>both</u></i></string>
+  <string name="font">Font <font size="20">size</font> <font fgcolor="#ff1e5aa8">fg</font> <font color="red">named</font> <font color="#f00">short</font> <font bgcolor="#80ffff00">bg</font> <font face="serif">serif</font> <font height="30">tall</font> <font color="@color/primary_text_dark">list</font> <font bgcolor="@color/primary_text_dark">listbg</font> <font size="12" color="#00ff00" face="sans-serif">all</font></string>
+  <string name="link">See <a href="https://example.com/a?b=c">the page</a> and <annotation id="tag" kind="note">this</annotation>.</string>
+  <string name="list">First line\nSecond <li>item</li> end\nThird line</string>
+  <string name="breaks"><marquee>scrolling</marquee> <nobreak>no break</nobreak> <nohyphen>unhyphenated</nohyphen> <lineBreakConfig style="strict" wordStyle="phrase">strict</lineBreakConfig> <lineBreakConfig style="none">none</lineBreakConfig></string>
+</resources>

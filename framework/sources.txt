@@ -123,8 +123,8 @@ frameworks_base/core/java/android/text/style/WrapTogetherSpan.java
 frameworks_base/core/java/android/os/IInterface.java
 
 # b3.4: TextUtils, which PackageItemInfo, Resources' styled text and ApkAssets.getAssetPath call. Its text layout
-# (MeasuredParagraph, Typeface's font map), the hidden spans it unparcels and ParcelableSpan with its hidden methods
-# stay compile-only stubs. GetChars, which TextUtils' Reverser implements.
+# (MeasuredParagraph, Typeface's font map) and the hidden spans it unparcels stay compile-only stubs; ParcelableSpan
+# came in with b3.4b. GetChars, which TextUtils' Reverser implements.
 frameworks_base/core/java/android/text/TextUtils.java
 frameworks_base/core/java/android/text/GetChars.java
 
@@ -140,3 +140,44 @@ frameworks_base/core/java/android/util/CloseGuard.java
 # removeIf takes.
 frameworks_base/core/java/android/util/LongSparseArray.java
 frameworks_base/core/java/com/android/internal/util/function/LongObjPredicate.java
+
+# b3.4b: styled text, as StringBlock.applyStyles makes it: the spannable strings with ParcelableSpan, which replaces
+# its compile-only stub, and SpanWatcher, which setSpan looks for; every span applyStyles makes, with the supertypes
+# they stand on; Color, whose parseColor reads <font>'s colors, and LineBreakConfig for <lineBreakConfig>, <nobreak>
+# and <nohyphen>; Xml (asAttributeSet, with XmlPullAttributes for other parsers) and StateSet, with which
+# ResourcesImpl and ColorStateList read <font>'s @color selectors. Xml's binary XML and what the spans draw with
+# (Paint, TextPaint, Typeface, Canvas, Layout) stay compile-only stubs until step c.
+frameworks_base/core/java/android/text/ParcelableSpan.java
+frameworks_base/core/java/android/text/Spanned.java
+frameworks_base/core/java/android/text/Spannable.java
+frameworks_base/core/java/android/text/SpannableString.java
+frameworks_base/core/java/android/text/SpannedString.java
+frameworks_base/core/java/android/text/SpannableStringInternal.java
+frameworks_base/core/java/android/text/NoCopySpan.java
+frameworks_base/core/java/android/text/SpanWatcher.java
+frameworks_base/core/java/android/text/Annotation.java
+frameworks_base/core/java/android/text/style/CharacterStyle.java
+frameworks_base/core/java/android/text/style/MetricAffectingSpan.java
+frameworks_base/core/java/android/text/style/UpdateAppearance.java
+frameworks_base/core/java/android/text/style/UpdateLayout.java
+frameworks_base/core/java/android/text/style/ClickableSpan.java
+frameworks_base/core/java/android/text/style/LeadingMarginSpan.java
+frameworks_base/core/java/android/text/style/StyleSpan.java
+frameworks_base/core/java/android/text/style/UnderlineSpan.java
+frameworks_base/core/java/android/text/style/TypefaceSpan.java
+frameworks_base/core/java/android/text/style/RelativeSizeSpan.java
+frameworks_base/core/java/android/text/style/AbsoluteSizeSpan.java
+frameworks_base/core/java/android/text/style/SubscriptSpan.java
+frameworks_base/core/java/android/text/style/SuperscriptSpan.java
+frameworks_base/core/java/android/text/style/StrikethroughSpan.java
+frameworks_base/core/java/android/text/style/BulletSpan.java
+frameworks_base/core/java/android/text/style/ForegroundColorSpan.java
+frameworks_base/core/java/android/text/style/BackgroundColorSpan.java
+frameworks_base/core/java/android/text/style/URLSpan.java
+frameworks_base/core/java/android/text/style/TextAppearanceSpan.java
+frameworks_base/core/java/android/text/style/LineBreakConfigSpan.java
+frameworks_base_graphics/graphics/java/android/graphics/Color.java
+frameworks_base_graphics/graphics/java/android/graphics/text/LineBreakConfig.java
+frameworks_base/core/java/android/util/Xml.java
+frameworks_base/core/java/android/util/XmlPullAttributes.java
+frameworks_base/core/java/android/util/StateSet.java

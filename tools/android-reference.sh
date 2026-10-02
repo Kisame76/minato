@@ -20,8 +20,9 @@
 # is a Java app from build/config-test (tools/build-java-test-app.sh), started through the framework's
 # android.app.Activity, on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at density 480: the AVD
 # apk-runner-35-iphone, the same image with that display, which the script creates and starts for it alone (the
-# window manager forces at most three times apk-runner-35's 320 x 480 px on a side). A test app's lines of
-# logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
+# window manager forces at most three times apk-runner-35's 320 x 480 px on a side). styled-text-test (ADR-0039
+# b3.4b) is a Java app of the same kind on apk-runner-35's display, on which its styled strings do not depend. A test
+# app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
@@ -238,7 +239,7 @@ run_app() {
       last=" failures"
       ;;
     # A Java app (ADR-0039) with the framework's activity, which ends its log with "done".
-    config-test)
+    config-test | styled-text-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       ;;
     # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
