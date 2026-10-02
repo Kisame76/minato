@@ -1,7 +1,7 @@
 // Checks the vsync channel (ADR-0036, decisions 1 and 2): a channel's descriptor is readable only while it
 // holds a tick it asked for or a period it has not read; a tick goes only to the channels that asked since
 // their last, each of which keeps only the newest; the read gives the tick with its three timelines and ends
-// the readiness, timeline 0 at the first refresh at least 22.86 ms after the frame time (ADR-0041 decision 11)
+// the readiness, timeline 0 at the first refresh at least 33.2 ms after the frame time (ADR-0041 decision 11)
 // and never sooner than 2 periods after it;
 // the period is the session's refresh rate until a tick's differs by more than 1 %, which wakes every channel;
 // apkrt_vsync_grid gives the last tick's time with the period it left, none before the first tick and never
@@ -51,9 +51,9 @@ constexpr std::int64_t enoent = 2, ebadf = 9, eagain = 11, efault = 14, ebusy = 
 
 constexpr std::int64_t thirty = 33'333'333, sixty = 16'666'667, ninety = 11'111'111,
                        hundred_twenty = 8'333'333;  // periods in ns
-// ADR-0041 decision 11: the least time from a drawable to the screen on the iPhone, as V5 measured it for the
-// opaque layer (BENCHMARKS.md).
-constexpr std::int64_t least_delay = 22'860'000;
+// ADR-0041 decision 11: the least time from a drawable with a presentation time to the screen on the iPhone, as the
+// short sitting of 2026-10-02 measured it.
+constexpr std::int64_t least_delay = 33'200'000;
 
 std::int64_t call(std::uint64_t number, std::initializer_list<std::uint64_t> arguments = {}) {
     apkrt_syscall_frame frame{};
@@ -349,12 +349,12 @@ TEST(the_grid_is_the_last_ticks_time_with_the_period_it_left) {
 }
 
 TEST(timeline_zero_is_the_first_refresh_at_least_the_least_delay_after_the_frame_time) {
-    // 22.86 ms are 2 periods at 60 Hz and 3 at 90 and at 120 Hz. Never sooner than 2 periods, so that timeline 0's
+    // 33.2 ms are 2 periods at 60 Hz, 3 at 90 Hz and 4 at 120 Hz. Never sooner than 2 periods, so that timeline 0's
     // deadline is never the frame time (ADR-0036): 2 at 30 Hz, its deadline at target_time. The other timelines
     // follow a period apart, each deadline a period before its present.
     const auto channel = connect();
     for (const auto &[period, periods] :
-         {std::pair{thirty, 2}, std::pair{sixty, 2}, std::pair{ninety, 3}, std::pair{hundred_twenty, 3}}) {
+         {std::pair{thirty, 2}, std::pair{sixty, 2}, std::pair{ninety, 3}, std::pair{hundred_twenty, 4}}) {
         CHECK(request(channel) == 0);
         const auto number = tick(period);
         const Read got = read(channel);

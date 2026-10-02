@@ -229,11 +229,11 @@ struct apkrt_frame_timeline {
 
 /// What vsync_read gives: the newest tick the channel asked for, and the display's period. Timeline k has the
 /// vsync ID of the tick's number (from 1) + k and its expected present k periods after timeline 0's. Timeline 0
-/// presents at the first refresh of the tick's grid (target_time + m × period) at least 22.86 ms after the frame
-/// time, the least time from a drawable to the iPhone's screen (ADR-0041 decision 11), and never sooner than 2
-/// periods after it: 2 periods at 30 and 60 Hz, 3 at 90 and at 120 Hz. Each deadline is one period before its
-/// present, a guess (ADR-0036) settled by the lead: a deadline at the frame time would have passed already, so
-/// timeline 0's is never before target_time.
+/// presents at the first refresh of the tick's grid (target_time + m × period) at least 33.2 ms after the frame
+/// time, the least time from a drawable with a presentation time to the iPhone's screen (ADR-0041 decision 11),
+/// and never sooner than 2 periods after it: 2 periods at 30 and 60 Hz, 3 at 90 Hz and 4 at 120 Hz. Each deadline
+/// is one period before its present, a guess (ADR-0036) settled by the lead: a deadline at the frame time would
+/// have passed already, so timeline 0's is never before target_time.
 struct apkrt_vsync {
     int64_t time;                 // the tick's vsync, Choreographer's frame time; 0 before the first tick
     int64_t target_time;          // when the next frame is due

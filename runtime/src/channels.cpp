@@ -94,9 +94,9 @@ std::int64_t last_time = 0;          // the last tick's time, under `lock`
 std::int64_t period = 0;             // the display's, once a tick came, under `lock`
 bool period_known = false;           // whether one came
 
-// ADR-0041 decision 11: the least time from a drawable to the screen on the iPhone, as V5 measured it for the
-// opaque layer (BENCHMARKS.md). No frame timeline offers a present sooner after its frame time.
-constexpr std::int64_t least_delay = 22'860'000;
+// ADR-0041 decision 11: the least time from a drawable with a presentation time to the screen on the iPhone, as the
+// short sitting of 2026-10-02 measured it. No frame timeline offers a present sooner after its frame time.
+constexpr std::int64_t least_delay = 33'200'000;
 
 class VsyncChannel final : public Channel {
 public:
