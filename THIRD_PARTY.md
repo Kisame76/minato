@@ -155,6 +155,31 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
+## Graphics sources (ADR-0043 a)
+
+Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go). Nothing of it ships before ADR-0043 a1 builds it.
+
+| Project | Commit | License | What we take |
+|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor and its graphics JNI), `libs/hostgraphics`; from `data/fonts`: `fonts.xml`, `font_fallback.xml`, `DroidSansMono.ttf`, `DroidSansFallbackFull.ttf` |
+| `platform/external/skia` | `0fe593a9a878` | BSD-3-Clause (`LICENSE`) | the CPU backend: `include`, `src` without the GPU sources, `modules/skcms`, `client_utils/android` |
+| `platform/frameworks/minikin` | `b41e852cee7f` | Apache-2.0 | text layout, with its C++ hyphenator (the Rust one is left out) |
+| `platform/external/harfbuzz_ng` | `9a50c421c9ca` | Old MIT (`COPYING`); the GPL texts in `LICENSE` cover files that are not compiled | text shaping (`src`), and the subsetter Skia's PDF uses |
+| `platform/external/freetype` | `5ab8c8be9c2c` | FreeType License (`docs/FTL.TXT`), taken of the FTL or GPL-2.0 it offers; the FTL asks for a credit in our documentation | font rasterizer (`src`, `include`) |
+| `platform/external/libjpeg-turbo` | `1e113e5593fa` | IJG, BSD-3-Clause and zlib (`LICENSE.md`) | JPEG codec |
+| `platform/external/webp` | `c3a8e58734bd` | BSD-3-Clause (`COPYING`), with Google's patent grant (`PATENTS`) | WebP codec (`src`, `sharpyuv`) |
+| `platform/external/wuffs-mirror-release-c` | `479408ccc13b` | Apache-2.0 | GIF decoder |
+| `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
+| `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
+| `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
+| `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
+| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0 | headers (`include/private`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect` |
+| `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
+| `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
+| `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 (`NOTICE`) | the AIDL of graphics common and composer3, for their enum headers |
+| `platform/system/server_configurable_flags` | `3b6d3e8d7d20` | Apache-2.0 | `libflags` |
+| `platform/external/googletest` | `c05eedac6f5e` | BSD-3-Clause | `gtest_prod.h`, which minikin includes |
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.

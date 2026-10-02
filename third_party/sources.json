@@ -1,5 +1,5 @@
 {
-  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. The framework's sources and the host tools that build it (ADR-0039 b, ADR-0045 decision 1: aidl, aapt2, libandroidfw, framework-res), and the API files of the managers' generator (ADR-0045 decision 3), in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files.",
+  "comment": "AOSP sources of the guest libc (ADR-0009, ADR-0021) in 'sources', fetched by tools/fetch-sources.py into build/sources/; those of ART and its libraries, with D8 and the JDK that build them (ADR-0033 a), in 'art', fetched by tools/fetch-sources.py --set art, the JDK from its 'url' after a check against its 'sha256'. The framework's sources and the host tools that build it (ADR-0039 b, ADR-0045 decision 1: aidl, aapt2, libandroidfw, framework-res), and the API files of the managers' generator (ADR-0045 decision 3), in 'framework', fetched by tools/fetch-sources.py --set framework. Commits of the tag android-15.0.0_r1; digest: SHA-256 over the sorted lines '<path> NUL <sha256 of the file>' of the extracted files. Skia, hwui, minikin, HarfBuzz, FreeType, the image codecs, the fonts and the headers their host flavor includes (ADR-0043 a), in 'graphics', fetched by tools/fetch-sources.py --set graphics.",
   "tag": "android-15.0.0_r1",
   "host": "https://android.googlesource.com",
   "sources": [
@@ -598,5 +598,269 @@
         "git_blob": "e3efbec440095e2a566493b3afc1f87a1236fa5e"
       }
     ]
-  }
+  },
+  "graphics": [
+    {
+      "name": "frameworks_base_hwui",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "libs/hwui",
+        "libs/hostgraphics"
+      ],
+      "files": [
+        "data/fonts/fonts.xml",
+        "data/fonts/font_fallback.xml",
+        "data/fonts/DroidSansMono.ttf",
+        "data/fonts/DroidSansFallbackFull.ttf",
+        "data/fonts/NOTICE"
+      ],
+      "digest": "45f365537ee44c5329b30c78a0acfe23bae3b30b4e6562a0f4fbc0c2714bac2a"
+    },
+    {
+      "name": "skia",
+      "project": "platform/external/skia",
+      "commit": "0fe593a9a878f410a1d6a09a434b29a26d3eb853",
+      "license": "BSD-3-Clause",
+      "directories": [
+        "include",
+        "src",
+        "modules/skcms",
+        "client_utils/android"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENSE",
+        "NOTICE",
+        "README.android",
+        "tools/SkSharingProc.cpp",
+        "tools/SkSharingProc.h",
+        "linux/include/config/SkUserConfig.h"
+      ],
+      "digest": "d353a6046da5a7effc0d85476772ebaacb035ac47bc72cff4e8bfbdc9378ef68"
+    },
+    {
+      "name": "minikin",
+      "project": "platform/frameworks/minikin",
+      "commit": "b41e852cee7ffcc52ab476aa52db5644812ec114",
+      "license": "Apache-2.0",
+      "directories": [
+        "include",
+        "libs/minikin",
+        "rust"
+      ],
+      "files": [
+        "Android.bp"
+      ],
+      "digest": "2a2eb9cb46090a655310fcc630cc3e632200999d9e8a0ba5ab9065270e6ee26d"
+    },
+    {
+      "name": "harfbuzz_ng",
+      "project": "platform/external/harfbuzz_ng",
+      "commit": "9a50c421c9ca31c44462ce31785f03ff41631ba5",
+      "license": "Old MIT",
+      "directories": [
+        "src"
+      ],
+      "files": [
+        "Android.bp",
+        "COPYING",
+        "LICENSE",
+        "NOTICE",
+        "README.android"
+      ],
+      "digest": "c8269c21cb5a88e807e0275e4c3b1b8628a2a3c333f2c2715ad09a58ba49c8b6"
+    },
+    {
+      "name": "freetype",
+      "project": "platform/external/freetype",
+      "commit": "5ab8c8be9c2ce2c42aaa79752bffc89618d39515",
+      "license": "FTL (the FreeType License, of the FTL or GPL-2.0 it offers)",
+      "directories": [
+        "src",
+        "include"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENSE.TXT",
+        "docs/FTL.TXT",
+        "NOTICE",
+        "README.android",
+        "libft2.map.txt"
+      ],
+      "digest": "3a705405276e2bf45682d7d9ba2786d4fb72dee760c1fbb3cb041d91fb355d6b"
+    },
+    {
+      "name": "libjpeg-turbo",
+      "project": "platform/external/libjpeg-turbo",
+      "commit": "1e113e5593faff149088b2e3b750b2e554afffb6",
+      "license": "IJG, BSD-3-Clause and zlib",
+      "digest": "b016753053cf0957d4153b5c29aad8262a6b6cc8f8a8cebc76452eca5b6109d8"
+    },
+    {
+      "name": "webp",
+      "project": "platform/external/webp",
+      "commit": "c3a8e58734bdaa63a2287d387e5a10526c4ac833",
+      "license": "BSD-3-Clause",
+      "directories": [
+        "src",
+        "sharpyuv"
+      ],
+      "files": [
+        "Android.bp",
+        "COPYING",
+        "PATENTS",
+        "NOTICE",
+        "README.android"
+      ],
+      "digest": "0d5808eb11977b4d630c362e269d860cdcd4cf25c1dc294dc11072854c66ee2d"
+    },
+    {
+      "name": "wuffs",
+      "project": "platform/external/wuffs-mirror-release-c",
+      "commit": "479408ccc13b0a230ece03a909fa56a197df2fe9",
+      "license": "Apache-2.0",
+      "digest": "0f9cab622fd0173aebf9366c090b229a7aafcd0ee95d639bd7f61e5b7ef13027"
+    },
+    {
+      "name": "libultrahdr",
+      "project": "platform/external/libultrahdr",
+      "commit": "448f96ed83151f92fdaf840075f385b4c56315a7",
+      "license": "Apache-2.0",
+      "directories": [
+        "lib"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENSE",
+        "ultrahdr_api.h"
+      ],
+      "digest": "a67196b25acf48862301fcb13ff626421a1de76181d85ef70d88587e273d7b44"
+    },
+    {
+      "name": "image_io",
+      "project": "platform/external/image_io",
+      "commit": "37e2347000d74a82140eeba79fd6ba1232e3f607",
+      "license": "Apache-2.0",
+      "digest": "18503f2e9bd8a46c09112ff4c78d79be8e0a32b8166ca96ab7fe4dd543d0d295"
+    },
+    {
+      "name": "modp_b64",
+      "project": "platform/external/modp_b64",
+      "commit": "d88d4daed951785fafb3f5b761558364ebe6ac61",
+      "license": "BSD-3-Clause",
+      "digest": "1479539ee506c708c2492f0efcad5a41ea7446787faed15eb7ad279fa7d96480"
+    },
+    {
+      "name": "roboto_fonts",
+      "project": "platform/external/roboto-fonts",
+      "commit": "4029d6e45cb3ed68e3141332f91ce6ea561c0e1d",
+      "license": "Apache-2.0",
+      "digest": "5171756c65d06aa9ddbaef1566f4ca85f1460a1b64a2e98ad81a6c56a4305fc3"
+    },
+    {
+      "name": "frameworks_native_graphics",
+      "project": "platform/frameworks/native",
+      "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
+      "license": "Apache-2.0",
+      "directories": [
+        "include/private",
+        "libs/ui",
+        "libs/arect",
+        "libs/math",
+        "libs/nativebase",
+        "libs/nativedisplay/include",
+        "libs/nativewindow/include",
+        "libs/binder/ndk/include_cpp",
+        "libs/binder/ndk/include_ndk",
+        "libs/binder/ndk/include_platform"
+      ],
+      "files": [
+        "Android.bp",
+        "NOTICE",
+        "libs/nativedisplay/Android.bp",
+        "libs/nativewindow/Android.bp",
+        "libs/binder/ndk/Android.bp"
+      ],
+      "digest": "de723cf4902f8fa735be0497dc890860b43b1bd8b8764c25c9ae5f36f3f7f8f8"
+    },
+    {
+      "name": "vulkan_headers_aosp",
+      "project": "platform/external/vulkan-headers",
+      "commit": "d3602c8e1b0b8268c336768e1a8cf1be17dcc087",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        "Android.bp",
+        "LICENSE.md",
+        "include/vulkan/vk_platform.h",
+        "include/vulkan/vulkan.h",
+        "include/vulkan/vulkan_core.h",
+        "include/vulkan/vulkan_android.h",
+        "include/vulkan/vulkan_beta.h",
+        "include/vk_video/vulkan_video_codec_h264std.h",
+        "include/vk_video/vulkan_video_codec_h264std_decode.h",
+        "include/vk_video/vulkan_video_codec_h264std_encode.h",
+        "include/vk_video/vulkan_video_codec_h265std.h",
+        "include/vk_video/vulkan_video_codec_h265std_decode.h",
+        "include/vk_video/vulkan_video_codec_h265std_encode.h",
+        "include/vk_video/vulkan_video_codecs_common.h"
+      ],
+      "digest": "6ee65060d4f4c472f5594c02386639430787a170583b7d84c6b8d5bbb50b356d"
+    },
+    {
+      "name": "frameworks_av_ndk",
+      "project": "platform/frameworks/av",
+      "commit": "1863cb0ea5a9e1340f11a435618ff863e017da29",
+      "license": "Apache-2.0",
+      "directories": [
+        "media/ndk/include"
+      ],
+      "files": [
+        "media/ndk/Android.bp",
+        "NOTICE"
+      ],
+      "digest": "ef32a6e16296e13f945b2403ad88975aa4a63ca5293964946eaf610b43ae803c"
+    },
+    {
+      "name": "hardware_interfaces_graphics",
+      "project": "platform/hardware/interfaces",
+      "commit": "488942f82bd1bc9ad1cb65a02c71421dc3a6a3d6",
+      "license": "Apache-2.0",
+      "directories": [
+        "graphics/common/aidl",
+        "graphics/composer/aidl/aidl_api",
+        "graphics/composer/aidl/android",
+        "graphics/composer/aidl/include",
+        "common/aidl"
+      ],
+      "files": [
+        "graphics/Android.bp",
+        "graphics/composer/aidl/Android.bp",
+        "NOTICE"
+      ],
+      "digest": "8a33cbf4be0c973d91646ec45a14733a12fe549833aef0af5b9395c70d7b9da0"
+    },
+    {
+      "name": "server_configurable_flags",
+      "project": "platform/system/server_configurable_flags",
+      "commit": "3b6d3e8d7d20d2f1876c8882dcbdf347b16f80dc",
+      "license": "Apache-2.0",
+      "directories": [
+        "libflags"
+      ],
+      "digest": "e12c133b4c701045319850eb6aae9b18a76e1edec4743da2c4a5f061bb47ecec"
+    },
+    {
+      "name": "googletest_prod",
+      "project": "platform/external/googletest",
+      "commit": "c05eedac6f5e4a88876bfd963ca846fe3ebf595d",
+      "license": "BSD-3-Clause",
+      "files": [
+        "googletest/include/gtest/gtest_prod.h",
+        "LICENSE"
+      ],
+      "digest": "493836729d2f7e477f30634500dcbcc646033a755292bd166e4634a22e454b92"
+    }
+  ]
 }
