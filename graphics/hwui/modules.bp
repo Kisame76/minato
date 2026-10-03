@@ -1,5 +1,6 @@
 // graphics/hwui (ADR-0043 a1): Minato's modules in place of those of projects we do not fetch, of Rust and of
-// generators, for tools/hwui-plan.py. Read in Soong's syntax, after the projects' own files.
+// generators, and of bionic's huge page defaults (a2), for tools/hwui-plan.py. Read in Soong's syntax, after the
+// projects' own files.
 
 // minikin's Rust bridge (cxx), which minikin without Rust (patch 0001) does not include: generators without outputs.
 filegroup {
@@ -42,4 +43,12 @@ cc_library_headers {
 cc_library_headers {
     name: "libgtest_prod_headers",
     export_include_dirs: ["../../external/googletest/googletest/include"],
+}
+
+// bionic's linker_hugepage_aligned, which libhwui's defaults name, without its 2 MiB max page size (ADR-0043 a2): that
+// alignment is for Linux's transparent huge pages, while the guest's pages are 16 KB, which
+// graphics/hwui/CMakeLists.txt links the whole set with. Ours takes the place of bionic's, as every module here does
+// that has an AOSP name.
+cc_defaults {
+    name: "linker_hugepage_aligned",
 }

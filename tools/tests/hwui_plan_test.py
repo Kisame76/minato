@@ -20,7 +20,14 @@ without them the test skips). It must plan without problems, and the plan must b
   on __ANDROID__ without the flag;
 - patch 0003's #include <memory> in HintSessionWrapper.h, which the NDK's libc++ no longer brings with <future>, and
   patch 0004's Bitmap.cpp without libbinder's IServiceManager.h, of which it uses nothing, and with the <stdlib.h> of
-  its calloc and free.
+  its calloc and free;
+- no library with a max page size of its own (a2): our linker_hugepage_aligned in place of bionic's leaves out its
+  2 MiB, so libhwui takes graphics/hwui/CMakeLists.txt's 16 KB, the guest's pages, as the rest of the set does;
+- libhwui with the device's version script, libhwui.map.txt (a2), which the host flavor lacks: the guest sees what
+  Android 15's libhwui exports, and the libpng and libcutils members that the host flavor's static libandroidfw
+  brings into libhwui stay local instead of preempting libpng.so's and libcutils.so's. Patch 0005 takes out the 14
+  names that only the device flavor builds, which lld refuses as undefined: the ABitmap C API and GraphicsStatsService's
+  registration.
 Usage: hwui_plan_test.py [--scratch <dir>]"""
 import argparse
 import importlib.util
@@ -155,7 +162,15 @@ def main():
         check("/minato/hwui/generated/sysprop/HWUIProperties.sysprop.cpp" in hwui,
               "libhwui compiles its generated system properties")
         check('"-std=gnu++2b"' in hwui, 'libhwui compiles with -std=gnu++2b, what Soong compiles for "experimental"')
+        check("max-page-size" not in plan, "no library of the plan sets a max page size of its own")
         hwui_library = library(plan, "libhwui")
+        script = (field(hwui_library, "VERSION_SCRIPT") or [""])[0]
+        check(script.endswith("/frameworks/base/libs/hwui/libhwui.map.txt"),
+              "libhwui links with the device's version script, libhwui.map.txt")
+        script_text = open(script).read() if os.path.isfile(script) else ""
+        check(script_text and "ABitmap" not in script_text and "GraphicsStatsService" not in script_text,
+              "the version script names neither the ABitmap C API nor GraphicsStatsService, which only the device "
+              "flavor builds (patch 0005)")
         check("libziparchive" in field(hwui_library, "NEEDED"), "libhwui needs the guest system's libziparchive")
         for archive in ("hwui_libbase_static", "hwui_libziparchive_static"):
             check(archive not in field(hwui_library, "ARCHIVES"),

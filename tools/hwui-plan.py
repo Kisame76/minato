@@ -91,7 +91,10 @@ GENERATED = "minato/hwui/generated"
 #   have;
 # - hwui and minikin link libicuuc and libicui18n themselves, as the host flavor does, so ICU's check for Android
 #   libraries that should use libandroidicu (android_icu4c's uconfig_local.h), which the NDK's __ANDROID__ wakes, lets
-#   them.
+#   them;
+# - libhwui links with the device's version script, target.android's libhwui.map.txt, which the host flavor lacks
+#   (a2): the guest sees what Android 15's libhwui exports, and the libpng and libcutils members that the host
+#   flavor's static libandroidfw brings in stay local instead of preempting libpng.so's and libcutils.so's.
 ADDITIONS = {
     "libskia": {"exclude_srcs": ["src/codec/SkRawCodec.cpp"]},
     "libminikin": {"cflags": ["-DMINATO_WITHOUT_RUST", "-DANDROID_LINK_SHARED_ICU4C"],
@@ -100,6 +103,7 @@ ADDITIONS = {
     "libandroidfw": {"exclude_srcs": ["CursorWindow.cpp"]},
     "libhwui_defaults": {"srcs": [f"../../../../{GENERATED}/sysprop/HWUIProperties.sysprop.cpp"],
                          "include_dirs": [f"{GENERATED}/sysprop"], "cflags": ["-DANDROID_LINK_SHARED_ICU4C"]},
+    "libhwui": {"version_script": "libhwui.map.txt"},
 }
 
 # Soong's global includes at the tag (cc/config/global.go's commonGlobalIncludes), which it gives platform and host

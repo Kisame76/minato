@@ -1,0 +1,39 @@
+libhwui's version script without what the host flavor does not build (ADR-0043 a2).
+
+The plan links libhwui with the device's version script (tools/hwui-plan.py), which the host flavor does not use,
+and lld refuses a version script's name that nothing defines. The host flavor builds apex/LayoutlibLoader.cpp in
+place of the device's apex/jni_runtime.cpp and apex/android_bitmap.cpp, so it has neither the ABitmap C API
+(android_bitmap.cpp, which libjnigraphics' AndroidBitmap functions use on a device) nor
+register_android_graphics_GraphicsStatsService, system_server's (jni/GraphicsStatsService.cpp). Their 14 names go;
+the rest of the device's exports stay as they are.
+
+--- a/frameworks/base/libs/hwui/libhwui.map.txt
++++ b/frameworks/base/libs/hwui/libhwui.map.txt
+@@ -1,19 +1,6 @@
+ LIBHWUI { # platform-only /* HWUI isn't current a module, so all of these are still platform-only */
+   global:
+     /* listing of all C APIs to be exposed by libhwui to consumers outside of the module */
+-    ABitmap_getInfoFromJava;
+-    ABitmap_acquireBitmapFromJava;
+-    ABitmap_copy;
+-    ABitmap_acquireRef;
+-    ABitmap_releaseRef;
+-    ABitmap_getInfo;
+-    ABitmap_getDataSpace;
+-    ABitmap_getPixels;
+-    ABitmap_notifyPixelsChanged;
+-    ABitmapConfig_getFormatFromConfig;
+-    ABitmapConfig_getConfigFromFormat;
+-    ABitmap_compress;
+-    ABitmap_getHardwareBuffer;
+     ACanvas_isSupportedPixelFormat;
+     ACanvas_getNativeHandleFromJava;
+     ACanvas_createCanvas;
+@@ -25,7 +12,6 @@
+     ACanvas_drawBitmap;
+     init_android_graphics;
+     register_android_graphics_classes;
+-    register_android_graphics_GraphicsStatsService;
+     zygote_preload_graphics;
+     AMatrix_getContents;
+     AMatrix_newInstance;
