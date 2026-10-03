@@ -172,6 +172,14 @@ if(APK_HOST_BUILD)
       "${APK_ART_DIR}" "${APK_HWUI_DIR}")
   set_tests_properties(runtime.plan_inputs PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
+  # tools/art-plan.py writes boot_jars.json only when its content changes, so that planning again at a configuration
+  # does not build the boot jars again. Skipped without ART's sources.
+  add_test(NAME runtime.boot_jars_plan
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/boot_jars_plan_test.py"
+      "${PROJECT_SOURCE_DIR}/tools/art-plan.py" "${PROJECT_SOURCE_DIR}/build/sources"
+      "${CMAKE_CURRENT_BINARY_DIR}/boot_jars_plan")
+  set_tests_properties(runtime.boot_jars_plan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
   # Where ART's heap window places its mappings (ADR-0033 decision 3), with ART's own header for it.
   add_executable(heap_window_test tests/heap_window_test.cpp)
   target_include_directories(heap_window_test PRIVATE art/overlay/art/libartbase/base)

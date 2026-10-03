@@ -190,8 +190,17 @@ class ArtPlanner(soong_plan.Planner):
         for directory, source in COMPILE_ONLY:
             compile_only += [self.local(path) for path in
                              self.java_files(blueprint.Module("filegroup", {}, directory), [source])]
-        with open(description, "w") as handle:
-            json.dump({"jars": jars, "compile_only": sorted(compile_only)}, handle, indent=1)
+        # The boot jars depend on the description, and CMake plans again whenever it configures: it is written only when
+        # its content changes, so that a plan with the same inputs does not build them again.
+        text = json.dumps({"jars": jars, "compile_only": sorted(compile_only)}, indent=1)
+        try:
+            with open(description) as handle:
+                unchanged = handle.read() == text
+        except FileNotFoundError:
+            unchanged = False
+        if not unchanged:
+            with open(description, "w") as handle:
+                handle.write(text)
         self.lines.append(f"art_boot_jars({cmake_quote(description)}\n  JARS {' '.join(BOOT_JARS)}\n"
                           f"  DEPENDS {cmake_list(inputs + compile_only)})")
 
