@@ -28,8 +28,20 @@ def standard(flags):
     return next((flag[len("-std="):] for flag in reversed(flags) if flag.startswith("-std=")), None)
 
 
+def cached(build, name):
+    """A variable's value in the build's CMakeCache.txt, or None."""
+    with open(os.path.join(build, "CMakeCache.txt")) as handle:
+        for line in handle:
+            if line.startswith(name + ":"):
+                return line.split("=", 1)[1].rstrip("\n")
+    return None
+
+
 def planned(build):
-    """{(target, source): (language, the standard the plan names)} for every C and C++ source of the plan's units."""
+    """{(target, source): (language, the standard the plan names)} for every C and C++ source of the plan's units.
+    A generated source is named as build.ninja names it: in the generated folder of the build directory that CMake
+    configured, however the build is given here."""
+    generated = os.path.join(cached(build, "CMAKE_CACHEFILE_DIR") or os.path.abspath(build), "generated")
     with open(os.path.join(build, "plan.cmake")) as handle:
         text = handle.read()
     result = {}
@@ -39,7 +51,7 @@ def planned(build):
             key, _, rest = line.strip().partition(" ")
             fields[key] = values(rest)
         for source in fields.get("SOURCES", []):
-            source = re.sub(r"\$\{APK_\w+_GENERATED\}", os.path.join(build, "generated"), source)
+            source = re.sub(r"\$\{APK_\w+_GENERATED\}", lambda _: generated, source)
             language = LANGUAGES.get(os.path.splitext(source)[1])
             if language:
                 result[(match.group(1), source)] = (language[0], standard(fields.get("CFLAGS", [])
@@ -66,11 +78,7 @@ def compiled(build):
 def newer_input(build):
     """An input of build.ninja's own edge, CMake's regeneration, outside the build and newer than build.ninja, or
     None."""
-    ninja = "ninja"
-    with open(os.path.join(build, "CMakeCache.txt")) as handle:
-        for line in handle:
-            if line.startswith("CMAKE_MAKE_PROGRAM:"):
-                ninja = line.split("=", 1)[1].rstrip("\n")
+    ninja = cached(build, "CMAKE_MAKE_PROGRAM") or "ninja"
     result = subprocess.run([ninja, "-n", "-C", build, "-t", "query", "build.ninja"], capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"{build}: ninja -t query failed: {result.stderr.strip()}")
