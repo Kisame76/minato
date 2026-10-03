@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """ART as guest code (ADR-0033 a): what tools/build-art.sh builds into <art> is complete.
   - Every library ART starts with is in <art>/lib, in the release flavor and in ART's debug flavor, and dalvikvm
-    in <art>/bin.
+    in <art>/bin; so is Conscrypt's libjavacrypto (ADR-0046 c).
   - Every DT_NEEDED is found in the set: ART's libraries, the guest system's in <bionic-lib> and the NDK's
     libc++_shared.so. Every undefined symbol that is not weak is defined, with its version, by a library of the
     closure of its DT_NEEDED, as Android's linker would look it up.
   - The guest system's libraries that ART links, libdl_android.so among them, are the ones in <bionic-lib>: ART's
     build makes none of them.
   - apk-convert converts every library and dalvikvm without a refused site.
-  - The boot jars in <art>/javalib define every class that ART's class roots (class_root.h) and its well-known
-    classes (well_known_classes.cc) name, and none of the compile-time stand-ins of runtime/art/java.
+  - The boot jars in <art>/javalib, with conscrypt.jar, define every class that ART's class roots (class_root.h)
+    and its well-known classes (well_known_classes.cc) name, and none of the compile-time stand-ins of
+    runtime/art/java.
 Prints "skipped: ..." while <art>/lib is missing.
 
 Usage: art_build_test.py <art> <bionic-lib> <apk-convert> <sources>
@@ -27,11 +28,13 @@ import zipfile
 RELEASE = ["libart", "libopenjdkjvm", "libjavacore", "libopenjdk", "libicu_jni", "libartpalette-system", "libsigchain",
            "libnativehelper", "libnativeloader"]
 DEBUG = ["libartd", "libopenjdkjvmd", "libopenjdkd"]
+# Conscrypt's JNI library, which conscrypt.jar loads (ADR-0046 c).
+CONSCRYPT = ["libjavacrypto"]
 PROGRAMS = ["dalvikvm"]
 # The guest system's libraries that ART links. Minato's bionic build makes them and ART's build none, so that the
 # guest has one of each (ADR-0033 decision 2).
 SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz"]
-JARS = ["core-oj", "core-libart", "core-icu4j"]
+JARS = ["core-oj", "core-libart", "core-icu4j", "conscrypt"]
 failures = 0
 
 
@@ -151,7 +154,7 @@ def main():
         by_soname.setdefault("libc++_shared.so", Library(libcxx, toolchain))
     own = [library for library in by_soname.values() if library.path.startswith(os.path.join(art, "lib"))]
 
-    for name in RELEASE + DEBUG:
+    for name in RELEASE + DEBUG + CONSCRYPT:
         check(f"{name}.so" in by_soname and by_soname[f"{name}.so"] in own, f"{name}.so is not in {art}/lib")
     for name in SYSTEM:
         check(os.path.exists(os.path.join(bionic, f"{name}.so")), f"{name}.so is not in {bionic}")

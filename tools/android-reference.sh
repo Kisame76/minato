@@ -184,7 +184,7 @@ if [[ -z "$serial" ]]; then
   ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK" ANDROID_AVD_HOME="$AVD_HOME" "$EMULATOR" -avd "$AVD" -port 5554 -no-window ${audio:+"$audio"} \
     -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RESULTS/emulator.log" 2>&1 &
   started=$!
-  trap '"$ADB" -s "$serial" emu kill >/dev/null 2>&1 || kill "$started" 2>/dev/null || true' EXIT
+  trap '"$ADB" -s "$serial" shell sync >/dev/null 2>&1; "$ADB" -s "$serial" emu kill >/dev/null 2>&1 || kill "$started" 2>/dev/null || true' EXIT
   for _ in $(seq 1 180); do
     if ! kill -0 "$started" 2>/dev/null; then
       echo "The emulator stopped; see $RESULTS/emulator.log." >&2

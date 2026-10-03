@@ -118,3 +118,26 @@ cc_binary {
     cflags: ["-Wall", "-Wextra", "-Werror"],
     stl: "none",
 }
+
+// Conscrypt's JNI library (ADR-0046 c) as Android 15's libjavacrypto, but with BoringSSL linked statically (decision
+// 1) and libc++ too, since libc++_shared.so lies in ART's folder only. Without the runtime library libandroidio:
+// compatibility_close_monitor.cc opens it if it is there and does without it.
+cc_library_shared {
+    name: "libjavacrypto",
+    srcs: ["../../external/conscrypt/common/src/jni/main/cpp/**/*.cc"],
+    local_include_dirs: ["../../external/conscrypt/common/src/jni/main/include"],
+    cflags: ["-Wall", "-Wextra", "-Werror", "-Wunused", "-fvisibility=hidden", "-DJNI_JARJAR_PREFIX=com/android/"],
+    header_libs: ["jni_headers", "libnativehelper_header_only"],
+    shared_libs: ["liblog"],
+    static_libs: ["libssl", "libcrypto_static"],
+    stl: "c++_static",
+}
+
+// Conscrypt's generator of NativeConstants.java (ADR-0046 c), a cc_binary_host on Android: a cc_binary here, which
+// the plan builds with the Mac's compiler for the genrule conscrypt_generated_constants. It prints BoringSSL's
+// constants, so it needs BoringSSL's headers only.
+cc_binary {
+    name: "conscrypt_generate_constants",
+    srcs: ["../../external/conscrypt/constants/src/gen/cpp/generate_constants.cc"],
+    local_include_dirs: ["../../external/boringssl/src/include"],
+}

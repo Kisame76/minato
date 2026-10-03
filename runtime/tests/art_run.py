@@ -15,11 +15,14 @@ on Android 15.
 --offsets checks the last line of stderr, "<program> offsets: lowest 0x..., highest 0x...", which codec-test writes
 (ADR-0033 test 2): the window is filled from the top, so the lowest offset lies at or above 2^31 and the highest in
 the last MiB below the window's last page, which is never mapped.
-Prints "skipped: ..." while dalvikvm, the jar or the library is missing, or the guest system lacks the public
-libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
+--conscrypt adds Conscrypt's APEX as Android 15 has it (ADR-0046 c): conscrypt.jar (<art>/javalib) in
+/apex/com.android.conscrypt/javalib, after the boot jars, and libjavacrypto.so (<art>/lib) in its lib64, never in
+ART's.
+Prints "skipped: ..." while dalvikvm, the jar, the library or Conscrypt's files are missing, or the guest system
+lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
-                  <expected> [--debug] [--library <lib.so>] [--offsets]
+                  <expected> [--debug] [--library <lib.so>] [--offsets] [--conscrypt]
 """
 import fcntl
 import os
@@ -30,6 +33,8 @@ import sys
 
 ART_ROOT = "/apex/com.android.art"
 BOOT_JARS = ["core-oj", "core-libart", "core-icu4j"]
+CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
+CONSCRYPT_LIBRARY = "libjavacrypto.so"
 # The heap window of runtime/art/patches/0002-heap-window.patch: 4 GiB, whose last 16 KiB page is never mapped.
 WINDOW_TOP = (1 << 32) - 16 * 1024
 
@@ -55,15 +60,20 @@ def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
     `work`; returns the folder of ART's. The containers stay from run to run, and the runs that CTest starts side by
     side share them, one converting at a time. dalvikvm opens libart.so: JniInvocation takes -XXlib only where
     ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug flavor's folder holds ART's
-    debug flavor under that name."""
+    debug flavor under that name. Conscrypt's library goes to a folder of its own, conscrypt-lib64."""
     art_lib64 = os.path.join(work, "art-lib64-debug" if debug else "art-lib64")
     os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "convert.lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64,
-                          leave_out=("libart.so",) if debug else ())
+                          leave_out=(CONSCRYPT_LIBRARY,) + (("libart.so",) if debug else ()))
         if debug:
             convert(apk_convert, os.path.join(art, "lib", "libartd.so"), os.path.join(art_lib64, "libart.so.dylib"))
+        conscrypt_library = os.path.join(art, "lib", CONSCRYPT_LIBRARY)
+        if os.path.exists(conscrypt_library):
+            os.makedirs(os.path.join(work, "conscrypt-lib64"), exist_ok=True)
+            convert(apk_convert, conscrypt_library,
+                    os.path.join(work, "conscrypt-lib64", CONSCRYPT_LIBRARY + ".dylib"))
         convert_directory(apk_convert, bionic_lib, os.path.join(work, "system-lib64"))
         os.makedirs(os.path.join(work, "bin"), exist_ok=True)
         convert(apk_convert, os.path.join(art, "bin", "dalvikvm"), os.path.join(work, "bin", "dalvikvm64.dylib"))
@@ -73,31 +83,41 @@ def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
     return art_lib64
 
 
-def make_run_folder(run, icu_data, bionic_system):
+def make_run_folder(run, icu_data, bionic_system, conscrypt_jar=None):
     """A new folder `run` for the files a run sees: /data with an empty dalvik-cache for arm64 and /data/local/tmp,
     and /apex as Android has it, down to the APEXes' own folders, which ART and ICU look for. ART's javalib is a
-    mount of its own, its lib64 and bin are the loader's."""
+    mount of its own, its lib64 and bin are the loader's; so is Conscrypt's lib64, and `conscrypt_jar`, if given,
+    lies in Conscrypt's javalib."""
     shutil.rmtree(run, ignore_errors=True)
-    for folder in ("data/dalvik-cache/arm64", "data/local/tmp", "apex/com.android.art/javalib",
-                   "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
-                   "apex/com.android.tzdata/etc/tz"):
+    folders = ["data/dalvik-cache/arm64", "data/local/tmp", "apex/com.android.art/javalib",
+               "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
+               "apex/com.android.tzdata/etc/tz"]
+    files = [(icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
+             (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"), "apex/com.android.tzdata/etc/tz/tzdata")]
+    if conscrypt_jar is not None:
+        folders += ["apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64"]
+        files.append((conscrypt_jar, "apex/com.android.conscrypt/javalib/conscrypt.jar"))
+    for folder in folders:
         os.makedirs(os.path.join(run, folder))
-    for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
-                           (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
-                            "apex/com.android.tzdata/etc/tz/tzdata")):
+    for source, target in files:
         os.link(source, os.path.join(run, target))  # a file of its own, as the guest sees it, not a link out
 
 
-def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments, cwd="/", environment=(), jni=()):
+def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments, cwd="/", environment=(), jni=(),
+                    conscrypt=False):
     """apk-run's command that runs dalvikvm64 with `arguments` in the files of the run folder `run`, the working
-    directory `cwd` and the entries "<name>=<value>" of `environment` on top of init's."""
+    directory `cwd` and the entries "<name>=<value>" of `environment` on top of init's; with `conscrypt`, Conscrypt's
+    lib64 holds its library."""
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
                "--mount", f"/apex={os.path.join(run, 'apex')}",
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
                "--mount", f"/system={bionic_system}",
                "--libraries", f"/system/lib64={os.path.join(work, 'system-lib64')}",
-               "--libraries", f"{ART_ROOT}/lib64={art_lib64}"] + list(jni) + ["--cwd", cwd]
+               "--libraries", f"{ART_ROOT}/lib64={art_lib64}"]
+    if conscrypt:
+        command += ["--libraries", f"{CONSCRYPT_ROOT}/lib64={os.path.join(work, 'conscrypt-lib64')}"]
+    command += list(jni) + ["--cwd", cwd]
     for entry in environment:
         command += ["--env", entry]
     return command + ["--argv0", f"{ART_ROOT}/bin/dalvikvm64",
@@ -122,7 +142,8 @@ def main():
     arguments = sys.argv[1:]
     debug = "--debug" in arguments
     offsets = "--offsets" in arguments
-    arguments = [argument for argument in arguments if argument not in ("--debug", "--offsets")]
+    conscrypt = "--conscrypt" in arguments
+    arguments = [argument for argument in arguments if argument not in ("--debug", "--offsets", "--conscrypt")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -139,6 +160,12 @@ def main():
     if library is not None and not os.path.exists(library):
         print(f"skipped: {library} is not built (tools/build-fixtures.sh)")
         return
+    conscrypt_jar = os.path.join(art, "javalib", "conscrypt.jar") if conscrypt else None
+    if conscrypt:
+        for needed in (conscrypt_jar, os.path.join(art, "lib", CONSCRYPT_LIBRARY)):
+            if not os.path.exists(needed):
+                print(f"skipped: {needed} is not built (tools/build-art.sh)")
+                return
     public_libraries = os.path.join(bionic_system, "etc", "public.libraries.txt")
     if not os.path.exists(public_libraries):
         print(f"skipped: {public_libraries} is not built (tools/build-bionic.sh)")
@@ -146,7 +173,7 @@ def main():
 
     art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)
     run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else ""))
-    make_run_folder(run, icu_data, bionic_system)
+    make_run_folder(run, icu_data, bionic_system, conscrypt_jar)
     # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
     # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
     copied = shutil.copy(jar, os.path.join(run, "data", "local", "tmp"))
@@ -154,7 +181,8 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    boot_class_path = ":".join(f"{ART_ROOT}/javalib/{name}.jar" for name in BOOT_JARS)
+    boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in BOOT_JARS]
+                               + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
     options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
                f"-Xbootclasspath-locations:{boot_class_path}", "-XjdwpProvider:none"]
     if debug:
@@ -164,7 +192,8 @@ def main():
         options.append("-Djava.library.path=/data/local/tmp")
         jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"]
     command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
-                              options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni)
+                              options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,
+                              conscrypt=conscrypt)
     try:
         result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired as timeout:

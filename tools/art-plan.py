@@ -36,6 +36,7 @@ TREE = {
     "libcore": "libcore",
     "external/icu": "icu",
     "external/boringssl": "boringssl",
+    "external/conscrypt": "conscrypt",
     "libnativehelper": "libnativehelper",
     "external/fdlibm": "fdlibm",
     "external/expat": "expat",
@@ -61,16 +62,19 @@ TREE = {
 GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz"]
 
 # What the plan builds: the libraries ART loads at start or links, in its release and its debug flavor, and the
-# launcher (ADR-0033 decisions 2, 10 and 11). What they link comes with them.
+# launcher (ADR-0033 decisions 2, 10 and 11); and Conscrypt's JNI library, which runtime/art/modules.bp links with
+# BoringSSL (ADR-0046 c). What they link comes with them.
 LIBRARIES = ["libart", "libartd", "libopenjdkjvm", "libopenjdkjvmd", "libjavacore", "libopenjdk", "libopenjdkd",
-             "libicu_jni", "libartpalette-system", "libsigchain", "libnativehelper", "libnativeloader"]
+             "libicu_jni", "libartpalette-system", "libsigchain", "libnativehelper", "libnativeloader",
+             "libjavacrypto"]
 # dalvikvm, and boringssl-test of runtime/art/modules.bp (ADR-0046 b).
 PROGRAMS = ["dalvikvm", "boringssl-test"]
 
-# The boot jars (ADR-0033 decision 10), which runtime/art/boot_jars.py builds; and what core-all, which Soong
-# compiles them against, has beyond their sources: java.base's module-info and the stubs that let javac compile
-# lambdas. Modules of projects we do not fetch that they name are compile-time stand-ins in runtime/art/java.
-BOOT_JARS = ["core-oj", "core-libart", "core-icu4j"]
+# The boot jars (ADR-0033 decision 10) and Conscrypt's (ADR-0046 c), which runtime/art/boot_jars.py builds; and
+# what core-all, which Soong compiles them against, has beyond their sources: java.base's module-info and the stubs
+# that let javac compile lambdas. Modules of projects we do not fetch that they name are compile-time stand-ins in
+# runtime/art/java.
+BOOT_JARS = ["core-oj", "core-libart", "core-icu4j", "conscrypt"]
 COMPILE_ONLY = [("libcore", ":openjdk_lambda_stub_files"), ("libcore", "luni/src/module/java/module-info.java"),
                 (OURS, "java/**/*.java")]
 STAND_INS = {"app-compat-annotations-source", "framework-annotations-lib", "unsupportedappusage",
@@ -146,16 +150,31 @@ class ArtPlanner(soong_plan.Planner):
     # The boot jars -----------------------------------------------------------------------------------------------
 
     def java_files(self, module, sources):
-        """Tree paths of the Java sources of `sources`, without the stand-ins' modules."""
+        """The Java sources of `sources`, without the stand-ins' modules: tree paths, and the plan's paths of the
+        Java files that generators make (Conscrypt's NativeConstants.java)."""
         result = []
         for source in sources:
             if source.startswith(":") and source[1:].split("{")[0] in STAND_INS:
                 continue
             try:
-                result += [path for path in blueprint.expand_sources(self.tree, module, [source]) if path.endswith(".java")]
+                paths = blueprint.expand_sources(self.tree, module, [source])
             except KeyError as error:
                 self.problems.append(f"{module.properties.get('name', module.directory)}: {error}")
+                continue
+            for path in paths:
+                if path.startswith(":"):
+                    result += [output for output in self.generated_outputs(path)[0] if output.endswith(".java")]
+                elif path.endswith(".java"):
+                    result.append(path)
         return result
+
+    def file(self, path):
+        """The local file of a tree path or of a file the plan generates: runtime/art/CMakeLists.txt's
+        APK_ART_GENERATED is <build>/generated, next to the tree."""
+        generated = self.generated_folder() + "/"
+        if path.startswith(generated):
+            return os.path.join(os.path.dirname(self.tree_root), "generated", path[len(generated):])
+        return path if os.path.isabs(path) else self.local(path)
 
     def boot_jars(self, description):
         """Writes what runtime/art/boot_jars.py builds the boot jars of: each jar's sources and Java resources, with
@@ -170,7 +189,7 @@ class ArtPlanner(soong_plan.Planner):
                 seen.add(current)
                 module = self.tree.module(current)
                 properties = blueprint.flatten(self.tree, module, "shared")
-                sources += [self.local(path) for path in self.java_files(module, properties.get("srcs", []))]
+                sources += [self.file(path) for path in self.java_files(module, properties.get("srcs", []))]
                 for reference in properties.get("java_resources", []):
                     group = self.tree.module(reference[1:]) if reference.startswith(":") else module
                     patterns = group.properties.get("srcs", []) if reference.startswith(":") else [reference]
@@ -188,7 +207,7 @@ class ArtPlanner(soong_plan.Planner):
             inputs += jars[name]["sources"] + [path for path, _ in resources]
         compile_only = []
         for directory, source in COMPILE_ONLY:
-            compile_only += [self.local(path) for path in
+            compile_only += [self.file(path) for path in
                              self.java_files(blueprint.Module("filegroup", {}, directory), [source])]
         # The boot jars depend on the description, and CMake plans again whenever it configures: it is written only when
         # its content changes, so that a plan with the same inputs does not build them again.
