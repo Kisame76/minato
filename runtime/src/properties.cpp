@@ -34,6 +34,8 @@
 // area for every property, without property contexts or a serialized tree.
 #include "properties.h"
 
+#include "host_calls.h"
+
 #include <sys/sysctl.h>
 
 #include <cstdint>
@@ -235,6 +237,10 @@ std::string area() {
     const std::string model = machine();
     written.add("ro.product.model", model);
     written.add("ro.product.device", model);
+    // The Vulkan driver's name, which Android 15's libvulkan reads to load vulkan.<name>.so (driver.cpp), only while
+    // graphics/host provides Vulkan: MoltenVK, none in the Simulator. The framework reports the vulkan.* features
+    // only with it (ADR-0045). The host sets its providers before the program starts, so before libc opens the area.
+    if (host_calls::has_provider("vulkan")) written.add("ro.hardware.vulkan", "moltenvk");
     return std::move(written).bytes();
 }
 

@@ -12,6 +12,9 @@ namespace apkrt::host_calls {
 /// the others. 0, -ENOENT without a provider, or -EINVAL.
 long bind_host_table(std::uint64_t name, std::uint64_t table, std::uint64_t length, std::uint64_t hash);
 
+/// Whether a provider is set for `name` (apkrt_set_host_provider).
+bool has_provider(const char *name);
+
 }  // namespace apkrt::host_calls
 
 namespace apkrt::signals {

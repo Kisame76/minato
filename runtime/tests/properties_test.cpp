@@ -1,11 +1,13 @@
 // Checks the device and version values of the property area (ADR-0039 decision 9) as android.os.Build reads them at
 // its start: the ABI lists, whose 64-bit one gives Build.CPU_ABI; Android 15's version as a user build, whose code
 // names give Build.VERSION.ACTIVE_CODENAMES, the list of known ones too long for a short value; the device as the
-// host names it, not an emulator, and no fingerprint, so that Build derives one; the density and the GLES version.
+// host names it, not an emulator, and no fingerprint, so that Build derives one; the density and the GLES version;
+// the Vulkan driver's name only while graphics/host provides Vulkan.
 // The area is read as bionic reads it (prop_area.cpp's find_property, prop_info's short and long values);
 // fixture.property-test reads it through bionic itself.
 #include "properties.h"
 
+#include "APKRuntime/apkrt.h"
 #include "check.h"
 
 #include <sys/sysctl.h>
@@ -26,7 +28,7 @@ constexpr std::uint32_t info_value = 4, info_long_offset = info_value + 56, info
 constexpr std::uint32_t long_flag = 1u << 16;
 constexpr std::string_view long_error = "Must use __system_property_read_callback() to read";
 
-const std::string area = apkrt::properties::area();
+std::string area = apkrt::properties::area();  // without providers; the Vulkan test builds it again
 
 std::uint32_t load(std::uint32_t offset) {
     std::uint32_t value;
@@ -129,6 +131,24 @@ TEST(the_earlier_values_stay) {
     CHECK(get("ro.build.version.release") == "15");
     CHECK(get("ro.debuggable") == "0");
     CHECK(get("dalvik.vm.heapsize") == "512m");
+}
+
+TEST(the_vulkan_driver_is_named_only_while_graphics_host_provides_vulkan) {
+    // ro.hardware.vulkan names the driver that Android 15's libvulkan loads, vulkan.<value>.so (driver.cpp), and the
+    // framework reports the vulkan.* features only with it (ADR-0045). graphics/host provides Vulkan with MoltenVK
+    // on the iPhone and the Mac, and not in the Simulator (ADR-0030 decision 3).
+    CHECK(!get("ro.hardware.vulkan"));
+    const apkrt_host_provider provider = [](void *, void **, std::size_t, std::uint64_t) { return 0; };
+    CHECK(apkrt_set_host_provider("gles", provider, nullptr) == 0);
+    area = apkrt::properties::area();
+    CHECK(!get("ro.hardware.vulkan"));
+    CHECK(apkrt_set_host_provider("vulkan", provider, nullptr) == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.hardware.vulkan") == "moltenvk");
+    CHECK(apkrt_set_host_provider("vulkan", nullptr, nullptr) == 0);
+    area = apkrt::properties::area();
+    CHECK(!get("ro.hardware.vulkan"));
+    CHECK(apkrt_set_host_provider("gles", nullptr, nullptr) == 0);
 }
 
 }  // namespace

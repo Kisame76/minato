@@ -63,6 +63,14 @@ long bind_host_table(std::uint64_t name_address, std::uint64_t table_address, st
     return 0;
 }
 
+bool has_provider(const char *name) {
+    const std::lock_guard lock(providers_mutex);
+    for (std::size_t index = 0; index < provider_count; ++index) {
+        if (std::strcmp(providers[index].name, name) == 0) return true;
+    }
+    return false;
+}
+
 }  // namespace apkrt::host_calls
 
 extern "C" int apkrt_is_guest_thread(void) {
