@@ -83,6 +83,8 @@ add_test(NAME graphics.hwui_plan
     --scratch "${CMAKE_CURRENT_BINARY_DIR}/hwui_plan")
 set_tests_properties(graphics.hwui_plan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 300)
 add_test(NAME graphics.soong_plan COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/soong_plan_test.py")
+# make_tree keeps a real copy, newer than the build, of a file whose patch, host side or overlay file goes (Runtime).
+add_test(NAME graphics.make_tree COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/make_tree_test.py")
 add_test(NAME graphics.host_side COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/host_side_test.py")
 set_tests_properties(graphics.host_side PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 add_test(NAME graphics.sysprop COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/sysprop_test.py")

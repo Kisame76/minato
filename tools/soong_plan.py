@@ -98,7 +98,10 @@ def make_tree(tree, projects, overlay, patches, host_side=()):
     """Brings <tree> up to date: a symbolic link for every file of `projects` (tree path -> folder) and of `overlay`,
     real files for what the patches in `patches` change, in their order, and for what the host side changes in the C
     and C++ files below the folders `host_side` (tree paths), after the patches. Files that already are what they should
-    be stay untouched, so that their builds stay current. Returns the problems."""
+    be stay untouched, so that their builds stay current. A path that held something other than its original (a
+    patched or host-side copy, or a link to an overlay file) becomes a real copy of the original when that goes, and
+    stays one: ninja follows links, and a link would give it the original's older time, so the objects built from the
+    path would stay as they were. Returns the problems."""
     wanted = {}
     for tree_path, folder in projects.items():
         for directory, folders, files in os.walk(folder):
@@ -143,21 +146,28 @@ def make_tree(tree, projects, overlay, patches, host_side=()):
             present.add(os.path.relpath(os.path.join(directory, name), tree))
     for tree_path in present - wanted.keys():
         os.remove(os.path.join(tree, tree_path))
+    overlay_files = os.path.join(overlay, "")
     for tree_path, target in wanted.items():
         path = os.path.join(tree, tree_path)
+        link = os.readlink(path) if os.path.islink(path) else None
         if tree_path in patched:
-            if os.path.isfile(path) and not os.path.islink(path) and read(path) == patched[tree_path]:
-                continue
-        elif os.path.islink(path) and os.readlink(path) == target:
+            data = patched[tree_path]
+        elif link == target:
+            continue
+        elif os.path.isfile(target) and (os.path.isfile(path) if link is None else link.startswith(overlay_files)):
+            data = read(target)  # a copy of the original, which once held something else
+        else:
+            data = None  # a link: a new path, or one whose project moved to another folder
+        if data is not None and link is None and os.path.isfile(path) and read(path) == data:
             continue
         if os.path.lexists(path):
             os.remove(path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        if tree_path in patched:
-            with open(path, "wb") as handle:
-                handle.write(patched[tree_path])
-        else:
+        if data is None:
             os.symlink(target, path)
+        else:
+            with open(path, "wb") as handle:
+                handle.write(data)
     for directory, folders, files in os.walk(tree, topdown=False):
         if directory != tree and not os.listdir(directory):
             os.rmdir(directory)
