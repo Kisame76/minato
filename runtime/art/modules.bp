@@ -108,3 +108,13 @@ cc_library_static {
     export_include_dirs: ["unwinding/include"],
     cflags: ["-Wall", "-Wextra", "-Werror"],
 }
+
+// boringssl-test (ADR-0046 b): BoringSSL's static libraries as libjavacrypto links them, under known answers;
+// runtime.boringssl runs it.
+cc_binary {
+    name: "boringssl-test",
+    srcs: ["tests/boringssl_test.c"],
+    static_libs: ["libssl", "libcrypto_static"],
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    stl: "none",
+}

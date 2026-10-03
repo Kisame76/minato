@@ -64,7 +64,8 @@ GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog"
 # launcher (ADR-0033 decisions 2, 10 and 11). What they link comes with them.
 LIBRARIES = ["libart", "libartd", "libopenjdkjvm", "libopenjdkjvmd", "libjavacore", "libopenjdk", "libopenjdkd",
              "libicu_jni", "libartpalette-system", "libsigchain", "libnativehelper", "libnativeloader"]
-PROGRAMS = ["dalvikvm"]
+# dalvikvm, and boringssl-test of runtime/art/modules.bp (ADR-0046 b).
+PROGRAMS = ["dalvikvm", "boringssl-test"]
 
 # The boot jars (ADR-0033 decision 10), which runtime/art/boot_jars.py builds; and what core-all, which Soong
 # compiles them against, has beyond their sources: java.base's module-info and the stubs that let javac compile
@@ -96,6 +97,11 @@ ART_KINDS = {
     "art_global_defaults": "cc_defaults", "art_debug_defaults": "cc_defaults",
 }
 
+# BoringSSL's libcrypto as libjavacrypto links it, with the ARMv8 crypto extension at compile time (ADR-0046
+# decision 1): BoringSSL then takes AES, PMULL, SHA-1 and SHA-256 as given (crypto/internal.h). Otherwise it reads
+# them from AT_HWCAP, which reports FP and ASIMD only (runtime/src/loader.h), and runs AES without the instructions.
+MODULE_CFLAGS = {"libcrypto_static": ["-march=armv8-a+crypto"]}
+
 
 class ArtPlanner(soong_plan.Planner):
     """ART's set: runtime/art's modules.bp, overlay and patches, art.go's additions, and the boot jars."""
@@ -112,6 +118,12 @@ class ArtPlanner(soong_plan.Planner):
     PREFIX = "art"
     GENERATED = "APK_ART_GENERATED"
     TREE_VARIABLE = "APK_ART_TREE"
+
+    def adapt(self, module):
+        """What Soong's load hooks and configuration add (soong_plan.Planner.adapt), and MODULE_CFLAGS."""
+        super().adapt(module)
+        if module.name in MODULE_CFLAGS:
+            module.properties = blueprint.merge(module.properties, {"cflags": MODULE_CFLAGS[module.name]})
 
     def adapt_kind(self, module):
         """art.go's additions for ART's module types."""

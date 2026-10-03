@@ -89,7 +89,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/art` | `bebbc3cc49f2` | Apache-2.0 (`NOTICE`); `openjdkjvm/` GPL-2.0 with Classpath Exception (`openjdkjvm/LICENSE`), as are `openjdkjvmti/` and `dt_fd_forward/`, which are not built | the runtime (`libart`), `dalvikvm`, `libopenjdkjvm` |
 | `platform/libcore` | `a996d969fdd1` | Apache-2.0 with the notices in `NOTICE` (Android, Apache Harmony, ICU, KXML, W3C); `ojluni/` GPL-2.0 with Classpath Exception (`LICENSE`) | the boot jars, among them core-oj from `ojluni/`; their natives `libjavacore` and `libopenjdk` |
 | `platform/external/icu` | `cf305aeb6df4` (ICU 75.1) | Unicode-3.0 and the notices in `LICENSE`; the GPL texts there cover ICU4C's Autoconf files, which are not used | ICU's libraries and data, `libicu_jni` |
-| `platform/external/boringssl` | `23a87e389eb9` | OpenSSL, SSLeay, ISC and others, as in `LICENSE` | `libcrypto` of ART's module |
+| `platform/external/boringssl` | `23a87e389eb9` | OpenSSL, SSLeay, ISC and others, as in `LICENSE` | `libcrypto` of ART's module; `libcrypto_static` and libssl's static variant for Conscrypt's `libjavacrypto` (ADR-0046), tested by `boringssl-test` |
 | `platform/libnativehelper` | `3ca43dfe2bf4` | Apache-2.0 | `libnativehelper` (JNI helpers) |
 | `platform/external/fdlibm` | `1e651e1ef2b6` | Sun Microsystems' notice (`NOTICE`) | math for libcore's `StrictMath` |
 | `platform/external/expat` | `8ae3fff00472` | MIT (`COPYING`) | XML parser for libcore |

@@ -150,6 +150,19 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # BoringSSL as libjavacrypto links it (ADR-0046 b): boringssl-test from ART's build prints known answers, whether
+  # AES-GCM runs on the crypto extension, and libssl's default cipher order, as on Android 15
+  # (fixtures/expected/boringssl-test.out). Skipped while the program is not built.
+  set(boringssl_system_libraries libc libm libdl ld-android liblog libnetd_client)
+  list(TRANSFORM boringssl_system_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
+  add_test(NAME runtime.boringssl
+    COMMAND ${CMAKE_COMMAND} -D CONVERT=$<TARGET_FILE:apk-convert> -D RUN=$<TARGET_FILE:apk-run>
+      -D FIXTURE=${APK_ART_DIR}/bin/boringssl-test "-D SYSTEM_LIBRARIES=${boringssl_system_libraries}"
+      -D WORK=${CMAKE_CURRENT_BINARY_DIR}/boringssl_runs -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
+      -D EXPECTED_OUTPUT=${PROJECT_SOURCE_DIR}/fixtures/expected/boringssl-test.out
+      -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
+  set_tests_properties(runtime.boringssl PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
   # The guest builds plan their trees when CMake configures them (tools/bionic-plan.py, tools/art-plan.py,
   # tools/hwui-plan.py): a change to the planner or a module it imports, or a file that comes into the overlay folder
   # or leaves it, configures them again. Skipped while no build is configured and up to date.
