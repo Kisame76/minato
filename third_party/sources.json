@@ -98,6 +98,79 @@
       "digest": "e362c3ffd30a22ec23e1b5b76fc0dc5fd7c76ee8a78953ddd6bbb939b5132ce6"
     },
     {
+      "name": "conscrypt",
+      "project": "platform/external/conscrypt",
+      "commit": "f8e2d81432416b14fbc8e6f62375d9917b044ef1",
+      "license": "Apache-2.0",
+      "directories": [
+        "repackaged/common/src/main/java",
+        "repackaged/platform/src/main/java",
+        "publicapi/src/main/java",
+        "common/src/jni/main",
+        "constants/src/gen"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENSE",
+        "NOTICE",
+        "METADATA",
+        "MODULE_LICENSE_APACHE2"
+      ],
+      "digest": "93ccf14b13a2156eaa448c7ee98b70f279ffb2ec68c68dd332cbe052b8ec0698"
+    },
+    {
+      "name": "bouncycastle",
+      "project": "platform/external/bouncycastle",
+      "commit": "9be82ede5e65ebf63fcaa57f788d142d99f58948",
+      "license": "MIT (the Bouncy Castle License), Apache-2.0",
+      "directories": [
+        "repackaged/bcprov/src/main/java"
+      ],
+      "files": [
+        "Android.bp",
+        "NOTICE",
+        "METADATA",
+        "MODULE_LICENSE_BSD_LIKE",
+        "proguard.flags"
+      ],
+      "digest": "d7d12b68a80e23f6ea21cde084ce2fff1474f2ff8f11041618ca7cd07e2ea8e3"
+    },
+    {
+      "name": "okhttp",
+      "project": "platform/external/okhttp",
+      "commit": "fdad2b22b00721086808f155529df11a2e4335f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "repackaged/android/src/main/java",
+        "repackaged/okhttp/src/main/java",
+        "repackaged/okhttp-urlconnection/src/main/java",
+        "repackaged/okhttp-android-support/src/main/java",
+        "repackaged/okio/okio/src/main/java"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENSE.txt",
+        "METADATA",
+        "MODULE_LICENSE_APACHE2"
+      ],
+      "digest": "a5bee24ff254782408d81b51b1c3fe9c2398b65749d29f731df1f904c127d32d"
+    },
+    {
+      "name": "ca-certificates",
+      "project": "platform/system/ca-certificates",
+      "commit": "2207c6dd74f18819bbaa4566d1e6c5d956a452fd",
+      "license": "by exception only (AOSP's METADATA)",
+      "directories": [
+        "files"
+      ],
+      "files": [
+        "Android.bp",
+        "METADATA",
+        "README.cacerts"
+      ],
+      "digest": "88706a213afc41525527b43602005f0817e7756a525efda1232b6fc22596bdde"
+    },
+    {
       "name": "libnativehelper",
       "project": "platform/libnativehelper",
       "commit": "3ca43dfe2bf4613852df0303531fa8ecf4b7063c",
