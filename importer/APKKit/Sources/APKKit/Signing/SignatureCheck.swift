@@ -24,6 +24,8 @@ public struct SignatureFailure: Error, Sendable, Equatable, Hashable, Codable {
         case damaged
         /// A signature does not verify with its key, or a newer signature was removed.
         case signatureMismatch
+        /// Only v1, which Android refuses from targetSdkVersion 30 (Android 11) on.
+        case noV2Signature
     }
 
     public var kind: Kind
@@ -36,14 +38,53 @@ public struct SignatureFailure: Error, Sendable, Equatable, Hashable, Codable {
     }
 }
 
-/// The result of `SignatureVerifier.verify`: the check, and the signer it proved.
+/// The result of `SignatureVerifier.verify`: the check, and what it proved.
 public struct SignatureVerification: Sendable, Equatable {
     public var check: SignatureCheck
-    /// Who signed the APK, as the verified scheme says; nil unless `check` is `.verified`.
-    public var signer: SignerIdentity?
+    /// What the verified scheme proved; nil unless `check` is `.verified`.
+    public var proof: SignerProof?
 
-    public init(check: SignatureCheck, signer: SignerIdentity? = nil) {
+    public init(check: SignatureCheck, proof: SignerProof? = nil) {
         self.check = check
-        self.signer = signer
+        self.proof = proof
+    }
+
+    /// Who signed the APK, as the proof says; nil unless `check` is `.verified`.
+    public var signer: SignerIdentity? { proof?.identity }
+}
+
+/// What a verified check proved (ADR-0034 decision 2): the scheme that decided, the certificate of each of
+/// its signers, and one v3 or v3.1 signer's proof of rotation. signers.json holds exactly this.
+public struct SignerProof: Sendable, Equatable, Hashable, Codable {
+    /// A level of the proof of rotation: its certificate and the capabilities the rotation left it.
+    public struct Level: Sendable, Equatable, Hashable, Codable {
+        public var certificate: Data
+        public var flags: UInt32
+
+        public init(certificate: Data, flags: UInt32) {
+            self.certificate = certificate
+            self.flags = flags
+        }
+    }
+
+    public var scheme: SignatureInfo.Scheme
+    /// Each signer's own certificate, DER, in the APK's order: for v1 the one its signature block's
+    /// SignerInfo names, for v2, v3 and v3.1 the first one the signer lists.
+    public var certificates: [Data]
+    /// Oldest first, the signer's own certificate last; empty without a rotation.
+    public var lineage: [Level]
+
+    public init(scheme: SignatureInfo.Scheme, certificates: [Data], lineage: [Level] = []) {
+        self.scheme = scheme
+        self.certificates = certificates
+        self.lineage = lineage
+    }
+
+    /// The signer as the update policy compares it: each certificate's SHA-256, and the lineage's older ones.
+    public var identity: SignerIdentity {
+        SignerIdentity(current: certificates.map { SigningCertificate.sha256(of: $0) },
+                       lineage: lineage.dropLast().map {
+                           LineageNode(sha256: SigningCertificate.sha256(of: $0.certificate), flags: $0.flags)
+                       })
     }
 }

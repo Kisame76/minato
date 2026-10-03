@@ -6,11 +6,16 @@
 #   - framework/tests/managergen_test.py checks the generator on framework/tests/managergen's samples, whose
 #     output goes into the build folder for GeneratedSampleTest;
 #   - tools/tests/stub_supertypes_test.py checks framework-check's guard of stub supertypes (b3.5a);
+#   - framework/tests/certificate_mask_test.py checks the harnesses' marks for the certificates a test APK's check
+#     proved (b3.5b1);
 #   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
 #     SampleBaseManager, for ImplementedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
+#   - org.json, which the guest has in core-libart and the host's JDK lacks, is compiled from libcore's sources for
+#     SignersFile, the guest's reader of signers.json (b3.5b1), with the annotations it names; UnsupportedAppUsage,
+#     which the fetched sources lack, is an empty one of ours;
 #   - javac 17, then each *Test class's main; any FAIL fails the check.
-# The JDK comes from tools/fetch-sources.py --set art.
+# The JDK and libcore's sources come from tools/fetch-sources.py --set art.
 # Usage: tools/framework-host-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,7 +28,7 @@ if [[ ! -x "$JDK/bin/javac" ]]; then
 fi
 
 rm -rf "$OUT"
-mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes"
+mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes" "$OUT/json" "$OUT/json-src/android/compat/annotation"
 {
   echo "package com.android.minato.services;"
   echo "public interface Wide {"
@@ -34,6 +39,8 @@ mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes"
 python3 framework/tests/managergen_test.py
 # framework-check's guard of stub supertypes and its allowlist's reasons (b3.5a).
 python3 tools/tests/stub_supertypes_test.py
+# The harnesses' marks for the certificates a test APK's check proved (b3.5b1).
+python3 framework/tests/certificate_mask_test.py
 # ADR-0045 decision 6's protection levels in our framework-res against the AVD's; skipped while not built.
 python3 framework/tests/platform_permissions_test.py
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \
@@ -49,13 +56,22 @@ python3 tools/managergen/managergen.py \
   --implement framework/tests/managergen/java/com/android/minato/sample/pm/SampleBaseManager.java \
   --as com.android.minato.sample.app.SampleAppManager --hand framework/tests/managergen/hand --out "$OUT/gen"
 
-"$JDK/bin/javac" -source 17 -target 17 -encoding UTF-8 -Xlint:all -Werror -d "$OUT/classes" \
+LIBCORE=build/sources/libcore
+printf 'package android.compat.annotation;\n\npublic @interface UnsupportedAppUsage {\n}\n' \
+  >"$OUT/json-src/android/compat/annotation/UnsupportedAppUsage.java"
+"$JDK/bin/javac" -source 17 -target 17 -encoding UTF-8 -nowarn -d "$OUT/json" \
+  "$LIBCORE"/json/src/main/java/org/json/*.java "$LIBCORE"/luni/src/main/java/libcore/util/{NonNull,Nullable}.java \
+  "$LIBCORE/luni/src/main/java/libcore/api/IntraCoreApi.java" \
+  build/sources/modules_utils/java/android/annotation/SystemApi.java \
+  "$OUT/json-src/android/compat/annotation/UnsupportedAppUsage.java"
+
+"$JDK/bin/javac" -source 17 -target 17 -encoding UTF-8 -Xlint:all -Werror -cp "$OUT/json" -d "$OUT/classes" \
   $(find framework/java/com/android/minato framework/tests/java framework/tests/managergen/java "$OUT/gen" \
     -name '*.java' | sort)
 
 failed=0
 for test in $(cd framework/tests/java && find . -name '*Test.java' | sed 's|^\./||; s|\.java$||; s|/|.|g' | sort); do
-  "$JDK/bin/java" -cp "$OUT/classes" "$test" || failed=$((failed + 1))
+  "$JDK/bin/java" -cp "$OUT/classes:$OUT/json" "$test" || failed=$((failed + 1))
 done
 if [[ $failed -gt 0 ]]; then
   echo "framework host check: $failed test classes failed"

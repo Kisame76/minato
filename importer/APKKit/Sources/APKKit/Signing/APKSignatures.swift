@@ -9,9 +9,14 @@ public struct SigningCertificate: Sendable, Equatable, Hashable, Codable {
     public let subject: String?
 
     public init(der: Data) {
-        sha256 = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        sha256 = Self.sha256(of: der)
         subject = SecCertificateCreateWithData(nil, der as CFData)
             .flatMap { SecCertificateCopySubjectSummary($0) as String? }
+    }
+
+    /// Lowercase hex SHA-256 of a DER encoding.
+    public static func sha256(of der: Data) -> String {
+        SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
     }
 
     init(sha256: String, subject: String?) {
@@ -38,9 +43,19 @@ public struct SignatureInfo: Sendable, Equatable, Codable {
     public var signer: SignerIdentity?
     /// What the cryptographic check found; nil in a report written before it (ADR-0034, step d).
     public var check: SignatureCheck?
+    /// What the check proved, which signers.json holds (ADR-0034 decision 2); nil unless `check` is
+    /// `.verified`, and in a report written before it was recorded.
+    public var proof: SignerProof?
 
-    /// The signer as the details show it (ADR-0034, step d): proven only when the check verified.
+    /// The signer as the details show it (ADR-0034, step d): proven only when the check verified, and then
+    /// with the certificates it proved.
     public var signerDetails: SignerDetails {
+        if check == .verified, let proof {
+            var seen: Set<Data> = []
+            return SignerDetails(isProven: true,
+                                 certificates: proof.certificates.filter { seen.insert($0).inserted }.map(SigningCertificate.init(der:)),
+                                 earlier: proof.lineage.dropLast().map { SigningCertificate(der: $0.certificate) })
+        }
         guard let signer else {
             return SignerDetails(isProven: false, certificates: certificates, earlier: [])
         }

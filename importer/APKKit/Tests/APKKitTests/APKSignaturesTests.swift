@@ -228,6 +228,20 @@ struct APKSignaturesTests {
         #expect(details.earlier.map(\.sha256) == [TestCertificates.signerSHA256])
     }
 
+    @Test func theDetailsShowTheProvenCertificatesThemselves() throws {
+        // From the check's proof, with their subjects, whatever the file's parse lists.
+        let apk = TestSigner.sign(SignatureVerifierTests.zip(), v2: [.init(.ec)],
+                                  v3: [.init(.rotated, lineage: [.init(.ec), .init(.rotated)])])
+        var info = APKAnalyzer.signature(of: try ZipArchive(data: apk), targetSdk: 29)
+        info.certificates = []
+        let details = info.signerDetails
+
+        #expect(details.isProven)
+        #expect(details.certificates == [SigningCertificate(der: TestKey.rotated.certificate)])
+        #expect(details.certificates.first?.subject != nil)
+        #expect(details.earlier == [SigningCertificate(der: TestKey.ec.certificate)])
+    }
+
     @Test(arguments: [nil, SignatureCheck.unverified("DSA"), .failed(SignatureFailure(.damaged, "x"))])
     func aSignerTheCheckDidNotProveIsMarked(check: SignatureCheck?) throws {
         let details = try Self.rotatedInfo(check: check).signerDetails

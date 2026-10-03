@@ -171,6 +171,7 @@ enum Texts {
         switch failure.kind {
         case .damaged: "is damaged"
         case .signatureMismatch: "has a signature that does not match"
+        case .noV2Signature: "has only a v1 signature, too old for the Android version it targets"
         }
     }
 
@@ -180,7 +181,12 @@ enum Texts {
         case .verified: "Verified"
         case .unsigned: "Unsigned"
         case .unverified(let reason): "Not verified: \(reason)"
-        case .failed(let failure): failure.kind == .damaged ? "Failed: the file is damaged" : "Failed: the signature does not match"
+        case .failed(let failure):
+            switch failure.kind {
+            case .damaged: "Failed: the file is damaged"
+            case .signatureMismatch: "Failed: the signature does not match"
+            case .noV2Signature: "Failed: only a v1 signature, too old for the Android version the app targets"
+            }
         case nil: "Not checked"
         }
     }

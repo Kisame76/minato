@@ -5,8 +5,9 @@ public enum SampleAPK {
     /// With `nativeActivity` the app starts android.app.NativeActivity with its libgame.so and has no
     /// Java code; otherwise it declares no activity, as a Java app that needs ART. It is signed for real
     /// with a v2 block of one signer per key of `signers` (none: unsigned), or carries `signingBlock`
-    /// when given; `v3` adds a v3 block, and `sign` signs the archive instead.
+    /// when given; `v3` adds a v3 block, and `sign` signs the archive instead. `targetSdk` adds a uses-sdk element.
     public static func make(package: String = "org.example.game", versionCode: Int32 = 1, label: String = "Sample Game",
+                            targetSdk: Int32? = nil,
                             abis: [String] = ["arm64-v8a"], splitRequired: Bool = false, nativeActivity: Bool = false,
                             screenOrientation: Int32? = nil, configChanges: UInt32? = nil, signers: [TestKey] = [.ec],
                             v3: [TestSigner.Signer] = [], signingBlock: Data? = nil,
@@ -43,11 +44,15 @@ public enum SampleAPK {
                 ]),
             ]))
         }
+        var children = [AXMLBuilder.Element("application", applicationAttributes, activities)]
+        if let targetSdk {
+            children.insert(AXMLBuilder.Element("uses-sdk", [.android("targetSdkVersion", 0x0101_0270, .int(targetSdk))]), at: 0)
+        }
         let manifest = AXMLBuilder.Element("manifest", [
             .plain("package", .string(package)),
             .android("versionCode", 0x0101_021B, .int(versionCode)),
             .android("versionName", 0x0101_021C, .string("\(versionCode).0")),
-        ], [AXMLBuilder.Element("application", applicationAttributes, activities)])
+        ], children)
 
         var zip = ZipBuilder()
         zip.add("AndroidManifest.xml", AXMLBuilder().build(manifest))

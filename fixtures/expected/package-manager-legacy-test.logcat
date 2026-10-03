@@ -1,0 +1,12 @@
+I/package-manager-legacy-test: targetSdkVersion 28
+I/package-manager-legacy-test: requestedPermissions [android.permission.ACCESS_FINE_LOCATION, android.permission.BLUETOOTH, android.permission.CAMERA, android.permission.POST_NOTIFICATIONS, android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_BACKGROUND_LOCATION, android.permission.BLUETOOTH_SCAN, android.permission.BLUETOOTH_CONNECT, android.permission.BLUETOOTH_ADVERTISE]
+I/package-manager-legacy-test: android.permission.ACCESS_FINE_LOCATION flags 0x1, checkPermission -1
+I/package-manager-legacy-test: android.permission.BLUETOOTH flags 0x3, checkPermission 0
+I/package-manager-legacy-test: android.permission.CAMERA flags 0x1, checkPermission -1
+I/package-manager-legacy-test: android.permission.POST_NOTIFICATIONS flags 0x5, checkPermission -1
+I/package-manager-legacy-test: android.permission.ACCESS_COARSE_LOCATION flags 0x5, checkPermission -1
+I/package-manager-legacy-test: android.permission.ACCESS_BACKGROUND_LOCATION flags 0x5, checkPermission -1
+I/package-manager-legacy-test: android.permission.BLUETOOTH_SCAN flags 0x7, checkPermission 0
+I/package-manager-legacy-test: android.permission.BLUETOOTH_CONNECT flags 0x7, checkPermission 0
+I/package-manager-legacy-test: android.permission.BLUETOOTH_ADVERTISE flags 0x7, checkPermission 0
+I/package-manager-legacy-test: done

@@ -7,12 +7,12 @@
  * base.apk and its lib/arm64, and loads and initializes the manifest's Application class, as makeApplication starts
  * on Android. Before that it gives the system Resources the session's configuration and display metrics (b3.4c),
  * as handleBindApplication does, and reads the app's manifest, from which ApplicationPackageManager answers (b3.5a),
- * as bindApplication hands Android's app its ApplicationInfo. It creates no Context and runs no Looper or
- * lifecycle; those come in step c.
+ * as bindApplication hands Android's app its ApplicationInfo, with who signed it from the import's signers.json
+ * (b3.5b1). It creates no Context and runs no Looper or lifecycle; those come in step c.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
- *                       [--application <class>]
+ *                       [--signers <the version's signers.json>] [--application <class>]
  */
 package android.app;
 
@@ -101,6 +101,7 @@ public final class ActivityThread {
         String libraryPath = null;
         String application = null;
         String dataDir = null;
+        String signers = null;
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--package": packageName = args[i + 1]; break;
@@ -109,22 +110,25 @@ public final class ActivityThread {
                 case "--library-path": libraryPath = args[i + 1]; break;
                 case "--application": application = args[i + 1]; break;
                 case "--data-dir": dataDir = args[i + 1]; break;
+                case "--signers": signers = args[i + 1]; break;
                 default: throw new IllegalArgumentException("ActivityThread.main: unknown argument " + args[i]);
             }
         }
         if (packageName == null || apk == null || libraryPath == null || dataDir == null || args.length % 2 != 0) {
             throw new IllegalArgumentException(
                     "usage: ActivityThread.main --package <package> [--process <name>] --apk <base.apk> "
-                    + "--library-path <folder> --data-dir <folder> [--application <class>]");
+                    + "--library-path <folder> --data-dir <folder> [--signers <signers.json>] "
+                    + "[--application <class>]");
         }
         // Context.getCacheDir's folder, which installd creates at the install.
         String tmpdir = dataDir + "/cache";
         System.setProperty("java.io.tmpdir", tmpdir);
         Os.setenv("TMPDIR", tmpdir, true);
         applySessionConfiguration();
+        // The import's signers.json beside the version (ADR-0034 decision 2, b3.5b1); an unsigned app has none.
         ManifestPackage pkg;
         try {
-            pkg = ManifestPackage.read(apk, libraryPath, dataDir);
+            pkg = ManifestPackage.read(apk, libraryPath, dataDir, signers);
         } catch (IOException | XmlPullParserException e) {
             throw new IllegalStateException("ActivityThread.main: cannot read " + apk + "'s manifest", e);
         }

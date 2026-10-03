@@ -80,8 +80,9 @@ enum JarVerifier {
             }
         }
         if let unverifiable { return SignatureVerification(check: .unverified(unverifiable)) }
-        let current = signers.compactMap(\.certificate).map { SigningCertificate(der: $0).sha256 }
-        return SignatureVerification(check: .verified, signer: SignerIdentity(current: current))
+        // Each signer is the certificate its block's SignerInfo names and whose key verified its .SF
+        // (StrictJarVerifier.java:330-353), not whichever certificate the block lists first.
+        return SignatureVerification(check: .verified, proof: SignerProof(scheme: .v1, certificates: signers.compactMap(\.certificate)))
     }
 
     static func read(_ entry: ZipEntry, from archive: ZipArchive, maximum: UInt64 = maximumSignatureFileSize) throws -> Data {

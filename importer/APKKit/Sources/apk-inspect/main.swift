@@ -1,13 +1,23 @@
-// Development tool: prints what APKKit reads from an APK.
+// Development tool: prints what APKKit reads from an APK. With --signers it writes the APK's signers.json
+// instead, as the library writes it into a version's folder (ADR-0034 decision 2), for the guest's
+// PackageManager on the Mac (ADR-0039 b3.5b1): what the signature check proved. An unsigned or unverified APK
+// gets none, and a file there is removed; one whose check failed, which the library would not install, exits 1.
 // Usage: swift run apk-inspect [--json] <file.apk>
+//        swift run apk-inspect --signers <signers.json> <file.apk>
 import APKKit
 import Foundation
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 let asJSON = arguments.first == "--json"
 if asJSON { arguments.removeFirst() }
+var signersPath: String?
+if arguments.first == "--signers", arguments.count == 3 {
+    signersPath = arguments[1]
+    arguments.removeFirst(2)
+}
 guard arguments.count == 1 else {
-    FileHandle.standardError.write(Data("usage: apk-inspect [--json] <file.apk>\n".utf8))
+    FileHandle.standardError.write(Data(
+        "usage: apk-inspect [--json] <file.apk>\n       apk-inspect --signers <signers.json> <file.apk>\n".utf8))
     exit(2)
 }
 
@@ -15,6 +25,23 @@ do {
     let start = Date()
     let archive = try ZipArchive(url: URL(fileURLWithPath: arguments[0]))
     let report = try APKAnalyzer.analyze(archive, preferredLanguages: ["de", "en"])
+    if let signersPath {
+        let url = URL(fileURLWithPath: signersPath)
+        try? FileManager.default.removeItem(at: url)
+        switch report.signature.check {
+        case .verified?:
+            // A verified check carries its proof.
+            if let proof = report.signature.proof {
+                try SignersFile.content(of: proof).write(to: url, options: .atomic)
+            }
+        case .failed(let failure)?:
+            FileHandle.standardError.write(Data("error: the signature check failed: \(failure.detail)\n".utf8))
+            exit(1)
+        case let check:
+            print("\(check.map { "\($0)" } ?? "not checked"): no \(SignersFile.fileName)")
+        }
+        exit(0)
+    }
     let elapsed = Date().timeIntervalSince(start)
 
     if asJSON {

@@ -15,6 +15,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
 import android.os.Bundle;
 import android.os.Process;
 import android.util.Log;
@@ -36,8 +38,13 @@ import java.util.UUID;
  *
  * Every public field of the SDK's info classes is logged, by name, since reflection on Android hides the hidden ones
  * and ours does not. What differs by decision is masked, after checking its shape: the code paths' random folders
- * (decision 6), the uid (decision 3), the install times and the application's FLAG_STOPPED. Signatures, the permissions' grants and gids come with
- * b3.5b.
+ * (decision 6), the uid (decision 3), the install times and the application's FLAG_STOPPED.
+ *
+ * Since b3.5b1 also the runtime permissions' grants (ADR-0045 decision 6), the platform's permissions from
+ * framework-res's manifest, with those behind a feature flag that is off left out, and the signatures. A certificate
+ * is logged as its SHA-256, computed here, since Minato's guest has no JCA provider yet; the harnesses replace the
+ * APK's own, which make-apk's per-machine debug key gives (ADR-0031), with a mark. hasSigningCertificate is asked
+ * with the raw certificate only: its SHA-256 form digests through the JCA. The gids come later.
  */
 public class PackageManagerApplication extends Application {
     private static final String TAG = "package-manager-test";
@@ -72,10 +79,41 @@ public class PackageManagerApplication extends Application {
     private static final String[] FEATURE = {"name", "version", "reqGlEsVersion", "flags"};
     private static final String[] CONFIGURATION = {"reqTouchScreen", "reqKeyboardType", "reqNavigation",
             "reqInputFeatures", "reqGlEsVersion"};
+    /**
+     * The platform's permissions asked by name: normal, dangerous with restriction flags or an instant one, a
+     * platform signature one, POST_NOTIFICATIONS, CAMERA_HEADLESS_SYSTEM_USER behind a flag that is on, and
+     * QUARANTINE_APPS behind one that is off; then one nobody declares.
+     */
+    private static final String[] PLATFORM_PERMISSIONS = {"android.permission.INTERNET",
+            "android.permission.CAMERA", "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_BACKGROUND_LOCATION",
+            "android.permission.READ_LOGS", "android.permission.POST_NOTIFICATIONS",
+            "android.permission.CAMERA_HEADLESS_SYSTEM_USER", "android.permission.QUARANTINE_APPS",
+            "io.github.kisame76.minato.test.NOBODY"};
+    /**
+     * System features Minato reports as Android does (ADR-0045 decision 4); those it leaves out or reports in
+     * another version are SystemFeaturesTest's, against the reference AVD's list. Then one no device has.
+     */
+    private static final String[] FEATURES_ASKED = {"android.hardware.audio.output", "android.hardware.faketouch",
+            "android.hardware.ram.normal", "android.hardware.screen.landscape", "android.hardware.screen.portrait",
+            "android.hardware.touchscreen", "android.hardware.touchscreen.multitouch.jazzhand",
+            "android.software.app_enumeration", "io.github.kisame76.minato.test.none"};
     /** Ints that are flags or resource ids, logged in hex. */
     private static final List<String> HEX = Arrays.asList("flags", "theme", "icon", "logo", "banner", "labelRes",
             "descriptionRes", "uiOptions", "configChanges", "softInputMode", "reqGlEsVersion", "version",
             "sharedUserLabel", "protectionLevel", "reqInputFeatures");
+
+    /** SHA-256's round constants, before the static initializer, which reports on Minato. */
+    private static final int[] K = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    };
 
     private static long sFirstInstallTime;
 
@@ -102,6 +140,8 @@ public class PackageManagerApplication extends Application {
             report(pm);
         } catch (Throwable e) {
             Log.i(TAG, "failed: " + e);
+            // Its stack, which differs by device, is only shown.
+            Log.i(TAG + "-device", Log.getStackTraceString(e));
         }
         Log.i(TAG, "done");
     }
@@ -113,6 +153,11 @@ public class PackageManagerApplication extends Application {
         log("package", info, PACKAGE_FIELDS);
         Log.i(TAG, "longVersionCode " + info.getLongVersionCode());
         Log.i(TAG, "requestedPermissions " + Arrays.toString(info.requestedPermissions));
+        StringBuilder requested = new StringBuilder();
+        for (int flags : info.requestedPermissionsFlags) {
+            requested.append(requested.length() == 0 ? "" : ", ").append("0x").append(Integer.toHexString(flags));
+        }
+        Log.i(TAG, "requestedPermissionsFlags [" + requested + "]");
         application("application", info.applicationInfo);
         components("activity", info.activities, ACTIVITY);
         components("service", info.services, SERVICE);
@@ -162,12 +207,125 @@ public class PackageManagerApplication extends Application {
         notFound(pm, "com.google.android.gms");
         notFound(pm, "com.android.vending");
         notFound(pm, "io.github.kisame76.minato.test.nothing");
+
+        // b3.5b1: the grants, the platform's permissions and the signatures.
+        for (String permission : info.requestedPermissions) {
+            Log.i(TAG, "checkPermission " + permission + " " + pm.checkPermission(permission, PACKAGE));
+        }
+        Log.i(TAG, "checkPermission not requested " + pm.checkPermission("android.permission.RECORD_AUDIO", PACKAGE)
+                + ", another package's " + pm.checkPermission("android.permission.INTERNET", "com.google.android.gms"));
+        for (String name : PLATFORM_PERMISSIONS) {
+            try {
+                log("getPermissionInfo", pm.getPermissionInfo(name, 0), ITEM, PERMISSION);
+            } catch (PackageManager.NameNotFoundException e) {
+                Log.i(TAG, "getPermissionInfo " + name + ": NameNotFoundException " + e.getMessage());
+            }
+        }
+        signatures(pm, bare);
+        for (String feature : FEATURES_ASKED) {
+            Log.i(TAG, "hasSystemFeature " + feature + " " + pm.hasSystemFeature(feature));
+        }
+        Log.i(TAG, "hasSystemFeature touchscreen in version 1 "
+                + pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN, 1));
         try {
             pm.getActivityInfo(new ComponentName(PACKAGE, PACKAGE + ".Missing"), 0);
             Log.i(TAG, "getActivityInfo Missing answered");
         } catch (PackageManager.NameNotFoundException e) {
             Log.i(TAG, "getActivityInfo Missing: NameNotFoundException " + e.getMessage());
         }
+    }
+
+    @SuppressWarnings("deprecation") // GET_SIGNATURES, which apps still ask for.
+    private static void signatures(PackageManager pm, PackageInfo bare) throws Exception {
+        PackageInfo signed = pm.getPackageInfo(PACKAGE,
+                PackageManager.GET_SIGNATURES | PackageManager.GET_SIGNING_CERTIFICATES);
+        Log.i(TAG, "signatures " + digests(signed.signatures));
+        SigningInfo signing = signed.signingInfo;
+        Log.i(TAG, "signingInfo " + (signing == null ? "null" : "hasMultipleSigners=" + signing.hasMultipleSigners()
+                + ", hasPastSigningCertificates=" + signing.hasPastSigningCertificates()
+                + ", apkContentsSigners=" + digests(signing.getApkContentsSigners())
+                + ", signingCertificateHistory=" + digests(signing.getSigningCertificateHistory())));
+        Log.i(TAG, "without the flags signatures " + Arrays.toString(bare.signatures) + ", signingInfo "
+                + bare.signingInfo);
+        Log.i(TAG, "checkSignatures itself " + pm.checkSignatures(PACKAGE, PACKAGE) + ", Play services "
+                + pm.checkSignatures(PACKAGE, "com.google.android.gms") + ", its uid "
+                + pm.checkSignatures(Process.myUid(), Process.myUid()));
+        byte[] certificate = signed.signatures[0].toByteArray();
+        Log.i(TAG, "hasSigningCertificate itself " + pm.hasSigningCertificate(PACKAGE, certificate,
+                PackageManager.CERT_INPUT_RAW_X509) + ", another certificate " + pm.hasSigningCertificate(PACKAGE,
+                new byte[] {0x30, 0x00}, PackageManager.CERT_INPUT_RAW_X509) + ", its uid "
+                + pm.hasSigningCertificate(Process.myUid(), certificate, PackageManager.CERT_INPUT_RAW_X509)
+                + ", Play services " + pm.hasSigningCertificate("com.google.android.gms", certificate,
+                PackageManager.CERT_INPUT_RAW_X509));
+    }
+
+    /** Each certificate's SHA-256 in hex, in a list, or null. */
+    private static String digests(Signature[] signatures) {
+        if (signatures == null) {
+            return "null";
+        }
+        List<String> digests = new ArrayList<>();
+        for (Signature signature : signatures) {
+            StringBuilder hex = new StringBuilder();
+            for (byte b : sha256(signature.toByteArray())) {
+                hex.append(String.format("%02x", b));
+            }
+            digests.add(hex.toString());
+        }
+        return digests.toString();
+    }
+
+    /** SHA-256 (FIPS 180-4), here because Minato's guest has no JCA provider yet. */
+    static byte[] sha256(byte[] message) {
+        int[] h = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+        int length = ((message.length + 8) / 64 + 1) * 64;
+        byte[] data = Arrays.copyOf(message, length);
+        data[message.length] = (byte) 0x80;
+        long bits = (long) message.length * 8;
+        for (int i = 0; i < 8; i++) {
+            data[length - 1 - i] = (byte) (bits >>> (8 * i));
+        }
+        int[] w = new int[64];
+        for (int block = 0; block < length; block += 64) {
+            for (int t = 0; t < 16; t++) {
+                int at = block + 4 * t;
+                w[t] = (data[at] & 0xff) << 24 | (data[at + 1] & 0xff) << 16 | (data[at + 2] & 0xff) << 8
+                        | (data[at + 3] & 0xff);
+            }
+            for (int t = 16; t < 64; t++) {
+                int s0 = Integer.rotateRight(w[t - 15], 7) ^ Integer.rotateRight(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+                int s1 = Integer.rotateRight(w[t - 2], 17) ^ Integer.rotateRight(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+                w[t] = w[t - 16] + s0 + w[t - 7] + s1;
+            }
+            int a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], k = h[7];
+            for (int t = 0; t < 64; t++) {
+                int t1 = k + (Integer.rotateRight(e, 6) ^ Integer.rotateRight(e, 11) ^ Integer.rotateRight(e, 25))
+                        + ((e & f) ^ (~e & g)) + K[t] + w[t];
+                int t2 = (Integer.rotateRight(a, 2) ^ Integer.rotateRight(a, 13) ^ Integer.rotateRight(a, 22))
+                        + ((a & b) ^ (a & c) ^ (b & c));
+                k = g;
+                g = f;
+                f = e;
+                e = d + t1;
+                d = c;
+                c = b;
+                b = a;
+                a = t1 + t2;
+            }
+            h[0] += a;
+            h[1] += b;
+            h[2] += c;
+            h[3] += d;
+            h[4] += e;
+            h[5] += f;
+            h[6] += g;
+            h[7] += k;
+        }
+        byte[] digest = new byte[32];
+        for (int i = 0; i < 32; i++) {
+            digest[i] = (byte) (h[i / 4] >>> (24 - 8 * (i % 4)));
+        }
+        return digest;
     }
 
     @SuppressWarnings("deprecation") // the int flags, as apps below API 33 pass them.

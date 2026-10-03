@@ -58,18 +58,19 @@ public enum APKAnalyzer {
             playDependencies: playDependencies(manifest),
             engine: engine(allLibraryNames),
             iconPath: chooseIcon(manifest, resources: resources, archive: archive),
-            signature: signature(of: archive),
+            signature: signature(of: archive, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
         report.compatibility = compatibility(of: report, manifest: manifest)
         return report
     }
 
     /// The certificates and the signer as the file names them, checked cryptographically (ADR-0034,
-    /// step d): once verified, the signer is the one the check proved.
-    static func signature(of archive: ZipArchive) -> SignatureInfo {
+    /// step d): once verified, the signer is the one the check proved, and its proof is kept for signers.json.
+    static func signature(of archive: ZipArchive, targetSdk: Int) -> SignatureInfo {
         var signature = APKSignatures.read(archive)
-        let verification = SignatureVerifier.verify(archive)
+        let verification = SignatureVerifier.verify(archive, targetSdk: targetSdk)
         signature.check = verification.check
+        signature.proof = verification.proof
         if let signer = verification.signer { signature.signer = signer }
         return signature
     }

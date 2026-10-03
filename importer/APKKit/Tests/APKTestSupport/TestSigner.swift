@@ -24,6 +24,8 @@ public enum TestSigner {
     /// v3 signed data's attribute that says a v3.1 block carries the rotated key.
     public static let rotationMinSdkID: UInt32 = 0x559F_8B02
     public static let proofOfRotationID: UInt32 = 0x3BA0_6F8C
+    /// v3.1 signed data's attribute that says the signer is for the development preview of its minSdk.
+    public static let rotationOnDevReleaseID: UInt32 = 0xC2A6_B3BA
 
     // Capabilities of a lineage level (SigningCertificateLineage).
     public static let installedData: UInt32 = 1
@@ -66,6 +68,8 @@ public enum TestSigner {
         public var attributes: [(id: UInt32, value: Data)]
         /// The certificate the signer names, when it is not `key`'s: a signature made with another key.
         public var certificate: Data?
+        /// More certificates the signer lists after its own, as a chain does.
+        public var chain: [Data]
         /// The SubjectPublicKeyInfo the signer names, when it is not its certificate's bytes.
         public var publicKey: Data?
         /// Signed content digests of other bytes, when given: a digest that does not match.
@@ -78,8 +82,9 @@ public enum TestSigner {
         public init(_ key: TestKey, algorithms: [UInt32]? = nil, minSdk: UInt32 = 24, maxSdk: UInt32 = 0x7FFF_FFFF,
                     lineage: [Level] = [], attributes: [(id: UInt32, value: Data)] = [], certificate: Data? = nil,
                     publicKey: Data? = nil, digestOf: Data? = nil, digestAlgorithms: [UInt32]? = nil,
-                    signedSdk: (min: UInt32, max: UInt32)? = nil) {
+                    signedSdk: (min: UInt32, max: UInt32)? = nil, chain: [Data] = []) {
             self.certificate = certificate
+            self.chain = chain
             self.publicKey = publicKey
             self.digestOf = digestOf
             self.digestAlgorithms = digestAlgorithms
@@ -107,6 +112,8 @@ public enum TestSigner {
         /// Names the signer's issuer with PrintableStrings where its certificate has UTF8Strings: the
         /// same name by value, other bytes.
         public var reencodedIssuer = false
+        /// Certificates the signature block carries before the signer's own, which sign nothing.
+        public var certificatesBefore: [Data] = []
 
         public init(_ keys: [TestKey], digest: String = "SHA-256", signedAttributes: Bool = false,
                     androidSigned: String? = nil, wholeManifestDigest: Bool = true) {
@@ -148,7 +155,7 @@ public enum TestSigner {
         var attributes = signer.attributes
         if !signer.lineage.isEmpty { attributes.append((proofOfRotationID, proofOfRotation(signer.lineage))) }
         let encodedAttributes = attributes.map { prefixed(u32($0.id) + $0.value) }.reduce(Data(), +)
-        var signedData = prefixed(digests) + prefixed(prefixed(certificate))
+        var signedData = prefixed(digests) + prefixed(([certificate] + signer.chain).map(prefixed).reduce(Data(), +))
         if isV3 { signedData += u32(signer.signedSdk?.min ?? signer.minSdk) + u32(signer.signedSdk?.max ?? signer.maxSdk) }
         signedData += prefixed(encodedAttributes)
 
@@ -311,7 +318,7 @@ public enum TestSigner {
             DERWriter.integer(1),
             DERWriter.set([digestAlgorithm]),
             DERWriter.sequence([DERWriter.oid("1.2.840.113549.1.7.1")]),
-            DERWriter.tagged(0xA0, key.certificate),
+            DERWriter.tagged(0xA0, v1.certificatesBefore.reduce(Data(), +) + key.certificate),
             DERWriter.set([DERWriter.sequence(signerInfo)]),
         ])
         return DERWriter.sequence([DERWriter.oid("1.2.840.113549.1.7.2"), DERWriter.tagged(0xA0, signedData)])

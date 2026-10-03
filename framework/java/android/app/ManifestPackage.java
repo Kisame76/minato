@@ -7,10 +7,21 @@
  * per request as PackageInfoCommonUtils makes them, with the flags' filtering; what system_server adds at the install
  * (paths, uid, install times, FLAG_INSTALLED of the app and of its permissions) comes from the driver.
  *
- * Not read yet, each for the step that needs it: signatures (b3.5b, from the import), intent filters beyond whether
- * there are any (b3.5b), the platform's split permissions (b3.5b), <uses-library> (sharedLibraryFiles), <layout>,
- * <property>, <grant-uri-permission>, <path-permission>, featureFlag attributes (b3.5b, for framework-res's
- * manifest), splits and instrumentation.
+ * Since b3.5b1 it also reads, as Android 15 does:
+ * <ul>
+ *   <li>the platform's permissions, from framework-res's manifest as the package "android", once;</li>
+ *   <li>the split permissions of /system/etc/permissions/platform.xml, which add implicit permissions below their
+ *       targetSdk (SystemConfig and ParsingPackageUtils.convertSplitPermissions);</li>
+ *   <li>android:featureFlag on every element, with the values framework-res was built with
+ *       (AconfigFlags.skipCurrentElement, ManifestFeatureFlags).</li>
+ * </ul>
+ * The runtime permissions' answers are PermissionPolicy's (ADR-0045 decision 6).
+ *
+ * Who signed the app comes from the import's signers.json (ADR-0034 decision 2), as SigningDetails.
+ *
+ * Not read yet, each for the step that needs it: intent filters beyond whether there are any (b3.5b2),
+ * <uses-library> (sharedLibraryFiles), <layout>, <property>, <grant-uri-permission>, <path-permission>,
+ * <permission-group>, <permission-tree>, splits and instrumentation.
  */
 package android.app;
 
@@ -27,6 +38,7 @@ import android.content.pm.PathPermission;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.SigningDetails;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -35,12 +47,26 @@ import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.os.Bundle;
 import android.os.Process;
+import android.os.SystemProperties;
+import android.util.Slog;
 import android.util.TypedValue;
+import android.util.Xml;
 import com.android.internal.R;
+import com.android.minato.permissions.PermissionPolicy;
+import com.android.minato.pm.SignersFile;
+import com.android.minato.pm.SystemFeatures;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -56,6 +82,34 @@ final class ManifestPackage {
     private static final UUID UUID_DEFAULT = UUID.fromString("41217664-9172-527a-b3d5-edabb50a7d69");
     private static final String META_LAUNCH_MODE = "android.activity.launch_mode";
     private static final String META_REMOTE_DEVICES = "android.can_display_on_remote_devices";
+    private static final String ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android";
+    /** The platform's package, framework-res. */
+    private static final String PLATFORM = "android";
+    /** framework-res's folder, which AssetManager's system set holds (decision 8). */
+    private static final String FRAMEWORK_RES = "/system/framework/framework-res";
+    /** SystemConfig's file of the platform's permissions, of which the guest reads the split permissions. */
+    private static final String PLATFORM_XML = "/system/etc/permissions/platform.xml";
+    /** SystemConfig's targetSdk of a split that names none: CUR_DEVELOPMENT + 1, so it always applies. */
+    private static final int SPLIT_ALWAYS = 10001;
+    private static final String POLICY_TAG = "PermissionPolicy";
+
+    /** The platform's permissions by name, read once on first use. */
+    private static Map<String, PermissionInfo> sPlatformPermissions;
+    /** platform.xml's split permissions in its order, read once by the first manifest. */
+    private static List<Split> sSplits;
+
+    /** A <split-permission>: below targetSdk, requesting permission requests newPermissions too. */
+    private static final class Split {
+        final String permission;
+        final List<String> newPermissions;
+        final int targetSdk;
+
+        Split(String permission, List<String> newPermissions, int targetSdk) {
+            this.permission = permission;
+            this.newPermissions = newPermissions;
+            this.targetSdk = targetSdk;
+        }
+    }
 
     final String packageName;
     /** The app's Resources over base.apk and framework-res, with the system's configuration. */
@@ -69,6 +123,19 @@ final class ManifestPackage {
     private final List<ProviderInfo> mProviders = new ArrayList<>();
     private final List<PermissionInfo> mPermissions = new ArrayList<>();
     private final List<String> mRequestedPermissions = new ArrayList<>();
+    /** Each requested permission's android:usesPermissionFlags; 0 for an implicit one. */
+    private final Map<String, Integer> mUsesPermissionFlags = new HashMap<>();
+    /** The permissions added by compatibility and split permissions (ParsingPackage.getImplicitPermissions). */
+    private final Set<String> mImplicitPermissions = new HashSet<>();
+    /** Who signed the app, from the import's signers.json; UNKNOWN for an unsigned one. */
+    private SigningDetails mSigningDetails = SigningDetails.UNKNOWN;
+    /** Whether the missing X.509 provider was logged, once per process. */
+    private static boolean sX509Logged;
+    /** Denials already logged, each once. */
+    private final Set<String> mLoggedDenials = new HashSet<>();
+    /** Whether a departure from Android's grants was logged, once per app. */
+    private boolean mDepartureLogged;
+    private PermissionPolicy.App mPolicyApp;
     private final List<FeatureInfo> mFeatures = new ArrayList<>();
     private final List<ConfigurationInfo> mConfigurations = new ArrayList<>();
 
@@ -86,6 +153,15 @@ final class ManifestPackage {
      */
     static ManifestPackage read(String apk, String libraryDir, String dataDir)
             throws IOException, XmlPullParserException {
+        return read(apk, libraryDir, dataDir, null);
+    }
+
+    /**
+     * With the signers the import wrote (ADR-0034 decision 2, b3.5b1): a broken signers.json stops the app's start
+     * (SignersFile); null for an unsigned app.
+     */
+    static ManifestPackage read(String apk, String libraryDir, String dataDir, String signers)
+            throws IOException, XmlPullParserException {
         ApkAssets apkAssets = ApkAssets.loadFromPath(apk);
         AssetManager assets = new AssetManager();
         assets.setApkAssets(new ApkAssets[] {apkAssets}, false);
@@ -93,22 +169,156 @@ final class ManifestPackage {
         Resources res = new Resources(assets, system.getDisplayMetrics(), system.getConfiguration());
         try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(apk),
                 "AndroidManifest.xml")) {
-            int type;
-            while ((type = parser.next()) != XmlPullParser.START_TAG && type != XmlPullParser.END_DOCUMENT) {
-                // The manifest's first element.
-            }
-            if (type != XmlPullParser.START_TAG || !"manifest".equals(parser.getName())) {
-                throw new XmlPullParserException(apk + ": no <manifest>");
-            }
-            String name = parser.getAttributeValue(null, "package");
-            if (name == null || name.isEmpty()) {
-                throw new XmlPullParserException(apk + ": <manifest> has no package");
-            }
-            ManifestPackage pkg = new ManifestPackage(name, res);
+            ManifestPackage pkg = new ManifestPackage(manifestElement(parser, apk), res);
             pkg.parseManifest(parser);
             pkg.install(apk, libraryDir, dataDir);
+            if (signers != null) {
+                pkg.mSigningDetails = PackageSigning.details(SignersFile.read(new File(signers)));
+            }
             return pkg;
         }
+    }
+
+    /** Moves to the manifest's first element, <manifest>, and returns its package. */
+    private static String manifestElement(XmlResourceParser parser, String where)
+            throws IOException, XmlPullParserException {
+        int type;
+        while ((type = parser.next()) != XmlPullParser.START_TAG && type != XmlPullParser.END_DOCUMENT) {
+            // The manifest's first element.
+        }
+        if (type != XmlPullParser.START_TAG || !"manifest".equals(parser.getName())) {
+            throw new XmlPullParserException(where + ": no <manifest>");
+        }
+        String name = parser.getAttributeValue(null, "package");
+        if (name == null || name.isEmpty()) {
+            throw new XmlPullParserException(where + ": <manifest> has no package");
+        }
+        return name;
+    }
+
+    /** Who signed the app, for checkSignatures and hasSigningCertificate. */
+    SigningDetails signingDetails() {
+        return mSigningDetails;
+    }
+
+    /**
+     * The platform's permissions: framework-res's manifest read once as the package "android", as Android's package
+     * manager reads it at boot, with FLAG_INSTALLED as its permissions are installed. Only <permission> is read.
+     */
+    private static synchronized Map<String, PermissionInfo> platformPermissions() {
+        if (sPlatformPermissions == null) {
+            AssetManager assets = AssetManager.getSystem();
+            ManifestPackage platform;
+            try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(FRAMEWORK_RES),
+                    "AndroidManifest.xml")) {
+                platform = new ManifestPackage(manifestElement(parser, FRAMEWORK_RES), Resources.getSystem());
+                if (!PLATFORM.equals(platform.packageName)) {
+                    throw new XmlPullParserException(FRAMEWORK_RES + " is " + platform.packageName + ", not android");
+                }
+                int depth = parser.getDepth();
+                int type;
+                while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                        && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+                    if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1 && !skipped(parser)
+                            && "permission".equals(parser.getName())) {
+                        platform.parsePermission(parser);
+                    }
+                }
+            } catch (IOException | XmlPullParserException e) {
+                throw new IllegalStateException("cannot read the platform's permissions from " + FRAMEWORK_RES, e);
+            }
+            Map<String, PermissionInfo> permissions = new HashMap<>();
+            for (PermissionInfo permission : platform.mPermissions) {
+                permission.flags |= PermissionInfo.FLAG_INSTALLED;
+                permissions.put(permission.name, permission);
+            }
+            sPlatformPermissions = Collections.unmodifiableMap(permissions);
+        }
+        return sPlatformPermissions;
+    }
+
+    /**
+     * platform.xml's split permissions, as SystemConfig.readSplitPermission reads each <split-permission>: its name,
+     * its targetSdk (always, when it names none) and its <new-permission>s; one without a name, with a targetSdk
+     * that is not a number, or without a new permission is left out. A missing file gives no splits with a warning,
+     * as SystemConfig skips a missing file; a broken one stops the app's start.
+     */
+    private static synchronized List<Split> splits() {
+        if (sSplits == null) {
+            List<Split> splits = new ArrayList<>();
+            if (!new File(PLATFORM_XML).isFile()) {
+                Slog.w("SystemConfig", "No split permissions: " + PLATFORM_XML + " is missing");
+                sSplits = Collections.emptyList();
+                return sSplits;
+            }
+            try (InputStream in = new FileInputStream(PLATFORM_XML)) {
+                XmlPullParser parser = Xml.newPullParser();
+                parser.setInput(in, null);
+                int type;
+                while ((type = parser.next()) != XmlPullParser.END_DOCUMENT) {
+                    if (type != XmlPullParser.START_TAG || parser.getDepth() != 2
+                            || !"split-permission".equals(parser.getName())) {
+                        continue;
+                    }
+                    String permission = parser.getAttributeValue(null, "name");
+                    String target = parser.getAttributeValue(null, "targetSdk");
+                    int targetSdk = SPLIT_ALWAYS;
+                    boolean valid = permission != null;
+                    if (target != null && !target.isEmpty()) {
+                        try {
+                            targetSdk = Integer.parseInt(target);
+                        } catch (NumberFormatException e) {
+                            valid = false;
+                        }
+                    }
+                    List<String> newPermissions = new ArrayList<>();
+                    int depth = parser.getDepth();
+                    while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                            && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+                        if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1
+                                && "new-permission".equals(parser.getName())) {
+                            String name = parser.getAttributeValue(null, "name");
+                            if (name != null && !name.isEmpty()) {
+                                newPermissions.add(name);
+                            }
+                        }
+                    }
+                    if (valid && !newPermissions.isEmpty()) {
+                        splits.add(new Split(permission, Collections.unmodifiableList(newPermissions), targetSdk));
+                    }
+                }
+            } catch (IOException | XmlPullParserException e) {
+                throw new IllegalStateException("cannot read the split permissions of " + PLATFORM_XML, e);
+            }
+            sSplits = Collections.unmodifiableList(splits);
+        }
+        return sSplits;
+    }
+
+    /**
+     * AconfigFlags.skipCurrentElement: an element whose android:featureFlag is off ("!flag": on) is left out, and so
+     * is one whose flag is unknown, with ap3a's values (ManifestFeatureFlags) where Android reads the device's.
+     */
+    private static boolean skipped(XmlResourceParser parser) {
+        if (!android.content.res.Flags.manifestFlagging()) {
+            return false;
+        }
+        String flag = parser.getAttributeValue(ANDROID_NAMESPACE, "featureFlag");
+        if (flag == null) {
+            return false;
+        }
+        // AconfigFlags strips; trim is the same for a flag's name, and D8 warns about strip below API 33.
+        flag = flag.trim();
+        boolean negated = flag.startsWith("!");
+        if (negated) {
+            flag = flag.substring(1).trim();
+        }
+        int index = Arrays.binarySearch(ManifestFeatureFlags.NAMES, flag);
+        if (index < 0) {
+            Slog.w("AconfigFlags", "Skipping element " + parser.getName() + " due to unknown feature flag " + flag);
+            return true;
+        }
+        return ManifestFeatureFlags.VALUES[index] == negated;
     }
 
     // The manifest.
@@ -145,7 +355,7 @@ final class ManifestPackage {
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1) {
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
                 continue;
             }
             switch (parser.getName()) {
@@ -171,12 +381,24 @@ final class ManifestPackage {
                 addImplicit("android.permission.READ_PHONE_STATE");
             }
         }
+        // Then the split permissions below their targetSdk, in platform.xml's order
+        // (ParsingPackageUtils.convertSplitPermissions); a permission one adds can bring in a later one.
+        for (Split split : splits()) {
+            if (target < split.targetSdk && mRequestedPermissions.contains(split.permission)) {
+                for (String permission : split.newPermissions) {
+                    addImplicit(permission);
+                }
+            }
+        }
         mApplication.flags |= screenFlags();
     }
 
+    /** ParsingPackage.addImplicitPermission, for a permission not requested yet: requested, without flags. */
     private void addImplicit(String permission) {
         if (!mRequestedPermissions.contains(permission)) {
             mRequestedPermissions.add(permission);
+            mUsesPermissionFlags.put(permission, 0);
+            mImplicitPermissions.add(permission);
         }
     }
 
@@ -203,19 +425,91 @@ final class ManifestPackage {
         return v.data;
     }
 
-    private void parseUsesPermission(XmlResourceParser parser) {
+    private void parseUsesPermission(XmlResourceParser parser) throws IOException, XmlPullParserException {
         TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestUsesPermission);
+        String name;
+        int max;
+        int min;
+        int flags;
+        List<String> required = new ArrayList<>();
+        List<String> requiredNot = new ArrayList<>();
         try {
-            String name = sa.getNonResourceString(R.styleable.AndroidManifestUsesPermission_name);
-            int max = intOnly(sa, R.styleable.AndroidManifestUsesPermission_maxSdkVersion, Integer.MAX_VALUE);
-            int min = intOnly(sa, R.styleable.AndroidManifestUsesPermission_minSdkVersion, 0);
-            if (name == null || SDK < min || SDK > max || mRequestedPermissions.contains(name)) {
-                return;
+            name = sa.getNonResourceString(R.styleable.AndroidManifestUsesPermission_name);
+            max = intOnly(sa, R.styleable.AndroidManifestUsesPermission_maxSdkVersion, Integer.MAX_VALUE);
+            min = intOnly(sa, R.styleable.AndroidManifestUsesPermission_minSdkVersion, 0);
+            flags = sa.getInt(R.styleable.AndroidManifestUsesPermission_usesPermissionFlags, 0);
+            String feature = sa.getNonConfigurationString(R.styleable.AndroidManifestUsesPermission_requiredFeature, 0);
+            if (feature != null) {
+                required.add(feature);
             }
-            mRequestedPermissions.add(name);
+            feature = sa.getNonConfigurationString(R.styleable.AndroidManifestUsesPermission_requiredNotFeature, 0);
+            if (feature != null) {
+                requiredNot.add(feature);
+            }
         } finally {
             sa.recycle();
         }
+        int depth = parser.getDepth();
+        int type;
+        while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1) {
+                continue;
+            }
+            if ("required-feature".equals(parser.getName())) {
+                required.add(featureName(parser, R.styleable.AndroidManifestRequiredFeature,
+                        R.styleable.AndroidManifestRequiredFeature_name));
+            } else if ("required-not-feature".equals(parser.getName())) {
+                requiredNot.add(featureName(parser, R.styleable.AndroidManifestRequiredNotFeature,
+                        R.styleable.AndroidManifestRequiredNotFeature_name));
+            }
+        }
+        if (name == null || SDK < min || SDK > max) {
+            return;
+        }
+        // Requested only on a device with every required feature and none of the required-not ones, as the
+        // parser's callback answers.
+        boolean vulkan = vulkan();
+        for (String feature : required) {
+            if (!SystemFeatures.has(feature, 0, vulkan)) {
+                return;
+            }
+        }
+        for (String feature : requiredNot) {
+            if (SystemFeatures.has(feature, 0, vulkan)) {
+                return;
+            }
+        }
+        // A second request is ignored when its flags agree; when they do not, the parse fails.
+        Integer first = mUsesPermissionFlags.get(name);
+        if (first != null) {
+            if (first != flags) {
+                throw new IllegalStateException("Conflicting uses-permissions flags: " + name + " in package: "
+                        + packageName);
+            }
+            return;
+        }
+        mRequestedPermissions.add(name);
+        mUsesPermissionFlags.put(name, flags);
+    }
+
+    /** A <required-feature>'s or <required-not-feature>'s name, which must not be empty. */
+    private String featureName(XmlResourceParser parser, int[] styleable, int index) {
+        TypedArray sa = resources.obtainAttributes(parser, styleable);
+        try {
+            String name = sa.getString(index);
+            if (name == null || name.isEmpty()) {
+                throw new IllegalStateException("Feature name is missing from <" + parser.getName() + "> tag.");
+            }
+            return name;
+        } finally {
+            sa.recycle();
+        }
+    }
+
+    /** Whether the session has a Vulkan driver, which ro.hardware.vulkan names, as on Android (ADR-0045). */
+    static boolean vulkan() {
+        return !SystemProperties.get("ro.hardware.vulkan").isEmpty();
     }
 
     /** An int attribute only when it has an int type, as the parser reads <uses-permission>'s SDK bounds. */
@@ -227,8 +521,12 @@ final class ManifestPackage {
 
     private void parsePermission(XmlResourceParser parser) throws IOException, XmlPullParserException {
         TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestPermission);
-        PermissionInfo info = new PermissionInfo();
+        boolean platform = PLATFORM.equals(packageName);
+        PermissionInfo info;
         try {
+            // Only the platform names a background permission.
+            int background = R.styleable.AndroidManifestPermission_backgroundPermission;
+            info = new PermissionInfo(platform && sa.hasValue(background) ? sa.getNonResourceString(background) : null);
             item(info, sa, R.styleable.AndroidManifestPermission_name, R.styleable.AndroidManifestPermission_label,
                     R.styleable.AndroidManifestPermission_icon, R.styleable.AndroidManifestPermission_logo,
                     R.styleable.AndroidManifestPermission_banner);
@@ -237,9 +535,12 @@ final class ManifestPackage {
             info.requestRes = sa.getResourceId(R.styleable.AndroidManifestPermission_request, 0);
             info.protectionLevel = PermissionInfo.fixProtectionLevel(sa.getInt(
                     R.styleable.AndroidManifestPermission_protectionLevel, PermissionInfo.PROTECTION_NORMAL));
-            // Hard and soft restriction are the platform's alone.
-            info.flags = sa.getInt(R.styleable.AndroidManifestPermission_permissionFlags, 0)
-                    & ~(PermissionInfo.FLAG_HARD_RESTRICTED | PermissionInfo.FLAG_SOFT_RESTRICTED);
+            info.flags = sa.getInt(R.styleable.AndroidManifestPermission_permissionFlags, 0);
+            // Only the platform's runtime permissions can be hard or soft restricted.
+            if (!platform || (info.protectionLevel & PermissionInfo.PROTECTION_MASK_BASE)
+                    != PermissionInfo.PROTECTION_DANGEROUS) {
+                info.flags &= ~(PermissionInfo.FLAG_HARD_RESTRICTED | PermissionInfo.FLAG_SOFT_RESTRICTED);
+            }
             int max = sa.getInt(R.styleable.AndroidManifestPermission_maxSdkVersion, -1);
             if (max != -1 && max < SDK) {
                 return;
@@ -409,7 +710,7 @@ final class ManifestPackage {
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1) {
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
                 continue;
             }
             switch (parser.getName()) {
@@ -749,7 +1050,7 @@ final class ManifestPackage {
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1) {
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
                 continue;
             }
             if ("meta-data".equals(parser.getName())) {
@@ -771,7 +1072,7 @@ final class ManifestPackage {
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
             if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1
-                    && "action".equals(parser.getName())) {
+                    && "action".equals(parser.getName()) && !skipped(parser)) {
                 action = true;
             }
         }
@@ -907,7 +1208,19 @@ final class ManifestPackage {
                 info.requestedPermissions = mRequestedPermissions.toArray(new String[0]);
                 info.requestedPermissionsFlags = new int[info.requestedPermissions.length];
                 for (int i = 0; i < info.requestedPermissionsFlags.length; i++) {
-                    info.requestedPermissionsFlags[i] = PackageInfo.REQUESTED_PERMISSION_REQUIRED;
+                    String name = info.requestedPermissions[i];
+                    int requested = PackageInfo.REQUESTED_PERMISSION_REQUIRED;
+                    if ((mUsesPermissionFlags.get(name) & PackageInfo.REQUESTED_PERMISSION_NEVER_FOR_LOCATION) != 0) {
+                        requested |= PackageInfo.REQUESTED_PERMISSION_NEVER_FOR_LOCATION;
+                    }
+                    if (mImplicitPermissions.contains(name)) {
+                        requested |= PackageInfo.REQUESTED_PERMISSION_IMPLICIT;
+                    }
+                    // What system_server adds from the permission's state.
+                    if (granted(name)) {
+                        requested |= PackageInfo.REQUESTED_PERMISSION_GRANTED;
+                    }
+                    info.requestedPermissionsFlags[i] = requested;
                 }
             }
         }
@@ -935,7 +1248,28 @@ final class ManifestPackage {
             }
             info.providers = providers.isEmpty() ? null : providers.toArray(new ProviderInfo[0]);
         }
+        // As PackageInfoCommonUtils gives them (PackageSigning).
+        if ((flags & PackageManager.GET_SIGNATURES) != 0) {
+            info.signatures = PackageSigning.signatures(mSigningDetails);
+            noX509();
+        }
+        if ((flags & PackageManager.GET_SIGNING_CERTIFICATES) != 0) {
+            info.signingInfo = PackageSigning.signingInfo(mSigningDetails);
+            noX509();
+        }
         return info;
+    }
+
+    /**
+     * The boot jars hold no X.509 provider (Conscrypt or BouncyCastle), so Signature.getPublicKey,
+     * SigningInfo.getPublicKeys and an app's own CertificateFactory have nothing to parse with: logged once, an open
+     * item of ADR-0039. The certificates' bytes, which most checks hash, are Android's.
+     */
+    private static synchronized void noX509() {
+        if (!sX509Logged) {
+            sX509Logged = true;
+            Slog.w("PackageManager", "Signatures without public keys: the boot jars have no X.509 provider");
+        }
     }
 
     ApplicationInfo applicationInfo(long flags) {
@@ -1030,5 +1364,78 @@ final class ManifestPackage {
             info.metaData = null;
         }
         return info;
+    }
+
+    // Permissions.
+
+    /** getPermissionInfo's answer: the app's own permission or the platform's, or null for one nobody declares. */
+    PermissionInfo permissionInfo(String name, long flags) {
+        PermissionInfo template = ownPermission(name);
+        if (template == null) {
+            template = platformPermissions().get(name);
+        }
+        return template != null ? permissionInfo(template, flags) : null;
+    }
+
+    private PermissionInfo ownPermission(String name) {
+        for (PermissionInfo permission : mPermissions) {
+            if (permission.name.equals(name)) {
+                return permission;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether the app holds the permission: PermissionPolicy's answer (ADR-0045 decision 6), with what the platform's
+     * splits pass on. Each denial is logged once, and a grant that departs from Android once per app.
+     */
+    boolean granted(String permission) {
+        PermissionPolicy.Decision decision = PermissionPolicy.decide(policyApp(), permission);
+        synchronized (mLoggedDenials) {
+            if (decision.grant == PermissionPolicy.Grant.GRANTED) {
+                if (!decision.departure.isEmpty() && !mDepartureLogged) {
+                    mDepartureLogged = true;
+                    Slog.i(POLICY_TAG, packageName + ": " + decision.departure
+                            + " (ADR-0045 decision 6, a logged departure)");
+                }
+                return true;
+            }
+            if (mLoggedDenials.add(permission)) {
+                Slog.i(POLICY_TAG, packageName + " is denied " + permission + ": " + decision.reason);
+            }
+        }
+        return false;
+    }
+
+    /** The app as PermissionPolicy sees it, made on first use, since it reads the platform's permissions. */
+    private synchronized PermissionPolicy.App policyApp() {
+        if (mPolicyApp == null) {
+            Set<String> declared = new HashSet<>();
+            for (PermissionInfo permission : mPermissions) {
+                declared.add(permission.name);
+            }
+            // Each new permission with the permissions split into it, whatever the split's targetSdk, as
+            // setInitialGrantForNewImplicitPermissionsLocked maps them.
+            Map<String, List<String>> sources = new HashMap<>();
+            for (Split split : splits()) {
+                for (String permission : split.newPermissions) {
+                    sources.computeIfAbsent(permission, name -> new ArrayList<>()).add(split.permission);
+                }
+            }
+            mPolicyApp = new PermissionPolicy.App(mApplication.targetSdkVersion, new HashSet<>(mRequestedPermissions),
+                    Collections.unmodifiableSet(mImplicitPermissions), declared,
+                    name -> sources.getOrDefault(name, Collections.emptyList()), this::protectionLevel);
+        }
+        return mPolicyApp;
+    }
+
+    /** The permission's PermissionInfo.protectionLevel, the app's own or the platform's; UNKNOWN for neither. */
+    private int protectionLevel(String permission) {
+        PermissionInfo info = ownPermission(permission);
+        if (info == null) {
+            info = platformPermissions().get(permission);
+        }
+        return info != null ? info.protectionLevel : PermissionPolicy.UNKNOWN;
     }
 }

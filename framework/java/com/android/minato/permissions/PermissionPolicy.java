@@ -1,6 +1,10 @@
 package com.android.minato.permissions;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
 
 /**
  * Runtime permissions answered at once, without a dialog (ADR-0045 decision 6), by a permission's protection level
@@ -16,9 +20,11 @@ import java.util.Set;
  *   <li>normal permissions are granted; storage up to targetSdk 32, since /storage/emulated/0 belongs to the app
  *       alone in Minato; every other dangerous one is denied.</li>
  * </ol>
- * Every denial is "denied, don't ask again", and shouldShowRequestPermissionRationale is false. A denial carries
- * its reason for the log line; a grant carries none. Plain Java, so tools/framework-host-check.sh runs it on the
- * host's JVM.
+ * A runtime permission that a split added is granted when a permission it was split from is granted
+ * ({@link #decide(App, String)}). Every denial is "denied, don't ask again", and
+ * shouldShowRequestPermissionRationale is false. A denial carries its reason for the log line; a grant carries none,
+ * unless it departs from Android, which its departure names. Plain Java, so tools/framework-host-check.sh runs it
+ * on the host's JVM.
  */
 public final class PermissionPolicy {
     /** PermissionInfo's bases. */
@@ -36,10 +42,40 @@ public final class PermissionPolicy {
         public final Grant grant;
         /** Why it is denied, for the log; empty for a grant. */
         public final String reason;
+        /** How a grant departs from what Android 15 gives at an install, for the log once per app; else empty. */
+        public final String departure;
 
-        private Decision(Grant grant, String reason) {
+        private Decision(Grant grant, String reason, String departure) {
             this.grant = grant;
             this.reason = reason;
+            this.departure = departure;
+        }
+    }
+
+    /** What an app's answers depend on beyond each permission's own: its requests and the platform's splits. */
+    public static final class App {
+        final int targetSdk;
+        final Set<String> requested;
+        final Set<String> implicit;
+        final Set<String> declared;
+        final Function<String, List<String>> sources;
+        final ToIntFunction<String> levels;
+
+        /**
+         * @param requested every permission the app requests, the implicit ones among them
+         * @param implicit  those that compatibility and split permissions added
+         * @param declared  those the app's manifest declares
+         * @param sources   for a permission, the permissions of every split that names it as a new permission
+         * @param levels    a permission's PermissionInfo.protectionLevel, or {@link #UNKNOWN}
+         */
+        public App(int targetSdk, Set<String> requested, Set<String> implicit, Set<String> declared,
+                   Function<String, List<String>> sources, ToIntFunction<String> levels) {
+            this.targetSdk = targetSdk;
+            this.requested = requested;
+            this.implicit = implicit;
+            this.declared = declared;
+            this.sources = sources;
+            this.levels = levels;
         }
     }
 
@@ -54,7 +90,7 @@ public final class PermissionPolicy {
     /** The last targetSdk whose storage permissions Minato grants (Android 13 replaced them). */
     private static final int LAST_STORAGE_SDK = 32;
 
-    private static final Decision GRANTED = new Decision(Grant.GRANTED, "");
+    private static final Decision GRANTED = new Decision(Grant.GRANTED, "", "");
 
     private PermissionPolicy() {
     }
@@ -97,12 +133,57 @@ public final class PermissionPolicy {
         return denied("a dangerous permission, which nothing in M4 backs");
     }
 
+    /**
+     * The permission's answer for the app: its own decision, and for a runtime permission that a split added, a
+     * permission it was split from passes its grant on (decision 6 as accepted 2026-10-03).
+     * <ul>
+     *   <li>From a source granted at the install, such as BLUETOOTH, that is Android's rule at an install
+     *       (PermissionManagerServiceImpl.setInitialGrantForNewImplicitPermissionsLocked and
+     *       inheritPermissionStateToNewImplicitPermissionLocked).</li>
+     *   <li>From a runtime source, such as storage, Android passes the grant on only at an update; Minato's storage
+     *       grant stands for the user's earlier yes, and the decision names the departure.</li>
+     * </ul>
+     * A source that is denied, or that the app does not request, passes nothing on; through a chain of splits a
+     * source is decided as the permission is, and a cycle ends.
+     */
+    public static Decision decide(App app, String permission) {
+        return decide(app, permission, new HashSet<>());
+    }
+
+    private static Decision decide(App app, String permission, Set<String> deciding) {
+        int level = app.levels.applyAsInt(permission);
+        Decision own = decide(permission, level, app.targetSdk, app.requested.contains(permission),
+                app.declared.contains(permission));
+        if (own.grant == Grant.GRANTED || !app.implicit.contains(permission)
+                || (level & PROTECTION_MASK_BASE) != PROTECTION_DANGEROUS || !deciding.add(permission)) {
+            return own;
+        }
+        try {
+            String runtimeSource = null;
+            for (String source : app.sources.apply(permission)) {
+                if (decide(app, source, deciding).grant != Grant.GRANTED) {
+                    continue;
+                }
+                if ((app.levels.applyAsInt(source) & PROTECTION_MASK_BASE) != PROTECTION_DANGEROUS) {
+                    return GRANTED;
+                }
+                if (runtimeSource == null) {
+                    runtimeSource = source;
+                }
+            }
+            return runtimeSource == null ? own : new Decision(Grant.GRANTED, "", permission + " takes the grant of "
+                    + runtimeSource + ", a runtime permission, which Android 15 passes on only at an update");
+        } finally {
+            deciding.remove(permission);
+        }
+    }
+
     /** Every denial is fixed, so Android would show no rationale either. */
     public static boolean shouldShowRequestPermissionRationale(String permission) {
         return false;
     }
 
     private static Decision denied(String reason) {
-        return new Decision(Grant.DENIED_FIXED, reason);
+        return new Decision(Grant.DENIED_FIXED, reason, "");
     }
 }

@@ -15,19 +15,30 @@ public enum SignatureVerifier {
     /// v3 signed data's attribute saying that a v3.1 block carries the rotated key.
     static let rotationMinSdkID: UInt32 = 0x559F_8B02
     static let proofOfRotationID: UInt32 = 0x3BA0_6F8C
+    /// v3.1 signed data's attribute saying that the signer is for the development preview of its minSdk.
+    static let rotationOnDevReleaseID: UInt32 = 0xC2A6_B3BA
+    /// Android 15's SDK version, which ApkSignatureSchemeV3Verifier compares as an int.
+    static let platformSDK = Int32(APKSignatures.platformSDK)
     static let chunkSize = 1 << 20
 
-    public static func verify(_ archive: ZipArchive) -> SignatureVerification {
+    /// The check of `archive`, whose manifest names `targetSdk`. A proof that signers.json cannot hold leaves the
+    /// file unverified: the guest would not see that signer (ADR-0034 decision 2).
+    public static func verify(_ archive: ZipArchive, targetSdk: Int) -> SignatureVerification {
+        let verification: SignatureVerification
         do {
-            return try check(archive)
+            verification = try check(archive, targetSdk: targetSdk)
         } catch let failure as SignatureFailure {
             return SignatureVerification(check: .failed(failure))
         } catch {
             return SignatureVerification(check: .failed(SignatureFailure(.damaged, "\(error)")))
         }
+        if let proof = verification.proof, let problem = SignersFile.problem(with: proof) {
+            return SignatureVerification(check: .unverified(problem))
+        }
+        return verification
     }
 
-    static func check(_ archive: ZipArchive) throws -> SignatureVerification {
+    static func check(_ archive: ZipArchive, targetSdk: Int) throws -> SignatureVerification {
         let block: (offset: UInt64, pairs: [(UInt32, Data)])?
         do {
             block = try APKSignatures.signingBlock(archive)
@@ -41,12 +52,22 @@ public enum SignatureVerifier {
             schemes[id] = value
         }
         if let block {
+            // What v3.1 leaves for v3's rotation-min-sdk attribute (ApkSignatureSchemeV3Verifier's
+            // mOptionalRotationMinSdkVersion).
+            var rotationMinSdk: Int32?
             for id in [v31ID, v3ID, v2ID] {
                 guard let value = schemes[id] else { continue }
-                if let result = try verifyScheme(id, value, archive: archive, blockOffset: block.offset, present: Set(schemes.keys)) {
+                if let result = try verifyScheme(id, value, archive: archive, blockOffset: block.offset,
+                                                 present: Set(schemes.keys), rotationMinSdk: &rotationMinSdk) {
                     return result
                 }
             }
+        }
+        // From targetSdkVersion 30 on, Android needs v2 or newer and does not look at v1
+        // (ApkSignatureVerifier.java:218-226 and 572-577).
+        if targetSdk >= 30, archive.entries.contains(where: { APKSignatures.isV1SignatureFile($0.name) }) {
+            throw SignatureFailure(.noV2Signature,
+                                   "No APK Signature Scheme v2 signature: only v1, which targetSdkVersion \(targetSdk) does not allow")
         }
         return try JarVerifier.verify(archive, present: Set(schemes.keys))
     }
@@ -209,10 +230,10 @@ public enum SignatureVerifier {
         var publicKey = Data()
     }
 
-    /// The scheme's verification; nil for v3 or v3.1 without a signer for Android 15, so the next
-    /// older scheme decides.
+    /// The scheme's verification; nil for v3.1 without a signer for Android 15, so that v3 or an older scheme
+    /// decides (ApkSignatureSchemeV3Verifier.java:136-155).
     static func verifyScheme(_ id: UInt32, _ value: Data, archive: ZipArchive, blockOffset: UInt64,
-                             present: Set<UInt32>) throws -> SignatureVerification? {
+                             present: Set<UInt32>, rotationMinSdk: inout Int32?) throws -> SignatureVerification? {
         let isV3 = id != v2ID
         let signers: [Signer]
         do {
@@ -232,31 +253,43 @@ public enum SignatureVerifier {
         guard signers.count <= JarVerifier.maximumSigners else {
             throw SignatureFailure(.signatureMismatch, "more than \(JarVerifier.maximumSigners) \(name(id)) signers")
         }
-        var applicable = signers
-        if isV3 {
-            // The Android versions the filter reads are not signed yet; a changed one fails its check below.
-            applicable = signers.filter { $0.minSdk <= APKSignatures.platformSDK && APKSignatures.platformSDK <= $0.maxSdk }
-            // As on Android, only v3.1 falls back to v3; v3 without a signer for Android 15 fails.
-            if applicable.isEmpty, id == v31ID { return nil }
-            guard !applicable.isEmpty else { throw SignatureFailure(.signatureMismatch, "no v3 signer for Android 15") }
-            guard applicable.count == 1 else {
-                throw SignatureFailure(.signatureMismatch, "\(applicable.count) \(name(id)) signers for Android 15")
-            }
-        }
-
         var unverifiable: String?
         var contentDigests: [ContentDigest: Data] = [:]
-        var lineage: [LineageNode] = []
-        for signer in applicable {
+        // The signers that count, in the block's order, each with its verified lineage.
+        var counted: [(certificate: Data, lineage: [SignerProof.Level])] = []
+        for signer in signers {
+            // A v3 signer for other Android versions is skipped before its signature is checked.
+            if isV3, !isForAndroid15(signer, scheme: id, rotationMinSdk: &rotationMinSdk) { continue }
             do {
                 let (digest, value) = try verifySigner(signer, scheme: id, present: present)
                 if let known = contentDigests[digest], known != value {
                     throw SignatureFailure(.damaged, "the \(name(id)) signers' content digests differ")
                 }
                 contentDigests[digest] = value
-                if isV3 { lineage = try verifyLineage(of: signer) }
             } catch let reason as Unverifiable {
                 unverifiable = reason.reason
+            }
+            var lineage: [SignerProof.Level] = []
+            if isV3 {
+                do {
+                    // nil: a v3.1 signer for Android 15's development preview, which the release skips.
+                    guard let verified = try verifyAttributes(of: signer, scheme: id, rotationMinSdk: &rotationMinSdk) else {
+                        continue
+                    }
+                    lineage = verified
+                } catch let reason as Unverifiable {
+                    unverifiable = reason.reason
+                }
+            }
+            counted.append((signer.certificates[0], lineage))
+        }
+        if isV3 {
+            // As ApkSignatureSchemeV3Verifier.java:233-245: v3.1 without a signer for Android 15 falls back to v3,
+            // v3 without one fails, and one signer at most.
+            if counted.isEmpty, id == v31ID { return nil }
+            guard !counted.isEmpty else { throw SignatureFailure(.signatureMismatch, "no v3 signer for Android 15") }
+            guard counted.count == 1 else {
+                throw SignatureFailure(.signatureMismatch, "\(counted.count) \(name(id)) signers for Android 15")
             }
         }
         for (digest, expected) in contentDigests.sorted(by: { $0.key < $1.key }) {
@@ -265,8 +298,58 @@ public enum SignatureVerifier {
             }
         }
         if let unverifiable { return SignatureVerification(check: .unverified(unverifiable)) }
-        let current = applicable.map { SigningCertificate(der: $0.certificates[0]).sha256 }
-        return SignatureVerification(check: .verified, signer: SignerIdentity(current: current, lineage: lineage))
+        let scheme: SignatureInfo.Scheme = switch id {
+        case v2ID: .v2
+        case v3ID: .v3
+        default: .v31
+        }
+        return SignatureVerification(check: .verified, proof: SignerProof(
+            scheme: scheme, certificates: counted.map(\.certificate), lineage: isV3 ? counted[0].lineage : []))
+    }
+
+    /// Whether a v3 or v3.1 signer is for Android 15, its Android versions read as the ints Android reads
+    /// (ApkSignatureSchemeV3Verifier.java:274-292). A v3.1 signer for others leaves the lowest of their minSdk
+    /// for v3's rotation-min-sdk attribute.
+    static func isForAndroid15(_ signer: Signer, scheme id: UInt32, rotationMinSdk: inout Int32?) -> Bool {
+        let minSdk = Int32(bitPattern: signer.minSdk)
+        if minSdk <= platformSDK, platformSDK <= Int32(bitPattern: signer.maxSdk) { return true }
+        if id == v31ID, rotationMinSdk.map({ $0 > minSdk }) ?? true { rotationMinSdk = minSdk }
+        return false
+    }
+
+    /// A v3 or v3.1 signer's additional attributes in their order, as ApkSignatureSchemeV3Verifier's
+    /// verifyAdditionalAttributes (444-527) reads them: the verified lineage, empty without one, at most one
+    /// (459-461); v3.1's block for what the rotation-min-sdk attribute names (479-500); nil for a v3.1 signer for
+    /// the development preview of Android 15, which a release ("REL") skips (502-519).
+    static func verifyAttributes(of signer: Signer, scheme id: UInt32,
+                                 rotationMinSdk: inout Int32?) throws -> [SignerProof.Level]? {
+        var lineage: [SignerProof.Level]?
+        for attribute in signer.attributes {
+            switch attribute.id {
+            case proofOfRotationID:
+                guard lineage == nil else {
+                    throw SignatureFailure(.signatureMismatch, "a \(name(id)) signer has two proofs of rotation")
+                }
+                lineage = try verifyLineage(attribute.value, of: signer)
+            case rotationMinSdkID:
+                // v3.1's block must be there and target what this attribute names; otherwise someone removed it.
+                guard attribute.value.count >= 4 else { throw SignatureFailure(.damaged, "a short rotation-min-sdk attribute") }
+                let named = Int32(bitPattern: try ByteReader(attribute.value).u32(at: 0))
+                guard let rotationMinSdk else {
+                    throw SignatureFailure(.signatureMismatch, "the v3.1 signature for SDK \(named) on was removed")
+                }
+                guard rotationMinSdk == named else {
+                    throw SignatureFailure(.signatureMismatch,
+                                           "the \(name(id)) signer names v3.1 for SDK \(named) on, but v3.1 targets \(rotationMinSdk)")
+                }
+            case rotationOnDevReleaseID where id == v31ID && Int32(bitPattern: signer.signedMinSdk) == platformSDK:
+                rotationMinSdk = platformSDK
+                return nil
+            default:
+                break
+            }
+        }
+        return lineage ?? []
     }
 
     static func signer(_ data: Data, isV3: Bool) throws -> Signer {
@@ -337,11 +420,6 @@ public enum SignatureVerifier {
                try ByteReader(attribute.value).u32(at: 0) == 3, !present.contains(v3ID) {
                 throw SignatureFailure(.signatureMismatch, "the v3 signature was removed")
             }
-            // v3 decides only when v3.1 has no signer for Android 15; this attribute says it should have one.
-            if id == v3ID, attribute.id == rotationMinSdkID, attribute.value.count >= 4,
-               try ByteReader(attribute.value).u32(at: 0) <= APKSignatures.platformSDK {
-                throw SignatureFailure(.signatureMismatch, "the v3.1 signature for Android 15 was removed")
-            }
         }
         guard let value = signer.digests.first(where: { $0.algorithm == signature.algorithm })?.value else {
             throw SignatureFailure(.signatureMismatch, "the \(scheme) signer has no digest for its signature")
@@ -349,16 +427,16 @@ public enum SignatureVerifier {
         return (digest, value)
     }
 
-    /// The older certificates of a v3 signer's proof of rotation, each level verified with the key of
-    /// the level before, with the algorithm that level names (as apksig's
-    /// V3SigningCertificateLineage reads it). The lineage ends with the signer's own certificate.
-    static func verifyLineage(of signer: Signer) throws -> [LineageNode] {
-        guard let value = signer.attributes.first(where: { $0.id == proofOfRotationID })?.value else { return [] }
-        var levels: [(certificate: Data, flags: UInt32)] = []
+    /// A v3 signer's proof of rotation, oldest first, each level verified with the key of the level before
+    /// and the algorithm that level names, as ApkSigningBlockUtils.verifyProofOfRotationStruct (819-906) reads
+    /// it: its version is not looked at, and a certificate may appear once. A lineage ends with the signer's own
+    /// certificate (ApkSignatureSchemeV3Verifier.java:462-473); one without levels is none.
+    static func verifyLineage(_ value: Data, of signer: Signer) throws -> [SignerProof.Level] {
+        var levels: [SignerProof.Level] = []
         var seen: Set<Data> = []
         do {
             var reader = ByteReader(value, context: "proof of rotation")
-            guard try reader.u32() == 1 else { throw SignatureFailure(.damaged, "a proof of rotation of another version") }
+            _ = try reader.u32() // the version
             var previous: (certificate: Data, algorithm: UInt32)?
             while reader.remaining > 0 {
                 guard levels.count < APKSignatures.maximumListLength else {
@@ -389,7 +467,7 @@ public enum SignatureVerifier {
                 guard seen.insert(certificate).inserted else {
                     throw SignatureFailure(.signatureMismatch, "a certificate appears twice in the lineage")
                 }
-                levels.append((certificate, flags))
+                levels.append(SignerProof.Level(certificate: certificate, flags: flags))
                 previous = (certificate, algorithmID)
             }
         } catch let error as SignatureFailure {
@@ -399,10 +477,10 @@ public enum SignatureVerifier {
         } catch {
             throw SignatureFailure(.damaged, "the proof of rotation: \(error)")
         }
-        guard levels.last?.certificate == signer.certificates.first else {
+        guard levels.isEmpty || levels.last?.certificate == signer.certificates.first else {
             throw SignatureFailure(.signatureMismatch, "the lineage does not end with the signer's certificate")
         }
-        return levels.dropLast().map { LineageNode(sha256: SigningCertificate(der: $0.certificate).sha256, flags: $0.flags) }
+        return levels
     }
 
     /// The content digest of v2 and v3: the entries up to the signing block, the central directory and

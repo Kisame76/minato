@@ -163,6 +163,12 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
+The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. Today only the Mac's harness mounts it; it ships in the guest system from step c on.
+
+| Project | Commit | License | File | Size | SHA-256 |
+|---|---|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/etc/platform.xml` | 18,104 | `4f1139ad764d74f3…` |
+
 ## Graphics sources (ADR-0043 a)
 
 Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Nothing of it ships before ADR-0043 a1 builds it.

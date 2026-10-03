@@ -99,11 +99,13 @@ def missing(art, bionic_system, app_process, framework_jar, apk, app):
 
 
 def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, apk,
-          package, application, mounts=(), configuration=None):
+          package, application, mounts=(), configuration=None, signers=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
     a timeout. libandroid_runtime.so beside app_process goes to /system/lib64, `mounts` are more --mount entries
     (guest path, host path), and `configuration` begins a session with apk-run's --configuration
-    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts."""
+    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts. `signers`, the APK's
+    signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it
+    in the version's folder, and ActivityThread gets it with --signers (b3.5b1)."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -127,6 +129,9 @@ def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, 
     shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
     os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
     os.makedirs(os.path.join(run, app.lstrip("/"), "lib", "arm64"))
+    if signers is not None:
+        shutil.copy(signers, os.path.join(run, app.lstrip("/"), "signers.json"))
+        os.chmod(os.path.join(run, app.lstrip("/"), "signers.json"), 0o444)
     shutil.copy(framework_jar, os.path.join(run, "framework", "framework.jar"))
     for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
                            (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
@@ -149,6 +154,8 @@ def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, 
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",
                 "--library-path", f"{app}/lib/arm64", "--data-dir", data, "--application", application]
+    if signers is not None:
+        command += ["--signers", f"{app}/signers.json"]
     try:
         return subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired:

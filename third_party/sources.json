@@ -478,6 +478,16 @@
       "digest": "5fa20dcbfc179a3e973896e6e6a2995f126ea0ed3b36648251ff27356e62672f"
     },
     {
+      "name": "frameworks_base_etc",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "data/etc/platform.xml"
+      ],
+      "digest": "9b38650dc509aff25e7113f971519c40e26e2030c77c0394a3e6517d69c097b0"
+    },
+    {
       "name": "location_api",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

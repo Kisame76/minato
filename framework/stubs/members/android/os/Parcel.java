@@ -1,8 +1,18 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 b3.1), which tools/managergen joins with it:
 // Configuration, ActivityInfo, Parcelling and others call them; ParcelFileDescriptor calls readRawFileDescriptor (b3.3),
 // ComponentInfo the String8 arrays (b3.4); BaseBundle and Bundle their map's and the helpers', ApplicationInfo and
-// PackageInfo the squashing (b3.5a).
+// PackageInfo the squashing (b3.5a), SigningDetails the ArraySet of its public keys (b3.5b1).
 class Parcel {
+    /** @hide */
+    public void writeArraySet(android.util.ArraySet<? extends Object> val) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public android.util.ArraySet<? extends Object> readArraySet(ClassLoader loader) {
+        throw new RuntimeException("stub");
+    }
+
     /** @hide */
     public final String[] readStringArray() {
         throw new RuntimeException("stub");

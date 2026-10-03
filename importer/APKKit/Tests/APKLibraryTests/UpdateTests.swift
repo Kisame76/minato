@@ -249,6 +249,7 @@ struct UpdateTests {
         var old = imported
         old.report?.signature.signer = nil
         old.report?.signature.check = nil
+        old.report?.signature.proof = nil
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let index = try encoder.encode(OldIndex(entries: [old]))
@@ -615,6 +616,8 @@ struct UpdateTests {
             try FileManager.default.moveItem(at: version.appendingPathComponent(name), to: app.appendingPathComponent(name))
         }
         try FileManager.default.removeItem(at: version)
+        // From before signers.json too (ADR-0034 decision 2, as changed for ADR-0039 b3.5b1).
+        try FileManager.default.removeItem(at: app.appendingPathComponent(SignersFile.fileName))
         try FileManager.default.createDirectory(at: app.appendingPathComponent("lib"), withIntermediateDirectories: true)
         try Data("elf".utf8).write(to: app.appendingPathComponent("lib/libold.so"))
         var old = imported
@@ -637,9 +640,10 @@ struct UpdateTests {
         let entry = try #require(await library.entries.first)
         #expect(entry.folder == nil)
         #expect(sandbox.paths.versionDirectory(for: entry) == app)
-        // A launch keeps the old layout's files, which belong to the entry, and removes only the version folder.
+        // A launch keeps the old layout's files, which belong to the entry, removes only the version folder, and
+        // writes the signers.json the version lacks from its base.apk.
         #expect(try await library.scan().isEmpty)
-        #expect(Self.appFolder(sandbox) == ["abc", "base.apk", "icon.png", "lib", "notaversionfolde"])
+        #expect(Self.appFolder(sandbox) == ["abc", "base.apk", "icon.png", "lib", "notaversionfolde", "signers.json"])
         #expect(await library.resignCandidates() == [ResignCandidate(id: entry.id, signedWith: nil, containerCount: 1)])
 
         let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))

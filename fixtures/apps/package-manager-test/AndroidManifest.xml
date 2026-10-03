@@ -2,9 +2,12 @@
 <!-- ADR-0039 b3.5a's test (package-manager-test): PackageManager's answers about the app's own package, from this
      manifest. It declares what decision 7's reader takes: the application's attributes, meta-data of every kind,
      activities with an alias, a service, a provider and a receiver, requested and declared permissions, features and
-     a configuration. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
-     process on Android; the other components are never started, and only the provider, which Android instantiates
-     at the start, exists as a class. -->
+     a configuration. Since b3.5b1 also a permission with usesPermissionFlags, ACCESS_FINE_LOCATION, which
+     platform.xml splits into ACCESS_COARSE_LOCATION at every targetSdk, and two permissions that depend on a feature
+     no device has: one requires it and is left out, the other requires its absence and stays. The launcher activity
+     is the framework's own android.app.Activity, so that `am start` starts the process on Android; the other
+     components are never started, and only the provider, which Android instantiates at the start, exists as a
+     class. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.packagemanager" android:versionCode="7" android:versionName="1.2.3"
     android:installLocation="auto">
@@ -13,6 +16,12 @@
   <uses-permission android:name="android.permission.CAMERA"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
   <uses-permission android:name="io.github.kisame76.minato.test.packagemanager.OWN"/>
+  <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+  <uses-permission android:name="android.permission.VIBRATE"
+      android:requiredFeature="io.github.kisame76.minato.test.none"/>
+  <uses-permission android:name="android.permission.WAKE_LOCK"
+      android:requiredNotFeature="io.github.kisame76.minato.test.none"/>
   <permission android:name="io.github.kisame76.minato.test.packagemanager.OWN" android:protectionLevel="signature"
       android:label="@string/permission_label" android:description="@string/description"/>
   <permission android:name="io.github.kisame76.minato.test.packagemanager.OPEN"/>

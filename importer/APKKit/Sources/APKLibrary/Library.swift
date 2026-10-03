@@ -34,6 +34,7 @@ public actor Library {
     /// interrupted import also those left over from last time. What such an import left in apps/ goes first.
     public func scan() throws -> [URL] {
         removeLeftovers()
+        syncSignersFiles()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
         return try fileManager.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: nil)
@@ -164,6 +165,12 @@ public actor Library {
             // On APFS the copy is a clone and takes no extra space.
             try fileManager.copyItem(at: url, to: versionDirectory.appendingPathComponent("base.apk"))
             base = PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest)
+            // Who signed it, for the guest's PackageManager (ADR-0034 decision 2): what the check proved, so an
+            // unsigned or unverified APK has none.
+            if report.signature.check == .verified, let proof = report.signature.proof {
+                try SignersFile.content(of: proof)
+                    .write(to: versionDirectory.appendingPathComponent(SignersFile.fileName), options: .atomic)
+            }
             try paths.prepareData(for: package)
         }
         progress(0.85)
@@ -211,7 +218,7 @@ public actor Library {
         let signature = entry.report?.signature
         if signature?.check == nil || signature?.signer?.knowsCapabilities != true, let base = entry.base,
            let archive = try? ZipArchive(url: paths.versionDirectory(for: entry).appendingPathComponent(base.fileName)) {
-            let verification = SignatureVerifier.verify(archive)
+            let verification = SignatureVerifier.verify(archive, targetSdk: entry.report?.targetSdk ?? 0)
             version.signerProven = verification.check == .verified
             if let signer = verification.signer ?? APKSignatures.read(archive).signer { version.signer = signer }
         }
@@ -269,6 +276,40 @@ public actor Library {
                 for name in (try? fileManager.contentsOfDirectory(atPath: appDirectory.path)) ?? [] where Self.isVersionFolder(name) {
                     try? fileManager.removeItem(at: appDirectory.appendingPathComponent(name))
                 }
+            }
+        }
+    }
+
+    /// Makes each version's signers.json what its check proved (ADR-0034 decision 2): written when it is missing
+    /// or differs, removed when the check did not verify. A report from before the proof was recorded has its
+    /// base.apk checked once, and keeps the result.
+    private func syncSignersFiles() {
+        var checked: [String: SignatureInfo] = [:]
+        for entry in entries {
+            guard let base = entry.base, let report = entry.report else { continue }
+            let directory = paths.versionDirectory(for: entry)
+            var signature = report.signature
+            if signature.proof == nil, signature.check == nil || signature.check == .verified,
+               let archive = try? ZipArchive(url: directory.appendingPathComponent(base.fileName)) {
+                let verification = SignatureVerifier.verify(archive, targetSdk: report.targetSdk)
+                signature.check = verification.check
+                signature.proof = verification.proof
+                if let signer = verification.signer { signature.signer = signer }
+                checked[entry.id] = signature
+            }
+            let target = directory.appendingPathComponent(SignersFile.fileName)
+            guard signature.check == .verified, let proof = signature.proof,
+                  let expected = try? SignersFile.content(of: proof) else {
+                try? FileManager.default.removeItem(at: target)
+                continue
+            }
+            if (try? Data(contentsOf: target)) != expected {
+                try? expected.write(to: target, options: .atomic)
+            }
+        }
+        if !checked.isEmpty {
+            try? recordAll { entry in
+                if let signature = checked[entry.id] { entry.report?.signature = signature }
             }
         }
     }

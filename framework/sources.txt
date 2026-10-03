@@ -206,3 +206,10 @@ frameworks_base/core/java/android/os/BaseBundle.java
 frameworks_base/core/java/android/os/Bundle.java
 frameworks_base/core/java/android/os/SystemClock.java
 frameworks_base/core/java/android/os/SimpleClock.java
+
+# b3.5b1: the signatures PackageManager answers from the import's signers.json: Signature, SigningDetails with its
+# lineage, the SigningInfo of GET_SIGNING_CERTIFICATES, and PackageUtils, whose SHA-256 SigningDetails compares.
+frameworks_base/core/java/android/content/pm/Signature.java
+frameworks_base/core/java/android/content/pm/SigningDetails.java
+frameworks_base/core/java/android/content/pm/SigningInfo.java
+frameworks_base/core/java/android/util/PackageUtils.java

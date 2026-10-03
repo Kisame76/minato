@@ -21,10 +21,13 @@
 # android.app.Activity, on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at density 480: the AVD
 # apk-runner-35-iphone, the same image with that display, which the script creates and starts for it alone (the
 # window manager forces at most three times apk-runner-35's 320 x 480 px on a side). styled-text-test (ADR-0039
-# b3.4b) and package-manager-test (b3.5a) are Java apps of the same kind on apk-runner-35's display, on which their
-# styled strings and PackageManager's answers do not depend. A test app's lines of logcat with its own tag (logcat -v
-# tag) must be fixtures/expected/<app>.logcat; those with the tag
-# <app>-device differ by device and are only shown. The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
+# b3.4b), package-manager-test (b3.5a) and package-manager-legacy-test (b3.5b1) are Java apps of the same kind on
+# apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
+# manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
+# whose hardware is closer to Minato's; its image still declares apk-runner-35's system features. --features writes
+# that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). A test app's lines of logcat with its own tag (logcat -v tag) must
+# be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
+# The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
 # A Java program of fixtures/java (ADR-0033 b) runs with --art as `dalvikvm64 -Xint` runs it from
@@ -38,6 +41,7 @@
 #        tools/android-reference.sh --app <app>
 #        tools/android-reference.sh --art <program> [<library>]
 #        tools/android-reference.sh --art-run-tests
+#        tools/android-reference.sh --features
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
 # Optional environment:
 #   ANDROID_HOME      SDK with emulator, platform-tools and the system image, default: ~/Library/Android/sdk
@@ -86,8 +90,12 @@ app=""
 art=""
 art_library=""
 art_run_tests=""
+features=""
 if [[ $# -eq 1 && "$1" == --art-run-tests ]]; then
   art_run_tests=yes
+  fixtures=()
+elif [[ $# -eq 1 && "$1" == --features ]]; then
+  features=yes
   fixtures=()
 elif [[ $# -eq 2 && "$1" == --app ]]; then
   app=$2
@@ -110,6 +118,19 @@ avd_display=""
 if [[ "$app" == config-test ]]; then
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
+fi
+# The package manager's tests and the system features: apk-runner-35-bare, without the hardware Minato reports as
+# absent (ADR-0045 decision 4); the microphone stays.
+if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test ]]; then
+  AVD=apk-runner-35-bare
+  avd_display=""
+  for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
+      hw.sensors.pressure hw.sensors.humidity hw.sensors.proximity hw.sensors.magnetic_field \
+      hw.sensors.magnetic_field_uncalibrated hw.sensors.gyroscope_uncalibrated hw.sensors.orientation \
+      hw.sensors.temperature hw.sensors.rgbclight hw.sensors.heart_rate hw.sensors.wrist_tilt hw.sensors.heading; do
+    avd_display+="$key=no"$'\n'
+  done
+  avd_display+=$'hw.camera.back=none\nhw.camera.front=none\n'
 fi
 
 create_avd() {
@@ -240,16 +261,18 @@ present_timestamp_back() {
 
 run_app() {
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
-  local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity
+  local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask=
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
   case "$app" in
     bench-gles | bench-vulkan)
       apk="$BENCH/$app.apk" manifest="graphics/bench/android/$app/AndroidManifest.xml" build=tools/build-bench.sh
       last=" failures"
       ;;
-    # A Java app (ADR-0039) with the framework's activity, which ends its log with "done".
-    config-test | styled-text-test | package-manager-test)
+    # A Java app (ADR-0039) with the framework's activity, which ends its log with "done"; its own certificate's
+    # SHA-256 is marked (b3.5b1).
+    config-test | styled-text-test | package-manager-test | package-manager-legacy-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      mask=yes
       ;;
     # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
     present-gles | present-vulkan)
@@ -359,6 +382,16 @@ run_app() {
   sleep 1
   app_lines "$app" >"$RESULTS/$app.logcat"
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  if [[ -n "$mask" ]]; then
+    # make-apk signs with a per-machine debug key (ADR-0031): each certificate SHA-256 the APK's check proved becomes
+    # the mark of its role that framework/tests/java_app_run.py puts in our log, so the expected file holds no
+    # machine's certificate.
+    swift build --package-path importer/APKKit --product apk-inspect >/dev/null
+    local inspect
+    inspect="$(swift build --package-path importer/APKKit --show-bin-path)/apk-inspect"
+    python3 framework/tests/certificate_mask.py "$inspect" "$apk" <"$RESULTS/$app.logcat" >"$RESULTS/$app.logcat.masked"
+    mv "$RESULTS/$app.logcat.masked" "$RESULTS/$app.logcat"
+  fi
   if [[ "$last" == " failures" ]]; then
     # Compared with nothing: the run counts frames and no failure, and the app finished itself without a crash.
     local finished=no activities crashes
@@ -391,6 +424,17 @@ run_app() {
   fi
   sed 's/^/    /' "$RESULTS/$app-device.logcat"
 }
+
+if [[ -n "$features" ]]; then
+  run pm list features | tr -d '\r' | sort >"$RESULTS/system-features.txt"
+  if cmp -s fixtures/expected/system-features.txt "$RESULTS/system-features.txt"; then
+    echo "same     system features ($(wc -l <"$RESULTS/system-features.txt" | tr -d ' '))"
+    exit 0
+  fi
+  echo "DIFFERS  system features"
+  diff -u fixtures/expected/system-features.txt "$RESULTS/system-features.txt" | sed 's/^/    /' || true
+  exit 1
+fi
 
 if [[ -n "$app" ]]; then
   if [[ "$app" == present-gles || "$app" == present-vulkan ]]; then

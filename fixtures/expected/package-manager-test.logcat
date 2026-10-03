@@ -1,6 +1,7 @@
 I/package-manager-test: package packageName=io.github.kisame76.minato.test.packagemanager, splitNames=[], versionCode=7, versionName=1.2.3, baseRevisionCode=0, splitRevisionCodes=[], sharedUserId=null, sharedUserLabel=0x0, firstInstallTime=<time>, lastUpdateTime=<time, not before the first install>, installLocation=0, isApex=false
 I/package-manager-test: longVersionCode 7
-I/package-manager-test: requestedPermissions [android.permission.INTERNET, android.permission.CAMERA, io.github.kisame76.minato.test.packagemanager.OWN]
+I/package-manager-test: requestedPermissions [android.permission.INTERNET, android.permission.CAMERA, io.github.kisame76.minato.test.packagemanager.OWN, android.permission.BLUETOOTH_SCAN, android.permission.ACCESS_FINE_LOCATION, android.permission.WAKE_LOCK, android.permission.ACCESS_COARSE_LOCATION]
+I/package-manager-test: requestedPermissionsFlags [0x3, 0x1, 0x3, 0x10001, 0x1, 0x3, 0x5]
 I/package-manager-test: application name=io.github.kisame76.minato.test.packagemanager.PackageManagerApplication, packageName=io.github.kisame76.minato.test.packagemanager, labelRes=0x7f010000, nonLocalizedLabel=null, icon=0x1080093, logo=0x0, banner=0x0, isArchived=false, metaData={color=-13408615 (Integer), flag=true (Boolean), number=42 (Integer), ratio=1.5 (Float), resource=2130837504 (Integer), string_ref=Package Manager Test (String), text=plain (String)}, taskAffinity=io.github.kisame76.minato.test.packagemanager, permission=null, processName=io.github.kisame76.minato.test.packagemanager, className=io.github.kisame76.minato.test.packagemanager.PackageManagerApplication, descriptionRes=0x7f010001, theme=0x1030237, manageSpaceActivityName=null, backupAgentName=null, uiOptions=0x0, flags=0x30d83e44, requiresSmallestWidthDp=0, compatibleWidthLimitDp=0, largestWidthLimitDp=0, storageUuid=41217664-9172-527a-b3d5-edabb50a7d69, sourceDir=/data/app/~~<a>/io.github.kisame76.minato.test.packagemanager-<b>/base.apk, publicSourceDir=/data/app/~~<a>/io.github.kisame76.minato.test.packagemanager-<b>/base.apk, splitNames=null, splitSourceDirs=null, splitPublicSourceDirs=null, sharedLibraryFiles=null, dataDir=/data/user/0/io.github.kisame76.minato.test.packagemanager, deviceProtectedDataDir=/data/user_de/0/io.github.kisame76.minato.test.packagemanager, nativeLibraryDir=/data/app/~~<a>/io.github.kisame76.minato.test.packagemanager-<b>/lib/arm64, uid=<app uid>, minSdkVersion=29, targetSdkVersion=35, compileSdkVersion=35, compileSdkVersionCodename=15, enabled=true, appComponentFactory=null, category=7
 I/package-manager-test: application uid is myUid true
 I/package-manager-test: activity name=android.app.Activity, packageName=io.github.kisame76.minato.test.packagemanager, labelRes=0x0, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, applicationInfo=<io.github.kisame76.minato.test.packagemanager>, processName=io.github.kisame76.minato.test.packagemanager, splitName=null, attributionTags=[], descriptionRes=0x0, enabled=true, exported=true, directBootAware=false, theme=0x0, launchMode=0, documentLaunchMode=0, persistableMode=0, maxRecents=8, permission=null, taskAffinity=io.github.kisame76.minato.test.packagemanager, targetActivity=null, flags=0x10200, screenOrientation=-1, configChanges=0x3, softInputMode=0x0, uiOptions=0x0, parentActivityName=null, colorMode=0, windowLayout=null, requiredDisplayCategory=null
@@ -32,5 +33,38 @@ I/package-manager-test: getPackageInfo com.android.vending: NameNotFoundExceptio
 I/package-manager-test: getApplicationInfo com.android.vending: NameNotFoundException com.android.vending
 I/package-manager-test: getPackageInfo io.github.kisame76.minato.test.nothing: NameNotFoundException io.github.kisame76.minato.test.nothing
 I/package-manager-test: getApplicationInfo io.github.kisame76.minato.test.nothing: NameNotFoundException io.github.kisame76.minato.test.nothing
+I/package-manager-test: checkPermission android.permission.INTERNET 0
+I/package-manager-test: checkPermission android.permission.CAMERA -1
+I/package-manager-test: checkPermission io.github.kisame76.minato.test.packagemanager.OWN 0
+I/package-manager-test: checkPermission android.permission.BLUETOOTH_SCAN -1
+I/package-manager-test: checkPermission android.permission.ACCESS_FINE_LOCATION -1
+I/package-manager-test: checkPermission android.permission.WAKE_LOCK 0
+I/package-manager-test: checkPermission android.permission.ACCESS_COARSE_LOCATION -1
+I/package-manager-test: checkPermission not requested -1, another package's -1
+I/package-manager-test: getPermissionInfo name=android.permission.INTERNET, packageName=android, labelRes=0x10407b7, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1000, group=null, flags=0x40000000, descriptionRes=0x10406ec, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.CAMERA, packageName=android, labelRes=0x10407ac, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1001, group=android.permission-group.UNDEFINED, flags=0x40000000, descriptionRes=0x10406e1, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.READ_EXTERNAL_STORAGE, packageName=android, labelRes=0x104080a, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1, group=android.permission-group.UNDEFINED, flags=0x40000018, descriptionRes=0x104073f, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.ACCESS_FINE_LOCATION, packageName=android, labelRes=0x104078a, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1001, group=android.permission-group.UNDEFINED, flags=0x40000000, descriptionRes=0x10406bf, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.ACCESS_BACKGROUND_LOCATION, packageName=android, labelRes=0x1040787, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1001, group=android.permission-group.UNDEFINED, flags=0x40000004, descriptionRes=0x10406bc, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.READ_LOGS, packageName=android, labelRes=0x0, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x32, group=null, flags=0x40000000, descriptionRes=0x0, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.POST_NOTIFICATIONS, packageName=android, labelRes=0x10407e5, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x1001, group=android.permission-group.UNDEFINED, flags=0x40000000, descriptionRes=0x104071a, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo name=android.permission.CAMERA_HEADLESS_SYSTEM_USER, packageName=android, labelRes=0x10407ad, nonLocalizedLabel=null, icon=0x0, logo=0x0, banner=0x0, isArchived=false, metaData=null, protectionLevel=0x2, group=android.permission-group.UNDEFINED, flags=0x40000000, descriptionRes=0x10406e2, nonLocalizedDescription=null
+I/package-manager-test: getPermissionInfo android.permission.QUARANTINE_APPS: NameNotFoundException android.permission.QUARANTINE_APPS
+I/package-manager-test: getPermissionInfo io.github.kisame76.minato.test.NOBODY: NameNotFoundException io.github.kisame76.minato.test.NOBODY
+I/package-manager-test: signatures [<the APK's certificate>]
+I/package-manager-test: signingInfo hasMultipleSigners=false, hasPastSigningCertificates=false, apkContentsSigners=[<the APK's certificate>], signingCertificateHistory=[<the APK's certificate>]
+I/package-manager-test: without the flags signatures null, signingInfo null
+I/package-manager-test: checkSignatures itself 0, Play services -4, its uid 0
+I/package-manager-test: hasSigningCertificate itself true, another certificate false, its uid true, Play services false
+I/package-manager-test: hasSystemFeature android.hardware.audio.output true
+I/package-manager-test: hasSystemFeature android.hardware.faketouch true
+I/package-manager-test: hasSystemFeature android.hardware.ram.normal true
+I/package-manager-test: hasSystemFeature android.hardware.screen.landscape true
+I/package-manager-test: hasSystemFeature android.hardware.screen.portrait true
+I/package-manager-test: hasSystemFeature android.hardware.touchscreen true
+I/package-manager-test: hasSystemFeature android.hardware.touchscreen.multitouch.jazzhand true
+I/package-manager-test: hasSystemFeature android.software.app_enumeration true
+I/package-manager-test: hasSystemFeature io.github.kisame76.minato.test.none false
+I/package-manager-test: hasSystemFeature touchscreen in version 1 false
 I/package-manager-test: getActivityInfo Missing: NameNotFoundException ComponentInfo{io.github.kisame76.minato.test.packagemanager/io.github.kisame76.minato.test.packagemanager.Missing}
 I/package-manager-test: done

@@ -4,6 +4,10 @@ import com.android.minato.permissions.PermissionPolicy.Decision;
 import com.android.minato.permissions.PermissionPolicy.Grant;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * ADR-0045 decision 6 on the host's JVM (tools/framework-host-check.sh): each runtime permission answered at once,
@@ -137,6 +141,101 @@ public final class PermissionPolicyTest {
                 "a grant logs nothing");
         check(!PermissionPolicy.decide("android.permission.CAMERA", DANGEROUS, 35, true, false).reason.isEmpty(),
                 "a denial names its reason");
+    }
+
+    // 6. Implicit permissions (decision 6 as accepted 2026-10-03): a runtime one a split added is granted when a
+    // permission it was split from is granted. From an install-time source that is Android's own rule at an
+    // install; from a runtime source (storage), Android's at an update, a logged departure.
+
+    private static final String P = "android.permission.";
+    // platform.xml's splits, as the test needs them: each new permission with the permissions split into it.
+    private static final Map<String, List<String>> SPLITS = Map.of(
+            P + "BLUETOOTH_SCAN", List.of(P + "BLUETOOTH", P + "BLUETOOTH_ADMIN"),
+            P + "BLUETOOTH_CONNECT", List.of(P + "BLUETOOTH", P + "BLUETOOTH_ADMIN"),
+            P + "ACCESS_COARSE_LOCATION", List.of(P + "ACCESS_FINE_LOCATION"),
+            P + "ACCESS_BACKGROUND_LOCATION", List.of(P + "ACCESS_FINE_LOCATION", P + "ACCESS_COARSE_LOCATION"),
+            P + "ACCESS_MEDIA_LOCATION", List.of(P + "READ_EXTERNAL_STORAGE", P + "WRITE_EXTERNAL_STORAGE"),
+            P + "READ_MEDIA_IMAGES", List.of(P + "READ_EXTERNAL_STORAGE", P + "WRITE_EXTERNAL_STORAGE"),
+            P + "READ_MEDIA_VISUAL_USER_SELECTED",
+                    List.of(P + "READ_MEDIA_IMAGES", P + "READ_MEDIA_VIDEO", P + "ACCESS_MEDIA_LOCATION"));
+    private static final Map<String, Integer> LEVELS = Map.of(P + "BLUETOOTH", NORMAL, P + "BLUETOOTH_ADMIN", NORMAL,
+            P + "READ_LOGS", SIGNATURE);
+
+    /** An app of targetSdk that requests explicit and has implicit added. */
+    private static PermissionPolicy.App app(int targetSdk, List<String> explicit, List<String> implicit) {
+        Set<String> requested = new HashSet<>(explicit);
+        requested.addAll(implicit);
+        // Every other permission of the test is dangerous.
+        return new PermissionPolicy.App(targetSdk, requested, new HashSet<>(implicit), Set.of(),
+                name -> SPLITS.getOrDefault(name, List.of()), name -> LEVELS.getOrDefault(name, DANGEROUS));
+    }
+
+    public void testBluetoothFromAnInstallTimeSource() {
+        PermissionPolicy.App app = app(28, List.of(P + "BLUETOOTH"),
+                List.of(P + "BLUETOOTH_SCAN", P + "BLUETOOTH_CONNECT"));
+        Decision scan = PermissionPolicy.decide(app, P + "BLUETOOTH_SCAN");
+        check(scan.grant == Grant.GRANTED, "BLUETOOTH_SCAN from BLUETOOTH");
+        check(scan.departure.isEmpty(), "Android's own rule: " + scan.departure);
+        check(PermissionPolicy.decide(app, P + "BLUETOOTH_CONNECT").grant == Grant.GRANTED, "BLUETOOTH_CONNECT");
+        check(PermissionPolicy.decide(app, P + "BLUETOOTH").grant == Grant.GRANTED, "BLUETOOTH, normal");
+    }
+
+    public void testStorageToMediaWithTheChainIsALoggedDeparture() {
+        PermissionPolicy.App app = app(28, List.of(P + "READ_EXTERNAL_STORAGE"), List.of(P + "ACCESS_MEDIA_LOCATION",
+                P + "READ_MEDIA_IMAGES", P + "READ_MEDIA_VISUAL_USER_SELECTED"));
+        check(PermissionPolicy.decide(app, P + "READ_EXTERNAL_STORAGE").grant == Grant.GRANTED, "storage at 28");
+        for (String media : new String[] {"ACCESS_MEDIA_LOCATION", "READ_MEDIA_IMAGES"}) {
+            Decision decision = PermissionPolicy.decide(app, P + media);
+            check(decision.grant == Grant.GRANTED, media + " from storage");
+            check(decision.departure.contains(P + "READ_EXTERNAL_STORAGE"), media + "'s departure: "
+                    + decision.departure);
+        }
+        Decision chain = PermissionPolicy.decide(app, P + "READ_MEDIA_VISUAL_USER_SELECTED");
+        check(chain.grant == Grant.GRANTED, "VISUAL_USER_SELECTED through READ_MEDIA_IMAGES");
+        check(!chain.departure.isEmpty(), "the chain is the departure too");
+    }
+
+    public void testAnImplicitPermissionGrantedOnItsOwnIsNoDeparture() {
+        // WRITE_EXTERNAL_STORAGE splits into READ_EXTERNAL_STORAGE at every targetSdk; storage is granted up to 32.
+        Map<String, List<String>> splits = Map.of(P + "READ_EXTERNAL_STORAGE", List.of(P + "WRITE_EXTERNAL_STORAGE"));
+        PermissionPolicy.App app = new PermissionPolicy.App(28,
+                Set.of(P + "WRITE_EXTERNAL_STORAGE", P + "READ_EXTERNAL_STORAGE"), Set.of(P + "READ_EXTERNAL_STORAGE"),
+                Set.of(), name -> splits.getOrDefault(name, List.of()), name -> DANGEROUS);
+        Decision read = PermissionPolicy.decide(app, P + "READ_EXTERNAL_STORAGE");
+        check(read.grant == Grant.GRANTED && read.departure.isEmpty(), "storage's own grant: " + read.departure);
+    }
+
+    public void testFromADeniedSourceStaysDenied() {
+        PermissionPolicy.App app = app(28, List.of(P + "ACCESS_FINE_LOCATION"),
+                List.of(P + "ACCESS_COARSE_LOCATION", P + "ACCESS_BACKGROUND_LOCATION"));
+        for (String location : new String[] {"ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION",
+                "ACCESS_BACKGROUND_LOCATION"}) {
+            Decision decision = PermissionPolicy.decide(app, P + location);
+            check(decision.grant == Grant.DENIED_FIXED, location);
+            check(!decision.reason.isEmpty() && decision.departure.isEmpty(), location + ": " + decision.reason);
+        }
+        // Storage from targetSdk 33 on is denied, and so is what it would pass on.
+        PermissionPolicy.App late = app(33, List.of(P + "READ_EXTERNAL_STORAGE"), List.of(P + "ACCESS_MEDIA_LOCATION"));
+        check(PermissionPolicy.decide(late, P + "ACCESS_MEDIA_LOCATION").grant == Grant.DENIED_FIXED, "at 33");
+    }
+
+    public void testOnlyRuntimePermissionsInheritAndOnlyImplicitOnes() {
+        // A signature permission a split added keeps its denial.
+        Map<String, List<String>> splits = Map.of(P + "READ_LOGS", List.of(P + "BLUETOOTH"));
+        PermissionPolicy.App app = new PermissionPolicy.App(28, Set.of(P + "BLUETOOTH", P + "READ_LOGS"),
+                Set.of(P + "READ_LOGS"), Set.of(), name -> splits.getOrDefault(name, List.of()),
+                name -> LEVELS.getOrDefault(name, DANGEROUS));
+        check(PermissionPolicy.decide(app, P + "READ_LOGS").grant == Grant.DENIED_FIXED, "signature");
+        // The same dangerous permission requested by the manifest itself is not implicit.
+        PermissionPolicy.App explicit = app(28, List.of(P + "BLUETOOTH", P + "BLUETOOTH_SCAN"), List.of());
+        check(PermissionPolicy.decide(explicit, P + "BLUETOOTH_SCAN").grant == Grant.DENIED_FIXED, "explicit");
+    }
+
+    public void testASplitCycleEnds() {
+        Map<String, List<String>> splits = Map.of(P + "A", List.of(P + "B"), P + "B", List.of(P + "A"));
+        PermissionPolicy.App app = new PermissionPolicy.App(28, Set.of(P + "A", P + "B"), Set.of(P + "A", P + "B"),
+                Set.of(), name -> splits.getOrDefault(name, List.of()), name -> DANGEROUS);
+        check(PermissionPolicy.decide(app, P + "A").grant == Grant.DENIED_FIXED, "a cycle grants nothing");
     }
 
     public void testRationaleIsNeverShown() {
