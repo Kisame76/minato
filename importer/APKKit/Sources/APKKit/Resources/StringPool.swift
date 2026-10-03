@@ -3,7 +3,8 @@ import Foundation
 /// ResStringPool chunk, shared by binary XML and resources.arsc.
 ///
 /// A string that cannot be decoded becomes `nil` instead of failing the whole pool: obfuscators
-/// plant broken entries that Android itself only rejects if they are actually used.
+/// plant broken entries that Android itself only rejects if they are actually used. As ResStringPool
+/// gives a string (ResourceTypes.cpp:799-1015), one without its NUL cannot be decoded either.
 struct StringPool: Sendable {
     private let strings: [String?]
 
@@ -51,7 +52,11 @@ struct StringPool: Sendable {
         try reader.seek(to: position)
         if utf8 {
             _ = try utf8Length(&reader) // length in UTF-16 units, not needed
-            let byteCount = try utf8Length(&reader)
+            var byteCount = try utf8Length(&reader)
+            // aapt cut a length past 0x7FFF to its low 15 bits, so the NUL may lie a multiple of 0x8000 further.
+            while try reader.u8(at: reader.offset + byteCount) != 0 {
+                byteCount += 0x8000
+            }
             return String(decoding: try reader.bytes(byteCount), as: UTF8.self)
         }
         var length = Int(try reader.u16())
@@ -59,6 +64,7 @@ struct StringPool: Sendable {
             length = ((length & 0x7FFF) << 16) | Int(try reader.u16())
         }
         let bytes = try reader.bytes(length * 2)
+        guard try reader.u16() == 0 else { throw APKError.invalidBinaryXML("a string without its NUL") }
         let units = stride(from: 0, to: bytes.count, by: 2).map { UInt16(bytes[$0]) | UInt16(bytes[$0 + 1]) << 8 }
         return String(decoding: units, as: UTF16.self)
     }

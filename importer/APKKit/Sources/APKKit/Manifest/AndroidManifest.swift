@@ -8,6 +8,10 @@ public struct AndroidManifest: Sendable, Equatable {
     public var versionName: ResourceValue?
     public var minSdk: Int
     public var targetSdk: Int
+    /// Android's message when Android 15 refuses to install the app for its `<uses-sdk>`.
+    public var sdkRefusal: String?
+    /// The `<uses-sdk>` attribute that names a resource, which Android resolves and Minato does not.
+    public var sdkReference: String?
 
     /// Set when this APK is itself a split (`<manifest split="config.arm64_v8a">`).
     public var splitName: String?
@@ -48,6 +52,7 @@ public struct AndroidManifest: Sendable, Equatable {
     /// Qualified names of activities, aliases, services, receivers and providers.
     public var components: [String]
 
+    /// A codename's level, Build.VERSION_CODES.CUR_DEVELOPMENT, as a preview build gives it.
     public static let developmentSdk = 10_000
 
     public init(xml root: XMLElement) throws {
@@ -62,9 +67,11 @@ public struct AndroidManifest: Sendable, Equatable {
         versionCode = major << 32 | code
         versionName = root.android(.versionName)?.value
 
-        let sdk = root.children(named: "uses-sdk").first
-        minSdk = sdk.flatMap { Self.sdkLevel($0.android(.minSdkVersion)) } ?? 1
-        targetSdk = sdk.flatMap { Self.sdkLevel($0.android(.targetSdkVersion)) } ?? minSdk
+        let sdk = try UsesSdk(manifest: root)
+        minSdk = sdk.minSdk
+        targetSdk = sdk.targetSdk
+        sdkRefusal = sdk.refusal
+        sdkReference = sdk.reference
 
         splitName = root.attribute(named: "split")?.string
         isFeatureSplit = root.android(.isFeatureSplit)?.boolean ?? false
@@ -165,13 +172,6 @@ public struct AndroidManifest: Sendable, Equatable {
         if name.hasPrefix(".") { return package + name }
         if !name.contains(".") { return package + "." + name }
         return name
-    }
-
-    private static func sdkLevel(_ attribute: XMLAttribute?) -> Int? {
-        guard let attribute else { return nil }
-        if let level = attribute.integer { return level }
-        // A codename such as "Baklava" marks a preview SDK.
-        return attribute.string.map { _ in developmentSdk }
     }
 
     private static func launcher(in application: XMLElement, package: String) -> (className: String, element: XMLElement)? {

@@ -124,6 +124,52 @@ struct SignersFileLibraryTests {
         }
     }
 
+    /// Only a regular file with the proof's bytes stays: a folder or a link in its place goes, and a link's target
+    /// stays untouched.
+    @Test(arguments: ["folder", "link to the proof", "link to another file"])
+    func aScanReplacesWhatIsNotARegularFile(_ kind: String) async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let apk = SampleAPK.make()
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(apk, named: "game.apk")).entry
+        let target = Self.signersFile(sandbox, entry)
+        try FileManager.default.removeItem(at: target)
+        let elsewhere = sandbox.root.appendingPathComponent("elsewhere.json")
+        switch kind {
+        case "folder":
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+            try Data("inside".utf8).write(to: target.appendingPathComponent("file"))
+        case "link to the proof":
+            try Self.expected(apk).write(to: elsewhere)
+            try FileManager.default.createSymbolicLink(at: target, withDestinationURL: elsewhere)
+        default:
+            try Data("other".utf8).write(to: elsewhere)
+            try FileManager.default.createSymbolicLink(at: target, withDestinationURL: elsewhere)
+        }
+
+        _ = try await Library(paths: sandbox.paths).scan()
+
+        let type = try FileManager.default.attributesOfItem(atPath: target.path)[.type] as? FileAttributeType
+        #expect(type == .typeRegular)
+        #expect(try Data(contentsOf: target) == (try Self.expected(apk)))
+        if kind != "folder" { #expect(sandbox.exists(elsewhere)) }
+    }
+
+    /// A rewrite that fails leaves no file, never the one that was wrong.
+    @Test func aRewriteThatFailsLeavesNoFile() async throws {
+        struct Failed: Error {}
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        try Self.expected(SampleAPK.make(signers: [.rotated])).write(to: Self.signersFile(sandbox, entry))
+        let library = try Library(paths: sandbox.paths)
+        await library.failWritingSignersFile { throw Failed() }
+
+        _ = try await library.scan()
+
+        #expect(!sandbox.exists(Self.signersFile(sandbox, entry)))
+    }
+
     @Test func aScanRemovesTheFileOfAVersionNotProven() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

@@ -31,45 +31,59 @@ enum JarVerifier {
             throw SignatureFailure(.damaged, "\(manifestName) is missing")
         }
         let manifestBytes = try read(manifestEntry, from: archive)
-        let manifest = try JarManifest(manifestBytes, name: manifestName)
+        let manifest: JarManifest
+        do {
+            manifest = try JarManifest(manifestBytes, name: manifestName)
+        } catch let error as JarManifest.Unreadable {
+            throw SignatureFailure(.damaged, error.reason)
+        }
         // As StrictJarFile, before any signature: every section names an entry ("in manifest does not
         // exist"), so no signed entry can be left out.
         if let missing = manifest.sections.keys.first(where: { entries[$0] == nil }) {
             throw SignatureFailure(.damaged, "the manifest lists \(missing), which the file lacks")
         }
 
-        var signers: [(certificate: Data?, names: Set<ExactName>)] = []
+        // Android verifies the blocks in the order of StrictJarFile's metaEntries, a java.util.HashMap over the META-INF
+        // names (readCertificates, StrictJarVerifier.java:296-316), and keys each chain by its .SF (383). Once a block's
+        // .SF signs, it drops the .SF's bytes (487), so the .SF's later blocks go unread (368-371): its first block that
+        // signs is the signer. A .SF that gives up keeps its bytes, so each of its blocks is verified.
+        let rank = hashMapOrder(archive.entries.map(\.name).filter { $0.utf8.starts(with: "META-INF/".utf8) })
+        var signers: [ExactName: (certificate: Data?, names: Set<ExactName>)] = [:]
         var unverifiable: String?
-        for block in blocks {
-            let signatureFileName = String(block.name[..<block.name.lastIndex(of: ".")!]) + ".SF"
+        for block in blocks.sorted(by: { rank[ExactName($0.name)]! < rank[ExactName($1.name)]! }) {
+            let signatureFileName = Self.signatureFileName(of: block)
             // A signature block without its .SF signs nothing, as on Android.
-            guard let signatureFileEntry = entries[ExactName(signatureFileName)] else { continue }
+            guard signers[ExactName(signatureFileName)] == nil, let signatureFileEntry = entries[ExactName(signatureFileName)] else {
+                continue
+            }
             let signatureFileBytes = try read(signatureFileEntry, from: archive)
             // The signature first, as Android: a changed .SF is a signature that does not match.
             var certificate: Data?
-            var reason: String?
             do {
                 certificate = try PKCS7Signature.verify(try read(block, from: archive, maximum: 1 << 20), content: signatureFileBytes,
                                                         name: block.name)
             } catch let error as Unverifiable {
-                reason = error.reason
+                unverifiable = error.reason
             }
-            let signatureFile = try JarManifest(signatureFileBytes, name: signatureFileName)
-            // As StrictJarVerifier, a .SF without its version, an empty one too, signs nothing.
-            guard signatureFile.main["signature-version"] != nil else { continue }
-            try checkStripping(signatureFile, name: signatureFileName, present: present)
-            guard try verify(signatureFile, name: signatureFileName, against: manifest, bytes: manifestBytes) else { continue }
-            if let reason { unverifiable = reason }
-            signers.append((certificate, Set(signatureFile.sections.keys)))
+            if let signatureFile = try checkedSignatureFile(signatureFileBytes, name: signatureFileName, against: manifest,
+                                                            bytes: manifestBytes, present: present) {
+                signers[ExactName(signatureFileName)] = (certificate, Set(signatureFile.sections.keys))
+            }
         }
-        guard !signers.isEmpty else { throw SignatureFailure(.signatureMismatch, "no signature block signs the file") }
+        // Several signers keep the archive's order (a logged gap: Android's comes from a Hashtable).
+        var seen: Set<ExactName> = []
+        let ordered = blocks.compactMap { block in
+            let name = ExactName(signatureFileName(of: block))
+            return seen.insert(name).inserted ? signers[name] : nil
+        }
+        guard !ordered.isEmpty else { throw SignatureFailure(.signatureMismatch, "no signature block signs the file") }
 
         for entry in archive.entries where !entry.isDirectory && !entry.name.utf8.starts(with: "META-INF/".utf8) {
             let name = ExactName(entry.name)
             guard let section = manifest.sections[name] else {
                 throw SignatureFailure(.signatureMismatch, "\(entry.name) is not signed")
             }
-            guard signers.allSatisfy({ $0.names.contains(name) }) else {
+            guard ordered.allSatisfy({ $0.names.contains(name) }) else {
                 throw SignatureFailure(.signatureMismatch, "\(entry.name) is not signed by every signer")
             }
             guard let (digestName, expected) = digest(in: section.attributes, suffix: "-Digest") else {
@@ -82,7 +96,57 @@ enum JarVerifier {
         if let unverifiable { return SignatureVerification(check: .unverified(unverifiable)) }
         // Each signer is the certificate its block's SignerInfo names and whose key verified its .SF
         // (StrictJarVerifier.java:330-353), not whichever certificate the block lists first.
-        return SignatureVerification(check: .verified, proof: SignerProof(scheme: .v1, certificates: signers.compactMap(\.certificate)))
+        return SignatureVerification(check: .verified, proof: SignerProof(scheme: .v1, certificates: ordered.compactMap(\.certificate)))
+    }
+
+    /// Where each name comes as Android iterates a java.util.HashMap of these names put in this order, such as
+    /// StrictJarFile's metaEntries (StrictJarVerifier.readCertificates, 296-316): by bucket of the spread
+    /// String.hashCode, and within a bucket in the order put. The table of 16 doubles when the names fill more than
+    /// three quarters of it, and while it is below 64, also for a bucket's 9th name (HashMap.java:648-649, 667-668,
+    /// 760-763). From 64 on, such a bucket becomes a tree, whose order Minato does not follow (a logged gap). Android
+    /// puts metaEntries in libziparchive's order and Minato in the archive's (another).
+    static func hashMapOrder(_ names: [String]) -> [ExactName: Int] {
+        let hashes = names.map { name in
+            var hash: Int32 = 0
+            for unit in name.utf16 { hash = hash &* 31 &+ Int32(unit) }
+            return Int(hash ^ Int32(bitPattern: UInt32(bitPattern: hash) >> 16))
+        }
+        var capacity = 16
+        var counts: [Int: Int] = [:]
+        for (index, hash) in hashes.enumerated() {
+            let chain = counts[hash & (capacity - 1), default: 0]
+            counts[hash & (capacity - 1)] = chain + 1
+            let before = capacity
+            if chain >= 8, capacity < 64 { capacity *= 2 }
+            if index + 1 > capacity / 4 * 3 { capacity *= 2 }
+            if capacity != before {
+                counts = Dictionary(hashes[...index].map { ($0 & (capacity - 1), 1) }, uniquingKeysWith: +)
+            }
+        }
+        let ordered = hashes.indices.sorted { (hashes[$0] & (capacity - 1), $0) < (hashes[$1] & (capacity - 1), $1) }
+        return Dictionary(ordered.enumerated().map { (ExactName(names[$1]), $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The .SF of a signature block: its name up to the last dot, then ".SF" (StrictJarVerifier.java:367).
+    static func signatureFileName(of block: ZipEntry) -> String {
+        String(block.name[..<block.name.lastIndex(of: ".")!]) + ".SF"
+    }
+
+    /// The .SF after its block, as verifyCertificate reads it (StrictJarVerifier.java:389-488): nil when Android gives
+    /// up on it, which leaves it out but keeps its bytes for its next block. Android gives up on a .SF its reader
+    /// cannot read, on one without its version, an empty one too, and on one that signs an entry the manifest lacks.
+    static func checkedSignatureFile(_ bytes: Data, name: String, against manifest: JarManifest, bytes manifestBytes: Data,
+                                     present: Set<UInt32>) throws -> JarManifest? {
+        let signatureFile: JarManifest
+        do {
+            signatureFile = try JarManifest(bytes, name: name, signatureFile: true)
+        } catch is JarManifest.Unreadable {
+            return nil
+        }
+        // The stripped signatures before the version (399-452).
+        try checkStripping(signatureFile, name: name, present: present)
+        guard signatureFile.main["signature-version"] != nil else { return nil }
+        return try verify(signatureFile, name: name, against: manifest, bytes: manifestBytes) ? signatureFile : nil
     }
 
     static func read(_ entry: ZipEntry, from archive: ZipArchive, maximum: UInt64 = maximumSignatureFileSize) throws -> Data {
@@ -108,8 +172,9 @@ enum JarVerifier {
     }
 
     /// The .SF against the manifest: its main section's digest when the .SF has one, then the whole
-    /// manifest's digest, or else each section's. False for a .SF that Android leaves out: one that,
-    /// section by section, signs an entry the manifest lacks.
+    /// manifest's digest, or else each section's, in the order of the .SF's HashMap (StrictJarVerifier.java:
+    /// 474-485). False when Android gives up on the .SF: a section names an entry the manifest lacks before
+    /// any section fails.
     static func verify(_ signatureFile: JarManifest, name: String, against manifest: JarManifest, bytes: Data) throws -> Bool {
         let bySigntool = signatureFile.main["created-by"]?.contains("signtool") == true
         if manifest.mainEnd > 0, !bySigntool,
@@ -121,10 +186,10 @@ enum JarVerifier {
            Self.digest(bytes, digestName) == expected {
             return true
         }
-        guard signatureFile.sections.keys.allSatisfy({ manifest.sections[$0] != nil }) else { return false }
-        for (entryName, section) in signatureFile.sections {
-            let chunk = manifest.sections[entryName]!
-            guard let (digestName, expected) = digest(in: section.attributes, suffix: "-Digest") else {
+        let rank = hashMapOrder(signatureFile.order.map(\.description))
+        for entryName in signatureFile.order.sorted(by: { rank[$0]! < rank[$1]! }) {
+            guard let chunk = manifest.sections[entryName] else { return false }
+            guard let (digestName, expected) = digest(in: signatureFile.sections[entryName]!.attributes, suffix: "-Digest") else {
                 throw SignatureFailure(.signatureMismatch, "\(name) has no digest for \(entryName)")
             }
             var range = chunk.range
@@ -202,8 +267,15 @@ struct ExactName: Hashable, CustomStringConvertible, ExpressibleByStringLiteral 
 /// section's attributes, and each named section with its attributes and its bytes, from its first line
 /// to the next section (the blank lines that end it included). Lines end with CR LF, LF or CR; a line
 /// that starts with a space continues the one before; a last line without its end does not count.
-/// Attribute names ignore case.
+/// Attribute names ignore case, and have 1 to 70 ASCII letters, digits, "_" and "-" (Attributes.java:480-503).
 struct JarManifest {
+    /// What Android's reader throws as an IOException: the APK is refused for its manifest, and a .SF left out
+    /// (StrictJarVerifier.java:392-397). Its other faults are runtime exceptions, which refuse the APK either way
+    /// (ApkSignatureVerifier.java:502-504) and throw a SignatureFailure here.
+    struct Unreadable: Error {
+        let reason: String
+    }
+
     struct Section {
         var attributes: [String: String]
         var range: Range<Int>
@@ -213,8 +285,12 @@ struct JarManifest {
     /// Where the main section ends, after the blank lines that end it.
     var mainEnd = 0
     var sections: [ExactName: Section] = [:]
+    /// The sections' names in the order they first come.
+    var order: [ExactName] = []
 
-    init(_ data: Data, name file: String) throws {
+    /// In a .SF (`signatureFile`), a second section of one name adds to the first; in a manifest it is unreadable
+    /// (StrictJarManifestReader.java:66-89).
+    init(_ data: Data, name file: String, signatureFile: Bool = false) throws {
         var reader = Reader(bytes: [UInt8](data), file: file)
         while let (name, value) = try reader.header() {
             main[name] = value
@@ -222,13 +298,20 @@ struct JarManifest {
         mainEnd = reader.position
         var start = reader.position
         while let (name, value) = try reader.header() {
-            guard name == "name" else { throw SignatureFailure(.damaged, "\(file) has a section without a name") }
+            guard name == "name" else { throw Unreadable(reason: "\(file) has a section without a name") }
             var attributes = ["name": value]
             while let (name, value) = try reader.header() {
                 attributes[name] = value
             }
-            guard sections[ExactName(value)] == nil else { throw SignatureFailure(.damaged, "\(file) lists \(value) twice") }
-            sections[ExactName(value)] = Section(attributes: attributes, range: start..<reader.position)
+            let key = ExactName(value)
+            if sections[key] == nil {
+                sections[key] = Section(attributes: attributes, range: start..<reader.position)
+                order.append(key)
+            } else if signatureFile {
+                sections[key]!.attributes.merge(attributes) { $1 }
+            } else {
+                throw Unreadable(reason: "\(file) lists \(value) twice")
+            }
             start = reader.position
         }
     }
@@ -263,14 +346,24 @@ struct JarManifest {
             while position < bytes.count {
                 position += 1
                 guard bytes[position - 1] == 0x3A else { continue }
-                let name = String(decoding: bytes[mark..<position - 1], as: UTF8.self).lowercased()
-                guard position < bytes.count, bytes[position] == 0x20 else {
-                    throw SignatureFailure(.damaged, "\(file) has an attribute \(name) without a space after its colon")
+                let name = bytes[mark..<position - 1]
+                let text = String(decoding: name, as: UTF8.self)
+                // A colon at the very end makes Android read past it.
+                guard position < bytes.count else { throw SignatureFailure(.damaged, "\(file) ends with a colon") }
+                guard bytes[position] == 0x20 else {
+                    throw Unreadable(reason: "\(file) has an attribute \(text) without a space after its colon")
                 }
                 position += 1
-                return name
+                guard (1...70).contains(name.count), name.allSatisfy(Self.isNameByte) else {
+                    throw Unreadable(reason: "\(file) has an attribute named \(text)")
+                }
+                return text.lowercased()
             }
             return nil
+        }
+
+        static func isNameByte(_ byte: UInt8) -> Bool {
+            (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte) || byte == 0x5F || byte == 0x2D
         }
 
         mutating func readValue() throws -> String {
@@ -283,7 +376,7 @@ struct JarManifest {
                 position += 1
                 switch next {
                 case 0:
-                    throw SignatureFailure(.damaged, "\(file) has a NUL character")
+                    throw Unreadable(reason: "\(file) has a NUL character")
                 case 0x0A:
                     if lastCR { lastCR = false } else { lineBreaks += 1 }
                     continue

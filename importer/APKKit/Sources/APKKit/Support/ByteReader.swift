@@ -42,6 +42,7 @@ struct ByteReader {
     }
 
     /// Reads without moving the cursor.
+    func u8(at position: Int) throws -> UInt8 { try UInt8(integer(1, at: position)) }
     func u16(at position: Int) throws -> UInt16 { try UInt16(integer(2, at: position)) }
     func u32(at position: Int) throws -> UInt32 { try UInt32(integer(4, at: position)) }
     func u64(at position: Int) throws -> UInt64 { try integer(8, at: position) }

@@ -8,6 +8,12 @@ public struct XMLAttribute: Sendable, Equatable {
     public let value: ResourceValue
     /// Original string form, if the compiler kept one.
     public let rawString: String?
+    /// The raw string's index as the file holds it, `rawString` or not: Android reads one at any index below
+    /// 0x8000_0000 (XmlBlock.java:287).
+    public let rawIndex: UInt32
+    /// The Res_value as the file holds it, which `value` decodes: its type and its data.
+    public let dataType: UInt8
+    public let data: UInt32
 }
 
 public struct XMLElement: Sendable, Equatable {
@@ -119,7 +125,10 @@ public enum BinaryXML {
                 name: strings[nameIndex] ?? "",
                 resourceID: Int(nameIndex) < resourceIDs.count ? resourceIDs[Int(nameIndex)] : nil,
                 value: ResourceValue(type: type, data: data, strings: strings),
-                rawString: strings[rawIndex]))
+                rawString: strings[rawIndex],
+                rawIndex: rawIndex,
+                dataType: type,
+                data: data))
         }
         return XMLElement(namespace: namespace, name: name, attributes: attributes, children: [])
     }

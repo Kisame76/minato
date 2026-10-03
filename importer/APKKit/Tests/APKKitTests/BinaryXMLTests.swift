@@ -77,6 +77,23 @@ struct BinaryXMLTests {
         #expect(root.attribute(named: "label", namespace: Self.android)?.value == .string("Spiel äöü 🎮"))
     }
 
+    /// As ResStringPool gives a string (ResourceTypes.cpp:799-1015): it must end with a NUL, which for a UTF-8 length
+    /// past 0x7FFF that aapt cut to its low 15 bits lies a multiple of 0x8000 further.
+    @Test func aStringWithoutItsNULIsUnreadable() throws {
+        for utf8 in [false, true] {
+            var chunk = StringPoolWriter.chunk(["first", "second"], utf8: utf8)
+            // "first" starts after the header and two offsets, at 36, behind its lengths.
+            chunk[36 + (utf8 ? 2 + 5 : 2 + 10)] = 0x41
+            let pool = try StringPool(chunk: chunk)
+            #expect(pool[0] == nil, "UTF-8: \(utf8)")
+            #expect(pool[1] == "second", "UTF-8: \(utf8)")
+        }
+        let long = String(repeating: "y", count: 0x8005)
+        let pool = try StringPool(chunk: StringPoolWriter.chunk([long, "z"], utf8: true))
+        #expect(pool[0] == long)
+        #expect(pool[1] == "z")
+    }
+
     @Test func findsObfuscatedAttributeByResourceID() throws {
         // Obfuscators blank the attribute names; Android resolves attributes through the resource map.
         let element = E("manifest", [A(namespace: Self.android, name: "", resourceID: 0x0101_021B, value: .int(42))])

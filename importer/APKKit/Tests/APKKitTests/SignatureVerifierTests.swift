@@ -732,6 +732,60 @@ struct SignatureVerifierTests {
         #expect(try Self.verify(nested) == Self.verified([.ec, .rsa]))
     }
 
+    @Test func v1TheStrippingCheckComesBeforeTheVersion() throws {
+        // StrictJarVerifier.java:399-452: a .SF that names v2, which the APK lacks, fails it even without its version.
+        let apk = Self.v1WithASecondSignatureFile {
+            $0 = $0.replacingOccurrences(of: "Signature-Version: 1.0\r\n", with: "X-Android-APK-Signed: 2\r\n")
+        }
+        #expect(try Self.failure(apk)?.kind == .signatureMismatch)
+    }
+
+    /// Lines that make Android's reader throw an IOException, so verifyCertificate gives up on the .SF (StrictJarVerifier
+    /// .java:392-397): a name with another character or longer than 70 (Attributes.java:480-503), a colon without a
+    /// space, and a NUL (StrictJarManifestReader.java:124-137, 150-151).
+    @Test(arguments: ["Bad Name: x\r\n", String(repeating: "X", count: 71) + ": x\r\n", "X-Colon:x\r\n", "X-Nul: a\0b\r\n"])
+    func v1ASignatureFileAndroidCannotReadIsLeftOut(line: String) throws {
+        let apk = Self.v1WithASecondSignatureFile {
+            $0 = $0.replacingOccurrences(of: "Signature-Version: 1.0\r\n", with: "Signature-Version: 1.0\r\n" + line)
+        }
+        #expect(try Self.verify(apk) == Self.verified([.ec]))
+        // So is one with a section that has no name (StrictJarManifestReader.java:61-63).
+        #expect(try Self.verify(Self.v1WithASecondSignatureFile { $0 += "Unnamed: x\r\n\r\n" }) == Self.verified([.ec]))
+    }
+
+    @Test(arguments: ["X:", "X: a\r\n \r\n"])
+    func v1ASignatureFileThatBreaksAndroidsReaderFailsTheAPK(end: String) throws {
+        // Reading past a colon at the end, or a continuation line of only a space, throws a runtime exception, which
+        // refuses the APK (ApkSignatureVerifier.java:502-504).
+        #expect(try Self.failure(Self.v1WithASecondSignatureFile { $0 += end })?.kind == .damaged)
+    }
+
+    @Test func v1OnlyASignatureFileMayNameAnEntryTwice() throws {
+        // readEntries keeps one set of attributes per name: a .SF's second section adds to it, a manifest's throws
+        // (StrictJarManifestReader.java:66-89).
+        let section = "Name: classes.dex\r\nX-Extra: 1\r\n\r\n"
+        #expect(try Self.verify(Self.v1WithASecondSignatureFile { $0 += section }) == Self.verified([.ec, .rsa]))
+        let manifest = Self.v1Changed { _, files in files[0].content += Data(section.utf8) }
+        #expect(try Self.failure(manifest)?.kind == .damaged)
+        // Android refuses a manifest its reader cannot read.
+        #expect(throws: (any Error).self) { try JarManifest(Data("Manifest-Version: 1.0\r\nBad Name: x\r\n\r\n".utf8), name: "MANIFEST.MF") }
+    }
+
+    @Test func v1ASignatureFileChecksItsSectionsInTheOrderOfItsHashMap() throws {
+        // Without the whole manifest's digest, verifyCertificate goes through the .SF's sections as its HashMap gives
+        // them (StrictJarVerifier.java:474-485): a name the manifest lacks gives up on the .SF, a section that does not
+        // match fails the APK. AndroidManifest.xml comes before ghost, and ghost before classes.dex (JDK 17's HashMap).
+        func apk(wrong entry: String) -> Data {
+            Self.v1WithASecondSignatureFile { text in
+                var lines = text.components(separatedBy: "\r\n").filter { !$0.contains("-Digest-Manifest:") }
+                lines[lines.firstIndex(of: "Name: \(entry)")! + 1] = "SHA-256-Digest: " + Data(count: 32).base64EncodedString()
+                text = lines.joined(separator: "\r\n") + "Name: ghost\r\nSHA-256-Digest: AAAA\r\n\r\n"
+            }
+        }
+        #expect(try Self.failure(apk(wrong: "AndroidManifest.xml"))?.kind == .damaged)
+        #expect(try Self.verify(apk(wrong: "classes.dex")) == Self.verified([.ec]))
+    }
+
     // MARK: - Streaming
 
     @Test(arguments: [true, false])
@@ -787,6 +841,102 @@ struct SignatureVerifierTests {
     @Test func v1SignersInTheArchivesOrder() throws {
         let apk = TestSigner.sign(Self.zip(), v1: TestSigner.V1([.rsa, .ec]))
         #expect(try Self.proof(apk) == SignerProof(scheme: .v1, certificates: [TestKey.rsa.certificate, TestKey.ec.certificate]))
+    }
+
+    /// An APK whose MANIFEST.MF, `name`.SF and two blocks for it, `name`.RSA and `name`.EC, come in this order, then
+    /// `extra` empty files in META-INF/; `ec` replaces the .EC block.
+    static func twoBlocks(_ name: String, ec: Data? = nil, extra: [String] = []) -> Data {
+        // MANIFEST.MF, SIGNER0.SF, SIGNER0.RSA, SIGNER1.SF and SIGNER1.EC: both .SF hold the same bytes.
+        var files = TestSigner.jarSignatureFiles(for: Self.zip().entries, TestSigner.V1([.rsa, .ec]))
+        files.removeAll { $0.name == "META-INF/SIGNER1.SF" }
+        for index in files.indices where files[index].name.hasPrefix("META-INF/SIGNER") {
+            files[index].name = "META-INF/\(name)." + files[index].name.split(separator: ".").last!
+        }
+        if let ec { files[files.count - 1].content = ec }
+        var zip = Self.zip()
+        zip.entries += files + extra.map { ZipBuilder.Entry(name: "META-INF/" + $0, content: Data()) }
+        return zip.build().data
+    }
+
+    /// StrictJarVerifier keys each chain by its .SF (365-383) and drops the .SF's bytes once a block of it signs (487), so
+    /// two blocks for one .SF are one signer: the block it verifies first. It verifies them in the order of
+    /// StrictJarFile's metaEntries, a java.util.HashMap over the META-INF names (readCertificates, 296-316). For SIGNER0
+    /// that is the .RSA, for SIGNER1 the .EC, though the .RSA comes first in both archives (the orders are the JDK 17
+    /// HashMap's).
+    @Test func v1TwoBlocksForOneSignatureFileAreOneSigner() throws {
+        for (name, winner) in [("SIGNER0", TestKey.rsa.certificate), ("SIGNER1", TestKey.ec.certificate)] {
+            #expect(try Self.proof(Self.twoBlocks(name)) == SignerProof(scheme: .v1, certificates: [winner]), "\(name)")
+        }
+        // A bucket's 9th name grows a table below 64 (HashMap.java:648-649, 760-763), and K4.EC then comes first.
+        let grown = Self.twoBlocks("K4", extra: ["F2", "F50", "F61", "F72", "F83", "F94", "F100", "F111"])
+        #expect(try Self.proof(grown) == SignerProof(scheme: .v1, certificates: [TestKey.ec.certificate]))
+    }
+
+    @Test func v1ABlockAfterTheOneThatSignedIsNotRead() throws {
+        // SIGNER0.RSA comes first and signs, so Android never reads SIGNER0.EC (StrictJarVerifier.java:368-371, 487).
+        let apk = Self.twoBlocks("SIGNER0", ec: Data("not a signature block".utf8))
+        #expect(try Self.verify(apk) == Self.verified([.rsa]))
+        #expect(try Self.proof(apk) == SignerProof(scheme: .v1, certificates: [TestKey.rsa.certificate]))
+    }
+
+    @Test func v1EveryBlockOfASignatureFileThatGivesUpIsRead() throws {
+        // A .SF that gives up keeps its bytes, so each of its blocks is verified (StrictJarVerifier.java:368-371, 449-452):
+        // SIGNER1.EC comes first, then SIGNER0.EC and SIGNER1.RSA (JDK 17's HashMap).
+        func apk(_ block: Data?) -> Data {
+            Self.v1Changed(TestSigner.V1([.ec, .rsa])) { _, files in
+                Self.replace("Signature-Version: 1.0\r\n", with: "", in: &files[3])
+                files[4].content = block ?? TestSigner.pkcs7(signing: files[3].content, with: .rsa, TestSigner.V1([.rsa]))
+                files.append(ZipBuilder.Entry(name: "META-INF/SIGNER1.EC",
+                                              content: TestSigner.pkcs7(signing: files[3].content, with: .ec, TestSigner.V1([.ec]))))
+            }
+        }
+        #expect(try Self.verify(apk(nil)) == Self.verified([.ec]))
+        #expect(try Self.failure(apk(Data("not a signature block".utf8)))?.kind == .damaged)
+    }
+
+    @Test func v1AnUncheckableBlockOfASignatureFileThatGivesUp() throws {
+        // Android verifies that block too, and Minato cannot check DSA, so it cannot tell Android's answer.
+        let apk = Self.v1Changed(TestSigner.V1([.ec, .dsa])) { _, files in
+            Self.replace("Signature-Version: 1.0\r\n", with: "", in: &files[3])
+            files[4].content = TestSigner.pkcs7(signing: files[3].content, with: .dsa, TestSigner.V1([.dsa]))
+        }
+        let check = try Self.verify(apk).check
+        guard case .unverified = check else { Issue.record("got \(check)"); return }
+    }
+
+    /// java.util.HashMap's iteration order, as the JDK 17's gives it for these names put in this order: 4 names in a
+    /// table of 16, 14 in a table of 32 after its resize, 12 whose 9th name in one bucket grows the table to 32, 11
+    /// with only 8 in one bucket, 21 whose bucket of the grown table gets its 9th name later, and a Kelvin sign that
+    /// Swift's String equates with a K.
+    @Test func v1BlocksComeInTheOrderOfJavasHashMap() {
+        func order(_ names: [String]) -> [String] {
+            let rank = JarVerifier.hashMapOrder(names.map { "META-INF/" + $0 })
+            return names.sorted { rank[.init("META-INF/" + $0)]! < rank[.init("META-INF/" + $1)]! }
+        }
+        #expect(order(["MANIFEST.MF", "K4.SF", "K4.RSA", "K4.EC", "F2", "F50", "F61", "F72", "F83", "F94", "F100", "F111"])
+            == ["K4.EC", "K4.SF", "F2", "F100", "F111", "K4.RSA", "F50", "F61", "F72", "F83", "F94", "MANIFEST.MF"])
+        #expect(order(["MANIFEST.MF", "A.SF", "A.RSA", "A.EC", "N30", "N41", "N52", "N63", "N4", "N102", "N113"])
+            == ["A.SF", "A.RSA", "A.EC", "N30", "N41", "N52", "N63", "N4", "N102", "N113", "MANIFEST.MF"])
+        let later = ["MANIFEST.MF", "N3"] + (0...11).filter { $0 != 3 }.map { "N\($0)" }
+            + ["N202", "N224", "N246", "N268", "N213", "N235", "N257", "N279"]
+        #expect(order(later) == [
+            "N10", "N11", "N3", "N213", "N235", "N257", "N279", "N2", "N1", "N0", "N7", "N6", "N5", "N4", "MANIFEST.MF", "N9", "N8",
+            "N202", "N224", "N246", "N268",
+        ])
+        #expect(order(["MANIFEST.MF", "K.SF", "K.RSA", "\u{212A}.RSA"]).map { ExactName($0) }
+            == ["K.SF", "\u{212A}.RSA", "K.RSA", "MANIFEST.MF"].map { ExactName($0) })
+        #expect(order(["MANIFEST.MF", "CERT.SF", "CERT.RSA", "CERT.EC"])
+            == ["CERT.SF", "CERT.EC", "CERT.RSA", "MANIFEST.MF"])
+        let names = [
+            "MANIFEST.MF", "CERT.SF", "CERT.RSA", "CERT.EC", "services/a", "services/b", "kotlin.kotlin_module",
+            "androidx.core_core.version", "LICENSE", "NOTICE", "proguard/x.pro", "com/android/build/gradle/app-metadata.properties",
+            "version-control-info.textproto", "A.SF",
+        ]
+        #expect(order(names) == [
+            "NOTICE", "LICENSE", "CERT.EC", "version-control-info.textproto", "proguard/x.pro", "CERT.SF", "services/a", "A.SF",
+            "services/b", "CERT.RSA", "androidx.core_core.version", "com/android/build/gradle/app-metadata.properties",
+            "MANIFEST.MF", "kotlin.kotlin_module",
+        ])
     }
 
     @Test func v2ProvesEachSignersOwnCertificate() throws {

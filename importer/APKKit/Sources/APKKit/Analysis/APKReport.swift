@@ -88,6 +88,12 @@ public struct Compatibility: Sendable, Equatable, Codable {
         case conversionFailed(library: String, reason: String)
         /// The signature check failed: the file is damaged or forged (ADR-0034, step d).
         case signatureInvalid(SignatureFailure)
+        /// Android 15 refuses the app for its `<uses-sdk>` (INSTALL_FAILED_OLDER_SDK), with Android's message: a
+        /// preview's codename, or a minSdk above 35.
+        case olderSDK(String)
+        /// The named `<uses-sdk>` attribute is a resource reference, which Android resolves and Minato does not
+        /// (a logged departure, ADR-0039).
+        case sdkReference(String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART

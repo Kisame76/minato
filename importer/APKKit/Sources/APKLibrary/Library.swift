@@ -232,6 +232,13 @@ public actor Library {
         faultBeforeTheSwitch = fault
     }
 
+    /// Runs right before a scan writes a version's signers.json; a test throws from it to stand for a write that fails.
+    private var faultWritingSignersFile: (@Sendable () throws -> Void)?
+
+    func failWritingSignersFile(with fault: @escaping @Sendable () throws -> Void) {
+        faultWritingSignersFile = fault
+    }
+
     /// Removes an app with its data. The file it was installed from is not touched.
     public func remove(id: String) throws {
         guard entries.contains(where: { $0.id == id }) else { return }
@@ -281,7 +288,9 @@ public actor Library {
     }
 
     /// Makes each version's signers.json what its check proved (ADR-0034 decision 2): written when it is missing
-    /// or differs, removed when the check did not verify. A report from before the proof was recorded has its
+    /// or differs, removed when the check did not verify. Only a regular file with the proof's bytes stays, so a
+    /// folder or a link in its place goes, and so does a wrong file before its rewrite: a write that fails leaves
+    /// none, unless the removal failed too (a logged gap). A report from before the proof was recorded has its
     /// base.apk checked once, and keeps the result.
     private func syncSignersFiles() {
         var checked: [String: SignatureInfo] = [:]
@@ -303,8 +312,15 @@ public actor Library {
                 try? FileManager.default.removeItem(at: target)
                 continue
             }
-            if (try? Data(contentsOf: target)) != expected {
-                try? expected.write(to: target, options: .atomic)
+            if !Self.isRegularFile(target) || (try? Data(contentsOf: target)) != expected {
+                try? FileManager.default.removeItem(at: target)
+                do {
+                    try faultWritingSignersFile?()
+                    try expected.write(to: target, options: .atomic)
+                } catch {
+                    // Nothing is left in its place once the removal worked: the guest sees the version unsigned until
+                    // a scan writes it.
+                }
             }
         }
         if !checked.isEmpty {
@@ -312,6 +328,11 @@ public actor Library {
                 if let signature = checked[entry.id] { entry.report?.signature = signature }
             }
         }
+    }
+
+    /// Whether `url` is a regular file itself, not a folder or a link.
+    private static func isRegularFile(_ url: URL) -> Bool {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeRegular
     }
 
     /// A version folder's name: 16 hex digits.

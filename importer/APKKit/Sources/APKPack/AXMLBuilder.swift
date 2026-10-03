@@ -10,6 +10,8 @@ public struct AXMLBuilder {
         case hex(UInt32)
         case bool(Bool)
         case reference(UInt32)
+        /// Any Res_value by its type and data, e.g. TYPE_NULL (0x00) or a float (0x04).
+        case typed(type: UInt8, data: UInt32)
     }
 
     public struct Attribute: Sendable {
@@ -17,17 +19,22 @@ public struct AXMLBuilder {
         public var name: String
         public var resourceID: UInt32?
         public var value: Value
+        /// The raw string beside the typed value. aapt2 keeps one for a string only, the string itself.
+        public var raw: String?
+        /// A raw string index written as it is, in place of `raw`'s: for tests, e.g. one past the pool.
+        public var rawIndex: UInt32?
 
-        public init(namespace: String?, name: String, resourceID: UInt32?, value: Value) {
+        public init(namespace: String?, name: String, resourceID: UInt32?, value: Value, raw: String? = nil) {
             self.namespace = namespace
             self.name = name
             self.resourceID = resourceID
             self.value = value
+            self.raw = raw
         }
 
         /// `android:` attribute with its framework resource ID.
-        public static func android(_ name: String, _ id: UInt32?, _ value: Value) -> Attribute {
-            Attribute(namespace: AXMLBuilder.androidNamespace, name: name, resourceID: id, value: value)
+        public static func android(_ name: String, _ id: UInt32?, _ value: Value, raw: String? = nil) -> Attribute {
+            Attribute(namespace: AXMLBuilder.androidNamespace, name: name, resourceID: id, value: value, raw: raw)
         }
 
         /// Attribute without namespace, e.g. `package` on `<manifest>`.
@@ -69,6 +76,7 @@ public struct AXMLBuilder {
                 if attribute.resourceID == nil { pool.add(attribute.name) }
                 if let namespace = attribute.namespace { pool.add(namespace) }
                 if case .string(let text) = attribute.value { pool.add(text) }
+                if let raw = attribute.raw { pool.add(raw) }
             }
             element.children.forEach(collectStrings)
         }
@@ -131,7 +139,11 @@ public struct AXMLBuilder {
         for attribute in element.attributes {
             out.u32(attribute.namespace.map { pool.index($0) } ?? 0xFFFF_FFFF)
             out.u32(attribute.resourceID.map { pool.identifiedIndex(attribute.name, $0) } ?? pool.index(attribute.name))
-            if case .string(let text) = attribute.value {
+            if let rawIndex = attribute.rawIndex {
+                out.u32(rawIndex)
+            } else if let raw = attribute.raw {
+                out.u32(pool.index(raw))
+            } else if case .string(let text) = attribute.value {
                 out.u32(pool.index(text))
             } else {
                 out.u32(0xFFFF_FFFF)
@@ -154,6 +166,9 @@ public struct AXMLBuilder {
             case .reference(let id):
                 out.u8(0x01)
                 out.u32(id)
+            case .typed(let type, let data):
+                out.u8(type)
+                out.u32(data)
             }
         }
         for child in element.children {

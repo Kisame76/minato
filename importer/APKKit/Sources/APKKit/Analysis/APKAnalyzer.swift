@@ -113,8 +113,23 @@ public enum APKAnalyzer {
         var issues: [Compatibility.Issue] = []
         var blocked = false
 
-        if case .failed(let failure) = report.signature.check {
-            issues.append(.signatureInvalid(failure))
+        // In Android's order: the installer's parse checks the signature itself, then refuses for uses-sdk; the
+        // package parser's v1 rule needs its targetSdk (ApkLiteParseUtils.java:368-377, 569-625).
+        let signatureFailure: SignatureFailure? = if case .failed(let failure) = report.signature.check { failure } else { nil }
+        if let signatureFailure, signatureFailure.kind != .noV2Signature {
+            issues.append(.signatureInvalid(signatureFailure))
+            blocked = true
+        }
+        if let refusal = manifest.sdkRefusal {
+            issues.append(.olderSDK(refusal))
+            blocked = true
+        }
+        if let attribute = manifest.sdkReference {
+            issues.append(.sdkReference(attribute))
+            blocked = true
+        }
+        if let signatureFailure, signatureFailure.kind == .noV2Signature {
+            issues.append(.signatureInvalid(signatureFailure))
             blocked = true
         }
         if let split = report.splitName {

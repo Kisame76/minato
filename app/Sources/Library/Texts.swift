@@ -134,7 +134,8 @@ enum Texts {
 
     static func isBlocking(_ issue: Compatibility.Issue) -> Bool {
         switch issue {
-        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed, .signatureInvalid: true
+        case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed, .signatureInvalid, .olderSDK,
+             .sdkReference: true
         default: false
         }
     }
@@ -153,6 +154,10 @@ enum Texts {
             "\(library) cannot run: \(reason)"
         case .signatureInvalid(let failure):
             "The file \(signatureReason(failure))"
+        case .olderSDK(let message):
+            "Android 15 does not install it: \(message)"
+        case .sdkReference(let attribute):
+            "Its \(attribute) is a resource reference, which Minato does not resolve"
         case .needsART:
             "Contains Java/Kotlin code and needs ART (milestone M4)"
         case .requiresGLES(let version):

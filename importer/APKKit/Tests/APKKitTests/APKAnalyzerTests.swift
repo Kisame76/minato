@@ -296,6 +296,58 @@ struct APKAnalyzerTests {
         }
     }
 
+    /// A v1-signed APK with these uses-sdk attributes, its classes.dex changed after signing when `damaged`.
+    static func usesSdkAPK(_ attributes: [AXMLBuilder.Attribute], damaged: Bool = false) throws -> ZipArchive {
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", AXMLBuilder().build(E("manifest", [.plain("package", .string("org.example.sdk"))], [
+            E("uses-sdk", attributes),
+        ])))
+        zip.add("classes.dex", Data(repeating: 1, count: 100))
+        guard damaged else { return try ZipArchive(data: TestSigner.sign(zip, v1: TestSigner.V1([.ec]))) }
+        let signatureFiles = TestSigner.jarSignatureFiles(for: zip.entries, TestSigner.V1([.ec]))
+        zip.entries[1].content = Data("patched".utf8)
+        zip.entries += signatureFiles
+        return try ZipArchive(data: zip.build().data)
+    }
+
+    /// Android refuses an APK for its uses-sdk in its installer's parse, after that parse has checked the signature
+    /// itself and before the package parser's v1 rule, which needs its targetSdk (ApkLiteParseUtils.java:368-377,
+    /// 569-625). The reviewer's probe: a reference is a codename to the installer.
+    @Test func aUsesSdkRefusalBlocksBetweenTheSignatureAndItsV1Rule() throws {
+        let reference = try APKAnalyzer.analyze(Self.usesSdkAPK([
+            .android("minSdkVersion", 0x0101_020C, .int(21)),
+            .android("targetSdkVersion", 0x0101_0270, .reference(0x7F0A_0001)),
+        ]), preferredLanguages: ["en"])
+        #expect(reference.compatibility.status == .incompatible)
+        #expect(reference.compatibility.issues.first
+            == .olderSDK("Requires development platform @2131361793 but this is a release platform."))
+        #expect(reference.compatibility.issues.contains {
+            if case .signatureInvalid(let failure) = $0 { failure.kind == .noV2Signature } else { false }
+        })
+
+        let damaged = try APKAnalyzer.analyze(Self.usesSdkAPK([
+            .android("minSdkVersion", 0x0101_020C, .int(36)),
+            .android("targetSdkVersion", 0x0101_0270, .int(29)),
+        ], damaged: true), preferredLanguages: ["en"])
+        guard case .signatureInvalid(let failure) = damaged.compatibility.issues.first else {
+            Issue.record("first issue: \(String(describing: damaged.compatibility.issues.first))")
+            return
+        }
+        #expect(failure.kind != .noV2Signature)
+        #expect(damaged.compatibility.issues.dropFirst().first
+            == .olderSDK("Requires newer sdk version #36 (current version is #35)"))
+    }
+
+    /// A reference that passes the installer's parse, behind a numeric raw string, is a logged departure: Android's
+    /// package parser resolves it, Minato refuses the APK.
+    @Test func aUsesSdkReferenceBlocks() throws {
+        let report = try APKAnalyzer.analyze(Self.usesSdkAPK([
+            .android("targetSdkVersion", 0x0101_0270, .reference(0x7F0A_0001), raw: "21"),
+        ]), preferredLanguages: ["en"])
+        #expect(report.compatibility.status == .incompatible)
+        #expect(report.compatibility.issues.first == .sdkReference("targetSdkVersion"))
+    }
+
     @Test func reportsTheLaunchersScreenOrientation() throws {
         // What game mode holds the screen in (ADR-0032).
         let landscape = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true, screenOrientation: 6)),
