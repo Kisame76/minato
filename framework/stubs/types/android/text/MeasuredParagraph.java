@@ -2,7 +2,8 @@ package android.text;
 
 /**
  * Compile-only stub (ADR-0039 b3.4), never in framework.jar: TextUtils' ellipsize and commaEllipsize measure text
- * with it, which needs Paint's text layout (minikin) that Minato's framework.jar does not have yet.
+ * with it, which needs Paint's text layout (minikin) that Minato's framework.jar does not have yet; Canvas draws
+ * a PrecomputedText's paragraphs from it (ADR-0043 test 2).
  */
 public class MeasuredParagraph {
     private MeasuredParagraph() {}
@@ -33,6 +34,10 @@ public class MeasuredParagraph {
     }
 
     float measure(int start, int limit) {
+        throw new RuntimeException("stub");
+    }
+
+    public android.graphics.text.MeasuredText getMeasuredText() {
         throw new RuntimeException("stub");
     }
 }

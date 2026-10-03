@@ -105,6 +105,16 @@ add_test(NAME graphics.hwui_load
     "${PROJECT_SOURCE_DIR}/fixtures/expected/hwui-load.out")
 set_tests_properties(graphics.hwui_load PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
 
+# ADR-0043 test 2's classes: framework.jar has every class and native that libhwui's 42 registrations name
+# (hwui_jni_check.py), with hwui's tree from tools/build-hwui.sh and framework.jar's classes from
+# tools/build-framework.sh, which a clean copy can point elsewhere with APK_FRAMEWORK_DIR.
+set(APK_FRAMEWORK_DIR "${PROJECT_SOURCE_DIR}/build/framework" CACHE PATH "framework.jar's build")
+add_test(NAME graphics.hwui_jni
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/hwui_jni_check.py"
+    "${APK_HWUI_DIR}/tree/frameworks/base/libs/hwui" "${APK_FRAMEWORK_DIR}/classes.jar"
+    "${APK_ART_DIR}/java/all-classes.jar")
+set_tests_properties(graphics.hwui_jni PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them
 # from tools/build-graphics-host.sh, which CTest does not run.
