@@ -10,6 +10,7 @@
     "Build tools for the framework": "never",
     "Framework sources": "never",
     "Graphics sources": "never",
+    "Guest fonts": "always",
     "References without adopted code": "never"
   },
   "components": [
@@ -357,6 +358,34 @@
       "texts": [
         {
           "from": "ndk:sources/android/native_app_glue/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "droid-fonts",
+      "section": "Guest fonts",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/base"
+      ],
+      "texts": [
+        {
+          "from": "sources:frameworks_base_hwui/data/fonts/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "roboto-fonts",
+      "section": "Guest fonts",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/roboto-fonts"
+      ],
+      "texts": [
+        {
+          "from": "sources:roboto_fonts/NOTICE",
           "as": "NOTICE"
         }
       ]

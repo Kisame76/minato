@@ -256,3 +256,5 @@ add_custom_command(OUTPUT "${public_libraries}"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" "${public_libraries}"
   DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" VERBATIM)
 add_custom_target(guest_public_libraries ALL DEPENDS "${public_libraries}")
+
+include("${APK_ROOT}/graphics/fonts/fonts.cmake")

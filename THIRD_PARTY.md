@@ -175,7 +175,7 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
-| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor and its graphics JNI), `libs/hostgraphics`; from `data/fonts`: `fonts.xml`, `font_fallback.xml`, `DroidSansMono.ttf`, `DroidSansFallbackFull.ttf` |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor and its graphics JNI), `libs/hostgraphics`; `data/fonts` is under "Guest fonts" below |
 | `platform/external/skia` | `0fe593a9a878` | BSD-3-Clause (`LICENSE`) | the CPU backend: `include`, `src` without the GPU sources, `modules/skcms`, `client_utils/android` |
 | `platform/frameworks/minikin` | `b41e852cee7f` | Apache-2.0 | text layout, with its C++ hyphenator (the Rust one is left out) |
 | `platform/external/harfbuzz_ng` | `9a50c421c9ca` | Old MIT (`COPYING`); the GPL texts in `LICENSE` cover files that are not compiled | text shaping (`src`), and the subsetter Skia's PDF uses |
@@ -186,7 +186,6 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 | `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
-| `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
 | `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect` |
 | `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
@@ -194,6 +193,15 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 | `platform/hardware/libhardware` | `58faa60aadb6` | Apache-2.0 (`NOTICE`) | `hardware.h`, which libui's `PixelFormat.h` includes |
 | `platform/system/server_configurable_flags` | `3b6d3e8d7d20` | Apache-2.0 | `libflags` |
 | `platform/external/googletest` | `c05eedac6f5e` | BSD-3-Clause | `gtest_prod.h`, which minikin includes |
+
+## Guest fonts (ADR-0043 test 2)
+
+From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.8 MB), and its `/system/etc` our cuts of AOSP's two font lists, `graphics/fonts/fonts.xml` and `font_fallback.xml` (Apache-2.0, as the originals; each names its source). `tools/build-bionic.sh` puts them into `build/bionic/system` (`graphics/fonts/fonts.cmake`), and the app carries them in `Guest/system` (`tools/embed-guest-system.sh`).
+
+| Project | Commit | License | What we take |
+|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 (`data/fonts/NOTICE`) | from `data/fonts`: `DroidSansMono.ttf`, `DroidSansFallbackFull.ttf`, and `fonts.xml` and `font_fallback.xml`, which ours are cut from |
+| `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
 
 ## References without adopted code
 

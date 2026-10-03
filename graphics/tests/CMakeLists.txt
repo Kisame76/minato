@@ -114,6 +114,11 @@ add_test(NAME graphics.hwui_jni
     "${APK_HWUI_DIR}/tree/frameworks/base/libs/hwui" "${APK_FRAMEWORK_DIR}/classes.jar"
     "${APK_ART_DIR}/java/all-classes.jar")
 set_tests_properties(graphics.hwui_jni PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+# ADR-0043 test 2's fonts: the guest's font lists name exactly the files of its /system/fonts, with decision 5's
+# families, as FontListParser reads them (fonts_check.py); graphics/fonts/fonts.cmake puts both into bionic's build.
+add_test(NAME graphics.fonts
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/fonts_check.py" "${APK_GUEST_SYSTEM_DIR}")
+set_tests_properties(graphics.fonts PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them

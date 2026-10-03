@@ -5,7 +5,8 @@
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
 #                             libEGL, libGLESv2, libGLESv3 and libvulkan (ADR-0029, ADR-0030)
-#   system/                   the guest's /system for files: bionic's time zone file
+#   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
+#                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2)
 # Every container is converted at build time and signed with the app's identity and the bundle ID as
 # identifier (route 1 of ADR-0008). tools/build-bionic.sh builds what it takes from build/bionic,
 # tools/build-front-libs.sh the front libs in build/graphics/guest/bin.
