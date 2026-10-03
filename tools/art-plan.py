@@ -37,6 +37,8 @@ TREE = {
     "external/icu": "icu",
     "external/boringssl": "boringssl",
     "external/conscrypt": "conscrypt",
+    "external/bouncycastle": "bouncycastle",
+    "external/okhttp": "okhttp",
     "libnativehelper": "libnativehelper",
     "external/fdlibm": "fdlibm",
     "external/expat": "expat",
@@ -55,6 +57,7 @@ TREE = {
     "system/logging": "logging",
     "system/core": "system_core",
     "bionic": "bionic",
+    "build/make": "build_make_proguard",
 }
 
 # The guest system's libraries (tools/build-bionic.sh): ART links them as they are, the plan builds none of them.
@@ -70,15 +73,18 @@ LIBRARIES = ["libart", "libartd", "libopenjdkjvm", "libopenjdkjvmd", "libjavacor
 # dalvikvm, and boringssl-test of runtime/art/modules.bp (ADR-0046 b).
 PROGRAMS = ["dalvikvm", "boringssl-test"]
 
-# The boot jars (ADR-0033 decision 10) and Conscrypt's (ADR-0046 c), which runtime/art/boot_jars.py builds; and
-# what core-all, which Soong compiles them against, has beyond their sources: java.base's module-info and the stubs
-# that let javac compile lambdas. Modules of projects we do not fetch that they name are compile-time stand-ins in
-# runtime/art/java.
-BOOT_JARS = ["core-oj", "core-libart", "core-icu4j", "conscrypt"]
+# The boot jars (ADR-0033 decision 10), okhttp's, BouncyCastle's and Conscrypt's (ADR-0046 c and d), which
+# runtime/art/boot_jars.py builds; and what core-all, which Soong compiles them against, has beyond their sources:
+# java.base's module-info and the stubs that let javac compile lambdas. Modules of projects we do not fetch that they
+# name are compile-time stand-ins in runtime/art/java.
+BOOT_JARS = ["core-oj", "core-libart", "okhttp", "bouncycastle", "core-icu4j", "conscrypt"]
 COMPILE_ONLY = [("libcore", ":openjdk_lambda_stub_files"), ("libcore", "luni/src/module/java/module-info.java"),
                 (OURS, "java/**/*.java")]
 STAND_INS = {"app-compat-annotations-source", "framework-annotations-lib", "unsupportedappusage",
              "icu_aconfig_flags_lib"}
+# The ProGuard file that Soong gives R8 before a module's own (java/dex.go). It includes proguard_basic_keeps.flags
+# and proguard/kotlin.flags.
+SOONG_PROGUARD = "build/make/core/proguard.flags"
 
 # Dependencies left out (ADR-0033 decision 2): statsd, which the runtime reports to only through
 # metrics/statsd.cc (the overlay gives it no backend, as ART's host build has none) and which nothing else of the
@@ -176,6 +182,22 @@ class ArtPlanner(soong_plan.Planner):
             return os.path.join(os.path.dirname(self.tree_root), "generated", path[len(generated):])
         return path if os.path.isabs(path) else self.local(path)
 
+    def r8_settings(self, module, optimize):
+        """How Soong runs R8 for a java_library with `optimize` (java/dex.go): shrinking, optimizing and obfuscating
+        only where the module says so, Soong's ProGuard file before the module's own, -ignorewarnings unless the module
+        turns it off, and full mode unless it asks for ProGuard compatibility, which boot_jars.py does not offer."""
+        if optimize.get("proguard_compatibility", True):
+            self.problems.append(f"{module.properties['name']}: R8 in ProGuard compatibility mode is not planned")
+        flags = [self.local(SOONG_PROGUARD)] + [self.local(os.path.normpath(os.path.join(module.directory, path)))
+                                                for path in optimize.get("proguard_flags_files", [])]
+        for path in flags:
+            if not os.path.isfile(path):
+                self.problems.append(f"{module.properties['name']}: {path} is missing "
+                                     "(tools/fetch-sources.py --set art)")
+        return {"shrink": bool(optimize.get("shrink")), "optimize": bool(optimize.get("optimize")),
+                "obfuscate": bool(optimize.get("obfuscate")), "ignore_warnings": optimize.get("ignore_warnings", True),
+                "flags": flags}
+
     def boot_jars(self, description):
         """Writes what runtime/art/boot_jars.py builds the boot jars of: each jar's sources and Java resources, with
         those of its static libraries, and the compile-time sources."""
@@ -205,6 +227,10 @@ class ArtPlanner(soong_plan.Planner):
                 pending += [library for library in properties.get("static_libs", []) if library not in STAND_INS]
             jars[name] = {"sources": sorted(set(sources)), "resources": sorted(resources)}
             inputs += jars[name]["sources"] + [path for path, _ in resources]
+            optimize = blueprint.flatten(self.tree, self.tree.module(name), "shared").get("optimize", {})
+            if optimize.get("enabled"):
+                jars[name]["r8"] = self.r8_settings(self.tree.module(name), optimize)
+                inputs += jars[name]["r8"]["flags"]
         compile_only = []
         for directory, source in COMPILE_ONLY:
             compile_only += [self.file(path) for path in

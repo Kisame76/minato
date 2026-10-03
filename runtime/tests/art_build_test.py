@@ -8,9 +8,11 @@
   - The guest system's libraries that ART links, libdl_android.so among them, are the ones in <bionic-lib>: ART's
     build makes none of them.
   - apk-convert converts every library and dalvikvm without a refused site.
-  - The boot jars in <art>/javalib, with conscrypt.jar, define every class that ART's class roots (class_root.h)
-    and its well-known classes (well_known_classes.cc) name, and none of the compile-time stand-ins of
-    runtime/art/java.
+  - The boot jars in <art>/javalib, with okhttp.jar, bouncycastle.jar and conscrypt.jar, define every class that
+    ART's class roots (class_root.h) and its well-known classes (well_known_classes.cc) name, and none of the
+    compile-time stand-ins of runtime/art/java.
+  - bouncycastle.jar is R8's, as Soong runs it (ADR-0046 d): its classes name their source file by the mapping's
+    hash, and Soong's ProGuard files have kept the members that Java serialization looks up by name.
 Prints "skipped: ..." while <art>/lib is missing.
 
 Usage: art_build_test.py <art> <bionic-lib> <apk-convert> <sources>
@@ -34,7 +36,10 @@ PROGRAMS = ["dalvikvm"]
 # The guest system's libraries that ART links. Minato's bionic build makes them and ART's build none, so that the
 # guest has one of each (ADR-0033 decision 2).
 SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz"]
-JARS = ["core-oj", "core-libart", "core-icu4j", "conscrypt"]
+JARS = ["core-oj", "core-libart", "okhttp", "bouncycastle", "core-icu4j", "conscrypt"]
+# A class of bouncycastle.jar whose serialization members only Soong's ProGuard files keep, not BouncyCastle's own.
+SERIALIZED = "Lcom/android/org/bouncycastle/jcajce/provider/asymmetric/rsa/BCRSAPublicKey;"
+SERIALIZATION_MEMBERS = {"serialVersionUID", "readObject", "writeObject"}
 failures = 0
 
 
@@ -96,23 +101,63 @@ def closure(library, by_soname):
     return order, missing
 
 
+def dex_string(data, index):
+    """String `index` of a DEX file."""
+    offset = struct.unpack_from("<I", data, struct.unpack_from("<I", data, 0x3C)[0] + 4 * index)[0]
+    while data[offset] & 0x80:  # the ULEB128 length in UTF-16 units
+        offset += 1
+    end = data.index(0, offset + 1)
+    return data[offset + 1:end].decode("utf-8", "replace")
+
+
 def dex_classes(data):
     """The descriptors of the classes a DEX file defines."""
-    string_ids_off, type_ids_off = struct.unpack_from("<I", data, 0x3C)[0], struct.unpack_from("<I", data, 0x44)[0]
+    type_ids_off = struct.unpack_from("<I", data, 0x44)[0]
     class_defs_size, class_defs_off = struct.unpack_from("<II", data, 0x60)
-
-    def string(index):
-        offset = struct.unpack_from("<I", data, string_ids_off + 4 * index)[0]
-        while data[offset] & 0x80:  # the ULEB128 length in UTF-16 units
-            offset += 1
-        end = data.index(0, offset + 1)
-        return data[offset + 1:end].decode("utf-8", "replace")
-
     classes = set()
     for index in range(class_defs_size):
         type_index = struct.unpack_from("<I", data, class_defs_off + 32 * index)[0]
-        classes.add(string(struct.unpack_from("<I", data, type_ids_off + 4 * type_index)[0]))
+        classes.add(dex_string(data, struct.unpack_from("<I", data, type_ids_off + 4 * type_index)[0]))
     return classes
+
+
+def uleb128(data, offset):
+    """The ULEB128 value at offset, and the offset after it."""
+    value = shift = 0
+    while data[offset] & 0x80:
+        value |= (data[offset] & 0x7F) << shift
+        offset, shift = offset + 1, shift + 7
+    return value | data[offset] << shift, offset + 1
+
+
+def dex_class(data, descriptor):
+    """The source file and the names of the fields and methods of the class `descriptor` in a DEX file, or None if
+    the file does not define it."""
+    type_ids_off, field_ids_off, method_ids_off = (struct.unpack_from("<I", data, at)[0] for at in (0x44, 0x54, 0x5C))
+    class_defs_size, class_defs_off = struct.unpack_from("<II", data, 0x60)
+    for index in range(class_defs_size):
+        class_def = struct.unpack_from("<8I", data, class_defs_off + 32 * index)
+        class_index, source_index, data_off = class_def[0], class_def[4], class_def[6]
+        if dex_string(data, struct.unpack_from("<I", data, type_ids_off + 4 * class_index)[0]) != descriptor:
+            continue
+        names, sizes, offset = set(), [], data_off
+        if data_off:
+            for _ in range(4):  # static fields, instance fields, direct methods, virtual methods
+                size, offset = uleb128(data, offset)
+                sizes.append(size)
+        for kind, size in enumerate(sizes):
+            member = 0  # each list's first index is whole, the others are differences
+            for _ in range(size):
+                difference, offset = uleb128(data, offset)
+                _, offset = uleb128(data, offset)  # access flags
+                member += difference
+                if kind < 2:
+                    names.add(dex_string(data, struct.unpack_from("<I", data, field_ids_off + 8 * member + 4)[0]))
+                else:
+                    _, offset = uleb128(data, offset)  # code offset
+                    names.add(dex_string(data, struct.unpack_from("<I", data, method_ids_off + 8 * member + 4)[0]))
+        return (dex_string(data, source_index) if source_index != 0xFFFFFFFF else None), names
+    return None
 
 
 def classes_art_checks(sources):
@@ -204,6 +249,19 @@ def main():
     leaked = sorted(descriptor for descriptor in defined
                     if descriptor.startswith("L") and os.path.exists(os.path.join(stand_ins, descriptor[1:-1].split("$")[0] + ".java")))
     check(not leaked, f"the boot jars define compile-time stand-ins: {', '.join(leaked[:12])}")
+    path = os.path.join(art, "javalib", "bouncycastle.jar")
+    if os.path.exists(path):
+        with zipfile.ZipFile(path) as archive:
+            found = [dex_class(archive.read(name), SERIALIZED) for name in archive.namelist()
+                     if re.fullmatch(r"classes\d*\.dex", name)]
+        entry = next((entry for entry in found if entry), None)
+        check(entry is not None, f"bouncycastle.jar lacks {SERIALIZED}")
+        if entry is not None:
+            source, members = entry
+            check(source is not None and source.startswith("go/retraceme "), f"bouncycastle.jar is not R8's as Soong "
+                  f"runs it: {SERIALIZED} names its source file {source!r}, not by the mapping's hash")
+            check(SERIALIZATION_MEMBERS <= members, f"bouncycastle.jar's {SERIALIZED} lacks "
+                  f"{', '.join(sorted(SERIALIZATION_MEMBERS - members))}, which Soong's ProGuard files keep")
 
     if failures:
         raise SystemExit(f"{failures} failures")

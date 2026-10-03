@@ -708,9 +708,11 @@ TEST(a_session_needs_an_end_handler_and_begins_once) {
 // names, values and order are an app's on Android 15 in the emulator, except our boot class path and zygote's
 // socket numbers.
 TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
-    const std::string boot_class_path =
+    const std::string dex2oat_boot_class_path =
         "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
+        "/apex/com.android.art/javalib/okhttp.jar:/apex/com.android.art/javalib/bouncycastle.jar:"
         "/system/framework/framework.jar:/apex/com.android.art/javalib/core-icu4j.jar";
+    const std::string boot_class_path = dex2oat_boot_class_path + ":/apex/com.android.conscrypt/javalib/conscrypt.jar";
     const std::vector<std::string> init = {
         "PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:"
         "/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin",
@@ -726,7 +728,7 @@ TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
         "ASEC_MOUNTPOINT=/mnt/asec",
         "DOWNLOAD_CACHE=/data/cache",
         "BOOTCLASSPATH=" + boot_class_path,
-        "DEX2OATBOOTCLASSPATH=" + boot_class_path,
+        "DEX2OATBOOTCLASSPATH=" + dex2oat_boot_class_path,
         "SYSTEMSERVERCLASSPATH=/system/framework/com.android.location.provider.jar:/system/framework/services.jar:"
         "/apex/com.android.adservices/javalib/service-adservices.jar:"
         "/apex/com.android.adservices/javalib/service-sdksandbox.jar:"

@@ -17,12 +17,13 @@ on Android 15.
 the last MiB below the window's last page, which is never mapped.
 --conscrypt adds Conscrypt's APEX as Android 15 has it (ADR-0046 c): conscrypt.jar (<art>/javalib) in
 /apex/com.android.conscrypt/javalib, after the boot jars, and libjavacrypto.so (<art>/lib) in its lib64, never in
-ART's.
-Prints "skipped: ..." while dalvikvm, the jar, the library or Conscrypt's files are missing, or the guest system
-lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
+ART's. --okhttp and --bouncycastle add okhttp.jar and bouncycastle.jar from ART's javalib after core-libart, in
+that order, as Android 15 has them (ADR-0046 d).
+Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files or the added jars are missing, or the
+guest system lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
-                  <expected> [--debug] [--library <lib.so>] [--offsets] [--conscrypt]
+                  <expected> [--debug] [--library <lib.so>] [--offsets] [--conscrypt] [--okhttp] [--bouncycastle]
 """
 import fcntl
 import os
@@ -143,7 +144,9 @@ def main():
     debug = "--debug" in arguments
     offsets = "--offsets" in arguments
     conscrypt = "--conscrypt" in arguments
-    arguments = [argument for argument in arguments if argument not in ("--debug", "--offsets", "--conscrypt")]
+    added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
+    arguments = [argument for argument in arguments
+                 if argument not in ("--debug", "--offsets", "--conscrypt", "--okhttp", "--bouncycastle")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -153,7 +156,7 @@ def main():
         raise SystemExit(__doc__)
     art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar, main_class, expected = arguments
     dalvikvm = os.path.join(art, "bin", "dalvikvm")
-    for needed in (dalvikvm, jar):
+    for needed in [dalvikvm, jar] + [os.path.join(art, "javalib", f"{name}.jar") for name in added_jars]:
         if not os.path.exists(needed):
             print(f"skipped: {needed} is not built (tools/build-art.sh)")
             return
@@ -181,7 +184,8 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in BOOT_JARS]
+    boot_jars = BOOT_JARS[:2] + added_jars + BOOT_JARS[2:]
+    boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in boot_jars]
                                + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
     options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
                f"-Xbootclasspath-locations:{boot_class_path}", "-XjdwpProvider:none"]

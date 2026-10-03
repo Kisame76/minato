@@ -1,0 +1,22 @@
+provider: AndroidOpenSSL, Android's OpenSSL-backed security provider
+provider: CertPathProvider, Provider of CertPathBuilder and CertPathVerifier
+provider: BC, BouncyCastle Security Provider v1.68
+provider: HarmonyJSSE, Harmony JSSE Provider
+MD5("abc") from AndroidOpenSSL: 900150983cd24fb0d6963f7d28e17f72
+SHA-1("abc") from AndroidOpenSSL: a9993e364706816aba3e25717850c26c9cd0d89d
+SHA-256("abc") from AndroidOpenSSL: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+SHA-512("abc") from AndroidOpenSSL: ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f
+HmacSHA256, RFC 4231 case 2, from AndroidOpenSSL: 5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+AES/GCM/NoPadding, GCM test case 4, from AndroidOpenSSL: 42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e0915bc94fbc3221a5db94fae95ae7121a47
+AES/CBC/PKCS5Padding, SP 800-38A F.2.1, from AndroidOpenSSL: 7649abac8119b246cee98e9b12e9197d8964e0b149c10b7b682e6e39aaeb731c
+SecureRandom: SHA1PRNG from AndroidOpenSSL, 32 bytes, not all zero: yes
+UUID.randomUUID(): version 4, variant 2
+SHA256withRSA with a 2048-bit RSA key from AndroidOpenSSL, signed by AndroidOpenSSL: verifies yes, a changed message: no
+SHA256withECDSA with a 256-bit EC key from AndroidOpenSSL, signed by AndroidOpenSSL: verifies yes, a changed message: no
+KeyStore.getDefaultType(): BKS
+empty BKS store from BC: 0 entries
+empty PKCS12 store from BC: 0 entries
+SSLContext.getDefault(): Default from AndroidOpenSSL, protocols [TLSv1.2, TLSv1.3]
+cipher suites: [TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_GCM_SHA384, TLS_RSA_WITH_AES_128_CBC_SHA, TLS_RSA_WITH_AES_256_CBC_SHA, TLS_EMPTY_RENEGOTIATION_INFO_SCSV]
+URL https://example.com/a?b: protocol https, host example.com, port -1, default port 443, path /a, query b
+openConnection(): com.android.okhttp.internal.huc.HttpsURLConnectionImpl

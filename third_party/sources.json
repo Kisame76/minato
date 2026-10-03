@@ -303,6 +303,18 @@
       "digest": "b1b5f2375c8467459595dd48193bc2801fb45d9afff2e256c92517cb5fffac7b"
     },
     {
+      "name": "build_make_proguard",
+      "project": "platform/build",
+      "commit": "3d9c9aacdb6ca0b745b3048dad88d0db4680d50e",
+      "license": "Apache-2.0",
+      "files": [
+        "core/proguard.flags",
+        "core/proguard_basic_keeps.flags",
+        "core/proguard/kotlin.flags"
+      ],
+      "digest": "ca92536cd24609e21008dda0d40c623471af304a1691ac9eb5aa8494f53903f9"
+    },
+    {
       "name": "jdk-17",
       "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
       "sha256": "196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8",

@@ -90,9 +90,9 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/libcore` | `a996d969fdd1` | Apache-2.0 with the notices in `NOTICE` (Android, Apache Harmony, ICU, KXML, W3C); `ojluni/` GPL-2.0 with Classpath Exception (`LICENSE`) | the boot jars, among them core-oj from `ojluni/`; their natives `libjavacore` and `libopenjdk` |
 | `platform/external/icu` | `cf305aeb6df4` (ICU 75.1) | Unicode-3.0 and the notices in `LICENSE`; the GPL texts there cover ICU4C's Autoconf files, which are not used | ICU's libraries and data, `libicu_jni` |
 | `platform/external/boringssl` | `23a87e389eb9` | OpenSSL, SSLeay, ISC and others, as in `LICENSE` | `libcrypto` of ART's module; `libcrypto_static` and libssl's static variant for Conscrypt's `libjavacrypto` (ADR-0046), tested by `boringssl-test` |
-| `platform/external/conscrypt` | `f8e2d8143241` | Apache-2.0 (`LICENSE`, `MODULE_LICENSE_APACHE2`), with portions of Netty and Apache Harmony, also Apache-2.0 (`NOTICE`) | fetched for ADR-0046: `conscrypt.jar` and `libjavacrypto` from step c), not built yet |
-| `platform/external/bouncycastle` | `9be82ede5e65` | MIT, the Bouncy Castle License (`NOTICE`, `MODULE_LICENSE_BSD_LIKE`); six files AOSP added are Apache-2.0 (`crypto/digests`' `AndroidDigestFactory*` and `OpenSSLDigest`, `jce/provider/CertBlocklist`) | fetched for ADR-0046: `bouncycastle.jar` from step d), not built yet |
-| `platform/external/okhttp` | `fdad2b22b007` | Apache-2.0 (`LICENSE.txt`, `MODULE_LICENSE_APACHE2`), okio's repackaged tree included | fetched for ADR-0046: `okhttp.jar` from step e), not built yet |
+| `platform/external/conscrypt` | `f8e2d8143241` | Apache-2.0 (`LICENSE`, `MODULE_LICENSE_APACHE2`), with portions of Netty and Apache Harmony, also Apache-2.0 (`NOTICE`) | `conscrypt.jar` and `libjavacrypto` (ADR-0046 c), built into `build/art`; not in the app until ADR-0033 d) |
+| `platform/external/bouncycastle` | `9be82ede5e65` | MIT, the Bouncy Castle License (`NOTICE`, `MODULE_LICENSE_BSD_LIKE`); six files AOSP added are Apache-2.0 (`crypto/digests`' `AndroidDigestFactory*` and `OpenSSLDigest`, `jce/provider/CertBlocklist`) | `bouncycastle.jar` from `repackaged/bcprov`, shrunk by R8 (ADR-0046 d), built into `build/art`; not in the app until ADR-0033 d) |
+| `platform/external/okhttp` | `fdad2b22b007` | Apache-2.0 (`LICENSE.txt`, `MODULE_LICENSE_APACHE2`), okio's repackaged tree included | `okhttp.jar` from the five repackaged trees (ADR-0046 d, which took in step e), built into `build/art`; not in the app until ADR-0033 d) |
 | `platform/system/ca-certificates` | `2207c6dd74f1` | no license text: AOSP's `METADATA` says `license_type: BY_EXCEPTION_ONLY` ("this package has special licensing conditions") and notes that QuoVadis's certificate policy in `files/5cf9d536.0` references the QuoVadis Certificate Holder Agreement | fetched for ADR-0046: Android 15's 145 root certificates for step f), not in the app yet |
 | `platform/libnativehelper` | `3ca43dfe2bf4` | Apache-2.0 | `libnativehelper` (JNI helpers) |
 | `platform/external/fdlibm` | `1e651e1ef2b6` | Sun Microsystems' notice (`NOTICE`) | math for libcore's `StrictMath` |
@@ -121,7 +121,8 @@ Used only to build ART's Java part, not in the app. `tools/fetch-sources.py --se
 | Tool | Version | License |
 |---|---|---|
 | Eclipse Temurin JDK, macOS aarch64, in `build/tools/jdk-17/` | `17.0.20.1+1` (SHA-256 `196d13ba5f10`) | GPL-2.0 with Classpath Exception |
-| D8 (`platform/prebuilts/r8`), the one the boot jars of the tag were built with | `535c14aebec5` | BSD-3-Clause |
+| D8 and R8 (`platform/prebuilts/r8`, one jar), the one the boot jars of the tag were built with; R8 shrinks `bouncycastle.jar` (ADR-0046 d) | `535c14aebec5` | BSD-3-Clause |
+| Soong's R8 rules (`platform/build`'s `core/proguard.flags`, which includes `core/proguard_basic_keeps.flags` and `core/proguard/kotlin.flags`), with which R8 shrinks `bouncycastle.jar` as Soong does (ADR-0046 d) | `3d9c9aacdb6c` | Apache-2.0 |
 
 ## Build tools for the framework (ADR-0045)
 

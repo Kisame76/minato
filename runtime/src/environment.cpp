@@ -7,15 +7,25 @@
 namespace apkrt::environment {
 namespace {
 
+/// ART's and the platform's jars in Android 15's order, okhttp's and BouncyCastle's after core-libart (ADR-0046 d):
+/// what dex2oat compiles into the boot image.
+constexpr std::string_view dex2oat_boot_class_path =
+    "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
+    "/apex/com.android.art/javalib/okhttp.jar:/apex/com.android.art/javalib/bouncycastle.jar:"
+    "/system/framework/framework.jar:/apex/com.android.art/javalib/core-icu4j.jar";
+/// The same, then the mainline modules' jars: Conscrypt's (ADR-0046 c).
 constexpr std::string_view boot_class_path =
     "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
-    "/system/framework/framework.jar:/apex/com.android.art/javalib/core-icu4j.jar";
+    "/apex/com.android.art/javalib/okhttp.jar:/apex/com.android.art/javalib/bouncycastle.jar:"
+    "/system/framework/framework.jar:/apex/com.android.art/javalib/core-icu4j.jar:"
+    "/apex/com.android.conscrypt/javalib/conscrypt.jar";
+static_assert(boot_class_path.starts_with(dex2oat_boot_class_path));
 
 /// An app's environment on Android 15, in its order (the emulator's, 2026-10-01): init's PATH, then
 /// init.environ.rc (system/core/rootdir/init.environ.rc.in), then the class paths that init loads after
 /// derive_classpath. BOOTCLASSPATH names our jars in Android's order, our framework.jar among them (ADR-0039);
-/// DEX2OATBOOTCLASSPATH is the part of it before the mainline framework's jars, of which we have none: all of
-/// it. Zygote's socket numbers stay out.
+/// DEX2OATBOOTCLASSPATH is the part of it before the mainline modules' jars, here before Conscrypt's. Zygote's
+/// socket numbers stay out.
 constexpr std::pair<std::string_view, std::string_view> init_environment[] = {
     {"PATH",
      "/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:"
@@ -32,7 +42,7 @@ constexpr std::pair<std::string_view, std::string_view> init_environment[] = {
     {"ASEC_MOUNTPOINT", "/mnt/asec"},
     {"DOWNLOAD_CACHE", "/data/cache"},
     {"BOOTCLASSPATH", boot_class_path},
-    {"DEX2OATBOOTCLASSPATH", boot_class_path},
+    {"DEX2OATBOOTCLASSPATH", dex2oat_boot_class_path},
     {"SYSTEMSERVERCLASSPATH",
      "/system/framework/com.android.location.provider.jar:/system/framework/services.jar:"
      "/apex/com.android.adservices/javalib/service-adservices.jar:"
