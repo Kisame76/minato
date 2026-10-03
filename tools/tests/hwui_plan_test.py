@@ -27,7 +27,11 @@ without them the test skips). It must plan without problems, and the plan must b
   Android 15's libhwui exports, and the libpng and libcutils members that the host flavor's static libandroidfw
   brings into libhwui stay local instead of preempting libpng.so's and libcutils.so's. Patch 0005 takes out the 14
   names that only the device flavor builds, which lld refuses as undefined: the ABitmap C API and GraphicsStatsService's
-  registration.
+  registration;
+- patch 0006's LayoutlibLoader.cpp, the host flavor's register_android_graphics_classes (a2): it registers every
+  class of its map, in the order of the device's gRegJNI (jni_runtime.cpp), as Android registers its graphics at the
+  start, and reads no system property for them, where layoutlib's registers only the classes of its
+  graphics_native_classes.
 Usage: hwui_plan_test.py [--scratch <dir>]"""
 import argparse
 import importlib.util
@@ -135,6 +139,21 @@ def check_host_side(tree, hwui):
     check('"-DANDROID_LINK_SHARED_ICU4C"' in hwui, "libhwui compiles with -DANDROID_LINK_SHARED_ICU4C")
 
 
+def check_registration(tree):
+    """Patch 0006: the tree's LayoutlibLoader.cpp lists every class of its map, in the order of jni_runtime.cpp's
+    gRegJNI, and asks System.getProperty for none."""
+    apex = os.path.join(tree, "frameworks/base/libs/hwui/apex")
+    loader, runtime = (open(os.path.join(apex, name)).read() if os.path.exists(os.path.join(apex, name)) else ""
+                       for name in ("LayoutlibLoader.cpp", "jni_runtime.cpp"))
+    mapped = {function: name for name, function in re.findall(r'\{"([\w.]+)",\s*REG_JNI\((\w+)\)\}', loader)}
+    order = re.findall(r"REG_JNI\((register_\w+)\)", runtime.split("gRegJNI[]")[-1])
+    wanted = [mapped[function] for function in order if function in mapped]
+    listed = re.findall(r'^ +"(android\.[\w.]+)",$', loader, re.M)
+    check(mapped and len(wanted) == len(mapped), "every class of LayoutlibLoader's map has its place in gRegJNI")
+    check(listed == wanted, "LayoutlibLoader registers every class of its map in gRegJNI's order (patch 0006)")
+    check(loader and "getProperty" not in loader, "LayoutlibLoader reads no system property for them (patch 0006)")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scratch")
@@ -198,6 +217,7 @@ def main():
         for absent in ("frameworks/av/include", "system/media/audio/include", "hardware/ril/include"):
             check(f"/{absent}\"" not in plan, f"the plan never names {absent}, which the tree does not hold")
         check_host_side(tree, hwui)
+        check_registration(tree)
     print(f"hwui-plan: {'all checks passed' if failures == 0 else f'{failures} failed'}")
     return 1 if failures else 0
 

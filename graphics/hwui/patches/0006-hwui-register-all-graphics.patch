@@ -1,0 +1,104 @@
+hwui's host-flavor registration of every graphics class, as Android registers them (ADR-0043 a2).
+
+The host flavor builds apex/LayoutlibLoader.cpp in place of the device's apex/jni_runtime.cpp. Its
+register_android_graphics_classes registers only the classes that layoutlib names in the Java system property
+graphics_native_classes, and none without it. Android registers all of its graphics natives when the VM starts,
+with no such property. So the function registers every class of LayoutlibLoader's map instead, in the order of
+the device's gRegJNI (ColorSpace before Graphics, as jni_runtime.cpp asks). GraphicsJNI::setJavaVM and the
+registration itself stay as they are. parseCsv, which only read the property, goes, so that no unused function
+meets -Wall and -Werror.
+
+--- a/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
++++ b/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
+@@ -144,25 +144,6 @@
+     return 0;
+ }
+ 
+-static vector<string> parseCsv(const string& csvString) {
+-    vector<string>   result;
+-    istringstream stream(csvString);
+-    string segment;
+-    while(getline(stream, segment, ','))
+-    {
+-        result.push_back(segment);
+-    }
+-    return result;
+-}
+-
+-static vector<string> parseCsv(JNIEnv* env, jstring csvJString) {
+-    const char* charArray = env->GetStringUTFChars(csvJString, 0);
+-    string csvString(charArray);
+-    vector<string> result = parseCsv(csvString);
+-    env->ReleaseStringUTFChars(csvJString, charArray);
+-    return result;
+-}
+-
+ } // namespace android
+ 
+ using namespace android;
+@@ -178,18 +159,54 @@
+     env->GetJavaVM(&vm);
+     GraphicsJNI::setJavaVM(vm);
+ 
+-    // Configuration is stored as java System properties.
+-    // Get a reference to System.getProperty
+-    jclass system = FindClassOrDie(env, "java/lang/System");
+-    jmethodID getPropertyMethod = GetStaticMethodIDOrDie(env, system, "getProperty",
+-                                                         "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
++    // Minato (ADR-0043 a2): every class of the map, in the order of the device's gRegJNI (apex/jni_runtime.cpp),
++    // as Android registers its graphics at the start, in place of the classes that layoutlib names in its
++    // graphics_native_classes property, which an app would see.
++    static const vector<string> classesToRegister = {
++            "android.graphics.Canvas",
++            "android.graphics.Color",
++            "android.graphics.ColorSpace",
++            "android.graphics.Graphics",
++            "android.graphics.Bitmap",
++            "android.graphics.BitmapFactory",
++            "android.graphics.ByteBufferStreamAdaptor",
++            "android.graphics.Camera",
++            "android.graphics.CreateJavaOutputStreamAdaptor",
++            "android.graphics.CanvasProperty",
++            "android.graphics.ColorFilter",
++            "android.graphics.DrawFilter",
++            "android.graphics.FontFamily",
++            "android.graphics.ImageDecoder",
++            "android.graphics.Interpolator",
++            "android.graphics.MaskFilter",
++            "android.graphics.Matrix",
++            "android.graphics.NinePatch",
++            "android.graphics.Paint",
++            "android.graphics.Path",
++            "android.graphics.PathIterator",
++            "android.graphics.PathMeasure",
++            "android.graphics.PathEffect",
++            "android.graphics.Picture",
++            "android.graphics.Region",
++            "android.graphics.Shader",
++            "android.graphics.RenderEffect",
++            "android.graphics.Typeface",
++            "android.graphics.YuvImage",
++            "android.graphics.animation.NativeInterpolatorFactory",
++            "android.graphics.animation.RenderNodeAnimator",
++            "android.graphics.drawable.AnimatedVectorDrawable",
++            "android.graphics.drawable.VectorDrawable",
++            "android.graphics.fonts.Font",
++            "android.graphics.fonts.FontFamily",
++            "android.graphics.text.MeasuredText",
++            "android.graphics.text.LineBreaker",
++            "android.graphics.text.TextRunShaper",
++            "android.graphics.text.GraphemeBreak",
++            "android.util.PathParser",
++            "android.graphics.RenderNode",
++            "android.graphics.RecordingCanvas",
++    };
+ 
+-    // Get the names of classes that need to register their native methods
+-    auto nativesClassesJString = (jstring)env->CallStaticObjectMethod(
+-            system, getPropertyMethod, env->NewStringUTF("graphics_native_classes"),
+-            env->NewStringUTF(""));
+-    vector<string> classesToRegister = parseCsv(env, nativesClassesJString);
+-
+     if (register_jni_procs(gRegJNIMap, classesToRegister, env) < 0) {
+         return JNI_ERR;
+     }
