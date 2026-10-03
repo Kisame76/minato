@@ -123,8 +123,9 @@ namespace {
 
 // Namespaces as ADR-0033 decision 7 has them until step e (ADR-0040): every namespace is the loader's one
 // global scope, and a namespace only names the folders where android_dlopen_ext looks for a library by name
-// first. ART's start loads its JNI libraries into the exported namespace com_android_art; libnativeloader asks
-// for the exported "system" or "default" namespace and creates one for each class loader.
+// first. ART's start loads its JNI libraries into the exported namespace com_android_art, and libnativeloader
+// opens a boot jar's JNI library in its APEX's exported namespace, conscrypt.jar's in com_android_conscrypt. It
+// asks for the exported "system" or "default" namespace and creates one for each class loader.
 struct Namespace {
   char name[64];
   char search_path[1024];  // folders, separated by colons
@@ -132,6 +133,7 @@ struct Namespace {
 
 Namespace default_namespace = {"default", ""};
 Namespace art_namespace = {"com_android_art", "/apex/com.android.art/lib64"};
+Namespace conscrypt_namespace = {"com_android_conscrypt", "/apex/com.android.conscrypt/lib64"};
 // Room for the namespaces of class loaders: ld-android.so has no allocator. Guarded by loader_lock.
 Namespace created_namespaces[32];
 size_t created_count = 0;
@@ -316,12 +318,14 @@ bool __loader_android_link_namespaces_all_libs(android_namespace_t*, android_nam
   return true;
 }
 
-// "default" stands for the program's namespace, as for a program in /system/bin (ADR-0040 decision 2), and
-// com_android_art for ART's APEX.
+// "default" stands for the program's namespace, as for a program in /system/bin (ADR-0040 decision 2),
+// com_android_art for ART's APEX and com_android_conscrypt for Conscrypt's. libnativeloader ends the process
+// when the namespace of a boot jar's APEX is missing (FindApexNamespace, ADR-0046 a).
 android_namespace_t* __loader_android_get_exported_namespace(const char* name) {
   if (name == nullptr) return nullptr;
   if (same(name, "default")) return reinterpret_cast<android_namespace_t*>(&default_namespace);
   if (same(name, "com_android_art")) return reinterpret_cast<android_namespace_t*>(&art_namespace);
+  if (same(name, "com_android_conscrypt")) return reinterpret_cast<android_namespace_t*>(&conscrypt_namespace);
   return nullptr;
 }
 

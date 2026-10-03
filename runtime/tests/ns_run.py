@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""A program outside the APEXes and ART's folder (ADR-0039 a, ADR-0040 decision 2): apk-run runs the fixture
-ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system] section, with the
-fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names that
-section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
-  - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
-  - its dlopen of libjdwp.so finds the library through the link, and the library finds what it needs
-    (libns-dep.so) and what it opens (libns-plugin.so) in its own folder.
-ns-test must print exactly <expected> and exit with 0. The expected output is ours: Android lets nothing be
-installed into /system/bin or an APEX. Prints "skipped: ..." while a part is not built.
+"""A program outside the APEXes and the folders of ART and Conscrypt (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a):
+apk-run runs the fixture ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system]
+section, twice:
+  - with the fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names
+    that section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
+    - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
+    - its dlopen of libjdwp.so finds the library through the link, and the library finds what it needs
+      (libns-dep.so) and what it opens (libns-plugin.so) in its own folder;
+  - with the three in /apex/com.android.conscrypt/lib64, libns-lib.so under the name libjavacrypto.so, the library
+    that conscrypt.jar loads:
+    - the program's dlopen of libjavacrypto.so fails, as no link reaches that folder;
+    - android_dlopen_ext opens it in the exported namespace com_android_conscrypt, where libnativeloader opens it
+      for conscrypt.jar and ends the process if the namespace is missing, and the library finds what it needs and
+      what it opens in its own folder.
+Each run is a process of its own: the loader's one scope would give the second run's library the first run's
+libraries by name (ADR-0033 decision 7). The two runs must print exactly <expected> together and exit with 0. The
+expected output is ours: Android lets nothing be installed into /system/bin or an APEX. Prints "skipped: ..." while
+a part is not built.
 
 Usage: ns_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work> <expected>
 """
@@ -16,9 +25,16 @@ import os
 import subprocess
 import sys
 
-ART_LIBRARIES = "/apex/com.android.art/lib64"
-# The containers in ART's folder: the name the loader finds, and the fixture it is made from.
-IN_ART_FOLDER = {"libjdwp.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"}
+# Each run: the folder in <work> that holds an APEX's lib64, that lib64, the containers in it (the name the loader
+# finds, and the fixture it is made from), and ns-test's arguments.
+RUNS = [
+    ("art-lib64", "/apex/com.android.art/lib64",
+     {"libjdwp.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"},
+     ["libns-dep.so", "libjdwp.so"]),
+    ("conscrypt-lib64", "/apex/com.android.conscrypt/lib64",
+     {"libjavacrypto.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"},
+     ["libjavacrypto.so", "com_android_conscrypt:libjavacrypto.so"]),
+]
 
 
 def convert(apk_convert, elf, container):
@@ -34,41 +50,47 @@ def main():
     if len(sys.argv) != 8:
         raise SystemExit(__doc__)
     fixtures, bionic_lib, bionic_system, apk_convert, apk_run, work, expected = sys.argv[1:]
-    for name in ["ns-test"] + sorted(set(IN_ART_FOLDER.values())):
+    for name in ["ns-test"] + sorted({fixture for _, _, containers, _ in RUNS for fixture in containers.values()}):
         if not os.path.exists(os.path.join(fixtures, name)):
             print(f"skipped: {os.path.join(fixtures, name)} is not built (tools/build-fixtures.sh)")
             return
 
     # The containers stay from run to run; runs side by side convert one at a time.
     system = os.path.join(work, "system-lib64")
-    art = os.path.join(work, "art-lib64")
     program = os.path.join(work, "bin", "ns-test.dylib")
-    for folder in (system, art, os.path.dirname(program)):
+    for folder in [system, os.path.dirname(program)] + [os.path.join(work, run[0]) for run in RUNS]:
         os.makedirs(folder, exist_ok=True)
     with open(os.path.join(work, "convert.lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         for name in sorted(os.listdir(bionic_lib)):
             if name.endswith(".so"):
                 convert(apk_convert, os.path.join(bionic_lib, name), os.path.join(system, name + ".dylib"))
-        for name, fixture in IN_ART_FOLDER.items():
-            convert(apk_convert, os.path.join(fixtures, fixture), os.path.join(art, name + ".dylib"))
+        for folder, _, containers, _ in RUNS:
+            for name, fixture in containers.items():
+                convert(apk_convert, os.path.join(fixtures, fixture), os.path.join(work, folder, name + ".dylib"))
         convert(apk_convert, os.path.join(fixtures, "ns-test"), program)
 
-    command = [apk_run, "--mount", f"/system={bionic_system}",
-               "--libraries", f"/system/lib64={system}", "--libraries", f"{ART_LIBRARIES}={art}",
-               "--cwd", "/", "--argv0", "/system/bin/ns-test", program, "libns-dep.so", "libjdwp.so"]
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=120)
-    except subprocess.TimeoutExpired as timeout:
-        print(f"FAIL: no end within {timeout.timeout} s")
-        sys.exit(1)
+    printed = ""
+    for folder, libraries, _, arguments in RUNS:
+        command = [apk_run, "--mount", f"/system={bionic_system}",
+                   "--libraries", f"/system/lib64={system}", "--libraries", f"{libraries}={os.path.join(work, folder)}",
+                   "--cwd", "/", "--argv0", "/system/bin/ns-test", program] + arguments
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=60)
+        except subprocess.TimeoutExpired as timeout:
+            print(f"FAIL: no end within {timeout.timeout} s")
+            sys.exit(1)
+        printed += result.stdout
+        if result.returncode != 0:
+            break
     with open(expected) as handle:
         wanted = handle.read()
-    if result.returncode == 0 and result.stdout == wanted:
-        print("ns-test found ART's folder through the link list, and its library what it needs and opens there")
+    if result.returncode == 0 and printed == wanted:
+        print("ns-test found ART's folder through the link list and Conscrypt's through its exported namespace, and "
+              "the library there what it needs and opens beside it")
         return
     print(f"FAIL: exit status {result.returncode}")
-    print(f"stdout: [{result.stdout}]")
+    print(f"stdout: [{printed}]")
     print(f"expected: [{wanted}]")
     print("stderr, last 40 lines:")
     print("\n".join(result.stderr.splitlines()[-40:]))

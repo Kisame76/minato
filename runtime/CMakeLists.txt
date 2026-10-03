@@ -208,7 +208,8 @@ if(APK_HOST_BUILD)
   endforeach()
 
   # A program in /system/bin and ART's folder (ADR-0039 a, ADR-0040 decision 2): the fixture ns-test reaches a
-  # library there only through [system]'s link list, and that library finds its own in its folder.
+  # library there only through [system]'s link list, and that library finds its own in its folder. In a second run
+  # it opens a library in Conscrypt's folder through the exported namespace com_android_conscrypt (ADR-0046 a).
   add_test(NAME runtime.system_links
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/ns_run.py" "${APK_FIXTURES_DIR}"
       "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>

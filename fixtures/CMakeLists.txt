@@ -84,9 +84,9 @@ add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)
 add_executable(dl-lock-test suite/dl-lock-test.c)
 target_link_libraries(dl-lock-test PRIVATE dl)
-# ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2): a program outside the APEXes, and a library for
-# ART's folder that needs libns-dep.so and opens libns-plugin.so, both beside it only; runtime.system_links
-# places them (runtime/tests/ns_run.py).
+# ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a): a program outside the APEXes, and a
+# library for the folders of ART and Conscrypt that needs libns-dep.so and opens libns-plugin.so, both beside it
+# only; runtime.system_links places them (runtime/tests/ns_run.py).
 add_library(ns-dep SHARED suite/libns-dep.c)
 add_library(ns-plugin SHARED suite/libns-plugin.c)
 add_library(ns-lib SHARED suite/libns-lib.c)
