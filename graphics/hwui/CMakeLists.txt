@@ -4,7 +4,8 @@
 # graphics/hwui/modules.bp, the files of graphics/hwui/overlay in place of AOSP's and the patches of
 # graphics/hwui/patches, each with the reason it exists. hwui links the guest system's libraries: bionic's
 # (tools/build-bionic.sh), those of ART's build it shares (tools/build-art.sh), and the NDK's libc++_shared.so, which
-# ART's folder holds. Built by tools/build-hwui.sh; the libraries go to <build>/lib.
+# ART's folder holds. Built by tools/build-hwui.sh; the libraries go to <build>/lib, and the digests of the patches
+# they carry to <build>/patches.sha256.
 cmake_minimum_required(VERSION 4.0)
 project(MinatoHwui LANGUAGES C CXX ASM)
 
@@ -157,3 +158,26 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${APK_ROOT}/tool
   "${APK_ROOT}/tools/soong_plan.py" "${APK_ROOT}/tools/blueprint.py" "${APK_ROOT}/tools/aconfig-flags.py"
   "${APK_ROOT}/tools/sysprop.py" "${CMAKE_CURRENT_SOURCE_DIR}/modules.bp" ${hwui_changes})
 include("${CMAKE_BINARY_DIR}/plan.cmake")
+
+# The patches this build carries, as shasum -a 256 lists them, in patches.sha256 once every library of the set is
+# linked: app_process loads hwui at every start (ADR-0043 test 2), and a build of older patches crashes there (patch
+# 0007), so graphics.hwui_load compares it with graphics/hwui/patches.
+set(patch_digests "")
+file(GLOB hwui_patches RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch")
+foreach(patch IN LISTS hwui_patches)
+  file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${patch}" digest)
+  string(APPEND patch_digests "${digest}  ${patch}\n")
+endforeach()
+file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/patches.sha256.next" CONTENT "${patch_digests}" @ONLY)
+get_property(hwui_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(hwui_libraries)
+foreach(target IN LISTS hwui_targets)
+  get_target_property(type ${target} TYPE)
+  if(type STREQUAL "SHARED_LIBRARY")
+    list(APPEND hwui_libraries ${target})
+  endif()
+endforeach()
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/patches.sha256"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/patches.sha256.next" "${CMAKE_BINARY_DIR}/patches.sha256"
+  DEPENDS "${CMAKE_BINARY_DIR}/patches.sha256.next" ${hwui_libraries} VERBATIM)
+add_custom_target(hwui_patches_stamp ALL DEPENDS "${CMAKE_BINARY_DIR}/patches.sha256")

@@ -10,13 +10,16 @@ hwui-load must print exactly <expected> and exit with 0: dlopen loads libhwui.so
 constructors, dlsym finds init_android_graphics and register_android_graphics_classes, and init_android_graphics
 returns. Before that, the set's files are checked (a2): every library must align its loaded segments to the guest's
 16 KB pages, none to bionic's 2 MiB for huge pages, and libhwui.so must export its two functions but none of the
-libpng and libcutils members it holds, which its version script keeps local, as on Android. Prints "skipped: ..."
-while a part is not built.
+libpng and libcutils members it holds, which its version script keeps local, as on Android. And the build must carry
+graphics/hwui's patches as they are: it lists them in patches.sha256 beside its lib folder once every library is
+linked (graphics/hwui/CMakeLists.txt), since app_process loads hwui at every start (ADR-0043 test 2) and an older
+build crashes there (patch 0007). Prints "skipped: ..." while a part is not built.
 
 Usage: hwui_load_run.py <fixtures-bin> <hwui-lib> <art-lib> <bionic-lib> <bionic-system> <apk-convert> <apk-run>
                         <work> <expected>
 """
 import fcntl
+import hashlib
 import os
 import struct
 import subprocess
@@ -33,6 +36,7 @@ SHT_DYNSYM = 11
 # flavor's static libandroidfw brings into it.
 FUNCTIONS = ["init_android_graphics", "register_android_graphics_classes"]
 HELD = ["libpng.so", "libcutils.so"]
+PATCHES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hwui", "patches")
 
 
 def load_alignments(path):
@@ -83,6 +87,24 @@ def libraries(folder):
     return sorted(name for name in os.listdir(folder) if name.endswith(".so"))
 
 
+def patch_digests():
+    """graphics/hwui's patches as their build lists them in patches.sha256: shasum -a 256's lines, by name."""
+    lines = []
+    for name in sorted(name for name in os.listdir(PATCHES) if name.endswith(".patch")):
+        with open(os.path.join(PATCHES, name), "rb") as handle:
+            lines.append(f"{hashlib.sha256(handle.read()).hexdigest()}  patches/{name}\n")
+    return "".join(lines)
+
+
+def built_digests(hwui):
+    """The patches.sha256 beside the build's lib folder, or None."""
+    stamp = os.path.join(os.path.dirname(os.path.normpath(hwui)), "patches.sha256")
+    if not os.path.exists(stamp):
+        return None
+    with open(stamp) as handle:
+        return handle.read()
+
+
 def main():
     if len(sys.argv) != 10:
         raise SystemExit(__doc__)
@@ -93,6 +115,10 @@ def main():
         if not os.path.exists(path):
             print(f"skipped: {path} is not built ({how})")
             return
+    if built_digests(hwui) != patch_digests():
+        print(f"FAIL: {os.path.dirname(os.path.normpath(hwui))} is not built with graphics/hwui/patches as they are "
+              "(its patches.sha256): run tools/build-hwui.sh")
+        sys.exit(1)
     misaligned = [f"{name} ({', '.join(hex(alignment) for alignment in sorted(alignments))})"
                   for name in libraries(hwui) for alignments in [load_alignments(os.path.join(hwui, name))]
                   if alignments != {PAGE}]

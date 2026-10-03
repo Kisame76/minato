@@ -1,0 +1,25 @@
+hwui's critical natives as ART calls them (ADR-0043 test 2).
+
+The host flavor's files take the host side of every test of __ANDROID__ (tools/soong_plan.py's make_tree), which
+gives graphics_jni_helpers.h's CRITICAL_JNI_PARAMS layoutlib's JNIEnv* and jclass: a host JVM does not know
+@CriticalNative and passes them to every native. The guest's VM is ART, which calls the natives that
+framework.jar's graphics classes mark @CriticalNative without them, as on Android. With the host side, such a
+native reads its arguments two registers late (Font.nGetPackedStyle loaded through a null pointer at the first
+Typeface). So the macros take the Android side, whatever the host side does.
+
+--- a/frameworks/base/libs/hwui/jni/graphics_jni_helpers.h
++++ b/frameworks/base/libs/hwui/jni/graphics_jni_helpers.h
+@@ -27,13 +27,8 @@
+ // and they need all the JNI methods to have JNIEnv* and jclass/jobject as their first two arguments.
+ // The following macro allows to have those arguments when compiling for host while omitting them when
+ // compiling for Android.
+-#ifdef __ANDROID__
+ #define CRITICAL_JNI_PARAMS
+ #define CRITICAL_JNI_PARAMS_COMMA
+-#else
+-#define CRITICAL_JNI_PARAMS JNIEnv*, jclass
+-#define CRITICAL_JNI_PARAMS_COMMA JNIEnv*, jclass,
+-#endif
+ 
+ namespace android {
+ 
