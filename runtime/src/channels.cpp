@@ -94,10 +94,6 @@ std::int64_t last_time = 0;          // the last tick's time, under `lock`
 std::int64_t period = 0;             // the display's, once a tick came, under `lock`
 bool period_known = false;           // whether one came
 
-// ADR-0041 decision 11: the least time from a drawable with a presentation time to the screen on the iPhone, as the
-// short sitting of 2026-10-02 measured it. No frame timeline offers a present sooner after its frame time.
-constexpr std::int64_t least_delay = 33'200'000;
-
 class VsyncChannel final : public Channel {
 public:
     VsyncChannel(int read_end, int write_end) : Channel(read_end, write_end, Of::vsync) {}
@@ -127,19 +123,16 @@ bool differs(std::int64_t length, std::int64_t base) {
     return std::llabs(length - base) > base / 100;
 }
 
-/// A tick with its frame timelines. Timeline 0 presents at the first refresh of the tick's grid,
-/// target_time + m × length, at least the least delay after the frame time, and never before
-/// target_time + length, so that its deadline is never the frame time (ADR-0036). The others follow a period
-/// apart, each deadline a period before its present.
+/// A tick with its frame timelines. Timeline 0 presents at target_time + length, 2 periods after the frame time at
+/// every rate, so that its deadline is never the frame time (ADR-0036): graphics/host sends a present that near
+/// without a presentation time, and such a present reaches the iPhone's screen 2 refreshes after its drawable
+/// (ADR-0041 decision 11). The others follow a period apart, each deadline a period before its present.
 apkrt_vsync make_tick(std::int64_t number, std::int64_t time, std::int64_t target_time, std::int64_t length) {
     apkrt_vsync tick{};
     tick.time = time;
     tick.target_time = target_time;
     tick.period = length;
-    std::int64_t first = target_time + length;
-    if (const std::int64_t short_by = least_delay - (first - time); length > 0 && short_by > 0) {
-        first += (short_by + length - 1) / length * length;
-    }
+    const std::int64_t first = target_time + length;
     for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
         tick.timelines[k] = {number + k, first + k * length, first + (k - 1) * length};
     }

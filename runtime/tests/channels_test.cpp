@@ -1,8 +1,7 @@
 // Checks the vsync channel (ADR-0036, decisions 1 and 2): a channel's descriptor is readable only while it
 // holds a tick it asked for or a period it has not read; a tick goes only to the channels that asked since
 // their last, each of which keeps only the newest; the read gives the tick with its three timelines and ends
-// the readiness, timeline 0 at the first refresh at least 33.2 ms after the frame time (ADR-0041 decision 11)
-// and never sooner than 2 periods after it;
+// the readiness, timeline 0 two periods after the frame time at every rate (ADR-0041 decision 11);
 // the period is the session's refresh rate until a tick's differs by more than 1 %, which wakes every channel;
 // apkrt_vsync_grid gives the last tick's time with the period it left, none before the first tick and never
 // two ticks' values together; the syscalls refuse descriptors of another kind; a guest waiting in epoll wakes
@@ -34,7 +33,6 @@
 #include <cstring>
 #include <initializer_list>
 #include <thread>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -51,9 +49,6 @@ constexpr std::int64_t enoent = 2, ebadf = 9, eagain = 11, efault = 14, ebusy = 
 
 constexpr std::int64_t thirty = 33'333'333, sixty = 16'666'667, ninety = 11'111'111,
                        hundred_twenty = 8'333'333;  // periods in ns
-// ADR-0041 decision 11: the least time from a drawable with a presentation time to the screen on the iPhone, as the
-// short sitting of 2026-10-02 measured it.
-constexpr std::int64_t least_delay = 33'200'000;
 
 std::int64_t call(std::uint64_t number, std::initializer_list<std::uint64_t> arguments = {}) {
     apkrt_syscall_frame frame{};
@@ -122,19 +117,11 @@ std::int64_t tick(std::int64_t period = sixty) {
     return ++posted;
 }
 
-/// Timeline 0's expected present for a tick at `time`, due at `target_time`: the first refresh of its grid,
-/// target_time + m × period, at least the least delay after the frame time, and never before target_time + period.
-std::int64_t first_reachable(std::int64_t time, std::int64_t target_time, std::int64_t period) {
-    std::int64_t refresh = target_time + period;
-    while (refresh - time < least_delay) refresh += period;
-    return refresh;
-}
-
 /// Whether `read` holds the tick with the number `number`, which began at `time`, with the period `period`
-/// and its three timelines a period apart, each deadline a period before its present.
+/// and its three timelines a period apart from target_time + period, each deadline a period before its present.
 bool holds_tick(const Read &read, std::int64_t number, std::int64_t time, std::int64_t period) {
     const apkrt_vsync &vsync = read.vsync;
-    const std::int64_t first = first_reachable(time, vsync.target_time, period);
+    const std::int64_t first = vsync.target_time + period;
     bool timelines = true;
     for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
         const apkrt_frame_timeline &timeline = vsync.timelines[k];
@@ -348,13 +335,13 @@ TEST(the_grid_is_the_last_ticks_time_with_the_period_it_left) {
     CHECK(apkrt_vsync_grid(&time, nullptr) == 0 && time == now);
 }
 
-TEST(timeline_zero_is_the_first_refresh_at_least_the_least_delay_after_the_frame_time) {
-    // 33.2 ms are 2 periods at 60 Hz, 3 at 90 Hz and 4 at 120 Hz. Never sooner than 2 periods, so that timeline 0's
-    // deadline is never the frame time (ADR-0036): 2 at 30 Hz, its deadline at target_time. The other timelines
-    // follow a period apart, each deadline a period before its present.
+TEST(timeline_zero_presents_two_periods_after_the_frame_time_at_every_rate) {
+    // ADR-0041 decision 11, changed 2026-10-02 evening: graphics/host sends a present that near without a time, and
+    // such a present reaches the screen 2 refreshes after its drawable, so no least delay moves timeline 0 out.
+    // Its deadline is target_time, never the frame time (ADR-0036). The other timelines follow a period apart,
+    // each deadline a period before its present.
     const auto channel = connect();
-    for (const auto &[period, periods] :
-         {std::pair{thirty, 2}, std::pair{sixty, 2}, std::pair{ninety, 3}, std::pair{hundred_twenty, 4}}) {
+    for (const auto period : {thirty, sixty, ninety, hundred_twenty}) {
         CHECK(request(channel) == 0);
         const auto number = tick(period);
         const Read got = read(channel);
@@ -362,8 +349,8 @@ TEST(timeline_zero_is_the_first_refresh_at_least_the_least_delay_after_the_frame
         for (std::int64_t k = 0; k < APKRT_FRAME_TIMELINES; ++k) {
             const apkrt_frame_timeline &timeline = got.vsync.timelines[k];
             CHECK(timeline.vsync_id == number + k);
-            CHECK(timeline.expected_present_time == now + (periods + k) * period);
-            CHECK(timeline.deadline == now + (periods + k - 1) * period);
+            CHECK(timeline.expected_present_time == now + (2 + k) * period);
+            CHECK(timeline.deadline == now + (1 + k) * period);
         }
     }
     call(nr_close, {unsigned_of(channel)});
