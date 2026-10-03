@@ -55,13 +55,14 @@ add_custom_target(art_libcxx_shared ALL DEPENDS "${CMAKE_BINARY_DIR}/lib/libc++_
 # 16 KiB pages leave bionic's PAGE_SIZE undefined, so that no code assumes 4 KiB (ADR-0007, Soong's
 # NoBionicPageSizeMacro); Soong's global C++ flags; and fmt's format strings checked at run time, since fmt 10.2's
 # compile-time check fails under the NDK's clang, which no longer folds two equal string literals into one object.
-# -Wno-error comes last: the projects' -Werror was meant for the clang of their time.
+# -Wno-error comes last: the projects' -Werror was meant for the clang of their time. The language standards come
+# from the plan, after the module's cflags, where Soong puts them (ADR-0043 a2): one of ours before them would win
+# over the plan's when they are equal, since CMake drops a repeated option.
 set(art_target "--target=aarch64-linux-android10000")
 set(art_flags ${art_target} -nostdlibinc -fPIC -ffunction-sections -fdata-sections -fno-short-enums -funwind-tables
   -fstack-protector-strong -fno-exceptions -fno-strict-aliasing -ffp-contract=off -ftrivial-auto-var-init=zero
   -march=armv8-a -O2 -DANDROID -DNDEBUG -D__BIONIC_NO_PAGE_SIZE_MACRO)
-set(art_cppflags -std=gnu++20 -fno-rtti -fvisibility-inlines-hidden -Wsign-promo -Wno-gnu-include-next
-  -DFMT_CONSTEVAL=)
+set(art_cppflags -fno-rtti -fvisibility-inlines-hidden -Wsign-promo -Wno-gnu-include-next -DFMT_CONSTEVAL=)
 set(art_link_flags ${art_target} -nostdlib -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-z,noexecstack
   -Wl,-z,relro -Wl,-z,now -Wl,--build-id=md5 -Wl,--hash-style=gnu)
 
@@ -78,7 +79,7 @@ function(art_unit name)
   target_include_directories(${name} SYSTEM BEFORE PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${ndk_libcxx_include}>")
   target_include_directories(${name} SYSTEM PRIVATE ${unit_SYSTEM_INCLUDES})
   target_compile_options(${name} PRIVATE ${art_flags}
-    "$<$<COMPILE_LANGUAGE:C>:-std=gnu17;${unit_CFLAGS};${unit_CONLYFLAGS}>"
+    "$<$<COMPILE_LANGUAGE:C>:${unit_CFLAGS};${unit_CONLYFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${art_cppflags};${unit_CFLAGS};${unit_CPPFLAGS}>"
     "$<$<COMPILE_LANGUAGE:ASM>:-D__ASSEMBLY__;${unit_ASFLAGS}>"
     -Wno-error)

@@ -23,7 +23,8 @@ import blueprint  # noqa: E402
 
 SOURCE_EXTENSIONS = (".c", ".cpp", ".cc", ".S", ".s")
 GENERATORS = ("genrule", "gensrcs", "cc_genrule")
-# What Soong compiles for cpp_std and c_std "experimental" (cc/config/global.go at the tag).
+# What Soong compiles for a module without cpp_std and c_std, and for "experimental" (cc/config/global.go at the tag).
+DEFAULT_STD = {"cpp_std": "gnu++20", "c_std": "gnu17"}
 EXPERIMENTAL_STD = {"cpp_std": "gnu++2b", "c_std": "gnu2x"}
 # The host side's tool, unifdef 2.12 of macOS's base system, the files it reads, and a test it left: one it cannot
 # decide, such as defined(__ANDROID__) || defined(X), or a macro defined from __ANDROID__.
@@ -47,6 +48,20 @@ def cmake_flags(values):
     """Compile flags. A flag string can hold an option and its argument ("-include foo.h"); CMake would drop the
     repeated option when de-duplicating, so such strings go through SHELL:."""
     return " ".join(cmake_quote("SHELL:" + value if " " in value.strip() else value.strip()) for value in values)
+
+
+def standards(properties):
+    """A module's -std flags as Soong gives them (cc/compiler.go at the tag): its c_std and cpp_std, Soong's own where
+    it names none, with "c" for "gnu" where gnu_extensions is false. Soong puts each after the module's cflags, first
+    in its conlyflags and cppflags, so a -std in the cflags gives way and one in the cppflags wins."""
+    result = {}
+    for key, default in DEFAULT_STD.items():
+        value = properties.get(key) or default
+        value = EXPERIMENTAL_STD[key] if value == "experimental" else value
+        if properties.get("gnu_extensions") is False:
+            value = value.replace("gnu", "c")
+        result[key] = f"-std={value}"
+    return result
 
 
 def identifier(name):
@@ -325,9 +340,10 @@ class Planner:
         unit = blueprint.compile_unit(self.tree, name, "static", set())
         sources = [self.local(source) for source in unit["sources"]]
         includes, system = self.includes(unit)
+        cppflags = [standards(self.properties(name, "static"))["cpp_std"]] + list(unit["cppflags"])
         self.lines.append(
             f"{self.PREFIX}_object_text({cmake_quote(output)}\n  SOURCES {cmake_list(sources)}\n"
-            f"  CFLAGS {cmake_flags(unit['cflags'])}\n  CPPFLAGS {cmake_flags(unit['cppflags'])}\n"
+            f"  CFLAGS {cmake_flags(unit['cflags'])}\n  CPPFLAGS {cmake_flags(cppflags)}\n"
             f"  INCLUDES {cmake_list(includes)}\n  SYSTEM_INCLUDES {cmake_list(system)})")
         return output
 
@@ -446,13 +462,9 @@ class Planner:
         includes += [os.path.abspath(os.path.join(self.tree_root, include)) for include in self.GLOBAL_INCLUDES
                      if os.path.isdir(os.path.join(self.tree_root, include))]
         cflags = list(unit["cflags"])
-        cppflags = list(unit["cppflags"]) + (["-frtti"] if properties.get("rtti") else [])
-        standards = {key: EXPERIMENTAL_STD[key] if properties.get(key) == "experimental" else properties.get(key)
-                     for key in EXPERIMENTAL_STD}
-        if standards["cpp_std"]:
-            cppflags.append(f"-std={standards['cpp_std']}")
-        if standards["c_std"]:
-            unit["conlyflags"] = [f"-std={standards['c_std']}"] + list(unit["conlyflags"])
+        standard = standards(properties)
+        conlyflags = [standard["c_std"]] + list(unit["conlyflags"])
+        cppflags = [standard["cpp_std"]] + list(unit["cppflags"]) + (["-frtti"] if properties.get("rtti") else [])
         target = f"{self.PREFIX}_{identifier(name)}_{linkage}"
         self.units[key] = target if sources else None
         if not sources:
@@ -463,7 +475,7 @@ class Planner:
             f"  SOURCES {cmake_list(sources)}\n"
             f"  GENERATED_HEADERS {cmake_list(unique(generated_headers))}\n"
             f"  CFLAGS {cmake_flags(cflags)}\n"
-            f"  CONLYFLAGS {cmake_flags(unit['conlyflags'])}\n"
+            f"  CONLYFLAGS {cmake_flags(conlyflags)}\n"
             f"  CPPFLAGS {cmake_flags(cppflags)}\n"
             f"  ASFLAGS {cmake_flags(unit['asflags'])}\n"
             f"  INCLUDES {cmake_list(unique(includes))}\n"

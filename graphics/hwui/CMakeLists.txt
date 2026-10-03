@@ -57,13 +57,14 @@ endforeach()
 # bionic's PAGE_SIZE undefined (ADR-0007), Soong's global C++ flags, fmt's format strings checked at run time; the
 # NDK's libc++, newer than Android 15's, refusing specializations of its traits that the projects make (math/half.h's
 # is_floating_point) unless told; and -Wno-error last, since the projects' -Werror was meant for the clang of their
-# time.
+# time. The language standards come from the plan, after the module's cflags, where Soong puts them (ADR-0043 a2): one
+# of ours before them would win over the plan's when they are equal, since CMake drops a repeated option.
 set(hwui_target "--target=aarch64-linux-android10000")
 set(hwui_flags ${hwui_target} -nostdlibinc -fPIC -ffunction-sections -fdata-sections -fno-short-enums -funwind-tables
   -fstack-protector-strong -fno-exceptions -fno-strict-aliasing -ffp-contract=off -ftrivial-auto-var-init=zero
   -march=armv8-a -O2 -DANDROID -DNDEBUG -D__BIONIC_NO_PAGE_SIZE_MACRO)
-set(hwui_cppflags -std=gnu++20 -fno-rtti -fvisibility-inlines-hidden -Wsign-promo -Wno-gnu-include-next
-  -DFMT_CONSTEVAL= -Wno-invalid-specialization)
+set(hwui_cppflags -fno-rtti -fvisibility-inlines-hidden -Wsign-promo -Wno-gnu-include-next -DFMT_CONSTEVAL=
+  -Wno-invalid-specialization)
 set(hwui_link_flags ${hwui_target} -nostdlib -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-z,noexecstack
   -Wl,-z,relro -Wl,-z,now -Wl,--build-id=md5 -Wl,--hash-style=gnu)
 
@@ -80,7 +81,7 @@ function(hwui_unit name)
   target_include_directories(${name} SYSTEM BEFORE PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${ndk_libcxx_include}>")
   target_include_directories(${name} SYSTEM PRIVATE ${unit_SYSTEM_INCLUDES})
   target_compile_options(${name} PRIVATE ${hwui_flags}
-    "$<$<COMPILE_LANGUAGE:C>:-std=gnu17;${unit_CFLAGS};${unit_CONLYFLAGS}>"
+    "$<$<COMPILE_LANGUAGE:C>:${unit_CFLAGS};${unit_CONLYFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${hwui_cppflags};${unit_CFLAGS};${unit_CPPFLAGS}>"
     "$<$<COMPILE_LANGUAGE:ASM>:-D__ASSEMBLY__;${unit_ASFLAGS}>"
     -Wno-error)

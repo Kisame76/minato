@@ -89,6 +89,12 @@ add_test(NAME graphics.host_side COMMAND Python3::Interpreter "${PROJECT_SOURCE_
 set_tests_properties(graphics.host_side PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 add_test(NAME graphics.sysprop COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/sysprop_test.py")
 set_tests_properties(graphics.sysprop PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+# ADR-0043 a2: every C and C++ compile of hwui's and ART's configured builds takes the standard that its plan names
+# after the module's cflags, where Soong puts it.
+add_test(NAME graphics.plan_standards
+  COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/plan_standards_check.py" "${APK_HWUI_DIR}"
+    "${APK_ART_DIR}")
+set_tests_properties(graphics.plan_standards PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 # ADR-0043 a1: libhwui.so through our loader. The fixture hwui-load opens it as /system/bin/hwui-load, with hwui's
 # set and the platform's copies of ART's build in /system/lib64 and ART's folder for ICU and libnativehelper, and
 # calls init_android_graphics (hwui_load_run.py).
