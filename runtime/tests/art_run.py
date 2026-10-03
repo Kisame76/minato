@@ -50,6 +50,60 @@ def convert_directory(apk_convert, source, target, leave_out=()):
             convert(apk_convert, os.path.join(source, name), os.path.join(target, name + ".dylib"))
 
 
+def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
+    """Converts ART's libraries, bionic's, dalvikvm and the JNI library `library`, if given, into containers in
+    `work`; returns the folder of ART's. The containers stay from run to run, and the runs that CTest starts side by
+    side share them, one converting at a time. dalvikvm opens libart.so: JniInvocation takes -XXlib only where
+    ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug flavor's folder holds ART's
+    debug flavor under that name."""
+    art_lib64 = os.path.join(work, "art-lib64-debug" if debug else "art-lib64")
+    os.makedirs(work, exist_ok=True)
+    with open(os.path.join(work, "convert.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64,
+                          leave_out=("libart.so",) if debug else ())
+        if debug:
+            convert(apk_convert, os.path.join(art, "lib", "libartd.so"), os.path.join(art_lib64, "libart.so.dylib"))
+        convert_directory(apk_convert, bionic_lib, os.path.join(work, "system-lib64"))
+        os.makedirs(os.path.join(work, "bin"), exist_ok=True)
+        convert(apk_convert, os.path.join(art, "bin", "dalvikvm"), os.path.join(work, "bin", "dalvikvm64.dylib"))
+        if library is not None:
+            os.makedirs(os.path.join(work, "jni"), exist_ok=True)
+            convert(apk_convert, library, os.path.join(work, "jni", os.path.basename(library) + ".dylib"))
+    return art_lib64
+
+
+def make_run_folder(run, icu_data, bionic_system):
+    """A new folder `run` for the files a run sees: /data with an empty dalvik-cache for arm64 and /data/local/tmp,
+    and /apex as Android has it, down to the APEXes' own folders, which ART and ICU look for. ART's javalib is a
+    mount of its own, its lib64 and bin are the loader's."""
+    shutil.rmtree(run, ignore_errors=True)
+    for folder in ("data/dalvik-cache/arm64", "data/local/tmp", "apex/com.android.art/javalib",
+                   "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
+                   "apex/com.android.tzdata/etc/tz"):
+        os.makedirs(os.path.join(run, folder))
+    for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
+                           (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
+                            "apex/com.android.tzdata/etc/tz/tzdata")):
+        os.link(source, os.path.join(run, target))  # a file of its own, as the guest sees it, not a link out
+
+
+def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments, cwd="/", environment=(), jni=()):
+    """apk-run's command that runs dalvikvm64 with `arguments` in the files of the run folder `run`, the working
+    directory `cwd` and the entries "<name>=<value>" of `environment` on top of init's."""
+    command = [apk_run,
+               "--mount", f"/data={os.path.join(run, 'data')}",
+               "--mount", f"/apex={os.path.join(run, 'apex')}",
+               "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
+               "--mount", f"/system={bionic_system}",
+               "--libraries", f"/system/lib64={os.path.join(work, 'system-lib64')}",
+               "--libraries", f"{ART_ROOT}/lib64={art_lib64}"] + list(jni) + ["--cwd", cwd]
+    for entry in environment:
+        command += ["--env", entry]
+    return command + ["--argv0", f"{ART_ROOT}/bin/dalvikvm64",
+                      os.path.join(work, "bin", "dalvikvm64.dylib")] + list(arguments)
+
+
 def offsets_failure(stderr):
     """Why the offsets on stderr's last line do not show a window filled from the top, or None when they do."""
     lines = stderr.splitlines()
@@ -90,42 +144,15 @@ def main():
         print(f"skipped: {public_libraries} is not built (tools/build-bionic.sh)")
         return
 
-    # The containers stay from run to run, and the runs that CTest starts side by side share them, one converting
-    # at a time; the files the program sees are new for each run. dalvikvm opens libart.so: JniInvocation takes
-    # -XXlib only where ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug run
-    # finds ART's debug flavor under that name.
-    art_lib64 = os.path.join(work, "art-lib64-debug" if debug else "art-lib64")
-    os.makedirs(work, exist_ok=True)
-    with open(os.path.join(work, "convert.lock"), "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64,
-                          leave_out=("libart.so",) if debug else ())
-        if debug:
-            convert(apk_convert, os.path.join(art, "lib", "libartd.so"), os.path.join(art_lib64, "libart.so.dylib"))
-        convert_directory(apk_convert, bionic_lib, os.path.join(work, "system-lib64"))
-        os.makedirs(os.path.join(work, "bin"), exist_ok=True)
-        convert(apk_convert, dalvikvm, os.path.join(work, "bin", "dalvikvm64.dylib"))
-        if library is not None:
-            os.makedirs(os.path.join(work, "jni"), exist_ok=True)
-            convert(apk_convert, library, os.path.join(work, "jni", os.path.basename(library) + ".dylib"))
+    art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)
     run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else ""))
-    shutil.rmtree(run, ignore_errors=True)
-    # /apex as Android has it, down to the APEXes' own folders, which ART and ICU look for: ART's javalib is a
-    # mount of its own, its lib64 and bin are the loader's.
-    for folder in ("data/dalvik-cache/arm64", "data/local/tmp", "apex/com.android.art/javalib",
-                   "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
-                   "apex/com.android.tzdata/etc/tz"):
-        os.makedirs(os.path.join(run, folder))
+    make_run_folder(run, icu_data, bionic_system)
     # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
     # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
     copied = shutil.copy(jar, os.path.join(run, "data", "local", "tmp"))
     os.chmod(copied, 0o444)
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
-    for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
-                           (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
-                            "apex/com.android.tzdata/etc/tz/tzdata")):
-        os.link(source, os.path.join(run, target))  # a file of its own, as the guest sees it, not a link out
 
     boot_class_path = ":".join(f"{ART_ROOT}/javalib/{name}.jar" for name in BOOT_JARS)
     options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
@@ -136,16 +163,8 @@ def main():
     if library is not None:
         options.append("-Djava.library.path=/data/local/tmp")
         jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"]
-    command = [apk_run,
-               "--mount", f"/data={os.path.join(run, 'data')}",
-               "--mount", f"/apex={os.path.join(run, 'apex')}",
-               "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
-               "--mount", f"/system={bionic_system}",
-               "--libraries", f"/system/lib64={os.path.join(work, 'system-lib64')}",
-               "--libraries", f"{ART_ROOT}/lib64={art_lib64}"] + jni + [
-               "--cwd", "/", "--argv0", f"{ART_ROOT}/bin/dalvikvm64",
-               os.path.join(work, "bin", "dalvikvm64.dylib")] + options + [
-               "-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class]
+    command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
+                              options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni)
     try:
         result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired as timeout:

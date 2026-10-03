@@ -196,6 +196,15 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets)
     set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
+    # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
+    # --sample). The first run builds the sample's jars, about 0.5 s each.
+    add_test(NAME runtime.art_run_tests${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run_tests.py" "${APK_ART_DIR}"
+        "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${PROJECT_SOURCE_DIR}" --sample ${flag})
+    set_tests_properties(runtime.art_run_tests${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
   endforeach()
 
   # A program in /system/bin and ART's folder (ADR-0039 a, ADR-0040 decision 2): the fixture ns-test reaches a

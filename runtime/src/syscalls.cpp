@@ -202,6 +202,7 @@ constexpr std::uint64_t rt_sigtimedwait = 137;
 constexpr std::uint64_t rt_sigqueueinfo = 138;
 constexpr std::uint64_t rt_sigreturn = 139;
 constexpr std::uint64_t setpriority = 140;
+constexpr std::uint64_t getpriority = 141;
 constexpr std::uint64_t getresuid = 148;
 constexpr std::uint64_t getresgid = 150;
 constexpr std::uint64_t uname = 160;
@@ -218,6 +219,7 @@ constexpr std::uint64_t getgid = 176;
 constexpr std::uint64_t getegid = 177;
 constexpr std::uint64_t gettid = 178;
 constexpr std::uint64_t socket = 198;
+constexpr std::uint64_t getsockopt = 209;
 constexpr std::uint64_t munmap = 215;
 constexpr std::uint64_t clone = 220;
 constexpr std::uint64_t mmap = 222;
@@ -225,8 +227,11 @@ constexpr std::uint64_t mprotect = 226;
 constexpr std::uint64_t madvise = 233;
 constexpr std::uint64_t rt_tgsigqueueinfo = 240;
 constexpr std::uint64_t prlimit64 = 261;
+constexpr std::uint64_t process_vm_readv = 270;
 constexpr std::uint64_t renameat2 = 276;
 constexpr std::uint64_t getrandom = 278;
+constexpr std::uint64_t userfaultfd = 282;
+constexpr std::uint64_t membarrier = 283;
 constexpr std::uint64_t faccessat2 = 439;
 constexpr std::uint64_t epoll_pwait2 = 441;
 }  // namespace nr
@@ -295,6 +300,13 @@ long sys_setpriority(int which, int who) {
     if (which < prio_process || which > prio_user) return -linux_errno::einval;
     if (which == prio_process && !names_own_thread(who)) return -linux_errno::esrch;
     return 0;
+}
+
+/// With setpriority keeping nothing, every guest thread runs at the nice value 0, which the kernel answers as
+/// 20 - nice, so that no answer is negative. ART's thread dumps ask for it.
+long sys_getpriority(int which, int who) {
+    const long checked = sys_setpriority(which, who);
+    return checked < 0 ? checked : 20;
 }
 
 // --- Time -------------------------------------------------------------------------------------------
@@ -562,11 +574,20 @@ long sys_socket(int domain, int type, int protocol) {
     return -linux_errno::enosys;
 }
 
+/// With no sockets, an open descriptor is none, as Linux answers for a file: libcore's FileDescriptor.isSocket asks
+/// for SO_DOMAIN, for example when a file is closed.
+long sys_getsockopt(int fd) {
+    return apkrt::descriptors::get(fd) != nullptr ? -linux_errno::enotsock : -linux_errno::ebadf;
+}
+
 bool is_write(std::uint64_t number) {
     return number == nr::write || number == nr::writev || number == nr::pwrite64 || number == nr::pwritev;
 }
 
-long dispatch(const apkrt_syscall_frame &frame) {
+/// The guest's stack holds this frame at every syscall, where Linux takes none of it: UBSan's checks give the cases a
+/// frame of 16 KiB at -O0, more than ART's gap of 8 KiB for a stack overflow (107-int-math2 in the sanitizer build).
+/// The cases only pass the arguments on; the functions they call keep their checks.
+__attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_frame &frame) {
     const auto *x = frame.x;
     switch (x[8]) {
         case nr::write:
@@ -613,6 +634,8 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_mprotect(x[0], x[1], as_int(x[2]));
         case nr::madvise:
             return sys_madvise(x[0], x[1], as_int(x[2]));
+        case nr::process_vm_readv:
+            return sys_process_vm_readv(as_int(x[0]), x[1], x[2], x[3], x[4], x[5]);
 
         case nr::prctl:
             return sys_prctl(as_int(x[0]), x[1]);
@@ -630,8 +653,16 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_prlimit64(as_int(x[0]), as_int(x[1]), x[2], x[3]);
         case nr::getrandom:
             return sys_getrandom(x[0], x[1], static_cast<unsigned>(x[2]));
+        // As a kernel built without them answers, without a report (ADR-0033 decision 8): ART asks for both at
+        // every start, userfaultfd for its CMC collector, which our build leaves out, and membarrier for its fault
+        // handler, which then only warns.
+        case nr::userfaultfd:
+        case nr::membarrier:
+            return -linux_errno::enosys;
         case nr::socket:
             return sys_socket(as_int(x[0]), as_int(x[1]), as_int(x[2]));
+        case nr::getsockopt:
+            return sys_getsockopt(as_int(x[0]));
 
         case nr::read:
             return sys_read(as_int(x[0]), x[1], x[2]);
@@ -749,6 +780,8 @@ long dispatch(const apkrt_syscall_frame &frame) {
             return sys_sched_setaffinity(as_int(x[0]), x[1], x[2]);
         case nr::setpriority:
             return sys_setpriority(as_int(x[0]), as_int(x[1]));
+        case nr::getpriority:
+            return sys_getpriority(as_int(x[0]), as_int(x[1]));
         case nr::sched_getscheduler:
             return sys_sched_getscheduler(as_int(x[0]));
         case nr::sched_getparam:

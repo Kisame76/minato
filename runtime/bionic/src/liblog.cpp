@@ -104,12 +104,20 @@ void __android_log_default_aborter(const char* message) {
   abort();
 }
 
-// The device's logger: logd on Android, stderr here, as `logcat -v tag` prints a message.
+// The device's logger: logd on Android, stderr here, as `logcat -v tag` prints a message: each of its lines with the
+// priority and the tag, in a write of its own. A newline at the end makes no line of its own; an empty message makes
+// one empty line.
 void __android_log_logd_logger(const __android_log_message* message) {
-  char line[kMaxPayload + 64];
-  const int length = snprintf(line, sizeof line, "%c/%-8s: %s\n", priority_character(message->priority),
-                              message->tag != nullptr ? message->tag : "", message->message);
-  if (length > 0) write_all(line, static_cast<size_t>(length) < sizeof line ? static_cast<size_t>(length) : sizeof line - 1);
+  const char* text = message->message != nullptr ? message->message : "";
+  do {
+    const char* end = strchr(text, '\n');
+    const size_t count = end != nullptr ? static_cast<size_t>(end - text) : strlen(text);
+    char line[kMaxPayload + 64];
+    const int length = snprintf(line, sizeof line, "%c/%-8s: %.*s\n", priority_character(message->priority),
+                                message->tag != nullptr ? message->tag : "", static_cast<int>(count), text);
+    if (length > 0) write_all(line, static_cast<size_t>(length) < sizeof line ? static_cast<size_t>(length) : sizeof line - 1);
+    text += end != nullptr ? count + 1 : count;
+  } while (*text != '\0');
 }
 
 // As Android's: tag, priority, local time, process and thread, then the message.

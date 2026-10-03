@@ -236,6 +236,12 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
 long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::uint64_t length);
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection);
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice);
+/// process_vm_readv on the process's own memory: libunwindstack reads through it so that an unwinder never faults
+/// on a bad address (ADR-0033 test 3). Mach's vm_read_overwrite refuses what cannot be read or written instead of
+/// faulting. A transfer ends at the first remote element that cannot be read whole; the guest can name only its
+/// own process.
+long sys_process_vm_readv(int pid, std::uint64_t local_address, std::uint64_t local_count,
+                          std::uint64_t remote_address, std::uint64_t remote_count, std::uint64_t flags);
 
 // --- Signals (sys_signals.cpp) -----------------------------------------------------------------------
 

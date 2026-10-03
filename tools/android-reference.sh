@@ -31,9 +31,13 @@
 # /data/local/tmp, its jar from build/art/test (tools/build-art.sh) and its JNI library, if it names one, from the
 # fixtures' build, found through -Djava.library.path: its stdout must be fixtures/expected/<program>.out, and the
 # last line of its stderr, which differs by device, is only shown.
+# ART's run-tests (ADR-0033 test 3) run with --art-run-tests: the subset of runtime/art/run_tests.py, built into
+# build/art-run-tests/jars, runs from one script on the device, each test as the guest runs it, with dalvikvm64; the
+# results write fixtures/art-run-tests.txt and Android 15's own outputs in fixtures/expected/art-run-tests.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
 #        tools/android-reference.sh --app <app>
 #        tools/android-reference.sh --art <program> [<library>]
+#        tools/android-reference.sh --art-run-tests
 # Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
 # Optional environment:
 #   ANDROID_HOME      SDK with emulator, platform-tools and the system image, default: ~/Library/Android/sdk
@@ -81,7 +85,11 @@ field() {
 app=""
 art=""
 art_library=""
-if [[ $# -eq 2 && "$1" == --app ]]; then
+art_run_tests=""
+if [[ $# -eq 1 && "$1" == --art-run-tests ]]; then
+  art_run_tests=yes
+  fixtures=()
+elif [[ $# -eq 2 && "$1" == --app ]]; then
   app=$2
   fixtures=()
 elif [[ ($# -eq 2 || $# -eq 3) && "$1" == --art ]]; then
@@ -420,6 +428,34 @@ if [[ -n "$art" ]]; then
   diff -u "fixtures/expected/$art.out" "$RESULTS/$art.out" | sed 's/^/    /' || true
   tail -n 20 "$RESULTS/$art.err" | sed 's/^/    /'
   exit 1
+fi
+
+if [[ -n "$art_run_tests" ]]; then
+  jdk=$(find build/tools/jdk-17 -mindepth 3 -maxdepth 3 -name Home -path '*/Contents/Home' 2>/dev/null | sort | tail -n 1)
+  if [[ -z "$jdk" || ! -f build/art/java/all-classes.jar ]]; then
+    echo "No JDK 17 in build/tools/jdk-17 or no boot classes in build/art/java: run tools/build-art.sh first." >&2
+    exit 1
+  fi
+  jars=build/art-run-tests/jars
+  /usr/bin/python3 runtime/art/run_tests.py jars "$jdk" build/sources/r8/r8.jar build/art/java build/sources "$jars" \
+    --jobs 6
+  results="$RESULTS/art-run-tests"
+  rm -rf "$results"
+  mkdir -p "$results"
+  /usr/bin/python3 runtime/art/run_tests.py device-script build/sources "$DEVICE_DIR/art-run-tests" >"$results/run.sh"
+  run "rm -rf $DEVICE_DIR/art-run-tests $DEVICE_DIR/run-test" >/dev/null
+  if ! device push "$jars" "$DEVICE_DIR/art-run-tests/jars" >/dev/null 2>&1 ||
+    ! device push "$results/run.sh" "$DEVICE_DIR/art-run-tests/run.sh" >/dev/null 2>&1; then
+    echo "Cannot copy the run-tests to the device." >&2
+    exit 1
+  fi
+  echo "Running $(grep -c '^ANDROID_DATA=' "$results/run.sh") run-tests on the device ..."
+  run "sh $DEVICE_DIR/art-run-tests/run.sh" >"$results/run.log" 2>&1 || true
+  device pull "$DEVICE_DIR/art-run-tests/results" "$results/" >/dev/null
+  run "rm -rf $DEVICE_DIR/art-run-tests $DEVICE_DIR/run-test" >/dev/null
+  /usr/bin/python3 runtime/art/run_tests.py reference build/sources "$results/results" fixtures/art-run-tests.txt \
+    fixtures/expected/art-run-tests
+  exit $?
 fi
 
 failed=0

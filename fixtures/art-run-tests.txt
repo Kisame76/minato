@@ -1,0 +1,480 @@
+# ART's run-tests of ADR-0033 test 3: the subset of AOSP's art/test by the rules of runtime/art/run_tests.py, with the
+# reference of each test: "aosp" (Android 15 printed the test's expected-stdout.txt and expected-stderr.txt), "android"
+# (Android 15 printed what fixtures/expected/art-run-tests/<test>.out and .err hold) or "out" and why the test is left
+# out. "sample" marks the tests of CTest's sample. Written by run_tests.py reference and sample from the runs of
+# tools/android-reference.sh --art-run-tests; a reason of the guest's is kept from run to run.
+001-HelloWorld aosp sample
+001-Main aosp
+003-omnibus-opcodes aosp
+004-InterfaceTest aosp
+004-NativeAllocations aosp
+004-checker-UnsafeTest18 aosp
+005-annotations aosp sample
+006-args aosp
+007-count10 aosp
+008-exceptions aosp
+009-instanceof aosp
+010-instance aosp sample
+011-array-copy aosp
+012-math aosp
+013-math2 aosp
+014-math3 aosp
+015-checker-switch aosp
+016-intern aosp
+017-float aosp
+019-wrong-array-type aosp
+020-string aosp
+024-illegal-access aosp sample
+025-access-controller aosp
+026-access aosp
+027-arithmetic aosp
+028-array-write aosp
+029-assert aosp
+030-bad-finalizer aosp
+032-concrete-sub aosp
+033-class-init-deadlock aosp
+034-call-null aosp
+035-enum aosp
+036-finalizer aosp
+037-inherit aosp
+038-inner-null aosp sample
+039-join-main aosp
+040-miranda aosp
+041-narrowing aosp
+042-new-instance aosp
+043-privates aosp
+045-reflect-array aosp
+046-reflect aosp
+047-returns aosp
+048-reflect-v8 aosp
+049-show-object aosp sample
+050-sync-test aosp
+052-verifier-fun aosp
+053-wait-some aosp
+054-uncaught aosp
+058-enum-order aosp
+059-finalizer-throw aosp
+061-out-of-memory aosp
+062-character-encodings aosp
+065-mismatched-implements aosp
+066-mismatched-super aosp
+067-preemptive-unpark aosp
+068-classloader aosp
+069-field-type aosp sample
+070-nio-buffer aosp
+071-dexfile-map-clean out the guest has no /proc/self/smaps, which the test reads (ADR-0033 decision 8 gave it maps)
+072-precise-gc aosp
+072-reachability-fence aosp
+073-mismatched-field aosp
+074-gc-thrash aosp
+075-verification-error aosp
+076-boolean-put aosp
+077-method-override aosp
+078-polymorphic-virtual aosp
+079-phantom aosp
+080-oom-throw aosp sample
+080-oom-throw-with-finalizer aosp
+081-hot-exceptions aosp
+083-compiler-regressions aosp
+084-class-init aosp
+086-null-super aosp
+087-gc-after-link aosp
+090-loop-formation aosp
+092-locale aosp
+093-serialization aosp
+094-pattern aosp
+095-switch-MAX_INT aosp
+096-array-copy-concurrent-gc aosp sample
+100-reflect2 aosp
+1000-non-moving-space-stress aosp
+1004-checker-volatile-ref-load aosp
+101-fibonacci aosp
+102-concurrent-gc aosp
+103-string-append aosp
+104-growth-limit aosp
+105-invoke aosp
+106-exceptions2 aosp
+107-int-math2 aosp sample
+108-check-cast aosp
+109-suspend-check aosp
+110-field-access aosp
+111-unresolvable-exception aosp
+112-double-math aosp
+113-multidex aosp
+114-ParallelGC aosp
+120-hashcode aosp
+121-simple-suspend-check aosp
+122-npe aosp
+123-compiler-regressions-mt aosp
+123-inline-execute2 aosp sample
+124-missing-classes aosp
+125-gc-and-classloading aosp
+128-reg-spill-on-implicit-nullcheck aosp
+129-ThreadGetId aosp
+132-daemon-locks-shutdown aosp
+1336-short-finalizer-timeout aosp
+1338-gc-no-los aosp
+140-dce-regression aosp
+140-field-packing aosp
+144-static-field-sigquit aosp
+145-alloc-tracking-stress aosp
+152-dead-large-object aosp sample
+156-register-dex-file-multi-loader aosp
+160-read-barrier-stress aosp
+165-lock-owner-proxy aosp
+168-vmstack-annotated aosp sample
+170-interface-init aosp
+171-init-aste aosp
+174-escaping-instance-of-bad-class aosp
+181-default-methods aosp
+182-method-linking aosp
+1960-checker-bounds-codegen aosp sample
+1961-checker-loop-vectorizer aosp
+201-built-in-except-detail-messages aosp
+2019-constantcalculationsinking aosp
+202-thread-oome aosp
+2020-InvokeVirtual-Inlining aosp
+2021-InvokeStatic-Inlining aosp
+2022-Invariantloops aosp
+2023-InvariantLoops_typecast aosp
+2024-InvariantNegativeLoop aosp
+2025-ChangedArrayValue aosp sample
+2026-DifferentMemoryLSCouples aosp
+2027-TwiceTheSameMemoryCouple aosp
+2028-MultiBackward aosp
+2030-long-running-child aosp
+2041-bad-cleaner aosp
+2042-checker-dce-always-throw aosp
+2044-get-stack-traces aosp
+2045-uffd-kernelfault aosp
+2046-checker-comparison aosp
+2231-checker-heap-poisoning aosp
+2233-checker-remove-loop-suspend-check aosp
+2234-checker-remove-entry-suspendcheck aosp
+2236-JdkUnsafeGetLong-regression aosp sample
+2237-checker-inline-multidex aosp
+2241-checker-inline-try-catch aosp
+2242-checker-lse-acquire-release-operations aosp
+2243-checker-not-inline-into-throw aosp
+2244-checker-remove-try-boundary aosp
+2247-checker-write-barrier-elimination aosp
+2249-checker-return-try-boundary-exit-in-loop aosp
+2250-inline-throw-into-try aosp
+2252-rem-optimization-dividend-divisor aosp
+2253-checker-devirtualize-always-throws aosp sample
+2254-checker-not-var-analyzed-pathological aosp
+2254-class-value-before-and-after-u aosp
+2255-checker-branch-redirection aosp
+2256-checker-vector-replacement aosp
+2257-checker-constant-folding-before-codegen aosp
+2258-checker-valid-rti aosp
+2259-checker-code-sinking-infinite-try-catch aosp
+2260-checker-inline-unimplemented-intrinsics aosp
+2261-badcleaner-in-systemcleaner aosp
+2262-checker-return-sinking aosp
+2264-throwing-systemcleaner aosp
+2265-checker-select-binary-unary aosp sample
+2266-checker-remove-empty-ifs aosp
+2268-checker-remove-dead-phis aosp
+2269-checker-constant-folding-instrinsics aosp
+2272-checker-codegen-honor-write-barrier-kind aosp
+2273-checker-unreachable-intrinsics aosp
+2274-checker-bitwise-gvn aosp
+2275-integral-unsigned-arithmetic aosp
+300-package-override aosp
+301-abstract-protected aosp
+302-float-conversion aosp sample
+401-optimizing-compiler aosp
+402-optimizing-control-flow aosp
+403-optimizing-long aosp
+404-optimizing-allocator aosp
+405-optimizing-long-allocator aosp
+406-fields aosp
+407-arrays aosp
+408-move-bug aosp
+409-materialized-condition aosp
+410-floats aosp sample
+411-checker-hdiv-hrem-const aosp
+411-checker-hdiv-hrem-pow2 aosp
+411-checker-instruct-simplifier-hrem aosp
+411-optimizing-arith aosp
+413-regalloc-regression aosp
+414-static-fields aosp
+418-const-string aosp
+419-long-parameter aosp
+420-const-class aosp
+421-exceptions aosp sample
+421-large-frame aosp
+422-instanceof aosp
+422-type-conversion aosp
+423-invoke-interface aosp
+424-checkcast aosp
+426-monitor aosp
+427-bitwise aosp
+427-bounds aosp
+429-ssa-builder aosp
+430-live-register-slow-path aosp sample
+433-gvn aosp
+434-shifter-operand aosp
+435-try-finally-without-catch aosp
+436-rem-float aosp
+436-shift-constant aosp
+437-inline aosp
+438-volatile aosp
+439-npe aosp
+439-swap-double aosp
+440-stmp aosp sample
+441-checker-inliner aosp
+443-not-bool-inline aosp
+444-checker-nce aosp
+445-checker-licm aosp
+446-checker-inliner2 aosp
+447-checker-inliner3 aosp
+449-checker-bce-rem aosp
+450-checker-types aosp
+451-regression-add-float aosp
+451-spill-splot aosp sample
+455-checker-gvn aosp
+456-baseline-array-set aosp
+458-checker-riscv64-shift-add aosp
+458-long-to-fpu aosp
+462-checker-inlining-dex-files aosp
+464-checker-inline-sharpen-calls aosp
+465-checker-clinit-gvn aosp
+469-condition-materialization aosp
+470-huge-method aosp
+471-deopt-environment aosp sample
+472-type-propagation aosp
+473-checker-inliner-constants aosp
+473-remove-dead-block aosp
+474-checker-boolean-input aosp
+474-fp-sub-neg aosp
+475-simplify-mul-zero aosp
+476-checker-ctor-fence-redun-elim aosp
+476-checker-ctor-memory-barrier aosp
+476-clinit-inline-static-invoke aosp
+477-checker-bound-type aosp sample
+477-long-2-float-convers-precision aosp
+478-checker-clinit-check-pruning aosp
+478-checker-inline-noreturn aosp
+478-checker-inliner-nested-loop aosp
+479-regression-implicit-null-check aosp
+480-checker-dead-blocks aosp
+481-regression-phi-cond aosp
+482-checker-loop-back-edge-use aosp
+483-dce-block aosp
+485-checker-dce-switch aosp sample
+486-checker-must-do-null-check aosp
+487-checker-inline-calls aosp
+488-checker-inline-recursive-calls aosp
+489-current-method-regression aosp
+490-checker-inline aosp
+491-current-method aosp
+492-checker-inline-invoke-interface aosp
+493-checker-inline-invoke-interface aosp
+494-checker-instanceof-tests aosp
+495-checker-checkcast-tests aosp sample
+496-checker-inlining-class-loader aosp
+499-bce-phi-array-length aosp
+500-instanceof aosp
+505-simplifier-type-propagation aosp
+507-boolean-test aosp
+507-referrer aosp
+508-checker-disassembly aosp
+508-referrer-method aosp
+513-array-deopt aosp
+514-shifts aosp sample
+519-bound-load-class aosp
+521-checker-array-set-null aosp
+521-regression-integer-field-set aosp
+524-boolean-simplifier-regression aosp
+525-checker-arrays-fields1 aosp
+525-checker-arrays-fields2 aosp
+526-checker-caller-callee-regs aosp
+526-long-regalloc aosp
+527-checker-array-access-simd aosp
+527-checker-array-access-split aosp sample
+528-long-hint aosp
+529-checker-unresolved aosp
+529-long-split aosp
+530-checker-loops-try-catch aosp
+530-checker-loops1 aosp
+530-checker-loops2 aosp
+530-checker-loops3 aosp
+530-checker-loops4 aosp
+530-checker-loops5 aosp
+530-checker-lse aosp sample
+530-checker-lse-ctor-fences aosp
+530-checker-lse-simd aosp
+530-checker-lse-try-catch aosp
+530-instanceof-checkcast aosp
+530-regression-lse aosp
+532-checker-nonnull-arrayset aosp
+534-checker-bce-deoptimization aosp
+535-deopt-and-inlining aosp
+536-checker-intrinsic-optimization aosp
+536-checker-needs-access-check aosp sample
+537-checker-arraycopy aosp
+537-checker-inline-and-unverified aosp
+537-checker-jump-over-jump aosp
+538-checker-embed-constants aosp
+540-checker-rtp-bug aosp
+542-bitfield-rotates aosp
+542-inline-trycatch aosp
+545-tracing-and-jit aosp
+548-checker-inlining-and-dce aosp
+549-checker-types-merge aosp sample
+550-checker-multiply-accumulate aosp
+550-new-instance-clinit aosp
+551-checker-clinit aosp
+551-checker-shifter-operand aosp
+551-implicit-null-checks aosp
+552-checker-sharpening aosp
+552-checker-x86-avx2-bit-manipulation aosp
+554-checker-rtp-checkcast aosp
+557-checker-instruct-simplifier-ror aosp
+558-switch aosp sample
+559-bce-ssa aosp
+559-checker-rtp-ifnotnull aosp
+560-packed-switch aosp
+561-divrem aosp
+561-shared-slowpaths aosp
+562-bce-preheader aosp
+562-checker-no-intermediate aosp
+563-checker-invoke-super aosp
+564-checker-bitcount aosp
+564-checker-inline-loop aosp sample
+564-checker-negbitwise aosp
+565-checker-condition-liveness aosp
+566-checker-codegen-select aosp
+567-checker-builder-intrinsics aosp
+568-checker-onebit aosp
+570-checker-select aosp
+572-checker-array-get-regression aosp
+573-checker-checkcast-regression aosp
+576-polymorphic-inlining aosp
+577-checker-fp2int aosp sample
+578-bce-visit aosp
+578-polymorphic-inlining aosp
+579-inline-infinite aosp
+580-checker-fp16 aosp
+580-checker-round aosp
+580-checker-string-fact-intrinsics aosp
+580-crc32 aosp
+581-checker-rtp aosp
+582-checker-bce-length aosp
+583-checker-zero aosp sample
+584-checker-div-bool aosp
+589-super-imt aosp
+590-checker-arr-set-null-regression aosp
+591-checker-regression-dead-loop aosp
+593-checker-long-2-float-regression aosp
+594-checker-array-alias aosp
+594-load-string-regression aosp
+603-checker-instanceof aosp
+605-new-string-from-bytes aosp
+607-daemon-stress aosp sample
+609-checker-inline-interface aosp
+609-checker-x86-bounds-check aosp
+610-arraycopy aosp
+611-checker-simplify-if aosp
+614-checker-dump-constant-location aosp
+615-checker-arm64-store-zero aosp
+617-clinit-oome aosp
+618-checker-induction aosp
+619-checker-current-method aosp
+620-checker-bce-intrinsics aosp sample
+622-checker-bce-regressions aosp
+625-checker-licm-regressions aosp
+627-checker-unroll aosp
+631-checker-get-class aosp
+632-checker-char-at-bounds aosp
+635-checker-arm64-volatile-load-cc aosp
+636-arm64-veneer-pool aosp
+637-checker-throw-inline aosp
+638-no-line-number aosp
+639-checker-code-sinking aosp sample
+640-checker-boolean-simd aosp
+640-checker-integer-valueof aosp
+640-checker-simd aosp
+641-checker-arraycopy aosp
+641-iterations aosp
+645-checker-abs-simd aosp
+646-checker-arraycopy-large-cst-pos aosp
+646-checker-long-const-to-int aosp
+646-checker-simd-hadd aosp
+650-checker-inline-access-thunks aosp sample
+654-checker-periodic aosp
+655-checker-simd-arm-opt aosp
+656-checker-simd-opt aosp
+657-branches aosp
+658-fp-read-barrier aosp
+659-unpadded-array aosp
+660-checker-sad aosp
+660-checker-simd-sad aosp
+661-checker-simd-cf-loops aosp
+661-checker-simd-reduc aosp
+662-regression-alias aosp
+663-checker-select-generator aosp sample
+665-checker-simd-zero aosp
+666-dex-cache-itf aosp
+667-checker-simd-alignment aosp
+667-out-of-bounds aosp
+669-checker-break aosp
+671-npe-field-opts aosp
+672-checker-throw-method aosp
+673-checker-throw-vmethod aosp
+676-resolve-field-type aosp
+683-clinit-inline-static-invoke aosp sample
+684-checker-simd-dotprod aosp
+684-select-condition aosp
+689-multi-catch aosp
+694-clinit-jit aosp
+695-simplify-throws aosp
+696-loop aosp
+697-checker-string-append aosp
+698-selects aosp
+700-LoadArgRegs aosp
+703-floating-point-div aosp
+704-multiply-accumulate aosp sample
+705-register-conflict aosp
+706-checker-scheduler aosp
+711-checker-type-conversion aosp
+713-varhandle-invokers aosp
+714-invoke-custom-lambda-metafactory aosp
+715-clinit-implicit-parameter-annotations aosp
+718-zipfile-finalizer aosp
+719-varhandle-concurrency aosp
+721-osr aosp
+726-array-store aosp sample
+730-checker-inlining-super aosp
+731-bounds-check-slow-path aosp
+805-TooDeepClassInstanceOf aosp
+806-TooWideClassInstanceOf aosp
+807-method-handle-and-mr aosp
+812-recursive-default aosp
+814-large-field-offsets aosp
+815-invokeinterface-default aosp
+826-infinite-loop aosp
+828-partial-lse aosp
+829-unresolved-enclosing aosp sample
+834-lse aosp
+835-b216762268 aosp
+838-override aosp
+839-clinit-throw aosp
+841-defaults aosp
+843-default-interface aosp
+849-records aosp
+851-null-instanceof aosp
+853-checker-inlining aosp
+856-clone aosp sample
+857-default-access aosp
+953-invoke-polymorphic-compiler aosp sample
+956-methodhandles aosp sample
+957-methodhandle-transforms aosp
+958-methodhandle-stackframe aosp
+959-invoke-polymorphic-accessors aosp
+962-iface-static aosp
+963-default-range-smali aosp
+965-default-verify aosp
+967-default-ame aosp sample

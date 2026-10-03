@@ -4,7 +4,9 @@
 #include "syscalls.h"
 #include "threads.h"
 
+#include <mach/mach.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #include <cerrno>
 
@@ -162,6 +164,53 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
         default:
             return -linux_errno::einval;  // MADV_REMOVE, MADV_HWPOISON and the like
     }
+}
+
+namespace {
+
+/// Copies `length` bytes of the process's memory from `source` to `target` as the kernel copies between user
+/// addresses: false instead of a fault when either cannot be read or written.
+bool copy_checked(std::uint64_t target, std::uint64_t source, std::uint64_t length) {
+    if (length == 0) return true;
+    vm_size_t copied = 0;
+    return ::vm_read_overwrite(::mach_task_self(), static_cast<vm_address_t>(source), static_cast<vm_size_t>(length),
+                               static_cast<vm_address_t>(target), &copied) == KERN_SUCCESS && copied == length;
+}
+
+}  // namespace
+
+long sys_process_vm_readv(int pid, std::uint64_t local_address, std::uint64_t local_count,
+                          std::uint64_t remote_address, std::uint64_t remote_count, std::uint64_t flags) {
+    constexpr std::uint64_t iov_max = 1024;  // UIO_MAXIOV
+    if (flags != 0 || local_count > iov_max || remote_count > iov_max) return -linux_errno::einval;
+    if (pid != ::getpid()) return -linux_errno::esrch;
+    // The vectors are read one element at a time: no allocation, little stack, as in a crash handler's unwinder.
+    struct Iovec {
+        std::uint64_t base = 0, length = 0;
+    } local, remote;
+    const auto read_element = [](Iovec &element, std::uint64_t vector, std::uint64_t index) {
+        return copy_checked(reinterpret_cast<std::uint64_t>(&element), vector + index * sizeof element, sizeof element);
+    };
+    std::uint64_t local_index = 0, used = 0, total = 0;
+    const auto failed = [&] { return total > 0 ? static_cast<long>(total) : -linux_errno::efault; };
+    for (std::uint64_t remote_index = 0; remote_index < remote_count; ++remote_index) {
+        if (!read_element(remote, remote_address, remote_index)) return failed();
+        std::uint64_t done = 0;
+        while (done < remote.length) {
+            if (used == local.length) {
+                if (local_index == local_count) return static_cast<long>(total + done);  // no room left
+                if (!read_element(local, local_address, local_index++)) return failed();
+                used = 0;
+                continue;
+            }
+            const std::uint64_t chunk = std::min(remote.length - done, local.length - used);
+            if (!copy_checked(local.base + used, remote.base + done, chunk)) return failed();  // never split
+            done += chunk;
+            used += chunk;
+        }
+        total += done;
+    }
+    return static_cast<long>(total);
 }
 
 }  // namespace apkrt::sys

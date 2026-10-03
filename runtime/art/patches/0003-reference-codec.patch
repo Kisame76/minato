@@ -3,9 +3,10 @@ References as offsets in the heap window (ADR-0033 decision 3).
 A reference is the object's offset from the window's base: encoding keeps the address's low 32 bits, decoding
 puts the base in front (base/heap_window.h), inline. The debug flavor checks that every encoded or decoded
 address lies in the window, past its first page, and is aligned. Places that convert without PtrCompression
-convert the same way: the forwarding address in the lock word, the class table's slots, the interpreter's
-comparison of a vreg with its reference, the string builder's arguments and ObjPtr's poisoning in the debug
-flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects and keep their bits as they are.
+convert the same way: the forwarding address in the lock word, the class table's slots, the comparisons of a vreg
+with its reference of the interpreter and of the method handles, the receiver that the proxy stub passes in a
+register, the locks that stack walks read from reference vregs, the string builder's arguments and ObjPtr's
+poisoning in the debug flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects and keep their bits as they are.
 
 --- a/art/runtime/mirror/object_reference.h
 +++ b/art/runtime/mirror/object_reference.h
@@ -154,6 +155,41 @@ flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects 
      new_shadow_frame->SetVRegReference(dest_reg, o);
    } else {
      new_shadow_frame->SetVReg(dest_reg, src_value);
+--- a/art/runtime/method_handles.cc
++++ b/art/runtime/method_handles.cc
+@@ -335,7 +335,7 @@
+     // If both register locations contains the same value, the register probably holds a reference.
+     // Note: As an optimization, non-moving collectors leave a stale reference value
+     // in the references array even after the original vreg was overwritten to a non-reference.
+-    if (src_value == reinterpret_cast<uintptr_t>(o.Ptr())) {
++    if (src_value == HeapWindowEncode(reinterpret_cast<uintptr_t>(o.Ptr()))) {  // Minato (ADR-0033)
+       callee_frame->SetVRegReference(dst_reg, o);
+     } else {
+       callee_frame->SetVReg(dst_reg, src_value);
+--- a/art/runtime/entrypoints/quick/quick_trampoline_entrypoints.cc
++++ b/art/runtime/entrypoints/quick/quick_trampoline_entrypoints.cc
+@@ -831,6 +831,9 @@
+ extern "C" uint64_t artQuickProxyInvokeHandler(
+     ArtMethod* proxy_method, mirror::Object* receiver, Thread* self, ArtMethod** sp)
+     REQUIRES_SHARED(Locks::mutator_lock_) {
++  // Minato (ADR-0033): the stub passes the receiver as the quick ABI does, a reference in w1.
++  receiver = reinterpret_cast<mirror::Object*>(
++      HeapWindowDecode(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(receiver))));
+   DCHECK(proxy_method->IsProxyMethod()) << proxy_method->PrettyMethod();
+   DCHECK(receiver->GetClass()->IsProxyClass()) << proxy_method->PrettyMethod();
+   // Ensure we don't get thread suspension until the object arguments are safely in jobjects.
+--- a/art/runtime/monitor.cc
++++ b/art/runtime/monitor.cc
+@@ -1529,7 +1529,8 @@
+       // not be optimized out.
+       success = stack_visitor->GetVReg(m, dex_reg, kReferenceVReg, &value);
+       if (success) {
+-        mirror::Object* mp = reinterpret_cast<mirror::Object*>(value);
++        // Minato (ADR-0033): GetVReg gives a reference vreg's encoded value.
++        mirror::Object* mp = reinterpret_cast<mirror::Object*>(HeapWindowDecode(value));
+         // TODO(b/299577730) Remove the extra checks here once the underlying bug is fixed.
+         const gc::Verification* v = Runtime::Current()->GetHeap()->GetVerification();
+         if (v->IsValidObject(mp)) {
 --- a/art/runtime/string_builder_append.cc
 +++ b/art/runtime/string_builder_append.cc
 @@ -345,7 +345,7 @@

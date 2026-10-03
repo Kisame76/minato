@@ -1192,7 +1192,76 @@ TEST(only_bionics_log_socket_is_refused_quietly) {
 // --- What ART's start asks of the kernel (ADR-0033, decision 8) -------------------------------------
 
 constexpr std::uint64_t nr_eventfd2 = 19, nr_epoll_create1 = 20, nr_capget = 90, nr_capset = 91,
-                        nr_sched_setaffinity = 122, nr_setpriority = 140, nr_uname = 160;
+                        nr_sched_setaffinity = 122, nr_setpriority = 140, nr_uname = 160, nr_userfaultfd = 282,
+                        nr_membarrier = 283;
+
+TEST(userfaultfd_and_membarrier_are_refused_quietly) {
+    // ART asks for both at every start: userfaultfd for its CMC collector, which our build leaves out (decision
+    // 5), and membarrier for its fault handler, which then only warns. Both are refused as by a kernel built
+    // without them, and without the report, which would reach the process's stderr past the guest's own: ART's
+    // run-tests compare stderr (ADR-0033 test 3). In a child, since a report comes once per process.
+    CHECK(in_child([] {
+        constexpr std::uint64_t o_cloexec = 02000000, uffd_user_mode_only = 1, membarrier_cmd_query = 0,
+                                membarrier_cmd_register_private_expedited = 16;
+        std::int64_t result = 0;
+        CHECK(stderr_of([&] { result = call(nr_userfaultfd, {o_cloexec | uffd_user_mode_only}); }).empty());
+        CHECK(result == -enosys);
+        CHECK(stderr_of([&] { result = call(nr_membarrier, {membarrier_cmd_query, 0, 0}); }).empty());
+        CHECK(result == -enosys);
+        CHECK(stderr_of([&] {
+                  result = call(nr_membarrier, {membarrier_cmd_register_private_expedited, 0, 0});
+              }).empty());
+        CHECK(result == -enosys);
+    }));
+}
+
+TEST(getpriority_answers_the_nice_value_of_every_guest_thread) {
+    // ART's thread dumps ask for it (ADR-0033 test 3). setpriority keeps nothing, so every guest thread runs at the
+    // nice value 0, which the kernel answers as 20 - nice, so that no answer is negative.
+    constexpr std::uint64_t nr_getpriority = 141;
+    CHECK(call(nr_getpriority, {0, 0}) == 20);  // PRIO_PROCESS, the calling thread
+    CHECK(call(nr_setpriority, {0, 0, 10}) == 0);
+    CHECK(call(nr_getpriority, {0, unsigned_of(::getpid())}) == 20);
+    CHECK(call(nr_getpriority, {3, 0}) == -einval);  // which is PRIO_PROCESS, PRIO_PGRP or PRIO_USER
+}
+
+TEST(getsockopt_finds_no_socket) {
+    // libcore's FileDescriptor.isSocket asks for SO_DOMAIN, for example when a file is closed (ADR-0033 test 3). The
+    // guest has no sockets: an open descriptor is none, as Linux answers for a file, and a closed one is bad.
+    constexpr std::uint64_t nr_getsockopt = 209, sol_socket = 1, so_domain = 39;
+    constexpr std::int64_t enotsock = 88;
+    const auto fd = static_cast<std::uint64_t>(call(nr_eventfd2, {0, 0}));
+    std::int32_t domain = 0;
+    std::uint32_t length = sizeof domain;
+    CHECK(call(nr_getsockopt, {fd, sol_socket, so_domain, address(&domain), address(&length)}) == -enotsock);
+    CHECK(call(nr_close, {fd}) == 0);
+    CHECK(call(nr_getsockopt, {fd, sol_socket, so_domain, address(&domain), address(&length)}) == -ebadf);
+}
+
+TEST(process_vm_readv_reads_the_process_s_own_memory_without_faulting) {
+    // libunwindstack reads memory through it, so that an unwinder never faults on a bad address: ART's thread dumps
+    // and the call stacks of crashes (ADR-0033 test 3). The guest can name only its own process. A transfer ends at
+    // the first remote element that cannot be read whole, and an element is never split.
+    constexpr std::uint64_t nr_process_vm_readv = 270;
+    constexpr std::int64_t efault = 14;
+    struct Iovec {
+        std::uint64_t base, length;
+    };
+    const auto self = unsigned_of(::getpid());
+    static const char source[] = "unwind me";
+    char target[16] = {};
+    Iovec local[2] = {{address(target), 3}, {address(target + 3), sizeof target - 3}};
+    Iovec remote[2] = {{address(source), 6}, {address(source + 7), 2}};
+    CHECK(call(nr_process_vm_readv, {self, address(local), 2, address(remote), 2, 0}) == 8);
+    CHECK(std::memcmp(target, "unwindme", 8) == 0);
+    remote[1] = {0x1000, 8};  // never mapped: what came before is read
+    CHECK(call(nr_process_vm_readv, {self, address(local), 2, address(remote), 2, 0}) == 6);
+    CHECK(call(nr_process_vm_readv, {self, address(local), 2, address(remote + 1), 1, 0}) == -efault);
+    Iovec read_only = {address(source), 4};  // a destination that cannot be written
+    CHECK(call(nr_process_vm_readv, {self, address(&read_only), 1, address(remote), 1, 0}) == -efault);
+    CHECK(call(nr_process_vm_readv, {0, 0, 0, 0, 0, 0}) == -esrch);  // no process of the guest's
+    CHECK(call(nr_process_vm_readv, {self, address(local), 2, address(remote), 1, 1}) == -einval);  // flags
+}
 
 TEST(uname_answers_as_android_15_s_kernel_in_the_emulator) {
     // The kernel of the SDK's Android 15 image (kernel-ranchu of android-35): a release of 5.13 or newer,

@@ -5,7 +5,8 @@
 //   b) identity hash codes, weak and soft references, and finalizers;
 //   c) JNI global, weak global and local references, with the collections called from native code;
 //   d) classes found again through the class tables of two class loaders;
-//   e) System.arraycopy, clone, and Unsafe's compare-and-swap on a reference field and on array elements.
+//   e) System.arraycopy, clone, and Unsafe's compare-and-swap on a reference field and on array elements;
+//   f) a synchronized method's lock, which a stack walk reads from the method's frame (ADR-0033 test 3).
 // The offsets of the objects it saw, which differ by device, go to stderr as its last line; on Minato,
 // runtime/tests/art_run.py --offsets checks them against the heap window.
 import dalvik.system.PathClassLoader;
@@ -15,6 +16,8 @@ import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import sun.misc.Unsafe;
 
@@ -65,6 +68,7 @@ public class Main {
         jni();
         classes();
         copies();
+        stacks();
         System.err.println(String.format("codec-test offsets: lowest 0x%08x, highest 0x%08x", lowest, highest));
     }
 
@@ -327,6 +331,54 @@ public class Main {
                 + yes(elements));
         offset(a);
         offset(b);
+    }
+
+    // --- f) Stack walks ---------------------------------------------------------------------------------------
+
+    static class Lockable {
+        // Holds this object's monitor, then blocks on `other`, which the main thread holds.
+        synchronized void hold(Object other, CountDownLatch inside) {
+            inside.countDown();
+            synchronized (other) {
+                other.hashCode();
+            }
+        }
+    }
+
+    // A synchronized method's lock, which a stack walk takes from the method's frame, as an annotated stack trace
+    // lists it after the lock moved.
+    static void stacks() throws Exception {
+        final Lockable lockable = new Lockable();
+        final Object other = new Object();
+        final CountDownLatch inside = new CountDownLatch(1);
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                lockable.hold(other, inside);
+            }
+        });
+        boolean found = false;
+        synchronized (other) {
+            thread.start();
+            inside.await();
+            while (thread.getState() != Thread.State.BLOCKED) {
+                Thread.sleep(10);
+            }
+            collect(3);
+            Object[] frames = (Object[]) Class.forName("dalvik.system.VMStack")
+                    .getDeclaredMethod("getAnnotatedThreadStackTrace", Thread.class).invoke(null, thread);
+            for (Object frame : frames) {
+                StackTraceElement element =
+                        (StackTraceElement) frame.getClass().getDeclaredMethod("getStackTraceElement").invoke(frame);
+                Object[] locks = (Object[]) frame.getClass().getDeclaredMethod("getHeldLocks").invoke(frame);
+                if (element.getMethodName().equals("hold") && locks != null) {
+                    found |= Arrays.asList(locks).contains(lockable);
+                }
+            }
+        }
+        thread.join();
+        print("f) a synchronized method's lock in an annotated stack trace after 3 collections: found " + yes(found));
+        offset(lockable);
     }
 
     // --- Helpers ----------------------------------------------------------------------------------------------

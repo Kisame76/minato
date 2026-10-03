@@ -63,6 +63,12 @@ int main(void) {
     __android_log_set_logger(__android_log_logd_logger);
     __android_log_write(ANDROID_LOG_FATAL, "log-test", "through the logd logger");
     __android_log_write(ANDROID_LOG_INFO, "short", "logcat pads the tag to 8 characters");
+    // logcat prints each line of a message with the tag, as ART's stack traces come; a newline at the end makes
+    // no line of its own, one in the middle an empty one, and so does an empty message.
+    __android_log_write(ANDROID_LOG_WARN, "log-test", "a message\n\tof two lines");
+    __android_log_write(ANDROID_LOG_WARN, "log-test", "a newline at the end\n");
+    __android_log_write(ANDROID_LOG_WARN, "log-test", "before\n\nafter");
+    __android_log_write(ANDROID_LOG_WARN, "log-test", "");
     printf("done\n");
     return 0;
 }

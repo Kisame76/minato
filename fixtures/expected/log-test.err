@@ -5,3 +5,10 @@ failed: 7
 Assertion failed: x > 0
 F/log-test: through the logd logger
 I/short   : logcat pads the tag to 8 characters
+W/log-test: a message
+W/log-test: 	of two lines
+W/log-test: a newline at the end
+W/log-test: before
+W/log-test: 
+W/log-test: after
+W/log-test: 
