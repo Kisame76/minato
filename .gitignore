@@ -44,3 +44,4 @@ graphify-out/*
 # !graphify-out/graph.json
 .claude/
 CLAUDE.md
+.graphifyignore
