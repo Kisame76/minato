@@ -6,7 +6,9 @@
  * the app's cache folder as handleBindApplication's setupGraphicsSupport does, builds the app's class loader over
  * base.apk and its lib/arm64, and loads and initializes the manifest's Application class, as makeApplication starts
  * on Android. Before that it gives the system Resources the session's configuration and display metrics (b3.4c),
- * as handleBindApplication does. It creates no Context and runs no Looper or lifecycle; those come in step c.
+ * as handleBindApplication does, and reads the app's manifest, from which ApplicationPackageManager answers (b3.5a),
+ * as bindApplication hands Android's app its ApplicationInfo. It creates no Context and runs no Looper or
+ * lifecycle; those come in step c.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -14,6 +16,7 @@
  */
 package android.app;
 
+import android.content.pm.IPackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.LocaleList;
@@ -21,6 +24,8 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.util.DisplayMetrics;
 import dalvik.system.PathClassLoader;
+import java.io.IOException;
+import org.xmlpull.v1.XmlPullParserException;
 
 public final class ActivityThread {
     /** As AOSP's: off. ResourcesManager logs configuration changes when it is on (b3.4). */
@@ -31,12 +36,19 @@ public final class ActivityThread {
     private final String mPackageName;
     private final String mProcessName;
     private final ClassLoader mClassLoader;
+    private final ManifestPackage mPackage;
     private Application mInitialApplication;
 
-    private ActivityThread(String packageName, String processName, ClassLoader classLoader) {
+    private ActivityThread(String packageName, String processName, ClassLoader classLoader, ManifestPackage pkg) {
         mPackageName = packageName;
         mProcessName = processName;
         mClassLoader = classLoader;
+        mPackage = pkg;
+    }
+
+    /** The app's package as its manifest declares it (b3.5a). */
+    ManifestPackage getManifestPackage() {
+        return mPackage;
     }
 
     public static ActivityThread currentActivityThread() {
@@ -66,6 +78,15 @@ public final class ActivityThread {
 
     public Application getApplication() {
         return mInitialApplication;
+    }
+
+    /**
+     * The package service, which Android's binds through ServiceManager. Minato's PackageManager answers from the
+     * manifest without it (decision 7), so it is null until step c's local services (ADR-0045); only PackageManager's
+     * hidden static helpers call it, which AOSP's ApplicationPackageManager uses and ours does not (b3.5a).
+     */
+    public static IPackageManager getPackageManager() {
+        return null;
     }
 
     /** Whether this is system_server's thread: never in an app process. WindowConfiguration asks it. */
@@ -101,9 +122,19 @@ public final class ActivityThread {
         System.setProperty("java.io.tmpdir", tmpdir);
         Os.setenv("TMPDIR", tmpdir, true);
         applySessionConfiguration();
+        ManifestPackage pkg;
+        try {
+            pkg = ManifestPackage.read(apk, libraryPath, dataDir);
+        } catch (IOException | XmlPullParserException e) {
+            throw new IllegalStateException("ActivityThread.main: cannot read " + apk + "'s manifest", e);
+        }
+        if (!pkg.packageName.equals(packageName)) {
+            throw new IllegalArgumentException("ActivityThread.main: " + apk + " is " + pkg.packageName + "'s, not "
+                    + packageName + "'s");
+        }
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         sCurrentActivityThread = new ActivityThread(packageName, processName != null ? processName : packageName,
-                loader);
+                loader, pkg);
         if (application != null) {
             // Loading and initializing the class runs its static initializer, as instantiating it does on Android.
             Class.forName(application, true, loader);

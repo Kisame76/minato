@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Package Manager Test</string>
+  <string name="description">Logs what PackageManager answers about this package.</string>
+  <string name="permission_label">Own permission</string>
+  <string name="second_label">Second</string>
+</resources>

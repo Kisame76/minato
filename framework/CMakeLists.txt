@@ -175,7 +175,7 @@ target_link_libraries(androidfw-test PRIVATE androidfw)
 set(jni "${SOURCES}/frameworks_base/core/jni")
 sources_in(android_runtime_sources "${jni}"
   android_util_Log.cpp android_util_AssetManager.cpp android_util_StringBlock.cpp android_util_XmlBlock.cpp
-  android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp core_jni_helpers.cpp)
+  android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp android_os_SystemClock.cpp core_jni_helpers.cpp)
 # ActivityThread's native (b3.4c) reads the session's configuration through libandroid, which it opens with dlopen
 # rather than linking: on Android libandroid needs libandroid_runtime, not the other way.
 add_library(android_runtime SHARED ${android_runtime_sources} native/android_runtime/AndroidRuntime.cpp

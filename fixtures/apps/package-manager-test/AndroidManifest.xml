@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0039 b3.5a's test (package-manager-test): PackageManager's answers about the app's own package, from this
+     manifest. It declares what decision 7's reader takes: the application's attributes, meta-data of every kind,
+     activities with an alias, a service, a provider and a receiver, requested and declared permissions, features and
+     a configuration. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
+     process on Android; the other components are never started, and only the provider, which Android instantiates
+     at the start, exists as a class. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.packagemanager" android:versionCode="7" android:versionName="1.2.3"
+    android:installLocation="auto">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+  <uses-permission android:name="io.github.kisame76.minato.test.packagemanager.OWN"/>
+  <permission android:name="io.github.kisame76.minato.test.packagemanager.OWN" android:protectionLevel="signature"
+      android:label="@string/permission_label" android:description="@string/description"/>
+  <permission android:name="io.github.kisame76.minato.test.packagemanager.OPEN"/>
+  <uses-feature android:glEsVersion="0x00030000" android:required="true"/>
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+  <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="false"/>
+  <uses-configuration android:reqTouchScreen="finger" android:reqKeyboardType="nokeys"/>
+  <application android:name=".PackageManagerApplication" android:label="@string/app_name"
+      android:description="@string/description" android:icon="@android:drawable/sym_def_app_icon"
+      android:theme="@android:style/Theme.Material.Light" android:allowBackup="false" android:largeHeap="true"
+      android:supportsRtl="true" android:usesCleartextTraffic="false" android:appCategory="productivity">
+    <meta-data android:name="text" android:value="plain"/>
+    <meta-data android:name="number" android:value="42"/>
+    <meta-data android:name="flag" android:value="true"/>
+    <meta-data android:name="ratio" android:value="1.5"/>
+    <meta-data android:name="color" android:value="#ff336699"/>
+    <meta-data android:name="string_ref" android:value="@string/app_name"/>
+    <meta-data android:name="resource" android:resource="@xml/config"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name=".SecondActivity" android:exported="false" android:label="@string/second_label"
+        android:launchMode="singleTask" android:screenOrientation="sensorLandscape"
+        android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize"
+        android:theme="@android:style/Theme.Material"
+        android:taskAffinity="io.github.kisame76.minato.test.packagemanager.other"
+        android:parentActivityName="android.app.Activity">
+      <meta-data android:name="activity_meta" android:value="7"/>
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:scheme="minato"/>
+      </intent-filter>
+    </activity>
+    <activity-alias android:name=".Alias" android:targetActivity=".SecondActivity" android:exported="false"/>
+    <service android:name=".TestService" android:exported="false" android:foregroundServiceType="dataSync"/>
+    <provider android:name=".TestProvider" android:exported="false" android:grantUriPermissions="true"
+        android:authorities="io.github.kisame76.minato.test.packagemanager.files;io.github.kisame76.minato.test.packagemanager.other"
+        android:initOrder="5"/>
+    <receiver android:name=".TestReceiver" android:exported="true"
+        android:permission="io.github.kisame76.minato.test.packagemanager.OWN">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.packagemanager.PING"/>
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

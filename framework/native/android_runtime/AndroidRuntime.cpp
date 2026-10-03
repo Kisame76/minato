@@ -14,6 +14,7 @@
 
 namespace android {
 
+extern int register_android_os_SystemClock(JNIEnv *env);
 extern int register_android_util_Log(JNIEnv *env);
 extern int register_android_content_AssetManager(JNIEnv *env);
 extern int register_android_content_StringBlock(JNIEnv *env);
@@ -49,9 +50,10 @@ int register_framework_natives(JNIEnv *env) {
     // Each registration's FindClass returns local references; the frame releases them, as AOSP's startReg does.
     env->PushLocalFrame(200);
     for (int (*registration)(JNIEnv *) :
-         {register_android_util_Log, register_android_content_AssetManager, register_android_content_StringBlock,
-          register_android_content_XmlBlock, register_android_content_res_ApkAssets,
-          register_android_os_SystemProperties, register_android_os_Trace, register_android_app_ActivityThread}) {
+         {register_android_os_SystemClock, register_android_util_Log, register_android_content_AssetManager,
+          register_android_content_StringBlock, register_android_content_XmlBlock,
+          register_android_content_res_ApkAssets, register_android_os_SystemProperties, register_android_os_Trace,
+          register_android_app_ActivityThread}) {
         if (registration(env) < 0) {
             env->PopLocalFrame(nullptr);
             return -1;

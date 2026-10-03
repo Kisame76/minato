@@ -7,7 +7,8 @@
 #     folder with loadFromDir and never calls OverlayConfig;
 #   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship;
 #   - no class stands on a stub supertype, which would compile but not load, beyond framework/stub-supertypes.txt's
-#     entries, and each entry still does (tools/stub_supertypes.py, b3.4).
+#     entries, each entry still does, and each names the step that removes it or why its class never loads
+#     (tools/stub_supertypes.py, b3.4 and b3.5a).
 # Prints the counts of taken files, hand stubs and classes, and framework.jar's size.
 # Usage: tools/framework-check.sh   (SKIP_BUILD=1 checks the build there is)
 set -euo pipefail

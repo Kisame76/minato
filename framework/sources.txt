@@ -181,3 +181,28 @@ frameworks_base_graphics/graphics/java/android/graphics/text/LineBreakConfig.jav
 frameworks_base/core/java/android/util/Xml.java
 frameworks_base/core/java/android/util/XmlPullAttributes.java
 frameworks_base/core/java/android/util/StateSet.java
+
+# b3.5a: PackageManager (decision 7), abstract, under our ApplicationPackageManager, which tools/managergen writes from
+# its abstract methods with framework/managers' hand file (build-framework.sh); the PropertyInvalidatedCache its static
+# initializer makes, and AndroidException under its NameNotFoundException. The data its answers carry: ApplicationInfo,
+# PackageInfo and the components' infos, FeatureInfo and ConfigurationInfo for uses-feature and uses-configuration,
+# PermissionInfo for the declared permissions, ProviderInfo's PathPermission with its PatternMatcher, ComponentName,
+# and Bundle for meta-data. SystemClock, whose uptimeMillis ApplicationInfo's constructors call, with its natives in
+# libandroid_runtime, and SimpleClock, which its clocks extend.
+frameworks_base/core/java/android/content/pm/PackageManager.java
+frameworks_base/core/java/android/app/PropertyInvalidatedCache.java
+frameworks_base/core/java/android/util/AndroidException.java
+frameworks_base/core/java/android/content/pm/ApplicationInfo.java
+frameworks_base/core/java/android/content/pm/PackageInfo.java
+frameworks_base/core/java/android/content/pm/ServiceInfo.java
+frameworks_base/core/java/android/content/pm/ProviderInfo.java
+frameworks_base/core/java/android/content/pm/FeatureInfo.java
+frameworks_base/core/java/android/content/pm/ConfigurationInfo.java
+frameworks_base/core/java/android/content/pm/PermissionInfo.java
+frameworks_base/core/java/android/content/pm/PathPermission.java
+frameworks_base/core/java/android/os/PatternMatcher.java
+frameworks_base/core/java/android/content/ComponentName.java
+frameworks_base/core/java/android/os/BaseBundle.java
+frameworks_base/core/java/android/os/Bundle.java
+frameworks_base/core/java/android/os/SystemClock.java
+frameworks_base/core/java/android/os/SimpleClock.java

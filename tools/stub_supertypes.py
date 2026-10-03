@@ -3,7 +3,8 @@
 prints each class whose superclass or interface is neither in framework.jar nor in the boot jars, as
 "<class> -> <supertype>", against the allowlist framework/stub-supertypes.txt: "unloadable ..." for a pair not on it,
 "stale ..." for an entry that no longer holds. A stub supertype compiles but is missing at run time, so the class
-cannot load.
+cannot load. Each entry's comment names the step that removes it ("step c: ...", "b3.5b: ...") or says
+"stays: <reason>", why the class never loads on Minato's path (b3.5a); "unexplained ..." for one that does neither.
 
 Usage: javap ... | stub_supertypes.py <framework classes.txt> <boot classes.txt> <allowlist>
 """
@@ -25,11 +26,15 @@ def main():
     if len(sys.argv) != 4:
         raise SystemExit(__doc__)
     known = set(open(sys.argv[1]).read().split()) | set(open(sys.argv[2]).read().split())
-    allowed = set()
+    allowed, unexplained = set(), []
     for line in open(sys.argv[3]):
-        line = line.split("#", 1)[0].strip()
-        if line:
-            allowed.add(" ".join(line.split()))
+        entry, _, comment = line.partition("#")
+        entry = " ".join(entry.split())
+        if not entry:
+            continue
+        allowed.add(entry)
+        if not re.match(r"(step [a-z0-9]+|b\d+\.\d+[a-z]?)\b|stays: *\S", comment.strip()):
+            unexplained.append(entry)
     found = set()
     for line in sys.stdin:
         match = re.match(r"^[a-z ]*(?:class|interface) (\S+)(?: extends ([^{]*?))?(?: implements ([^{]*))? \{", line)
@@ -45,6 +50,8 @@ def main():
         print(f"unloadable {pair}")
     for pair in sorted(allowed - found):
         print(f"stale {pair}")
+    for pair in unexplained:
+        print(f"unexplained {pair}")
 
 
 if __name__ == "__main__":

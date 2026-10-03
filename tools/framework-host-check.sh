@@ -5,6 +5,7 @@
 # managers' generator (tools/managergen), and the policy and table of decision 6's runtime permissions:
 #   - framework/tests/managergen_test.py checks the generator on framework/tests/managergen's samples, whose
 #     output goes into the build folder for GeneratedSampleTest;
+#   - tools/tests/stub_supertypes_test.py checks framework-check's guard of stub supertypes (b3.5a);
 #   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
 #     SampleBaseManager, for ImplementedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
@@ -31,6 +32,8 @@ mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes"
 } >"$OUT/gen/com/android/minato/services/Wide.java"
 
 python3 framework/tests/managergen_test.py
+# framework-check's guard of stub supertypes and its allowlist's reasons (b3.5a).
+python3 tools/tests/stub_supertypes_test.py
 # ADR-0045 decision 6's protection levels in our framework-res against the AVD's; skipped while not built.
 python3 framework/tests/platform_permissions_test.py
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \

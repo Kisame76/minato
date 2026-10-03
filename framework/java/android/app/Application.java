@@ -1,13 +1,15 @@
 /*
  * Interim (ADR-0039 step a): android.app.Application with its public no-argument constructor, so that an app's
- * Application subclass loads and initializes; the getters that taken AOSP files call on the current application
- * (Build, StringBlock, and LineBreakConfig's getApplicationInfo since b3.4b); onCreate, which apps override
- * (styled-text-test, b3.4b); and ActivityLifecycleCallbacks, which the public API's Activity names. Android 15's
- * extends ContextWrapper; AOSP's class replaces this one in step c, when the driver creates and attaches it.
+ * Application subclass loads and initializes; the getters that taken AOSP files call on the current application (Build,
+ * StringBlock, and LineBreakConfig's getApplicationInfo since b3.4b); getPackageManager, which package-manager-test
+ * calls on Android (b3.5a); onCreate, which apps override (styled-text-test, b3.4b); and ActivityLifecycleCallbacks,
+ * which the public API's Activity names. Android 15's extends ContextWrapper; AOSP's class replaces this one in step c,
+ * when the driver creates and attaches it.
  */
 package android.app;
 
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.Bundle;
 
@@ -27,6 +29,11 @@ public class Application {
 
     /** The app's ApplicationInfo, whose targetSdkVersion LineBreakConfig reads at layout; null until step c. */
     public ApplicationInfo getApplicationInfo() {
+        return null;
+    }
+
+    /** The app's PackageManager, which step c's ContextImpl gives it; null until then. */
+    public PackageManager getPackageManager() {
         return null;
     }
 

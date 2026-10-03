@@ -2,7 +2,8 @@
 # Runs ADR-0039's test 1 on the Mac (framework/tests/app_process_run.py): builds apk-run and apk-convert for macOS
 # into build/native/macos-app, and app_process (incremental), framework.jar (about 10 s) and app-start-test (seconds)
 # every time, so it never tests an old binary; then starts app-start-test through app_process and compares its lines
-# with Android 15's.
+# with Android 15's. framework-res, from tools/build-framework-res.sh, is the device's /system/framework/framework-res,
+# with which ActivityThread reads the app's manifest since b3.5a.
 # Usage: tools/app-process-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,4 +18,5 @@ tools/build-java-test-app.sh app-start-test >/dev/null
 python3 framework/tests/app_process_run.py build/art build/bionic/lib build/bionic/system \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/app-process-check build/framework-native/app_process64 \
-  build/framework/framework.jar build/app-start-test/app-start-test.apk fixtures/expected/app-start-test.logcat
+  build/framework/framework.jar build/framework-res/framework-res build/app-start-test/app-start-test.apk \
+  fixtures/expected/app-start-test.logcat

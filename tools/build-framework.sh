@@ -5,7 +5,8 @@
 #     build/art/java/all-classes.jar, which holds java.base's module-info, then jlink --add-modules java.base;
 #   - the generated sources in build/framework/gen: aconfig's Java classes with ap3a's values
 #     (tools/aconfig-flags.py java), android.R, com.android.internal.R and android.Manifest from framework-res's link
-#     (tools/build-framework-res.sh), and aidl's Java for the .aidl files framework/sources.txt names;
+#     (tools/build-framework-res.sh), aidl's Java for the .aidl files framework/sources.txt names, and
+#     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a);
 #   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
 #     API of core, location and the Connectivity and Wi-Fi modules, with the hidden members of
 #     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
@@ -86,6 +87,11 @@ done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --values "$SOURCES/build_release/aconfig/ap3a" --out "$GEN/aconfig" >/dev/null
 cp -R "$R_JAVA/." "$GEN/r/"
+# Our ApplicationPackageManager (b3.5a): PackageManager's abstract methods, logged once where framework/managers'
+# hand file does not answer.
+python3 tools/managergen/managergen.py \
+  --implement "$SOURCES/frameworks_base/core/java/android/content/pm/PackageManager.java" \
+  --as android.app.ApplicationPackageManager --hand framework/managers --out "$GEN/managers" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
 # one before.
@@ -120,7 +126,8 @@ JAVAC=("$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system="$OUT/system" -X
   -XDskipDuplicateBridges=true -encoding UTF-8 -g -Xmaxerrs 9999 -proc:none)
 # The stubs name framework.jar's types too (and their bodies Unwritten): those sources stand behind them on the patch
 # path, and only the stubs themselves become classes.
-"${JAVAC[@]}" -nowarn --patch-module java.base="$OUT/stubs-src:framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r" \
+"${JAVAC[@]}" -nowarn \
+  --patch-module java.base="$OUT/stubs-src:framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers" \
   -implicit:none -d "$OUT/stub-classes" \
   @"$OUT/stub-sources.txt"
 
@@ -136,7 +143,7 @@ for directory, _, names in sorted(os.walk(classes)):
 PY
 (cd "$OUT/stub-classes" && "$JDK/bin/jar" --create --file ../stubs.jar @../stub-list.txt)
 
-PATCH="framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$OUT/stubs.jar"
+PATCH="framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers:$OUT/stubs.jar"
 "${JAVAC[@]}" -nowarn --patch-module java.base="$PATCH" -implicit:none -d "$OUT/classes" @"$OUT/sources.txt"
 # Ours with every lint, against what was just compiled.
 mkdir -p "$OUT/lint"

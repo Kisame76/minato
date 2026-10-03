@@ -1,9 +1,9 @@
 package android.content.pm;
 
 /**
- * Compile-only stub (ADR-0039 b3.4), never in framework.jar: PackageItemInfo.dumpDebug names its field constants, which
- * protoc's javastream plugin generates from core/proto. javac inlines them, so these values, distinct but not the
- * proto's field numbers, are what dumpDebug writes; it does not run in an app.
+ * Compile-only stub (ADR-0039 b3.4), never in framework.jar: PackageItemInfo.dumpDebug names its field constants,
+ * which protoc's javastream plugin generates from core/proto. javac inlines them, so these values, distinct but not
+ * the proto's field numbers, are what dumpDebug writes; it does not run in an app.
  */
 public final class PackageItemInfoProto {
     public static final long NAME = 1L;

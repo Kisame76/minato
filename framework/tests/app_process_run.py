@@ -12,7 +12,9 @@ runtime/tests/art_run.py lays them out for dalvikvm:
   - the APK at Android 15's code path (/data/app/~~<a>/<package>-<b>/base.apk, ADR-0039 decision 6), and the data
     folder /data/user/0/<package> with cache and code_cache, as installd creates them;
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
-    write (dalvik_system_DexFile.cc). BOOTCLASSPATH, the uid and the heap properties come from the runtime
+    write (dalvik_system_DexFile.cc);
+  - framework-res as the folder /system/framework/framework-res (decision 8), which ActivityThread reads the app's
+    manifest with since b3.5a, as every Android device has it. BOOTCLASSPATH, the uid and the heap properties come from the runtime
     (decision 2), and --app-environment starts it with init's environment alone, as an app starts, without the
     shell's PATH, ANDROID_DATA, ANDROID_ROOT and HOME.
 
@@ -22,7 +24,7 @@ zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Pri
 not built. framework/tests/java_app_run.py starts its apps with this file's start().
 
 Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work>
-                          <app_process64> <framework.jar> <app-start-test.apk> <expected>
+                          <app_process64> <framework.jar> <framework-res folder> <app-start-test.apk> <expected>
 """
 import base64
 import hashlib
@@ -154,16 +156,18 @@ def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, 
 
 
 def main():
-    if len(sys.argv) != 12:
+    if len(sys.argv) != 13:
         raise SystemExit(__doc__)
-    (art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, apk,
+    (art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, folder, apk,
      expected) = sys.argv[1:]
     skipped = missing(art, bionic_system, app_process, framework_jar, apk, "app-start-test")
+    if not skipped and not os.path.isdir(folder):
+        skipped = f"skipped: {folder} is not built (tools/build-framework-res.sh)"
     if skipped:
         print(skipped)
         return
     result = start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
-                   apk, PACKAGE, APPLICATION)
+                   apk, PACKAGE, APPLICATION, mounts=[("/system/framework/framework-res", folder)])
     if result is None:
         print("FAIL: no end within 300 s")
         sys.exit(1)
