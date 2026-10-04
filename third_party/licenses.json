@@ -1,11 +1,11 @@
 {
-  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'never' until ADR-0033 d) puts them into the app; their build tools stay 'never'. So are the framework's sources until step c of ADR-0039 puts framework.jar, framework-res and platform.xml into the app, and its build tools stay 'never'. A path with a slash is a file in the bundle: test 2's APKs go into a benchmark build together (tools/embed-benchmark.sh), so their section's rule names one of them.",
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'always' since ADR-0033 d2 puts ART's APEXes into every build; their build tools stay 'never'. So are the framework's sources until step c of ADR-0039 puts framework.jar, framework-res and platform.xml into the app, and its build tools stay 'never'. A path with a slash is a file in the bundle: test 2's APKs go into a benchmark build together (tools/embed-benchmark.sh), so their section's rule names one of them.",
   "sections": {
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
     "Graphics: MoltenVK": "MoltenVK.framework",
     "Parity benchmark": "MinatoBench.framework",
-    "ART and its libraries": "never",
+    "ART and its libraries": "always",
     "Build tools for ART": "never",
     "Build tools for the framework": "never",
     "Framework sources": "never",
@@ -114,7 +114,8 @@
       "license": "Apache-2.0 WITH LLVM-exception",
       "rows": [
         "LLVM libunwind (libunwind.a)",
-        "compiler-rt builtins"
+        "compiler-rt builtins",
+        "LLVM libc++ (libc++_shared.so)"
       ],
       "texts": [
         {
@@ -488,6 +489,464 @@
           "as": "LICENSE"
         }
       ]
+    },
+    {
+      "name": "art",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/art"
+      ],
+      "texts": [
+        {
+          "from": "sources:art/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libopenjdkjvm",
+      "section": "ART and its libraries",
+      "license": "GPL-2.0 WITH Classpath-exception-2.0",
+      "rows": [
+        "platform/art"
+      ],
+      "texts": [
+        {
+          "from": "sources:art/openjdkjvm/LICENSE",
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:libcore/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libcore",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0, with the notices of Android, Apache Harmony, ICU, KXML, W3C and fdlibm",
+      "rows": [
+        "platform/libcore"
+      ],
+      "texts": [
+        {
+          "from": "sources:libcore/NOTICE",
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "core-oj",
+      "section": "ART and its libraries",
+      "license": "GPL-2.0 WITH Classpath-exception-2.0; IBM's and Taligent's notices; java.time's original notice BSD-3-Clause (ThreeTen)",
+      "rows": [
+        "platform/libcore"
+      ],
+      "texts": [
+        {
+          "from": "sources:libcore/LICENSE",
+          "as": "LICENSE"
+        },
+        {
+          "from": "sources:libcore/ojluni/src/main/NOTICE",
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:libcore/ojluni/src/main/java/java/time/Clock.java",
+          "lines": [
+            27,
+            60
+          ],
+          "as": "threeten-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libopenjdk",
+      "section": "ART and its libraries",
+      "license": "GPL-2.0 WITH Classpath-exception-2.0",
+      "rows": [
+        "platform/libcore"
+      ],
+      "texts": [
+        {
+          "from": "sources:libcore/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "icu",
+      "section": "ART and its libraries",
+      "license": "Unicode-3.0 and the notices in LICENSE; Apache-2.0 for Android's parts, also in LICENSE",
+      "rows": [
+        "platform/external/icu"
+      ],
+      "texts": [
+        {
+          "from": "sources:icu/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "boringssl",
+      "section": "ART and its libraries",
+      "license": "OpenSSL, SSLeay, ISC and others, as in LICENSE",
+      "rows": [
+        "platform/external/boringssl"
+      ],
+      "texts": [
+        {
+          "from": "sources:boringssl/src/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "conscrypt",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/conscrypt"
+      ],
+      "texts": [
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        },
+        {
+          "from": "sources:conscrypt/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "bouncycastle",
+      "section": "ART and its libraries",
+      "license": "MIT (the Bouncy Castle License); the six files AOSP added Apache-2.0",
+      "rows": [
+        "platform/external/bouncycastle"
+      ],
+      "texts": [
+        {
+          "from": "sources:bouncycastle/NOTICE",
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "okhttp",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/okhttp"
+      ],
+      "texts": [
+        {
+          "from": "sources:okhttp/LICENSE.txt",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "ca-certificates",
+      "section": "ART and its libraries",
+      "license": "no license text (METADATA: BY_EXCEPTION_ONLY)",
+      "rows": [
+        "platform/system/ca-certificates"
+      ],
+      "none": "Fetched for ADR-0046 step f); none of its root certificates is in the app until that step, which has to settle what goes with them, as the project has no license text."
+    },
+    {
+      "name": "libnativehelper",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/libnativehelper"
+      ],
+      "texts": [
+        {
+          "from": "sources:libnativehelper/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "fdlibm",
+      "section": "ART and its libraries",
+      "license": "Sun Microsystems' notice (SunPro)",
+      "rows": [
+        "platform/external/fdlibm"
+      ],
+      "texts": [
+        {
+          "from": "sources:fdlibm/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "expat",
+      "section": "ART and its libraries",
+      "license": "MIT",
+      "rows": [
+        "platform/external/expat"
+      ],
+      "texts": [
+        {
+          "from": "sources:expat/COPYING",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "zlib-headers",
+      "section": "ART and its libraries",
+      "license": "Zlib",
+      "rows": [
+        "platform/external/zlib"
+      ],
+      "texts": [
+        {
+          "from": "sources:zlib/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "lz4",
+      "section": "ART and its libraries",
+      "license": "BSD-2-Clause (lib/)",
+      "rows": [
+        "platform/external/lz4"
+      ],
+      "texts": [
+        {
+          "from": "sources:lz4/lib/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "lzma",
+      "section": "ART and its libraries",
+      "license": "public domain",
+      "rows": [
+        "platform/external/lzma"
+      ],
+      "texts": [
+        {
+          "from": "sources:lzma/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libcap",
+      "section": "ART and its libraries",
+      "license": "BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause",
+      "rows": [
+        "platform/external/libcap"
+      ],
+      "texts": [
+        {
+          "from": "sources:libcap/License",
+          "lines": [
+            16,
+            43
+          ],
+          "as": "LICENSE"
+        },
+        {
+          "from": "sources:libcap/libcap/cap_text.c",
+          "lines": [
+            2,
+            3
+          ],
+          "as": "cap_text.c-NOTICE"
+        },
+        {
+          "from": "sources:libcap/libcap/include/sys/capability.h",
+          "lines": [
+            4,
+            5
+          ],
+          "as": "capability.h-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "tinyxml2",
+      "section": "ART and its libraries",
+      "license": "Zlib",
+      "rows": [
+        "platform/external/tinyxml2"
+      ],
+      "texts": [
+        {
+          "from": "sources:tinyxml2/LICENSE.txt",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "cpu_features",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/cpu_features"
+      ],
+      "texts": [
+        {
+          "from": "sources:cpu_features/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "fmtlib",
+      "section": "ART and its libraries",
+      "license": "MIT",
+      "rows": [
+        "platform/external/fmtlib"
+      ],
+      "texts": [
+        {
+          "from": "sources:fmtlib/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libbase",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/libbase"
+      ],
+      "texts": [
+        {
+          "from": "sources:libbase/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libziparchive",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/libziparchive"
+      ],
+      "texts": [
+        {
+          "from": "sources:libziparchive/zip_archive.cc",
+          "lines": [
+            2,
+            14
+          ],
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libprocinfo",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/libprocinfo"
+      ],
+      "texts": [
+        {
+          "from": "sources:libprocinfo/process.cpp",
+          "lines": [
+            2,
+            14
+          ],
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "unwinding",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0; libunwindstack's arm64 register headers BSD-2-Clause (LICENSE_BSD)",
+      "rows": [
+        "platform/system/unwinding"
+      ],
+      "texts": [
+        {
+          "from": "sources:unwinding/libunwindstack/Unwinder.cpp",
+          "lines": [
+            2,
+            14
+          ],
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:conscrypt/LICENSE",
+          "as": "LICENSE"
+        },
+        {
+          "from": "sources:unwinding/libunwindstack/LICENSE_BSD",
+          "as": "LICENSE_BSD"
+        }
+      ]
+    },
+    {
+      "name": "dlmalloc",
+      "section": "ART and its libraries",
+      "license": "CC0-1.0 (public domain)",
+      "rows": [
+        "platform/external/dlmalloc"
+      ],
+      "texts": [
+        {
+          "from": "sources:dlmalloc/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "logging",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/logging"
+      ],
+      "texts": [
+        {
+          "from": "sources:logging/liblog/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "timezone",
+      "section": "ART and its libraries",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/timezone"
+      ],
+      "none": "Only read as the model for the format of the time zone files (ADR-0033, decision 9); none of its code or data is in the binary."
     }
   ]
 }

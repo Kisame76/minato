@@ -1,6 +1,6 @@
 # Third-party code
 
-What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted, with one exception (ADR-0033): ART's code under GPL-2.0 with the Classpath Exception, which ships as separate components with its license text and its source code (below).
+What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted, with one exception (ADR-0033): ART's code under GPL-2.0 with the Classpath Exception, which ships as separate components with its license text, and whose source code must go with every build that leaves the Mac (below).
 
 The app carries the license texts of what it embeds in `Licenses/`: `tools/bundle-licenses.py` copies them at build time as [`third_party/licenses.json`](third_party/licenses.json) lists them, and `tools/license-check.py` fails a built app that lacks a text for a table row of an embedded section below.
 
@@ -35,6 +35,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `crtbegin_so.o`, `crtend_so.o` | BSD (Bionic) | Start and end of `libm.so`, `libdl.so`, `ld-android.so` |
 | `android/log.h` | Apache-2.0 | Header for the libc (liblog) |
 | zlib (`libz.a`) | Zlib | `libz.so` (ADR-0028): zlib `1.3.2.1-motley` as AOSP ships it, linked whole |
+| LLVM libc++ (`libc++_shared.so`) | Apache-2.0 WITH LLVM-exception | ART's C++ library, which `runtime/art/CMakeLists.txt` copies into `build/art/lib` (ADR-0033 decision 2); in `com.android.art`'s lib64 since ADR-0033 d2 |
 
 ## Graphics: ANGLE (ADR-0029)
 
@@ -82,7 +83,7 @@ Bionic reads time zones from a file in its own format. At build time, `tools/mak
 
 ## ART and its libraries (ADR-0033)
 
-AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of [`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK; from step d) on, the app embeds what that build makes, and until then nothing of them is in the app.
+AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of [`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK. Since step d2 every app build embeds that build's release flavor (`tools/embed-guest-system.sh`): the jars, ICU's data and the time zone files in `Guest/apex`, the libraries as signed containers in `Guest/apex-lib64`. The debug flavor (`libartd`, `libartbased`, `libdexfiled`, `libopenjdkd`, `libopenjdkjvmd`, `libprofiled`) and ART's tests go only into fixture builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 
 | Source | Commit | License | Which parts |
 |---|---|---|---|
@@ -90,9 +91,9 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/libcore` | `a996d969fdd1` | Apache-2.0 with the notices in `NOTICE` (Android, Apache Harmony, ICU, KXML, W3C); `ojluni/` GPL-2.0 with Classpath Exception (`LICENSE`) | the boot jars, among them core-oj from `ojluni/`; their natives `libjavacore` and `libopenjdk` |
 | `platform/external/icu` | `cf305aeb6df4` (ICU 75.1) | Unicode-3.0 and the notices in `LICENSE`; the GPL texts there cover ICU4C's Autoconf files, which are not used | ICU's libraries and data, `libicu_jni` |
 | `platform/external/boringssl` | `23a87e389eb9` | OpenSSL, SSLeay, ISC and others, as in `LICENSE` | `libcrypto` of ART's module; `libcrypto_static` and libssl's static variant for Conscrypt's `libjavacrypto` (ADR-0046), tested by `boringssl-test` |
-| `platform/external/conscrypt` | `f8e2d8143241` | Apache-2.0 (`LICENSE`, `MODULE_LICENSE_APACHE2`), with portions of Netty and Apache Harmony, also Apache-2.0 (`NOTICE`) | `conscrypt.jar` and `libjavacrypto` (ADR-0046 c), built into `build/art`; not in the app until ADR-0033 d) |
-| `platform/external/bouncycastle` | `9be82ede5e65` | MIT, the Bouncy Castle License (`NOTICE`, `MODULE_LICENSE_BSD_LIKE`); six files AOSP added are Apache-2.0 (`crypto/digests`' `AndroidDigestFactory*` and `OpenSSLDigest`, `jce/provider/CertBlocklist`) | `bouncycastle.jar` from `repackaged/bcprov`, shrunk by R8 (ADR-0046 d), built into `build/art`; not in the app until ADR-0033 d) |
-| `platform/external/okhttp` | `fdad2b22b007` | Apache-2.0 (`LICENSE.txt`, `MODULE_LICENSE_APACHE2`), okio's repackaged tree included | `okhttp.jar` from the five repackaged trees (ADR-0046 d, which took in step e), built into `build/art`; not in the app until ADR-0033 d) |
+| `platform/external/conscrypt` | `f8e2d8143241` | Apache-2.0 (`LICENSE`, `MODULE_LICENSE_APACHE2`), with portions of Netty and Apache Harmony, also Apache-2.0 (`NOTICE`) | `conscrypt.jar` and `libjavacrypto` (ADR-0046 c), built into `build/art`; in the app since ADR-0033 d2 |
+| `platform/external/bouncycastle` | `9be82ede5e65` | MIT, the Bouncy Castle License (`NOTICE`, `MODULE_LICENSE_BSD_LIKE`); six files AOSP added are Apache-2.0 (`crypto/digests`' `AndroidDigestFactory*` and `OpenSSLDigest`, `jce/provider/CertBlocklist`) | `bouncycastle.jar` from `repackaged/bcprov`, shrunk by R8 (ADR-0046 d), built into `build/art`; in the app since ADR-0033 d2 |
+| `platform/external/okhttp` | `fdad2b22b007` | Apache-2.0 (`LICENSE.txt`, `MODULE_LICENSE_APACHE2`), okio's repackaged tree included | `okhttp.jar` from the five repackaged trees (ADR-0046 d, which took in step e), built into `build/art`; in the app since ADR-0033 d2 |
 | `platform/system/ca-certificates` | `2207c6dd74f1` | no license text: AOSP's `METADATA` says `license_type: BY_EXCEPTION_ONLY` ("this package has special licensing conditions") and notes that QuoVadis's certificate policy in `files/5cf9d536.0` references the QuoVadis Certificate Holder Agreement | fetched for ADR-0046: Android 15's 145 root certificates for step f), not in the app yet |
 | `platform/libnativehelper` | `3ca43dfe2bf4` | Apache-2.0 | `libnativehelper` (JNI helpers) |
 | `platform/external/fdlibm` | `1e651e1ef2b6` | Sun Microsystems' notice (`NOTICE`) | math for libcore's `StrictMath` |
@@ -112,7 +113,9 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/system/logging` | `54d3fa266d21` | Apache-2.0 (`liblog/NOTICE`) | only `liblog/include`: the headers ART and libcore compile against; `liblog.so` is Minato's own |
 | `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 | only read: the format of the time zone files (ADR-0033, decision 9); nothing of it ships |
 
-**GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm` ship as separate components, each with its license text and its source code. ADR-0033 also names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
+**GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm` ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision (`docs/STATUS.md`). ADR-0033 also names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
+
+**Ours in ART's module** (`Guest/apex-lib64`, ADR-0033): `libartpalette-system.so` (`runtime/art/palette/palette_system.cc`), written after AOSP's `libartpalette/system/palette_fake.cc` in `platform/art` (Apache-2.0, whose `NOTICE` ships with ART), and `heapprofd_client_api.so` (`runtime/art/heapprofd`), a stub of our own.
 
 ## Build tools for ART (ADR-0033)
 

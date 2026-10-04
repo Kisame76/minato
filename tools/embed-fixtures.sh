@@ -7,6 +7,11 @@
 #   system-lib64/   bionic's libraries, the guest's /system/lib64
 #   system/         the guest's /system for files: bionic's time zone file
 #   tests.txt       the test list, for the app's FixtureRunner
+#   art/            ART's tests (ADR-0033 d2), when tools/device-suite.sh staged them in build/device-art
+#                   (runtime/tests/device_art.py): bin/dalvikvm64.dylib, whose argv[0] the commands give as
+#                   /apex/com.android.art/bin/dalvikvm64; lib64-debug/, the debug flavor, which -flavor debug puts
+#                   before Guest's release flavor; and tests/<test>/ with command.json, command-debug.json, files/
+#                   and the JNI libraries as containers in libraries/. Without a stage there is no art/.
 # Every container is signed with the app's identity and the bundle ID as identifier (ADR-0008).
 # Only Debug builds with APK_EMBED_FIXTURES=YES get them; every other build removes them.
 set -euo pipefail
@@ -31,9 +36,9 @@ case "$PLATFORM_NAME" in
   *) echo "error: no containers for $PLATFORM_NAME" >&2; exit 1 ;;
 esac
 
-# Converts the ELF file into <directory>/<file name>.dylib and signs it.
+# Converts the ELF file into <directory>/<name, else the file's name>.dylib and signs it.
 contain() {
-  local container="$2/$(basename "$1").dylib"
+  local container="$2/${3:-$(basename "$1")}.dylib"
   mkdir -p "$2"
   "$CONVERT" convert "$1" "$container" --platform "$PLATFORM" >/dev/null
   codesign --force --timestamp=none --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" \
@@ -64,4 +69,25 @@ while read -r name fields; do
     cp "$FIXTURES/$library" "$OUT/elf/$name/"
   done
 done < <(grep -v -e '^#' -e '^$' "$TESTS")
+
+STAGE="$SRCROOT/build/device-art"
+if [[ -d "$STAGE/tests" ]]; then
+  # ART's build, as tools/embed-guest-system.sh takes it: build/art, or the build setting APK_ART_DIR.
+  contain "${APK_ART_DIR:-$SRCROOT/build/art}/bin/dalvikvm" "$OUT/art/bin" dalvikvm64
+  # Links into ART's lib/, each under the name the debug flavor takes (libart.so for libartd.so).
+  for library in "$STAGE"/lib64-debug/*.so; do
+    contain "$library" "$OUT/art/lib64-debug"
+  done
+  for folder in "$STAGE"/tests/*/; do
+    staged=$(basename "$folder")
+    mkdir -p "$OUT/art/tests/$staged"
+    cp "$folder/command.json" "$folder/command-debug.json" "$OUT/art/tests/$staged/"
+    cp -RL "$folder/files" "$OUT/art/tests/$staged/files"
+    if [[ -d "$folder/libraries" ]]; then
+      for library in "$folder"/libraries/*.so; do
+        contain "$library" "$OUT/art/tests/$staged/libraries"
+      done
+    fi
+  done
+fi
 echo "Embedded $(find "$OUT" -name '*.dylib' | wc -l | tr -d ' ') signed containers for $PLATFORM"
