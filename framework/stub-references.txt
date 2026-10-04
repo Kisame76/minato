@@ -74,8 +74,6 @@ android.os.INetworkManagementService <- android.os.StrictMode  # gap: StrictMode
 android.os.INetworkManagementService$Stub <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
-android.view.IWindowManager <- android.os.StrictMode  # gap: StrictMode's penaltyFlashScreen
-android.view.IWindowManager$Stub <- android.os.StrictMode  # gap: StrictMode's penaltyFlashScreen
 android.app.ActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
@@ -91,11 +89,8 @@ android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Cont
 android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
 android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
-android.view.View <- android.app.Application, android.text.style.URLSpan  # step c2c: taken
 android.view.Window <- android.app.Application  # step c2c: taken with Activity (Application.getAutofillClient)
-android.view.Gravity <- android.graphics.drawable.BitmapDrawable  # step c2c: taken with FrameLayout
 android.view.WindowManager$LayoutParams <- android.content.res.CompatibilityInfo  # step c2c: taken with WindowManager
-android.view.InsetsState <- android.content.res.CompatibilityInfo  # step c2c: taken with View's insets
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo.applyOverrideScaleIfNeeded, which the window manager's relayout calls
 android.view.MotionEvent <- android.content.res.CompatibilityInfo  # ADR-0041 a): taken with input
@@ -108,10 +103,7 @@ android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: The
 android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
 
 # Drawables and graphics.
-android.graphics.drawable.DrawableContainer <- android.content.res.ResourcesImpl  # step c2c: taken, since every Resources.getDrawable asks instanceof DrawableContainer (ResourcesImpl.loadDrawable)
-android.graphics.drawable.ColorDrawable <- android.content.res.ResourcesImpl  # step c2c: taken, since a color resource loads as one
 android.graphics.drawable.ColorStateListDrawable <- android.content.res.ResourcesImpl  # gap: Resources.getDrawable of a color state list
-android.graphics.drawable.DrawableInflater <- android.content.res.Resources, android.graphics.drawable.Drawable  # gap: XML drawables (shape, selector, layer-list), which layouts' backgrounds inflate; M4 step 10 draws them
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (App: VirtualRefBasePtr's natives are libandroid_runtime's)
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
@@ -205,7 +197,6 @@ android.content.OperationApplicationException <- android.content.ContentProvider
 android.content.PermissionChecker <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (another caller's permission checks)
 android.database.MatrixCursor <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings
 android.os.RemoteCallback <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (the asynchronous getType and canonicalize)
-com.android.internal.util.FrameworkStatsLog <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (getType's statsd event)
 android.os.UserManager <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
@@ -244,3 +235,147 @@ com.android.internal.util.SyncResultReceiver <- android.view.contentcapture.Cont
 com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.os.ICancellationSignal <- android.os.CancellationSignal  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato: the remote half of a cancellation
 android.os.ICancellationSignal$Stub <- android.os.CancellationSignal  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato: the remote half of a cancellation
+
+# The view tree (step c2c2): LayoutInflater, View, ViewGroup, FrameLayout and the rest of the tree, which an app's
+# code inflates, measures and lays out detached. What only an attached view reaches stays a stub until step c2c3's
+# window; the display, input, Choreographer and the animators until ADR-0041 a); drawing until M4 step 10. XML
+# drawables whose classes framework.jar lacks stay gaps.
+android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # step c2c3: PrivacyIndicatorBounds' checked constructor, which only the window's insets reach (WindowInsets.inset, a rotation)
+android.view.FocusFinder <- android.view.View, android.view.ViewGroup  # step c2c3: focus moves among the views of a window
+android.view.HandwritingInitiator <- android.view.View  # step c2c3: the window's stylus handwriting, through ViewRootImpl
+android.view.IWindow <- android.view.View  # step c2c3: the window's binder, which an attached view's AttachInfo holds
+android.view.IWindowSession <- android.view.View  # step c2c3: the window's session, which an attached view's AttachInfo holds
+android.view.ImeFocusController <- android.view.View  # step c2c3: the window's IME focus, through ViewRootImpl
+android.view.InsetsController <- android.view.PendingInsetsController  # step c2c3: the window's insets controller, which replaces the pending one
+android.view.ViewRootImpl <- android.view.LayoutInflater, android.view.View, android.view.ViewAnimationHostBridge, android.view.ViewGroup  # step c2c3: the window's root, which only an attached view reaches
+android.view.Window$OnContentApplyWindowInsetsListener <- android.view.View  # step c2c3: the window's content insets listener
+android.view.WindowId <- android.view.View  # step c2c3: the window's ID, which an attached view's AttachInfo holds
+android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # step c2c3: insets animations, which the window's controller runs
+android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # step c2c3: insets animations, which the window's controller runs
+android.view.WindowManager <- android.view.View  # step c2c3: the window manager, which a detached view's getWindowVisibleDisplayFrame asks for its metrics
+android.view.WindowManager$LayoutParams <- android.view.View  # step c2c3: the window's attributes, which an attached view reads
+android.view.WindowMetrics <- android.view.View  # step c2c3: the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses
+android.view.accessibility.AccessibilityNodeIdManager <- android.view.View  # step c2c3: every attach registers the view's accessibility ID (View.onAttachedToWindow)
+android.window.WindowOnBackInvokedDispatcher <- android.view.ViewGroup  # step c2c3: the window's back dispatcher, through ViewRootImpl
+com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # step c2c3: PrivacyIndicatorBounds' checked constructor, which only the window's insets reach (WindowInsets.inset, a rotation)
+android.animation.AnimatorInflater <- android.view.View  # ADR-0041 a): the animators; View's constructor loads a style's or layout's android:stateListAnimator, which Material's buttons have
+android.animation.Keyframe <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.animation.KeyframeSet <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.animation.Keyframes <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.animation.ObjectAnimator <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.animation.PropertyValuesHolder <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.animation.StateListAnimator <- android.view.View  # ADR-0041 a): the animators; a view's android:stateListAnimator
+android.animation.ValueAnimator <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
+android.app.AppGlobals <- android.view.ViewConfiguration  # ADR-0041 a): the input timeouts that touch and keys ask the core settings for
+android.hardware.display.DisplayManagerGlobal <- android.view.View  # ADR-0041 a): the display (decision 6)
+android.hardware.input.InputManagerGlobal <- android.view.ViewConfiguration  # ADR-0041 a): input devices
+android.view.Choreographer <- android.view.View  # ADR-0041 a): Choreographer, which an attached view posts to
+android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
+android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
+android.view.Display <- android.view.View  # ADR-0041 a): the display (decision 6), which an attached view's AttachInfo has
+android.view.Display$Mode <- android.util.DisplayUtils  # ADR-0041 a): the display's modes (decision 6)
+android.view.InputDevice <- android.view.InputEvent, android.view.ViewConfiguration  # ADR-0041 a): input devices
+android.view.KeyCharacterMap <- android.view.KeyEvent  # ADR-0041 a): key character maps, which KeyEvent's characters ask
+android.view.MotionEvent <- android.view.InputEvent, android.view.InputEventConsistencyVerifier, android.view.View, android.view.ViewGroup  # ADR-0041 a): MotionEvent
+android.view.PointerIcon <- android.view.View  # ADR-0041 a): pointer icons; View's constructor loads a layout's android:pointerIcon
+android.view.Surface <- android.view.DisplayCutout, android.view.View  # ADR-0041 a): Surface
+android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
+android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surfaces
+android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
+android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
+android.view.TouchDelegate <- android.view.View  # ADR-0041 a): touch
+android.view.animation.AccelerateDecelerateInterpolator <- android.animation.LayoutTransition, android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, LayoutTransition's defaults and what AnimationUtils.loadInterpolator makes
+android.view.animation.AccelerateInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.AnticipateInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.AnticipateOvershootInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.BounceInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.CycleInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.DecelerateInterpolator <- android.animation.LayoutTransition, android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, LayoutTransition's defaults and what AnimationUtils.loadInterpolator makes
+android.view.animation.LinearInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.animation.OvershootInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
+android.view.FrameMetricsObserver <- android.view.View  # M4 step 10: drawing's frame metrics
+android.view.GhostView <- android.view.View  # M4 step 10: a transition's ghost view, drawn in an overlay
+android.view.ThreadedRenderer <- android.view.View  # M4 step 10: drawing through hwui's renderer
+android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
+android.view.ViewGroupOverlay <- android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
+android.view.ViewOverlay <- android.view.View, android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
+android.view.ViewPropertyAnimator <- android.view.View  # M4 step 10: animations, which drawing shows
+android.view.animation.AlphaAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.Animation <- android.view.View, android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.Animation$AnimationListener <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
+android.view.animation.AnimationSet <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.GridLayoutAnimationController <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.LayoutAnimationController <- android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations; ViewGroup's constructor loads a layout's android:layoutAnimation
+android.view.animation.LayoutAnimationController$AnimationParameters <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
+android.view.animation.RotateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.ScaleAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.animation.Transformation <- android.view.View, android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
+android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
+android.view.autofill.AutofillManager <- android.view.View, android.view.ViewGroup  # M4 step 10: View.getAutofillManager names the class for a view with an autofill type, which TextView has; autofill itself stays off
+android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
+android.util.IntArray <- android.view.ViewGroup  # stays: transient views (ViewGroup.addTransientView), a hidden API no app calls
+android.util.SuperNotCalledException <- android.view.View  # stays: only when a subclass's onCancelPendingInputEvents skips super
+android.view.AccessibilityIterators$CharacterTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.AccessibilityIterators$ParagraphTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.AccessibilityIterators$TextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.AccessibilityIterators$WordTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.HapticScrollFeedbackProvider <- android.view.View  # stays: the haptics of rotary scrolling, and an iPhone has no rotary input
+android.view.RoundScrollbarRenderer <- android.view.View  # stays: scroll bars on a round screen (View.layout asks Configuration.isScreenRound), and an iPhone's is not
+android.view.ScrollCaptureTarget <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
+android.view.ViewDebug <- android.view.View  # stays: the view server's dumps, and the message of onRestoreInstanceState's exception for a saved state of the wrong class
+android.view.ViewDebug$CanvasProvider <- android.view.View  # stays: the layout inspector's capture, which only a debugger asks
+android.view.ViewHierarchyEncoder <- android.view.View, android.view.ViewGroup, android.widget.FrameLayout  # stays: the view hierarchy dump, which only a debugger asks
+android.view.ViewStructure <- android.view.View, android.view.ViewGroup  # stays: autofill's and content capture's structure, for services Minato does not run
+android.view.ViewTraversalTracingStrings <- android.view.View  # stays: atrace's traversal sections, only while atrace traces views
+android.view.accessibility.AccessibilityInteractionClient <- android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo <- android.view.View, android.view.ViewGroup, android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.view.ViewGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeProvider <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.autofill.AutofillId <- android.view.View  # stays: autofill, which Minato does not run, so getSystemService answers null
+android.view.autofill.AutofillValue <- android.view.View  # stays: autofill, which Minato does not run, so getSystemService answers null
+android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays: content capture, which Minato does not run, so getSystemService answers null
+android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
+android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
+android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill structure (populateChildrenForAutofill), for a service Minato does not run
+android.widget.Checkable <- android.view.View  # stays: View.onProvideStructure, for autofill and content capture, which Minato does not run
+com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
+com.google.android.collect.Lists <- android.view.View  # stays: View.dumpFlags, a debugging dump
+com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
+android.app.PendingIntent <- android.view.View  # gap: drag and drop's check for an activity's pending intent
+android.content.ClipData <- android.view.View  # gap: drag and drop
+android.content.ClipData$Item <- android.view.View  # gap: drag and drop
+android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
+android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
+android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
+android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
+android.graphics.drawable.AdaptiveIconDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.AnimatedRotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.AnimatedStateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.AnimationDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.ClipDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.InsetDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.LayerDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.LevelListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.RippleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.RotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.ScaleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.StateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.TransitionDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.os.OutcomeReceiver <- android.view.View  # gap: Credential Manager requests
+android.os.RemoteCallback <- android.view.View  # gap: display hashes
+android.os.RemoteCallback$OnResultListener <- android.view.View  # gap: display hashes
+android.os.Vibrator <- android.view.View  # gap: haptic feedback
+android.view.ContentInfo$Builder <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
+android.view.DragAndDropPermissions <- android.view.View  # gap: drag and drop
+android.view.DragEvent <- android.view.View, android.view.ViewGroup  # gap: drag and drop
+android.view.OnReceiveContentListener <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
+android.view.ViewCredentialHandler <- android.view.View  # gap: Credential Manager requests
+android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
+android.view.displayhash.DisplayHashResultCallback <- android.view.View  # gap: display hashes
+android.view.inputmethod.InputMethodManager <- android.view.View  # gap: the soft keyboard (ADR-0042 b0's gap 5)
+com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, which need a popup window
+com.android.internal.view.menu.MenuBuilder <- android.view.View  # gap: context menus

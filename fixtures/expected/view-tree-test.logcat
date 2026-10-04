@@ -1,0 +1,22 @@
+I/view-tree-test: density 3.0
+I/view-tree-test: inflated io.github.kisame76.minato.test.viewtree.TreeLayout root with 3 children, layout params null
+I/view-tree-test: child box android.view.View width 300 height 150 gravity 0x11 margins 0 0 0 0
+I/view-tree-test: child corner android.view.View width 240 height 120 gravity 0x800055 margins 0 0 0 0
+I/view-tree-test: child fill android.view.View width -1 height -1 gravity 0xffffffff margins 48 48 48 48
+I/view-tree-test: post true
+I/view-tree-test: TreeLayout.onMeasure MeasureSpec: EXACTLY 1290, MeasureSpec: EXACTLY 2796
+I/view-tree-test: exactly: root 1290 x 2796, layout requested false
+I/view-tree-test:   box 300 x 150 at 495 1323 795 1473
+I/view-tree-test:   corner 240 x 120 at 1050 2676 1290 2796
+I/view-tree-test:   fill 1194 x 2700 at 48 48 1242 2748
+I/view-tree-test: TreeLayout.onMeasure MeasureSpec: AT_MOST 1290, MeasureSpec: AT_MOST 2796
+I/view-tree-test: at most: root 1290 x 2796, layout requested false
+I/view-tree-test:   box 300 x 150 at 495 1323 795 1473
+I/view-tree-test:   corner 240 x 120 at 1050 2676 1290 2796
+I/view-tree-test:   fill 1194 x 2700 at 48 48 1242 2748
+I/view-tree-test: touch slop 24
+I/view-tree-test: box background ColorDrawable 0xff336699
+I/view-tree-test: corner background GradientDrawable shape 1 color 0xff993366
+I/view-tree-test: fill: vertical scroll bar true, horizontal false, size 12, thumb from the theme GradientDrawable shape 0 color 0x84ffffff
+I/view-tree-test: 500 ms later: attached false
+I/view-tree-test: done

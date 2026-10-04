@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- view-tree-test's tree: the app's own FrameLayout with a child centered on a color, one at the bottom end on an
+     XML drawable and one that fills it inside its margins, with a vertical scroll bar, which View's constructor sets
+     up from the theme. -->
+<io.github.kisame76.minato.test.viewtree.TreeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent">
+  <View android:id="@+id/box" android:layout_width="100dp" android:layout_height="50dp"
+      android:layout_gravity="center" android:background="#ff336699"/>
+  <View android:id="@+id/corner" android:layout_width="80dp" android:layout_height="40dp"
+      android:layout_gravity="end|bottom" android:background="@drawable/corner"/>
+  <View android:id="@+id/fill" android:layout_width="match_parent" android:layout_height="match_parent"
+      android:layout_margin="16dp" android:scrollbars="vertical"/>
+</io.github.kisame76.minato.test.viewtree.TreeLayout>

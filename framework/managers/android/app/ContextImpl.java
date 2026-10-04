@@ -4,7 +4,8 @@
 // system_server: decision 6's folders and files with the modes Android's ContextImpl gives them, the resources, the
 // class loader, the package and its PackageManager, SharedPreferences through AOSP's SharedPreferencesImpl, and
 // permission checks from the manifest's grants. The paths and SharedPreferences follow the tag's ContextImpl.java, the
-// external folders through Environment's one emulated volume (framework/patches).
+// external folders through Environment's one emulated volume (framework/patches). Step c2c2 adds the theme and the
+// LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made.
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
@@ -23,6 +24,9 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.view.LayoutInflater;
+import com.android.internal.policy.PhoneLayoutInflater;
+import com.android.minato.services.Unwritten;
 import dalvik.system.BlockGuard;
 import java.io.File;
 import java.io.FileInputStream;
@@ -56,6 +60,10 @@ class ContextImpl {
     /** Each package's SharedPreferences by file, shared by its contexts, as the tag keeps them. */
     private static ArrayMap<String, ArrayMap<File, SharedPreferencesImpl>> sSharedPrefsCache;
     private ArrayMap<String, File> mSharedPrefsPaths;
+    /** The theme's resource, 0 until setTheme or getTheme picks one. */
+    private int mThemeResource = 0;
+    private Resources.Theme mTheme;
+    private LayoutInflater mLayoutInflater;
 
     private ContextImpl(ActivityThread mainThread, LoadedApk packageInfo) {
         mMainThread = mainThread;
@@ -104,6 +112,76 @@ class ContextImpl {
 
     public Resources getResources() {
         return mPackageInfo.getResources();
+    }
+
+    // The theme and the services (step c2c2).
+
+    public void setTheme(int resId) {
+        synchronized (mSync) {
+            if (mThemeResource != resId) {
+                mThemeResource = resId;
+                initializeTheme();
+            }
+        }
+    }
+
+    /** @hide */
+    public int getThemeResId() {
+        synchronized (mSync) {
+            return mThemeResource;
+        }
+    }
+
+    /** The theme, the platform's default for the app's target SDK until setTheme picks one, as the tag's. */
+    public Resources.Theme getTheme() {
+        synchronized (mSync) {
+            if (mTheme != null) {
+                return mTheme;
+            }
+            mThemeResource = Resources.selectDefaultTheme(mThemeResource,
+                    getOuterContext().getApplicationInfo().targetSdkVersion);
+            initializeTheme();
+            return mTheme;
+        }
+    }
+
+    private void initializeTheme() {
+        if (mTheme == null) {
+            mTheme = getResources().newTheme();
+        }
+        mTheme.applyStyle(mThemeResource, true);
+    }
+
+    /**
+     * The LayoutInflater on the outer context, one per context as SystemServiceRegistry's CachedServiceFetcher keeps
+     * it; every other service is still unwritten, logged once per name, so that the log says which one an app asked
+     * for.
+     */
+    public Object getSystemService(String name) {
+        if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mLayoutInflater == null) {
+                    mLayoutInflater = new PhoneLayoutInflater(getOuterContext());
+                }
+                return mLayoutInflater;
+            }
+        }
+        Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
+        return null;
+    }
+
+    /** The display a context without one has, as the tag's answers: the default display. */
+    public int getDisplayId() {
+        return android.view.Display.DEFAULT_DISPLAY;
+    }
+
+    public String getSystemServiceName(Class<?> serviceClass) {
+        if (serviceClass == LayoutInflater.class) {
+            return Context.LAYOUT_INFLATER_SERVICE;
+        }
+        Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
+                + (serviceClass == null ? "null" : serviceClass.getName()), "null");
+        return null;
     }
 
     public PackageManager getPackageManager() {

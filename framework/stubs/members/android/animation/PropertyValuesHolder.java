@@ -1,5 +1,6 @@
 // Hidden members of the public API's compile-only stub (ADR-0043 test 2), which tools/managergen joins with it:
 // AnimatedVectorDrawable hands its animators' values to the render thread with them.
+// (ADR-0039 step c2c2) LayoutTransition compares an animator's start and end keyframes.
 class PropertyValuesHolder {
     /** @hide */
     public Class getValueType() {
@@ -23,4 +24,7 @@ class PropertyValuesHolder {
             Object getValueAtFraction(float fraction);
         }
     }
+
+    /** @hide */
+    Keyframes mKeyframes;
 }

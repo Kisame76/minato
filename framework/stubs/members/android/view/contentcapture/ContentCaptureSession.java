@@ -2,6 +2,7 @@
 // content capture stays off on Minato: no Context gives a ContentCaptureManager, as on a device without the service;
 // ContentCaptureManager.flush names its reason.
 // (ADR-0039 step c2c1) ContentCaptureManager starts, flushes, disables and dumps its main session.
+// (ADR-0039 step c2c2) View names its session's ID and tells it of view tree events, with a session only.
 class ContentCaptureSession {
     /** @hide */
     public @interface FlushReason {
@@ -30,6 +31,16 @@ class ContentCaptureSession {
 
     /** @hide */
     void dump(String prefix, java.io.PrintWriter pw) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public int getId() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void notifyViewTreeEvent(boolean started) {
         throw new RuntimeException("stub");
     }
 }

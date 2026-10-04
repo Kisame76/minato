@@ -2,10 +2,11 @@ package android.os;
 
 /**
  * Compile-only stub (ADR-0039 step c2c1), never in framework.jar: the asynchronous getType and canonicalize answers
- * of ContentProvider's transport, to another process.
+ * of ContentProvider's transport, to another process; View.generateDisplayHash's answer (step c2c2).
  */
 public final class RemoteCallback implements android.os.Parcelable {
     public interface OnResultListener {
+        void onResult(Bundle result);
     }
 
     public RemoteCallback(OnResultListener listener) {

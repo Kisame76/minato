@@ -128,9 +128,10 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
-# Our AppOpsManager (step c2c1): the public API, logged once where framework/managers' hand file does not answer.
+# Our managers from the public API (steps c2c1, c2c2), logged once where framework/managers' hand files do not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
+  --class android.view.accessibility.AccessibilityManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the

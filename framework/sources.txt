@@ -462,3 +462,63 @@ frameworks_base/core/java/android/app/StackTrace.java
 frameworks_base/core/java/android/os/AsyncTask.java
 frameworks_base/core/java/android/util/Dumpable.java
 frameworks_base/core/java/android/util/SparseBooleanArray.java
+
+# ADR-0039 step c2c2: the view tree that every inflated layout and every View subclass needs (LayoutInflater, View,
+# ViewGroup, FrameLayout, ViewConfiguration, ViewTreeObserver, Gravity, the insets, AnimationUtils and LayoutTransition,
+# a layout's scroll bars, the drawables of a layout's attributes (DrawableInflater with its XML tags of drawables
+# framework.jar has, and DrawableContainer, which every Resources.getDrawable asks for), with KeyEvent and InputEvent,
+# which View's methods name). The activity, the window and its manager stay step c2c3's.
+frameworks_base/core/java/android/animation/LayoutTransition.java
+frameworks_base/core/java/android/util/DisplayUtils.java
+frameworks_base/core/java/android/util/LongSparseLongArray.java
+frameworks_base/core/java/android/util/RotationUtils.java
+frameworks_base/core/java/android/view/AbsSavedState.java
+frameworks_base/core/java/android/view/ActionMode.java
+frameworks_base/core/java/android/view/ContextMenu.java
+frameworks_base/core/java/android/view/ContextThemeWrapper.java
+frameworks_base/core/java/android/view/DisplayCutout.java
+frameworks_base/core/java/android/view/DisplayShape.java
+frameworks_base/core/java/android/view/Gravity.java
+frameworks_base/core/java/android/view/HandlerActionQueue.java
+frameworks_base/core/java/android/view/InflateException.java
+frameworks_base/core/java/android/view/InputEvent.java
+frameworks_base/core/java/android/view/InputEventConsistencyVerifier.java
+frameworks_base/core/java/android/view/InsetsFlags.java
+frameworks_base/core/java/android/view/InsetsSource.java
+frameworks_base/core/java/android/view/InsetsState.java
+frameworks_base/core/java/android/view/KeyEvent.java
+frameworks_base/core/java/android/view/LayoutInflater.java
+frameworks_base/core/java/android/view/Menu.java
+frameworks_base/core/java/android/view/PendingInsetsController.java
+frameworks_base/core/java/android/view/PrivacyIndicatorBounds.java
+frameworks_base/core/java/android/view/RoundedCorner.java
+frameworks_base/core/java/android/view/RoundedCorners.java
+frameworks_base/core/java/android/view/View.java
+frameworks_base/core/java/android/view/ViewAnimationHostBridge.java
+frameworks_base/core/java/android/view/ViewConfiguration.java
+frameworks_base/core/java/android/view/ViewGroup.java
+frameworks_base/core/java/android/view/ViewManager.java
+frameworks_base/core/java/android/view/ViewOutlineProvider.java
+frameworks_base/core/java/android/view/ViewParent.java
+frameworks_base/core/java/android/view/ViewStub.java
+frameworks_base/core/java/android/view/ViewTreeObserver.java
+frameworks_base/core/java/android/view/WindowInsets.java
+frameworks_base/core/java/android/view/WindowInsetsController.java
+frameworks_base/core/java/android/view/accessibility/AccessibilityEvent.java
+frameworks_base/core/java/android/view/accessibility/AccessibilityEventSource.java
+frameworks_base/core/java/android/view/accessibility/AccessibilityRecord.java
+frameworks_base/core/java/android/view/animation/AnimationUtils.java
+frameworks_base/core/java/android/view/animation/BaseInterpolator.java
+frameworks_base/core/java/android/view/animation/Interpolator.java
+frameworks_base/core/java/android/view/animation/PathInterpolator.java
+frameworks_base/core/java/android/widget/FrameLayout.java
+frameworks_base/core/java/android/widget/ScrollBarDrawable.java
+frameworks_base/core/java/android/window/OnBackInvokedDispatcher.java
+frameworks_base/core/java/com/android/internal/policy/PhoneLayoutInflater.java
+frameworks_base/core/java/com/android/internal/util/BitUtils.java
+frameworks_base/core/java/com/android/internal/widget/ScrollBarUtils.java
+frameworks_base_graphics/graphics/java/android/graphics/PorterDuffXfermode.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/ColorDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableContainer.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableInflater.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/GradientDrawable.java
