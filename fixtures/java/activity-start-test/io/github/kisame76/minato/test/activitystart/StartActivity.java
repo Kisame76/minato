@@ -11,7 +11,8 @@ import android.view.ViewTreeObserver;
 
 /**
  * The launcher, behind the alias Launcher: logs its lifecycle up to its window's focus, its window configuration, where
- * its content view sits, and one measure and layout of a view with its global layout and a View.post.
+ * its content view sits, one measure and layout of a view with its global layout and a View.post, and the window as
+ * its first focus finds it.
  */
 public class StartActivity extends Activity {
     private static final String TAG = StartApplication.TAG;
@@ -87,8 +88,22 @@ public class StartActivity extends Activity {
         Log.i(TAG, "onWindowFocusChanged " + hasFocus);
         if (hasFocus && !mFocused) {
             mFocused = true;
+            Log.i(TAG, "window: " + window());
             Log.i(TAG, "done");
         }
+    }
+
+    /**
+     * The window as the focus finds it (step c2c3.1): the task's root, the decor's visibility, and what edge-to-edge
+     * sets for a target SDK of 35, transparent bars and the cutout mode.
+     */
+    @SuppressWarnings("deprecation") // The bars' colors, which Android 15 keeps transparent for edge-to-edge.
+    private String window() {
+        View decor = getWindow().getDecorView();
+        return "task root " + isTaskRoot() + ", decor visibility " + decor.getVisibility() + ", shown "
+                + decor.isShown() + ", status bar 0x" + Integer.toHexString(getWindow().getStatusBarColor())
+                + ", navigation bar 0x" + Integer.toHexString(getWindow().getNavigationBarColor()) + ", cutout mode "
+                + getWindow().getAttributes().layoutInDisplayCutoutMode;
     }
 
     /** The window configuration part of the configuration's text, which has the window's bounds and rotation. */

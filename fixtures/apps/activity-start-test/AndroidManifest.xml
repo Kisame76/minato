@@ -9,6 +9,30 @@
       android:name="io.github.kisame76.minato.test.activitystart.StartApplication">
     <activity android:name="io.github.kisame76.minato.test.activitystart.StartActivity" android:exported="false"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"/>
+    <!-- Ahead of Launcher, three filters a home screen's launch intent does not match: MAIN without LAUNCHER, MAIN
+         and LAUNCHER with a scheme, and a disabled alias (step c2c3.1). Android lists none of them as a launcher. -->
+    <activity-alias android:name="io.github.kisame76.minato.test.activitystart.MainOnly" android:exported="true"
+        android:targetActivity="io.github.kisame76.minato.test.activitystart.StartActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+      </intent-filter>
+    </activity-alias>
+    <activity-alias android:name="io.github.kisame76.minato.test.activitystart.WithData" android:exported="true"
+        android:targetActivity="io.github.kisame76.minato.test.activitystart.StartActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+        <data android:scheme="https"/>
+      </intent-filter>
+    </activity-alias>
+    <activity-alias android:name="io.github.kisame76.minato.test.activitystart.Disabled" android:exported="true"
+        android:enabled="false"
+        android:targetActivity="io.github.kisame76.minato.test.activitystart.StartActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity-alias>
     <activity-alias android:name="io.github.kisame76.minato.test.activitystart.Launcher" android:exported="true"
         android:targetActivity="io.github.kisame76.minato.test.activitystart.StartActivity">
       <intent-filter>

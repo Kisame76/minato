@@ -20,4 +20,5 @@ I/activity-start-test: onAttachedToWindow
 I/activity-start-test: global layout: content 1290 x 2796, box 300 x 150 at 495 1323
 I/activity-start-test: posted, attached true, the root's parent android.view.ViewRootImpl
 I/activity-start-test: onWindowFocusChanged true
+I/activity-start-test: window: task root true, decor visibility 0, shown true, status bar 0x0, navigation bar 0x0, cutout mode 0
 I/activity-start-test: done
