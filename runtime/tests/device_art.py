@@ -32,8 +32,8 @@ codec-test its offsets, and for stress-test a signal handled during a collection
 status (art_run_tests.py). `selftest` stages the Java fixtures and CTest's sample of the run-tests, runs them and
 checks them, so the stage is right before the app reads it.
 
-Prints "skipped: ..." while dalvikvm, a Java fixture's jar or library, the run-tests' sources, the JDK, D8 or the
-guest system's list of public libraries is missing.
+Prints "skipped: ..." while dalvikvm, a Java fixture's jar or library, the run-tests' sources, the JDK, D8, the
+guest system's list of public libraries or the graphics front libs, which every VM start preloads, are missing.
 
 Usage: device_art.py stage <art> <fixtures-bin> <root> <out> [--sample]
        device_art.py run <out> <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <outputs>
@@ -275,6 +275,10 @@ def selftest(art, fixtures_bin, root, bionic_lib, bionic_system, icu_data, apk_c
     public_libraries = os.path.join(bionic_system, "etc", "public.libraries.txt")
     if not os.path.exists(public_libraries):
         print(f"skipped: {public_libraries} is not built (tools/build-bionic.sh)")
+        return
+    skipped = art_run.missing_front_lib(bionic_lib)
+    if skipped:
+        print(skipped)
         return
     flavor = "-debug" if debug else ""
     out = os.path.join(work, "device-art-stage" + flavor)

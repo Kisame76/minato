@@ -14,7 +14,8 @@
 # (ADR-0045, the input service). An app without its own fixtures/java folder, a twin such as compat-test-35, takes the
 # sources of the app it is named after.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
-# tools/build-framework.sh's output, and for res/ tools/build-aapt2.sh and tools/build-framework-res.sh.
+# tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
+# Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).
 # Usage: tools/build-java-test-app.sh <app>
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -50,6 +51,25 @@ mkdir -p "$OUT/classes" "$OUT/dex"
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()
 [[ ! -d "fixtures/apps/$APP/assets" ]] || assets=(--assets "fixtures/apps/$APP/assets")
+# An app with a jni folder gets its C files as its JNI library, lib<app>.so in lib/arm64-v8a, built with the NDK's clang
+# at API 29 (D8's --min-api); jni/link.txt names the NDK libraries it links, one per line, each kept as NEEDED.
+libs=()
+if [[ -d "$JAVA/jni" ]]; then
+  NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
+  if [[ ! -x "$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang" ]]; then
+    echo "No Android NDK at $NDK. Set ANDROID_NDK to its folder." >&2
+    exit 1
+  fi
+  link=()
+  if [[ -f "$JAVA/jni/link.txt" ]]; then
+    while read -r name; do link+=("-l$name"); done < "$JAVA/jni/link.txt"
+  fi
+  mkdir -p "$OUT/lib"
+  "$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall \
+    -Werror -Wl,-z,max-page-size=16384 -Wl,--no-undefined -o "$OUT/lib/lib$(basename "$JAVA").so" \
+    $(find "$JAVA/jni" -name '*.c' | sort) -Wl,--no-as-needed ${link[@]+"${link[@]}"} -Wl,--as-needed
+  libs=(--lib "$OUT/lib/lib$(basename "$JAVA").so")
+fi
 manifest=(--manifest "fixtures/apps/$APP/AndroidManifest.xml")
 if [[ -d "fixtures/apps/$APP/res" ]]; then
   build/aapt2/aapt2 compile --dir "fixtures/apps/$APP/res" -o "$OUT/compiled.zip"
@@ -57,4 +77,5 @@ if [[ -d "fixtures/apps/$APP/res" ]]; then
     --manifest "fixtures/apps/$APP/AndroidManifest.xml" "$OUT/compiled.zip"
   manifest=(--resources "$OUT/resources.apk")
 fi
-tools/make-apk.sh "${manifest[@]}" --dex "$OUT/dex/classes.dex" ${assets[@]+"${assets[@]}"} --out "$OUT/$APP.apk"
+tools/make-apk.sh "${manifest[@]}" ${libs[@]+"${libs[@]}"} --dex "$OUT/dex/classes.dex" ${assets[@]+"${assets[@]}"} \
+  --out "$OUT/$APP.apk"

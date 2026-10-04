@@ -9,8 +9,8 @@ The list must hold exactly the subset of run_tests.py's rules. --sample runs the
 otherwise the named tests or all but the "out" ones. --debug runs ART's debug flavor, --gc <collector> adds
 -Xgc:<collector>, --jobs runs that many tests side by side (one by default), --times <file> writes each test's
 seconds. The run folder of a failed test stays in <work>/run-tests.
-Prints "skipped: ..." while dalvikvm, the boot jars' classes, the JDK, D8, the run-tests' sources or the guest
-system's list of public libraries is missing.
+Prints "skipped: ..." while dalvikvm, the boot jars' classes, the JDK, D8, the run-tests' sources, the guest
+system's list of public libraries or the graphics front libs, which every VM start preloads, are missing.
 
 Usage: art_run_tests.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <root>
                         [--sample] [--debug] [--gc <collector>] [--jobs <n>] [--times <file>] [<test>...]
@@ -117,7 +117,9 @@ def main():
                              (os.path.join(java, "all-classes.jar"), "tools/build-art.sh"),
                              (os.path.join(tests, "knownfailures.json"), "tools/fetch-sources.py --set art"),
                              (r8, "tools/fetch-sources.py --set art"),
-                             (os.path.join(bionic_system, "etc", "public.libraries.txt"), "tools/build-bionic.sh")):
+                             (os.path.join(bionic_system, "etc", "public.libraries.txt"), "tools/build-bionic.sh"),
+                             *((os.path.join(art_run.front_libs(bionic_lib), name), "tools/build-front-libs.sh")
+                               for name in art_run.FRONT_LIBS)):
         if not os.path.exists(needed):
             print(f"skipped: {needed} is not there ({built_by})")
             return

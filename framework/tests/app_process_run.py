@@ -15,9 +15,11 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     libziparchive, libexpat and libc++_shared beside them, as graphics/tests/hwui_load_run.py lays them out:
     libandroid_runtime registers hwui's graphics natives at every start, and bionic's /system has the fonts that
     ActivityThread loads (ADR-0043 test 2);
-  - the graphics front libs libEGL, libGLESv1_CM, libGLESv2 and libGLESv3 (tools/build-front-libs.sh) in
-    /system/lib64, which libandroid_runtime's GLES bindings need (ADR-0041 a)). Under apk-run they bind no driver;
-    under graphics-run, apk-run with graphics/host's providers, they reach the Mac's ANGLE (MINATO_ANGLE);
+  - the graphics front libs libEGL, libGLESv1_CM, libGLESv2, libGLESv3 and libvulkan (tools/build-front-libs.sh) in
+    /system/lib64: public libraries, which libnativeloader preloads at every start (ADR-0040 decision 3), and the
+    first 4 are what libandroid_runtime's GLES bindings need (ADR-0041 a)). Under apk-run they bind no driver; under
+    graphics-run, apk-run with graphics/host's providers, they reach the Mac's ANGLE and MoltenVK (MINATO_ANGLE,
+    MINATO_MOLTENVK);
   - the APK at Android 15's code path (/data/app/~~<a>/<package>-<b>/base.apk, ADR-0039 decision 6), and the data
     folder /data/user/0/<package> with cache and code_cache, as installd creates them;
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
@@ -59,8 +61,9 @@ CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
 CONSCRYPT_LIBRARY = "libjavacrypto.so"
 # The APK folder of the JNI libraries that Android's installer extracts for an arm64 device.
 APP_ABI = "lib/arm64-v8a/"
-# The graphics front libs that libandroid_runtime.so needs (ADR-0041 a)).
-FRONT_LIBS = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so")
+# The graphics front libs: public libraries, which every start preloads (ADR-0040 decision 3); libandroid_runtime.so
+# links the first 4 (ADR-0041 a)).
+FRONT_LIBS = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so")
 PACKAGE = "io.github.kisame76.minato.test.appstart"
 APPLICATION = "io.github.kisame76.minato.test.appstart.StartApplication"
 APP_UID = 10100

@@ -15,4 +15,6 @@ I/gles-java-test: GL10: destroyed true true, eglTerminate true
 I/gles-java-test: GLUtils: getInternalFormat 6408, getType 5121
 I/gles-java-test: GLUtils: texImage2D of the 4 x 4 bitmap, a complete framebuffer true, texels ff0000ff ff0000ff 00ff00ff 00ff00ff / ff0000ff ff0000ff 00ff00ff 00ff00ff / 0000ffff 0000ffff ffffffff ffffffff / 0000ffff 0000ffff ffffffff ffffffff, glGetError 0
 I/gles-java-test: GLUtils: texSubImage2D of a 2 x 2 magenta bitmap at (1, 1), texels ff0000ff ff0000ff 00ff00ff 00ff00ff / ff0000ff ff00ffff ff00ffff 00ff00ff / 0000ffff ff00ffff ff00ffff ffffffff / 0000ffff 0000ffff ffffffff ffffffff, glGetError 0
+I/gles-java-test: JNI: dlopen libEGL.so opened, libGLESv1_CM.so opened, libGLESv2.so opened, libGLESv3.so opened, libvulkan.so opened; vkGetInstanceProcAddr finds vkCreateInstance true
+I/gles-java-test: JNI: native code in EGL14's context: current true, clear (32, 32) 255 0 255 255, glGetError 0, (32, 32) read from Java 255 0 255 255
 I/gles-java-test: done

@@ -1,13 +1,17 @@
 # The guest's /system/etc/public.libraries.txt (ADR-0040 decision 3): the public libraries of Android 15's list that
 # Minato's guest system has, in Android's order and format. libnativeloader preloads each of them when the VM starts
 # and aborts the start if one fails, so a library comes in only with the step that brings it. The graphics front
-# libraries (libEGL.so, libGLESv1_CM.so, libGLESv2.so, libGLESv3.so, libvulkan.so) wait for step e, which measures
-# the preload.
+# libraries came with ADR-0041 a). Their preload costs app_process no measurable start time, as libandroid_runtime
+# links 4 of them anyway (libvulkan opens MoltenVK in about 2 ms on the Mac), and dalvikvm about 6 ms.
 libandroid.so
 libaaudio.so
 libc.so
 libcamera2ndk.so
 libdl.so
+libEGL.so
+libGLESv1_CM.so
+libGLESv2.so
+libGLESv3.so
 libicu.so
 libicui18n.so
 libicuuc.so
@@ -17,4 +21,5 @@ libm.so
 libnativehelper.so
 libnativewindow.so
 libOpenSLES.so
+libvulkan.so
 libz.so

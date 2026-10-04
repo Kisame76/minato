@@ -8,7 +8,8 @@ stand-ins for the app process in Python. And its install_libraries() with start(
 libraries go in as the import installs them, the ELF originals read-only in the app's lib/arm64 and their containers
 beside the run, converted again only for a changed library and gone with a removed one; an APK without libraries
 keeps start()'s command as it was. Run with stand-ins for apk-convert and apk-run. And start() with the graphics
-front libs (ADR-0041 a)): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder."""
+front libs (ADR-0041 a)), libvulkan's too, since every start preloads them as public libraries (ADR-0040 decision
+3): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder."""
 import os
 import stat
 import sys
@@ -206,7 +207,7 @@ with tempfile.TemporaryDirectory() as scratch:
         with open(path, "w") as handle:
             handle.write(os.path.basename(path))
     # The graphics front libs, which tools/build-front-libs.sh builds beside app_process's build.
-    fronts = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so")
+    fronts = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so")
     os.makedirs(os.path.join(scratch, "graphics", "guest", "bin"))
     for name in fronts:
         with open(os.path.join(scratch, "graphics", "guest", "bin", name), "w") as handle:

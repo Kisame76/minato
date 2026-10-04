@@ -4,7 +4,9 @@
 files of ADR-0033 decision 9 where Android has them:
   - ART's libraries (<art>/lib) in /apex/com.android.art/lib64, the boot jars (<art>/javalib) in
     /apex/com.android.art/javalib;
-  - bionic's libraries in /system/lib64, and bionic's /system;
+  - bionic's libraries and the graphics front libs (tools/build-front-libs.sh) in /system/lib64, and bionic's
+    /system: the front libs are public libraries, which libnativeloader preloads at every VM start (ADR-0040
+    decision 3);
   - ICU's data in /apex/com.android.i18n/etc/icu, bionic's time zone file in /apex/com.android.tzdata/etc/tz;
   - /data with an empty dalvik-cache for arm64, and the program's jar in /data/local/tmp, read-only.
 The options are those of decision 11: the interpreter only, no boot image, the three boot jars. The program must
@@ -27,8 +29,9 @@ tools/android-reference.sh --art writes (ADR-0040 test 4).
 --stress checks the line "stress-test stats: ..." that stress-test writes to stderr (ADR-0033 test 4): at least one
 of its signals must have been handled while the main thread collected, so that the run covered a signal handler
 during ART's stop-the-world.
-Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files or the added jars are missing, or the
-guest system lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
+Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files, the added jars or the front libs are
+missing, or the guest system lacks the public libraries' list that libnativeloader reads at start
+(tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
@@ -51,6 +54,25 @@ WINDOW_TOP = (1 << 32) - 16 * 1024
 # libnativeloader's lines that name a namespace, as logcat -v tag shows them: which namespace a JNI library loads
 # in, and which namespace it configures for a class loader (ADR-0040 test 4).
 NATIVELOADER_LINE = re.compile(r"[VDIWEF]/nativeloader: (Load .* ns |Configuring )")
+
+
+# The graphics front libs: public libraries, which libnativeloader preloads at every VM start and without which the
+# start aborts (ADR-0040 decision 3), as Android's /system/lib64 has them.
+FRONT_LIBS = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so")
+
+
+def front_libs(bionic_lib):
+    """The folder of the graphics front libs: tools/build-front-libs.sh's, which lies beside bionic's build."""
+    return os.path.normpath(os.path.join(bionic_lib, "..", "..", "graphics", "guest", "bin"))
+
+
+def missing_front_lib(bionic_lib):
+    """The first graphics front lib that is not built, as "skipped: ..." text, or None."""
+    for name in FRONT_LIBS:
+        path = os.path.join(front_libs(bionic_lib), name)
+        if not os.path.exists(path):
+            return f"skipped: {path} is not built (tools/build-front-libs.sh)"
+    return None
 
 
 def convert(apk_convert, elf, container):
@@ -80,11 +102,11 @@ def convert_lock(work):
 
 
 def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
-    """Converts ART's libraries, bionic's, dalvikvm and the JNI library `library`, if given, into containers in
-    `work`; returns the folder of ART's. The containers stay from run to run, and the runs that CTest starts side by
-    side share them, one converting at a time. dalvikvm opens libart.so: JniInvocation takes -XXlib only where
-    ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug flavor's folder holds ART's
-    debug flavor under that name. Conscrypt's library goes to a folder of its own, conscrypt-lib64."""
+    """Converts ART's libraries, bionic's, the front libs, dalvikvm and the JNI library `library`, if given, into
+    containers in `work`; returns the folder of ART's. The containers stay from run to run, and the runs that CTest
+    starts side by side share them, one converting at a time. dalvikvm opens libart.so: JniInvocation takes -XXlib
+    only where ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug flavor's folder
+    holds ART's debug flavor under that name. Conscrypt's library goes to a folder of its own, conscrypt-lib64."""
     art_lib64 = os.path.join(work, "art-lib64-debug" if debug else "art-lib64")
     with convert_lock(work):
         convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64,
@@ -97,6 +119,9 @@ def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
             convert(apk_convert, conscrypt_library,
                     os.path.join(work, "conscrypt-lib64", CONSCRYPT_LIBRARY + ".dylib"))
         convert_directory(apk_convert, bionic_lib, os.path.join(work, "system-lib64"))
+        for name in FRONT_LIBS:
+            convert(apk_convert, os.path.join(front_libs(bionic_lib), name),
+                    os.path.join(work, "system-lib64", name + ".dylib"))
         os.makedirs(os.path.join(work, "bin"), exist_ok=True)
         convert(apk_convert, os.path.join(art, "bin", "dalvikvm"), os.path.join(work, "bin", "dalvikvm64.dylib"))
         if library is not None:
@@ -259,6 +284,10 @@ def main():
     public_libraries = os.path.join(bionic_system, "etc", "public.libraries.txt")
     if not os.path.exists(public_libraries):
         print(f"skipped: {public_libraries} is not built (tools/build-bionic.sh)")
+        return
+    skipped = missing_front_lib(bionic_lib)
+    if skipped:
+        print(skipped)
         return
 
     art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)

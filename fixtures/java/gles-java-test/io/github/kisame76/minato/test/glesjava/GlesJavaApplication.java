@@ -33,7 +33,11 @@ import javax.microedition.khronos.opengles.GL11;
  * - GL10 through GLImpl on an ES 1.1 context: GL_VERSION's profile, a clear and a fixed-function triangle whose array
  *   goes through glVertexPointerBounds;
  * - GLUtils (ADR-0041 a3) on an ES 2.0 context: getInternalFormat and getType of a 4 x 4 ARGB_8888 bitmap,
- *   texImage2D of it into a texture and texSubImage2D of a 2 x 2 one, the texels read back through a framebuffer.
+ *   texImage2D of it into a texture and texSubImage2D of a 2 x 2 one, the texels read back through a framebuffer;
+ * - its JNI library (jni/, ADR-0040 decision 3: the graphics front libs are public libraries): loaded through the
+ *   class loader's namespace, which must reach libEGL, libGLESv2 and libGLESv3, which it links as Godot's
+ *   libgodot_android.so does; each front lib opened by its name, as Godot's volk opens libvulkan.so; and a clear from
+ *   native code in an ES 2.0 context that EGL14 made current, read back there and from Java.
  * Each draw clears to (0.2, 0.4, 0.6, 1) and covers the lower left half with one color of channels 0 and 1, exact at
  * any precision; the pixels read back at pixel centers away from the edge are exact in 8 bits (ES 3.0.6's rules, as
  * ADR-0029's tests have them). It logs with the tag gles-java-test and ends
@@ -61,6 +65,7 @@ public class GlesJavaApplication extends Application {
             egl14();
             gl10();
             glutils();
+            jni();
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             // Its stack, which differs by device, is only shown.
@@ -301,6 +306,37 @@ public class GlesJavaApplication extends Application {
         EGL14.eglDestroyContext(display, context);
         EGL14.eglTerminate(display);
     }
+
+    /** The app's JNI library: loaded, the front libs opened by name, then a clear from native code in Java's context. */
+    private void jni() {
+        System.loadLibrary("gles-java-test");
+        Log.i(TAG, "JNI: " + nativeOpen());
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        EGL14.eglInitialize(display, version, 0, version, 1);
+        int[] spec = {EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                EGL14.EGL_NONE};
+        EGLConfig[] configs = new EGLConfig[1];
+        int[] count = new int[1];
+        EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, count, 0);
+        android.opengl.EGLContext context = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
+        EGLSurface surface = EGL14.eglCreatePbufferSurface(display, configs[0],
+                new int[] {EGL14.EGL_WIDTH, SIZE, EGL14.EGL_HEIGHT, SIZE, EGL14.EGL_NONE}, 0);
+        EGL14.eglMakeCurrent(display, surface, surface, context);
+        Log.i(TAG, "JNI: " + nativeDraw() + ", (32, 32) read from Java " + pixel(32, 32));
+        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+        EGL14.eglDestroySurface(display, surface);
+        EGL14.eglDestroyContext(display, context);
+        EGL14.eglTerminate(display);
+    }
+
+    /** jni/gles_java_test.c: which front libs dlopen opens by name, and libvulkan's vkGetInstanceProcAddr. */
+    private static native String nativeOpen();
+
+    /** jni/gles_java_test.c: a clear to magenta from native code in the current context, read back there. */
+    private static native String nativeDraw();
 
     /** The framebuffer's 4 x 4 texels as "rrggbbaa", row by row from the texture's first, rows apart by " / ". */
     private static String texels() {
