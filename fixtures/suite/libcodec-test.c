@@ -1,8 +1,11 @@
 // libcodec-test: the JNI half of codec-test (ADR-0033 test 2, fixtures/java/codec-test). Each function holds JNI
 // references while Main.collect runs three collections from native code, at each of which SS moves every live object,
-// and then checks what the references stand for.
+// and then checks what the references stand for. Main.sigactionLibrary names the library its sigaction comes from.
+#include <dlfcn.h>
 #include <jni.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 
 /// Main.collect(times), from native code.
 static void collect(JNIEnv *env, jclass main, jint times) {
@@ -114,4 +117,17 @@ JNIEXPORT jint JNICALL Java_Main_nativeObjects(JNIEnv *env, jclass main, jint co
     free(nodes);
     (*env)->PopLocalFrame(env, NULL);
     return intact;
+}
+
+/// The file name of the library whose sigaction this library's relocation found, as dladdr names it: on Android 15
+/// libsigchain.so, the first of the global group that linker64 gives every namespace (ADR-0040 test 2).
+JNIEXPORT jstring JNICALL Java_Main_sigactionLibrary(JNIEnv *env, jclass main) {
+    (void)main;
+    int (*const function)(int, const struct sigaction *, struct sigaction *) = sigaction;
+    Dl_info info;
+    if (dladdr((const void *)function, &info) == 0 || info.dli_fname == NULL) {
+        return (*env)->NewStringUTF(env, "no library");
+    }
+    const char *slash = strrchr(info.dli_fname, '/');
+    return (*env)->NewStringUTF(env, slash != NULL ? slash + 1 : info.dli_fname);
 }

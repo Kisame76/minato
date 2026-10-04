@@ -11,7 +11,9 @@
 // by its full path, as ART opens an app's JNI library (ADR-0033 e0). Its permitted path is /data:/mnt/expand, as
 // libnativeloader gives a class loader's namespace that it creates for System.load, and below target SDK 24 it has
 // the exempt list (ADR-0033 e2b1). With @@<folder> the namespace is also the anonymous one, as libnativeloader asks for
-// the namespace of an app's main class loader (ADR-0033 e2b2).
+// the namespace of an app's main class loader (ADR-0033 e2b2). It is linked to the APEXes' namespaces that
+// /linkerconfig/apex.libraries.config.txt names, for their public libraries, as libnativeloader links it (ADR-0033
+// e2b3).
 // An argument sdk=<version> sets the app's target SDK version, as ART does for an app, through
 // android_set_application_target_sdk_version. An argument +<library> opens the library with RTLD_GLOBAL.
 #include <android/dlext.h>
@@ -35,9 +37,47 @@ static struct android_namespace_t *exported_namespace(const char *name) {
     return get != NULL ? get(name) : NULL;
 }
 
+// An APEX's namespace and its public libraries, separated by colons, as a "public" line of
+// /linkerconfig/apex.libraries.config.txt gives them.
+struct apex_libraries {
+    char space[64];
+    char libraries[512];
+};
+#define MAX_APEXES 8
+
+// The "public" lines of /linkerconfig/apex.libraries.config.txt, as libnativeloader reads them
+// (apex_public_libraries): how many it wrote to `apexes`, none without the file, which is optional.
+static int apex_public_libraries(struct apex_libraries apexes[MAX_APEXES]) {
+    FILE *file = fopen("/linkerconfig/apex.libraries.config.txt", "r");
+    if (file == NULL) return 0;
+    int count = 0;
+    char line[1024], tag[16];
+    while (count < MAX_APEXES && fgets(line, sizeof line, file) != NULL) {
+        struct apex_libraries *apex = &apexes[count];
+        if (sscanf(line, "%15s %63s %511s", tag, apex->space, apex->libraries) == 3 && strcmp(tag, "public") == 0) {
+            count++;
+        }
+    }
+    fclose(file);
+    return count;
+}
+
+// Whether `name` is one of the libraries of `list`, separated by colons.
+static bool listed(const char *list, const char *name) {
+    const size_t length = strlen(name);
+    for (const char *item = list;; item++) {
+        const char *end = strchr(item, ':');
+        const size_t item_length = end != NULL ? (size_t)(end - item) : strlen(item);
+        if (item_length == length && strncmp(item, name, length) == 0) return true;
+        if (end == NULL) return false;
+        item = end;
+    }
+}
+
 // The public libraries of /system/etc/public.libraries.txt, separated by colons, as libnativeloader links a
-// class loader's namespace to the system's for them.
-static void public_libraries(char *list, size_t size) {
+// class loader's namespace to the system's for them: without those an APEX's namespace serves
+// (InitDefaultPublicLibraries).
+static void public_libraries(char *list, size_t size, const struct apex_libraries *apexes, int apex_count) {
     list[0] = '\0';
     FILE *file = fopen("/system/etc/public.libraries.txt", "r");
     if (file == NULL) return;
@@ -45,6 +85,11 @@ static void public_libraries(char *list, size_t size) {
     while (fgets(line, sizeof line, file) != NULL) {
         line[strcspn(line, " \r\n")] = '\0';
         if (line[0] == '\0' || line[0] == '#') continue;
+        bool from_apex = false;
+        for (int index = 0; index < apex_count && !from_apex; index++) {
+            from_apex = listed(apexes[index].libraries, line);
+        }
+        if (from_apex) continue;
         if (list[0] != '\0') strncat(list, ":", size - strlen(list) - 1);
         strncat(list, line, size - strlen(list) - 1);
     }
@@ -60,8 +105,9 @@ static int target_sdk_version(void) {
 // A class loader's namespace on `folder`, as libnativeloader's CreateClassLoaderNamespace asks for one when
 // System.load comes from a class loader no namespace was made for: no LD_LIBRARY_PATH part, the folder as the default
 // library path, /data:/mnt/expand as the permitted path (kAlwaysPermittedDirectories), isolated, the exempt list
-// below target SDK 24, and linked to the exported "default" namespace for the public libraries. With `anonymous` it
-// is also the anonymous namespace (ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS), as for an app's main class loader.
+// below target SDK 24, and linked to the exported "default" namespace for the public libraries and to each APEX's
+// namespace of /linkerconfig/apex.libraries.config.txt for its own. With `anonymous` it is also the anonymous
+// namespace (ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS), as for an app's main class loader.
 static struct android_namespace_t *class_loader_namespace(const char *folder, bool anonymous) {
     struct android_namespace_t *(*create)(const char *, const char *, const char *, uint64_t, const char *,
                                           struct android_namespace_t *) =
@@ -75,9 +121,15 @@ static struct android_namespace_t *class_loader_namespace(const char *folder, bo
     if (target_sdk_version() < 24) type |= 0x08000000;  // ANDROID_NAMESPACE_TYPE_EXEMPT_LIST_ENABLED
     if (anonymous) type |= 0x10000000;                   // ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS
     struct android_namespace_t *space = create("clns-ns-test", NULL, folder, type, "/data:/mnt/expand", NULL);
+    struct apex_libraries apexes[MAX_APEXES];
+    const int apex_count = apex_public_libraries(apexes);
     char libraries[2048];
-    public_libraries(libraries, sizeof libraries);
+    public_libraries(libraries, sizeof libraries, apexes, apex_count);
     if (space == NULL || libraries[0] == '\0' || !link(space, exported_namespace("default"), libraries)) return NULL;
+    for (int index = 0; index < apex_count; index++) {
+        struct android_namespace_t *apex = exported_namespace(apexes[index].space);
+        if (apex != NULL && !link(space, apex, apexes[index].libraries)) return NULL;
+    }
     return space;
 }
 

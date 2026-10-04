@@ -1,6 +1,7 @@
 // The files of /proc and /sys that the runtime writes for the guest (ADR-0033, decision 8): what bionic,
 // ART and apps read there about the process and the device. Each opens as a regular file that holds what
 // Linux would show at that moment; the links of /proc/self/fd name what the guest's descriptors refer to.
+// Also /linkerconfig/apex.libraries.config.txt, which linkerconfig writes at boot on Android (ADR-0033 e2b3).
 #pragma once
 
 #include <pthread.h>

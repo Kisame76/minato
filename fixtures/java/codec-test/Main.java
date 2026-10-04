@@ -6,7 +6,9 @@
 //   c) JNI global, weak global and local references, with the collections called from native code;
 //   d) classes found again through the class tables of two class loaders;
 //   e) System.arraycopy, clone, and Unsafe's compare-and-swap on a reference field and on array elements;
-//   f) a synchronized method's lock, which a stack walk reads from the method's frame (ADR-0033 test 3).
+//   f) a synchronized method's lock, which a stack walk reads from the method's frame (ADR-0033 test 3);
+//   g) the library that answers the JNI library's sigaction: libsigchain.so, which linker64 puts first into every
+//      namespace's global group, the class loader's of the JNI library too (ADR-0040 test 2, ADR-0033 e2b3).
 // The offsets of the objects it saw, which differ by device, go to stderr as its last line; on Minato,
 // runtime/tests/art_run.py --offsets checks them against the heap window.
 import dalvik.system.PathClassLoader;
@@ -69,6 +71,7 @@ public class Main {
         classes();
         copies();
         stacks();
+        sigchain();
         System.err.println(String.format("codec-test offsets: lowest 0x%08x, highest 0x%08x", lowest, highest));
     }
 
@@ -379,6 +382,14 @@ public class Main {
         thread.join();
         print("f) a synchronized method's lock in an annotated stack trace after 3 collections: found " + yes(found));
         offset(lockable);
+    }
+
+    // --- g) The JNI library's sigaction -----------------------------------------------------------------------
+
+    static native String sigactionLibrary();
+
+    static void sigchain() {
+        print("g) the JNI library's sigaction, from " + sigactionLibrary());
     }
 
     // --- Helpers ----------------------------------------------------------------------------------------------

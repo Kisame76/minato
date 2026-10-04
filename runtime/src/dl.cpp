@@ -54,6 +54,12 @@ constexpr std::string_view linked_to_art[] = {"libdexfile.so", "libjdwp.so", "li
                                               // com_android_i18n's on Android
                                               "libandroidicu.so", "libicu.so", "libicui18n.so", "libicuuc.so"};
 
+// The JNI libraries of an APEX's own jars, which linkerconfig takes from the APEX's manifest into
+// /linkerconfig/apex.libraries.config.txt: Android 15's for the namespaces Minato has, without com_android_art's
+// libartservice.so, which Minato does not ship.
+constexpr std::pair<std::string_view, std::string_view> apex_jni_libraries[] = {
+    {"com_android_conscrypt", "libjavacrypto.so"}};
+
 // What com_android_art's libraries take from the default namespace: bionic's and libz.so, which Android's ART
 // APEX holds itself and Minato's guest system has in /system/lib64 (ADR-0040 decision 2; the departure for
 // libz.so). And what Conscrypt's libjavacrypto.so takes from it.
@@ -1034,6 +1040,35 @@ long loader_syscall(const apkrt_syscall_frame &frame) {
 
 std::recursive_mutex &lock() {
     return state().mutex;
+}
+
+std::string apex_libraries_config() {
+    // linkerconfig gives an APEX the libraries of public.libraries.txt it provides; com_android_art provides those
+    // the default namespace links to it.
+    std::set<std::string, std::less<>> public_libraries;
+    if (const auto host = vfs::host_path("/system/etc/public.libraries.txt")) {
+        if (FILE *file = std::fopen(host->c_str(), "r")) {
+            char line[256];
+            while (std::fgets(line, sizeof line, file) != nullptr) {
+                const std::string_view text(line);
+                const auto name = text.substr(0, text.find_first_of(" \t\r\n#"));
+                if (!name.empty()) public_libraries.emplace(name);
+            }
+            std::fclose(file);
+        }
+    }
+    std::string art_public;
+    for (const auto name : linked_to_art) {
+        if (!public_libraries.contains(name)) continue;
+        if (!art_public.empty()) art_public += ':';
+        art_public += name;
+    }
+    // One line for each, by the namespace's name, as linkerconfig sorts them; libnativeloader keeps the last line
+    // of a namespace and tag.
+    std::string text;
+    if (!art_public.empty()) text += std::format("public com_android_art {}\n", art_public);
+    for (const auto &[space, libraries] : apex_jni_libraries) text += std::format("jni {} {}\n", space, libraries);
+    return text;
 }
 
 void add_library_directory(std::string_view guest_directory, const std::filesystem::path &host_directory) {

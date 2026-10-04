@@ -16,3 +16,4 @@ e) System.arraycopy after 3 collections: copied yes, overlapping both ways yes, 
 e) clone after 3 collections: an array yes, an object yes
 e) Unsafe compare-and-swap across collections: a reference field yes, array elements yes
 f) a synchronized method's lock in an annotated stack trace after 3 collections: found yes
+g) the JNI library's sigaction, from libsigchain.so

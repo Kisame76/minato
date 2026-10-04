@@ -1,0 +1,5 @@
+D/nativeloader: Load libicu_jni.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+D/nativeloader: Load libjavacore.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+D/nativeloader: Load libopenjdk.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+D/nativeloader: Configuring clns-1 for other apk . target_sdk_version=0, uses_libraries=ALL, library_path=/data/local/tmp, permitted_path=/data:/mnt/expand
+D/nativeloader: Load /data/local/tmp/libcodec-test.so using isolated ns clns-1 (caller=/data/local/tmp/codec-test.jar): ok

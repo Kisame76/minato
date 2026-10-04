@@ -200,14 +200,18 @@ if(APK_HOST_BUILD)
 
   # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
   # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello; test 2 is
-  # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window. The jars
-  # come from tools/build-art.sh (<art>/test); skipped while they are missing.
+  # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window, and in the
+  # release flavor with libnativeloader's lines that name a namespace, which must be Android 15's (ADR-0040 test 4);
+  # the debug flavor loads libopenjdkd.so. The jars come from tools/build-art.sh (<art>/test); skipped while they are
+  # missing.
   foreach(flavor IN ITEMS release debug)
     set(suffix "")
     set(flag "")
+    set(namespaces --nativeloader "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.nativeloader")
     if(flavor STREQUAL "debug")
       set(suffix "_debug")
       set(flag "--debug")
+      set(namespaces "")
     endif()
     add_test(NAME runtime.art_hello${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
@@ -221,7 +225,7 @@ if(APK_HOST_BUILD)
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
         $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
         "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
-        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets)
+        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets ${namespaces})
     set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # The same in only the window's upper 2 GiB, as without increased-memory-limit on iOS (a SideStore install with
     # a free account, ADR-0033 d1): patch 0002's test switch makes the Mac reserve just those.

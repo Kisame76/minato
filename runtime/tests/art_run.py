@@ -21,12 +21,15 @@ reserves only the window's upper 2 GiB, as without increased-memory-limit on iOS
 /apex/com.android.conscrypt/javalib, after the boot jars, and libjavacrypto.so (<art>/lib) in its lib64, never in
 ART's. --okhttp and --bouncycastle add okhttp.jar and bouncycastle.jar from ART's javalib after core-libart, in
 that order, as Android 15 has them (ADR-0046 d).
+--nativeloader checks libnativeloader's lines that name a namespace, where it loads each JNI library and which
+namespace it configures for a class loader: they must be Android 15's lines of logcat in <reference>, which
+tools/android-reference.sh --art writes (ADR-0040 test 4).
 Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files or the added jars are missing, or the
 guest system lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
-                  [--bouncycastle]
+                  [--bouncycastle] [--nativeloader <reference>]
 """
 import contextlib
 import fcntl
@@ -42,6 +45,9 @@ CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
 CONSCRYPT_LIBRARY = "libjavacrypto.so"
 # The heap window of runtime/art/patches/0002-heap-window.patch: 4 GiB, whose last 16 KiB page is never mapped.
 WINDOW_TOP = (1 << 32) - 16 * 1024
+# libnativeloader's lines that name a namespace, as logcat -v tag shows them: which namespace a JNI library loads
+# in, and which namespace it configures for a class loader (ADR-0040 test 4).
+NATIVELOADER_LINE = re.compile(r"[VDIWEF]/nativeloader: (Load .* ns |Configuring )")
 
 
 def convert(apk_convert, elf, container):
@@ -181,6 +187,17 @@ def window_failure(stderr, upper_half=False):
     return None
 
 
+def nativeloader_failure(stderr, reference):
+    """Why libnativeloader's lines that name a namespace are not Android 15's lines of logcat in `reference`, or
+    None when they are."""
+    with open(reference) as handle:
+        wanted = handle.read().splitlines()
+    seen = [line for line in stderr.splitlines() if NATIVELOADER_LINE.match(line)]
+    if seen == wanted:
+        return None
+    return f"libnativeloader names other namespaces than {os.path.basename(reference)}: [{' | '.join(seen)}]"
+
+
 def main():
     arguments = sys.argv[1:]
     debug = "--debug" in arguments
@@ -196,7 +213,13 @@ def main():
         at = arguments.index("--library")
         library = arguments[at + 1] if at + 1 < len(arguments) else None
         del arguments[at:at + 2]
-    if len(arguments) != 10 or ("--library" in sys.argv and library is None):
+    nativeloader = None
+    if "--nativeloader" in arguments:
+        at = arguments.index("--nativeloader")
+        nativeloader = arguments[at + 1] if at + 1 < len(arguments) else None
+        del arguments[at:at + 2]
+    if len(arguments) != 10 or ("--library" in sys.argv and library is None) or (
+            "--nativeloader" in sys.argv and nativeloader is None):
         raise SystemExit(__doc__)
     art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar, main_class, expected = arguments
     dalvikvm = os.path.join(art, "bin", "dalvikvm")
@@ -245,9 +268,12 @@ def main():
     failure = offsets_failure(result.stderr) if offsets else None
     if failure is None and (offsets or upper_half):
         failure = window_failure(result.stderr, upper_half)
+    if failure is None and nativeloader is not None:
+        failure = nativeloader_failure(result.stderr, nativeloader)
     if result.returncode == 0 and result.stdout == wanted and failure is None:
         print(f"{os.path.basename(jar)} printed what Android 15 prints" + (" (debug flavor)" if debug else "") +
               (" in the window's upper half" if upper_half else "") +
+              ("; libnativeloader names Android 15's namespaces" if nativeloader else "") +
               (f"; {result.stderr.splitlines()[-1]}" if offsets else ""))
         return
     print(f"FAIL: exit status {result.returncode}" + (f"; {failure}" if failure else ""))

@@ -44,7 +44,9 @@
 # A Java program of fixtures/java (ADR-0033 b) runs with --art as `dalvikvm64 -Xint` runs it from
 # /data/local/tmp, its jar from build/art/test (tools/build-art.sh) and its JNI library, if it names one, from the
 # fixtures' build, found through -Djava.library.path: its stdout must be fixtures/expected/<program>.out, and the
-# last line of its stderr, which differs by device, is only shown.
+# last line of its stderr, which differs by device, is only shown. The program's lines of logcat from
+# libnativeloader that name a namespace, where it loads a JNI library and which namespace it configures for a class
+# loader, must be fixtures/expected/<program>.nativeloader where that file exists (ADR-0040 test 4).
 # ART's run-tests (ADR-0033 test 3) run with --art-run-tests: the subset of runtime/art/run_tests.py, built into
 # build/art-run-tests/jars, runs from one script on the device, each test as the guest runs it, with dalvikvm64; the
 # results write fixtures/art-run-tests.txt and Android 15's own outputs in fixtures/expected/art-run-tests.
@@ -53,11 +55,13 @@
 #        tools/android-reference.sh --art <program> [<library>]
 #        tools/android-reference.sh --art-run-tests
 #        tools/android-reference.sh --features
-# Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat
+# Results: build/android-reference/<test>.{out,err,logcat}, <app>.logcat and <app>-device.logcat,
+#          <program>.nativeloader
 # Optional environment:
 #   ANDROID_HOME      SDK with emulator, platform-tools and the system image, default: ~/Library/Android/sdk
 #   ANDROID_AVD_HOME  where the AVD lives, default: ~/.android/avd
 #   FIXTURES_BUILD    the fixtures' build directory (tools/build-fixtures.sh), default: build/fixtures
+#   ART_TEST_JARS     the Java programs' jars for --art, default: build/art/test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -547,7 +551,7 @@ if [[ -n "$app" ]]; then
 fi
 
 if [[ -n "$art" ]]; then
-  jar=build/art/test/$art.jar
+  jar=${ART_TEST_JARS:-build/art/test}/$art.jar
   for needed in "$jar" ${art_library:+"$FIXTURES/$art_library"}; do
     if [[ ! -f "$needed" ]]; then
       echo "No $needed: run tools/build-art.sh and tools/build-fixtures.sh first." >&2
@@ -560,16 +564,29 @@ if [[ -n "$art" ]]; then
     exit 1
   fi
   status=0
-  run "cd $DEVICE_DIR && dalvikvm64 -Xint -Djava.library.path=$DEVICE_DIR -cp $DEVICE_DIR/$art.jar Main" \
-    >"$RESULTS/$art.out" 2>"$RESULTS/$art.err" || status=$?
+  # The program's process id, written before dalvikvm64 replaces the shell, picks its own lines out of logcat.
+  run logcat -c
+  run "cd $DEVICE_DIR && echo \$\$ >$DEVICE_DIR/.pid && exec dalvikvm64 -Xint -Djava.library.path=$DEVICE_DIR \
+-cp $DEVICE_DIR/$art.jar Main" >"$RESULTS/$art.out" 2>"$RESULTS/$art.err" || status=$?
+  pid=$(run cat "$DEVICE_DIR/.pid" | tr -d '\r') || pid=""
+  run logcat -d -v tag --pid="$pid" -s nativeloader:V |
+    grep -E '^[VDIWEF]/nativeloader: (Load .* ns |Configuring )' >"$RESULTS/$art.nativeloader" || true
   run "rm -rf $DEVICE_DIR/* $DEVICE_DIR/.[!.]*" >/dev/null
-  if [[ $status -eq 0 ]] && cmp -s "fixtures/expected/$art.out" "$RESULTS/$art.out"; then
+  namespaces=same
+  if [[ -f "fixtures/expected/$art.nativeloader" ]] &&
+    ! cmp -s "fixtures/expected/$art.nativeloader" "$RESULTS/$art.nativeloader"; then
+    namespaces=""
+  fi
+  if [[ $status -eq 0 && -n "$namespaces" ]] && cmp -s "fixtures/expected/$art.out" "$RESULTS/$art.out"; then
     echo "same     $art"
     tail -n 1 "$RESULTS/$art.err" | sed 's/^/    /'
     exit 0
   fi
   echo "DIFFERS  $art: exit status $status"
   diff -u "fixtures/expected/$art.out" "$RESULTS/$art.out" | sed 's/^/    /' || true
+  if [[ -z "$namespaces" ]]; then
+    diff -u "fixtures/expected/$art.nativeloader" "$RESULTS/$art.nativeloader" | sed 's/^/    /' || true
+  fi
   tail -n 20 "$RESULTS/$art.err" | sed 's/^/    /'
   exit 1
 fi

@@ -1350,6 +1350,26 @@ TEST(the_cpu_files_count_the_device_s_cpus) {
     CHECK(open_guest(at_fdcwd, "/sys/devices/system/cpu/online", o_wronly) == -eacces);
 }
 
+TEST(linkerconfig_gives_libnativeloader_the_apexes_libraries) {
+    // libnativeloader links an app's class loader namespace to an APEX's namespace for the public libraries this file
+    // gives it, and to the system's for the rest (ADR-0033 e2b3). linkerconfig writes it on Android 15, the runtime
+    // here, from its namespace table: the libraries of /system/etc/public.libraries.txt that com_android_art serves,
+    // ICU's among them (ADR-0040 decision 2), and Conscrypt's JNI library.
+    constexpr const char *path = "/linkerconfig/apex.libraries.config.txt";
+    Scratch scratch;
+    CHECK(read_guest_file(path) == "jni com_android_conscrypt libjavacrypto.so\n");  // no public list
+    CHECK(::mkdir((scratch.host + "/system").c_str(), 0755) == 0);
+    CHECK(::mkdir((scratch.host + "/system/etc").c_str(), 0755) == 0);
+    if (FILE *file = std::fopen((scratch.host + "/system/etc/public.libraries.txt").c_str(), "w")) {
+        std::fputs("# a comment\nlibc.so\nlibicu.so\nlibnativehelper.so 64\nlibz.so\n", file);
+        std::fclose(file);
+    }
+    apkrt::vfs::mount("/system", scratch.host + "/system");
+    CHECK(read_guest_file(path) ==
+          "public com_android_art libnativehelper.so:libicu.so\njni com_android_conscrypt libjavacrypto.so\n");
+    CHECK(open_guest(at_fdcwd, path, o_wronly) == -eacces);
+}
+
 /// A main stack for the files of /proc, as program.cpp gives one: 8 MiB.
 struct MainStack {
     std::uint64_t low = 0, high = 0, start = 0;

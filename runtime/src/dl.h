@@ -33,6 +33,12 @@ long loader_syscall(const apkrt_syscall_frame &frame);
 /// linker64's g_dl_mutex. A test holds it to keep a guest thread inside the loader.
 std::recursive_mutex &lock();
 
+/// /linkerconfig/apex.libraries.config.txt, which libnativeloader reads to link an app's class loader namespace to
+/// the APEXes' namespaces, and which linkerconfig writes on Android 15 from the APEXes' manifests: from the
+/// namespace table, the libraries of the guest's /system/etc/public.libraries.txt that com_android_art serves, and
+/// the APEXes' JNI libraries (ADR-0033 e2b3).
+std::string apex_libraries_config();
+
 /// The library containers in `host_directory` (<file name>.dylib, as apk-convert writes them) are the
 /// library files the guest finds in `guest_directory`, an absolute guest path, e.g. /system/lib64.
 void add_library_directory(std::string_view guest_directory, const std::filesystem::path &host_directory);

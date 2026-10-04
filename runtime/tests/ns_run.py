@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A program outside the APEXes and the folders of ART and Conscrypt (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a):
 apk-run runs the fixture ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system]
-section, ten times:
+section, eleven times:
   - with the fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names
     that section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
     - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
@@ -37,7 +37,10 @@ section, ten times:
   - two class loaders' namespaces that each ask to be the anonymous namespace: the first is made and opens its
     library, the second is refused with linker64's message (ADR-0033 e2b2);
   - dlsym(RTLD_DEFAULT) passes over a library opened without RTLD_GLOBAL, but not one opened below target SDK 23
-    (ADR-0033 e2b2).
+    (ADR-0033 e2b2);
+  - with a library under the name libicu.so in ART's folder, where Minato's ICU lives (ADR-0040 decision 2): a class
+    loader's namespace, linked as libnativeloader links one after /linkerconfig/apex.libraries.config.txt, which the
+    runtime writes, opens libicu.so by its name through its link to com_android_art (ADR-0033 e2b3).
 Each run is a process of its own: the loader's one scope would give the second run's library the first run's
 libraries by name (ADR-0033 decision 7). The runs must print exactly <expected> together and exit with 0. The
 expected output is ours: Android lets nothing be installed into /system/bin or an APEX. Prints "skipped: ..." while
@@ -57,6 +60,7 @@ APP_CODE = "/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.
 # finds, and the fixture it is made from), and a guest path that apk-run also mounts on the folder, or None.
 ART = ("art-lib64", "/apex/com.android.art/lib64",
        {"libjdwp.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"}, None)
+ART_ICU = ("art-icu-lib64", "/apex/com.android.art/lib64", {"libicu.so": "libns-plugin.so"}, None)
 CONSCRYPT = ("conscrypt-lib64", "/apex/com.android.conscrypt/lib64",
              {"libjavacrypto.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"},
              None)
@@ -101,6 +105,7 @@ RUNS = [
               f"@{APP_CODE}/lib/arm64:{APP_CODE}/lib/arm64/libns-find.so"]),
     ([APP], [f"@{CLASS_LOADER}", f"@{CLASS_LOADER}"]),
     ([], ["/system/lib64/libns-private.so", "libns-find.so", "sdk=22", "/system/lib64/libutils.so", "libns-find.so"]),
+    ([ART_ICU], [f"@{APP_CODE}/lib/arm64:libicu.so"]),
 ]
 FOLDERS = list({folder[0]: folder for folders, *_ in RUNS for folder in folders}.values())
 

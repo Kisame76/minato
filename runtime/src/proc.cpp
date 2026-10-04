@@ -451,6 +451,8 @@ std::optional<long> open(std::string_view path, int linux_flags) {
         contents = cpu_list("hw.ncpu");
     } else if (path == "/sys/devices/system/cpu/online") {
         contents = cpu_list("hw.activecpu");  // as sched_getaffinity
+    } else if (path == "/linkerconfig/apex.libraries.config.txt") {
+        contents = dl::apex_libraries_config();
     } else if (const auto entry = own_entry(path)) {
         if (*entry == "stat") contents = stat_line();
         if (*entry == "maps") contents = maps();
