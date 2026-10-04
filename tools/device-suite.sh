@@ -156,6 +156,12 @@ launch() {
     [[ "$DEBUG" == 0 ]] || run+=(-flavor debug)
   fi
   if [[ "$SIMULATOR" == 1 ]]; then
+    # The app removes the test's folder only once it starts the test, so a launch that never reached the app
+    # would leave the last run's output there, fetched as this run's (2026-10-04: CoreSimulator found no
+    # Simulator runtime for a moment). It goes first, from the Simulator's data container only.
+    local container
+    container=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data) || return 1
+    rm -rf "${container:?}/tmp/fixtures/${name:?}"
     xcrun simctl launch --console --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID" \
       "${run[@]}" ${APP_ARGUMENTS[@]+"${APP_ARGUMENTS[@]}"} >"$RESULTS/$name.console" 2>&1 &
     local launched=$! waited=0
@@ -168,7 +174,9 @@ launch() {
       waited=$((waited + 1))
     done
     wait "$launched" || true
-    return 0
+    # simctl's first line names the process it started; without it the app never ran the test.
+    head -n 1 "$RESULTS/$name.console" | grep -q "^$BUNDLE_ID: [0-9]"
+    return
   fi
   # "--" ends devicectl's options, which would take -runFixture for a cluster of its own short options.
   # devicectl exits with the app's exit code, so its JSON tells whether the app ran.
@@ -208,7 +216,7 @@ for name in "${tests[@]}"; do
   rm -rf "${RESULTS:?}/$name" "$RESULTS/$name.launch.json" "$RESULTS/$name.console"
   begin=$(python3 -c 'import time; print(int(time.time() * 1000))')
   if ! launch "$name"; then
-    echo "FAILED   $name: devicectl could not run it, see $RESULTS/$name.console"
+    echo "FAILED   $name: the app did not run it, see $RESULTS/$name.console"
     failed=1
     continue
   fi
