@@ -307,7 +307,10 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
             });
             break;
         } catch (const apkrt::testing::LostSteps &) {
-            if (attempt == 5) throw;  // the trace has a gap: run the call again
+            // The trace has a gap: run the call again. Under load gaps come in bursts (stepper.h), so each try
+            // waits a little longer first, up to 190 ms over 20 tries.
+            if (attempt == 20) throw;
+            std::this_thread::sleep_for(std::chrono::milliseconds(attempt));
         }
     }
     for (std::size_t at = 0; at < steps.size(); ++at) {

@@ -30,8 +30,10 @@ struct FreeRun {
 
 /// Thrown when the thread ran instructions without a step: then the trace has a gap. XNU sometimes
 /// runs a thread a few steps after a free run with the debug registers of that free run, single
-/// stepping off (6 of 4,800 stepped calls of islands_test, macOS 27 on an M4 Pro). A second hardware
-/// breakpoint at the call's return catches that; the caller runs the call again.
+/// stepping off (6 of 4,800 stepped calls of islands_test, macOS 27 on an M4 Pro). Under load it
+/// comes in bursts: beside a whole CTest at -j10, 40 gaps in 150 runs of islands_test, all in the two
+/// calls with free runs, and 5 gaps in a row in 8 of 965 runs. A second hardware breakpoint at the
+/// call's return catches that; the caller runs the call again, after a wait that grows.
 struct LostSteps : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
