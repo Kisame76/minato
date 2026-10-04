@@ -3,6 +3,7 @@ package io.github.kisame76.minato.test.appstart;
 import android.app.Application;
 import android.os.Process;
 import android.system.Os;
+import android.util.Log;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Map;
@@ -26,6 +27,9 @@ public class StartApplication extends Application {
         System.out.println("app-start-test: getuid " + Os.getuid());
         System.out.println("app-start-test: Process.myUid " + Process.myUid());
         System.out.println("app-start-test: currentProcessName " + currentProcessName());
+        // Log with a Throwable looks for a DeadSystemException among its causes (Log.printlns), so that class must be
+        // in framework.jar. Its own tag keeps the lines out of those compared with Android's.
+        Log.e("app-start-test-log", "a Throwable", new Exception("logged"));
     }
 
     /** /proc/self/cmdline, its NUL-separated arguments joined with spaces. */

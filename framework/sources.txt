@@ -346,3 +346,11 @@ frameworks_base/core/java/android/content/pm/Signature.java
 frameworks_base/core/java/android/content/pm/SigningDetails.java
 frameworks_base/core/java/android/content/pm/SigningInfo.java
 frameworks_base/core/java/android/util/PackageUtils.java
+
+# ADR-0039 step c0: what Log reaches when it logs a Throwable. Log.printlns looks for a DeadSystemException among the
+# Throwable's causes, so that class must load, and with it what it extends, DeadObjectException and RemoteException;
+# DeadSystemRuntimeException, which RemoteException.rethrowFromSystemServer throws.
+frameworks_base/core/java/android/os/RemoteException.java
+frameworks_base/core/java/android/os/DeadObjectException.java
+frameworks_base/core/java/android/os/DeadSystemException.java
+frameworks_base/core/java/android/os/DeadSystemRuntimeException.java
