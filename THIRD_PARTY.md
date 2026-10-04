@@ -179,7 +179,7 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
-| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor and its graphics JNI), `libs/hostgraphics`; `data/fonts` is under "Guest fonts" below |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor, its graphics JNI and the device's ABitmap C API, `apex/android_bitmap.cpp`), `libs/hostgraphics`; `data/fonts` is under "Guest fonts" below |
 | `platform/external/skia` | `0fe593a9a878` | BSD-3-Clause (`LICENSE`) | the CPU backend: `include`, `src` without the GPU sources, `modules/skcms`, `client_utils/android` |
 | `platform/frameworks/minikin` | `b41e852cee7f` | Apache-2.0 | text layout, with its C++ hyphenator (the Rust one is left out) |
 | `platform/external/harfbuzz_ng` | `9a50c421c9ca` | Old MIT (`COPYING`); the GPL texts in `LICENSE` cover files that are not compiled | text shaping (`src`), and the subsetter Skia's PDF uses |

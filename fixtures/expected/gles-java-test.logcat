@@ -12,4 +12,7 @@ I/gles-java-test: EGL14: released true, destroyed true true, eglTerminate true
 I/gles-java-test: GL10: a config for ES 1.x true, an ES 1.1 context current true, GL_VERSION of the Common profile true
 I/gles-java-test: GL10: triangle (16, 16) 255 255 0 255, outside (48, 48) 51 102 153 255, glGetError 0
 I/gles-java-test: GL10: destroyed true true, eglTerminate true
+I/gles-java-test: GLUtils: getInternalFormat 6408, getType 5121
+I/gles-java-test: GLUtils: texImage2D of the 4 x 4 bitmap, a complete framebuffer true, texels ff0000ff ff0000ff 00ff00ff 00ff00ff / ff0000ff ff0000ff 00ff00ff 00ff00ff / 0000ffff 0000ffff ffffffff ffffffff / 0000ffff 0000ffff ffffffff ffffffff, glGetError 0
+I/gles-java-test: GLUtils: texSubImage2D of a 2 x 2 magenta bitmap at (1, 1), texels ff0000ff ff0000ff 00ff00ff 00ff00ff / ff0000ff ff00ffff ff00ffff 00ff00ff / 0000ffff ff00ffff ff00ffff ffffffff / 0000ffff 0000ffff ffffffff ffffffff, glGetError 0
 I/gles-java-test: done

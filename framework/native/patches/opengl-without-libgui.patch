@@ -10,9 +10,9 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
 - android_opengl_EGLExt.cpp: eglDupNativeFenceFDANDROID, which the NDK's libEGL does not export, comes through
   eglGetProcAddress; without EGL_ANDROID_native_fence_sync there is no fence (EGL_NO_NATIVE_FENCE_FD_ANDROID).
 - android_opengl_EGL15.cpp and android_opengl_EGLExt.cpp: only includes of gui's and ui's headers go.
-- android/opengl/util.cpp: ETC1's natives stay out, as frameworks/native's libETC1 is not fetched, and so do GLUtils'
-  bitmap natives, which need hwui's ABitmap C API (apex/android_bitmap.cpp), which hwui's host flavor does not build
-  (graphics/hwui's patch 0005). Visibility's stay.
+- android/opengl/util.cpp: ETC1's natives stay out, as frameworks/native's libETC1 is not fetched. Visibility's and
+  GLUtils' stay; GLUtils' take a Java Bitmap through hwui's ABitmap C API, which graphics/hwui's plan builds into the
+  host flavor (ADR-0041 a3).
 
 --- a/android_opengl_EGL14.cpp
 +++ b/android_opengl_EGL14.cpp
@@ -315,23 +315,7 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  
  #include "core_jni_helpers.h"
  
-@@ -543,6 +542,7 @@
- 
- // ---------------------------------------------------------------------------
- 
-+#if 0  // Minato (ADR-0041 a)): GLUtils' bitmap natives need hwui's ABitmap C API, which its host flavor lacks.
- // The internal format is no longer the same as pixel format, per Table 2 in
- // https://www.khronos.org/registry/OpenGL-Refpages/es3.1/html/glTexImage2D.xhtml
- static bool checkInternalFormat(int32_t bitmapFormat, int internalformat, int type)
-@@ -681,6 +681,7 @@
-     }
-     return -1;
- }
-+#endif
- 
- /*
-  * ETC1 methods.
-@@ -737,6 +738,7 @@
+@@ -737,6 +736,7 @@
      jint mRemaining;
  };
  
@@ -339,33 +323,24 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  /**
   * Encode a block of pixels.
   *
-@@ -928,6 +930,8 @@
-     }
+@@ -929,6 +929,8 @@
      return result;
  }
-+
-+#endif
  
++#endif
++
  /*
   * JNI registration
-@@ -939,13 +943,16 @@
-     { "visibilityTest", "([FI[FI[CII)I", (void*)util_visibilityTest },
- };
- 
-+#if 0  // Minato (ADR-0041 a)): no ABitmap C API.
- static const JNINativeMethod gUtilsMethods[] = {
-     { "native_getInternalFormat", "(Landroid/graphics/Bitmap;)I", (void*) util_getInternalFormat },
-     { "native_getType", "(Landroid/graphics/Bitmap;)I", (void*) util_getType },
-     { "native_texImage2D", "(IIILandroid/graphics/Bitmap;II)I", (void*)util_texImage2D },
+  */
+@@ -946,6 +948,7 @@
      { "native_texSubImage2D", "(IIIILandroid/graphics/Bitmap;II)I", (void*)util_texSubImage2D },
  };
-+#endif
  
 +#if 0  // Minato (ADR-0041 a)): no libETC1.
  static const JNINativeMethod gEtc1Methods[] = {
      { "encodeBlock", "(Ljava/nio/Buffer;ILjava/nio/Buffer;)V", (void*) etc1_encodeBlock },
      { "decodeBlock", "(Ljava/nio/Buffer;Ljava/nio/Buffer;)V", (void*) etc1_decodeBlock },
-@@ -957,6 +964,7 @@
+@@ -957,6 +960,7 @@
      { "getWidth", "(Ljava/nio/Buffer;)I", (void*) etc1_getWidth },
      { "getHeight", "(Ljava/nio/Buffer;)I", (void*) etc1_getHeight },
  };
@@ -373,11 +348,10 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  
  typedef struct _ClassRegistrationInfo {
      const char* classPath;
-@@ -966,8 +974,6 @@
- 
+@@ -967,7 +971,6 @@
  static const ClassRegistrationInfo gClasses[] = {
      {"android/opengl/Visibility", gVisibilityMethods, NELEM(gVisibilityMethods)},
--    {"android/opengl/GLUtils", gUtilsMethods, NELEM(gUtilsMethods)},
+     {"android/opengl/GLUtils", gUtilsMethods, NELEM(gUtilsMethods)},
 -    {"android/opengl/ETC1", gEtc1Methods, NELEM(gEtc1Methods)},
  };
  

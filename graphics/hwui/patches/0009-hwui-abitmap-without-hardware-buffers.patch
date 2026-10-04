@@ -1,0 +1,24 @@
+hwui's ABitmap C API without hardware buffers (ADR-0041 a3).
+
+The plan adds apex/android_bitmap.cpp, the device's ABitmap C API, to the host flavor (tools/hwui-plan.py): GLUtils'
+natives in libandroid_runtime (core/jni/android/opengl/util.cpp) take a Java Bitmap through it, and libjnigraphics'
+AndroidBitmap functions build on it. Its ABitmap_getHardwareBuffer hands out a hardware bitmap's AHardwareBuffer, but
+the host flavor's Bitmap has no hardwareBuffer(), since it has no hardware bitmaps, which stay a gap in Minato. So that
+function goes, and patch 0005 keeps its name out of the version script; nothing of core/jni calls it, and bitmap.h's
+graphics::Bitmap::getHardwareBuffer is an inline function that no caller instantiates.
+
+--- a/frameworks/base/libs/hwui/apex/android_bitmap.cpp
++++ b/frameworks/base/libs/hwui/apex/android_bitmap.cpp
+@@ -303,12 +303,3 @@
+     return Bitmap::compress(bitmap, format, quality, &stream) ? ANDROID_BITMAP_RESULT_SUCCESS
+                                                               : ANDROID_BITMAP_RESULT_JNI_EXCEPTION;
+ }
+-
+-AHardwareBuffer* ABitmap_getHardwareBuffer(ABitmap* bitmapHandle) {
+-    Bitmap* bitmap = TypeCast::toBitmap(bitmapHandle);
+-    AHardwareBuffer* buffer = bitmap->hardwareBuffer();
+-    if (buffer) {
+-        AHardwareBuffer_acquire(buffer);
+-    }
+-    return buffer;
+-}

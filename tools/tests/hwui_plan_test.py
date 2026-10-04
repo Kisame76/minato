@@ -25,9 +25,12 @@ without them the test skips). It must plan without problems, and the plan must b
   2 MiB, so libhwui takes graphics/hwui/CMakeLists.txt's 16 KB, the guest's pages, as the rest of the set does;
 - libhwui with the device's version script, libhwui.map.txt (a2), which the host flavor lacks: the guest sees what
   Android 15's libhwui exports, and the libpng and libcutils members that the host flavor's static libandroidfw
-  brings into libhwui stay local instead of preempting libpng.so's and libcutils.so's. Patch 0005 takes out the 14
-  names that only the device flavor builds, which lld refuses as undefined: the ABitmap C API and GraphicsStatsService's
-  registration;
+  brings into libhwui stay local instead of preempting libpng.so's and libcutils.so's. Patch 0005 takes out the 2
+  names the host flavor does not define, which lld refuses as undefined: ABitmap_getHardwareBuffer and
+  GraphicsStatsService's registration;
+- the device's apex/android_bitmap.cpp, the ABitmap C API that GLUtils' natives use (ADR-0041 a3), in libhwui, with its
+  12 names in the version script and without ABitmap_getHardwareBuffer (patch 0009): the host flavor's Bitmap has no
+  hardware buffer;
 - patch 0006's LayoutlibLoader.cpp, the host flavor's register_android_graphics_classes (a2): it registers every
   class of its map, in the order of the device's gRegJNI (jni_runtime.cpp), as Android registers its graphics at the
   start, and reads no system property for them, where layoutlib's registers only the classes of its
@@ -178,6 +181,8 @@ def main():
         for device in ("/libs/hwui/renderthread/EglManager.cpp", "/libs/hwui/renderthread/VulkanManager.cpp",
                        "graphicsstats"):
             check(device not in hwui, f"libhwui leaves out {device}")
+        check("/frameworks/base/libs/hwui/apex/android_bitmap.cpp" in hwui,
+              "libhwui compiles the device's apex/android_bitmap.cpp, the ABitmap C API (ADR-0041 a3)")
         check("/minato/hwui/generated/sysprop/HWUIProperties.sysprop.cpp" in hwui,
               "libhwui compiles its generated system properties")
         check('"-std=gnu++2b"' in hwui, 'libhwui compiles with -std=gnu++2b, what Soong compiles for "experimental"')
@@ -187,9 +192,11 @@ def main():
         check(script.endswith("/frameworks/base/libs/hwui/libhwui.map.txt"),
               "libhwui links with the device's version script, libhwui.map.txt")
         script_text = open(script).read() if os.path.isfile(script) else ""
-        check(script_text and "ABitmap" not in script_text and "GraphicsStatsService" not in script_text,
-              "the version script names neither the ABitmap C API nor GraphicsStatsService, which only the device "
-              "flavor builds (patch 0005)")
+        abitmap = re.findall(r"^\s*(ABitmap\w*);", script_text, re.M)
+        check(len(abitmap) == 12 and "ABitmap_getHardwareBuffer" not in abitmap
+              and "GraphicsStatsService" not in script_text,
+              "the version script names the ABitmap C API's 12 names, but neither ABitmap_getHardwareBuffer nor "
+              f"GraphicsStatsService, which the host flavor does not define (patch 0005): {abitmap}")
         check("libziparchive" in field(hwui_library, "NEEDED"), "libhwui needs the guest system's libziparchive")
         for archive in ("hwui_libbase_static", "hwui_libziparchive_static"):
             check(archive not in field(hwui_library, "ARCHIVES"),
@@ -218,6 +225,10 @@ def main():
             check(f"/{absent}\"" not in plan, f"the plan never names {absent}, which the tree does not hold")
         check_host_side(tree, hwui)
         check_registration(tree)
+        bitmap = os.path.join(tree, "frameworks/base/libs/hwui/apex/android_bitmap.cpp")
+        bitmap_text = open(bitmap).read() if os.path.exists(bitmap) else ""
+        check("ABitmap_acquireBitmapFromJava" in bitmap_text and "ABitmap_getHardwareBuffer" not in bitmap_text,
+              "the tree's android_bitmap.cpp defines the ABitmap C API without ABitmap_getHardwareBuffer (patch 0009)")
     print(f"hwui-plan: {'all checks passed' if failures == 0 else f'{failures} failed'}")
     return 1 if failures else 0
 

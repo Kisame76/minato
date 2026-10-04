@@ -201,10 +201,10 @@ sources_in(android_runtime_sources "${jni}"
 # natives (ADR-0041 a)) take libandroid's AChoreographer the same way.
 # The GLES bindings (ADR-0041 a), decision 4): AOSP's core/jni files for android.opengl, javax.microedition.khronos and
 # com.google.android.gles_jni, five of them in tools/build-framework-native.sh's patched copies
-# (native/patches/opengl-without-libgui.patch: no libgui, libui or libEGL's private API, no ETC1 or GLUtils' bitmaps),
-# with ours for a Surface's window (minato_gles.cpp). They call EGL and GLES directly, so the library links the NDK's
-# libEGL, libGLESv1_CM, libGLESv2 and libGLESv3, as an app does; Minato's front libs of the same names answer at run
-# time.
+# (native/patches/opengl-without-libgui.patch: no libgui, libui or libEGL's private API, and no ETC1), with ours for a
+# Surface's window (minato_gles.cpp). They call EGL and GLES directly, so the library links the NDK's libEGL,
+# libGLESv1_CM, libGLESv2 and libGLESv3, as an app does; Minato's front libs of the same names answer at run time.
+# GLUtils' bitmap natives take a Bitmap through hwui's ABitmap C API (a3).
 sources_in(gles_sources "${jni}"
   android_opengl_GLES10.cpp android_opengl_GLES10Ext.cpp android_opengl_GLES11.cpp android_opengl_GLES11Ext.cpp
   android_opengl_GLES20.cpp android_opengl_GLES30.cpp android_opengl_GLES31.cpp android_opengl_GLES31Ext.cpp

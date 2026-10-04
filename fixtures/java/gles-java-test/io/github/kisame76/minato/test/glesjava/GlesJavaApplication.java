@@ -1,12 +1,14 @@
 package io.github.kisame76.minato.test.glesjava;
 
 import android.app.Application;
+import android.graphics.Bitmap;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
 import android.opengl.GLES20;
 import android.opengl.GLES30;
+import android.opengl.GLUtils;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
@@ -29,7 +31,9 @@ import javax.microedition.khronos.opengles.GL11;
  *   flag first, getGL, a draw through GLES30, eglSwapBuffers, the destroys and eglTerminate;
  * - EGL14 with GLES20: the same draw with an ES 2.0 context;
  * - GL10 through GLImpl on an ES 1.1 context: GL_VERSION's profile, a clear and a fixed-function triangle whose array
- *   goes through glVertexPointerBounds.
+ *   goes through glVertexPointerBounds;
+ * - GLUtils (ADR-0041 a3) on an ES 2.0 context: getInternalFormat and getType of a 4 x 4 ARGB_8888 bitmap,
+ *   texImage2D of it into a texture and texSubImage2D of a 2 x 2 one, the texels read back through a framebuffer.
  * Each draw clears to (0.2, 0.4, 0.6, 1) and covers the lower left half with one color of channels 0 and 1, exact at
  * any precision; the pixels read back at pixel centers away from the edge are exact in 8 bits (ES 3.0.6's rules, as
  * ADR-0029's tests have them). It logs with the tag gles-java-test and ends
@@ -46,6 +50,8 @@ public class GlesJavaApplication extends Application {
     private static final int EGL_OPENGL_ES2_BIT = 0x4;
     /** The lower left half of the viewport, below the diagonal from (-1, 1) to (1, -1). */
     private static final float[] TRIANGLE = {-1f, -1f, 1f, -1f, -1f, 1f};
+    /** GLUtils' bitmap: red at the top left, green at the top right, blue at the bottom left, white. */
+    private static final int[] QUADRANTS = {0xffff0000, 0xff00ff00, 0xff0000ff, 0xffffffff};
 
     @Override
     public void onCreate() {
@@ -54,6 +60,7 @@ public class GlesJavaApplication extends Application {
             egl10();
             egl14();
             gl10();
+            glutils();
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             // Its stack, which differs by device, is only shown.
@@ -243,5 +250,69 @@ public class GlesJavaApplication extends Application {
         egl.eglMakeCurrent(display, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT);
         Log.i(TAG, "GL10: destroyed " + egl.eglDestroySurface(display, surface) + " "
                 + egl.eglDestroyContext(display, context) + ", eglTerminate " + egl.eglTerminate(display));
+    }
+
+    /** GLUtils' uploads of bitmaps on an ES 2.0 context, the texture read back through a framebuffer. */
+    private void glutils() {
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        EGL14.eglInitialize(display, version, 0, version, 1);
+        int[] spec = {EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                EGL14.EGL_NONE};
+        EGLConfig[] configs = new EGLConfig[1];
+        int[] count = new int[1];
+        EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, count, 0);
+        android.opengl.EGLContext context = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
+        EGLSurface surface = EGL14.eglCreatePbufferSurface(display, configs[0],
+                new int[] {EGL14.EGL_WIDTH, SIZE, EGL14.EGL_HEIGHT, SIZE, EGL14.EGL_NONE}, 0);
+        EGL14.eglMakeCurrent(display, surface, surface, context);
+        Bitmap bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888);
+        for (int y = 0; y < 4; ++y) {
+            for (int x = 0; x < 4; ++x) {
+                bitmap.setPixel(x, y, QUADRANTS[y / 2 * 2 + x / 2]);
+            }
+        }
+        Log.i(TAG, "GLUtils: getInternalFormat " + GLUtils.getInternalFormat(bitmap) + ", getType "
+                + GLUtils.getType(bitmap));
+        int[] texture = new int[1];
+        GLES20.glGenTextures(1, texture, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0]);
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
+        int[] framebuffer = new int[1];
+        GLES20.glGenFramebuffers(1, framebuffer, 0);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer[0]);
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D,
+                texture[0], 0);
+        boolean complete = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE;
+        Log.i(TAG, "GLUtils: texImage2D of the 4 x 4 bitmap, a complete framebuffer " + complete + ", texels "
+                + texels() + ", glGetError " + GLES20.glGetError());
+        Bitmap magenta = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888);
+        magenta.eraseColor(0xffff00ff);
+        GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 1, 1, magenta);
+        Log.i(TAG, "GLUtils: texSubImage2D of a 2 x 2 magenta bitmap at (1, 1), texels " + texels() + ", glGetError "
+                + GLES20.glGetError());
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        GLES20.glDeleteFramebuffers(1, framebuffer, 0);
+        GLES20.glDeleteTextures(1, texture, 0);
+        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+        EGL14.eglDestroySurface(display, surface);
+        EGL14.eglDestroyContext(display, context);
+        EGL14.eglTerminate(display);
+    }
+
+    /** The framebuffer's 4 x 4 texels as "rrggbbaa", row by row from the texture's first, rows apart by " / ". */
+    private static String texels() {
+        ByteBuffer rgba = ByteBuffer.allocateDirect(4 * 16).order(ByteOrder.nativeOrder());
+        GLES20.glReadPixels(0, 0, 4, 4, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, rgba);
+        StringBuilder text = new StringBuilder();
+        for (int index = 0; index < 64; ++index) {
+            if (index > 0 && index % 4 == 0) {
+                text.append(index % 16 == 0 ? " / " : " ");
+            }
+            text.append(Integer.toHexString(0x100 | (rgba.get(index) & 0xff)).substring(1));
+        }
+        return text.toString();
     }
 }
