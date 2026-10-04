@@ -61,34 +61,55 @@ struct RefusedLibrary: Error {
 
 extension Library {
     /// Extracts the app's arm64-v8a libraries, the ELF originals, into the version's lib/ and converts
-    /// each into its container <name>.so.dylib (ADR-0008). Returns the certificate that signed them all;
-    /// nil without one or when one could not be signed, and then only the originals stay, for the first
-    /// tap to sign. Throws `RefusedLibrary` for a library that cannot run.
-    func installNativeCode(of report: APKReport, from archive: ZipArchive, into versionDirectory: URL,
+    /// each into its container <name>.so.dylib (ADR-0008): those of the base and of every chosen split, each
+    /// from its APK in `archives`, by its split's name, nil for the base (ADR-0048, decision 8). Returns the
+    /// certificate that signed them all; nil without one or when one could not be signed, and then only the
+    /// originals stay, for the first tap to sign. Throws `RefusedLibrary` for a library that cannot run.
+    func installNativeCode(of report: APKReport, from archives: [String?: ZipArchive], into versionDirectory: URL,
                            signing: ImportSigning?) throws -> String? {
         // Android's installer extracts only these and skips the others (NativeLibraryHelper).
         let libraries = report.nativeLibraries.filter { Self.isExtracted($0.name) }
-        var names = Set<String>()
-        for library in libraries where !names.insert(library.name).inserted {
-            throw RefusedLibrary(library: library.name, reason: "it is in the APK twice")
+        // Each name once: of one name in several APKs, the analysis keeps the copy Android installs (decision 8).
+        // Names that differ only in case Android keeps apart, and so does the iPhone's case-sensitive volume, but one
+        // lib/ on the Mac's or the Simulator's, which ignore case by default, cannot. They are refused everywhere, so
+        // that device and Simulator agree, as split names are (decision 3). ASCII names: lowercasing folds them.
+        var names: [String: String] = [:]
+        for library in libraries {
+            if library.name.utf8.count > Self.longestName {
+                throw RefusedLibrary(library: library.name, reason: "its name is longer than \(Self.longestName) bytes")
+            }
+            if let other = names.updateValue(library.name, forKey: library.name.lowercased()), other != library.name {
+                throw RefusedLibrary(library: library.name, reason: "its name differs from \(other) only in case")
+            }
         }
 
+        // The originals go into lib.partial/, which becomes lib/ once all are out: an error or the end of the
+        // process halfway leaves no lib/ that the first tap would take as complete.
         let lib = versionDirectory.appendingPathComponent("lib", isDirectory: true)
-        try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
-        var originals: [URL] = []
-        for library in libraries {
-            let contents: Data
-            do {
-                guard let entry = archive.entry(named: library.path) else { throw APKError.entryNotFound(library.path) }
-                contents = try archive.data(for: entry)
-            } catch {
-                if let refusal = RefusedLibrary(readError: error, library: library.name) { throw refusal }
-                throw error
+        let partial = versionDirectory.appendingPathComponent("lib.partial", isDirectory: true)
+        try? FileManager.default.removeItem(at: partial)
+        try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
+        do {
+            for library in libraries {
+                let contents: Data
+                do {
+                    guard let archive = archives[library.split], let entry = archive.entry(named: library.path) else {
+                        throw APKError.entryNotFound(library.path)
+                    }
+                    contents = try archive.data(for: entry)
+                } catch {
+                    if let refusal = RefusedLibrary(readError: error, library: library.name) { throw refusal }
+                    throw error
+                }
+                try contents.write(to: partial.appendingPathComponent(library.name), options: .atomic)
             }
-            let original = lib.appendingPathComponent(library.name)
-            try contents.write(to: original, options: .atomic)
-            originals.append(original)
+            try? FileManager.default.removeItem(at: lib)
+            try FileManager.default.moveItem(at: partial, to: lib)
+        } catch {
+            try? FileManager.default.removeItem(at: partial)
+            throw error
         }
+        let originals = libraries.map { lib.appendingPathComponent($0.name) }
         guard let signing else { return nil }
 
         // Every library is converted, also after one that could not be signed, so that none that cannot
@@ -112,6 +133,10 @@ extension Library {
         return fingerprint
     }
 
+    /// The longest library name Minato takes: lib/ holds <name>.dylib next to the library, which the converter writes
+    /// through <name>.dylib.<8 hex digits>.tmp (c_api.cpp, replace_file), and a file name has at most 255 bytes.
+    static let longestName = Int(NAME_MAX) - ".dylib".utf8.count - ".00000000.tmp".utf8.count
+
     /// The names that Android's installer extracts from lib/<abi>/: lib*.so of A-Z, a-z, 0-9 and
     /// + , - . = _ (isFilenameSafe).
     static func isExtracted(_ name: String) -> Bool {
@@ -120,9 +145,9 @@ extension Library {
     }
 
     /// Makes sure the originals of a ready NativeActivity app's native code are in its version's lib/,
-    /// extracting them from its base.apk for an entry imported before the import did; the first tap signs
-    /// them (ADR-0032, decision 3). Returns how many there are. A library that cannot run makes the app
-    /// incompatible, as at import.
+    /// extracting them from its base.apk and split APKs for an entry imported before the import did, or whose
+    /// lib/ is gone; the first tap signs them (ADR-0032, decision 3). Returns how many there are. A library that
+    /// cannot run makes the app incompatible, as at import.
     @discardableResult
     public func prepareNativeCode(id: String) throws -> Int {
         guard let entry = entries.first(where: { $0.id == id }), let report = entry.report else { return 0 }
@@ -130,8 +155,11 @@ extension Library {
         guard originals.isEmpty, entry.state == .ready, case .nativeActivity = report.runtime else { return originals.count }
         let version = paths.versionDirectory(for: entry)
         do {
-            _ = try installNativeCode(of: report, from: ZipArchive(url: version.appendingPathComponent("base.apk")),
-                                      into: version, signing: nil)
+            var archives: [String?: ZipArchive] = [:]
+            for file in [entry.base].compactMap({ $0 }) + entry.splits {
+                archives[file.splitName] = try ZipArchive(url: version.appendingPathComponent(file.fileName))
+            }
+            _ = try installNativeCode(of: report, from: archives, into: version, signing: nil)
         } catch let refusal as RefusedLibrary {
             try refuse(id: id, library: refusal.library, reason: refusal.reason)
             throw ConversionRefused(reason: refusal.reason)
@@ -140,18 +168,23 @@ extension Library {
     }
 
     /// Marks the entry as incompatible because the converter refuses one of its libraries, as the import
-    /// does: its version keeps neither the APK nor the code (ADR-0032).
+    /// does: its version keeps neither its APKs nor the code (ADR-0032).
     func refuse(id: String, library: String, reason: String) throws {
         guard let entry = entries.first(where: { $0.id == id }) else { return }
+        let splits = entry.splits // their files go below, once the record no longer names them
         try record(id: id) { entry in
             entry.state = .incompatible
             entry.report?.compatibility.status = .incompatible
             entry.report?.compatibility.issues.append(.conversionFailed(library: library, reason: reason))
             entry.base = nil
+            entry.splits = []
             entry.signedWith = nil
         }
         let version = paths.versionDirectory(for: entry)
         try? FileManager.default.removeItem(at: version.appendingPathComponent("lib"))
         try? FileManager.default.removeItem(at: version.appendingPathComponent("base.apk"))
+        for split in splits {
+            try? FileManager.default.removeItem(at: version.appendingPathComponent(split.fileName))
+        }
     }
 }

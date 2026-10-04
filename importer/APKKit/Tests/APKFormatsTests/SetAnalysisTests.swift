@@ -159,6 +159,23 @@ struct SetAnalysisTests {
         #expect(report.compatibility.status == .incompatible)
     }
 
+    @Test func ofALibraryInTwoAPKsTheReportHoldsTheCopyAndroidInstalls() throws {
+        // Android extracts the base and then the splits by name, the last copy staying, and with extractNativeLibs false
+        // loads the first one it finds (decision 8). The copy it leaves out is not judged, here one of x86-64 code.
+        let other = Self.library("arm64-v8a", machine: 62)
+        let extracted = try Self.analyze(["base.apk": Self.apk(files: [other]),
+                                          "arm64.apk": Self.apk(split: "config.arm64_v8a", files: [Self.library("arm64-v8a")])])
+        #expect(extracted.report.nativeLibraries.map(\.split) == ["config.arm64_v8a"])
+        #expect(extracted.report.compatibility.status == .ready)
+
+        let inPlace: [AXMLBuilder.Attribute] = [.android("hasCode", 0x0101_000C, .bool(false)),
+                                                .android("extractNativeLibs", 0x0101_04EA, .bool(false))]
+        let mapped = try Self.analyze(["base.apk": Self.apk(application: inPlace, files: [Self.library("arm64-v8a")]),
+                                       "arm64.apk": Self.apk(split: "config.arm64_v8a", files: [other])])
+        #expect(mapped.report.nativeLibraries.map(\.split) == [nil])
+        #expect(mapped.report.compatibility.status == .ready)
+    }
+
     @Test func aSetWhoseABISplitsAre32BitOnlyIsIncompatible() throws {
         // The choice skips the split, and the set still says why it cannot run.
         let apks = ["base.apk": Self.apk(), "armv7.apk": Self.apk(split: "config.armeabi_v7a", files: [Self.library("armeabi-v7a", machine: 40)])]

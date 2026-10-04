@@ -46,9 +46,19 @@ public enum APKAnalyzer {
         }
         let abis = Set(libraryEntries.map { String($0.entry.name.split(separator: "/")[1]) }).union(otherABIs).sorted()
         let selectedABI = abis.contains(arm64) ? arm64 : nil
-        let nativeLibraries = libraryEntries
-            .filter { $0.entry.name.hasPrefix("lib/\(arm64)/") }
-            .map { library in
+        // One library in several APKs: Android installs one copy (ADR-0048, decision 8). It extracts the base and
+        // then the splits by name into one lib/, a later copy replacing an earlier one (NativeLibraryHelper.java:
+        // 196-205, NativeLibraryHelper.cpp:211-218), or, where the base's extractNativeLibs is false, loads from the
+        // first APK on its search path (LoadedApk.java:485-489, 565-566; PackageLite.java:141). `splits` come by name.
+        let arm64Libraries = libraryEntries.filter { $0.entry.name.hasPrefix("lib/\(arm64)/") }
+        let extracts = manifest.extractNativeLibs ?? true
+        var installed: [String: Int] = [:]
+        for (index, library) in arm64Libraries.enumerated() where extracts || installed[library.entry.name] == nil {
+            installed[library.entry.name] = index
+        }
+        let nativeLibraries = arm64Libraries.enumerated()
+            .filter { installed[$0.element.entry.name] == $0.offset }
+            .map { _, library in
                 var inspected = inspectLibrary(library.entry, in: library.archive)
                 inspected.split = library.split
                 return inspected

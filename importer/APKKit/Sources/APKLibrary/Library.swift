@@ -199,7 +199,7 @@ public actor Library {
         let new = NewVersion(
             report: report, digest: digest, source: source,
             files: [(url, PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest))],
-            skippedSplits: nil, icon: icon, archive: archive,
+            skippedSplits: nil, icon: icon, archives: [nil: archive],
             version: { state in
                 AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
                            signerProven: report.signature.check == .verified,
@@ -218,8 +218,8 @@ public actor Library {
         var files: [(url: URL, file: PackageFile)]
         var skippedSplits: [SkippedSplit]?
         var icon: Data?
-        /// The base's archive, which the native code comes from.
-        var archive: ZipArchive
+        /// The archives of the APKs it holds, by split name, nil for the base: the native code comes from them.
+        var archives: [String?: ZipArchive]
         /// What the update policy compares, for a state.
         var version: (LibraryEntry.State) -> AppVersion
     }
@@ -278,7 +278,7 @@ public actor Library {
         var signedWith: String?
         if state == .ready, case .nativeActivity = report.runtime {
             do {
-                signedWith = try installNativeCode(of: report, from: new.archive, into: versionDirectory, signing: signing)
+                signedWith = try installNativeCode(of: report, from: new.archives, into: versionDirectory, signing: signing)
             } catch let refusal as RefusedLibrary {
                 // This version cannot run, so it keeps no code and counts as incompatible: a ready
                 // installed version then stays (ADR-0034, decision 1).
@@ -464,7 +464,8 @@ public actor Library {
             skippedSplits: choice.skipped.map {
                 SkippedSplit(fileName: $0.member.fileName, splitName: $0.member.splitName ?? "", reason: $0.reason)
             },
-            icon: icon, archive: apks[nil]!.archive,
+            icon: icon,
+            archives: Dictionary(uniqueKeysWithValues: installing.map { ($0.splitName, apks[$0.splitName]!.archive) }),
             version: { [set] state in AppVersion(set: set, state: state, sha256: digest) })
         return try install(new, replacing: replacing, signing: signing, discarding: nil, progress: { _ in })
     }

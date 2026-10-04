@@ -8,14 +8,16 @@ public enum SplitAPK {
     /// `split` nil makes the base. `manifestSplitRequired` is `<manifest android:isSplitRequired>`, which Android 15
     /// reads; `applicationSplitRequired` and `splitsRequiredMetaData` are what bundletool wrote (ADR-0048, F1).
     /// `attributes` follow the others on `<manifest>` and `elements` lead its children, e.g. to craft a value; a nil
-    /// `package` or `versionCode` leaves the attribute out. `v2`, when given, signs in place of `signers`, e.g. a
-    /// signer that names another key's certificate.
+    /// `package` or `versionCode` leaves the attribute out. `nativeActivity` makes NativeActivity the launcher, loading
+    /// that library, and `extractNativeLibs` sets `<application android:extractNativeLibs>`. `v2`, when given, signs in
+    /// place of `signers`, e.g. a signer that names another key's certificate.
     public static func make(package: String? = SplitAPK.package, versionCode: Int32? = 1, versionCodeMajor: Int32? = nil,
                             split: String? = nil, configForSplit: String? = nil, isFeatureSplit: Bool = false,
                             manifestSplitRequired: Bool = false, applicationSplitRequired: Bool = false,
                             splitsRequiredMetaData: Bool = false, requiredSplitTypes: String? = nil,
                             splitTypes: String? = nil, usesSplit: String? = nil, targetSdk: Int32? = nil,
-                            abis: [String] = [], files: [String: Data] = [:], attributes: [AXMLBuilder.Attribute] = [],
+                            nativeActivity: String? = nil, extractNativeLibs: Bool? = nil, abis: [String] = [],
+                            files: [String: Data] = [:], attributes: [AXMLBuilder.Attribute] = [],
                             elements: [AXMLBuilder.Element] = [], signers: [TestKey] = [.ec], v1Only: Bool = false,
                             v2: [TestSigner.Signer]? = nil) -> Data {
         var manifestAttributes: [AXMLBuilder.Attribute] = package.map { [.plain("package", .string($0))] } ?? []
@@ -40,11 +42,25 @@ public enum SplitAPK {
         }
         var applicationAttributes: [AXMLBuilder.Attribute] = [.android("hasCode", 0x0101_000C, .bool(false))]
         if applicationSplitRequired { applicationAttributes.append(.android("isSplitRequired", 0x0101_0591, .bool(true))) }
+        if let extractNativeLibs {
+            applicationAttributes.append(.android("extractNativeLibs", 0x0101_04EA, .bool(extractNativeLibs)))
+        }
         var applicationChildren: [AXMLBuilder.Element] = []
         if splitsRequiredMetaData {
             applicationChildren.append(AXMLBuilder.Element("meta-data", [
                 .android("name", 0x0101_0003, .string("com.android.vending.splits.required")),
                 .android("value", 0x0101_0024, .bool(true)),
+            ]))
+        }
+        if let nativeActivity {
+            let name = { (value: String) in AXMLBuilder.Attribute.android("name", 0x0101_0003, .string(value)) }
+            applicationChildren.append(AXMLBuilder.Element("activity", [name("android.app.NativeActivity")], [
+                AXMLBuilder.Element("meta-data", [name("android.app.lib_name"),
+                                                  .android("value", 0x0101_0024, .string(nativeActivity))]),
+                AXMLBuilder.Element("intent-filter", [], [
+                    AXMLBuilder.Element("action", [name("android.intent.action.MAIN")]),
+                    AXMLBuilder.Element("category", [name("android.intent.category.LAUNCHER")]),
+                ]),
             ]))
         }
         children.append(AXMLBuilder.Element("application", applicationAttributes, applicationChildren))
