@@ -20,7 +20,8 @@ extern "C" {
    and 13; ADR-0041, decision 11), and minato_graphics_vulkan_scheduled becomes a provider of the runtime's
    "scheduled". With ANGLE, its own functions stand in front of the ANGLE functions that libEGL's window
    surfaces, swaps and presentation times and libGLES's debug callbacks reach, ANGLE's commit gate holds commits in the background (ADR-0029, decisions 14 to 16), and
-   ANGLE's wait until its commits are scheduled becomes a provider of "scheduled" too.
+   ANGLE's wait until its commits are scheduled becomes a provider of "scheduled" too. The windows' buffers for
+   drawing by the CPU come with them (minato_graphics_set_window_buffers below).
    Returns 0, or -1 when a path is longer than 1023 bytes or the runtime refused a provider. */
 int minato_graphics_set_providers(const char *moltenvk, const char *angle);
 
@@ -48,6 +49,16 @@ int minato_provoking_probe(void);
    nanoseconds of CLOCK_UPTIME_RAW (clock_gettime_nsec_np). Returns 1 once all are scheduled, 0 when the
    deadline came first. */
 int minato_graphics_vulkan_scheduled(uint64_t deadline);
+
+/* The windows' buffers for drawing by the CPU (ADR-0043, decision 3; window.m): gives the runtime graphics/host's
+   buffers (apkrt_set_window_buffers) and their provider of "scheduled". minato_graphics_set_providers calls it.
+   Returns 0, or -1 when the runtime refused either. */
+int minato_graphics_set_window_buffers(void);
+
+/* "Scheduled" for the windows' buffers: waits until no post is between its count and its commit, then until Metal
+   has scheduled an empty command buffer on their queue, and so every one committed there before. Returns 1 once
+   scheduled, at once before the first lock, 0 when `deadline` (as for Vulkan's above) came first. */
+int minato_graphics_window_scheduled(uint64_t deadline);
 
 #ifdef __cplusplus
 }

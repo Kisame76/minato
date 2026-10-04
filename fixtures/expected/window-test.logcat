@@ -1,0 +1,49 @@
+I/window-test: android_main
+I/window-test: RGBA_8888: setBuffersGeometry 0
+I/window-test: RGBA_8888: lock 0, 64x48 format 1, dirty 0 0 64 48
+I/window-test: RGBA_8888: a second lock while one is held: -38
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: lock 0, dirty 16 8 48 40, copy-back: 2048 of the 2048 pixels outside it are the last posted ones
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: lock 0, dirty 0 0 8 8, copy-back: 3008 of the 3008 pixels outside it are the last posted ones
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: lock 0, dirty 40 30 64 48, copy-back: 2640 of the 2640 pixels outside it are the last posted ones
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: lock 0, dirty 8 8 24 24, copy-back: 2816 of the 2816 pixels outside it are the last posted ones
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: lock 0, dirty 0 40 64 48, copy-back: 2560 of the 2560 pixels outside it are the last posted ones
+I/window-test: RGBA_8888: post 0
+I/window-test: RGBA_8888: buffers in turn: 0 1 2 0 1 2
+I/window-test: RGBX_8888: setBuffersGeometry 0
+I/window-test: RGBX_8888: lock 0, 64x48 format 2, dirty 0 0 64 48
+I/window-test: RGBX_8888: a second lock while one is held: -38
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: lock 0, dirty 16 8 48 40, copy-back: 2048 of the 2048 pixels outside it are the last posted ones
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: lock 0, dirty 0 0 8 8, copy-back: 3008 of the 3008 pixels outside it are the last posted ones
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: lock 0, dirty 40 30 64 48, copy-back: 2640 of the 2640 pixels outside it are the last posted ones
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: lock 0, dirty 8 8 24 24, copy-back: 2816 of the 2816 pixels outside it are the last posted ones
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: lock 0, dirty 0 40 64 48, copy-back: 2560 of the 2560 pixels outside it are the last posted ones
+I/window-test: RGBX_8888: post 0
+I/window-test: RGBX_8888: buffers in turn: 0 1 2 0 1 2
+I/window-test: RGB_565: setBuffersGeometry 0
+I/window-test: RGB_565: lock 0, 64x48 format 4, dirty 0 0 64 48
+I/window-test: RGB_565: a second lock while one is held: -38
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: lock 0, dirty 16 8 48 40, copy-back: 2048 of the 2048 pixels outside it are the last posted ones
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: lock 0, dirty 0 0 8 8, copy-back: 3008 of the 3008 pixels outside it are the last posted ones
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: lock 0, dirty 40 30 64 48, copy-back: 2640 of the 2640 pixels outside it are the last posted ones
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: lock 0, dirty 8 8 24 24, copy-back: 2816 of the 2816 pixels outside it are the last posted ones
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: lock 0, dirty 0 40 64 48, copy-back: 2560 of the 2560 pixels outside it are the last posted ones
+I/window-test: RGB_565: post 0
+I/window-test: RGB_565: buffers in turn: 0 1 2 0 1 2
+I/window-test: post without a lock: -38
+I/window-test: ANativeActivity_finish
+I/window-test: android_main returns

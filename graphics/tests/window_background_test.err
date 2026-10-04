@@ -1,0 +1,5 @@
+host: in the background
+host: "scheduled": 1, command buffers committed meanwhile by other threads than the guest's: 1
+host: the window removed: 0
+host: guest commits after "scheduled": 0
+host: in the foreground

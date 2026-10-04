@@ -3,7 +3,8 @@
      a CAMetalLayer of as many points at scale 1 and opens its gate: the program's first window, ID 1.
    - With MINATO_WINDOW_SCRIPT=background:<n> too, a thread of its own waits until the window has <n>
      presents and then keeps the app's order at background (ADR-0028, decision 6): the background flag,
-     "scheduled" with 1 s to go, the window's removal; 100 ms later the foreground. It prints each step to
+     "scheduled" with 1 s to go, the window's removal; 100 ms later the foreground. With background:<n>:<ms>, it
+     stays <ms> in the background between "scheduled" and the removal, which the count of guest commits covers. It prints each step to
      stderr, how many command buffers other threads than the guest's committed during "scheduled" (one per
      queue: graphics/host's), and how many guest threads committed between "scheduled" and the foreground,
      which must be none (the Metal hook counts both, test_host.h).
@@ -15,7 +16,8 @@
      window's removal, only then onPause, the window's destruction, the saved state and onStop, each answer
      within 500 ms of its event); the foreground and onDestroy. It prints each step to stderr, and the command
      buffers guest threads committed from "scheduled" to the foreground, which must be none.
-   - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), the windows' buffers are a fake that
+   - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), graphics_run.c puts a fake in the place
+     of graphics/host's buffers (minato_test_use_fake_buffers), one that
      prints to stderr what reaches it: lock takes RGBA_8888, RGBX_8888 and RGB_565 and refuses other formats with
      -EINVAL; its buffer starts cleared, with the width rounded up to 16 pixels as its stride; the dirty rectangle it
      answers is the whole buffer for another geometry than the last posted one's, else the app's within the buffer.
@@ -38,6 +40,7 @@ atomic_int minato_test_counting, minato_test_guest_commits, minato_test_asking, 
 
 uint64_t minato_test_window;
 static unsigned long presents;
+static int hold_ms;  /* background:<presents>:<hold>, the time in the background before the window's removal */
 
 /* An event and the milliseconds until its answer, -1 without one within ADR-0032's 2 s (10 s for the first,
    which waits for the program's start). */
@@ -116,6 +119,7 @@ static void *background(void *unused) {
     fprintf(stderr, "host: \"scheduled\": %d, command buffers committed meanwhile by other threads than the guest's: %d\n",
             scheduled, atomic_load(&minato_test_asker_commits));
     atomic_store(&minato_test_counting, 1);
+    usleep((useconds_t)hold_ms * 1000);
     fprintf(stderr, "host: the window removed: %d\n", apkrt_window_remove(minato_test_window));
     usleep(100000);
     atomic_store(&minato_test_counting, 0);
@@ -202,6 +206,19 @@ static void fake_removed(void *context, uint64_t id) {
 
 static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL};
 
+void minato_test_use_fake_buffers(void) {
+    const char *buffers = getenv("MINATO_WINDOW_BUFFERS");
+    if (buffers == NULL) {
+        return;
+    }
+    if (strcmp(buffers, "fake") != 0 || getenv("MINATO_WINDOW") == NULL ||
+        apkrt_set_window_buffers(&fake_buffers) != 0) {
+        fprintf(stderr, "window host: MINATO_WINDOW_BUFFERS=%s is not fake without MINATO_WINDOW, or the runtime "
+                        "refused it\n", buffers);
+        exit(2);
+    }
+}
+
 __attribute__((constructor)) static void add_window(void) {
     const char *size = getenv("MINATO_WINDOW");
     int width = 0, height = 0;
@@ -222,13 +239,8 @@ __attribute__((constructor)) static void add_window(void) {
         fprintf(stderr, "window host: the runtime refused the window (%llu)\n", (unsigned long long)minato_test_window);
         exit(2);
     }
-    const char *buffers = getenv("MINATO_WINDOW_BUFFERS");
-    if (buffers != NULL) {
-        if (strcmp(buffers, "fake") != 0 || apkrt_set_window_buffers(&fake_buffers) != 0) {
-            fprintf(stderr, "window host: MINATO_WINDOW_BUFFERS=%s is not fake, or the runtime refused it\n", buffers);
-            exit(2);
-        }
-        apkrt_window_set_gate(minato_test_window, 0);
+    if (getenv("MINATO_WINDOW_BUFFERS") != NULL) {
+        apkrt_window_set_gate(minato_test_window, 0);  // until 200 ms after the fake's first lock
     }
     const char *script = getenv("MINATO_WINDOW_SCRIPT");
     if (script != NULL) {
@@ -244,7 +256,7 @@ __attribute__((constructor)) static void add_window(void) {
                 exit(2);
             }
             play = glue;
-        } else if (sscanf(script, "background:%lu", &presents) != 1) {
+        } else if (sscanf(script, "background:%lu:%d", &presents, &hold_ms) < 1) {
             fprintf(stderr, "window host: MINATO_WINDOW_SCRIPT=%s is neither background:<presents> nor glue\n", script);
             exit(2);
         }

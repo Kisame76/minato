@@ -9,7 +9,8 @@
    to go, prints both answers and whether Metal scheduled the guest's command buffer before graphics/host's
    first one, then sets the event one higher, which the program waits for.
    With MINATO_METAL_HOOK=present it prints none of that. It reads back the textures of the first four
-   drawables presented, before they go to the screen, and prints their size, pixel format and CRC-32; and
+   drawables presented (with present:<n>, the first n), before they go to the screen, and prints their size, pixel
+   format and CRC-32; and
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
    With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
    first drawable presented after test_control.m's watch was presented: with presentAtTime: (ANGLE's patch 0005) and
@@ -36,6 +37,7 @@
 static IMP commit, made, made_unretained, made_with_descriptor, signaled, waited, presented, presented_at_time;
 static int noting, scheduled_mode;
 static atomic_int drawables;          /* presented so far */
+static int drawables_read = 4;        /* how many of them present reads back */
 static id<MTLCommandQueue> readback;  /* the hook's own, for reading drawables back */
 static id<MTLCommandBuffer> waiting;  /* the guest's command buffer that waits at SCHEDULED_VALUE */
 static id<MTLSharedEvent> waiting_event;
@@ -88,7 +90,7 @@ static void read_back(id<CAMetalDrawable> drawable, int number) {
    semaphores, so what drew it has run. */
 static void hooked_present(id self, SEL selector) {
     const int number = atomic_fetch_add(&drawables, 1) + 1;
-    if (number <= 4) {
+    if (number <= drawables_read) {
         read_back(self, number);
     }
     ((void (*)(id, SEL))presented)(self, selector);
@@ -209,7 +211,8 @@ __attribute__((constructor)) static void hook_metal(void) {
         return;
     }
     scheduled_mode = strcmp(mode, "scheduled") == 0;
-    const int present_mode = strcmp(mode, "present") == 0, count_mode = strcmp(mode, "count") == 0;
+    const int present_mode = strcmp(mode, "present") == 0 || sscanf(mode, "present:%d", &drawables_read) == 1,
+              count_mode = strcmp(mode, "count") == 0;
     noting = !present_mode && !count_mode;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();

@@ -183,6 +183,11 @@ add_library(input-test SHARED apps/input-test/main.c)
 target_compile_options(input-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(input-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
 target_link_libraries(input-test PRIVATE native_app_glue nativewindow m)
+# window-test (ADR-0043 test 3): drawing by the CPU with ANativeWindow_lock and ANativeWindow_unlockAndPost.
+add_library(window-test SHARED apps/window-test/main.c)
+target_compile_options(window-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(window-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
+target_link_libraries(window-test PRIVATE native_app_glue nativewindow)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

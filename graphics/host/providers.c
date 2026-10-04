@@ -159,5 +159,9 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     if (angle != NULL && angle[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_angle_provider, NULL) != 0) {
         result = -1;
     }
+    /* Drawing by the CPU (ADR-0043, decision 3), whatever the drivers. */
+    if (minato_graphics_set_window_buffers() != 0) {
+        result = -1;
+    }
     return result;
 }

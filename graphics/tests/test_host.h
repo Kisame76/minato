@@ -17,4 +17,8 @@ extern uint64_t minato_test_window;
 void minato_test_watch_presents(void);
 int64_t minato_test_presented_at(void);
 
+/* With MINATO_WINDOW_BUFFERS=fake, puts window_host.m's fake buffers in the place of graphics/host's, after
+   minato_graphics_set_providers set those. */
+void minato_test_use_fake_buffers(void);
+
 #endif
