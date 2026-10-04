@@ -467,6 +467,26 @@ else()
   set_tests_properties(graphics.provoking_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
 
+# ADR-0041 decision 11 c): graphics/host's probe of the drawables' pool, for half a second per run on the Mac's offscreen
+# layer, whose numbers say nothing about the pool: it passes when it prints each run as the iPhone's debug app does.
+if(TARGET minato_graphics_host)
+  add_executable(graphics-drawable-probe graphics_drawable_probe.c)
+  target_link_libraries(graphics-drawable-probe PRIVATE minato_graphics_host apk_defaults)
+  add_test(NAME graphics.drawable_probe COMMAND graphics-drawable-probe)
+  set(waits "nextDrawable waited p50 [0-9.]+ ms, p99 [0-9.]+ ms, [0-9]+ longer than half a period")
+  set(waits "${waits}; ticks [0-9.]+ ms apart \\(p50\\)\n")
+  string(CONCAT probe_lines "drawable probe: a layer of 64 x 64 pixels, [0-9]+ drawables\n"
+    "drawable probe: 60 Hz, let go at present: 30 frames, ${waits}"
+    "drawable probe: 60 Hz, held 3 frames: 30 frames, ${waits}"
+    "drawable probe: 120 Hz, let go at present: 60 frames, ${waits}"
+    "drawable probe: 120 Hz, held 3 frames: 60 frames, ${waits}")
+  set_tests_properties(graphics.drawable_probe PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "${probe_lines}")
+else()
+  add_test(NAME graphics.drawable_probe COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
+  set_tests_properties(graphics.drawable_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+endif()
+
 # ADR-0041 decision 11: graphics/host's time for Core Animation, the refresh asked for on the refresh grid less half a
 # period, at the limits of a refresh.
 if(TARGET minato_graphics_host)

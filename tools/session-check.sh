@@ -55,7 +55,10 @@
 # then the audio host disconnects its stream as a reroute that changes the rate would, and the menu quits it 5 s
 # later. Its log must be Android 15's (fixtures/expected/audio-live.logcat), with the error callback, the close
 # and the new stream after the second start in AAudio's documented order, as the emulator gives no disconnect;
-# the new stream must play, and both streams must close through the host. Every other round runs game mode
+# the new stream must play, and both streams must close through the host. WINDOW=1 runs test 3 of ADR-0043 with
+# window-test (build/fixtures/apks/window-test.apk), which draws by the CPU on graphics/host's buffers: 18 frames in
+# three formats, then its ANativeActivity_finish; its log must be Android 15's (fixtures/expected/window-test.logcat),
+# and its strides go with its device lines. Every other round runs game mode
 # without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
@@ -79,6 +82,7 @@
 #   PORTRAIT    only the round of the library's orientation
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
 #   AUDIO_LIVE  only the round of audio-live
+#   WINDOW      only test 3 of ADR-0043, with window-test
 #   WAY         with AUDIO_LIVE: the restart's only way, "url" or "workspace" (the default order when unset)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -94,6 +98,7 @@ AAUDIO_PKG="io.github.kisame76.minato.test.aaudio"
 OPENSL_PKG="io.github.kisame76.minato.test.opensl"
 ROTATION_PKG="io.github.kisame76.minato.test.rotation"
 AUDIO_LIVE_PKG="io.github.kisame76.minato.test.audiolive"
+WINDOW_PKG="io.github.kisame76.minato.test.window"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -122,6 +127,7 @@ GUEST_APPS=""
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 [[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
+[[ -z "${WINDOW:-}" ]] || GUEST_APPS+="$WINDOW_PKG build/fixtures/apks/window-test.apk"$'\n'
 if [[ -n "${GUEST_AUDIO:-}" ]]; then
   GUEST_APPS+="$AAUDIO_PKG build/fixtures/apks/aaudio-test.apk"$'\n'"$OPENSL_PKG build/fixtures/apks/opensl-test.apk"$'\n'
 fi
@@ -1094,6 +1100,28 @@ run_rotation() {
     && ok "  it ends at the size at start" || fail "  it does not end at $start"
 }
 
+# Test 3 of ADR-0043: window-test draws by the CPU in game mode until its ANativeActivity_finish, and its log must be
+# Android 15's.
+run_window() {
+  begin_round "test 3 of ADR-0043: window-test draws by the CPU" || return 0
+  rm -f "$CHECK/no-guest"
+  echo "$WINDOW_PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  launch
+  await_event "process gameMode $WINDOW_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  say "window-test runs now; it draws 18 frames by the CPU and ends by itself."
+  await_event "request finish" 60 && ok "  window-test finishes itself" || fail "  no FINISH"
+  await_event "program ended .*" 10 \
+    && expect "  activity-host ends with status 0" "program ended 0" "$(event_of "$EVENT")" \
+    || fail "  activity-host did not end"
+  await_event "process library.*" 30 \
+    && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  compare_guest_log window-test
+}
+
 # The lines of tag $1 in the guest's log against Android 15's (fixtures/expected/$1.logcat), then the lines of
 # its -device tag, which differ by device.
 compare_guest_log() {
@@ -1375,7 +1403,8 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
   exit $((failures > 0))
 fi
 
-if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}" ]]; then
+if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}" ||
+      -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1387,6 +1416,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   [[ -n "${GUEST_ENV:-}" ]] && run_guest_env
   [[ -n "${ROTATION:-}" ]] && run_rotation
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
+  [[ -n "${WINDOW:-}" ]] && run_window
   if [[ -n "${LIVE:-}" ]]; then
     run_live "$GLES_LIVE_PKG" gles-live
     [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live

@@ -8,8 +8,8 @@ set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
   "tools/frontgen's outputs from tools/build-front-libs.sh")
 if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
-  add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m probe.m provoking.m layer.m
-    window.m)
+  add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m probe.m provoking.m
+    drawable_probe.m layer.m window.m)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
     "${PROJECT_SOURCE_DIR}/graphics/vulkan")
@@ -28,8 +28,9 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   set_source_files_properties(providers.c present_time.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
   set_source_files_properties(vulkan.m angle.m PROPERTIES COMPILE_OPTIONS "${vulkan_options}")
   set_source_files_properties(probe.m PROPERTIES COMPILE_OPTIONS "-fmodules")
-  # ADR-0044 a)'s probe, which probe.m calls, with ARC: debug builds of the app get it with probe.m.
-  set_source_files_properties(provoking.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
+  # ADR-0044 a)'s probe and ADR-0041 decision 11 c)'s, which probe.m calls, with ARC: debug builds of the app get them
+  # with probe.m.
+  set_source_files_properties(provoking.m drawable_probe.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
   # The game view's layer with the benchmark's recorder (ADR-0037, decision 2), with ARC. Its nextDrawable runs on
   # the thread that draws, a guest thread in Minato.
   set_source_files_properties(layer.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")

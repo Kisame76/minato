@@ -42,6 +42,16 @@ int minato_graphics_probe(const char *moltenvk);
    (probe.m) and exits with its result. */
 int minato_provoking_probe(void);
 
+/* ADR-0041 decision 11 c)'s probe of the drawables' pool, host code only: whether Core Animation takes a drawable's
+   surface back into the layer's pool only once the drawable is let go, as MoltenVK lets an image's drawable go when it
+   acquires that image again. On a layer of its own over the app's window, frames paced by a display link at 60 and then
+   120 Hz each clear a drawable and present it: for `seconds` per run, letting each drawable go at once, then holding
+   it 3 frames as MoltenVK does. For each run it prints to stdout how long nextDrawable waited (p50, p99, and how many
+   waits were longer than half a period) and how far apart the ticks were. Returns 0, or 1 after printing why it could
+   not run. A debug build of the app, launched with MINATO_DRAWABLE_PROBE set, runs it for 3 s per run once it is
+   active (probe.m) and exits with its result. */
+int minato_drawable_probe(double seconds);
+
 /* "Scheduled" for Vulkan (ADR-0030, decision 13), from a host thread, which need not be the main thread:
    waits until no call of libvulkan that makes MoltenVK commit is in flight, then commits one empty command
    buffer on each queue of every device libvulkan made and waits until Metal has scheduled them, which it

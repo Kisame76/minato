@@ -166,18 +166,14 @@ __attribute__((constructor)) static void probe_on_launch(void) {
     _exit(status);
 }
 
-/* ADR-0044 a): a debug build of the app, launched with MINATO_PROVOKING_PROBE set, runs the probe of the last vertex
-   (provoking.m) once the app is active, since iOS refuses GPU work from an app that is not in the foreground, and
-   ends with the probe's result. Without the variable it does nothing. */
-__attribute__((constructor)) static void provoking_probe_on_launch(void) {
-    if (getenv("MINATO_PROVOKING_PROBE") == NULL) {
-        return;
-    }
+/* Runs the probe on the main thread once the app is active, since iOS refuses GPU work from an app that is not in the
+   foreground, and ends the app with the probe's result. */
+static void run_when_active(const char *what, int (^probe)(void)) {
     @autoreleasepool {
         // UIKit's name for the notification, from UIKit itself: graphics/host does not link it.
         NSString *const *active = dlsym(RTLD_DEFAULT, "UIApplicationDidBecomeActiveNotification");
         if (active == NULL) {
-            fprintf(stderr, "provoking probe: no UIKit app to wait for\n");
+            fprintf(stderr, "%s: no UIKit app to wait for\n", what);
             fflush(stderr);
             _exit(1);
         }
@@ -186,10 +182,31 @@ __attribute__((constructor)) static void provoking_probe_on_launch(void) {
                                                          queue:nil
                                                     usingBlock:^(NSNotification *notification) {
                                                         (void)notification;
-                                                        const int status = minato_provoking_probe();
+                                                        const int status = probe();
                                                         fflush(stdout);
                                                         fflush(stderr);
                                                         _exit(status);
                                                     }];
+    }
+}
+
+/* ADR-0044 a): a debug build of the app, launched with MINATO_PROVOKING_PROBE set, runs the probe of the last vertex
+   (provoking.m) once the app is active and ends with its result. Without the variable it does nothing. */
+__attribute__((constructor)) static void provoking_probe_on_launch(void) {
+    if (getenv("MINATO_PROVOKING_PROBE") != NULL) {
+        run_when_active("provoking probe", ^{
+            return minato_provoking_probe();
+        });
+    }
+}
+
+/* ADR-0041 decision 11 c): a debug build of the app, launched with MINATO_DRAWABLE_PROBE set, runs the probe of the
+   drawables' pool (drawable_probe.m) for 3 s per run once the app is active, its display link on the main run loop, and
+   ends with its result. Without the variable it does nothing. */
+__attribute__((constructor)) static void drawable_probe_on_launch(void) {
+    if (getenv("MINATO_DRAWABLE_PROBE") != NULL) {
+        run_when_active("drawable probe", ^{
+            return minato_drawable_probe(3.0);
+        });
     }
 }
