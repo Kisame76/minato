@@ -2,12 +2,13 @@
 // (properties.h). Each open writes what Linux would show at that moment into an unlinked temporary file of
 // the host and gives the guest that file, so that reads, seeks, fstat and mmap work as on any file. The
 // formats are Linux 6.6's, the kernel of Android 15's emulator: fs/proc/array.c (stat), fs/proc/base.c
-// (cmdline), fs/proc/task_mmu.c (maps), drivers/base/cpu.c (possible, online), fs/proc/fd.c and the anonymous
-// inodes (the links of fd/).
+// (cmdline), fs/proc/task_mmu.c (maps), drivers/base/cpu.c (possible, online), arch/arm64/kernel/cpuinfo.c
+// (cpuinfo), fs/proc/fd.c and the anonymous inodes (the links of fd/).
 #include "proc.h"
 
 #include "descriptors.h"
 #include "dl.h"
+#include "hwcap.h"
 #include "properties.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -85,6 +86,32 @@ std::string cpu_list(const char *sysctl_name) {
     std::size_t length = sizeof cpus;
     if (::sysctlbyname(sysctl_name, &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
     return cpus == 1 ? std::string("0\n") : std::format("0-{}\n", cpus - 1);
+}
+
+// --- /proc/cpuinfo -------------------------------------------------------------------------------------
+
+/// What Linux's c_show writes for each online CPU (ADR-0047 c): the Features line names the bits the guest is told
+/// (hwcap.h), and BogoMIPS comes from the counter's frequency as Linux takes loops_per_jiffy from the architected
+/// timer, with Android's HZ of 250. The MIDR fields are those Android 15 shows on Apple's hypervisor: XNU does not
+/// let EL0 read the device's own.
+std::string cpuinfo() {
+    int cpus = 1;
+    std::size_t length = sizeof cpus;
+    if (::sysctlbyname("hw.activecpu", &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
+    std::uint64_t frequency = 0;
+    length = sizeof frequency;
+    if (::sysctlbyname("hw.tbfrequency", &frequency, &length, nullptr, 0) != 0 || frequency == 0) {
+        frequency = 24'000'000;  // the counter of every Apple CPU
+    }
+    const std::uint64_t jiffy = frequency / 250;
+    const std::string features = hwcap::features(hwcap::guest());
+    std::string text;
+    for (int cpu = 0; cpu < cpus; ++cpu) {
+        text += std::format("processor\t: {}\nBogoMIPS\t: {}.{:02}\nFeatures\t:{}{}\nCPU implementer\t: 0x61\n"
+                            "CPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\n",
+                            cpu, jiffy / 2000, jiffy / 20 % 100, features.empty() ? "" : " ", features);
+    }
+    return text;
 }
 
 // --- /proc/self/stat -----------------------------------------------------------------------------------
@@ -451,6 +478,8 @@ std::optional<long> open(std::string_view path, int linux_flags) {
         contents = cpu_list("hw.ncpu");
     } else if (path == "/sys/devices/system/cpu/online") {
         contents = cpu_list("hw.activecpu");  // as sched_getaffinity
+    } else if (path == "/proc/cpuinfo") {
+        contents = cpuinfo();
     } else if (path == "/linkerconfig/apex.libraries.config.txt") {
         contents = dl::apex_libraries_config();
     } else if (const auto entry = own_entry(path)) {

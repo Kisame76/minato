@@ -168,6 +168,25 @@ TEST(without_any_feature_nothing_is_reported) {
     CHECK(got.hwcap == 0 && got.hwcap2 == 0);
 }
 
+TEST(the_features_line_names_the_reported_bits_as_linux_s_cpuinfo_does) {
+    // /proc/cpuinfo's Features line (ADR-0047 c): Linux's names, AT_HWCAP's bits from the lowest, then AT_HWCAP2's
+    // (hwcap_str of arch/arm64/kernel/cpuinfo.c, 6.6 and, for lut and faminmax, 6.12). The Mac and the iPhone give
+    // the same line.
+    CHECK(apkrt::hwcap::features(bits_of(mac)) ==
+          "fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 "
+          "asimdfhm dit uscat ilrcpc flagm sb dcpodp flagm2 frint i8mm bf16 rpres");
+    CHECK(apkrt::hwcap::features(bits_of(iphone)) == apkrt::hwcap::features(bits_of(mac)));
+    Bits every{0, 0};
+    for (const Reported &entry : reported) {
+        every.hwcap |= entry.hwcap;
+        every.hwcap2 |= entry.hwcap2;
+    }
+    CHECK(apkrt::hwcap::features(every) ==
+          "fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 "
+          "asimdfhm dit uscat ilrcpc flagm sb dcpodp flagm2 frint i8mm bf16 rpres ebf16 cssc hbc lut faminmax");
+    CHECK(apkrt::hwcap::features(Bits{0, 0}).empty());
+}
+
 TEST(the_device_s_own_bits_come_from_its_sysctl_once) {
     const Bits read = apkrt::hwcap::from([](const char *name) {
         int value = 0;

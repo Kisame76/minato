@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 
 namespace apkrt::hwcap {
 
@@ -20,5 +21,9 @@ Bits from(const std::function<bool(const char *name)> &has);
 
 /// This device's bits, read from its sysctl at the first call and kept for the process.
 const Bits &guest();
+
+/// The names that Linux's /proc/cpuinfo gives `bits` on its Features line, separated by spaces, in its order:
+/// AT_HWCAP's bits from the lowest, then AT_HWCAP2's (hwcap_str of arch/arm64/kernel/cpuinfo.c).
+std::string features(const Bits &bits);
 
 }  // namespace apkrt::hwcap

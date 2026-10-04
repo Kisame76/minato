@@ -3,7 +3,8 @@
 getauxval's AT_HWCAP and AT_HWCAP2 and what its own ifunc resolver got from the linker. All must be the bits this
 Mac's sysctl gives under ADR-0047's policy, which this script maps with its own copy of decision 2's table, not the
 runtime's (runtime/src/hwcap.cpp): the resolver's hwcap with _IFUNC_ARG_HWCAP set, and its __ifunc_arg_t of 24
-bytes with both words. Prints "skipped: ..." while a part is not built.
+bytes with both words. /proc/cpuinfo must have one processor for each online CPU (hw.activecpu) and a Features line
+with Linux's names of exactly those bits (ADR-0047 c). Prints "skipped: ..." while a part is not built.
 
 Usage: hwcap_check.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work>
 """
@@ -40,6 +41,13 @@ HWCAP2 = {
     49: [ARM + "FEAT_LUT"], 50: [ARM + "FEAT_FAMINMAX"],                           # LUT, FAMINMAX
 }
 IFUNC_ARG_HWCAP = 1 << 62
+# Linux's names of those bits on /proc/cpuinfo's Features line (hwcap_str of arch/arm64/kernel/cpuinfo.c), which it
+# writes AT_HWCAP's from the lowest bit, then AT_HWCAP2's.
+NAMES = {0: "fp", 1: "asimd", 3: "aes", 4: "pmull", 5: "sha1", 6: "sha2", 7: "crc32", 8: "atomics", 9: "fphp",
+         10: "asimdhp", 12: "asimdrdm", 13: "jscvt", 14: "fcma", 15: "lrcpc", 16: "dcpop", 17: "sha3", 20: "asimddp",
+         21: "sha512", 23: "asimdfhm", 24: "dit", 25: "uscat", 26: "ilrcpc", 27: "flagm", 29: "sb"}
+NAMES2 = {0: "dcpodp", 7: "flagm2", 8: "frint", 13: "i8mm", 14: "bf16", 21: "rpres", 32: "ebf16", 34: "cssc",
+          44: "hbc", 49: "lut", 50: "faminmax"}
 
 
 def sysctl_ones():
@@ -55,6 +63,18 @@ def sysctl_ones():
 
 def bits(table, ones):
     return sum(1 << number for number, names in table.items() if any(name in ones for name in names))
+
+
+def features(hwcap, hwcap2):
+    """The Features line's names of `hwcap` and `hwcap2`, in Linux's order."""
+    return " ".join([NAMES[number] for number in sorted(NAMES) if hwcap >> number & 1] +
+                    [NAMES2[number] for number in sorted(NAMES2) if hwcap2 >> number & 1])
+
+
+def online_cpus():
+    """This Mac's online CPUs, as /sys/devices/system/cpu/online counts them in the guest."""
+    result = subprocess.run(["/usr/sbin/sysctl", "-n", "hw.activecpu"], capture_output=True, text=True, check=True)
+    return int(result.stdout.strip())
 
 
 def convert(apk_convert, elf, container):
@@ -98,11 +118,12 @@ def main():
     hwcap, hwcap2 = bits(HWCAP, ones), bits(HWCAP2, ones)
     wanted = [f"AT_HWCAP 0x{hwcap:x}", f"AT_HWCAP2 0x{hwcap2:x}",
               f"ifunc resolver: hwcap 0x{hwcap:x}, _IFUNC_ARG_HWCAP set",
-              f"ifunc argument: size 24, hwcap 0x{hwcap:x}, hwcap2 0x{hwcap2:x}", "probe: 1"]
+              f"ifunc argument: size 24, hwcap 0x{hwcap:x}, hwcap2 0x{hwcap2:x}", "probe: 1",
+              f"/proc/cpuinfo: {online_cpus()} processors, Features: {features(hwcap, hwcap2)}"]
     got = result.stdout.splitlines()
     if result.returncode == 0 and got == wanted:
         print(f"hwcap-test learns this Mac's features: AT_HWCAP 0x{hwcap:x}, AT_HWCAP2 0x{hwcap2:x}, also in its ifunc "
-              "resolver")
+              "resolver and on /proc/cpuinfo's Features line")
         return
     print(f"FAIL: exit status {result.returncode}")
     print("wanted:\n  " + "\n  ".join(wanted))

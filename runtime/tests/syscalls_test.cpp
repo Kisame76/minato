@@ -2,6 +2,7 @@
 // with Linux numbers, flags and structures, exactly as a guest's svc veneer delivers them. Descriptors
 // are guest numbers (ADR-0027); host_of() shows the host descriptor behind one.
 #include "descriptors.h"
+#include "hwcap.h"
 #include "proc.h"
 #include "syscall_frame.h"
 #include "vfs.h"
@@ -1368,6 +1369,26 @@ TEST(linkerconfig_gives_libnativeloader_the_apexes_libraries) {
     CHECK(read_guest_file(path) ==
           "public com_android_art libnativehelper.so:libicu.so\njni com_android_conscrypt libjavacrypto.so\n");
     CHECK(open_guest(at_fdcwd, path, o_wronly) == -eacces);
+}
+
+TEST(proc_cpuinfo_names_the_features_the_guest_is_told_as_linux_writes_them) {
+    // ADR-0047 c): one block for each online CPU, in the format of Linux's c_show (arch/arm64/kernel/cpuinfo.c): the
+    // Features line names the bits of AT_HWCAP and AT_HWCAP2, BogoMIPS comes from the counter's frequency as Linux
+    // derives it with Android's HZ of 250, and the MIDR fields are those Android 15 shows on Apple's hypervisor.
+    std::uint64_t frequency = 0;
+    std::size_t size = sizeof frequency;
+    CHECK(::sysctlbyname("hw.tbfrequency", &frequency, &size, nullptr, 0) == 0);
+    const std::uint64_t jiffy = frequency / 250;  // loops_per_jiffy
+    const std::string features = apkrt::hwcap::features(apkrt::hwcap::guest());
+    std::string wanted;
+    for (int cpu = 0; cpu < cpu_count("hw.activecpu"); ++cpu) {
+        wanted += std::format("processor\t: {}\nBogoMIPS\t: {}.{:02}\nFeatures\t: {}\nCPU implementer\t: 0x61\n"
+                              "CPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x000\nCPU revision\t: 0\n\n",
+                              cpu, jiffy / 2000, jiffy / 20 % 100, features);
+    }
+    CHECK(read_guest_file("/proc/cpuinfo") == wanted);
+    CHECK(wanted.find("BogoMIPS\t: 48.00\n") != std::string::npos);  // the 24 MHz counter of Apple's CPUs
+    CHECK(open_guest(at_fdcwd, "/proc/cpuinfo", o_wronly) == -eacces);
 }
 
 /// A main stack for the files of /proc, as program.cpp gives one: 8 MiB.

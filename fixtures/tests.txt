@@ -55,8 +55,8 @@ kernel-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
 # emulator's differ (its AVD's heap, a userdebug build).
 property-test system runtime-only
-# The CPU features a program learns (ADR-0047 a), the device's own: shown, and on the Mac compared with the bits
-# its sysctl gives by runtime.hwcap_fixture.
+# The CPU features a program learns (ADR-0047 a and c), the device's own: shown, and on the Mac compared with the
+# bits its sysctl gives by runtime.hwcap_fixture.
 hwcap-test system measures
 # No camera and no media codecs, the stubs that let Godot's library load (ADR-0042 b, gap 15); Android's emulator
 # has cameras.

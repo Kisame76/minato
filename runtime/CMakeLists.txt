@@ -292,8 +292,8 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/environment_runs")
   set_tests_properties(runtime.app_environment PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
-  # The CPU features a program learns (ADR-0047 a): hwcap-test's getauxval and ifunc resolver against the bits this
-  # Mac's sysctl gives, mapped by the check's own copy of the table.
+  # The CPU features a program learns (ADR-0047 a and c): hwcap-test's getauxval, ifunc resolver and /proc/cpuinfo
+  # against the bits this Mac's sysctl gives, mapped by the check's own copy of the table.
   add_test(NAME runtime.hwcap_fixture
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/hwcap_check.py" "${APK_FIXTURES_DIR}"
       "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>

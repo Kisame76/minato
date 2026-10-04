@@ -112,7 +112,8 @@ add_executable(hwui-load suite/hwui-load.c)
 target_link_libraries(hwui-load PRIVATE dl)
 # property-test: bionic's property calls on the runtime's property area (ADR-0039 decisions 4 and 9).
 add_executable(property-test suite/property-test.c)
-# hwcap-test: the CPU features a program learns, from getauxval and in its own ifunc resolver (ADR-0047 a).
+# hwcap-test: the CPU features a program learns, from getauxval, in its own ifunc resolver (ADR-0047 a) and on
+# /proc/cpuinfo (c).
 add_executable(hwcap-test suite/hwcap-test.c)
 # camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b, gap 15).
 add_executable(camera-media-test suite/camera-media-test.c)

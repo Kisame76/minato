@@ -58,6 +58,26 @@ constexpr Entry table[] = {
 // Not in the table: SSBS, ECV, AFP and WFXT until a check at EL0 on the device lets each in (decision 3); CPUID,
 // PACA, PACG, BTI, SVE, SME, MTE, EVTSTRM and FPMR never (decision 4).
 
+// The names that Linux's /proc/cpuinfo gives the table's bits on its Features line, in its order: AT_HWCAP's bits
+// from the lowest, then AT_HWCAP2's (hwcap_str of arch/arm64/kernel/cpuinfo.c; lut and faminmax since 6.12).
+struct LinuxName {
+    std::uint64_t hwcap;
+    std::uint64_t hwcap2;
+    const char *name;
+};
+
+constexpr LinuxName linux_names[] = {
+    {bit(0), 0, "fp"},        {bit(1), 0, "asimd"},     {bit(3), 0, "aes"},        {bit(4), 0, "pmull"},
+    {bit(5), 0, "sha1"},      {bit(6), 0, "sha2"},      {bit(7), 0, "crc32"},      {bit(8), 0, "atomics"},
+    {bit(9), 0, "fphp"},      {bit(10), 0, "asimdhp"},  {bit(12), 0, "asimdrdm"},  {bit(13), 0, "jscvt"},
+    {bit(14), 0, "fcma"},     {bit(15), 0, "lrcpc"},    {bit(16), 0, "dcpop"},     {bit(17), 0, "sha3"},
+    {bit(20), 0, "asimddp"},  {bit(21), 0, "sha512"},   {bit(23), 0, "asimdfhm"},  {bit(24), 0, "dit"},
+    {bit(25), 0, "uscat"},    {bit(26), 0, "ilrcpc"},   {bit(27), 0, "flagm"},     {bit(29), 0, "sb"},
+    {0, bit(0), "dcpodp"},    {0, bit(7), "flagm2"},    {0, bit(8), "frint"},      {0, bit(13), "i8mm"},
+    {0, bit(14), "bf16"},     {0, bit(21), "rpres"},    {0, bit(32), "ebf16"},     {0, bit(34), "cssc"},
+    {0, bit(44), "hbc"},      {0, bit(49), "lut"},      {0, bit(50), "faminmax"},
+};
+
 }  // namespace
 
 Bits from(const std::function<bool(const char *name)> &has) {
@@ -81,6 +101,16 @@ const Bits &guest() {
         return sysctlbyname(name, &value, &size, nullptr, 0) == 0 && value == 1;
     });
     return bits;
+}
+
+std::string features(const Bits &bits) {
+    std::string line;
+    for (const LinuxName &entry : linux_names) {
+        if ((bits.hwcap & entry.hwcap) == 0 && (bits.hwcap2 & entry.hwcap2) == 0) continue;
+        if (!line.empty()) line += ' ';
+        line += entry.name;
+    }
+    return line;
 }
 
 }  // namespace apkrt::hwcap
