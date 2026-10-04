@@ -1,5 +1,5 @@
 {
-  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'never' until ADR-0033 d) puts them into the app; their build tools stay 'never'. So are the framework's sources until step c of ADR-0039 puts framework.jar, framework-res and platform.xml into the app, and its build tools stay 'never'.",
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'never' until ADR-0033 d) puts them into the app; their build tools stay 'never'. So are the framework's sources until step c of ADR-0039 puts framework.jar, framework-res and platform.xml into the app, and its build tools stay 'never'. A path with a slash is a file in the bundle: test 2's APKs go into a benchmark build together (tools/embed-benchmark.sh), so their section's rule names one of them.",
   "sections": {
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
@@ -12,6 +12,7 @@
     "Graphics sources": "never",
     "Guest fonts": "always",
     "Test 2 with Godot": "MinatoGodot.framework",
+    "Test 2's APKs": "Benchmark/godot-bench-vulkan.apk",
     "Build tools for the formats": "never",
     "References without adopted code": "never"
   },
@@ -427,6 +428,66 @@
         "Android SDK build-tools (build-tools_r35.0.1_macosx.zip) in build/godot/sdk/, for apksigner, which the export without Gradle needs"
       ],
       "none": "a build tool in build/godot/sdk/ for the export's apksigner; never shipped"
+    },
+    {
+      "name": "godot-android",
+      "section": "Test 2's APKs",
+      "license": "MIT",
+      "rows": [
+        "Godot's Android template (android_release.apk), the engine of the test APKs"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/godot/LICENSE.txt",
+          "as": "LICENSE.txt"
+        },
+        {
+          "from": "repo:third_party/godot/COPYRIGHT.txt",
+          "as": "COPYRIGHT.txt"
+        }
+      ]
+    },
+    {
+      "name": "androidx",
+      "section": "Test 2's APKs",
+      "license": "Apache-2.0",
+      "rows": [
+        "AndroidX libraries in the test APKs' dex"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "kotlin-stdlib",
+      "section": "Test 2's APKs",
+      "license": "Apache-2.0",
+      "rows": [
+        "Kotlin's standard library in the test APKs' dex"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "swappy",
+      "section": "Test 2's APKs",
+      "license": "Apache-2.0",
+      "rows": [
+        "Swappy, the Android Game Development Kit's frame pacing, in libgodot_android.so"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
     }
   ]
 }

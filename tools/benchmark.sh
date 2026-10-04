@@ -5,7 +5,10 @@
 # fetches each run's CSVs to build/benchmark/<run>/ (build/benchmark-simulator/ for the Simulator).
 # Results already there count, so a stopped series goes on where it stopped; bench-plan stops it
 # after 3 invalid runs in a row of one configuration, or at once when the pair's layers differ.
-#   --api gles|vulkan    only this API's series
+#   --scene godot        test 2's series instead (ADR-0042 c): the Godot APKs against the twin, Godot's iOS template in
+#                        the benchmark build, through tools/build-godot.sh and APK_EMBED_GODOT=YES; the twin runs on
+#                        the iPhone only
+#   --api gles|vulkan    only this API's series; metal too with --scene godot, the twin's own
 #   --more <config>      5 more runs per variant of a configuration, e.g. gles-120-heavy (decision 8)
 #   --seconds <n>        a shorter draw time than 52 s, for the Simulator (its graphics are not judged)
 #   --build-check        checks the build setting instead: a Release build without it holds neither
@@ -16,9 +19,10 @@
 # The benchmark build is Release, with tools/build-native.sh --app --release and
 # tools/build-graphics-host.sh --release (through tools/deploy.sh and tools/sim.sh); their next
 # Debug run packs the Debug builds again.
-# Usage: tools/benchmark.sh [--simulator] [--device <name or identifier>] [--api <api>]
+# Usage: tools/benchmark.sh [--simulator] [--device <name or identifier>] [--scene godot] [--api <api>]
 #                           [--more <configuration> ...] [--seconds <n>]
 #        tools/benchmark.sh --build-check [simulator name or UDID]
+#        tools/benchmark.sh --embed-check   the build phase's cases of --build-check alone, without a build
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,6 +49,9 @@ check_app() {
   # stored in the code, not as text.
   local mode=0
   [[ "$(strings -a "$app/Minato" | grep -c BenchmarkRunner)" == 0 ]] || mode=1
+  # Test 2's twin and pack come only with APK_EMBED_GODOT=YES, which neither build sets.
+  [[ ! -e "$app/Frameworks/MinatoGodot.framework" ]] || problems+=" MinatoGodot.framework"
+  [[ ! -e "$app/Minato.pck" ]] || problems+=" Minato.pck"
   if [[ "$setting" == without ]]; then
     [[ "$mode" == 0 ]] || problems+=" mode"
     [[ ! -e "$app/Frameworks/MinatoBench.framework" ]] || problems+=" MinatoBench.framework"
@@ -61,32 +68,44 @@ check_app() {
   echo "$problems"
 }
 
-if [[ "${1:-}" == "--build-check" ]]; then
-  read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${2:-}") || true
-  if [[ -z "${SIM_UDID:-}" ]]; then
-    echo "No matching iPhone simulator found." >&2
-    exit 1
-  fi
-  failed=0
-  # A benchmark build is a Release build of Release libraries with the framework and both APKs: the
-  # build phase refuses anything else. In a scratch tree, each case with only its own flaw, and one
-  # without a flaw that it takes, so a refusal is the flaw's.
+# The build phase alone, tools/embed-benchmark.sh, in scratch trees: each case with only its own flaw, and one without a
+# flaw that it takes, so a refusal is the flaw's. A benchmark build is a Release build of Release libraries with the
+# framework and both APKs; with APK_EMBED_GODOT=YES also test 2's APKs, and on iOS devices the twin and its pack
+# (ADR-0042 c). Every case starts from what an earlier build left in the app, which a build must remove unless it
+# embeds it again. The outcome names what the app holds: bench (MinatoBench.framework and the scene's APKs),
+# godot-apks, twin (MinatoGodot.framework) and pack (Minato.pck).
+embed_checks() {
+  local failed=0
   embed_case() {
-    local expected=$2 name=$3 configuration=$4 libraries=$5 missing=$6 tree="$CHECK/tree-$1" outcome
+    local expected=$2 name=$3 configuration=$4 libraries=$5 missing=$6 platform=${7:-iphonesimulator}
+    local godot=${8:-NO} benchmark=${9:-YES} tree="$CHECK/tree-$1" app outcome slice xcframework
     rm -rf "$tree"
-    mkdir -p "$tree/build/MinatoBench.xcframework/ios-arm64-simulator/MinatoBench.framework" \
-      "$tree/build/graphics/bench" "$tree/app"
-    echo stand-in >"$tree/build/MinatoBench.xcframework/ios-arm64-simulator/MinatoBench.framework/MinatoBench"
-    touch "$tree/build/graphics/bench/bench-gles.apk" "$tree/build/graphics/bench/bench-vulkan.apk"
+    for slice in ios-arm64 ios-arm64-simulator; do
+      mkdir -p "$tree/build/MinatoBench.xcframework/$slice/MinatoBench.framework"
+      echo stand-in >"$tree/build/MinatoBench.xcframework/$slice/MinatoBench.framework/MinatoBench"
+    done
+    mkdir -p "$tree/build/MinatoGodot.xcframework/ios-arm64/MinatoGodot.framework" "$tree/build/graphics/bench" \
+      "$tree/build/godot"
+    echo stand-in >"$tree/build/MinatoGodot.xcframework/ios-arm64/MinatoGodot.framework/MinatoGodot"
+    touch "$tree/build/graphics/bench/bench-gles.apk" "$tree/build/graphics/bench/bench-vulkan.apk" \
+      "$tree/build/godot/godot-bench-gles.apk" "$tree/build/godot/godot-bench-vulkan.apk" "$tree/build/godot/Minato.pck"
     for xcframework in APKRuntime APKConvert MinatoGraphics; do
       echo "$libraries" >"$tree/build/$xcframework.xcframework.configuration"
     done
+    app="$tree/app/Minato.app"
+    mkdir -p "$app/Frameworks/MinatoBench.framework" "$app/Frameworks/MinatoGodot.framework" "$app/Benchmark"
+    touch "$app/Minato.pck" "$app/Benchmark/godot-bench-vulkan.apk"
     [[ -z "$missing" ]] || rm -rf "${tree:?}/$missing"
-    if CONFIGURATION=$configuration APK_EMBED_BENCHMARK=YES SRCROOT="$tree" TARGET_BUILD_DIR="$tree/app" \
-      FRAMEWORKS_FOLDER_PATH=Minato.app/Frameworks UNLOCALIZED_RESOURCES_FOLDER_PATH=Minato.app \
-      PLATFORM_NAME=iphonesimulator tools/embed-benchmark.sh >"$tree/out.txt" 2>&1; then
+    if CONFIGURATION=$configuration APK_EMBED_BENCHMARK=$benchmark APK_EMBED_GODOT=$godot SRCROOT="$tree" \
+      TARGET_BUILD_DIR="$tree/app" FRAMEWORKS_FOLDER_PATH=Minato.app/Frameworks \
+      UNLOCALIZED_RESOURCES_FOLDER_PATH=Minato.app PLATFORM_NAME=$platform tools/embed-benchmark.sh \
+      >"$tree/out.txt" 2>&1; then
       outcome=embedded
-      [[ -f "$tree/app/Minato.app/Frameworks/MinatoBench.framework/MinatoBench" ]] || outcome="embedded nothing"
+      [[ ! -e "$app/Frameworks/MinatoBench.framework" ]] || outcome+=" bench"
+      [[ ! -e "$app/Benchmark/godot-bench-vulkan.apk" ]] || outcome+=" godot-apks"
+      [[ ! -e "$app/Frameworks/MinatoGodot.framework" ]] || outcome+=" twin"
+      [[ ! -e "$app/Minato.pck" ]] || outcome+=" pack"
+      [[ "$outcome" != embedded ]] || outcome="embedded nothing"
     else
       outcome=refused
     fi
@@ -97,11 +116,38 @@ if [[ "${1:-}" == "--build-check" ]]; then
       failed=1
     fi
   }
-  embed_case complete embedded "a Release build of Release libraries" Release Release ""
+  embed_case complete "embedded bench" "a Release build of Release libraries" Release Release ""
+  embed_case device "embedded bench" "the same for an iOS device" Release Release "" iphoneos
   embed_case debug refused "a Debug build" Debug Release ""
   embed_case libraries refused "the runtime's Debug build" Release Debug ""
   embed_case framework refused "no MinatoBench.framework" Release Release build/MinatoBench.xcframework
   embed_case apk refused "no bench-vulkan.apk" Release Release build/graphics/bench/bench-vulkan.apk
+  embed_case plain "embedded nothing" "a Release build without the setting" Release Release "" iphoneos NO NO
+  embed_case plain-debug "embedded nothing" "a Debug build without the setting" Debug Debug "" iphonesimulator NO NO
+  embed_case godot "embedded bench godot-apks twin pack" "test 2 for an iOS device" Release Release "" iphoneos YES
+  embed_case godot-simulator "embedded bench godot-apks" "test 2 in the Simulator: no twin, no pack" \
+    Release Release "" iphonesimulator YES
+  embed_case godot-twin refused "test 2 without the twin" Release Release build/MinatoGodot.xcframework iphoneos YES
+  embed_case godot-pack refused "test 2 without Minato.pck" Release Release build/godot/Minato.pck iphoneos YES
+  embed_case godot-apk refused "test 2 without godot-bench-gles.apk" Release Release build/godot/godot-bench-gles.apk \
+    iphonesimulator YES
+  embed_case godot-alone refused "test 2 without the benchmark setting" Release Release "" iphoneos YES NO
+  return $failed
+}
+
+if [[ "${1:-}" == "--embed-check" ]]; then
+  embed_checks
+  exit $?
+fi
+
+if [[ "${1:-}" == "--build-check" ]]; then
+  read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${2:-}") || true
+  if [[ -z "${SIM_UDID:-}" ]]; then
+    echo "No matching iPhone simulator found." >&2
+    exit 1
+  fi
+  failed=0
+  embed_checks || failed=1
   tools/gen.sh
   tools/build-bench.sh
   tools/build-bench.sh --ios
@@ -123,6 +169,7 @@ if [[ "${1:-}" == "--build-check" ]]; then
 fi
 
 SIMULATOR=0
+GODOT=0
 WANTED_DEVICE=""
 SECONDS_ARGS=()
 PLAN_ARGS=()
@@ -130,6 +177,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --simulator) SIMULATOR=1; shift ;;
     --device) WANTED_DEVICE="$2"; shift 2 ;;
+    --scene)
+      [[ "${2:-}" == godot ]] || { echo "Unknown scene ${2:-}" >&2; exit 2; }
+      GODOT=1; PLAN_ARGS+=(--scene godot); shift 2 ;;
     --api | --more) PLAN_ARGS+=("$1" "$2"); shift 2 ;;
     --seconds) SECONDS_ARGS=(-benchmarkSeconds "$2"); shift 2 ;;
     *) echo "Unknown argument $1" >&2; exit 2 ;;
@@ -143,12 +193,21 @@ swift build --package-path importer/APKKit --scratch-path build/swift-app -j 6 -
 # The APKs and MinatoBench.framework, which the build embeds (tools/embed-benchmark.sh).
 tools/build-bench.sh
 tools/build-bench.sh --ios
+# Test 2's: both APKs, and for the iPhone the twin's pack and framework.
+if [[ "$GODOT" == 1 ]]; then
+  tools/build-godot.sh
+  if [[ "$SIMULATOR" == 0 ]]; then
+    tools/build-godot.sh --pack
+    tools/build-godot.sh --twin
+  fi
+fi
 PLAN="$(swift build --package-path importer/APKKit --scratch-path build/swift-app --show-bin-path)/bench-plan"
 
 # The run.csv names the commit; -dirty when the tree has changes.
 COMMIT=$(git rev-parse --short HEAD)
 [[ -z "$(git status --porcelain)" ]] || COMMIT+=-dirty
 SETTINGS="APK_EMBED_BENCHMARK=YES MINATO_COMMIT=$COMMIT"
+[[ "$GODOT" == 0 ]] || SETTINGS+=" APK_EMBED_GODOT=YES"
 if [[ "$SIMULATOR" == 1 ]]; then
   CONFIGURATION=Release BUILD_SETTINGS="$SETTINGS ARCHS=arm64 ONLY_ACTIVE_ARCH=YES" INSTALL_ONLY=1 \
     tools/sim.sh --headless ${WANTED_DEVICE:+"$WANTED_DEVICE"}
@@ -202,7 +261,7 @@ while true; do
   [[ "$step" != done ]] || break
   # The run names a folder that is emptied below: anything but "run <run ID>" stops the series
   # before it is used, so a wrong line cannot remove the results.
-  if [[ ! "$step" =~ ^run\ ((gles|vulkan)-[0-9]+-(light|heavy)-(native|apk)-[0-9]{2})$ ]]; then
+  if [[ ! "$step" =~ ^run\ ((godot-)?(gles|vulkan|metal)-[0-9]+-(light|heavy)-(native|apk|twin)-[0-9]{2})$ ]]; then
     echo "STOPPED  bench-plan answered neither \"done\" nor \"run <run ID>\": '$step'" >&2
     exit 1
   fi

@@ -2,7 +2,8 @@
 """Xcode build phase (project.yml): puts the license texts of what the app embeds into Minato.app/Licenses.
 
 Reads third_party/licenses.json. A component goes in when its section of THIRD_PARTY.md is embedded
-always, or with a framework the build has put into the bundle's Frameworks/. Its texts are copied from
+always, with a framework the build has put into the bundle's Frameworks/, or with a file at a path in the
+bundle (a rule with a slash, such as a benchmark build's test APK). Its texts are copied from
 where the build fetched them (build/sources, build/moltenvk, ANGLE's checkout in build/angle, the NDK,
 the repository) into Licenses/<component>/, and Licenses/licenses.json lists what is there. A missing
 text fails the build: the notices must travel with every binary. tools/license-check.py checks the result.
@@ -30,7 +31,8 @@ def main():
     missing = []
     for component in config["components"]:
         rule = config["sections"][component["section"]]
-        if rule == "never" or (rule != "always" and not os.path.isdir(os.path.join(frameworks, rule))):
+        if rule == "never" or (rule != "always" and not (os.path.exists(os.path.join(bundle, rule)) if "/" in rule
+                                                         else os.path.isdir(os.path.join(frameworks, rule)))):
             continue
         entry = {key: component[key] for key in ("name", "section", "license", "rows")}
         if "none" in component:

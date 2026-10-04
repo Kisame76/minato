@@ -206,7 +206,7 @@ From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.
 
 ## Test 2 with Godot (ADR-0042)
 
-The engine of test 2's app and the tool its export needs, in `build/godot/`, not in the app. `tools/fetch-godot.py` fetches them and checks every file against its pin in `third_party/sources.json` before it unpacks; Godot's license texts are kept in `third_party/godot/`. The twin, Godot's iOS template, goes into the benchmark build only, with ADR-0042 c), which gives this section its rule for the bundle then.
+The engine of test 2's app and the tool its export needs, in `build/godot/`, not in the app. `tools/fetch-godot.py` fetches them and checks every file against its pin in `third_party/sources.json` before it unpacks; Godot's license texts are kept in `third_party/godot/`. The twin, Godot's iOS template, goes into benchmark builds for devices only (ADR-0042 c), as `Frameworks/MinatoGodot.framework`, which is this section's rule for the bundle.
 
 | Tool | Version | License |
 |---|---|---|
@@ -214,7 +214,16 @@ The engine of test 2's app and the tool its export needs, in `build/godot/`, not
 | Godot's export templates (`Godot_v4.7.2-stable_export_templates.tpz`), of which only `android_release.apk` and `ios.zip` are unpacked | `4.7.2-stable`, SHA-512 pinned | MIT, as above |
 | Android SDK build-tools (`build-tools_r35.0.1_macosx.zip`) in `build/godot/sdk/`, for `apksigner`, which the export without Gradle needs | `35.0.1`, Google's SHA-1 and our SHA-256 pinned | Android Software Development Kit License |
 
-The two test APKs that `tools/build-godot.sh` exports at test time, never kept in the repo or the app, carry what Godot's Android template holds: AndroidX and Kotlin's standard library (Apache-2.0), and Swappy, the Android Game Development Kit's frame pacing (Apache-2.0), inside `libgodot_android.so`, also while `godot-bench` turns Swappy off.
+## Test 2's APKs (ADR-0042)
+
+The two test APKs that `tools/build-godot.sh` exports at test time are never kept in the repo. A benchmark build with `APK_EMBED_GODOT=YES` (`tools/benchmark.sh --scene godot`) carries both in `Benchmark/` (`tools/embed-benchmark.sh`), and every other build removes them, so this section's rule for the bundle is the Vulkan APK's path. They hold what Godot's Android template holds; Swappy stays inside `libgodot_android.so` also while `godot-bench` turns it off. The Apache-2.0 components take the repository's `LICENSE` as their text.
+
+| What the APKs hold | License |
+|---|---|
+| Godot's Android template (`android_release.apk`), the engine of the test APKs | MIT (`third_party/godot/LICENSE.txt`; the third parties in `COPYRIGHT.txt`) |
+| AndroidX libraries in the test APKs' dex | Apache-2.0 |
+| Kotlin's standard library in the test APKs' dex | Apache-2.0 |
+| Swappy, the Android Game Development Kit's frame pacing, in `libgodot_android.so` | Apache-2.0 |
 
 ## Build tools for the formats (M5)
 

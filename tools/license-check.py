@@ -2,7 +2,8 @@
 """Checks that a built Minato.app carries the license texts of everything it embeds.
 
 THIRD_PARTY.md lists what Minato adopts, in one table or more per section. third_party/licenses.json says
-for each such section when the app embeds it: always, with a framework in the bundle, or never. For every
+for each such section when the app embeds it: always, with a framework in the bundle, with a file at a path in the
+bundle (a rule with a slash, such as a benchmark build's test APK), or never. For every
 table row of an embedded section, the bundle's Licenses/licenses.json must name a component that covers
 it, and each of that component's texts must be in Licenses/ and not empty. So must every component
 third_party/licenses.json lists for an embedded section, since a row may need several (libc++, libc++abi
@@ -35,6 +36,15 @@ def sections(markdown):
     return found
 
 
+def embedded(app, rule):
+    """Whether the bundle at `app` embeds a section with this rule."""
+    if rule in ("always", "never"):
+        return rule == "always"
+    if "/" in rule:
+        return os.path.exists(os.path.join(app, rule))
+    return os.path.isdir(os.path.join(app, "Frameworks", rule))
+
+
 def check(app, config, markdown):
     """The problems of one bundle, as sentences."""
     embedding = config["sections"]
@@ -52,7 +62,7 @@ def check(app, config, markdown):
             problems.append(f"THIRD_PARTY.md's section '{heading}' has tables but no rule in "
                             "third_party/licenses.json's 'sections'")
             continue
-        if rule == "never" or (rule != "always" and not os.path.isdir(os.path.join(frameworks, rule))):
+        if not embedded(app, rule):
             continue
         for row in rows:
             if row in exempt:
@@ -71,8 +81,7 @@ def check(app, config, markdown):
     # embedded section must be there with all of its texts, not only one that covers the row.
     for component in config["components"]:
         rule = embedding.get(component["section"])
-        if component.get("none") or rule in (None, "never") or (
-                rule != "always" and not os.path.isdir(os.path.join(frameworks, rule))):
+        if component.get("none") or rule is None or not embedded(app, rule):
             continue
         listed = next((entry["files"] for entry in components if entry["name"] == component["name"]), None)
         if listed is None:
