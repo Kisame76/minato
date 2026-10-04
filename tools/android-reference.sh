@@ -140,8 +140,9 @@ if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-te
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
 # activity-start-test's AVD (ADR-0039 step c2c3) has that display without navigation keys, as an iPhone has none, and
-# gesture navigation, as our window manager answers that a navigation bar exists (step c2c2).
-if [[ "$app" == activity-start-test ]]; then
+# gesture navigation, as our window manager answers that a navigation bar exists (step c2c2). start-stops-test
+# (ADR-0042 b), whose window's insets controller depends on the bars, runs there too.
+if [[ "$app" == activity-start-test || "$app" == start-stops-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -361,6 +362,10 @@ run_app() {
     # window has focus.
     activity-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.Launcher
+      ;;
+    # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
+    start-stops-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
       ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)

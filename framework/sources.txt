@@ -779,3 +779,41 @@ frameworks_base/core/java/android/view/GestureDetector.java
 frameworks_base/core/java/android/view/InputDevice.java
 frameworks_base/core/java/android/view/ScaleGestureDetector.java
 frameworks_base/core/java/com/android/internal/os/SomeArgs.java
+
+# ADR-0042 b, Godot's first start stops past 7a: Rational, which GodotActivity's fields make for its picture-in-picture
+# bounds, and android.transition, whose TransitionSet android.app.Fragment's class initializer makes, so that platform
+# fragments, androidx's ReportFragment on every ComponentActivity among them, load. This lifts step c2c3's line that
+# scene transitions stay compile-only; the transitions that need widgets, view overlays or drawing stop at their
+# listed references.
+frameworks_base/core/java/android/util/Rational.java
+frameworks_base/core/java/android/transition/ArcMotion.java
+frameworks_base/core/java/android/transition/AutoTransition.java
+frameworks_base/core/java/android/transition/ChangeBounds.java
+frameworks_base/core/java/android/transition/ChangeClipBounds.java
+frameworks_base/core/java/android/transition/ChangeImageTransform.java
+frameworks_base/core/java/android/transition/ChangeScroll.java
+frameworks_base/core/java/android/transition/ChangeText.java
+frameworks_base/core/java/android/transition/ChangeTransform.java
+frameworks_base/core/java/android/transition/CircularPropagation.java
+frameworks_base/core/java/android/transition/Crossfade.java
+frameworks_base/core/java/android/transition/Explode.java
+frameworks_base/core/java/android/transition/Fade.java
+frameworks_base/core/java/android/transition/PathMotion.java
+frameworks_base/core/java/android/transition/PatternPathMotion.java
+frameworks_base/core/java/android/transition/Recolor.java
+frameworks_base/core/java/android/transition/Rotate.java
+frameworks_base/core/java/android/transition/Scene.java
+frameworks_base/core/java/android/transition/SidePropagation.java
+frameworks_base/core/java/android/transition/Slide.java
+frameworks_base/core/java/android/transition/Transition.java
+frameworks_base/core/java/android/transition/TransitionInflater.java
+frameworks_base/core/java/android/transition/TransitionListenerAdapter.java
+frameworks_base/core/java/android/transition/TransitionManager.java
+frameworks_base/core/java/android/transition/TransitionPropagation.java
+frameworks_base/core/java/android/transition/TransitionSet.java
+frameworks_base/core/java/android/transition/TransitionUtils.java
+frameworks_base/core/java/android/transition/TransitionValues.java
+frameworks_base/core/java/android/transition/TransitionValuesMaps.java
+frameworks_base/core/java/android/transition/TranslationAnimationCreator.java
+frameworks_base/core/java/android/transition/Visibility.java
+frameworks_base/core/java/android/transition/VisibilityPropagation.java

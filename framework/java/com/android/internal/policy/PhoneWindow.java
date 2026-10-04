@@ -41,6 +41,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewRootImpl;
 import android.view.Window;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.window.OnBackInvokedDispatcher;
 import android.window.ProxyOnBackInvokedDispatcher;
@@ -255,6 +256,12 @@ public class PhoneWindow extends Window {
             installDecor();
         }
         return mDecor;
+    }
+
+    /** As AOSP's: the decor view's insets controller, a pending one until the window is attached. */
+    @Override
+    public WindowInsetsController getInsetsController() {
+        return mDecor.getWindowInsetsController();
     }
 
     @Override

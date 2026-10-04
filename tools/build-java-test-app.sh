@@ -10,9 +10,9 @@
 # package-manager-test (b3.5a), package-manager-legacy-test (b3.5b1), graphics-start-test and canvas-test (ADR-0043
 # test 2), context-test and looper-test (step c1), provider-test (step c2c1), view-tree-test (step c2c2), app-calls-test
 # (step c2d), animator-test and gles-java-test (ADR-0041 a)), compat-test and compat-test-35 (step c2e),
-# activity-start-test (step c2c3), services-test (ADR-0045, the start's local services) and input-service-test
-# (ADR-0045, the input service). An app without its own fixtures/java folder, a twin such as compat-test-35, takes the
-# sources of the app it is named after.
+# activity-start-test (step c2c3), services-test (ADR-0045, the start's local services), input-service-test (ADR-0045,
+# the input service) and start-stops-test (ADR-0042 b, Godot's start stops). An app without its own fixtures/java
+# folder, a twin such as compat-test-35, takes the sources of the app it is named after.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0042 b's test of Godot's first three start stops past 7a (start-stops-test): the launcher activity makes two
+     Rationals as Godot's activity does, uses its window's insets controller before and after the attach as androidx's
+     EdgeToEdge does, adds a platform fragment as androidx's ReportFragment does and makes an AutoTransition. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.startstops" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.startstops.StartStopsActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

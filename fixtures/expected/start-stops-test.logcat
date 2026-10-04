@@ -1,0 +1,7 @@
+I/start-stops-test: rationals: 100/239 = 0.41841003, 239/100 = 2.39, compared -1
+I/start-stops-test: before attach: controller android.view.PendingInsetsController
+I/start-stops-test: before attach: appearance 0x8, behavior 2
+I/start-stops-test: platform fragment found by its tag: true, added true
+I/start-stops-test: auto transition: ordering 1, children Fade mode 2, ChangeBounds, Fade mode 1
+I/start-stops-test: after attach: controller android.view.InsetsController, appearance 0x8, behavior 2
+I/start-stops-test: done

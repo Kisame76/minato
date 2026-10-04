@@ -13,9 +13,11 @@ import android.graphics.drawable.Drawable;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.PendingInsetsController;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
@@ -25,6 +27,8 @@ public class DecorView extends FrameLayout {
     private PhoneWindow mWindow;
     /** The window's layout, the decor's only child. */
     ViewGroup mContentRoot;
+    /** As AOSP's: what the app asks of the insets controller before the attach, which ViewRootImpl.setView replays. */
+    private final PendingInsetsController mPendingInsetsController = new PendingInsetsController();
 
     DecorView(Context context, int featureId, PhoneWindow window, WindowManager.LayoutParams params) {
         super(context);
@@ -142,5 +146,20 @@ public class DecorView extends FrameLayout {
         if (cb != null) {
             cb.onDetachedFromWindow();
         }
+        mPendingInsetsController.detach();
+    }
+
+    /** As AOSP's: the pending controller until the window is attached, then the window's own. */
+    @Override
+    public WindowInsetsController getWindowInsetsController() {
+        if (isAttachedToWindow()) {
+            return super.getWindowInsetsController();
+        }
+        return mPendingInsetsController;
+    }
+
+    /** ViewRootImpl.setView's, as AOSP's RootViewSurfaceTaker gives it. */
+    public PendingInsetsController providePendingInsetsController() {
+        return mPendingInsetsController;
     }
 }

@@ -227,7 +227,6 @@ android.os.ICancellationSignal$Stub <- android.os.CancellationSignal  # stays: a
 android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.view.FocusFinder <- android.view.View, android.view.ViewGroup, android.view.ViewRootImpl  # ADR-0041 a): focus moves among the views of a window by keys and the D-pad, which come with input; touch mode moves none
 android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
-android.view.InsetsController <- android.view.PendingInsetsController  # ADR-0041 a): the window's insets controller, which replaces the pending one (decision 8)
 android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
 android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
 android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
@@ -380,14 +379,6 @@ android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the displa
 android.text.Selection <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
 android.text.SpannableStringBuilder <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
 android.text.method.TextKeyListener <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
-android.transition.Transition <- android.app.ActivityTransitionState, android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment or an activity with a Transition runs
-android.transition.Transition$EpicenterCallback <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
-android.transition.TransitionInflater <- android.app.Fragment  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
-android.transition.TransitionListenerAdapter <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
-android.transition.TransitionManager <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
-android.transition.TransitionSet <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
-android.transition.TransitionSet <- android.app.Fragment  # gap: android.app.Fragment's class initializer makes a TransitionSet, so platform fragments (deprecated since API 28) fail until transitions are taken
-android.transition.TransitionUtils <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
 android.view.DragAndDropPermissions <- android.app.Activity  # gap: drag and drop (Activity.requestDragAndDropPermissions), not in ADR-0041
@@ -471,3 +462,17 @@ android.view.VelocityTracker <- android.view.GestureDetector  # ADR-0045 7b): ve
 android.view.VerifiedInputEvent <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+
+# ADR-0042 b's start stops (Planung): android.transition names widgets, overlays and surfaces, which a transition meets
+# when it captures or runs, and the window's insets controller names its animation listener.
+android.view.GhostView <- android.transition.ChangeTransform  # M4 step 10: a transition's ghost view, drawn in an overlay
+android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidden), which asks each view whether it is a TextureView
+android.view.ViewGroupOverlay <- android.transition.ChangeBounds, android.transition.TransitionUtils, android.transition.Visibility  # M4 step 10: a transition's overlay for a view that leaves its parent, which drawing shows
+android.view.ViewOverlay <- android.transition.Crossfade  # M4 step 10: Crossfade's overlay, which drawing shows
+android.view.WindowInsetsAnimationControlListener <- android.view.InsetsController  # ADR-0041 a): insets animation control, which the window's insets controller cancels until decision 8's insets
+android.widget.EditText <- android.transition.ChangeText  # ADR-0043 d): ChangeText, which asks each view whether it is a TextView or an EditText
+android.widget.ImageView <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: ChangeImageTransform, which asks each view whether it is an ImageView, and the image copy of a view that leaves its parent
+android.widget.ImageView$ScaleType <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: the same image transitions
+android.widget.ListAdapter <- android.transition.Transition  # gap: running a transition, whose capture asks each view's parent whether it is a ListView (Transition.addViewValues), a widget framework.jar lacks
+android.widget.ListView <- android.transition.Transition  # gap: running a transition, as for ListAdapter
+android.widget.TextView <- android.transition.ChangeText, android.transition.Recolor  # ADR-0043 d): ChangeText and Recolor, which ask each view whether it is a TextView

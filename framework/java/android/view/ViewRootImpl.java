@@ -10,7 +10,8 @@
  *     pre-draw, and draws nothing until M4 step 10. After the first, the window gains focus, as a new activity's
  *     window does once system_server shows it;
  *   - the insets are none until ADR-0041 decision 8, so a window that fits the system windows keeps its whole size,
- *     as an edge-to-edge window does on Android 15;
+ *     as an edge-to-edge window does on Android 15. The window's InsetsController, ours, keeps what the app asks of it,
+ *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
  *   - the back dispatcher is AOSP's, local: without a window session it keeps the callbacks and tells no one
  *     (ADR-0041 c) wires the back gesture);
  *   - the members that View, ViewGroup, Window and Activity reach answer as AOSP's does for a window without input,
@@ -37,6 +38,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.window.ActivityWindowInfo;
 import android.window.WindowOnBackInvokedDispatcher;
+import com.android.internal.policy.DecorView;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -107,6 +109,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private int mWidth = -1;
     private int mHeight = -1;
     private WindowInsets mLastWindowInsets;
+    /** The window's insets controller, a recorder until decision 8's insets (ours, under AOSP's name). */
+    private final InsetsController mInsetsController = new InsetsController();
 
     public ViewRootImpl(Context context, Display display) {
         mContext = context;
@@ -163,6 +167,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mInTouchMode = true;
             mAdded = true;
             requestLayout();
+            // As AOSP's: what the app asked of the decor view's pending controller goes to the window's.
+            if (view instanceof DecorView) {
+                ((DecorView) view).providePendingInsetsController().replayAndAttach(mInsetsController);
+            }
             view.assignParent(this);
         }
     }
@@ -783,7 +791,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     // The members that come with ADR-0041 a)'s rest: drawing (M4 step 10), input, IME and accessibility.
 
     public InsetsController getInsetsController() {
-        return null;
+        return mInsetsController;
     }
 
     /** The window's IME focus, which reaches no input method yet (ImeFocusController). */
