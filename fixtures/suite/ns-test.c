@@ -8,12 +8,17 @@
 // the APEX's namespace (FindApexNamespace, ADR-0046 a).
 // An argument @<folder>:<library> creates a namespace on <folder> as libnativeloader creates a class loader's,
 // isolated with the app's library folder as its search path, and opens the library in it with android_dlopen_ext,
-// by its full path, as ART opens an app's JNI library (ADR-0033 e0).
+// by its full path, as ART opens an app's JNI library (ADR-0033 e0). Its permitted path is /data:/mnt/expand, as
+// libnativeloader gives a class loader's namespace that it creates for System.load, and below target SDK 24 it has
+// the exempt list (ADR-0033 e2b1).
+// An argument sdk=<version> sets the app's target SDK version, as ART does for an app, through
+// android_set_application_target_sdk_version.
 #include <android/dlext.h>
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // libdl_android.so's function `symbol`, which the NDK leaves out.
@@ -45,9 +50,16 @@ static void public_libraries(char *list, size_t size) {
     fclose(file);
 }
 
-// A class loader's namespace on `folder`, as libnativeloader's CreateClassLoaderNamespace asks for one: no
-// LD_LIBRARY_PATH part, the folder as the default library path and as the permitted path, isolated, and linked
-// to the exported "default" namespace for the public libraries.
+// The app's target SDK version, as libnativeloader reads it.
+static int target_sdk_version(void) {
+    int (*get)(void) = (int (*)(void))dlsym(RTLD_DEFAULT, "android_get_application_target_sdk_version");
+    return get != NULL ? get() : 0;
+}
+
+// A class loader's namespace on `folder`, as libnativeloader's CreateClassLoaderNamespace asks for one when
+// System.load comes from a class loader no namespace was made for: no LD_LIBRARY_PATH part, the folder as the default
+// library path, /data:/mnt/expand as the permitted path (kAlwaysPermittedDirectories), isolated, the exempt list
+// below target SDK 24, and linked to the exported "default" namespace for the public libraries.
 static struct android_namespace_t *class_loader_namespace(const char *folder) {
     struct android_namespace_t *(*create)(const char *, const char *, const char *, uint64_t, const char *,
                                           struct android_namespace_t *) =
@@ -57,8 +69,9 @@ static struct android_namespace_t *class_loader_namespace(const char *folder) {
         (bool (*)(struct android_namespace_t *, struct android_namespace_t *, const char *))dl_android_function(
             "android_link_namespaces");
     if (create == NULL || link == NULL) return NULL;
-    struct android_namespace_t *space =
-        create("clns-ns-test", NULL, folder, 1 /* ANDROID_NAMESPACE_TYPE_ISOLATED */, folder, NULL);
+    uint64_t type = 1;  // ANDROID_NAMESPACE_TYPE_ISOLATED
+    if (target_sdk_version() < 24) type |= 0x08000000;  // ANDROID_NAMESPACE_TYPE_EXEMPT_LIST_ENABLED
+    struct android_namespace_t *space = create("clns-ns-test", NULL, folder, type, "/data:/mnt/expand", NULL);
     char libraries[2048];
     public_libraries(libraries, sizeof libraries);
     if (space == NULL || libraries[0] == '\0' || !link(space, exported_namespace("default"), libraries)) return NULL;
@@ -69,6 +82,13 @@ int main(int argc, char **argv) {
     for (int index = 1; index < argc; index++) {
         char shown[512];
         void *library;
+        if (strncmp(argv[index], "sdk=", 4) == 0) {
+            const int version = atoi(argv[index] + 4);
+            void (*set)(int) = (void (*)(int))dl_android_function("android_set_application_target_sdk_version");
+            if (set != NULL) set(version);
+            printf("android_set_application_target_sdk_version(%d)%s\n", version, set != NULL ? "" : ": null");
+            continue;
+        }
         const char *colon = strchr(argv[index], ':');
         if (colon == NULL) {
             snprintf(shown, sizeof shown, "dlopen(%s)", argv[index]);

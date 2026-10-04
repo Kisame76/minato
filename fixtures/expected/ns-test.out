@@ -6,3 +6,9 @@ dlopen(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EB
 android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-lib.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): dep 1, plugin 2
 dlopen(libjdwp.so): dep 1, plugin 2
 android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-lib.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): dep 3, plugin 2
+android_dlopen_ext(/system/lib64/libns-private.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): dlopen failed: library "/system/lib64/libns-private.so" needed or dlopened by "/system/bin/ns-test" is not accessible for the namespace "clns-ns-test"
+android_dlopen_ext(/system/lib64/libz.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
+android_dlopen_ext(/data/user/0/io.github.kisame76.minato.test.ns/files/libns-data.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
+android_set_application_target_sdk_version(23)
+android_dlopen_ext(/system/lib64/libutils.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
+android_dlopen_ext(libutils.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check

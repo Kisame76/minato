@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A program outside the APEXes and the folders of ART and Conscrypt (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a):
 apk-run runs the fixture ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system]
-section, five times:
+section, seven times:
   - with the fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names
     that section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
     - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
@@ -23,7 +23,14 @@ section, five times:
   - with ART's folder of the first run and an app's folder whose libns-dep.so is the app's own, with ART's soname and
     another value: the program opens libjdwp.so, which loads ART's libns-dep.so, then the app's libns-lib.so in a
     class loader's namespace, which gets the app's libns-dep.so, while ART keeps its own (ADR-0040 test 1, ADR-0033
-    e2a).
+    e2a);
+  - with the app's folder and a library in the app's data folder, from a class loader's namespace, which is isolated
+    with /data:/mnt/expand as its permitted path: a library of /system/lib64 off the public list, by its path, is
+    refused with linker64's message; libz.so, a public one, by its path loads through the link; the library under the
+    app's data folder loads (ADR-0033 e2b1);
+  - the same below target SDK 24, where the namespace has the exempt list: libutils.so, which is on it, loads by its
+    path in /system/lib64 with linker64's warning on stderr, and by its name from the default namespace (ADR-0033
+    e2b1).
 Each run is a process of its own: the loader's one scope would give the second run's library the first run's
 libraries by name (ADR-0033 decision 7). The runs must print exactly <expected> together and exit with 0. The
 expected output is ours: Android lets nothing be installed into /system/bin or an APEX. Prints "skipped: ..." while
@@ -54,16 +61,31 @@ APP_OWN = ("app-own-lib", f"{APP_CODE}/lib/arm64",
            {"libns-lib.so": "libns-lib.so", "libns-dep.so": "libns-dep-app.so", "libns-plugin.so": "libns-plugin.so"},
            APP_CODE)
 CLASS_LOADER = f"@{APP_CODE}/lib/arm64:{APP_CODE}/lib/arm64/libns-lib.so"
+# The app's data folder, as Android 15 names it, with a library the app put into its files.
+APP_DATA = "/data/user/0/io.github.kisame76.minato.test.ns"
+DATA = ("data-files", f"{APP_DATA}/files", {"libns-data.so": "libns-plugin.so"}, f"{APP_DATA}/files")
+# Libraries of /system/lib64 besides bionic's: one off the public list, and libutils.so, on the exempt list.
+SYSTEM_EXTRA = {"libns-private.so": "libns-plugin.so", "libutils.so": "libns-plugin.so"}
+# linker64's warning for a library of the exempt list that a namespace could not load otherwise.
+EXEMPT_WARNING = (
+    'WARNING: linker: Warning: library "/system/lib64/libutils.so" ("/system/lib64/libutils.so") needed or dlopened '
+    'by "/system/bin/ns-test" is not accessible by namespace "clns-ns-test" and will not work when the app moves to '
+    "API level 24 or later (https://android.googlesource.com/platform/bionic/+/main/android-changes-for-ndk-developers"
+    ".md#private-api-enforced-for-api-level-24) (allowing for now because this app's target API level is still 23)")
 
-# Each run: its library folders and ns-test's arguments.
+# Each run: its library folders, ns-test's arguments, and lines its stderr must hold.
 RUNS = [
     ([ART], ["libns-dep.so", "libjdwp.so"]),
     ([CONSCRYPT], ["libjavacrypto.so", "com_android_conscrypt:libjavacrypto.so"]),
     ([APP_PLUGIN], [f"{APP_CODE}/lib/arm64/libns-plugin.so"]),
     ([APP], [CLASS_LOADER]),
     ([ART, APP_OWN], ["libjdwp.so", CLASS_LOADER]),
+    ([APP, DATA], [f"@{APP_CODE}/lib/arm64:/system/lib64/libns-private.so", f"@{APP_CODE}/lib/arm64:/system/lib64/libz.so",
+                   f"@{APP_CODE}/lib/arm64:{APP_DATA}/files/libns-data.so"]),
+    ([APP], ["sdk=23", f"@{APP_CODE}/lib/arm64:/system/lib64/libutils.so", f"@{APP_CODE}/lib/arm64:libutils.so"],
+     [EXEMPT_WARNING]),
 ]
-FOLDERS = list({folder[0]: folder for folders, _ in RUNS for folder in folders}.values())
+FOLDERS = list({folder[0]: folder for folders, *_ in RUNS for folder in folders}.values())
 
 
 def convert(apk_convert, elf, container):
@@ -79,7 +101,8 @@ def main():
     if len(sys.argv) != 8:
         raise SystemExit(__doc__)
     fixtures, bionic_lib, bionic_system, apk_convert, apk_run, work, expected = sys.argv[1:]
-    for name in ["ns-test"] + sorted({fixture for _, _, containers, _ in FOLDERS for fixture in containers.values()}):
+    fixtures_used = {fixture for _, _, containers, _ in FOLDERS for fixture in containers.values()}
+    for name in ["ns-test"] + sorted(fixtures_used | set(SYSTEM_EXTRA.values())):
         if not os.path.exists(os.path.join(fixtures, name)):
             print(f"skipped: {os.path.join(fixtures, name)} is not built (tools/build-fixtures.sh)")
             return
@@ -94,13 +117,16 @@ def main():
         for name in sorted(os.listdir(bionic_lib)):
             if name.endswith(".so"):
                 convert(apk_convert, os.path.join(bionic_lib, name), os.path.join(system, name + ".dylib"))
+        for name, fixture in SYSTEM_EXTRA.items():
+            convert(apk_convert, os.path.join(fixtures, fixture), os.path.join(system, name + ".dylib"))
         for folder, _, containers, _ in FOLDERS:
             for name, fixture in containers.items():
                 convert(apk_convert, os.path.join(fixtures, fixture), os.path.join(work, folder, name + ".dylib"))
         convert(apk_convert, os.path.join(fixtures, "ns-test"), program)
 
     printed = ""
-    for folders, arguments in RUNS:
+    missing = []
+    for folders, arguments, *extra in RUNS:
         command = [apk_run, "--mount", f"/system={bionic_system}", "--libraries", f"/system/lib64={system}"]
         for folder, libraries, _, mount in folders:
             command += ["--libraries", f"{libraries}={os.path.join(work, folder)}"]
@@ -113,15 +139,19 @@ def main():
             print(f"FAIL: no end within {timeout.timeout} s")
             sys.exit(1)
         printed += result.stdout
-        if result.returncode != 0:
+        missing = [line for line in (extra[0] if extra else []) if line not in result.stderr.splitlines()]
+        if result.returncode != 0 or missing:
             break
     with open(expected) as handle:
         wanted = handle.read()
-    if result.returncode == 0 and printed == wanted:
+    if result.returncode == 0 and printed == wanted and not missing:
         print("ns-test found ART's folder through the link list and Conscrypt's through its exported namespace, and "
-              "the library there what it needs and opens beside it; and an app's library by its code path")
+              "the library there what it needs and opens beside it; and an app's library by its code path, within "
+              "its namespace's paths")
         return
     print(f"FAIL: exit status {result.returncode}")
+    for line in missing:
+        print(f"stderr lacks: [{line}]")
     print(f"stdout: [{printed}]")
     print(f"expected: [{wanted}]")
     print("stderr, last 40 lines:")

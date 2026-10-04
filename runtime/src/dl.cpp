@@ -61,6 +61,15 @@ constexpr std::string_view art_needs[] = {"libc.so", "libm.so", "libdl.so", "lib
                                           "libz.so"};
 constexpr std::string_view conscrypt_needs[] = {"libc.so", "libm.so", "libdl.so", "liblog.so"};
 
+// The exempt list of linker.cpp at the tag (is_exempt_lib): private system libraries that an app below target SDK
+// 24 may still load, with a warning.
+constexpr std::string_view exempt_libraries[] = {"libandroid_runtime.so", "libbinder.so", "libcrypto.so",
+                                                 "libcutils.so", "libexpat.so", "libgui.so", "libmedia.so",
+                                                 "libnativehelper.so", "libssl.so", "libstagefright.so",
+                                                 "libsqlite.so", "libui.so", "libutils.so"};
+constexpr std::string_view bionic_changes =
+    "https://android.googlesource.com/platform/bionic/+/main/android-changes-for-ndk-developers.md";
+
 // Android 15 keeps libc.so, libm.so and libdl.so in the runtime APEX and has symlinks to them in
 // /system/lib64; linker64 names a library by its real path.
 constexpr std::pair<std::string_view, std::string_view> system_links[] = {
@@ -93,12 +102,14 @@ struct NamespaceLink {
 };
 
 /// A linker namespace as linker64 keeps one (android_namespace_t, ADR-0040 decision 1): where it looks for a
-/// library by name, the libraries it holds, and its links. Permitted paths and the exempt list come with e2b.
+/// library by name, where an isolated one may load a file besides, the libraries it holds, and its links.
 struct Namespace {
     std::string name;
     bool isolated = false;
+    bool exempt_list = false;  // ANDROID_NAMESPACE_TYPE_EXEMPT_LIST_ENABLED
     std::vector<std::string> ld_library_paths;
     std::vector<std::string> default_library_paths;
+    std::vector<std::string> permitted_paths;
     std::vector<Library *> libraries;  // its soinfo list, in load order
     std::vector<NamespaceLink> links;
 };
@@ -219,12 +230,97 @@ Library *loaded_in(Namespace &space, std::string_view name, bool through_links) 
     return nullptr;
 }
 
-/// A loaded library from this file, under whatever name (find_loaded_library_by_inode).
+/// A loaded library from this file, under whatever name and in whatever namespace: one file has one instance here
+/// (ADR-0040 decision 6).
 Library *loaded_from(State &state, const std::filesystem::path &container) {
     for (auto &library : state.libraries) {
         if (library.container == container) return &library;
     }
     return nullptr;
+}
+
+/// A loaded library from this file that `space` holds, and with `through_links` one that a linked namespace holds,
+/// through a link that gives its soname, as linker64's find_loaded_library_by_inode finds one.
+Library *loaded_from(Namespace &space, const std::filesystem::path &container, bool through_links) {
+    for (auto *library : space.libraries) {
+        if (library->container == container) return library;
+    }
+    if (!through_links) return nullptr;
+    for (const auto &link : space.links) {
+        for (auto *library : link.to->libraries) {
+            const auto &soname = library->object.dynamic.soname;
+            if (library->container == container && link.accessible(soname.empty() ? library->object.name : soname)) {
+                return library;
+            }
+        }
+    }
+    return nullptr;
+}
+
+/// Whether `file` lies in `folder` itself (linker64's file_is_in_dir), or with `below` anywhere under it
+/// (file_is_under_dir).
+bool in_folder(std::string_view file, std::string_view folder, bool below) {
+    if (!file.starts_with(folder) || file.size() <= folder.size() || file[folder.size()] != '/') return false;
+    return below || file.find('/', folder.size() + 1) == std::string_view::npos;
+}
+
+/// Whether the library file at the real path `path` may load into `space`, as android_namespace_t::is_accessible
+/// decides: into a namespace that is not isolated any file; into an isolated one a file in one of its folders, or
+/// anywhere under one of its permitted paths.
+bool accessible(const Namespace &space, std::string_view path) {
+    if (!space.isolated) return true;
+    for (const auto *folders : {&space.ld_library_paths, &space.default_library_paths}) {
+        for (const auto &folder : *folders) {
+            if (in_folder(path, folder, false)) return true;
+        }
+    }
+    return std::ranges::any_of(space.permitted_paths, [&](const auto &folder) { return in_folder(path, folder, true); });
+}
+
+/// The app's target SDK version, which android_set_application_target_sdk_version keeps in ld-android.so's table;
+/// __ANDROID_API_FUTURE__ until it is set.
+int target_sdk_version(const State &state) {
+    return state.loader != nullptr ? state.loader->target_sdk_version : 10000;
+}
+
+/// Whether the real path `path` is a system library: one in a folder of the default namespace (is_system_library).
+bool system_library(const State &state, std::string_view path) {
+    return std::ranges::any_of(state.namespaces[0].default_library_paths,
+                               [&](const auto &folder) { return in_folder(path, folder, false); });
+}
+
+/// Whether a link of `space` gives `name`, a path by its file name (maybe_accessible_via_namespace_links).
+bool linked_for(const Namespace &space, std::string_view name) {
+    return std::ranges::any_of(space.links, [&](const NamespaceLink &link) { return link.accessible(base_name(name)); });
+}
+
+/// Whether the exempt list lets `space` load `name` (is_exempt_lib): below target SDK 24, a library that a system
+/// library needs unless a link gives it, or one of the list, by its name or by its path in /system/lib64.
+bool exempt(const State &state, const Namespace &space, std::string_view name, const Library *needed_by) {
+    if (target_sdk_version(state) >= 24) return false;
+    if (needed_by != nullptr && system_library(state, needed_by->object.shown_name())) return !linked_for(space, name);
+    if (name.starts_with('/') && name.substr(0, name.rfind('/')) == "/system/lib64") name = base_name(name);
+    return std::ranges::find(exempt_libraries, name) != std::end(exempt_libraries);
+}
+
+/// A line of linker64's log, with the tag "linker", in logcat's tag format as our liblog.so writes it to stderr.
+void log_line(char priority, std::string_view text) {
+    const auto line = std::format("{}/{:<8}: {}\n", priority, "linker", text);
+    static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
+}
+
+/// linker64's DL_WARN: the warning in the log, then on stderr.
+void warn(std::string_view text) {
+    log_line('W', text);
+    const auto line = std::format("WARNING: linker: {}\n", text);
+    static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
+}
+
+/// Folders separated by colons, as linker64 joins them for its messages.
+std::string joined(const std::vector<std::string> &folders) {
+    std::string text;
+    for (const auto &folder : folders) text += (text.empty() ? "" : ":") + folder;
+    return text;
 }
 
 /// The library file at the guest path `path` (in normal form), if a library directory holds it.
@@ -256,26 +352,75 @@ std::optional<Found> found_on_paths(const State &state, const Namespace &space, 
     return std::nullopt;
 }
 
-/// Where the search found a library: loaded already, or a file and the namespace to load it into.
+/// Where the search found a library: loaded already, or a file and the namespace to load it into; or why a file it
+/// found may not load.
 struct Located {
     Library *loaded = nullptr;
     std::optional<Found> found;
     Namespace *space = nullptr;
+    std::string refused;
 };
 
-/// Looks for a library as linker64's find_library_internal does in `space` (ADR-0040 decision 1). A name with a
-/// slash is a path, taken as it is (against the working directory when relative) and loaded into `space`. A plain
-/// name is a loaded library that `space` holds, or a linked namespace through a link that gives the name; else a
-/// file on `space`'s folders; else one on a linked namespace's folders, through such a link, which it loads into.
-Located locate(State &state, Namespace &space, std::string_view name, bool &missed) {
-    if (name.find('/') != std::string_view::npos) {
-        auto found = library_at(state, vfs::absolute(name, vfs::working_directory()));
-        if (!found) missed = true;
+/// The file at the path `name` for `space`, as linker64's load_library takes a file it opened: an instance from it
+/// that `space` holds or reaches through a link; else the file, when `space` may load it or the exempt list lets it,
+/// with linker64's warning; else linker64's refusal, and the file through a link that gives its name, into the
+/// linked namespace (find_library_in_linked_namespace). `requester` needs the library or calls dlopen for it.
+Located locate_path(State &state, Namespace &space, std::string_view name, const Library *requester, bool needed,
+                    bool &missed) {
+    auto found = library_at(state, vfs::absolute(name, vfs::working_directory()));
+    if (!found) {
+        missed = true;
+        return {};
+    }
+    if (auto *loaded = loaded_from(space, found->container, true)) return {.loaded = loaded};
+    if (accessible(space, found->path)) return {.found = std::move(found), .space = &space};
+    const Library *needed_by = needed ? requester : nullptr;
+    const auto by = requester != nullptr ? requester->object.shown_name() : std::string("(unknown)");
+    if (exempt(state, space, name, needed_by)) {
+        if (needed_by == nullptr || !system_library(state, needed_by->object.shown_name())) {
+            warn(std::format("Warning: library \"{}\" (\"{}\") needed or dlopened by \"{}\" is not accessible by "
+                             "namespace \"{}\" and will not work when the app moves to API level 24 or later ({}#{}) "
+                             "(allowing for now because this app's target API level is still {})",
+                             name, found->path, by, shown_name(space), bionic_changes,
+                             "private-api-enforced-for-api-level-24", target_sdk_version(state)));
+        }
         return {.found = std::move(found), .space = &space};
     }
+    Located refused{.refused = std::format("library \"{}\" needed or dlopened by \"{}\" is not accessible for the "
+                                           "namespace \"{}\"", name, by, shown_name(space))};
+    if (!linked_for(space, name)) {
+        log_line('E', std::format("library \"{}\" (\"{}\") needed or dlopened by \"{}\" is not accessible for the "
+                                  "namespace: [name=\"{}\", ld_library_paths=\"{}\", default_library_paths=\"{}\", "
+                                  "permitted_paths=\"{}\"]",
+                                  name, found->path, by, shown_name(space), joined(space.ld_library_paths),
+                                  joined(space.default_library_paths), joined(space.permitted_paths)));
+    }
+    for (const auto &link : space.links) {
+        if (!link.accessible(base_name(name))) continue;
+        if (auto *loaded = loaded_from(*link.to, found->container, false)) return {.loaded = loaded};
+        if (accessible(*link.to, found->path)) return {.found = std::move(found), .space = link.to};
+    }
+    return refused;
+}
+
+/// Looks for a library as linker64's find_library_internal does in `space` (ADR-0040 decision 1). A name with a
+/// slash is a path, taken as it is (against the working directory when relative), as locate_path takes it. A plain
+/// name is a loaded library that `space` holds, or a linked namespace through a link that gives the name; else a
+/// file on `space`'s folders; below target SDK 24 in a namespace with the exempt list one of the list on the default
+/// namespace's folders, whose links then count instead; else one on a linked namespace's folders, through such a
+/// link, which it loads into. `requester` needs the library (`needed`) or calls dlopen for it.
+Located locate(State &state, Namespace &space, std::string_view name, const Library *requester, bool needed,
+               bool &missed) {
+    if (name.find('/') != std::string_view::npos) return locate_path(state, space, name, requester, needed, missed);
     if (auto *loaded = loaded_in(space, name, true)) return {.loaded = loaded};
     if (auto found = found_on_paths(state, space, name, missed)) return {.found = std::move(found), .space = &space};
-    for (const auto &link : space.links) {
+    // find_library_internal asks the exempt list with the requester as needed_by, dlopen's caller included.
+    Namespace *from = &space;
+    if (space.exempt_list && exempt(state, space, name, requester)) {
+        from = &state.namespaces[0];
+        if (auto found = found_on_paths(state, *from, name, missed)) return {.found = std::move(found), .space = from};
+    }
+    for (const auto &link : from->links) {
         if (!link.accessible(name)) continue;
         if (auto found = found_on_paths(state, *link.to, name, missed)) {
             return {.found = std::move(found), .space = link.to};
@@ -315,9 +460,10 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
         Library &library = *added[next];
         for (const auto &name : library.object.dynamic.needed) {
             // In the namespace of the library that needs it, as linker64 looks for and loads it.
-            auto located = locate(state, *library.ns, name, missed);
+            auto located = locate(state, *library.ns, name, &library, true, missed);
             Library *dependency = located.loaded;
             if (dependency == nullptr) {
+                if (!located.refused.empty()) throw LoadError(located.refused);
                 if (!located.found) {
                     if (program && &library == &root) {
                         throw LoadError(std::format("library \"{}\" not found: needed by main executable", name));
@@ -541,11 +687,12 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
                        : calling != nullptr && calling->ns != nullptr ? *calling->ns
                                                     : state.namespaces[0];
     // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
-    auto located = locate(state, space, wanted, report.missed);
+    auto located = locate(state, space, wanted, calling, false, report.missed);
     Library *loaded = located.loaded;
     if (loaded == nullptr) {
         if (!located.found) {
-            set_error(std::format("dlopen failed: library \"{}\" not found", wanted));
+            set_error(located.refused.empty() ? std::format("dlopen failed: library \"{}\" not found", wanted)
+                                              : "dlopen failed: " + located.refused);
             return nullptr;
         }
         loaded = loaded_from(state, located.found->container);
@@ -604,13 +751,13 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
 // android_create_namespace's types (linker.h at the tag).
 constexpr std::uint64_t namespace_isolated = 1;
 constexpr std::uint64_t namespace_shared = 2;
+constexpr std::uint64_t namespace_exempt_list = 0x08000000;
 
 /// android_create_namespace, as linker64's create_namespace does (ADR-0040 decision 4): the parent is the given
-/// one, else the caller's namespace; a shared namespace takes the parent's folders, libraries and links, another
-/// one the parent's shared group. Permitted paths, the exempt list and the anonymous namespace come with e2b.
+/// one, else the caller's namespace; a shared namespace takes the parent's folders, permitted paths, libraries and
+/// links, another one the parent's shared group. The anonymous namespace comes with e2b2.
 void *guest_create_namespace(const char *name, const char *ld_library_path, const char *default_library_path,
                              std::uint64_t type, const char *permitted_path, void *parent_handle, const void *caller) {
-    static_cast<void>(permitted_path);
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
     Namespace *parent = parent_handle != nullptr ? as_namespace(state, parent_handle) : nullptr;
@@ -624,13 +771,17 @@ void *guest_create_namespace(const char *name, const char *ld_library_path, cons
     }
     auto &space = state.namespaces.emplace_back(Namespace{
         .name = name != nullptr ? name : "", .isolated = (type & namespace_isolated) != 0,
+        .exempt_list = (type & namespace_exempt_list) != 0,
         .ld_library_paths = split_search_path(ld_library_path != nullptr ? ld_library_path : ""),
-        .default_library_paths = split_search_path(default_library_path != nullptr ? default_library_path : "")});
+        .default_library_paths = split_search_path(default_library_path != nullptr ? default_library_path : ""),
+        .permitted_paths = split_search_path(permitted_path != nullptr ? permitted_path : "")});
     if ((type & namespace_shared) != 0) {
         space.ld_library_paths.insert(space.ld_library_paths.end(), parent->ld_library_paths.begin(),
                                       parent->ld_library_paths.end());
         space.default_library_paths.insert(space.default_library_paths.end(), parent->default_library_paths.begin(),
                                            parent->default_library_paths.end());
+        space.permitted_paths.insert(space.permitted_paths.end(), parent->permitted_paths.begin(),
+                                     parent->permitted_paths.end());
         for (auto *library : parent->libraries) add_to(space, *library);
         space.links = parent->links;
     } else {
