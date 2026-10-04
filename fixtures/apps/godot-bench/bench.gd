@@ -15,6 +15,9 @@
 # The log: lines that begin "godot-bench:" are the same on every device (tools/android-reference.sh compares
 # them), lines that begin "godot-bench-device:" are not and are only shown, and the last one,
 # "run <run>: <frames> frames, <failures> failures", is checked by its form.
+# The process environment carries the frame the main loop draws (GODOT_BENCH_FRAME, from 0) and, after the last,
+# GODOT_BENCH_DONE: the twin's frame hook reads them around each frame, so that its recording holds exactly the
+# frames of scene.csv (ADR-0042 c).
 extends Node3D
 
 const LOADS := {"light": 512, "heavy": 2048}  # N per load [guess]; ADR-0042 d) calibrates them
@@ -109,6 +112,7 @@ func _process(_delta: float) -> void:
 	var cpu_seconds := Performance.get_monitor(Performance.TIME_PROCESS) + Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS)
 	var cpu_ns := roundi(cpu_seconds * 1e9 + RenderingServer.get_frame_setup_time_cpu() * 1e6)
 	rows.append("%d,%d,%d" % [frame, now_us * 1000, cpu_ns])
+	OS.set_environment("GODOT_BENCH_FRAME", str(frame))
 	_animate(frame)
 	if frame == hash_frame:
 		RenderingServer.frame_post_draw.connect(_hash_frame, CONNECT_ONE_SHOT)
@@ -287,6 +291,7 @@ func _finish() -> void:
 	_write(folder.path_join("scene.csv"), "\n".join(rows) + "\n")
 	print("run %s: %d frames, %d failures" % [conf["run"], frame, failures])
 	_write(folder.path_join("done"), "%d frames\n" % frame)
+	OS.set_environment("GODOT_BENCH_DONE", "1")
 	get_tree().quit()
 
 

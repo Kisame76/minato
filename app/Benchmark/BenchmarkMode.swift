@@ -13,13 +13,7 @@ import SwiftUI
 /// adds an entry to the APK variant's guest environment, such as libvulkan's MINATO_VULKAN_BGRA8_FIRST=1
 /// (ADR-0030 V5).
 enum BenchmarkMode {
-    static let run: BenchRun? = {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard let flag = arguments.firstIndex(of: "-runBenchmark"), arguments.indices.contains(flag + 1) else {
-            return nil
-        }
-        return BenchRun(arguments[flag + 1])
-    }()
+    static let run: BenchRun? = BenchLaunch.run(in: ProcessInfo.processInfo.arguments)
 
     static let seconds: Int = {
         let arguments = ProcessInfo.processInfo.arguments
@@ -82,6 +76,8 @@ struct BenchmarkView: View {
                                onLayout: { runner.nativeLaidOut($0) }, onTouches: { _, _, _ in })
             case .apk(let session):
                 GameModeView(session: session)
+            case .twin(let controller):
+                GodotTwinView(controller: controller)
             }
         }
         .ignoresSafeArea()
@@ -104,6 +100,8 @@ final class BenchmarkRunner {
         case native
         /// The APK, in game mode's session.
         case apk(GameSession)
+        /// Test 2's twin: Godot's view controller (ADR-0042, decision 3).
+        case twin(UIViewController)
     }
 
     private(set) var stage = Stage.waiting
@@ -122,6 +120,9 @@ final class BenchmarkRunner {
     @ObservationIgnored private var apkScene: URL?
     @ObservationIgnored private var notes: [String] = []
     @ObservationIgnored private var hasEnded = false
+    /// Test 2's twin: its view controller, and whether Godot has drawn bench.gd's frame 0.
+    @ObservationIgnored private var twinController: UIViewController?
+    @ObservationIgnored private var twinDrawing = false
 
     init(run: BenchRun, seconds: Int) {
         self.run = run
@@ -135,12 +136,23 @@ final class BenchmarkRunner {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // The APK is imported and signed first, so that work has cooled off before the run.
         var session: GameSession?
+        var twin: GodotTwin?
         if run.variant == .apk {
             do {
                 session = GameSession(entry: try await prepareAPK())
             } catch {
                 return end("the APK could not be prepared: \(error)")
             }
+        } else if run.variant == .twin {
+            #if targetEnvironment(simulator)
+            return end("device only: the twin has no Simulator slice (ADR-0042, departure 2)")
+            #else
+            do {
+                twin = try GodotTwin.open()
+            } catch {
+                return end("\(error)")
+            }
+            #endif
         } else {
             do {
                 bench = try MinatoBench.open()
@@ -168,6 +180,8 @@ final class BenchmarkRunner {
             session.runBenchmark(BenchmarkHooks(ticks: periods, layer: { [weak self] in self?.startRecording($0) },
                                                 ended: { [weak self] in self?.end($1) }))
             stage = .apk(session)
+        } else if let twin {
+            startTwin(twin)
         } else {
             stage = .native
         }
@@ -211,31 +225,111 @@ final class BenchmarkRunner {
         }
     }
 
+    // MARK: - Test 2's twin
+
+    /// bench.conf in the run's folder, where bench.gd writes scene.csv and done beside it; the recorder on Godot's
+    /// layer class; the frame hooks; then Godot, before its view first draws. Godot paces its frames itself; the
+    /// display link here measures the link's period (decision 6).
+    private func startTwin(_ twin: GodotTwin) {
+        let conf = folder.appending(path: "bench.conf")
+        do {
+            try BenchConf.text(for: run, seconds: seconds).write(to: conf, atomically: true, encoding: .utf8)
+        } catch {
+            return end("bench.conf: \(error)")
+        }
+        if run.configuration.api != .gles {
+            guard let layerClass = NSClassFromString("GDTMetalLayer"), MinatoLayerRecorder.attach(to: layerClass)
+            else { return end("the recorder could not attach to Godot's GDTMetalLayer") }
+        }
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let hooked = twin.frameHooks({ context in
+            MainActor.assumeIsolated { BenchmarkRunner.runner(context)?.twinBefore() }
+        }, { context, frame, done in
+            MainActor.assumeIsolated { BenchmarkRunner.runner(context)?.twinAfter(frame: frame, done: done != 0) }
+        }, context)
+        guard hooked == 0 else { return end("Godot's view has no drawView for the frame hooks") }
+        let clock = DisplayLinkClock(sink: periods)
+        clock.setPreferredRate(Float(run.configuration.rate))
+        clock.run(true)
+        self.clock = clock
+        do {
+            let controller = try twin.run(run.configuration.godotArguments + ["--bench-config=\(conf.path)"])
+            twinController = controller
+            stage = .twin(controller)
+        } catch {
+            end("\(error)")
+        }
+    }
+
+    /// The runner behind the frame hooks' context, which the run's view keeps alive.
+    nonisolated private static func runner(_ context: UnsafeMutableRawPointer?) -> BenchmarkRunner? {
+        context.map { Unmanaged<BenchmarkRunner>.fromOpaque($0).takeUnretainedValue() }
+    }
+
+    /// Before each of Godot's frames: until frame 0 is drawn, a recording runs from here, so the one that holds
+    /// frame 0 begins with it. The draws before set up the engine and show the boot image.
+    /// Godot renders on the main thread (project.godot sets no thread_model), so no other thread is in nextDrawable
+    /// while a recording starts or stops here.
+    private func twinBefore() {
+        guard !twinDrawing, !hasEnded, layer == nil, let godotLayer = twinLayer() else { return }
+        guard startRecording(godotLayer) else {
+            return end("the recorder did not start on Godot's \(type(of: godotLayer))")
+        }
+    }
+
+    /// After each: a recording without frame 0 is let go; after the frame that wrote done, the run ends at once, so
+    /// the recording holds exactly scene.csv's frames.
+    private func twinAfter(frame: Int, done: Bool) {
+        guard !hasEnded else { return }
+        if !twinDrawing {
+            guard frame >= 0 else {
+                if let layer {
+                    _ = MinatoLayerRecorder.stopRecording(layer, timeout: 0)
+                    self.layer = nil
+                }
+                return
+            }
+            guard frame == 0 else { return end("Godot drew frame \(frame) before the first recorded one") }
+            guard layer != nil || run.configuration.api == .gles else {
+                return end("frame 0 was drawn without a recording on Godot's layer")
+            }
+            twinDrawing = true
+        }
+        if done { end(nil) }
+    }
+
+    /// Godot's Metal layer, a sublayer of its view's once Godot has set up its display; GLES draws on none.
+    private func twinLayer() -> CAMetalLayer? {
+        guard run.configuration.api != .gles, let view = twinController?.viewIfLoaded else { return nil }
+        return view.layer.sublayers?.lazy.compactMap { $0 as? CAMetalLayer }.first
+    }
+
     // MARK: - The APK variant
 
     /// The API's APK from the bundle's Benchmark/, installed at the first start like any APK (and again when the
     /// build's APK differs), its native code signed by the signer a tap would use; bench.conf in its
     /// internalDataPath.
     private func prepareAPK() async throws -> LibraryEntry {
-        let api = run.configuration.api
-        guard let apk = Bundle.main.resourceURL?.appending(path: "Benchmark/\(api.apkFile)"),
+        let configuration = run.configuration
+        guard let apk = Bundle.main.resourceURL?.appending(path: "Benchmark/\(configuration.apkFile)"),
             FileManager.default.fileExists(atPath: apk.path)
-        else { throw BenchmarkError("\(api.apkFile) is not in this build") }
+        else { throw BenchmarkError("\(configuration.apkFile) is not in this build") }
         let paths = try LibraryPaths.standard()
         let library = try Library(paths: paths)
         let signing = SigningCoordinator(library: nil)
         await signing.refresh()
 
         let sha256 = SHA256.hash(data: try Data(contentsOf: apk)).map { String(format: "%02x", $0) }.joined()
-        var entry = await library.entries.first { $0.id == api.package }
+        var entry = await library.entries.first { $0.id == configuration.package }
         if entry?.source.sha256 != sha256 {
             let incoming = try await library.adopt(apk)
             entry = try await library.importFile(incoming, replacing: true, signing: signing.importSigning()).entry
         }
-        guard var entry, entry.id == api.package, entry.source.sha256 == sha256 else {
-            throw BenchmarkError("\(api.apkFile) was not installed")
+        guard var entry, entry.id == configuration.package, entry.source.sha256 == sha256 else {
+            throw BenchmarkError("\(configuration.apkFile) was not installed")
         }
-        entry = try await BenchmarkConditions.startable(entry, named: api.apkFile, library: library, signing: signing)
+        entry = try await BenchmarkConditions.startable(entry, named: configuration.apkFile, library: library,
+                                                        signing: signing)
 
         // internalDataPath: /data/user/0/<package>/files (GuestStart's paths).
         let files = paths.dataDirectory(for: entry.id).appending(path: "data/files", directoryHint: .isDirectory)
@@ -250,14 +344,18 @@ final class BenchmarkRunner {
     // MARK: - The recording and the end
 
     /// Decision 2: the layer records each drawable from here on. Not in the Simulator, whose layer records
-    /// nothing: the run then has no drawables and is invalid.
-    private func startRecording(_ layer: CAMetalLayer) {
-        guard self.layer == nil else { return }
+    /// nothing: the run then has no drawables and is invalid. False when this call started no recording.
+    @discardableResult
+    private func startRecording(_ layer: CAMetalLayer) -> Bool {
+        guard self.layer == nil else { return false }
         self.layer = layer
         let capacity = BenchPlan.recordingCapacity(seconds: seconds, rate: run.configuration.rate)
-        if !BenchmarkConditions.startRecording(layer, capacity: capacity) {
-            notes.append("no recording (the Simulator's layer records nothing)")
+        guard BenchmarkConditions.startRecording(layer, capacity: capacity) else {
+            // The twin, which never runs in the Simulator, ends with its own reason.
+            if run.variant != .twin { notes.append("no recording (the Simulator's layer records nothing)") }
+            return false
         }
+        return true
     }
 
     /// The variant ended, or failed with `reason`: the recording, the scene's frames and the CSVs, then the
@@ -279,12 +377,19 @@ final class BenchmarkRunner {
                 try? text.write(to: folder.appending(path: "scene.csv"), atomically: true, encoding: .utf8)
             }
             do { scene = try BenchCSV.scene(text) } catch { notes.append("scene.csv: \(error)") }
-        } else if nativeStarted || stage.isAPK {
+        } else if nativeStarted || stage.isAPK || twinController != nil {
             notes.append("no scene.csv")
         }
         record.sceneFrames = scene.count
         let configuration = run.configuration
-        if let meshes = try? bench ?? MinatoBench.open() {
+        // Test 2's script counts its frames in the done file beside scene.csv.
+        if configuration.scene == .godot {
+            let done = sceneFile.deletingLastPathComponent().appending(path: "done")
+            record.doneFrames = (try? String(contentsOf: done, encoding: .utf8)).flatMap(BenchDone.frames) ?? -1
+        }
+        if let meshes = configuration.godotMeshes {
+            record.meshes = meshes
+        } else if let meshes = try? bench ?? MinatoBench.open() {
             record.meshes = Int(meshes.meshes(configuration.api.rawValue, configuration.load.rawValue))
         }
         write(frames: BenchCSV.join(drawables: recording.drawables, scene: scene))

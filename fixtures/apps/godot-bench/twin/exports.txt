@@ -1,3 +1,4 @@
-# MinatoGodot.framework's only exported symbols (ld's -exported_symbols_list): minato_godot.mm's two entries.
+# MinatoGodot.framework's only exported symbols (ld's -exported_symbols_list): minato_godot.mm's three entries.
 _minato_godot_start
 _minato_godot_view_controller
+_minato_godot_frame_hooks

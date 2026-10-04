@@ -99,7 +99,9 @@ enum BenchmarkConditions {
     /// Decision 2: the layer records each drawable from here on; false when it records nothing, as the
     /// Simulator's layer.
     static func startRecording(_ layer: CAMetalLayer, capacity: Int) -> Bool {
-        (layer as? MinatoMetalLayer)?.startRecording(UInt(capacity)) == true
+        if let layer = layer as? MinatoMetalLayer { return layer.startRecording(UInt(capacity)) }
+        // Test 2's twin draws on Godot's own layer class, which MinatoLayerRecorder records (ADR-0042, decision 4).
+        return MinatoLayerRecorder.startRecording(layer, capacity: UInt(capacity))
     }
 
     /// The recording, with the presented handlers that had not run; without one, the layer's values.
@@ -108,7 +110,12 @@ enum BenchmarkConditions {
             return (BenchRecording(qos: "", pixelFormat: 0, drawableWidth: 0, drawableHeight: 0, maxDrawableCount: 0,
                                    drawables: [], lost: 0), 0)
         }
-        guard let recording = (layer as? MinatoMetalLayer)?.stopRecording(2) else {
+        let recording = if let layer = layer as? MinatoMetalLayer {
+            layer.stopRecording(2)
+        } else {
+            MinatoLayerRecorder.stopRecording(layer, timeout: 2)
+        }
+        guard let recording else {
             return (BenchRecording(qos: "", pixelFormat: layer.pixelFormat.rawValue,
                                    drawableWidth: Int(layer.drawableSize.width),
                                    drawableHeight: Int(layer.drawableSize.height),
