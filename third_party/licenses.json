@@ -11,6 +11,7 @@
     "Framework sources": "never",
     "Graphics sources": "never",
     "Guest fonts": "always",
+    "Test 2 with Godot": "never",
     "References without adopted code": "never"
   },
   "components": [

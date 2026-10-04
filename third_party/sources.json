@@ -982,5 +982,56 @@
       ],
       "digest": "493836729d2f7e477f30634500dcbcc646033a755292bd166e4634a22e454b92"
     }
-  ]
+  ],
+  "godot": {
+    "comment": "Godot 4.7.2 as released, for test 2 (ADR-0042 a): the macOS editor and the export templates, fetched by tools/fetch-godot.py into build/godot/ and checked against the SHA-512 of the release's SHA512-SUMS.txt and the SHA-256 that GitHub's release API states; Godot's license texts into third_party/godot/, checked against their Git blobs and kept in the repo. The editor is a build tool; of the templates, android_release.apk becomes test 2's APKs and ios.zip's library the twin in benchmark builds (ADR-0042 decisions 3 and 7). tools/fetch-sources.py does not read this entry.",
+    "project": "https://github.com/godotengine/godot",
+    "tag": "4.7.2-stable",
+    "commit": "ed1daf0bf001b61586d9930840f2f1394092c079",
+    "license": "MIT; the third parties of COPYRIGHT.txt (no GPL or LGPL; the CA bundle under MPL-2.0)",
+    "assets": [
+      {
+        "name": "Godot_v4.7.2-stable_macos.universal.zip",
+        "url": "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_macos.universal.zip",
+        "bytes": 170622178,
+        "sha512": "38aa16e5bba2083941fc5b3e54be0089bd4cc35e32415f5b9fd9a8a6a7b9818255d44532ea8ef94b5aef56c4b407c2d634fa4f657e4ebe681ebbf59b7bac69ca",
+        "sha256": "c58a24e31d720be9d62f60cb5627c4e695fb72f21b0cfe1bc9ccaa9a3b3ba63e"
+      },
+      {
+        "name": "Godot_v4.7.2-stable_export_templates.tpz",
+        "url": "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz",
+        "bytes": 1281349702,
+        "sha512": "ca4d71c4d7b81dfc15d1a98baa07534aa95b03fdda78a0075b06672e1648d2e5f40980c9adc28d23e1b92e732ee7bf3461997aa804af74ec2fcd7a93ccb84079",
+        "sha256": "f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011"
+      }
+    ],
+    "files": [
+      {
+        "path": "LICENSE.txt",
+        "url": "https://raw.githubusercontent.com/godotengine/godot/ed1daf0bf001b61586d9930840f2f1394092c079/LICENSE.txt",
+        "bytes": 1149,
+        "git_blob": "0e3ba08d6b2e8cf435241829c96f10b74e4356fe"
+      },
+      {
+        "path": "COPYRIGHT.txt",
+        "url": "https://raw.githubusercontent.com/godotengine/godot/ed1daf0bf001b61586d9930840f2f1394092c079/COPYRIGHT.txt",
+        "bytes": 100108,
+        "git_blob": "758917ae4c861384e9596e2271534a4534859d87"
+      }
+    ]
+  },
+  "android-build-tools": {
+    "comment": "The Android SDK's build-tools 35.0.1 for macOS, whose apksigner Godot's export signs with (ADR-0042 a), fetched by tools/fetch-godot.py and unpacked into build/godot/sdk/build-tools/35.0.1, not into the installed SDK (ADR-0042, departure 1). Checked against the SHA-1 of Google's repository2-4.xml and the SHA-256 kept at the first fetch, 2026-10-04. A build tool under the Android SDK License, never shipped. tools/fetch-sources.py does not read this entry.",
+    "package": "build-tools;35.0.1",
+    "license": "Android SDK License (android-sdk-license)",
+    "assets": [
+      {
+        "name": "build-tools_r35.0.1_macosx.zip",
+        "url": "https://dl.google.com/android/repository/build-tools_r35.0.1_macosx.zip",
+        "bytes": 76857925,
+        "sha1": "f4dda6855ddf1ea1a51ee3ab6587104bd0c1d727",
+        "sha256": "c01e4b763da96ae5ef67e8bdf2abc94fb6cb3e73a42209581feb6a7019a51b9c"
+      }
+    ]
+  }
 }

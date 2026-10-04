@@ -204,6 +204,16 @@ From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 (`data/fonts/NOTICE`) | from `data/fonts`: `DroidSansMono.ttf`, `DroidSansFallbackFull.ttf`, and `fonts.xml` and `font_fallback.xml`, which ours are cut from |
 | `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
 
+## Test 2 with Godot (ADR-0042)
+
+The engine of test 2's app and the tool its export needs, in `build/godot/`, not in the app. `tools/fetch-godot.py` fetches them and checks every file against its pin in `third_party/sources.json` before it unpacks; Godot's license texts are kept in `third_party/godot/`. The twin, Godot's iOS template, goes into the benchmark build only, with ADR-0042 c), which gives this section its rule for the bundle then.
+
+| Tool | Version | License |
+|---|---|---|
+| Godot editor for macOS (`Godot_v4.7.2-stable_macos.universal.zip`), self-contained in `build/godot/`, which exports the test APKs | `4.7.2-stable` (`ed1daf0bf001`), SHA-512 pinned | MIT (`third_party/godot/LICENSE.txt`; the third parties in `COPYRIGHT.txt`) |
+| Godot's export templates (`Godot_v4.7.2-stable_export_templates.tpz`), of which only `android_release.apk` and `ios.zip` are unpacked | `4.7.2-stable`, SHA-512 pinned | MIT, as above |
+| Android SDK build-tools (`build-tools_r35.0.1_macosx.zip`) in `build/godot/sdk/`, for `apksigner`, which the export without Gradle needs | `35.0.1`, Google's SHA-1 and our SHA-256 pinned | Android Software Development Kit License |
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.

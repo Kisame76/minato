@@ -121,4 +121,8 @@ if(APK_HOST_BUILD)
     endforeach()
     apk_fixture_test(${name} ${arguments})
   endforeach()
+
+  # Test 2 with Godot (ADR-0042 a): the guards of tools/fetch-godot.py, without the network.
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME godot.fetch COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/fetch-godot.py" --self-test)
 endif()
