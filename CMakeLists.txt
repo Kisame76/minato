@@ -132,4 +132,6 @@ if(APK_HOST_BUILD)
     add_test(NAME godot.${check} COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/godot-check.py" ${check})
     set_tests_properties(godot.${check} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" RESOURCE_LOCK godot TIMEOUT 600)
   endforeach()
+  # The bundle's license rule for the twin: Godot's texts go into a build with MinatoGodot.framework (c) 2).
+  add_test(NAME godot.licenses COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/license-check-test.py")
 endif()

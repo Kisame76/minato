@@ -17,7 +17,11 @@ GLES run again with -benchmarkRenderQoS default, its render thread at the APK's 
 value MinatoBench must refuse. Both programs' layers start opaque, as the App's view makes a session's layer by
 Android's rule (a NativeActivity's window is opaque unless its format has alpha, V5's late frames): the notes and the
 layer's console line at the first drawable must say opaque 1 for every run. ANGLE leaves the layer as it is, MoltenVK
-too for the INHERIT that libvulkan offers, and the host build's Vulkan scene asks MoltenVK for OPAQUE."""
+too for the INHERIT that libvulkan offers, and the host build's Vulkan scene asks MoltenVK for OPAQUE.
+
+With --record-class, ADR-0042 c) 2): graphics.recorder_class. For each API, the host build records the same run through
+MinatoLayerRecorder on a layer class without its own nextDrawable, as Godot's GDTMetalLayer (record-class), with the
+same checks; the host also checks which classes the recorder attaches to and that a second layer records nothing."""
 import argparse
 import pathlib
 import re
@@ -157,16 +161,28 @@ def record(args, scratch):
     return 1 if failures else 0
 
 
+def record_class(args, scratch):
+    for api in ("gles", "vulkan"):
+        what = f"{api}, host build on a class of its own"
+        host = run([args.host, api, "light", str(scratch / "record-class"), args.moltenvk, "record-class"], what)
+        recorder_line(host, what, 1)
+    print(f"{len(failures)} failures" if failures else "PASS: graphics.recorder_class")
+    return 1 if failures else 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     for option in ("host", "app-test", "scratch", "bench", "bionic", "system", "front", "manifests", "angle",
                    "moltenvk"):
         parser.add_argument(f"--{option}", required=True)
     parser.add_argument("--record", action="store_true")
+    parser.add_argument("--record-class", action="store_true")
     args = parser.parse_args()
     scratch = pathlib.Path(args.scratch)
     if args.record:
         return record(args, scratch)
+    if args.record_class:
+        return record_class(args, scratch)
 
     plain = ""
     for api in ("gles", "vulkan"):

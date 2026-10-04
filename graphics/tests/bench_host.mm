@@ -9,8 +9,12 @@
 // when the program's own arguments end with -benchmarkRenderQoS default, which MinatoBench reads (ADR-0030 V5).
 // A run without `record` may end with -benchmarkQueuePath <value>, which MinatoBench reads too (ADR-0030 V5, the
 // queue path's A/B); bench_test.py checks what the run logs.
+// With `record-class` (ADR-0042 c) 2), graphics.recorder_class): the same recording through MinatoLayerRecorder, on a
+// CAMetalLayer subclass without a nextDrawable of its own, as Godot's GDTMetalLayer. The recorder attaches to that
+// class, again too, and to no other: not MinatoMetalLayer, a class with its own nextDrawable, a second class or one
+// that is no CAMetalLayer. A second layer of the class draws during the recording, which must not hold its drawable.
 //   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>
-//                       [record [-benchmarkRenderQoS <value>] | -benchmarkQueuePath <value>]
+//                       [record [-benchmarkRenderQoS <value>] | record-class | -benchmarkQueuePath <value>]
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -31,6 +35,25 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// record-class's layers: two classes without a nextDrawable of their own, as Godot's GDTMetalLayer, and one with it.
+@interface PlainLayer : CAMetalLayer
+@end
+@implementation PlainLayer
+@end
+
+@interface OtherPlainLayer : CAMetalLayer
+@end
+@implementation OtherPlainLayer
+@end
+
+@interface OwnNextLayer : CAMetalLayer
+@end
+@implementation OwnNextLayer
+- (nullable id<CAMetalDrawable>)nextDrawable {
+    return [super nextDrawable];
+}
+@end
 
 namespace {
 
@@ -58,12 +81,13 @@ bool drawn(std::uint64_t count, std::chrono::milliseconds limit) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    const bool record = (argc == 6 || argc == 8) && std::strcmp(argv[5], "record") == 0;
+    const bool record_class = argc == 6 && std::strcmp(argv[5], "record-class") == 0;
+    const bool record = ((argc == 6 || argc == 8) && std::strcmp(argv[5], "record") == 0) || record_class;
     const bool qos = argc == 8 && std::strcmp(argv[6], "-benchmarkRenderQoS") == 0;
     const bool queue_path = argc == 7 && std::strcmp(argv[5], "-benchmarkQueuePath") == 0;
     if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path) {
         std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
-                             "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | "
+                             "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | record-class | "
                              "-benchmarkQueuePath <value>]\n");
         return 2;
     }
@@ -83,7 +107,32 @@ int main(int argc, char **argv) {
 
     int failures = 0;
     char error[512] = "";
-    MinatoMetalLayer *layer = [MinatoMetalLayer layer];
+    if (record_class) {
+        // Each refused for its own reason first, while no class has the recorder. Then the class, before it has
+        // layers, as the twin attaches before Godot makes its layer, and no second class after it.
+        const struct {
+            Class layer_class;
+            const char *what;
+        } refused[] = {{MinatoMetalLayer.class, "MinatoMetalLayer"},
+                       {OwnNextLayer.class, "a class with its own nextDrawable"},
+                       {NSObject.class, "a class that is no CAMetalLayer"}};
+        for (const auto &entry : refused) {
+            if ([MinatoLayerRecorder attachToClass:entry.layer_class]) {
+                std::printf("FAIL: the recorder attached to %s\n", entry.what);
+                return 1;
+            }
+        }
+        if (![MinatoLayerRecorder attachToClass:PlainLayer.class] || ![MinatoLayerRecorder attachToClass:PlainLayer.class]) {
+            std::printf("FAIL: the recorder did not attach to a class without its own nextDrawable\n");
+            return 1;
+        }
+        if ([MinatoLayerRecorder attachToClass:OtherPlainLayer.class]) {
+            std::printf("FAIL: the recorder attached to a second class\n");
+            ++failures;
+        }
+    }
+    CAMetalLayer *layer = record_class ? [PlainLayer layer] : [MinatoMetalLayer layer];
+    PlainLayer *other = record_class ? [PlainLayer layer] : nil;
     @autoreleasepool {
         // Opaque, as the App's view makes a session's layer by Android's rule (V5's late frames); ANGLE leaves it, and
         // MoltenVK keeps it for the scene's OPAQUE.
@@ -96,9 +145,16 @@ int main(int argc, char **argv) {
             // drawables show in the count.
             layer.device = MTLCreateSystemDefaultDevice();
             (void)[layer nextDrawable];
-            if (![layer startRecording:2 * frames]) {
+            const BOOL started = record_class ? [MinatoLayerRecorder startRecording:layer capacity:2 * frames]
+                                              : [(MinatoMetalLayer *)layer startRecording:2 * frames];
+            if (!started) {
                 std::printf("FAIL: the layer did not start recording\n");
                 return 1;
+            }
+            if (record_class) {
+                other.device = layer.device;
+                other.drawableSize = CGSizeMake(64, 64);
+                (void)[other nextDrawable];  // during the recording, on another layer: not in it
             }
         }
         if (minato_bench_start(api.c_str(), conf.c_str(), (__bridge void *)layer, moltenvk.c_str(), csv.c_str(), error,
@@ -131,10 +187,16 @@ int main(int argc, char **argv) {
     }
     if (record) {
         @autoreleasepool {
-            MinatoLayerRecording *recording = [layer stopRecording:2];
+            MinatoLayerRecording *recording = record_class ? [MinatoLayerRecorder stopRecording:layer timeout:2]
+                                                           : [(MinatoMetalLayer *)layer stopRecording:2];
             (void)[layer nextDrawable];  // after the recording: not in it
-            std::printf("recorder: %s, host build: %llu drawables; %s\n", api.c_str(),
-                        static_cast<unsigned long long>(recording.count), recording_notes(recording).c_str());
+            std::printf("recorder: %s, host build%s: %llu drawables; %s\n", api.c_str(),
+                        record_class ? " on a class of its own" : "", static_cast<unsigned long long>(recording.count),
+                        recording_notes(recording).c_str());
+            if (record_class && [MinatoLayerRecorder stopRecording:other timeout:0] != nil) {
+                std::printf("FAIL: recorder: the second layer had a recording\n");
+                ++failures;
+            }
             std::vector<std::string> problems = recording_problems(recording, posts, frames);
             const qos_class_t expected = at_default ? QOS_CLASS_DEFAULT : QOS_CLASS_USER_INTERACTIVE;
             if (recording != nil && recording.qosClass != expected) {

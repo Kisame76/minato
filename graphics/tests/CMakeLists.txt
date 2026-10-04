@@ -361,8 +361,17 @@ if(TARGET minato_graphics_host)
         --system "${APK_GUEST_SYSTEM_DIR}" --front "${APK_GRAPHICS_GUEST_DIR}"
         --manifests "${PROJECT_SOURCE_DIR}/graphics/bench/android" --angle "${angle}" --moltenvk "${moltenvk}")
     set_tests_properties(graphics.recorder PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 300)
+    # ADR-0042 c) 2): graphics.recorder_class, the host build's recording through MinatoLayerRecorder on a layer class
+    # without its own nextDrawable, as Godot's GDTMetalLayer (bench_test.py --record-class).
+    add_test(NAME graphics.recorder_class
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/bench_test.py" --record-class
+        --host $<TARGET_FILE:graphics-bench-host> --app-test $<TARGET_FILE:graphics-app-test>
+        --scratch "${CMAKE_CURRENT_BINARY_DIR}/bench_runs" --bench "${APK_BENCH_DIR}" --bionic "${APK_BIONIC_DIR}"
+        --system "${APK_GUEST_SYSTEM_DIR}" --front "${APK_GRAPHICS_GUEST_DIR}"
+        --manifests "${PROJECT_SOURCE_DIR}/graphics/bench/android" --angle "${angle}" --moltenvk "${moltenvk}")
+    set_tests_properties(graphics.recorder_class PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
   else()
-    foreach(name IN ITEMS bench recorder)
+    foreach(name IN ITEMS bench recorder recorder_class)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: the bench's host build needs ANGLE, MoltenVK and the NDK's glslc (graphics/bench/CMakeLists.txt)")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -374,7 +383,7 @@ if(TARGET minato_graphics_host)
   set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
     graphics.gles_gate graphics.gles_glue graphics.vulkan_queue graphics.vulkan_present graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
-    graphics.present_vulkan graphics.bench graphics.recorder PROPERTIES RESOURCE_LOCK gpu)
+    graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -391,7 +400,7 @@ if(TARGET minato_graphics_host)
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
       vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app gles_live
-      vulkan_live present_gles present_vulkan bench recorder)
+      vulkan_live present_gles present_vulkan bench recorder recorder_class)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

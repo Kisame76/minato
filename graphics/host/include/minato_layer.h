@@ -67,6 +67,22 @@ struct minato_layer_drawable {
 - (nullable MinatoLayerRecording *)stopRecording:(NSTimeInterval)timeout;
 @end
 
+/* The recorder for a layer whose class has no nextDrawable of its own and cannot be a MinatoMetalLayer, such as
+   Godot's GDTMetalLayer in the twin (ADR-0042 decision 4): the same recording, through a nextDrawable that
+   +attachToClass: gives the class at run time. Each layer of the class keeps its own recording. Outside a recording
+   that nextDrawable costs a lookup of the layer's state more than the class's own. In the Simulator it records
+   nothing, as MinatoMetalLayer. */
+@interface MinatoLayerRecorder : NSObject
+/* Gives the class the recording nextDrawable, before its layers draw: YES, also again for that class. NO for a class
+   that is no CAMetalLayer, is MinatoMetalLayer or below it, or defines nextDrawable itself, while another class has
+   it, or in the Simulator. */
++ (BOOL)attachToClass:(Class)layerClass;
+/* As MinatoMetalLayer's -startRecording:, for a layer of that class; NO for any other layer. */
++ (BOOL)startRecording:(CAMetalLayer *)layer capacity:(NSUInteger)capacity;
+/* As MinatoMetalLayer's -stopRecording:, nil when the layer runs no recording. */
++ (nullable MinatoLayerRecording *)stopRecording:(CAMetalLayer *)layer timeout:(NSTimeInterval)timeout;
+@end
+
 NS_ASSUME_NONNULL_END
 
 #endif
