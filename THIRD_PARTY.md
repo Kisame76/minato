@@ -141,6 +141,16 @@ Host tools in `build/`, not in the app. The Java that `aidl` writes comes from A
 
 Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed, your go). The host aapt2 and protoc, with the protobuf, libpng, expat, libutils, libcutils, libziparchive, incfs-utils and libbuildversion they link, are build tools in `build/` and do not ship; what the guest system ships is named here when its step builds it.
 
+Since ADR-0039 c4, every app build ships the Java start's guest system, with these texts under "Framework sources" in its Licenses folder:
+
+- `system/framework/framework.jar`: frameworks/base's `core/java`, `graphics/java`, `opengl/java` and the ravenwood annotations, modules-utils' `java/`, build/release's ap3a values in the flag classes, the managers' generator's classes after the Connectivity and Wi-Fi API files, and our own classes;
+- `system/framework/framework-res/`, the folder of ADR-0039 decision 8 (8,127 files): frameworks/base's `core/res` through our aapt2;
+- `system/etc/permissions/platform.xml`, unchanged;
+- `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils, libziparchive, libincfs-utils and libpng;
+- `bin/app_process64`: ours (`framework/app_process`), linking ART's libnativehelper, libsigchain and liblog.
+
+protobuf and Soong's libbuildversion stay build tools and do not ship.
+
 | Project | Commit | License | What we take |
 |---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | only `libs/androidfw`, `core/res`, `core/jni`, `core/java/android`, `core/java/com/android/internal` and `opengl/java`: libandroidfw, framework-res's sources, the framework's natives and Java, and aapt2 |
@@ -167,7 +177,7 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
-The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. Today only the Mac's harness mounts it; it ships in the guest system from step c on.
+The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The Mac's harness mounts it, and every app build ships it in its guest system since ADR-0039 c4.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -175,7 +185,7 @@ The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched
 
 ## Graphics sources (ADR-0043 a)
 
-Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Nothing of it ships before ADR-0043 a1 builds it.
+Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`, with these texts under "Graphics sources" in its Licenses folder: libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av, hardware/interfaces, libhardware and googletest's `gtest_prod.h` are headers only. FreeType's and the IJG's credits stand in their components' license lines.
 
 | Project | Commit | License | What we take |
 |---|---|---|---|

@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Xcode build phase (project.yml): puts the guest system into every app build (ADR-0028, decision 1 and its
-# consequences; ADR-0032, decision 10), as game mode mounts it for activity-host. In Guest/:
-#   bin/activity-host.dylib   the program /system/bin/activity-host
+# consequences; ADR-0032, decision 10), as game mode mounts it for activity-host and, for a Java app, app_process64
+# (ADR-0039 c4). tools/guest-check.py checks the result. In Guest/:
+#   bin/<program>.dylib       the programs /system/bin/activity-host and /system/bin/app_process64
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
 #                             libEGL, libGLESv1_CM (ADR-0041 a1), libGLESv2, libGLESv3 and libvulkan (ADR-0029,
-#                             ADR-0030)
+#                             ADR-0030); for the Java start libandroid_runtime.so, hwui's set (ADR-0043) and ART's
+#                             copies of libbase, libziparchive, libexpat and libc++_shared that it links
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
-#                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2)
+#                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2); framework.jar and
+#                             the framework-res folder in framework/ (ADR-0039, decision 8), and platform.xml in
+#                             etc/permissions/
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
 #                             zones' APEX folders as ART and ICU look for them, with the boot jars in javalib/, ICU's
 #                             data and the time zone file
@@ -15,7 +19,10 @@
 #                             com.android.conscrypt
 # Every container is converted at build time and signed with the app's identity and the bundle ID as
 # identifier (route 1 of ADR-0008). tools/build-bionic.sh builds what it takes from build/bionic,
-# tools/build-front-libs.sh the front libs in build/graphics/guest/bin, and tools/build-art.sh ART in build/art.
+# tools/build-front-libs.sh the front libs in build/graphics/guest/bin, tools/build-art.sh ART in build/art,
+# tools/build-framework-native.sh app_process64 and libandroid_runtime.so, tools/build-framework.sh framework.jar,
+# tools/build-framework-res.sh the framework-res folder and tools/build-hwui.sh hwui's set; platform.xml comes with
+# tools/fetch-sources.py --set framework.
 set -euo pipefail
 
 OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Guest"
@@ -29,6 +36,14 @@ ICU_DATA="$SRCROOT/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
 # ART's debug flavor, which only fixture builds carry (tools/embed-fixtures.sh), and Conscrypt's library.
 ART_DEBUG_LIBS=(libartd.so libartbased.so libdexfiled.so libopenjdkd.so libopenjdkjvmd.so libprofiled.so)
 CONSCRYPT_LIB=libjavacrypto.so
+# The Java start's parts (ADR-0039 c4): the framework's, hwui's set, and the libraries of ART that hwui and
+# libandroid_runtime.so link from /system/lib64 (graphics/tests/hwui_load_run.py's PLATFORM_COPIES).
+FRAMEWORK_NATIVE="$SRCROOT/build/framework-native"
+FRAMEWORK_JAR="$SRCROOT/build/framework/framework.jar"
+FRAMEWORK_RES="$SRCROOT/build/framework-res/framework-res"
+PLATFORM_XML="$SRCROOT/build/sources/frameworks_base_etc/data/etc/platform.xml"
+HWUI="$SRCROOT/build/hwui/lib"
+ART_COPIES=(libbase.so libziparchive.so libexpat.so libc++_shared.so)
 for needed in "$CONVERT" "$BIONIC/bin/activity-host" "$BIONIC/lib/libc.so" "$BIONIC/lib/libandroid.so" \
               "$BIONIC/system/usr/share/zoneinfo/tzdata"; do
   if [[ ! -e "$needed" ]]; then
@@ -52,6 +67,21 @@ if [[ ! -f "$ICU_DATA" ]]; then
   echo "error: $ICU_DATA is missing; tools/fetch-sources.py --set art fetches it" >&2
   exit 1
 fi
+for needed in "$FRAMEWORK_NATIVE/app_process64:tools/build-framework-native.sh" \
+              "$FRAMEWORK_NATIVE/libandroid_runtime.so:tools/build-framework-native.sh" \
+              "$FRAMEWORK_JAR:tools/build-framework.sh" "$FRAMEWORK_RES/resources.arsc:tools/build-framework-res.sh" \
+              "$HWUI/libhwui.so:tools/build-hwui.sh" "$PLATFORM_XML:tools/fetch-sources.py --set framework"; do
+  if [[ ! -f "${needed%%:*}" ]]; then
+    echo "error: ${needed%%:*} is missing; ${needed#*:} makes it" >&2
+    exit 1
+  fi
+done
+for library in "${ART_COPIES[@]}"; do
+  if [[ ! -f "$ART/lib/$library" ]]; then
+    echo "error: $ART/lib/$library is missing; tools/build-art.sh builds it" >&2
+    exit 1
+  fi
+done
 case "$PLATFORM_NAME" in
   iphoneos) PLATFORM=ios ;;
   iphonesimulator) PLATFORM=ios-simulator ;;
@@ -77,6 +107,20 @@ for library in "${FRONT_LIBS[@]}"; do
 done
 mkdir -p "$OUT/system"
 cp -R "$BIONIC/system/." "$OUT/system/"
+
+# The Java start (ADR-0039 c4), as framework/tests/app_process_run.py lays it out on the Mac.
+contain "$FRAMEWORK_NATIVE/app_process64" "$OUT/bin"
+contain "$FRAMEWORK_NATIVE/libandroid_runtime.so" "$OUT/lib64"
+for library in "$HWUI"/*.so; do
+  contain "$library" "$OUT/lib64"
+done
+for library in "${ART_COPIES[@]}"; do
+  contain "$ART/lib/$library" "$OUT/lib64"
+done
+mkdir -p "$OUT/system/framework" "$OUT/system/etc/permissions"
+cp "$FRAMEWORK_JAR" "$OUT/system/framework/"
+cp -R "$FRAMEWORK_RES" "$OUT/system/framework/"
+cp "$PLATFORM_XML" "$OUT/system/etc/permissions/"
 
 # ART's APEXes (ADR-0033 d2), as runtime/tests/art_run.py lays them out on the Mac: the folders ART and ICU look
 # for, bin/ and lib64/ empty in the files, since their programs and libraries are containers.

@@ -1,5 +1,5 @@
 {
-  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'always' since ADR-0033 d2 puts ART's APEXes into every build; their build tools stay 'never'. So are the framework's sources until step c of ADR-0039 puts framework.jar, framework-res and platform.xml into the app, and its build tools stay 'never'. A path with a slash is a file in the bundle: test 2's APKs go into a benchmark build together (tools/embed-benchmark.sh), so their section's rule names one of them.",
+  "comment": "The license texts the app bundle carries (THIRD_PARTY.md). tools/bundle-licenses.py copies them at build time from where the build fetched them into Minato.app/Licenses/<component>/, with Licenses/licenses.json as the index; tools/license-check.py checks a built bundle against THIRD_PARTY.md. 'sections': when the app embeds a section of THIRD_PARTY.md: always, with this framework in the bundle's Frameworks/, or never. 'rows': the first cells of THIRD_PARTY.md's table rows the component covers. 'texts': <root>:<path>; roots: sources = build/sources, moltenvk = build/moltenvk, angle = ANGLE's checkout in build/angle/angle at the pins of third_party/sources.json (tools/build-angle.sh --fetch), repo = the repository, ndk = the NDK (ANDROID_NDK, as tools/build-bionic.sh). A text may take only some lines ('lines': [first, last]). 'none': why nothing of the component is in the binary. ART and its libraries are 'always' since ADR-0033 d2 puts ART's APEXes into every build; their build tools stay 'never'. So are the framework's sources and the graphics sources since ADR-0039 c4 puts framework.jar, framework-res, platform.xml, libandroid_runtime.so and hwui's libraries into every build; the framework's build tools stay 'never'. A project without a license text of its own at the tag takes the repository's Apache-2.0 text. A path with a slash is a file in the bundle: test 2's APKs go into a benchmark build together (tools/embed-benchmark.sh), so their section's rule names one of them.",
   "sections": {
     "Guest libc": "always",
     "Graphics: ANGLE": "libGLESv2.framework",
@@ -8,8 +8,8 @@
     "ART and its libraries": "always",
     "Build tools for ART": "never",
     "Build tools for the framework": "never",
-    "Framework sources": "never",
-    "Graphics sources": "never",
+    "Framework sources": "always",
+    "Graphics sources": "always",
     "Guest fonts": "always",
     "Test 2 with Godot": "MinatoGodot.framework",
     "Test 2's APKs": "Benchmark/godot-bench-vulkan.apk",
@@ -947,6 +947,410 @@
         "platform/system/timezone"
       ],
       "none": "Only read as the model for the format of the time zone files (ADR-0033, decision 9); none of its code or data is in the binary."
+    },
+    {
+      "name": "frameworks_base",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/base"
+      ],
+      "texts": [
+        {
+          "from": "sources:frameworks_base/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libpng",
+      "section": "Framework sources",
+      "license": "libpng License v2",
+      "rows": [
+        "platform/external/libpng"
+      ],
+      "texts": [
+        {
+          "from": "sources:libpng/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "incremental_delivery",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/incremental_delivery"
+      ],
+      "texts": [
+        {
+          "from": "sources:incremental_delivery/incfs/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "build_release",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/build/release"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "modules-utils",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/libs/modules-utils"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "connectivity-api",
+      "section": "Framework sources",
+      "license": "Apache-2.0; framework.jar's manager classes carry the names and constants of its API files",
+      "rows": [
+        "platform/packages/modules/Connectivity"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "wifi-api",
+      "section": "Framework sources",
+      "license": "Apache-2.0; framework.jar's manager classes carry the names and constants of its API file",
+      "rows": [
+        "platform/packages/modules/Wifi"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "protobuf",
+      "section": "Framework sources",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "platform/external/protobuf"
+      ],
+      "none": "Only the host aapt2 and protoc link it, build tools in build/; none of its code is in the app."
+    },
+    {
+      "name": "build_soong",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/build/soong"
+      ],
+      "none": "Only cc/libbuildversion, which the host aapt2 links; none of its code is in the app."
+    },
+    {
+      "name": "hwui",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/base"
+      ],
+      "texts": [
+        {
+          "from": "sources:frameworks_base_hwui/libs/hwui/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "skia",
+      "section": "Graphics sources",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "platform/external/skia"
+      ],
+      "texts": [
+        {
+          "from": "sources:skia/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "minikin",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/minikin"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "harfbuzz_ng",
+      "section": "Graphics sources",
+      "license": "Old MIT",
+      "rows": [
+        "platform/external/harfbuzz_ng"
+      ],
+      "texts": [
+        {
+          "from": "sources:harfbuzz_ng/COPYING",
+          "as": "COPYING"
+        }
+      ]
+    },
+    {
+      "name": "freetype",
+      "section": "Graphics sources",
+      "license": "FreeType License (FTL); this software is based in part on the work of the FreeType Team (https://freetype.org)",
+      "rows": [
+        "platform/external/freetype"
+      ],
+      "texts": [
+        {
+          "from": "sources:freetype/docs/FTL.TXT",
+          "as": "FTL.TXT"
+        }
+      ]
+    },
+    {
+      "name": "libjpeg-turbo",
+      "section": "Graphics sources",
+      "license": "IJG, BSD-3-Clause and Zlib; this software is based in part on the work of the Independent JPEG Group",
+      "rows": [
+        "platform/external/libjpeg-turbo"
+      ],
+      "texts": [
+        {
+          "from": "sources:libjpeg-turbo/LICENSE.md",
+          "as": "LICENSE.md"
+        },
+        {
+          "from": "sources:libjpeg-turbo/README.ijg",
+          "as": "README.ijg"
+        }
+      ]
+    },
+    {
+      "name": "webp",
+      "section": "Graphics sources",
+      "license": "BSD-3-Clause, with Google's patent grant",
+      "rows": [
+        "platform/external/webp"
+      ],
+      "texts": [
+        {
+          "from": "sources:webp/COPYING",
+          "as": "COPYING"
+        },
+        {
+          "from": "sources:webp/PATENTS",
+          "as": "PATENTS"
+        }
+      ]
+    },
+    {
+      "name": "wuffs",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/wuffs-mirror-release-c"
+      ],
+      "texts": [
+        {
+          "from": "sources:wuffs/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "libultrahdr",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/libultrahdr"
+      ],
+      "texts": [
+        {
+          "from": "sources:libultrahdr/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "image_io",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/image_io"
+      ],
+      "texts": [
+        {
+          "from": "sources:image_io/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "modp_b64",
+      "section": "Graphics sources",
+      "license": "BSD-style",
+      "rows": [
+        "platform/external/modp_b64"
+      ],
+      "texts": [
+        {
+          "from": "sources:modp_b64/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "frameworks_native",
+      "section": "Graphics sources",
+      "license": "Apache-2.0; in opengl/include the Khronos headers MIT-style and GLES3/gl3ext.h SGI Free Software License B 2.0",
+      "rows": [
+        "platform/frameworks/native"
+      ],
+      "texts": [
+        {
+          "from": "sources:frameworks_native_graphics/NOTICE",
+          "as": "NOTICE"
+        },
+        {
+          "from": "sources:frameworks_native_headers/opengl/include/EGL/egl.h",
+          "lines": [
+            9,
+            28
+          ],
+          "as": "Khronos-NOTICE"
+        },
+        {
+          "from": "sources:frameworks_native_headers/opengl/include/KHR/khrplatform.h",
+          "lines": [
+            5,
+            24
+          ],
+          "as": "khrplatform-NOTICE"
+        },
+        {
+          "from": "sources:frameworks_native_headers/opengl/include/GLES3/gl3ext.h",
+          "lines": [
+            7,
+            8
+          ],
+          "as": "gl3ext-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "vulkan-headers-aosp",
+      "section": "Graphics sources",
+      "license": "Apache-2.0 OR MIT, used under Apache-2.0",
+      "rows": [
+        "platform/external/vulkan-headers"
+      ],
+      "texts": [
+        {
+          "from": "sources:vulkan_headers_aosp/LICENSE.md",
+          "as": "LICENSE.md"
+        },
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "frameworks_av",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/frameworks/av"
+      ],
+      "texts": [
+        {
+          "from": "sources:frameworks_av_ndk/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "hardware_interfaces",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/hardware/interfaces"
+      ],
+      "texts": [
+        {
+          "from": "sources:hardware_interfaces_graphics/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "libhardware",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/hardware/libhardware"
+      ],
+      "texts": [
+        {
+          "from": "sources:libhardware/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "server_configurable_flags",
+      "section": "Graphics sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/server_configurable_flags"
+      ],
+      "texts": [
+        {
+          "from": "repo:LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "googletest",
+      "section": "Graphics sources",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "platform/external/googletest"
+      ],
+      "texts": [
+        {
+          "from": "sources:googletest_prod/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
     }
   ]
 }
