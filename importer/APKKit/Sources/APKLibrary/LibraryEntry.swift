@@ -31,16 +31,35 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// nothing is converted or signed.
     public var signedWith: String?
     /// The installed version's folder in apps/<package>/, the first 16 hex digits of its APK's SHA-256
-    /// (ADR-0034); nil for an entry from before version folders, whose files lie in apps/<package>/.
+    /// (ADR-0034), or of a split set's digest (ADR-0048, decision 6); nil for an entry from before version folders,
+    /// whose files lie in apps/<package>/.
     public var folder: String? = nil
+    /// The split APKs of a set that the choice left out, with why (ADR-0048, decision 4); nil for one APK.
+    public var skippedSplits: [SkippedSplit]? = nil
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {
+    /// How an APK takes part in its set (ADR-0048, decision 2).
+    public enum Kind: String, Sendable, Codable {
+        case base, feature, config, other
+    }
+
     /// File name inside the app's install directory.
     public var fileName: String
     public var splitName: String?
     public var size: UInt64
     public var sha256: String
+    /// nil for one APK, and in entries from before split sets.
+    public var kind: Kind? = nil
+    /// The module a configuration split configures, as its manifest's `configForSplit` names it.
+    public var configForSplit: String? = nil
+}
+
+/// A split APK of a set that Minato does not install, and why (ADR-0048, decision 4).
+public struct SkippedSplit: Sendable, Equatable, Codable {
+    public var fileName: String
+    public var splitName: String
+    public var reason: String
 }
 
 /// Identity of a dropped file, used to recognise files that were already imported.

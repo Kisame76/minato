@@ -135,7 +135,7 @@ enum Texts {
     static func isBlocking(_ issue: Compatibility.Issue) -> Bool {
         switch issue {
         case .isSplitAPK, .only32Bit, .noARM64, .wrongArchitecture, .conversionFailed, .signatureInvalid, .olderSDK,
-             .sdkReference: true
+             .sdkReference, .splitChoice: true
         default: false
         }
     }
@@ -158,6 +158,8 @@ enum Texts {
             "Android 15 does not install it: \(message)"
         case .sdkReference(let attribute):
             "Its \(attribute) is a resource reference, which Minato does not resolve"
+        case .splitChoice(let reason):
+            "Its split APKs do not fit this iPhone: \(reason)"
         case .needsART:
             "Contains Java/Kotlin code and needs ART (milestone M4)"
         case .requiresGLES(let version):

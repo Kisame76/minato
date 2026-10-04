@@ -96,6 +96,9 @@ public struct Compatibility: Sendable, Equatable, Codable {
         /// The named `<uses-sdk>` attribute is a resource reference, which Android resolves and Minato does not
         /// (a logged departure, ADR-0039).
         case sdkReference(String)
+        /// The set's splits offer nothing that fits this iPhone where it needs one, with the choice's reason (ADR-0048,
+        /// decision 4).
+        case splitChoice(String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART

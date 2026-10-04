@@ -19,10 +19,15 @@ public actor Library {
     public nonisolated let paths: LibraryPaths
     public private(set) var entries: [LibraryEntry]
     private let preferredLanguages: [String]
+    /// What a set's splits are chosen for (ADR-0048, decision 4).
+    private let device: DeviceProfile
 
-    public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages) throws {
+    /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
+    public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
+                device: DeviceProfile? = nil) throws {
         self.paths = paths
         self.preferredLanguages = preferredLanguages
+        self.device = device ?? .iPhone(nativeScale: 3, languages: preferredLanguages)
         entries = try Self.entries(in: paths)
         Self.launched.withLock { launched in
             if launched.insert(paths.incoming.standardizedFileURL.path).inserted { Self.removeUnfinishedPicks(in: paths) }
@@ -166,12 +171,11 @@ public actor Library {
     @discardableResult
     public func importFile(_ url: URL, replacing: Bool = false, signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> ImportResult {
-        let fileManager = FileManager.default
         var source = try Self.sourceFile(for: url)
         progress(0)
 
         let archive: ZipArchive
-        var report: APKReport
+        let report: APKReport
         let icon: Data?
         do {
             archive = try ZipArchive(url: url)
@@ -189,32 +193,72 @@ public actor Library {
         }
         progress(0.2)
 
+        let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
+        source.sha256 = digest
+        let signer = report.signature.signer ?? SignerIdentity(current: [])
+        let new = NewVersion(
+            report: report, digest: digest, source: source,
+            files: [(url, PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest))],
+            skippedSplits: nil, icon: icon, archive: archive,
+            version: { state in
+                AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
+                           signerProven: report.signature.check == .verified,
+                           signatureFailed: report.signature.check?.isFailure == true)
+            })
+        return try install(new, replacing: replacing, signing: signing, discarding: url, progress: progress)
+    }
+
+    /// A version about to be installed: one APK, or a set's base and chosen splits (ADR-0048, decision 6).
+    private struct NewVersion {
+        var report: APKReport
+        /// The file's SHA-256, or the set's digest: the version's folder is named after it.
+        var digest: String
+        var source: SourceFile
+        /// The APKs the version holds, the base first, each with its name in the folder.
+        var files: [(url: URL, file: PackageFile)]
+        var skippedSplits: [SkippedSplit]?
+        var icon: Data?
+        /// The base's archive, which the native code comes from.
+        var archive: ZipArchive
+        /// What the update policy compares, for a state.
+        var version: (LibraryEntry.State) -> AppVersion
+    }
+
+    /// Installs a version, updates the installed app of its package with it, or leaves that app as it is (ADR-0034).
+    /// When the policy asks, nothing changes. `pickedCopy` goes once the version is installed or turned away.
+    private func install(_ new: NewVersion, replacing: Bool, signing: ImportSigning?, discarding pickedCopy: URL?,
+                         progress: @Sendable (Double) -> Void) throws -> ImportResult {
+        let fileManager = FileManager.default
+        var report = new.report
         let package = report.packageName
         var state: LibraryEntry.State = switch report.compatibility.status {
         case .ready: .ready
         case .needsSplits: .needsSplits
         case .incompatible: .incompatible
         }
-        let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
-        source.sha256 = digest
+        func finish(_ result: ImportResult) -> ImportResult {
+            if let pickedCopy { discardPickedCopy(pickedCopy) }
+            progress(1)
+            return result
+        }
+        let digest = new.digest
         let installed = entries.first { $0.id == package }
         let installedVersion = installed.flatMap(version(of:))
-        let signer = report.signature.signer ?? SignerIdentity(current: [])
-        var decision = UpdatePolicy.decide(
-            installed: installedVersion,
-            new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
-                            signerProven: report.signature.check == .verified,
-                            signatureFailed: report.signature.check?.isFailure == true))
+        var decision = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
         switch (decision, installed) {
         case (.unchanged, let installed?), (.reject, let installed?):
-            discardPickedCopy(url)
-            progress(1)
-            return ImportResult(entry: installed, decision: decision, report: report)
+            return finish(ImportResult(entry: installed, decision: decision, report: report))
         case (.ask, let installed?) where !replacing:
             progress(1)
             return ImportResult(entry: installed, decision: decision, report: report)
+        case (.ask, nil) where !replacing:
+            // A fresh install that asks (ADR-0048, step b3): nothing is stored, and the entry is the one it would make.
+            progress(1)
+            let entry = LibraryEntry(id: package, displayName: report.label, state: state, report: report, base: nil,
+                                     splits: [], obbs: [], source: new.source, iconFile: nil, importedAt: Date())
+            return ImportResult(entry: entry, decision: decision, report: report)
         case (.ask, _):
-            decision = .update
+            decision = installed == nil ? .install : .update
         default:
             break
         }
@@ -234,7 +278,7 @@ public actor Library {
         var signedWith: String?
         if state == .ready, case .nativeActivity = report.runtime {
             do {
-                signedWith = try installNativeCode(of: report, from: archive, into: versionDirectory, signing: signing)
+                signedWith = try installNativeCode(of: report, from: new.archive, into: versionDirectory, signing: signing)
             } catch let refusal as RefusedLibrary {
                 // This version cannot run, so it keeps no code and counts as incompatible: a ready
                 // installed version then stays (ADR-0034, decision 1).
@@ -242,24 +286,22 @@ public actor Library {
                 report.compatibility.status = .incompatible
                 report.compatibility.issues.append(.conversionFailed(library: refusal.library, reason: refusal.reason))
                 try? fileManager.removeItem(at: versionDirectory.appendingPathComponent("lib"))
-                decision = UpdatePolicy.decide(
-                    installed: installedVersion,
-                    new: AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
-                            signerProven: report.signature.check == .verified,
-                            signatureFailed: report.signature.check?.isFailure == true))
+                decision = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
                 if case .reject = decision, let installed {
                     try? fileManager.removeItem(at: versionDirectory)
-                    discardPickedCopy(url)
-                    progress(1)
-                    return ImportResult(entry: installed, decision: decision, report: report)
+                    return finish(ImportResult(entry: installed, decision: decision, report: report))
                 }
             }
         }
         var base: PackageFile?
+        var splits: [PackageFile] = []
         if state != .incompatible {
-            // On APFS the copy is a clone and takes no extra space.
-            try fileManager.copyItem(at: url, to: versionDirectory.appendingPathComponent("base.apk"))
-            base = PackageFile(fileName: "base.apk", splitName: nil, size: source.size, sha256: digest)
+            for (url, file) in new.files {
+                // On APFS the copy is a clone and takes no extra space.
+                try fileManager.copyItem(at: url, to: versionDirectory.appendingPathComponent(file.fileName))
+            }
+            base = new.files.first?.file
+            splits = new.files.dropFirst().map(\.file)
             // Who signed it, for the guest's PackageManager (ADR-0034 decision 2): what the check proved, so an
             // unsigned or unverified APK has none.
             if report.signature.check == .verified, let proof = report.signature.proof {
@@ -271,7 +313,7 @@ public actor Library {
         progress(0.85)
 
         var iconFile: String?
-        if let icon, let iconPath = report.iconPath {
+        if let icon = new.icon, let iconPath = report.iconPath {
             let fileName = "icon." + (iconPath.split(separator: ".").last.map { $0.lowercased() } ?? "png")
             try icon.write(to: versionDirectory.appendingPathComponent(fileName), options: .atomic)
             iconFile = "apps/\(package)/\(folder)/\(fileName)"
@@ -283,22 +325,125 @@ public actor Library {
         // importedAt, the OBBs and the data (ADR-0034, decisions 4 and 6).
         var entry = installed ?? LibraryEntry(
             id: package, displayName: report.label, state: state, report: report, base: base,
-            splits: [], obbs: [], source: source, iconFile: iconFile, importedAt: Date())
+            splits: [], obbs: [], source: new.source, iconFile: iconFile, importedAt: Date())
         entry.displayName = report.label
         entry.state = state
         entry.report = report
         entry.base = base
-        entry.splits = []
-        entry.source = source
+        entry.splits = splits
+        entry.skippedSplits = new.skippedSplits
+        entry.source = new.source
         entry.iconFile = iconFile
         entry.folder = folder
         entry.signedWith = signedWith
         entry.updatedAt = installed == nil ? nil : Date()
         try store(entry)
         removeEverything(in: appDirectory, except: folder)
-        discardPickedCopy(url)
+        return finish(ImportResult(entry: entry, decision: decision, report: report))
+    }
+
+    /// Imports a unit (ADR-0048, decisions 1 to 6): its APKs grouped into sets by package and version. A set is
+    /// checked as Android's installer checks a session, its splits are chosen for the device, and it is analysed over
+    /// the APKs Minato installs, then installed, updated or asked about as one APK is (ADR-0034); a set Android refuses
+    /// becomes an `.invalid` entry. One APK, and a file that is no APK, go through `importFile`, as before. The unit
+    /// stays while a set asks, so the question comes again at the next scan; `replacing` answers "Replace" for the
+    /// unit. Returns a result for each set and each such file.
+    @discardableResult
+    public func importUnit(_ unit: URL, replacing: Bool = false, signing: ImportSigning? = nil,
+                           progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
+        var isFolder: ObjCBool = false
+        _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
+        let urls = isFolder.boolValue ? try Self.files(inUnit: unit).filter(Self.isAPK) : [unit]
+        var results: [ImportResult] = []
+        var members: [SetMember] = []
+        var files: [String: (url: URL, archive: ZipArchive)] = [:]
+        for (index, url) in urls.enumerated() {
+            progress(0.5 * Double(index) / Double(urls.count))
+            let sha256 = try Self.sha256(of: url, size: Self.sourceFile(for: url).size) { _ in }
+            guard let archive = try? ZipArchive(url: url),
+                  let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256) else {
+                results.append(try importFile(url, replacing: replacing, signing: signing))
+                continue
+            }
+            members.append(member)
+            files[member.fileName] = (url, archive)
+        }
+        for group in SetGrouping.byPackageAndVersion(members) {
+            if group.count == 1, group[0].isBase, let url = files[group[0].fileName]?.url {
+                results.append(try importFile(url, replacing: replacing, signing: signing))
+            } else {
+                results.append(try importSet(group, files: files, replacing: replacing, signing: signing))
+            }
+        }
+        // The unit goes once nothing in it waits for an answer; an OBB waits for ADR-0049.
+        if !results.contains(where: { if case .ask = $0.decision { true } else { false } }) {
+            for url in urls { try? FileManager.default.removeItem(at: url) }
+            rmdir(unit.path)
+        }
         progress(1)
-        return ImportResult(entry: entry, decision: decision, report: report)
+        return results
+    }
+
+    /// One set of a unit (ADR-0048, decisions 3 to 6): the base with its chosen splits, or splits without their base,
+    /// which only an installed version may take (decision 7, step b5b2).
+    private func importSet(_ group: [SetMember], files: [String: (url: URL, archive: ZipArchive)], replacing: Bool,
+                           signing: ImportSigning?) throws -> ImportResult {
+        func refuse(_ reason: String, file: SetMember) throws -> ImportResult {
+            let entry = LibraryEntry(
+                id: "file:\(file.fileName)", displayName: file.fileName, state: .invalid(reason), report: nil, base: nil,
+                splits: [], obbs: [], source: try Self.sourceFile(for: files[file.fileName]!.url), iconFile: nil,
+                importedAt: Date())
+            try store(entry)
+            return ImportResult(entry: entry, decision: .install, report: nil)
+        }
+        let set: CheckedSet
+        switch SetChecks.check(group) {
+        case .success(let checked): set = checked
+        case .failure(let refusal): return try refuse(refusal.reason, file: group[0])
+        }
+        guard let base = set.base else {
+            let split = set.splits[0]
+            return try refuse("Split APK “\(split.fileName)” needs its base APK. Import it together with its base APK.",
+                              file: split)
+        }
+        guard Self.isSafePackageName(base.packageName) else {
+            return try refuse(String(describing: LibraryError.unsafePackageName(base.packageName)), file: base)
+        }
+        let choice = SplitSelector.choose(set, for: device)
+        var (report, icon) = try SetAnalysis.analyze(set, choice: choice, preferredLanguages: preferredLanguages) {
+            files[$0.fileName]!.archive
+        }
+        if let reason = choice.incompatibility {
+            report.compatibility.issues.append(.splitChoice(reason))
+            report.compatibility.status = .incompatible
+        }
+        let installing = [base] + choice.chosen
+        let digest = choice.chosen.isEmpty ? base.sha256 : try SetDigest.of(installing.map { ($0.splitName, $0.sha256) })
+        var source = try Self.sourceFile(for: files[base.fileName]!.url)
+        source.sha256 = base.sha256
+        let new = NewVersion(
+            report: report, digest: digest, source: source,
+            files: try installing.map { member in
+                let url = files[member.fileName]!.url
+                return (url, PackageFile(fileName: SetDigest.installedName(of: member.splitName), splitName: member.splitName,
+                                         size: try Self.sourceFile(for: url).size, sha256: member.sha256,
+                                         kind: Self.kind(of: member.role), configForSplit: member.configForSplit))
+            },
+            skippedSplits: choice.skipped.map {
+                SkippedSplit(fileName: $0.member.fileName, splitName: $0.member.splitName ?? "", reason: $0.reason)
+            },
+            icon: icon, archive: files[base.fileName]!.archive,
+            version: { state in AppVersion(set: set, state: state, sha256: digest) })
+        return try install(new, replacing: replacing, signing: signing, discarding: nil, progress: { _ in })
+    }
+
+    static func kind(of role: SplitRole) -> PackageFile.Kind {
+        switch role {
+        case .base: .base
+        case .feature: .feature
+        case .config: .config
+        case .other: .other
+        }
     }
 
     /// The answer "Keep Installed" to a question: the waiting file goes, the installed version stays.
@@ -310,6 +455,8 @@ public actor Library {
     /// from before the signer or its lineage's capabilities were recorded, has its base.apk checked now.
     private func version(of entry: LibraryEntry) -> AppVersion? {
         guard var version = AppVersion(entry: entry) else { return nil }
+        // A set is its digest, so the same set changes nothing (ADR-0048, decision 6).
+        if let digest = Self.setDigest(of: entry) { version.sha256 = digest }
         let signature = entry.report?.signature
         if signature?.check == nil || signature?.signer?.knowsCapabilities != true, let base = entry.base,
            let archive = try? ZipArchive(url: paths.versionDirectory(for: entry).appendingPathComponent(base.fileName)) {
@@ -441,6 +588,12 @@ public actor Library {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeRegular
     }
 
+    /// A set's digest from the files its entry names (ADR-0048, decision 6); nil for one APK.
+    static func setDigest(of entry: LibraryEntry) -> String? {
+        guard let base = entry.base, !entry.splits.isEmpty else { return nil }
+        return try? SetDigest.of(([base] + entry.splits).map { ($0.splitName, $0.sha256) })
+    }
+
     /// A version folder's name: 16 hex digits.
     static func isVersionFolder(_ name: String) -> Bool {
         name.count == 16 && name.allSatisfy(\.isHexDigit)
@@ -453,7 +606,9 @@ public actor Library {
         guard entry.folder == nil, isSafePackageName(entry.id) else { return entry }
         let iconParts = entry.iconFile?.split(separator: "/") ?? []
         let iconFolder = iconParts.count == 4 && iconParts[0] == "apps" && iconParts[1] == entry.id ? String(iconParts[2]) : nil
-        for case let folder? in [entry.base.map { String($0.sha256.prefix(16)) }, iconFolder] where isVersionFolder(folder) {
+        let candidates = [setDigest(of: entry).map { String($0.prefix(16)) }, entry.base.map { String($0.sha256.prefix(16)) },
+                          iconFolder]
+        for case let folder? in candidates where isVersionFolder(folder) {
             var isDirectory: ObjCBool = false
             let path = paths.installDirectory(for: entry.id).appendingPathComponent(folder).path
             if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
