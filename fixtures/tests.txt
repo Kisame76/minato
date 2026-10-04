@@ -58,6 +58,9 @@ property-test system runtime-only
 # The CPU features a program learns (ADR-0047 a and c), the device's own: shown, and on the Mac compared with the
 # bits its sysctl gives by runtime.hwcap_fixture.
 hwcap-test system measures
+# What the instructions of ADR-0047 decision 3's features do at EL0 (b1), the device's own: shown, and on the Mac
+# compared with what its sysctl lets one expect by runtime.el0_check_fixture.
+el0-check system measures
 # No camera and no media codecs, the stubs that let Godot's library load (ADR-0042 b, gap 15); Android's emulator
 # has cameras.
 camera-media-test system runtime-only

@@ -115,6 +115,9 @@ add_executable(property-test suite/property-test.c)
 # hwcap-test: the CPU features a program learns, from getauxval, in its own ifunc resolver (ADR-0047 a) and on
 # /proc/cpuinfo (c).
 add_executable(hwcap-test suite/hwcap-test.c)
+# el0-check: what the instructions of the CPU features that ADR-0047 reports only after a check at EL0 do on the
+# device, each under a SIGILL handler (b1).
+add_executable(el0-check suite/el0-check.c)
 # camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b, gap 15).
 add_executable(camera-media-test suite/camera-media-test.c)
 target_link_libraries(camera-media-test PRIVATE dl)

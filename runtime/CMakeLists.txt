@@ -300,6 +300,14 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/hwcap_runs")
   set_tests_properties(runtime.hwcap_fixture PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
+  # ADR-0047 b1's probe: el0-check's lines against what this Mac's sysctl lets one expect of decision 3's features,
+  # which the runtime does not report yet.
+  add_test(NAME runtime.el0_check_fixture
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/el0_check.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/el0_runs")
+  set_tests_properties(runtime.el0_check_fixture PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
+
   # apk-run's --configuration (ADR-0039, config-test): the fixture session-test sees the session it begins through
   # session_configuration and libandroid, and no session without it.
   add_test(NAME runtime.session_run
