@@ -37,12 +37,6 @@ struct Rela {
 /// `writable`, because the code around them is signed (ADR-0010). Checked before each write.
 void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, Range writable);
 
-/// AT_HWCAP of guest programs, which ifunc resolvers see as well: only what every ARMv8 CPU has and
-/// XNU runs at EL0, FP and Advanced SIMD (HWCAP_FP, HWCAP_ASIMD). In particular no CPUID (bionic
-/// would read MIDR_EL1, which traps on XNU), no SVE (the A17 Pro has none) and no SME (the M4 has
-/// it, the A17 Pro does not). More features later, each one checked (M6).
-inline constexpr std::uint64_t guest_hwcap = 0b11;
-
 /// The host address of the symbol with the given number, for a relocation that names one.
 using SymbolResolver = std::function<std::uint64_t(std::uint32_t symbol)>;
 

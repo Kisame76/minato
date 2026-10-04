@@ -86,7 +86,7 @@ std::uint64_t resolve(const Object &object, std::uint32_t index, std::span<const
 
 /// Applies every relocation of `object` (RELA, PLT, RELR) except the TLS ones, resolving symbols in
 /// `scope`. ifunc symbols and R_AARCH64_IRELATIVE call their resolver, which is guest code, with
-/// loader::guest_hwcap, as linker64 does.
+/// the device's AT_HWCAP and AT_HWCAP2 (hwcap::guest, ADR-0047), as linker64 does.
 void relocate(const Object &object, std::span<const Object *const> scope);
 
 /// Host addresses of the TLS descriptor resolvers in bionic's libc.so (guest_interface.h); 0 when

@@ -1,6 +1,7 @@
 #include "linker.h"
 
 #include "guest_call.h"
+#include "hwcap.h"
 
 #include <algorithm>
 #include <cstring>
@@ -247,7 +248,7 @@ std::uint64_t call_ifunc_resolver(std::uint64_t resolver) {
         std::uint64_t hwcap;
         std::uint64_t hwcap2;
     };
-    static const Argument argument{sizeof(Argument), loader::guest_hwcap, 0};
+    static const Argument argument{sizeof(Argument), hwcap::guest().hwcap, hwcap::guest().hwcap2};
     constexpr std::uint64_t ifunc_arg_hwcap = std::uint64_t{1} << 62;  // _IFUNC_ARG_HWCAP
     using Resolver = std::uint64_t (*)(std::uint64_t, const Argument *);
     return call_guest(reinterpret_cast<Resolver>(resolver), argument.hwcap | ifunc_arg_hwcap, &argument);

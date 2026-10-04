@@ -99,6 +99,8 @@ add_executable(hwui-load suite/hwui-load.c)
 target_link_libraries(hwui-load PRIVATE dl)
 # property-test: bionic's property calls on the runtime's property area (ADR-0039 decisions 4 and 9).
 add_executable(property-test suite/property-test.c)
+# hwcap-test: the CPU features a program learns, from getauxval and in its own ifunc resolver (ADR-0047 a).
+add_executable(hwcap-test suite/hwcap-test.c)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
 # (runtime/tests/environment_run.py).
 add_executable(env-test suite/env-test.c)

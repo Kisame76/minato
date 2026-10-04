@@ -8,7 +8,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
   src/proc.cpp src/properties.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
-  src/environment.cpp src/vfs.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
+  src/environment.cpp src/vfs.cpp src/hwcap.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(apkrt PRIVATE apk_defaults)
@@ -192,6 +192,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(properties_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.properties COMMAND properties_test)
 
+  # The CPU features the guest is told (ADR-0047 a): the table from the device's sysctl to AT_HWCAP and AT_HWCAP2.
+  add_executable(hwcap_test tests/hwcap_test.cpp)
+  target_include_directories(hwcap_test PRIVATE src)
+  target_link_libraries(hwcap_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.hwcap COMMAND hwcap_test)
+
   # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
   # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello; test 2 is
   # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window. The jars
@@ -281,6 +287,14 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
       "${CMAKE_CURRENT_BINARY_DIR}/environment_runs")
   set_tests_properties(runtime.app_environment PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
+
+  # The CPU features a program learns (ADR-0047 a): hwcap-test's getauxval and ifunc resolver against the bits this
+  # Mac's sysctl gives, mapped by the check's own copy of the table.
+  add_test(NAME runtime.hwcap_fixture
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/hwcap_check.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/hwcap_runs")
+  set_tests_properties(runtime.hwcap_fixture PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 120)
 
   # apk-run's --configuration (ADR-0039, config-test): the fixture session-test sees the session it begins through
   # session_configuration and libandroid, and no session without it.

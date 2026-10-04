@@ -1,6 +1,7 @@
 // Checks the parts of the loader that work on plain memory: relocations and the Linux start stack
 // (ADR-0019); and on small containers the converter makes, the version check and the island table
 // (ADR-0020 X4). Programs are loaded and run end to end by the fixture tests.
+#include "hwcap.h"
 #include "islands.h"
 #include "loader.h"
 
@@ -209,8 +210,9 @@ TEST(the_start_stack_looks_like_linux_built_it) {
     // ADR-0039 decision 3: the app uid, also as the gid.
     CHECK(view.aux(at_uid) == 10100 && view.aux(at_euid) == 10100);
     CHECK(view.aux(at_gid) == 10100 && view.aux(at_egid) == 10100);
-    CHECK(view.aux(at_hwcap) == 0b11);  // FP and ASIMD, nothing XNU would not run (no CPUID, SVE, SME)
-    CHECK(view.aux(at_hwcap2) == 0);
+    // The device's CPU features under ADR-0047 (runtime.hwcap checks the table), never CPUID, SVE or SME.
+    CHECK(view.aux(at_hwcap) == apkrt::hwcap::guest().hwcap && view.aux(at_hwcap2) == apkrt::hwcap::guest().hwcap2);
+    CHECK((view.aux(at_hwcap) & 0b11) == 0b11 && (view.aux(at_hwcap) & (1u << 11 | 1u << 22)) == 0);
     CHECK(std::string(reinterpret_cast<const char *>(view.aux(at_platform))) == "aarch64");
     CHECK(std::string(reinterpret_cast<const char *>(view.aux(at_execfn))) == "/data/app/hello");
 

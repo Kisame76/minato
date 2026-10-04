@@ -1,5 +1,6 @@
 #include "loader.h"
 
+#include "hwcap.h"
 #include "identity.h"
 #include "islands.h"
 #include "syscall_frame.h"
@@ -202,8 +203,8 @@ std::uint64_t build_start_stack(const StartInfo &start, std::span<std::byte> sta
         {at_gid, app_uid},
         {at_egid, app_uid},
         {at_platform, platform},
-        {at_hwcap, guest_hwcap},
-        {at_hwcap2, 0},
+        {at_hwcap, hwcap::guest().hwcap},  // the device's CPU features (ADR-0047)
+        {at_hwcap2, hwcap::guest().hwcap2},
         {at_clktck, clock_ticks},
         {at_secure, 0},
         {at_random, random},
