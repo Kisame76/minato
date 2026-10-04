@@ -6,6 +6,7 @@ import android.system.Os;
 import android.util.Log;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.security.MessageDigest;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -27,6 +28,7 @@ public class StartApplication extends Application {
         System.out.println("app-start-test: getuid " + Os.getuid());
         System.out.println("app-start-test: Process.myUid " + Process.myUid());
         System.out.println("app-start-test: currentProcessName " + currentProcessName());
+        System.out.println("app-start-test: MessageDigest " + sha256("minato"));
         // Log with a Throwable looks for a DeadSystemException among its causes (Log.printlns), so that class must be
         // in framework.jar. Its own tag keeps the lines out of those compared with Android's.
         Log.e("app-start-test-log", "a Throwable", new Exception("logged"));
@@ -46,6 +48,23 @@ public class StartApplication extends Application {
             return new String(buffer, 0, length, "UTF-8").replace('\0', ' ');
         } catch (IOException e) {
             return "(" + e + ")";
+        }
+    }
+
+    /**
+     * The SHA-256 of `text` and the provider that gave it, through the JCA: libcore's Providers need Conscrypt's jar
+     * from BOOTCLASSPATH (ADR-0046), else their initializer fails, which is printed instead.
+     */
+    private static String sha256(String text) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest.digest(text.getBytes("UTF-8"))) {
+                hex.append(String.format("%02x", b));
+            }
+            return digest.getProvider().getName() + " " + hex;
+        } catch (Throwable t) {
+            return "(" + t + ")";
         }
     }
 

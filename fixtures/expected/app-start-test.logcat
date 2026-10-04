@@ -18,6 +18,7 @@ I/System.out: app-start-test: env STANDALONE_SYSTEMSERVER_JARS=/apex/com.android
 I/System.out: app-start-test: env SYSTEMSERVERCLASSPATH=/system/framework/com.android.location.provider.jar:/system/framework/services.jar:/apex/com.android.adservices/javalib/service-adservices.jar:/apex/com.android.adservices/javalib/service-sdksandbox.jar:/apex/com.android.appsearch/javalib/service-appsearch.jar:/apex/com.android.art/javalib/service-art.jar:/apex/com.android.configinfrastructure/javalib/service-configinfrastructure.jar:/apex/com.android.healthfitness/javalib/service-healthfitness.jar:/apex/com.android.media/javalib/service-media-s.jar:/apex/com.android.ondevicepersonalization/javalib/service-ondevicepersonalization.jar:/apex/com.android.permission/javalib/service-permission.jar:/apex/com.android.rkpd/javalib/service-rkp.jar:/apex/com.android.virt/javalib/service-virtualization.jar
 I/System.out: app-start-test: env TMPDIR=/data/user/0/io.github.kisame76.minato.test.appstart/cache
 I/System.out: app-start-test: cmdline io.github.kisame76.minato.test.appstart
-I/System.out: app-start-test: getuid 10150
-I/System.out: app-start-test: Process.myUid 10150
+I/System.out: app-start-test: getuid 10151
+I/System.out: app-start-test: Process.myUid 10151
 I/System.out: app-start-test: currentProcessName io.github.kisame76.minato.test.appstart
+I/System.out: app-start-test: MessageDigest AndroidOpenSSL 6320616aa6b9414abc2ef059bbfae64781f6fdc3cdaf01aaf0e5e4fd5044ab29

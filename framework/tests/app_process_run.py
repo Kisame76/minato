@@ -7,6 +7,8 @@ the files where Android has them, as
 runtime/tests/art_run.py lays them out for dalvikvm:
   - ART's libraries in /apex/com.android.art/lib64, the boot jars in /apex/com.android.art/javalib, and our
     framework.jar in /system/framework;
+  - Conscrypt's jar and libjavacrypto in their own APEX, /apex/com.android.conscrypt, as BOOTCLASSPATH names the jar
+    (ADR-0046 c, decision 6): without it libcore's JCA providers fail to load;
   - bionic's libraries and libandroid_runtime.so (ADR-0039 decision 10) in /system/lib64, bionic's /system, ICU's
     data and the time zone file in their APEXes;
   - libhwui.so and its set (tools/build-hwui.sh) in /system/lib64, with ART's build's copies of libbase,
@@ -44,6 +46,8 @@ import hwui_ready  # noqa: E402
 from hwui_load_run import PLATFORM_COPIES  # noqa: E402
 
 ART_ROOT = "/apex/com.android.art"
+CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
+CONSCRYPT_LIBRARY = "libjavacrypto.so"
 PACKAGE = "io.github.kisame76.minato.test.appstart"
 APPLICATION = "io.github.kisame76.minato.test.appstart.StartApplication"
 APP_UID = 10100
@@ -59,9 +63,9 @@ def convert(apk_convert, elf, container):
         raise SystemExit(f"apk-convert {elf} failed: {result.stderr.strip()}")
 
 
-def convert_directory(apk_convert, source, target):
+def convert_directory(apk_convert, source, target, leave_out=()):
     for name in sorted(os.listdir(source)):
-        if name.endswith(".so"):
+        if name.endswith(".so") and name not in leave_out:
             convert(apk_convert, os.path.join(source, name), os.path.join(target, name + ".dylib"))
 
 
@@ -99,6 +103,8 @@ def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
     """The first part that is not built, as "skipped: ..." text, or None, and then hwui's set and bionic's font lists
     as graphics/tests/hwui_ready.py has them: every start registers hwui's natives and loads the font map."""
     for needed, how in ((os.path.join(art, "lib", "libart.so"), "tools/build-art.sh"),
+                        (os.path.join(art, "lib", CONSCRYPT_LIBRARY), "tools/build-art.sh"),
+                        (os.path.join(art, "javalib", "conscrypt.jar"), "tools/build-art.sh"),
                         (app_process, "tools/build-framework-native.sh"),
                         (framework_jar, "tools/build-framework.sh"),
                         (apk, f"tools/build-java-test-app.sh {app}"),
@@ -119,7 +125,13 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
-    convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64)
+    convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64, leave_out=(CONSCRYPT_LIBRARY,))
+    # Conscrypt's library is its APEX's, where its jar's namespace looks; a copy an older start left in ART's goes.
+    conscrypt_lib64 = os.path.join(work, "conscrypt-lib64")
+    if os.path.exists(os.path.join(art_lib64, CONSCRYPT_LIBRARY + ".dylib")):
+        os.remove(os.path.join(art_lib64, CONSCRYPT_LIBRARY + ".dylib"))
+    convert(apk_convert, os.path.join(art, "lib", CONSCRYPT_LIBRARY),
+            os.path.join(conscrypt_lib64, CONSCRYPT_LIBRARY + ".dylib"))
     convert_directory(apk_convert, bionic_lib, system_lib64)
     convert_directory(apk_convert, hwui_lib, system_lib64)
     for name in PLATFORM_COPIES:
@@ -137,7 +149,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     for folder in ("data/dalvik-cache/arm64", app.lstrip("/"), f"{data}/cache".lstrip("/"),
                    f"{data}/code_cache".lstrip("/"), "apex/com.android.art/javalib", "apex/com.android.art/lib64",
                    "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu", "apex/com.android.tzdata/etc/tz",
-                   "framework"):
+                   "apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64", "framework"):
         os.makedirs(os.path.join(run, folder))
     shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
     os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
@@ -148,7 +160,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     shutil.copy(framework_jar, os.path.join(run, "framework", "framework.jar"))
     for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
                            (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
-                            "apex/com.android.tzdata/etc/tz/tzdata")):
+                            "apex/com.android.tzdata/etc/tz/tzdata"),
+                           (os.path.join(art, "javalib", "conscrypt.jar"),
+                            "apex/com.android.conscrypt/javalib/conscrypt.jar")):
         os.link(source, os.path.join(run, target))
 
     command = [apk_run,
@@ -163,6 +177,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--configuration", configuration]
     command += ["--libraries", f"/system/lib64={system_lib64}",
                 "--libraries", f"{ART_ROOT}/lib64={art_lib64}",
+                "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}",
                 "--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",

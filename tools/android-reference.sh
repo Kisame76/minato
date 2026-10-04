@@ -25,7 +25,9 @@
 # apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
 # manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
 # whose hardware is closer to Minato's; its image still declares apk-runner-35's system features. --features writes
-# that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). A test app's lines of logcat with its own tag (logcat -v tag) must
+# that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). app-start-test (test 1)
+# is one more on apk-runner-35, whose lines are System.out's that start with "app-start-test: ". A test app's lines of
+# logcat with its own tag (logcat -v tag) must
 # be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
 # The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
@@ -319,6 +321,7 @@ run_app() {
   [[ "$app" != godot-bench-* ]] || { run_godot; return; }
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
   local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask=
+  local tag="$app"
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
   case "$app" in
     bench-gles | bench-vulkan)
@@ -330,6 +333,11 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
+      ;;
+    # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
+    app-start-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="app-start-test: MessageDigest"
+      activity_class=android.app.Activity tag=System.out
       ;;
     # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
     present-gles | present-vulkan)
@@ -435,9 +443,13 @@ run_app() {
         device emu event send $command >/dev/null
       done
   fi
-  wait_for "$app" "$last" "$limit" || return 1
+  wait_for "$tag" "$last" "$limit" || return 1
   sleep 1
-  app_lines "$app" >"$RESULTS/$app.logcat"
+  if [[ "$tag" == "$app" ]]; then
+    app_lines "$app" >"$RESULTS/$app.logcat"
+  else
+    app_lines "$tag" | grep -F ": $app: " >"$RESULTS/$app.logcat" || true
+  fi
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
   if [[ -n "$mask" ]]; then
     # make-apk signs with a per-machine debug key (ADR-0031): each certificate SHA-256 the APK's check proved becomes
