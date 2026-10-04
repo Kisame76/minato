@@ -292,14 +292,18 @@ std::vector<Library *> local_group(Library &root) {
     return group;
 }
 
-/// Where the relocations of libraries loaded with `root` look for symbols: the global group (the
-/// program, the libraries it needs, RTLD_GLOBAL ones), then root's local group.
+/// Where the relocations of libraries loaded with `root` look for symbols, as linker64's soinfo_do_lookup
+/// does: the global group, which is only the program and libraries marked DF_1_GLOBAL, as linked with -z
+/// global (android_namespace_t::get_global_group, ADR-0040 decision 1), then root's local group. Not every
+/// RTLD_GLOBAL library is in it: a library opened with dlopen finds its own definitions before libc.so's.
 std::vector<const Object *> lookup_scope(State &state, Library &root, const std::vector<Library *> &added) {
     std::vector<const Object *> scope;
     std::set<const Object *> seen;
     const std::set<Library *> new_ones(added.begin(), added.end());
     for (auto &library : state.libraries) {
-        if (library.global && (library.linked || new_ones.contains(&library)) && seen.insert(&library.object).second) {
+        const bool in_global_group = &library == &state.libraries.front() || library.object.dynamic.global;
+        if (in_global_group && (library.linked || new_ones.contains(&library)) &&
+            seen.insert(&library.object).second) {
             scope.push_back(&library.object);
         }
     }
@@ -453,7 +457,8 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         for (auto *library : added) {
             library->linked = true;
             library->group_root = root;
-            library->global = (flags & rtld_global) != 0;  // linker64 gives all of them the flags
+            // linker64 gives all of them the flags, and DF_1_GLOBAL implies RTLD_GLOBAL (soinfo::set_dt_flags_1).
+            library->global = (flags & rtld_global) != 0 || library->object.dynamic.global;
         }
         list(state, index);
         std::vector<const Object *> objects;

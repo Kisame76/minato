@@ -47,7 +47,9 @@ constexpr std::int64_t dt_verdef = 0x6fff'fffc;
 constexpr std::int64_t dt_verdefnum = 0x6fff'fffd;
 constexpr std::int64_t dt_verneed = 0x6fff'fffe;
 constexpr std::int64_t dt_verneednum = 0x6fff'ffff;
+constexpr std::int64_t dt_flags_1 = 0x6fff'fffb;
 constexpr std::uint64_t df_symbolic = 0x2;
+constexpr std::uint64_t df_1_global = 0x2;
 
 constexpr std::uint16_t versym_global = 1;
 constexpr std::uint16_t versym_hidden = 0x8000;
@@ -324,6 +326,9 @@ Dynamic read_dynamic(const loader::Image &image) {
             case dt_verneednum: verneed_count = value; break;
             case dt_flags:
                 if ((value & df_symbolic) != 0) dynamic.symbolic = true;
+                break;
+            case dt_flags_1:
+                if ((value & df_1_global) != 0) dynamic.global = true;
                 break;
             default: break;
         }

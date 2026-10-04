@@ -33,6 +33,8 @@ tls-test system libraries=libtls-lib.so
 # Without LD_LIBRARY_PATH linker64 does not look next to the program and cannot link tls-test.
 tls-test-no-library-path program=tls-test system libraries=libtls-lib.so no-library-path status=1
 dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-broken.so,libdl-unresolved.so
+# A library opened with dlopen finds its own definition of a name libc.so also has (ADR-0040 test 2, ADR-0033 e1).
+dl-own-test system libraries=libdl-own.so
 signal-test system
 # A thread that waits for the dynamic linker's lock takes signals there (ADR-0025, addition d).
 dl-lock-test system libraries=libdl-lock.so

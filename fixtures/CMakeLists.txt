@@ -78,6 +78,12 @@ target_link_options(dl-unresolved PRIVATE -Wl,-z,undefs)
 add_executable(dl-test suite/dl-test.c)
 target_link_libraries(dl-test PRIVATE dl)
 target_link_options(dl-test PRIVATE -Wl,--export-dynamic-symbol=dl_test_exported)
+# dl-own-test and libdl-own.so, which defines getenv and calls it through its PLT (-fsemantic-interposition), as an
+# app's library may define a name of libc.so's (ADR-0040 test 2, ADR-0033 e1).
+add_library(dl-own SHARED suite/libdl-own.c)
+target_compile_options(dl-own PRIVATE -fsemantic-interposition)
+add_executable(dl-own-test suite/dl-own-test.c)
+target_link_libraries(dl-own-test PRIVATE dl)
 add_executable(signal-test suite/signal-test.c)
 # dl-lock-test and the library whose constructor holds the dynamic linker's lock (ADR-0025, addition d).
 add_library(dl-lock SHARED suite/libdl-lock.c)

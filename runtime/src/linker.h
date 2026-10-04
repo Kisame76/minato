@@ -42,6 +42,7 @@ struct Dynamic {
     std::span<const std::uint64_t> init_array;
     std::uint64_t init = 0;  // DT_INIT, host address; 0 when there is none
     bool symbolic = false;   // DT_SYMBOLIC: the object's own definitions come first
+    bool global = false;     // DF_1_GLOBAL in DT_FLAGS_1, as linked with -z global: in the global group
     // Symbol versions (DT_VERSYM, DT_VERDEF, DT_VERNEED), when the object has them.
     const std::uint16_t *versym = nullptr;             // one entry per symbol; bit 15: hidden
     std::map<std::uint16_t, std::string> defined_versions;  // index -> name, from DT_VERDEF

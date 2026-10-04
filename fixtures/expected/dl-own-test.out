@@ -1,0 +1,2 @@
+dlopen(libdl-own.so): its call reaches its own getenv
+the program's call reaches libc.so's getenv
