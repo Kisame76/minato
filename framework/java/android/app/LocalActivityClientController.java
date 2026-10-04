@@ -12,10 +12,13 @@
  *   - the requested orientation per activity, from its manifest until the activity sets one; ADR-0032's sessions turn
  *     with it later;
  *   - no caller: a launch from the home screen shares no identity, so the uid is Process.INVALID_UID where AIDL's
- *     default 0 would be root's, and a caller's content URI permission is denied.
+ *     default 0 would be root's, and a caller's content URI permission is denied;
+ *   - the root activity's finish asks the host's session, which answers with the quit (ADR-0043 step c1); without a
+ *     session it is refused, as AIDL's default answers.
  */
 package android.app;
 
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.IBinder;
@@ -29,6 +32,11 @@ final class LocalActivityClientController extends IActivityClientController.Defa
 
     LocalActivityClientController(ActivityThread thread) {
         mThread = thread;
+    }
+
+    @Override
+    public boolean finishActivity(IBinder token, int resultCode, Intent resultData, int finishTask) {
+        return mThread.requestFinish(token);
     }
 
     @Override

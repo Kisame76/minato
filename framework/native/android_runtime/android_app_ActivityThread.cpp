@@ -1,4 +1,4 @@
-// Ours (ADR-0039 b3.4c): ActivityThread's one native, which hands our driver the session's configuration as
+// Ours (ADR-0039 b3.4c): ActivityThread's natives. The first hands our driver the session's configuration as
 // NativeActivity gets it. libandroid's minato_AConfiguration_fromSession (version APKRT_PRIVATE) fills an
 // AConfiguration with ADR-0028's values for the session that the host began. The native copies what Java's
 // Configuration and DisplayMetrics hold in the same encoding: the AConfiguration getters' values, with the screen
@@ -8,13 +8,17 @@
 // libandroid_runtime does not need libandroid.so: on Android the dependency runs the other way (libandroid's
 // AAssetManager_fromJava and ANativeWindow_fromSurface call into libandroid_runtime), and ours will too in step c.
 // A function libandroid lacks throws UnsatisfiedLinkError with its name.
+// Since ADR-0043 step c1 the others connect the driver to the host's session as activity-host connects (ADR-0028):
+// the event pipe's descriptor, one record read at a time, each event answered, the FINISH request, and the end.
 #include <android/configuration.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
+#include <nativehelper/JNIPlatformHelp.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <APKRuntime/guest_interface.h>
 
@@ -118,10 +122,57 @@ jstring SessionConfiguration(JNIEnv *env, jclass, jobject config, jobject metric
     return env->NewStringUTF(tag);
 }
 
+// The event pipe as a FileDescriptor, for MessageQueue's listener, or null without a session (-ENOENT); throws
+// IllegalStateException for any other error.
+jobject SessionConnect(JNIEnv *env, jclass) {
+    apkrt_configuration configuration{};
+    const long events = syscall(APKRT_NR_SESSION_CONNECT, &configuration);
+    if (events < 0) {
+        if (errno != ENOENT) {
+            jniThrowExceptionFmt(env, "java/lang/IllegalStateException", "session_connect: %s", strerror(errno));
+        }
+        return nullptr;
+    }
+    return jniCreateFileDescriptor(env, static_cast<int>(events));
+}
+
+// Reads one struct apkrt_event into event[0..4]: type, serial and the three arguments. False when the pipe broke.
+jboolean SessionRead(JNIEnv *env, jclass, jobject fileDescriptor, jlongArray event) {
+    const int fd = jniGetFDFromFileDescriptor(env, fileDescriptor);
+    apkrt_event record;
+    ssize_t got;
+    do {
+        got = read(fd, &record, sizeof record);
+    } while (got < 0 && errno == EINTR);
+    if (got != static_cast<ssize_t>(sizeof record)) return JNI_FALSE;
+    const jlong values[5] = {record.type, record.serial, static_cast<jlong>(record.arguments[0]),
+                             static_cast<jlong>(record.arguments[1]), static_cast<jlong>(record.arguments[2])};
+    env->SetLongArrayRegion(event, 0, 5, values);
+    return JNI_TRUE;
+}
+
+void SessionAnswer(JNIEnv *, jclass, jint serial) {
+    syscall(APKRT_NR_SESSION_ANSWER, static_cast<uint32_t>(serial));
+}
+
+// session_request: 0, or the negative errno.
+jint SessionRequest(JNIEnv *, jclass, jint type, jlong a0, jlong a1) {
+    return syscall(APKRT_NR_SESSION_REQUEST, type, a0, a1) < 0 ? -errno : 0;
+}
+
+[[noreturn]] void Exit(JNIEnv *, jclass, jint status) {
+    _exit(status);
+}
+
 const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionConfiguration",
          "(Landroid/content/res/Configuration;Landroid/util/DisplayMetrics;)Ljava/lang/String;",
          reinterpret_cast<void *>(SessionConfiguration)},
+        {"nativeSessionConnect", "()Ljava/io/FileDescriptor;", reinterpret_cast<void *>(SessionConnect)},
+        {"nativeSessionRead", "(Ljava/io/FileDescriptor;[J)Z", reinterpret_cast<void *>(SessionRead)},
+        {"nativeSessionAnswer", "(I)V", reinterpret_cast<void *>(SessionAnswer)},
+        {"nativeSessionRequest", "(IJJ)I", reinterpret_cast<void *>(SessionRequest)},
+        {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},
 };
 
 }  // namespace

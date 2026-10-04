@@ -18,7 +18,13 @@
  * Android's come from system_server. Since step c2c3 AOSP's Instrumentation calls that onCreate, ActivityClient asks
  * the process's own controller (LocalActivityClientController), and once the bind is done the manifest's launcher
  * activity starts as the system's first launch transaction starts it: performLaunchActivity, handleStartActivity,
- * handleResumeActivity with the window, then the top resumed state. The lifecycle host comes in step c3.
+ * handleResumeActivity with the window, then the top resumed state. Since ADR-0043 step c1 the host's session drives
+ * the activity when the host began one, as activity-host's session drives a NativeActivity (ADR-0028): main()
+ * connects to it after the bind and reads its events on the main looper, one at a time, each answered once its
+ * callbacks returned; they become Android's lifecycle transactions (CREATE the launch, START, RESUME, PAUSE, STOP and
+ * DESTROY as AOSP's handlers, the instance state saved with the stop by the target SDK), and the window's events reach
+ * its ViewRootImpl. The root activity's finish() asks the host, which answers with the quit. Without a session the
+ * launch runs by itself as before.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -44,11 +50,13 @@ import android.hardware.display.DisplayManagerGlobal;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.LocaleList;
 import android.os.Looper;
 import android.os.Message;
+import android.os.MessageQueue;
 import android.permission.IPermissionManager;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -60,6 +68,7 @@ import android.util.UtilConfig;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewManager;
+import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
 import com.android.internal.compat.CompatTable;
@@ -69,6 +78,7 @@ import dalvik.system.RuntimeHooks;
 import dalvik.system.PathClassLoader;
 import dalvik.system.VMRuntime;
 import dalvik.system.ZipPathValidator;
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.util.List;
 import org.xmlpull.v1.XmlPullParserException;
@@ -114,6 +124,9 @@ public final class ActivityThread {
     static final int ON_CREATE = 1;
     static final int ON_START = 2;
     static final int ON_RESUME = 3;
+    static final int ON_PAUSE = 4;
+    static final int ON_STOP = 5;
+    static final int ON_DESTROY = 6;
 
     /** An activity's record, with what AOSP's Application reads; the launch makes and fills it (step c2c3). */
     public static final class ActivityClientRecord {
@@ -126,6 +139,8 @@ public final class ActivityThread {
         Activity activity;
         Window window;
         int state;
+        /** AOSP's r.state: the instance state the last stop saved, until the next resume. */
+        Bundle savedState;
         boolean isTopResumedActivity;
         boolean lastReportedTopResumedState;
         /** The orientation the activity asks for, from its manifest until it sets one. */
@@ -330,8 +345,8 @@ public final class ActivityThread {
             }
         }
         // The system's launch transaction comes after the bind, so the app's own posts from Application.onCreate run
-        // first [inferred].
-        sMainThreadHandler.post(thread::handleLaunchLauncherActivity);
+        // first [inferred]: the session's events are posted to the main thread too.
+        thread.attachSession();
         // As AOSP's main: the Looper runs the app's messages until the process ends. Android ends it from outside (am
         // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
         Looper.loop();
@@ -479,10 +494,21 @@ public final class ActivityThread {
      * whose component is the alias where the manifest has one, with the window's configuration from the display.
      */
     private void handleLaunchLauncherActivity() {
+        ActivityClientRecord r = launchLauncherActivity();
+        if (r == null) {
+            return;
+        }
+        handleStartActivity(r);
+        handleResumeActivity(r);
+        handleTopResumedActivityChanged(r, true);
+    }
+
+    /** The manifest's launcher activity, launched up to its onCreate; null without one or when its launch failed. */
+    private ActivityClientRecord launchLauncherActivity() {
         ActivityInfo info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
         if (info == null) {
             Log.w(TAG, mPackageName + " has no launcher activity, so none starts");
-            return;
+            return null;
         }
         Intent intent = new Intent(Intent.ACTION_MAIN);
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
@@ -499,12 +525,7 @@ public final class ActivityThread {
         if (mTaskRootToken == null) {
             mTaskRootToken = r.token;
         }
-        if (performLaunchActivity(r) == null) {
-            return;
-        }
-        handleStartActivity(r);
-        handleResumeActivity(r);
-        handleTopResumedActivityChanged(r, true);
+        return performLaunchActivity(r) != null ? r : null;
     }
 
     /**
@@ -607,6 +628,8 @@ public final class ActivityThread {
         final Activity a = r.activity;
         a.performResume(false, "RESUME_ACTIVITY");
         r.state = ON_RESUME;
+        r.savedState = null;
+        reportTopResumedActivityChanged(r, r.isTopResumedActivity, "topWhenResuming");
         mTopToken = r.token;
         final boolean willBeVisible = !a.mStartedActivity;
         if (r.window == null && !a.mFinished && willBeVisible) {
@@ -642,6 +665,307 @@ public final class ActivityThread {
             r.activity.performTopResumedActivityChanged(onTop, "topStateChangedWhenResumed");
         }
     }
+
+    // The host's session (ADR-0043 step c1): the event types of ADR-0028's pipe (guest_interface.h's
+    // apkrt_event_type) and the FINISH request (apkrt_request_type).
+    private static final int EVENT_CREATE = 1;
+    private static final int EVENT_START = 2;
+    private static final int EVENT_RESUME = 3;
+    private static final int EVENT_PAUSE = 4;
+    private static final int EVENT_STOP = 5;
+    private static final int EVENT_DESTROY = 6;
+    private static final int EVENT_SAVE_INSTANCE_STATE = 7;
+    private static final int EVENT_WINDOW_FOCUS_CHANGED = 8;
+    private static final int EVENT_NATIVE_WINDOW_CREATED = 9;
+    private static final int EVENT_NATIVE_WINDOW_RESIZED = 10;
+    private static final int EVENT_NATIVE_WINDOW_REDRAW_NEEDED = 11;
+    private static final int EVENT_NATIVE_WINDOW_DESTROYED = 12;
+    private static final int EVENT_LOW_MEMORY = 17;
+    private static final int REQUEST_FINISH = 1;
+
+    /** The session's event pipe; null without a session. */
+    private FileDescriptor mSessionEvents;
+    /** The launcher activity's record, which the session's events drive. */
+    private ActivityClientRecord mSessionActivity;
+    /** The event types answered without more, each logged once: input, the content's rectangle and turns. */
+    private final boolean[] mSkippedEvents = new boolean[32];
+
+    /**
+     * Connects to the host's session, as activity-host does at its start, and reads its events from then on. Without a
+     * session (a host that began none, such as the Mac's checks without a configuration), the launcher activity starts
+     * by itself, as before.
+     */
+    private void attachSession() {
+        FileDescriptor events = nativeSessionConnect();
+        if (events == null) {
+            sMainThreadHandler.post(this::handleLaunchLauncherActivity);
+            return;
+        }
+        mSessionEvents = events;
+        ViewRootImpl.setHostWindows(true);
+        watchSession();
+    }
+
+    /**
+     * Waits for the next event, as activity-host's looper callback does: the pipe leaves the looper while an event is
+     * handled, so an app that polls the main looper in a callback gets no next event there, as Android's lifecycle
+     * transactions wait for the one before. The event is handled in a message of the main queue, as Android's
+     * transactions are, after what the app posted before it.
+     */
+    private void watchSession() {
+        Looper.myQueue().addOnFileDescriptorEventListener(mSessionEvents,
+                MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT, (fd, events) -> {
+                    long[] event = new long[5];
+                    if (!nativeSessionRead(fd, event)) {
+                        Log.e(TAG, "The session's event pipe broke");
+                        nativeExit(1);
+                    }
+                    sMainThreadHandler.post(() -> handleSessionEvent(event));
+                    return 0;
+                });
+    }
+
+    /**
+     * One event (type, serial and three arguments): the callbacks of Android's lifecycle transaction for it, the
+     * answer, then the next event. DESTROY's answer ends the process with status 0, as activity-host's does.
+     */
+    private void handleSessionEvent(long[] event) {
+        final int type = (int) event[0];
+        final ActivityClientRecord r = mSessionActivity;
+        final ViewRootImpl root = r != null && r.window != null ? r.window.getDecorView().getViewRootImpl() : null;
+        switch (type) {
+            case EVENT_CREATE:
+                if (r == null) {
+                    mSessionActivity = launchLauncherActivity();
+                }
+                break;
+            case EVENT_START:
+                if (r != null && r.state == ON_CREATE) {
+                    handleStartActivity(r);
+                } else if (r != null && r.state == ON_STOP) {
+                    performRestartActivity(r);
+                }
+                break;
+            case EVENT_RESUME:
+                if (r != null && r.state == ON_START) {
+                    handleResumeActivity(r);
+                    handleTopResumedActivityChanged(r, true);
+                }
+                break;
+            case EVENT_PAUSE:
+                if (r != null && r.state == ON_RESUME) {
+                    handlePauseActivity(r);
+                }
+                break;
+            case EVENT_STOP:
+                if (r != null && r.state == ON_PAUSE) {
+                    handleStopActivity(r);
+                }
+                break;
+            case EVENT_DESTROY:
+                if (r != null) {
+                    handleDestroyActivity(r);
+                }
+                break;
+            case EVENT_SAVE_INSTANCE_STATE:
+                // As Android's: the stop saved the state, before onStop for a target below 28 and after it from 28 on.
+                break;
+            case EVENT_WINDOW_FOCUS_CHANGED:
+                if (root != null) {
+                    root.windowFocusChanged(event[2] != 0);
+                }
+                break;
+            case EVENT_NATIVE_WINDOW_CREATED:
+            case EVENT_NATIVE_WINDOW_RESIZED:
+                if (root != null) {
+                    root.setHostWindow(event[2], (int) event[3], (int) event[4]);
+                }
+                break;
+            case EVENT_NATIVE_WINDOW_REDRAW_NEEDED:
+                if (root != null) {
+                    root.redrawNeeded();
+                }
+                break;
+            case EVENT_NATIVE_WINDOW_DESTROYED:
+                if (root != null) {
+                    root.setHostWindow(0, 0, 0);
+                }
+                break;
+            case EVENT_LOW_MEMORY:
+                handleLowMemory();
+                break;
+            default:
+                // The input queue's events (gap 7's step), NativeActivity's content rectangle (ADR-0041 b)) and turns
+                // (ADR-0041 decision 9).
+                if (type > 0 && type < mSkippedEvents.length && !mSkippedEvents[type]) {
+                    mSkippedEvents[type] = true;
+                    Log.w(TAG, "The session's event " + type + " is answered without more (ADR-0043 step c1)");
+                }
+                break;
+        }
+        nativeSessionAnswer((int) event[1]);
+        if (type == EVENT_DESTROY) {
+            nativeExit(0);
+        }
+        watchSession();
+    }
+
+    /** The root activity's finish(): with a session, the host answers it with the quit; false without one. */
+    boolean requestFinish(IBinder token) {
+        if (mSessionEvents == null || token != mTaskRootToken) {
+            return false;
+        }
+        int error = nativeSessionRequest(REQUEST_FINISH, 0, 0);
+        if (error != 0) {
+            Log.e(TAG, "The session refused FINISH: " + error);
+            return false;
+        }
+        return true;
+    }
+
+    /** As AOSP's performRestartActivity for a stopped activity: onRestart, then onStart. */
+    private void performRestartActivity(ActivityClientRecord r) {
+        r.activity.performRestart(true);
+        r.state = ON_START;
+    }
+
+    /**
+     * As AOSP's handlePauseActivity: the user leaves an activity that is not finishing, as at HOME; the top resumed
+     * state goes; then onPause. A target below 11 (pre-Honeycomb), whose state Android saves here, cannot be installed
+     * on Android 15.
+     */
+    private void handlePauseActivity(ActivityClientRecord r) {
+        final Activity activity = r.activity;
+        if (!activity.mFinished) {
+            mInstrumentation.callActivityOnPictureInPictureRequested(activity);
+            mInstrumentation.callActivityOnUserLeaving(activity);
+        }
+        reportTopResumedActivityChanged(r, false, "pausing");
+        activity.mCalled = false;
+        mInstrumentation.callActivityOnPause(activity);
+        if (!activity.mCalled) {
+            throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
+                    + " did not call through to super.onPause()");
+        }
+        r.state = ON_PAUSE;
+    }
+
+    /**
+     * As AOSP's handleStopActivity: the activity's description, onStop with its state saved, the window hidden, and
+     * the pending writes of SharedPreferences' apply() committed (QueuedWork).
+     */
+    private void handleStopActivity(ActivityClientRecord r) {
+        r.activity.onCreateDescription();
+        callActivityOnStop(r, true);
+        updateVisibility(r, false);
+        QueuedWork.waitToFinish();
+    }
+
+    /** As AOSP's callActivityOnStop: the state saved before onStop for a target below 28 (P), after it from 28 on. */
+    private void callActivityOnStop(ActivityClientRecord r, boolean saveState) {
+        final boolean shouldSaveState = saveState && !r.activity.mFinished && r.savedState == null;
+        final boolean isPreP = r.activity.getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.P;
+        if (shouldSaveState && isPreP) {
+            callActivityOnSaveInstanceState(r);
+        }
+        r.activity.performStop(false, "STOP_ACTIVITY_ITEM");
+        r.state = ON_STOP;
+        if (shouldSaveState && !isPreP) {
+            callActivityOnSaveInstanceState(r);
+        }
+    }
+
+    private void callActivityOnSaveInstanceState(ActivityClientRecord r) {
+        r.savedState = new Bundle();
+        mInstrumentation.callActivityOnSaveInstanceState(r.activity, r.savedState);
+    }
+
+    /** As AOSP's updateVisibility for a hidden window: the decor goes invisible until the next resume shows it. */
+    private void updateVisibility(ActivityClientRecord r, boolean show) {
+        View decor = r.activity.mDecor;
+        if (decor != null && !show && r.activity.mVisibleFromServer) {
+            r.activity.mVisibleFromServer = false;
+            decor.setVisibility(View.INVISIBLE);
+        }
+    }
+
+    /**
+     * As AOSP's handleDestroyActivity for a finishing activity: paused and stopped first if it was not, onDestroy,
+     * then its window removed.
+     */
+    private void handleDestroyActivity(ActivityClientRecord r) {
+        final Activity activity = r.activity;
+        activity.mFinished = true;
+        if (r.state == ON_RESUME) {
+            handlePauseActivity(r);
+        }
+        if (r.state == ON_PAUSE) {
+            callActivityOnStop(r, false);
+        }
+        activity.mCalled = false;
+        mInstrumentation.callActivityOnDestroy(activity);
+        if (!activity.mCalled) {
+            throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
+                    + " did not call through to super.onDestroy()");
+        }
+        if (r.window != null) {
+            r.window.closeAllPanels();
+        }
+        r.state = ON_DESTROY;
+        mActivities.remove(r.token);
+        View decor = activity.mDecor;
+        if (decor != null) {
+            if (activity.mWindowAdded) {
+                ViewRootImpl root = decor.getViewRootImpl();
+                if (root != null) {
+                    root.setActivityConfigCallback(null);
+                }
+                activity.getWindowManager().removeViewImmediate(decor);
+            }
+            activity.mDecor = null;
+        }
+    }
+
+    /**
+     * As AOSP's handleLowMemory: onLowMemory of the Application, of the activities that are not finishing and of the
+     * providers. Android then frees SQLite's, the text layout's and the canvas's caches, which Minato leaves alone.
+     */
+    private void handleLowMemory() {
+        mInitialApplication.onLowMemory();
+        for (int i = mActivities.size() - 1; i >= 0; i--) {
+            Activity activity = mActivities.valueAt(i).activity;
+            if (activity != null && !activity.mFinished) {
+                activity.onLowMemory();
+            }
+        }
+        java.util.Set<ContentProvider> providers = new java.util.LinkedHashSet<>(mLocalProvidersByAuthority.values());
+        for (ContentProvider provider : providers) {
+            provider.onLowMemory();
+        }
+    }
+
+    /** As AOSP's reportTopResumedActivityChanged: onTopResumedActivityChanged when the reported state changes. */
+    private void reportTopResumedActivityChanged(ActivityClientRecord r, boolean onTop, String reason) {
+        if (r.lastReportedTopResumedState != onTop) {
+            r.lastReportedTopResumedState = onTop;
+            r.activity.performTopResumedActivityChanged(onTop, reason);
+        }
+    }
+
+    /** The session's pipe, as session_connect gives it; null without a session (-ENOENT). Throws for other errors. */
+    private static native FileDescriptor nativeSessionConnect();
+
+    /** Reads one event into type, serial and its three arguments; false when the pipe broke. */
+    private static native boolean nativeSessionRead(FileDescriptor events, long[] event);
+
+    /** Answers the event of `serial`, whose callbacks returned. */
+    private static native void nativeSessionAnswer(int serial);
+
+    /** session_request: 0, or the negative errno. */
+    private static native int nativeSessionRequest(int type, long a0, long a1);
+
+    /** Ends the process at once, as activity-host's _exit does: Android kills the app's process later anyway. */
+    private static native void nativeExit(int status);
 
     /** The process's binder, which Activity hands to Instrumentation.execStartActivity; no system_server calls it. */
     final class ApplicationThread extends IApplicationThread.Stub {

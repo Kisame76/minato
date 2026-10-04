@@ -1,0 +1,38 @@
+I/java-test: onCreate: saved state false, starts before 0, target 35
+I/java-test: onStart
+I/java-test: onResume
+I/java-test: layout: decor 1290 x 2796
+I/java-test: focus true
+I/java-test: onPause, finishing false
+I/java-test: focus false
+I/java-test: onStop, finishing false
+I/java-test: onSaveInstanceState
+I/java-test: onRestart
+I/java-test: onStart
+I/java-test: onResume
+I/java-test: focus true
+I/java-test: finish
+I/java-test: onPause, finishing true
+I/java-test: focus false
+I/java-test: onStop, finishing true
+I/java-test: onDestroy, finishing true
+I/java-test: done
+I/java-test: onCreate: saved state false, starts before 1, target 35
+I/java-test: onStart
+I/java-test: onResume
+I/java-test: layout: decor 1290 x 2796
+I/java-test: focus true
+I/java-test: onPause, finishing false
+I/java-test: focus false
+I/java-test: onStop, finishing false
+I/java-test: onSaveInstanceState
+I/java-test: onRestart
+I/java-test: onStart
+I/java-test: onResume
+I/java-test: focus true
+I/java-test: finish
+I/java-test: onPause, finishing true
+I/java-test: focus false
+I/java-test: onStop, finishing true
+I/java-test: onDestroy, finishing true
+I/java-test: done

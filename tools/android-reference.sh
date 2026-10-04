@@ -30,10 +30,11 @@
 # (ADR-0045, the input service) run there too. --features writes
 # that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). context-test (ADR-0039
 # step c1) is one more on apk-runner-35, stopped after its first "done" and started again, so that its second start
-# reads what the first one wrote; looper-test (step c1), provider-test (step c2c1), app-calls-test (step c2d),
-# vsync-test and gles-java-test (ADR-0041 a)), asset-ndk-test (ADR-0041 decision 7), compat-test and its twin for
-# targetSdk 35, compat-test-35 (step c2e), are ones too, and app-start-test (test 1), whose lines are System.out's that
-# start with "app-start-test: ". A test
+# reads what the first one wrote (java-test, ADR-0043 step c1, starts twice in the same way on activity-start-test's
+# AVD, each start sent HOME and started again before the app finishes itself); looper-test (step c1), provider-test
+# (step c2c1), app-calls-test (step c2d), vsync-test and gles-java-test (ADR-0041 a)), asset-ndk-test (ADR-0041
+# decision 7), compat-test and its twin for targetSdk 35, compat-test-35 (step c2e), are ones too, and app-start-test
+# (test 1), whose lines are System.out's that start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
@@ -141,8 +142,9 @@ if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-te
 fi
 # activity-start-test's AVD (ADR-0039 step c2c3) has that display without navigation keys, as an iPhone has none, and
 # gesture navigation, as our window manager answers that a navigation bar exists (step c2c2). start-stops-test
-# (ADR-0042 b), whose window's insets controller depends on the bars, runs there too.
-if [[ "$app" == activity-start-test || "$app" == start-stops-test ]]; then
+# (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, and java-test (ADR-0043 step
+# c1), whose lifecycle the host drives as Minato's does.
+if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -238,6 +240,17 @@ logcat_line='^[VDIWEFS]/[^:]+: '
 
 # The app's lines of logcat with the tag $1.
 app_lines() { run logcat -d -v tag -s "$1:V" | grep -v '^--------- ' || true; }
+# Waits up to $4 seconds (30 without it) until the app's lines with the tag $1 contain the text $2 at least $3 times.
+wait_count() {
+  local seconds=${4:-30} count=0
+  for _ in $(seq 1 $((seconds * 2))); do
+    count=$(app_lines "$1" | grep -c -F "$2" || true)
+    [[ "$count" -lt "$3" ]] || return 0
+    sleep 0.5
+  done
+  echo "$1 did not log \"$2\" $3 times within $seconds s (got $count)." >&2
+  return 1
+}
 # Waits up to $3 seconds (30 without it) until the app's lines with the tag $1 contain the text $2.
 wait_for() {
   local seconds=${3:-30}
@@ -367,6 +380,12 @@ run_app() {
     start-stops-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
       ;;
+    # java-test (ADR-0043 step c1): its activity, which HOME and the return drive, finishes itself and ends each of its
+    # two starts with "done".
+    java-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.javatest.JavaActivity
+      ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="app-start-test: MessageDigest"
@@ -485,6 +504,25 @@ run_app() {
         # shellcheck disable=SC2086
         device emu event send $command >/dev/null
       done
+  fi
+  if [[ "$app" == java-test ]]; then
+    # Each start as Minato's host plays it (apk-run --lifecycle start,background,foreground): HOME a second after the
+    # first focus, the return a second after the state is saved, and the app's own finish a second after its second
+    # focus; then a force-stop and a second start the same way, which reads what the first one wrote.
+    local start
+    for start in 1 2; do
+      wait_count "$app" "focus true" $((start * 2 - 1)) || return 1
+      sleep 1
+      run input keyevent KEYCODE_HOME
+      wait_count "$app" onSaveInstanceState "$start" || return 1
+      sleep 1
+      run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+      wait_count "$app" ": done" "$start" || return 1
+      if [[ "$start" == 1 ]]; then
+        run am force-stop "$package"
+        run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+      fi
+    done
   fi
   if [[ "$app" == context-test ]]; then
     wait_for "$app" done || return 1

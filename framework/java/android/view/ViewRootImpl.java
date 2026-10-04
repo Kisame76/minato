@@ -6,9 +6,10 @@
  *     window is in touch mode, as a touch screen's starts, and a traversal is scheduled;
  *   - a traversal runs as AOSP's on Choreographer's CALLBACK_TRAVERSAL behind a sync barrier. The first attaches the
  *     view tree, dispatches the window's insets and measures the tree at the display's size, which the window
- *     covers whole (ADR-0038); each traversal lays out what requested it, dispatches the global layout and the
- *     pre-draw, and draws nothing until M4 step 10. After the first, the window gains focus, as a new activity's
- *     window does once system_server shows it;
+ *     covers whole (ADR-0038), or at the host's window's size once the session gave it; each traversal lays out
+ *     what requested it, dispatches the global layout and the pre-draw, and draws nothing until M4 step 10. The
+ *     host's session gives the window its focus (ADR-0043 step c1); without a session the window gains focus after
+ *     the first traversal, as a new activity's window does once system_server shows it;
  *   - the insets are none until ADR-0041 decision 8, so a window that fits the system windows keeps its whole size,
  *     as an edge-to-edge window does on Android 15. The window's InsetsController, ours, keeps what the app asks of it,
  *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
@@ -108,6 +109,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mWindowFocusChanged;
     private int mWidth = -1;
     private int mHeight = -1;
+    /** Whether the host's session gives the windows, their sizes and their focus (ADR-0043 step c1). */
+    private static boolean sHostWindows;
+    /** The host's window, from its session's events: its ID, 0 without one, and its size, 0 before the first. */
+    private long mHostWindow;
+    private int mHostWidth;
+    private int mHostHeight;
     private WindowInsets mLastWindowInsets;
     /** The window's insets controller, a recorder until decision 8's insets (ours, under AOSP's name). */
     private final InsetsController mInsetsController = new InsetsController();
@@ -221,6 +228,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         final int viewVisibility = host.getVisibility();
         Point size = new Point();
         mDisplay.getRealSize(size);
+        if (mHostWidth > 0 && mHostHeight > 0) {
+            size.set(mHostWidth, mHostHeight);
+        }
         if (first) {
             mAttachInfo.mUse32BitDrawingCache = true;
             mAttachInfo.mWindowVisibility = viewVisibility;
@@ -268,8 +278,34 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             // As AOSP's: a pre-draw listener that cancels the draw gets another traversal at the next frame.
             scheduleTraversals();
         }
-        if (first) {
+        if (first && !sHostWindows) {
             windowFocusChanged(true);
+        }
+    }
+
+    /** @hide ActivityThread's, once it attached the host's session: the host gives the windows and their focus. */
+    public static void setHostWindows(boolean hostWindows) {
+        sHostWindows = hostWindows;
+    }
+
+    /**
+     * @hide ActivityThread's, at the session's NATIVE_WINDOW_CREATED and RESIZED: the host's window and its size in
+     * pixels, at which the next traversal lays the tree out; at NATIVE_WINDOW_DESTROYED, ID 0, and the size stays. The
+     * window's surface on that ID comes with ADR-0043 step c2.
+     */
+    public void setHostWindow(long id, int width, int height) {
+        mHostWindow = id;
+        if (id != 0 && (width != mHostWidth || height != mHostHeight)) {
+            mHostWidth = width;
+            mHostHeight = height;
+            requestLayout();
+        }
+    }
+
+    /** @hide ActivityThread's, at the session's NATIVE_WINDOW_REDRAW_NEEDED: the whole window again. */
+    public void redrawNeeded() {
+        if (mView != null) {
+            mView.invalidate();
         }
     }
 

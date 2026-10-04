@@ -11,12 +11,15 @@ resources through framework.jar and libandroid_runtime.so and prints what the so
 A .txt file's lines are the app's System.out lines without "<app>: ", in order; a line that starts with "logcat "
 must be a line of the process's log (apk-run's stderr), anywhere. A .logcat file, from tools/android-reference.sh,
 holds the app's log lines with its own tag, which the process's log must hold in that order; those with the tag
-<app>-device differ by device and are only shown. A configuration begins a session (apk-run --configuration).
-Prints "skipped: ..." while a part is not built.
+<app>-device differ by device and are only shown. A configuration begins a session (apk-run --configuration), whose
+host plays the app's lifecycle: apk-run's --lifecycle steps, "start" unless --lifecycle gives others, and the quit
+after the app's finish (ADR-0043 step c1). Prints "skipped: ..." while a part is not built.
 
 Since step c2b the app process runs its main Looper and never ends by itself. Every Java test ends with the line
 "<app>: done", in System.out or in its log, and the run ends 2 s after it, as tools/android-reference.sh stops the app
-on the AVD after that line (app_process_run.run_app).
+on the AVD after that line (app_process_run.run_app). With --until <text>, the run ends 2 s after the app's line
+"<app>: <text>" instead, and only the reference's lines up to its first such line are compared, with ours up to ours:
+a start that cannot reach the reference's end, such as one without a session (ADR-0043 step c1).
 
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
@@ -24,9 +27,10 @@ role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1).
 second time over the first start's folders, as tools/android-reference.sh starts it again on the AVD, and the two
 starts' lines count as one log (step c1's context-test).
 
-Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] <app> <package> <application class> <art> <bionic-lib>
-                       <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work> <app_process64>
-                       <framework.jar> <framework-res folder> <app.apk> <expected> [<configuration>]
+Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] <app> <package>
+                       <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert>
+                       <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk> <expected>
+                       [<configuration>]
 """
 import os
 import re
@@ -44,9 +48,15 @@ def main():
     args = sys.argv[1:]
     apk_inspect = None
     restart = False
-    while args[:1] in (["--apk-inspect"], ["--restart"]):
+    lifecycle = None
+    until = None
+    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
+        elif len(args) > 1 and args[0] == "--lifecycle":
+            lifecycle, args = args[1], args[2:]
+        elif len(args) > 1 and args[0] == "--until":
+            until, args = args[1], args[2:]
         elif len(args) > 1:
             apk_inspect, args = args[1], args[2:]
         else:
@@ -79,7 +89,8 @@ def main():
     for again in ((False, True) if restart else (False,)):
         result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
-                       signers=signers, again=again, last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: done$")
+                       signers=signers, again=again,
+                       last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)
@@ -89,7 +100,7 @@ def main():
                                          "".join(r.stdout for r in results), "".join(r.stderr for r in results))
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
-        compare_log(app, result, expected, marks)
+        compare_log(app, result, expected, marks, until)
         return
 
     with open(expected, encoding="utf-8") as handle:
@@ -117,13 +128,24 @@ def main():
     sys.exit(1)
 
 
-def compare_log(app, result, expected, marks):
+def until_line(lines, app, until):
+    """`lines` up to and including the first line "<app>: <until>", or all of them without `until`."""
+    if until is None:
+        return lines
+    for index, line in enumerate(lines):
+        if re.match(rf"^[VDIWEF]/{re.escape(app)}: {re.escape(until)}$", line):
+            return lines[:index + 1]
+    return lines
+
+
+def compare_log(app, result, expected, marks, until=None):
     """The process's log lines with the app's tag against Android's, in order, with the APK's proven certificates
-    marked (certificate_mask's marks); the device's lines are shown."""
+    marked (certificate_mask's marks); the device's lines are shown. With `until`, both up to their first line
+    "<app>: <until>"."""
     with open(expected, encoding="utf-8") as handle:
-        wanted = handle.read().splitlines()
+        wanted = until_line(handle.read().splitlines(), app, until)
     log = certificate_mask.mask(result.stderr, marks).splitlines()
-    got = [line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}: ", line)]
+    got = until_line([line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}: ", line)], app, until)
     device = [line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}-device: ", line)]
     if result.returncode == 0 and got == wanted:
         print(f"{app} logged what Android 15 logs, {len(got)} lines")

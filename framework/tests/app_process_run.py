@@ -25,9 +25,9 @@ runtime/tests/art_run.py lays them out for dalvikvm:
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
     write (dalvik_system_DexFile.cc);
   - framework-res as the folder /system/framework/framework-res (decision 8), which ActivityThread reads the app's
-    manifest with since b3.5a, as every Android device has it. BOOTCLASSPATH, the uid and the heap properties come from the runtime
-    (decision 2), and --app-environment starts it with init's environment alone, as an app starts, without the
-    shell's PATH, ANDROID_DATA, ANDROID_ROOT and HOME.
+    manifest with since b3.5a, as every Android device has it. BOOTCLASSPATH, the uid and the heap properties come
+    from the runtime (decision 2), and --app-environment starts it with init's environment alone, as an app starts,
+    without the shell's PATH, ANDROID_DATA, ANDROID_ROOT and HOME.
 
 The comparison takes the reference's lines without logcat's "I/System.out: " and leaves out what ADR-0039 lets
 differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100 for every app, decision 3), and
@@ -252,12 +252,14 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
-          apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None):
+          apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
+          lifecycle=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
     a timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. libandroid_runtime.so beside
     app_process goes to /system/lib64 with hwui's set and ART's copies for it, `mounts` are more --mount entries
     (guest path, host path), and `configuration` begins a session with apk-run's --configuration
-    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts. `signers`, the APK's
+    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts, whose host then plays
+    `lifecycle`, apk-run's --lifecycle steps (ADR-0043 step c1), "start" when it is None. `signers`, the APK's
     signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it in
     the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder is also
     /data/data/<package>, and its external data and OBB folders are mounted as GuestStart mounts them (decision 6).
@@ -329,7 +331,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     for guest, host in mounts:
         command += ["--mount", f"{guest}={host}"]
     if configuration is not None:
-        command += ["--configuration", configuration]
+        command += ["--configuration", configuration, "--lifecycle", lifecycle or "start"]
     command += ["--libraries", f"/system/lib64={system_lib64}",
                 "--libraries", f"{ART_ROOT}/lib64={art_lib64}",
                 "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}"]
