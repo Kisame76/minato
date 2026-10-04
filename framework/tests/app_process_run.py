@@ -54,13 +54,22 @@ APP_UID = 10100
 
 
 def convert(apk_convert, elf, container):
-    """The container of `elf`, made again only when the ELF file is newer."""
-    if os.path.exists(container) and os.path.getmtime(container) >= os.path.getmtime(elf):
-        return
-    os.makedirs(os.path.dirname(container), exist_ok=True)
+    """The container of `elf`, made again unless it was made from this very file: its real path, size and time, which
+    a stamp in the folder's .from/ records. A check for a newer ELF alone kept a container of a newer build when a
+    folder such as build/hwui pointed at an older one."""
+    info = os.stat(elf)
+    source = f"{os.path.realpath(elf)} {info.st_size} {info.st_mtime_ns}\n"
+    stamp = os.path.join(os.path.dirname(container), ".from", os.path.basename(container))
+    if os.path.exists(container) and os.path.exists(stamp):
+        with open(stamp, encoding="utf-8") as handle:
+            if handle.read() == source:
+                return
+    os.makedirs(os.path.dirname(stamp), exist_ok=True)
     result = subprocess.run([apk_convert, "convert", elf, container, "--sign", "-"], capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"apk-convert {elf} failed: {result.stderr.strip()}")
+    with open(stamp, "w", encoding="utf-8") as handle:
+        handle.write(source)
 
 
 def convert_directory(apk_convert, source, target, leave_out=()):
@@ -115,13 +124,16 @@ def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
 
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
-          apk, package, application, mounts=(), configuration=None, signers=None):
+          apk, package, application, mounts=(), configuration=None, signers=None, again=False):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
     a timeout. libandroid_runtime.so beside app_process goes to /system/lib64 with hwui's set and ART's copies for
     it, `mounts` are more --mount entries (guest path, host path), and `configuration` begins a session with
     apk-run's --configuration (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts.
     `signers`, the APK's signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the
-    library keeps it in the version's folder, and ActivityThread gets it with --signers (b3.5b1)."""
+    library keeps it in the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data
+    folder is also /data/data/<package>, and its external data and OBB folders are mounted as GuestStart mounts them
+    (decision 6). `again` starts it once more over the run folder of the start before, as Android starts an app's
+    process again over its data (step c1); the folders are made only for a new run."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -143,34 +155,44 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     convert(apk_convert, app_process, os.path.join(work, "bin", "app_process64.dylib"))
 
     run = os.path.join(work, "run")
-    shutil.rmtree(run, ignore_errors=True)
     app = code_path(apk, package)
     data = f"/data/user/0/{package}"
-    for folder in ("data/dalvik-cache/arm64", app.lstrip("/"), f"{data}/cache".lstrip("/"),
-                   f"{data}/code_cache".lstrip("/"), "apex/com.android.art/javalib", "apex/com.android.art/lib64",
-                   "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu", "apex/com.android.tzdata/etc/tz",
-                   "apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64", "framework"):
-        os.makedirs(os.path.join(run, folder))
-    shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
-    os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
-    os.makedirs(os.path.join(run, app.lstrip("/"), "lib", "arm64"))
-    if signers is not None:
-        shutil.copy(signers, os.path.join(run, app.lstrip("/"), "signers.json"))
-        os.chmod(os.path.join(run, app.lstrip("/"), "signers.json"), 0o444)
-    shutil.copy(framework_jar, os.path.join(run, "framework", "framework.jar"))
-    for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
-                           (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
-                            "apex/com.android.tzdata/etc/tz/tzdata"),
-                           (os.path.join(art, "javalib", "conscrypt.jar"),
-                            "apex/com.android.conscrypt/javalib/conscrypt.jar")):
-        os.link(source, os.path.join(run, target))
+    # The app's external data and OBB folders, each under both of Android's names.
+    external = {f"/storage/emulated/0/Android/data/{package}": "external-data",
+                f"/sdcard/Android/data/{package}": "external-data",
+                f"/storage/emulated/0/Android/obb/{package}": "external-obb",
+                f"/sdcard/Android/obb/{package}": "external-obb"}
+    if not again or not os.path.isdir(run):
+        shutil.rmtree(run, ignore_errors=True)
+        for folder in ("data/dalvik-cache/arm64", app.lstrip("/"), f"{data}/cache".lstrip("/"),
+                       f"{data}/code_cache".lstrip("/"), "apex/com.android.art/javalib", "apex/com.android.art/lib64",
+                       "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu", "apex/com.android.tzdata/etc/tz",
+                       "apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64", "framework",
+                       *sorted(set(external.values()))):
+            os.makedirs(os.path.join(run, folder))
+        shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
+        os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
+        os.makedirs(os.path.join(run, app.lstrip("/"), "lib", "arm64"))
+        if signers is not None:
+            shutil.copy(signers, os.path.join(run, app.lstrip("/"), "signers.json"))
+            os.chmod(os.path.join(run, app.lstrip("/"), "signers.json"), 0o444)
+        shutil.copy(framework_jar, os.path.join(run, "framework", "framework.jar"))
+        for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
+                               (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
+                                "apex/com.android.tzdata/etc/tz/tzdata"),
+                               (os.path.join(art, "javalib", "conscrypt.jar"),
+                                "apex/com.android.conscrypt/javalib/conscrypt.jar")):
+            os.link(source, os.path.join(run, target))
 
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
                "--mount", f"/apex={os.path.join(run, 'apex')}",
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
                "--mount", f"/system={bionic_system}",
-               "--mount", f"/system/framework={os.path.join(run, 'framework')}"]
+               "--mount", f"/system/framework={os.path.join(run, 'framework')}",
+               "--mount", f"/data/data/{package}={os.path.join(run, data.lstrip('/'))}"]
+    for guest, host in external.items():
+        command += ["--mount", f"{guest}={os.path.join(run, host)}"]
     for guest, host in mounts:
         command += ["--mount", f"{guest}={host}"]
     if configuration is not None:

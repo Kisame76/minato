@@ -1,0 +1,104 @@
+Minato's patch to frameworks/base's core/java/android/os/Environment.java at android-15.0.0_r1 (Apache-2.0), ADR-0039
+step c1: the external storage is the user's one emulated volume, /storage/emulated/<user>, which is always mounted.
+
+Why: apps reach Environment for decision 6's paths (getExternalStorageDirectory, the DIRECTORY_* names, and through
+ContextImpl the app's own external folders). AOSP's asks StorageManager for its volume list and for the volume of a
+path, through the storage service in system_server, which Minato has none of (ADR-0045 decision 4: one emulated
+volume is mounted). The patch answers the four places from that one volume, as StorageManager would list it:
+getExternalDirs, getExternalStorageState(File), isExternalStorageRemovable(File) and isExternalStorageEmulated(File).
+/sdcard counts as on the volume, as its link to it does on Android. maybeTranslateEmulatedPathToInternal keeps the
+path: Minato's volume has no internal path to translate to. The app ops behind isExternalStorageLegacy and
+isExternalStorageManager stay AOSP's and wait for ADR-0045's AppOpsManager.
+
+--- a/core/java/android/os/Environment.java
++++ b/core/java/android/os/Environment.java
+@@ -182,13 +182,8 @@
+ 
+         @UnsupportedAppUsage
+         public File[] getExternalDirs() {
+-            final StorageVolume[] volumes = StorageManager.getVolumeList(mUserId,
+-                    StorageManager.FLAG_FOR_WRITE);
+-            final File[] files = new File[volumes.length];
+-            for (int i = 0; i < volumes.length; i++) {
+-                files[i] = volumes[i].getPathFile();
+-            }
+-            return files;
++            // Minato: the user's one emulated volume (ADR-0039 decision 6), as StorageManager lists it.
++            return new File[] {minatoVolume(mUserId)};
+         }
+ 
+         @UnsupportedAppUsage
+@@ -1302,12 +1297,8 @@
+      *         {@link #MEDIA_BAD_REMOVAL}, or {@link #MEDIA_UNMOUNTABLE}.
+      */
+     public static String getExternalStorageState(File path) {
+-        final StorageVolume volume = StorageManager.getStorageVolume(path, UserHandle.myUserId());
+-        if (volume != null) {
+-            return volume.getState();
+-        } else {
+-            return MEDIA_UNKNOWN;
+-        }
++        // Minato: the one volume is always mounted.
++        return onMinatoVolume(path) ? MEDIA_MOUNTED : MEDIA_UNKNOWN;
+     }
+ 
+     /**
+@@ -1334,9 +1325,9 @@
+      *             device.
+      */
+     public static boolean isExternalStorageRemovable(@NonNull File path) {
+-        final StorageVolume volume = StorageManager.getStorageVolume(path, UserHandle.myUserId());
+-        if (volume != null) {
+-            return volume.isRemovable();
++        // Minato: the one volume is emulated, so built in.
++        if (onMinatoVolume(path)) {
++            return false;
+         } else {
+             throw new IllegalArgumentException("Failed to find storage device at " + path);
+         }
+@@ -1377,9 +1368,8 @@
+      *             device.
+      */
+     public static boolean isExternalStorageEmulated(@NonNull File path) {
+-        final StorageVolume volume = StorageManager.getStorageVolume(path, UserHandle.myUserId());
+-        if (volume != null) {
+-            return volume.isEmulated();
++        if (onMinatoVolume(path)) {
++            return true;
+         } else {
+             throw new IllegalArgumentException("Failed to find storage device at " + path);
+         }
+@@ -1595,6 +1585,32 @@
+     @UnsupportedAppUsage
+     @Deprecated
+     public static File maybeTranslateEmulatedPathToInternal(File path) {
+-        return StorageManager.maybeTranslateEmulatedPathToInternal(path);
++        // Minato: the volume has no internal path of its own to translate to.
++        return path;
+     }
++
++    /** Minato's (ADR-0039 step c1): the user's one emulated volume, /storage/emulated/<user>. */
++    private static File minatoVolume(int userId) {
++        return new File("/storage/emulated/" + userId);
++    }
++
++    /**
++     * Minato's: whether the path lies on the volume, as StorageManager.getStorageVolume finds a volume by its
++     * canonical path. /sdcard, a link to the volume on Android, counts too.
++     */
++    private static boolean onMinatoVolume(File path) {
++        if (path == null) {
++            return false;
++        }
++        final File volume = minatoVolume(UserHandle.myUserId());
++        final String absolute = path.getAbsolutePath();
++        if (absolute.equals("/sdcard") || absolute.startsWith("/sdcard/")) {
++            return true;
++        }
++        try {
++            return FileUtils.contains(volume.getCanonicalFile(), path.getCanonicalFile());
++        } catch (IOException e) {
++            return false;
++        }
++    }
+ }

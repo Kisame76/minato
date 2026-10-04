@@ -9,7 +9,9 @@
  * as handleBindApplication does, and reads the app's manifest, from which ApplicationPackageManager answers (b3.5a),
  * as bindApplication hands Android's app its ApplicationInfo, with who signed it from the import's signers.json
  * (b3.5b1). Then it gives hwui the app's target SDK and loads the system's font map (ADR-0043 test 2), as
- * handleBindApplication does. It creates no Context and runs no Looper or lifecycle; those come in step c.
+ * handleBindApplication does. Since step c1 it makes the Application as makeApplication does: through LoadedApk, with
+ * the app's ContextImpl attached before attachBaseContext returns. It runs no main Looper, no onCreate and no
+ * lifecycle yet; those come in step c2. Until then the process exits once the Application is made.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -17,14 +19,18 @@
  */
 package android.app;
 
+import android.content.Intent;
 import android.content.pm.IPackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Typeface;
+import android.os.Handler;
 import android.os.LocaleList;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.DisplayMetrics;
+import android.util.Log;
+import dalvik.system.RuntimeHooks;
 import dalvik.system.PathClassLoader;
 import java.io.IOException;
 import org.xmlpull.v1.XmlPullParserException;
@@ -34,6 +40,12 @@ public final class ActivityThread {
     public static final boolean DEBUG_CONFIGURATION = false;
 
     private static volatile ActivityThread sCurrentActivityThread;
+
+    /**
+     * The main thread's Handler, to which SharedPreferencesImpl posts its listeners' calls from another thread. AOSP's
+     * main() sets it with the main Looper, which comes in step c2; until then it is null.
+     */
+    static volatile Handler sMainThreadHandler;
 
     private final String mPackageName;
     private final String mProcessName;
@@ -91,12 +103,21 @@ public final class ActivityThread {
         return null;
     }
 
+    /** The broadcast the main thread is receiving, which StrictMode names in a violation: none before step c2. */
+    public static Intent getIntentBeingBroadcast() {
+        return null;
+    }
+
     /** Whether this is system_server's thread: never in an app process. WindowConfiguration asks it. */
     public static boolean isSystem() {
         return false;
     }
 
-    public static void main(String[] args) throws ClassNotFoundException, ErrnoException {
+    public static void main(String[] args) throws ErrnoException {
+        // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1).
+        LoggingHandler logging = new LoggingHandler();
+        RuntimeHooks.setUncaughtExceptionPreHandler(logging);
+        Thread.setDefaultUncaughtExceptionHandler(new KillApplicationHandler(logging));
         String packageName = null;
         String processName = null;
         String apk = null;
@@ -146,11 +167,76 @@ public final class ActivityThread {
         android.graphics.Compatibility.setTargetSdkVersion(pkg.applicationInfo(0).targetSdkVersion);
         Typeface.loadPreinstalledSystemFontMap();
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
-        sCurrentActivityThread = new ActivityThread(packageName, processName != null ? processName : packageName,
+        ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);
-        if (application != null) {
-            // Loading and initializing the class runs its static initializer, as instantiating it does on Android.
-            Class.forName(application, true, loader);
+        sCurrentActivityThread = thread;
+        // As handleBindApplication's makeApplicationInner (step c1): the manifest's Application class, else
+        // android.app.Application, through the app's AppComponentFactory, which loads and initializes it, then its
+        // attachBaseContext with the app's ContextImpl. currentApplication() gives it out from then on.
+        LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
+        try {
+            thread.mInitialApplication = packageInfo.makeApplication(application);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Unable to instantiate application " + application + " package " + packageName
+                    + ": " + e, e);
+        }
+        // Until step c2 runs the main Looper and the lifecycle, the process ends once the Application is made. First
+        // what SharedPreferences' apply() queued reaches the disk, as QueuedWork.waitToFinish makes sure before Android
+        // stops an app; then the process exits, which QueuedWork's thread, among the app's own, would keep alive.
+        QueuedWork.waitToFinish();
+        System.exit(0);
+    }
+
+    private static volatile boolean sCrashing;
+
+    /**
+     * RuntimeInit's: an exception that no thread catches is logged to the crash buffer with AndroidRuntime's "FATAL
+     * EXCEPTION" lines, before any handler the app set for the thread runs.
+     */
+    private static final class LoggingHandler implements Thread.UncaughtExceptionHandler {
+        volatile boolean mTriggered;
+
+        @Override
+        public void uncaughtException(Thread t, Throwable e) {
+            mTriggered = true;
+            if (sCrashing) {
+                return;
+            }
+            StringBuilder message = new StringBuilder("FATAL EXCEPTION: ").append(t.getName()).append("\n");
+            String processName = currentProcessName();
+            if (processName != null) {
+                message.append("Process: ").append(processName).append(", ");
+            }
+            message.append("PID: ").append(android.os.Process.myPid());
+            Log.printlns(Log.LOG_ID_CRASH, Log.ERROR, "AndroidRuntime", message.toString(), e);
+        }
+    }
+
+    /**
+     * RuntimeInit's default handler: the app process ends after an exception no thread catches, as Android ends it.
+     * Android's also reports the crash to system_server for its dialog, which Minato has none of.
+     */
+    private static final class KillApplicationHandler implements Thread.UncaughtExceptionHandler {
+        private final LoggingHandler mLoggingHandler;
+
+        KillApplicationHandler(LoggingHandler loggingHandler) {
+            mLoggingHandler = loggingHandler;
+        }
+
+        @Override
+        public void uncaughtException(Thread t, Throwable e) {
+            try {
+                if (!mLoggingHandler.mTriggered) {
+                    mLoggingHandler.uncaughtException(t, e);
+                }
+                if (sCrashing) {
+                    return;
+                }
+                sCrashing = true;
+            } finally {
+                android.os.Process.killProcess(android.os.Process.myPid());
+                System.exit(10);
+            }
         }
     }
 

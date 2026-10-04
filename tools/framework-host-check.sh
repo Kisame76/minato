@@ -8,6 +8,8 @@
 #   - tools/tests/stub_supertypes_test.py checks framework-check's guard of stub supertypes (b3.5a);
 #   - framework/tests/certificate_mask_test.py checks the harnesses' marks for the certificates a test APK's check
 #     proved (b3.5b1);
+#   - framework/tests/app_process_run_test.py checks that the harness converts a container again unless it was made
+#     from the very ELF file given (step c1);
 #   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
 #     SampleBaseManager, for ImplementedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
@@ -41,6 +43,8 @@ python3 framework/tests/managergen_test.py
 python3 tools/tests/stub_supertypes_test.py
 # The harnesses' marks for the certificates a test APK's check proved (b3.5b1).
 python3 framework/tests/certificate_mask_test.py
+# The harness's containers, made again unless made from the very file (step c1).
+python3 framework/tests/app_process_run_test.py
 # ADR-0045 decision 6's protection levels in our framework-res against the AVD's; skipped while not built.
 python3 framework/tests/platform_permissions_test.py
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \

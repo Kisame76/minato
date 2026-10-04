@@ -25,9 +25,11 @@
 # apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
 # manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
 # whose hardware is closer to Minato's; its image still declares apk-runner-35's system features. --features writes
-# that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). app-start-test (test 1)
-# is one more on apk-runner-35, whose lines are System.out's that start with "app-start-test: ". A test app's lines of
-# logcat with its own tag (logcat -v tag) must
+# that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). context-test (ADR-0039
+# step c1) is one more on apk-runner-35, stopped after its first "done" and started again, so that its second start
+# reads what the first one wrote; looper-test (step c1) is one too, and app-start-test (test 1), whose lines are
+# System.out's that start with "app-start-test: ". A test app's lines of logcat with its own tag
+# (logcat -v tag) must
 # be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
 # pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
@@ -332,7 +334,7 @@ run_app() {
       ;;
     # A Java app (ADR-0039) with the framework's activity, which ends its log with "done"; its own certificate's
     # SHA-256 is marked (b3.5b1).
-    config-test | styled-text-test | package-manager-test | package-manager-legacy-test)
+    config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -448,6 +450,18 @@ run_app() {
         # shellcheck disable=SC2086
         device emu event send $command >/dev/null
       done
+  fi
+  if [[ "$app" == context-test ]]; then
+    wait_for "$app" done || return 1
+    run am force-stop "$package"
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+    local ended=0
+    for _ in $(seq 1 60); do
+      ended=$(app_lines "$app" | grep -c -E ": done.?$" || true)
+      [[ "$ended" -lt 2 ]] || break
+      sleep 0.5
+    done
+    [[ "$ended" -ge 2 ]] || { echo "$app did not end its second start within 30 s." >&2; return 1; }
   fi
   wait_for "$tag" "$last" "$limit" || return 1
   sleep 1

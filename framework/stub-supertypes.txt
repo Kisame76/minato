@@ -3,8 +3,5 @@
 # or, since b3.5a, says "stays: <reason>", why the class never loads on Minato's path; the check fails on an entry
 # with neither, and on any entry that no longer stands on a stub.
 # <class> -> <supertype>  # <the step that removes it> | stays: <why it never loads>
-android.os.IDeviceIdentifiersPolicyService$Stub -> android.os.Binder  # step c: our Binder (decision 10)
-android.os.ParcelFileDescriptor$1 -> android.os.MessageQueue$OnFileDescriptorEventListener  # step c: our MessageQueue (decision 10)
-android.app.PropertyInvalidatedCache$AutoCorker$1 -> android.os.Handler  # step c: Handler on our MessageQueue (decision 10)
 android.content.pm.PackageManager$LegacyPackageDeleteObserver -> android.app.PackageDeleteObserver  # step c: with Binder (decision 10)
 android.content.pm.PackageManager$1 -> com.android.internal.pm.parsing.PackageParser2$Callback  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, the only method that makes it, as decision 7 rejects AOSP's parser

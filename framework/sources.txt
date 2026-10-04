@@ -354,3 +354,73 @@ frameworks_base/core/java/android/os/RemoteException.java
 frameworks_base/core/java/android/os/DeadObjectException.java
 frameworks_base/core/java/android/os/DeadSystemException.java
 frameworks_base/core/java/android/os/DeadSystemRuntimeException.java
+
+# ADR-0039 step c1: Context and ContextWrapper, under our interim Application and our ContextImpl; their hidden types
+# and members are compile-only stubs, and the broadcast options, autofill and feature contexts wait for ADR-0045 and
+# ADR-0041. AppComponentFactory, through which LoadedApk makes the Application, as an app's android:appComponentFactory
+# (AndroidX's CoreComponentFactory) may name a subclass of it.
+frameworks_base/core/java/android/content/Context.java
+frameworks_base/core/java/android/content/ContextWrapper.java
+frameworks_base/core/java/android/app/AppComponentFactory.java
+
+# ADR-0039 step c1: SharedPreferences, AOSP's SharedPreferencesImpl with QueuedWork, which our ContextImpl makes;
+# FileUtils for its sync and modes, ExponentiallyBucketedHistogram for its timings, and modules-utils'
+# FastXmlSerializer, which Xml.newFastSerializer makes for its file. apply() writes on QueuedWork's HandlerThread, so
+# the Looper's classes come here from step c2 (the lead's OK): Looper, Handler, HandlerThread, Message and MessageQueue,
+# whose natives framework/native gives on M3's ALooper (decision 10), with ThreadLocalWorkSource, TraceNameSupplier,
+# Printer for the Looper's logging, and IMessenger, which Handler's messenger implements. HandlerExecutor, which
+# Context.getMainExecutor makes, and UserHandle, which Context.getUser and the uid helpers read. IBinder, which our
+# Binder implements (decision 10).
+frameworks_base/core/java/android/content/SharedPreferences.java
+frameworks_base/core/java/android/app/SharedPreferencesImpl.java
+frameworks_base/core/java/android/app/QueuedWork.java
+frameworks_base/core/java/com/android/internal/util/ExponentiallyBucketedHistogram.java
+frameworks_base/core/java/android/os/FileUtils.java
+modules_utils/java/com/android/internal/util/FastXmlSerializer.java
+frameworks_base/core/java/android/os/Looper.java
+frameworks_base/core/java/android/os/Handler.java
+frameworks_base/core/java/android/os/HandlerThread.java
+frameworks_base/core/java/android/os/Message.java
+frameworks_base/core/java/android/os/MessageQueue.java
+frameworks_base/core/java/android/os/ThreadLocalWorkSource.java
+frameworks_base/core/java/android/os/TraceNameSupplier.java
+frameworks_base/core/java/android/util/Printer.java
+frameworks_base/core/java/android/os/IMessenger.aidl
+frameworks_base/core/java/android/os/HandlerExecutor.java
+frameworks_base/core/java/android/os/UserHandle.java
+frameworks_base/core/java/android/os/IBinder.java
+
+# ADR-0039 step c1: StrictMode, which QueuedWork.waitToFinish calls and apps call themselves, with the violations its
+# hidden constructors make, Singleton and SparseLongArray, which its static initializer makes, and the unsafe intent
+# callback's AIDL interface, which it registers.
+frameworks_base/core/java/android/os/StrictMode.java
+frameworks_base/core/java/android/os/strictmode/CleartextNetworkViolation.java
+frameworks_base/core/java/android/os/strictmode/ContentUriWithoutPermissionViolation.java
+frameworks_base/core/java/android/os/strictmode/CredentialProtectedWhileLockedViolation.java
+frameworks_base/core/java/android/os/strictmode/CustomViolation.java
+frameworks_base/core/java/android/os/strictmode/DiskReadViolation.java
+frameworks_base/core/java/android/os/strictmode/DiskWriteViolation.java
+frameworks_base/core/java/android/os/strictmode/ExplicitGcViolation.java
+frameworks_base/core/java/android/os/strictmode/FileUriExposedViolation.java
+frameworks_base/core/java/android/os/strictmode/ImplicitDirectBootViolation.java
+frameworks_base/core/java/android/os/strictmode/IncorrectContextUseViolation.java
+frameworks_base/core/java/android/os/strictmode/InstanceCountViolation.java
+frameworks_base/core/java/android/os/strictmode/IntentReceiverLeakedViolation.java
+frameworks_base/core/java/android/os/strictmode/LeakedClosableViolation.java
+frameworks_base/core/java/android/os/strictmode/NetworkViolation.java
+frameworks_base/core/java/android/os/strictmode/NonSdkApiUsedViolation.java
+frameworks_base/core/java/android/os/strictmode/ResourceMismatchViolation.java
+frameworks_base/core/java/android/os/strictmode/ServiceConnectionLeakedViolation.java
+frameworks_base/core/java/android/os/strictmode/SqliteObjectLeakedViolation.java
+frameworks_base/core/java/android/os/strictmode/UnbufferedIoViolation.java
+frameworks_base/core/java/android/os/strictmode/UnsafeIntentLaunchViolation.java
+frameworks_base/core/java/android/os/strictmode/UntaggedSocketViolation.java
+frameworks_base/core/java/android/os/strictmode/Violation.java
+frameworks_base/core/java/android/os/strictmode/WebViewMethodCalledOnWrongThreadViolation.java
+frameworks_base/core/java/android/util/Singleton.java
+frameworks_base/core/java/android/util/SparseLongArray.java
+frameworks_base/core/java/android/app/IUnsafeIntentStrictModeCallback.aidl
+
+# ADR-0039 step c1: Environment, for decision 6's paths, the DIRECTORY_* names apps read and ContextImpl's external
+# folders, patched to the one emulated volume (framework/patches/environment-one-emulated-volume.patch).
+frameworks_base/core/java/android/os/Environment.java

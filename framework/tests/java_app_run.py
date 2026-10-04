@@ -16,9 +16,11 @@ Prints "skipped: ..." while a part is not built.
 
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
-role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1).
+role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
+second time over the first start's folders, as tools/android-reference.sh starts it again on the AVD, and the two
+starts' lines count as one log (step c1's context-test).
 
-Usage: java_app_run.py [--apk-inspect <apk-inspect>] <app> <package> <application class> <art> <bionic-lib>
+Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] <app> <package> <application class> <art> <bionic-lib>
                        <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work> <app_process64>
                        <framework.jar> <framework-res folder> <app.apk> <expected> [<configuration>]
 """
@@ -37,8 +39,14 @@ PERMISSIONS = os.path.join(ROOT, "build", "sources", "frameworks_base_etc", "dat
 def main():
     args = sys.argv[1:]
     apk_inspect = None
-    if args[:1] == ["--apk-inspect"] and len(args) > 1:
-        apk_inspect, args = args[1], args[2:]
+    restart = False
+    while args[:1] in (["--apk-inspect"], ["--restart"]):
+        if args[0] == "--restart":
+            restart, args = True, args[1:]
+        elif len(args) > 1:
+            apk_inspect, args = args[1], args[2:]
+        else:
+            break
     if len(args) not in (16, 17):
         raise SystemExit(__doc__)
     (app, package, application, art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work,
@@ -63,12 +71,18 @@ def main():
         subprocess.run([apk_inspect, "--signers", signers, apk], check=True, capture_output=True)
         if not os.path.exists(signers):
             signers = None  # an unsigned APK has none
-    result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
-                   framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
-                   signers=signers)
-    if result is None:
-        print("FAIL: no end within 300 s")
-        sys.exit(1)
+    results = []
+    for again in ((False, True) if restart else (False,)):
+        result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
+                       framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
+                       signers=signers, again=again)
+        if result is None:
+            print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
+            sys.exit(1)
+        results.append(result)
+    # One log of the starts: the first start's failure counts.
+    result = subprocess.CompletedProcess(results[0].args, next((r.returncode for r in results if r.returncode), 0),
+                                         "".join(r.stdout for r in results), "".join(r.stderr for r in results))
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
         compare_log(app, result, expected, marks)

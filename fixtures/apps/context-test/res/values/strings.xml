@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Context Test</string>
+  <string name="greeting">A string from the app\'s resources</string>
+</resources>

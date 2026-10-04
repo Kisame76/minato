@@ -2,7 +2,8 @@
 // core/jni files we take call only newParcelFileDescriptor (AssetManager's openFd and openNonAssetFd). It makes a
 // ParcelFileDescriptor around the FileDescriptor as AOSP's does, with ParcelFileDescriptor(FileDescriptor), looked
 // up at the call, so registration does not depend on it. framework.jar holds the class (b3.3) and, since b3.4,
-// android.util.CloseGuard, which its constructor calls. Binder itself comes with step c.
+// android.util.CloseGuard, which its constructor calls. Binder itself is ours in Java since step c1, without
+// natives (framework/java/android/os/Binder.java).
 #include "android_util_Binder.h"
 
 namespace android {

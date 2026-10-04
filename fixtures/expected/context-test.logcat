@@ -1,0 +1,109 @@
+I/context-test: context android.app.ContextImpl
+I/context-test: packageName io.github.kisame76.minato.test.context
+I/context-test: opPackageName io.github.kisame76.minato.test.context
+I/context-test: applicationContext null
+I/context-test: filesDir /data/user/0/io.github.kisame76.minato.test.context/files exists true, mode 771
+I/context-test: cacheDir /data/user/0/io.github.kisame76.minato.test.context/cache exists true
+I/context-test: codeCacheDir /data/user/0/io.github.kisame76.minato.test.context/code_cache exists true
+I/context-test: noBackupFilesDir /data/user/0/io.github.kisame76.minato.test.context/no_backup exists true, mode 771
+I/context-test: dir custom /data/user/0/io.github.kisame76.minato.test.context/app_custom exists true, mode 771
+I/context-test: databasePath /data/user/0/io.github.kisame76.minato.test.context/databases/context-test.db exists false
+I/context-test: databasePath's folder /data/user/0/io.github.kisame76.minato.test.context/databases exists true, mode 771
+I/context-test: fileStreamPath /data/user/0/io.github.kisame76.minato.test.context/files/note.txt
+I/context-test: externalFilesDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files exists true
+I/context-test: externalFilesDir Music /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files/Music exists true
+I/context-test: externalCacheDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/cache exists true
+I/context-test: obbDir /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.context exists true
+I/context-test: externalFilesDirs [/storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files]
+I/context-test: dataDir /data/user/0/io.github.kisame76.minato.test.context
+I/context-test: packageCodePath /data/app/~~<a>/io.github.kisame76.minato.test.context-<b>/base.apk
+I/context-test: packageResourcePath /data/app/~~<a>/io.github.kisame76.minato.test.context-<b>/base.apk
+I/context-test: applicationInfo dataDir /data/user/0/io.github.kisame76.minato.test.context deviceProtectedDataDir /data/user_de/0/io.github.kisame76.minato.test.context
+I/context-test: classLoader dalvik.system.PathClassLoader
+I/context-test: packageManager android.app.ApplicationPackageManager
+I/context-test: prefs android.app.SharedPreferencesImpl, the same again true
+I/context-test: prefs at start {}
+I/context-test: prefs changed applied
+I/context-test: prefs changed long
+I/context-test: prefs changed float
+I/context-test: prefs changed start
+I/context-test: prefs changed even
+I/context-test: prefs changed set
+I/context-test: prefs commit true, now {applied=start 1, even=false, float=1.5, long=1099511627776, set=[a, b], start=1}
+I/context-test: prefs folder /data/user/0/io.github.kisame76.minato.test.context/shared_prefs exists true, mode 771
+I/context-test: prefs file mode 660
+I/context-test: prefs xml <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+I/context-test: prefs xml <map>
+I/context-test: prefs xml     <int name="start" value="1" />
+I/context-test: prefs xml     <set name="set">
+I/context-test: prefs xml         <string>a</string>
+I/context-test: prefs xml         <string>b</string>
+I/context-test: prefs xml     </set>
+I/context-test: prefs xml     <float name="float" value="1.5" />
+I/context-test: prefs xml     <string name="applied">start 1</string>
+I/context-test: prefs xml     <boolean name="even" value="false" />
+I/context-test: prefs xml     <long name="long" value="1099511627776" />
+I/context-test: prefs xml </map>
+I/context-test: fileList [note.txt]
+I/context-test: note start 1, mode 660
+I/context-test: string A string from the app's resources
+I/context-test: asset An asset of the app
+I/context-test: checkSelfPermission INTERNET 0
+I/context-test: checkSelfPermission CAMERA -1
+I/context-test: checkPermission INTERNET 0
+I/context-test: checkCallingOrSelfPermission CAMERA -1
+I/context-test: dataDir list [app_custom, cache, code_cache, databases, files, no_backup, shared_prefs]
+I/context-test: done
+I/context-test: context android.app.ContextImpl
+I/context-test: packageName io.github.kisame76.minato.test.context
+I/context-test: opPackageName io.github.kisame76.minato.test.context
+I/context-test: applicationContext null
+I/context-test: filesDir /data/user/0/io.github.kisame76.minato.test.context/files exists true, mode 771
+I/context-test: cacheDir /data/user/0/io.github.kisame76.minato.test.context/cache exists true
+I/context-test: codeCacheDir /data/user/0/io.github.kisame76.minato.test.context/code_cache exists true
+I/context-test: noBackupFilesDir /data/user/0/io.github.kisame76.minato.test.context/no_backup exists true, mode 771
+I/context-test: dir custom /data/user/0/io.github.kisame76.minato.test.context/app_custom exists true, mode 771
+I/context-test: databasePath /data/user/0/io.github.kisame76.minato.test.context/databases/context-test.db exists false
+I/context-test: databasePath's folder /data/user/0/io.github.kisame76.minato.test.context/databases exists true, mode 771
+I/context-test: fileStreamPath /data/user/0/io.github.kisame76.minato.test.context/files/note.txt
+I/context-test: externalFilesDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files exists true
+I/context-test: externalFilesDir Music /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files/Music exists true
+I/context-test: externalCacheDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/cache exists true
+I/context-test: obbDir /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.context exists true
+I/context-test: externalFilesDirs [/storage/emulated/0/Android/data/io.github.kisame76.minato.test.context/files]
+I/context-test: dataDir /data/user/0/io.github.kisame76.minato.test.context
+I/context-test: packageCodePath /data/app/~~<a>/io.github.kisame76.minato.test.context-<b>/base.apk
+I/context-test: packageResourcePath /data/app/~~<a>/io.github.kisame76.minato.test.context-<b>/base.apk
+I/context-test: applicationInfo dataDir /data/user/0/io.github.kisame76.minato.test.context deviceProtectedDataDir /data/user_de/0/io.github.kisame76.minato.test.context
+I/context-test: classLoader dalvik.system.PathClassLoader
+I/context-test: packageManager android.app.ApplicationPackageManager
+I/context-test: prefs android.app.SharedPreferencesImpl, the same again true
+I/context-test: prefs at start {applied=start 1, even=false, float=1.5, long=1099511627776, set=[a, b], start=1}
+I/context-test: prefs changed applied
+I/context-test: prefs changed start
+I/context-test: prefs changed even
+I/context-test: prefs commit true, now {applied=start 2, even=true, float=1.5, long=1099511627776, set=[a, b], start=2}
+I/context-test: prefs folder /data/user/0/io.github.kisame76.minato.test.context/shared_prefs exists true, mode 771
+I/context-test: prefs file mode 660
+I/context-test: prefs xml <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+I/context-test: prefs xml <map>
+I/context-test: prefs xml     <int name="start" value="2" />
+I/context-test: prefs xml     <set name="set">
+I/context-test: prefs xml         <string>a</string>
+I/context-test: prefs xml         <string>b</string>
+I/context-test: prefs xml     </set>
+I/context-test: prefs xml     <float name="float" value="1.5" />
+I/context-test: prefs xml     <string name="applied">start 2</string>
+I/context-test: prefs xml     <boolean name="even" value="true" />
+I/context-test: prefs xml     <long name="long" value="1099511627776" />
+I/context-test: prefs xml </map>
+I/context-test: fileList [note.txt]
+I/context-test: note start 2, mode 660
+I/context-test: string A string from the app's resources
+I/context-test: asset An asset of the app
+I/context-test: checkSelfPermission INTERNET 0
+I/context-test: checkSelfPermission CAMERA -1
+I/context-test: checkPermission INTERNET 0
+I/context-test: checkCallingOrSelfPermission CAMERA -1
+I/context-test: dataDir list [app_custom, cache, code_cache, databases, files, no_backup, shared_prefs]
+I/context-test: done

@@ -122,6 +122,11 @@ PY
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/pm/PackageManager.java" \
   --as android.app.ApplicationPackageManager --hand framework/managers --out "$GEN/managers" >/dev/null
+# Our ContextImpl (step c1): Context's abstract methods, logged once where framework/managers' hand file does not
+# answer.
+python3 tools/managergen/managergen.py \
+  --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
+  --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
 # one before.

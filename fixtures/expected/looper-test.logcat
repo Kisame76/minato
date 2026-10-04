@@ -1,0 +1,9 @@
+I/looper-test: looper true, on its thread true
+I/looper-test: message on looper-test-thread
+I/looper-test: message ran true
+I/looper-test: delayed message ran true, after 300 ms or more true
+I/looper-test: idle true
+I/looper-test: descriptor listener ran true: events 1, read "ping" on looper-test-thread
+I/looper-test: quitSafely true
+I/looper-test: thread ended true
+I/looper-test: done
