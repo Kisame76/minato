@@ -1,6 +1,7 @@
 /* For test 6 of ADR-0030 in graphics-run: the host's window as the app gives it (ADR-0028, decision 6).
    - With MINATO_WINDOW=<width>x<height>, before the program starts, it adds a window of that many pixels on
-     a CAMetalLayer of as many points at scale 1 and opens its gate: the program's first window, ID 1.
+     graphics/host's MinatoMetalLayer, as the app's game view has, of as many points at scale 1 and opens its gate:
+     the program's first window, ID 1.
    - With MINATO_WINDOW_SCRIPT=background:<n> too, a thread of its own waits until the window has <n>
      presents and then keeps the app's order at background (ADR-0028, decision 6): the background flag,
      "scheduled" with 1 s to go, the window's removal; 100 ms later the foreground. With background:<n>:<ms>, it
@@ -37,6 +38,7 @@
 #include <unistd.h>
 
 #include "APKRuntime/apkrt.h"
+#include "minato_layer.h"
 #include "test_host.h"
 
 atomic_int minato_test_counting, minato_test_guest_commits, minato_test_asking, minato_test_asker_commits;
@@ -246,7 +248,7 @@ __attribute__((constructor)) static void add_window(void) {
         exit(2);
     }
     @autoreleasepool {
-        CAMetalLayer *layer = [CAMetalLayer layer];
+        CAMetalLayer *layer = [MinatoMetalLayer layer];
         layer.contentsScale = 1;
         layer.bounds = CGRectMake(0, 0, width, height);
         const char *opaque = getenv("MINATO_WINDOW_OPAQUE"), *watch = getenv("MINATO_WINDOW_WATCH");

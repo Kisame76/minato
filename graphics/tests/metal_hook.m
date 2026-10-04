@@ -13,8 +13,8 @@
    format and CRC-32; and
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
    With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
-   first drawable presented after test_control.m's watch was presented: with presentAtTime: (ANGLE's patch 0005) and
-   its time, or with present. */
+   first 16 drawables presented after test_control.m's watch were presented: with presentAtTime: (ANGLE's patch 0005)
+   and its time, or with present. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -44,7 +44,9 @@ static id<MTLSharedEvent> waiting_event;
 static __thread int asking;           /* on the hook's thread that asks for "scheduled" */
 static int marked;                    /* whether graphics/host's first command buffer is marked */
 static atomic_int scheduled_count, waiting_order, host_order;  /* the order Metal scheduled them in, from 1 */
-static _Atomic int64_t presented_at;  /* the first drawable's since the watch: see test_host.h */
+#define PRESENTS_KEPT 16
+static _Atomic int64_t presents_seen[PRESENTS_KEPT];  /* the drawables' since the watch: see test_host.h */
+static atomic_uint presents_count;
 
 static void note(const char *what) {
     if (noting) {
@@ -96,11 +98,13 @@ static void hooked_present(id self, SEL selector) {
     ((void (*)(id, SEL))presented)(self, selector);
 }
 
-/* The first present since the watch is kept: a drawable that presentDrawable:atTime: named gets its time with
-   presentAtTime:, one without a time present. */
+/* The first presents since the watch are kept in order: a drawable that presentDrawable:atTime: named gets its time
+   with presentAtTime:, one without a time present. */
 static void seen(int64_t how) {
-    int64_t none = 0;
-    atomic_compare_exchange_strong(&presented_at, &none, how);
+    const unsigned index = atomic_fetch_add(&presents_count, 1);
+    if (index < PRESENTS_KEPT) {
+        atomic_store(&presents_seen[index], how);
+    }
 }
 
 static void hooked_present_at_time(id self, SEL selector, CFTimeInterval time) {
@@ -115,11 +119,18 @@ static void hooked_plain_present(id self, SEL selector) {
 }
 
 void minato_test_watch_presents(void) {
-    atomic_store(&presented_at, 0);
+    for (unsigned index = 0; index < PRESENTS_KEPT; index++) {
+        atomic_store(&presents_seen[index], 0);
+    }
+    atomic_store(&presents_count, 0);
 }
 
 int64_t minato_test_presented_at(void) {
-    return atomic_load(&presented_at);
+    return minato_test_presented_nth(0);
+}
+
+int64_t minato_test_presented_nth(uint64_t n) {
+    return n < PRESENTS_KEPT ? atomic_load(&presents_seen[n]) : 0;
 }
 
 static void *ask_scheduled(void *unused) {

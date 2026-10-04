@@ -51,11 +51,13 @@ struct minato_layer_drawable {
 - (struct minato_layer_drawable)drawable:(NSUInteger)index;
 @end
 
-/* The layer. Outside a recording its nextDrawable costs one flag test more than CAMetalLayer's. During a
-   recording, nextDrawable puts each drawable it returns into the next place: the time, its ID, and a presented
-   handler that adds the present time. The places are fixed and never wrap, so drawable k stays frame k.
+/* The layer. Each drawable its nextDrawable returns becomes graphics/host's subclass of the drawable's class, whose
+   presents take the records the front libs' presents leave on the layer (ADR-0041 decision 11 c)); besides that,
+   outside a recording, it costs one flag test more than CAMetalLayer's. During a recording, nextDrawable puts each
+   drawable it returns into the next place: the time, its ID, and a presented handler that adds the present time. The
+   places are fixed and never wrap, so drawable k stays frame k.
    The recorder needs the device's Metal: the Simulator's MTLDrawable has no presented handlers, drawableID or
-   presentedTime, so there the layer is CAMetalLayer as it is and records nothing. */
+   presentedTime, so there the layer records nothing. */
 @interface MinatoMetalLayer : CAMetalLayer
 /* Starts a recording with room for `capacity` drawables. NO while one runs, for a capacity of 0, without memory,
    or in the Simulator. It lets go of the recording before, so it belongs between runs, while no other thread is in

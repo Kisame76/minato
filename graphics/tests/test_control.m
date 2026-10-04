@@ -12,6 +12,7 @@
 #include <stdlib.h>
 
 #include "APKRuntime/apkrt.h"
+#include "minato_graphics.h"
 #include "test_control.h"
 #include "test_host.h"
 
@@ -98,6 +99,10 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
                 return 0;
             }
             return (uint64_t)minato_test_presented_at();
+        case MINATO_TEST_DROP:
+            return minato_graphics_drop_present(minato_test_window, (int64_t)a) == 0;
+        case MINATO_TEST_PRESENTED_NTH:
+            return (uint64_t)minato_test_presented_nth(a);
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);
             return 0;

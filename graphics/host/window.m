@@ -32,6 +32,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "minato_graphics.h"
+#include "present_pace.h"
 
 /* Linux's errno values, which the guest gets. */
 enum { linux_enomem = 12, linux_enodev = 19, linux_einval = 22, linux_etimedout = 110 };
@@ -431,6 +432,8 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     if (drawable == nil) {
         return NO;
     }
+    // The window's own drawable takes no record of the front libs' presents (ADR-0041 decision 11 c)).
+    minato_present_unpaced((__bridge void *)drawable);
     atomic_fetch_add(&in_flight, 1);
     if (apkrt_is_background()) {
         atomic_fetch_sub(&in_flight, 1);

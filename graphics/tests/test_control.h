@@ -35,6 +35,11 @@ enum minato_test_command {
                                    hook (count mode) saw the first drawable presented since: its presentAtTime: time
                                    in nanoseconds of the uptime clock, UINT64_MAX for one presented without a time
                                    (present), 0 before one */
+    MINATO_TEST_DROP,           /* a: a time asked for, in nanoseconds of the uptime clock: the window's present asked
+                                   for at it is not shown (minato_graphics_drop_present, in the place of ADR-0041
+                                   decision 11 c)'s rule); 1 once noted, 0 when refused */
+    MINATO_TEST_PRESENTED_NTH,  /* a: n from 0: how the hook saw the n-th drawable presented since the watch, as
+                                   MINATO_TEST_PRESENTED_AT answers for the first; 0 before it */
 };
 
 #ifndef __APPLE__

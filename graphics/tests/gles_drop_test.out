@@ -1,0 +1,13 @@
+the present at 2.02 s to drop: noted
+at 2 s: EGL_TRUE
+at 2.005 s, the surface not current: EGL_FALSE, EGL_BAD_SURFACE
+at 2.01 s: EGL_TRUE
+at 2.02 s: EGL_TRUE
+at 2.03 s: EGL_TRUE
+without a time: EGL_TRUE
+Core Animation got:
+  at 1995000000 ns
+  at 2005000000 ns
+  at 2025000000 ns
+  without a time
+done

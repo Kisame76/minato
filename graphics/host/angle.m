@@ -6,7 +6,9 @@
      changes to the layer, made on a thread without a run loop, when a surface is made or destroyed; the
      presents are counted per window for the FPS label;
    - presentation times (EGL_ANDROID_presentation_time, patch 0005): ANGLE gets the time asked for on the display's
-     refresh grid, less half a period (present_time.h, ADR-0041 decision 11);
+     refresh grid, less half a period (present_time.h, ADR-0041 decision 11). Each swap leaves the time asked for it,
+     or none, on the window's layer before ANGLE's swap and takes it back when the swap fails (present_pace.h,
+     decision 11 c));
    - the debug callback: ANGLE gets graphics/host's function with a record of the app's function and user
      data, which calls the app's function through apkrt_call_guest on guest threads only and logs the
      message on any other thread (decision 16, ADR-0030's decision 5); glGetPointerv answers from the record;
@@ -32,6 +34,7 @@
 #include "angle_host.h"
 #include "egl_table.h"
 #include "gles_table.h"
+#include "present_pace.h"
 #include "present_time.h"
 
 /* EGL's and GLES's types and names as ANGLE has them. */
@@ -65,24 +68,39 @@ static terminate_function terminate;
 static debug_callback_function debug_callback, debug_callback_khr;
 static get_pointerv_function get_pointerv, get_pointerv_khr;
 
-/* The window surfaces ANGLE made on a window's layer, with the window's ID: few, a list under a lock. */
+/* The window surfaces ANGLE made on a window's layer, with the window's ID, its layer (unretained: ANGLE's surface
+   retains it) and the time the app asked for the next present, 0 for none: few, a list under a lock. */
 struct surface {
     struct surface *next;
     void *display, *surface;
     uint64_t window;
+    void *layer;
+    int64_t asked;
 };
 static struct surface *surfaces;
 static pthread_mutex_t surfaces_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static void surface_keep(void *display, void *surface, uint64_t window) {
+static void surface_keep(void *display, void *surface, uint64_t window, void *layer) {
     struct surface *entry = malloc(sizeof *entry);
     if (entry == NULL) {
-        return;  /* its presents go uncounted */
+        return;  /* its presents go uncounted and leave no time */
     }
-    *entry = (struct surface){NULL, display, surface, window};
+    *entry = (struct surface){NULL, display, surface, window, layer, 0};
     pthread_mutex_lock(&surfaces_lock);
     entry->next = surfaces;
     surfaces = entry;
+    pthread_mutex_unlock(&surfaces_lock);
+}
+
+/* The layers of a surface (or of every surface of a display) forget their presents' records, while ANGLE's surfaces
+   still hold them, before they go. */
+static void surfaces_leave(void *display, void *surface) {
+    pthread_mutex_lock(&surfaces_lock);
+    for (const struct surface *entry = surfaces; entry != NULL; entry = entry->next) {
+        if (entry->display == display && (surface == NULL || entry->surface == surface)) {
+            minato_present_forget(entry->layer);
+        }
+    }
     pthread_mutex_unlock(&surfaces_lock);
 }
 
@@ -101,17 +119,32 @@ static void surfaces_forget(void *display, void *surface) {
     pthread_mutex_unlock(&surfaces_lock);
 }
 
-static uint64_t window_of(void *surface) {
+/* The surface's window, 0 for one not in the list, with its layer and the time asked for its next present. */
+static uint64_t window_of(void *surface, void **layer, int64_t *asked) {
     uint64_t window = 0;
     pthread_mutex_lock(&surfaces_lock);
     for (const struct surface *entry = surfaces; entry != NULL; entry = entry->next) {
         if (entry->surface == surface) {
             window = entry->window;
+            *layer = entry->layer;
+            *asked = entry->asked;
             break;
         }
     }
     pthread_mutex_unlock(&surfaces_lock);
     return window;
+}
+
+/* Sets the time the app asked for the surface's next present, 0 for none. */
+static void surface_asked(void *surface, int64_t asked) {
+    pthread_mutex_lock(&surfaces_lock);
+    for (struct surface *entry = surfaces; entry != NULL; entry = entry->next) {
+        if (entry->surface == surface) {
+            entry->asked = asked;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&surfaces_lock);
 }
 
 /* The window's layer, retained for this call (ANGLE's surface retains it for its own life); nil for the ID 0
@@ -125,7 +158,7 @@ static void *window_surface_created(void *display, void *config, void *window, c
     CAMetalLayer *layer = layer_of(id);
     void *const surface = create_window_surface(display, config, layer, attributes);
     if (surface != NULL) {
-        surface_keep(display, surface, id);
+        surface_keep(display, surface, id, layer);
         [CATransaction flush];
     }
     [layer release];
@@ -137,7 +170,7 @@ static void *platform_window_surface_created(void *display, void *config, void *
     CAMetalLayer *layer = layer_of(id);
     void *const surface = create_platform_window_surface(display, config, layer, attributes);
     if (surface != NULL) {
-        surface_keep(display, surface, id);
+        surface_keep(display, surface, id, layer);
         [CATransaction flush];
     }
     [layer release];
@@ -145,6 +178,7 @@ static void *platform_window_surface_created(void *display, void *config, void *
 }
 
 static egl_boolean surface_destroyed(void *display, void *surface) {
+    surfaces_leave(display, surface);
     const egl_boolean result = destroy_surface(display, surface);
     if (result) {
         surfaces_forget(display, surface);
@@ -154,6 +188,7 @@ static egl_boolean surface_destroyed(void *display, void *surface) {
 }
 
 static egl_boolean terminated(void *display) {
+    surfaces_leave(display, NULL);
     const egl_boolean result = terminate(display);
     if (result) {
         surfaces_forget(display, NULL);
@@ -161,19 +196,30 @@ static egl_boolean terminated(void *display) {
     return result;
 }
 
-/* A present that succeeded counts for the FPS label. */
+/* The present leaves the time asked for it on the layer before ANGLE's swap, as its drawable's present may come before
+   the swap returns, and takes it back when the swap fails; once it succeeded, the time is spent, and the present counts
+   for the FPS label. */
 static egl_boolean swapped(void *display, void *surface) {
+    void *layer = NULL;
+    int64_t asked = 0;
+    const uint64_t window = window_of(surface, &layer, &asked);
+    const struct minato_present_record record = {.asked = asked};
+    const uint64_t ticket = layer != NULL ? minato_present_push(layer, &record) : 0;
     const egl_boolean result = swap_buffers(display, surface);
-    const uint64_t window = result ? window_of(surface) : 0;
-    if (window != 0) {
+    if (!result) {
+        minato_present_take_back(layer, ticket);
+    } else if (window != 0) {
+        surface_asked(surface, 0);
         apkrt_window_presented(window);
     }
     return result;
 }
 
 /* The time of a window surface's next present, for Core Animation; none for a present without a time (decision 11
-   b)), which ANGLE's swap then presents as it would without the call. */
+   b)), which ANGLE's swap then presents as it would without the call. The surface keeps the time asked for until a swap
+   succeeds; one of 0 or less is none (decision 11 c)). */
 static egl_boolean presentation_time_set(void *display, void *surface, int64_t time) {
+    surface_asked(surface, time > 0 ? time : 0);
     int64_t ours = 0;
     if (minato_present_time(time, &ours) == MINATO_PRESENT_WITHOUT_TIME) {
         return EGL_TRUE;

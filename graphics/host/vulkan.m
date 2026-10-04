@@ -11,6 +11,10 @@
      as 0 for a refresh at most 2 periods after the display link's last tick (present_time.h, ADR-0041 decision 11
      and its b)), or all as 0 for a present libvulkan flags MINATO_WINDOWS_WITHOUT_TIME;
      the past timings give the app the times it asked for back, as Android's do;
+   - each present leaves a record per swapchain on its window's layer before MoltenVK gets it, with the time the app
+     asked for (none for a present libvulkan flags), and takes them back when MoltenVK fails it short of its drawables
+     (present_pace.h, decision 11 c)); the past timings leave out a present whose drawable Core Animation did not
+     get, as Android's leave out a frame SurfaceFlinger dropped;
    - vkCreateDevice keeps each queue's MTLCommandQueue for "scheduled", and vkDestroyDevice lets them go;
    - the app's debug callbacks, from vkCreateInstance's chain or their create functions, reach MoltenVK as
      graphics/host's functions, which call the app's through apkrt_call_guest on guest threads only and log
@@ -28,12 +32,14 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "APKRuntime/apkrt.h"
 #include "host_protocol.h"
 #include "minato_graphics.h"
+#include "present_pace.h"
 #include "present_time.h"
 #include "vulkan_host.h"
 #include "vulkan_table.h"
@@ -130,8 +136,12 @@ static const VkPresentTimesInfoGOOGLE *times_of(const void *chain) {
 
 /* The times the app asked for, per MoltenVK swapchain in present order, with the ones MoltenVK got: MoltenVK's past
    timings carry the time it got, and Android's carry the app's own (swapchain.cpp, TimingInfo). A ring of the last
-   64, more than MoltenVK keeps (60) with the presents on their way. */
+   64, more than MoltenVK keeps (60) with the presents on their way.
+   With them, the presents whose drawable Core Animation did not get (present_pace.h), until MoltenVK's past timing for
+   each comes: MoltenVK records it once it lets the drawable go, when it acquires that image again, so after the
+   timings of later presents [measured: the Mac, graphics.vulkan_drop]. The last 8. */
 #define ASKED_KEPT 64u
+#define DROPPED_KEPT 8u
 struct asked {
     struct asked *next;
     VkSwapchainKHR swapchain;
@@ -140,6 +150,11 @@ struct asked {
         uint32_t id;
         uint64_t handed, asked;
     } times[ASKED_KEPT];
+    uint32_t dropped_count;
+    struct {
+        uint32_t id;
+        uint64_t handed;
+    } dropped[DROPPED_KEPT];
 };
 static struct asked *askeds;
 static pthread_mutex_t askeds_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -178,8 +193,39 @@ static void asked_keep(const VkSwapchainKHR *swapchains, const VkPresentTimeGOOG
     pthread_mutex_unlock(&askeds_lock);
 }
 
-/* Each timing gets the time of the oldest present kept with its ID and the time MoltenVK got. MoltenVK hands its
-   timings out in present order, so the presents before that one are gone. */
+/* Core Animation did not get the drawable of the present with the record's ID and time handed (present_pace.h). */
+static void present_dropped(const struct minato_present_record *record) {
+    pthread_mutex_lock(&askeds_lock);
+    struct asked *entry = asked_of((VkSwapchainKHR)record->swapchain, 0);
+    if (entry != NULL) {
+        if (entry->dropped_count == DROPPED_KEPT) {
+            memmove(&entry->dropped[0], &entry->dropped[1], (DROPPED_KEPT - 1) * sizeof entry->dropped[0]);
+            entry->dropped_count--;
+        }
+        entry->dropped[entry->dropped_count].id = record->id;
+        entry->dropped[entry->dropped_count++].handed = record->handed;
+    }
+    pthread_mutex_unlock(&askeds_lock);
+}
+
+/* Under the lock: whether the timing is of a present whose drawable Core Animation did not get, which it forgets. */
+static int dropped_taken(struct asked *entry, const VkPastPresentationTimingGOOGLE *timing) {
+    for (uint32_t index = 0; entry != NULL && index < entry->dropped_count; index++) {
+        if (entry->dropped[index].id == timing->presentID &&
+            entry->dropped[index].handed == timing->desiredPresentTime) {
+            memmove(&entry->dropped[index], &entry->dropped[index + 1],
+                    (entry->dropped_count - index - 1) * sizeof entry->dropped[0]);
+            entry->dropped_count--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* A timing of a present whose drawable Core Animation did not get goes, as Android's past timings leave out a frame
+   SurfaceFlinger dropped, and the later ones move up. Each other timing gets the time of the oldest present kept with
+   its ID and the time MoltenVK got; MoltenVK hands those out in present order, so the presents before that one are
+   gone. A count asked for without timings stays MoltenVK's, which may hold such a present. */
 static VkResult past_timings_given(VkDevice device, VkSwapchainKHR swapchain, uint32_t *count,
                                    VkPastPresentationTimingGOOGLE *timings) {
     const VkResult result = past_timing(device, swapchain, count, timings);
@@ -188,18 +234,24 @@ static VkResult past_timings_given(VkDevice device, VkSwapchainKHR swapchain, ui
     }
     pthread_mutex_lock(&askeds_lock);
     struct asked *entry = asked_of(swapchain, 0);
-    for (uint32_t index = 0; entry != NULL && index < *count; index++) {
-        VkPastPresentationTimingGOOGLE *timing = &timings[index];
-        for (uint32_t kept = 0; kept < entry->count; kept++) {
+    uint32_t given = 0;
+    for (uint32_t index = 0; index < *count; index++) {
+        VkPastPresentationTimingGOOGLE timing = timings[index];
+        if (dropped_taken(entry, &timing)) {
+            continue;
+        }
+        for (uint32_t kept = 0; entry != NULL && kept < entry->count; kept++) {
             const uint32_t slot = (entry->first + kept) % ASKED_KEPT;
-            if (entry->times[slot].id == timing->presentID && entry->times[slot].handed == timing->desiredPresentTime) {
-                timing->desiredPresentTime = entry->times[slot].asked;
+            if (entry->times[slot].id == timing.presentID && entry->times[slot].handed == timing.desiredPresentTime) {
+                timing.desiredPresentTime = entry->times[slot].asked;
                 entry->first = (slot + 1) % ASKED_KEPT;
                 entry->count -= kept + 1;
                 break;
             }
         }
+        timings[given++] = timing;
     }
+    *count = given;
     pthread_mutex_unlock(&askeds_lock);
     return result;
 }
@@ -217,6 +269,61 @@ static void asked_forget(VkSwapchainKHR swapchain) {
     pthread_mutex_unlock(&askeds_lock);
 }
 
+/* The layer of each swapchain on a window, retained while the swapchain lives, for the presents' records
+   (present_pace.h): few, a list under a lock. */
+struct chain {
+    struct chain *next;
+    VkSwapchainKHR swapchain;
+    CAMetalLayer *layer;
+};
+static struct chain *chains;
+static pthread_mutex_t chains_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Keeps the swapchain's layer, whose retain it takes. */
+static void chain_keep(VkSwapchainKHR swapchain, CAMetalLayer *layer) {
+    struct chain *entry = malloc(sizeof *entry);
+    if (entry == NULL) {
+        [layer release];
+        return;  /* its presents leave no records */
+    }
+    *entry = (struct chain){NULL, swapchain, layer};
+    pthread_mutex_lock(&chains_lock);
+    entry->next = chains;
+    chains = entry;
+    pthread_mutex_unlock(&chains_lock);
+}
+
+/* The swapchain's layer, unretained: the list holds it while the app presents on the swapchain. nil for none. */
+static CAMetalLayer *chain_layer(VkSwapchainKHR swapchain) {
+    CAMetalLayer *layer = nil;
+    pthread_mutex_lock(&chains_lock);
+    for (const struct chain *entry = chains; entry != NULL; entry = entry->next) {
+        if (entry->swapchain == swapchain) {
+            layer = entry->layer;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&chains_lock);
+    return layer;
+}
+
+/* Takes the swapchain out of the list: its layer, retained for the caller, or nil. */
+static CAMetalLayer *chain_forget(VkSwapchainKHR swapchain) {
+    CAMetalLayer *layer = nil;
+    pthread_mutex_lock(&chains_lock);
+    for (struct chain **entry = &chains; *entry != NULL; entry = &(*entry)->next) {
+        if ((*entry)->swapchain == swapchain) {
+            struct chain *gone = *entry;
+            *entry = gone->next;
+            layer = gone->layer;
+            free(gone);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&chains_lock);
+    return layer;
+}
+
 static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
     const struct minato_windows *windows = windows_of(info->pNext);
     VkPresentInfoKHR ours = *info;
@@ -229,9 +336,9 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     VkPresentTimesInfoGOOGLE handed = {0};
+    const int without_time = windows != NULL && (windows->flags & MINATO_WINDOWS_WITHOUT_TIME) != 0;
     if (asked != NULL) {
         /* 0, for no time, stays 0, and so does a time beyond INT64_MAX, which is negative as an int64_t. */
-        const int without_time = windows != NULL && (windows->flags & MINATO_WINDOWS_WITHOUT_TIME) != 0;
         for (uint32_t index = 0; index < asked->swapchainCount; index++) {
             int64_t time = 0;
             const int without = without_time || minato_present_time((int64_t)asked->pTimes[index].desiredPresentTime,
@@ -253,8 +360,31 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
         asked_keep(info->pSwapchains, asked->pTimes, times,
                    asked->swapchainCount < info->swapchainCount ? asked->swapchainCount : info->swapchainCount);
     }
+    /* Each swapchain's record on its layer, before MoltenVK can present a drawable (present_pace.h). */
+    uint64_t some[4];
+    uint64_t *const tickets = info->swapchainCount <= 4 ? some : calloc(info->swapchainCount, sizeof *tickets);
+    for (uint32_t index = 0; tickets != NULL && index < info->swapchainCount; index++) {
+        const int timed = asked != NULL && index < asked->swapchainCount;
+        const int64_t time = timed ? (int64_t)asked->pTimes[index].desiredPresentTime : 0;
+        const struct minato_present_record record = {.asked = !without_time && time > 0 ? time : 0,
+                                                     .dropped = present_dropped,
+                                                     .swapchain = (uint64_t)info->pSwapchains[index],
+                                                     .handed = timed ? times[index].desiredPresentTime : 0,
+                                                     .id = timed ? asked->pTimes[index].presentID : 0};
+        tickets[index] = minato_present_push(chain_layer(info->pSwapchains[index]), &record);
+    }
     const VkResult result = queue_present(queue, &ours);
     left();
+    /* MoltenVK presents each image it was given whatever the surface's state, VK_ERROR_OUT_OF_DATE_KHR or
+       VK_ERROR_SURFACE_LOST_KHR [verified: MVKQueue.mm at db66022]; another error leaves its drawables unpresented. */
+    for (uint32_t index = 0; tickets != NULL && result < 0 && result != VK_ERROR_OUT_OF_DATE_KHR &&
+                             result != VK_ERROR_SURFACE_LOST_KHR && index < info->swapchainCount;
+         index++) {
+        minato_present_take_back(chain_layer(info->pSwapchains[index]), tickets[index]);
+    }
+    if (tickets != some) {
+        free(tickets);
+    }
     if (times != few) {
         free(times);
     }
@@ -291,7 +421,8 @@ static VkResult surface_created(VkInstance instance, const VkAndroidSurfaceCreat
 }
 
 /* A window that is gone takes no swapchain, as on Android. MoltenVK changes the layer on the calling
-   thread, which has no run loop to commit it, so Core Animation gets the changes here. */
+   thread, which has no run loop to commit it, so Core Animation gets the changes here. The swapchain's layer is kept
+   for its presents' records. */
 static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKHR *info,
                                   const VkAllocationCallbacks *allocator, VkSwapchainKHR *swapchain) {
     const struct minato_windows *windows = windows_of(info->pNext);
@@ -304,13 +435,22 @@ static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKH
     const VkResult result = create_swapchain(device, &ours, allocator, swapchain);
     if (result == VK_SUCCESS) {
         [CATransaction flush];
+        CAMetalLayer *layer =
+            windows != NULL && windows->count == 1 ? (CAMetalLayer *)apkrt_window_layer(windows->windows[0]) : nil;
+        if (layer != nil) {
+            chain_keep(*swapchain, layer);
+        }
     }
     return result;
 }
 
+/* The layer forgets the swapchain's records before the swapchain goes; drawables still on their way go as they come. */
 static void swapchain_destroyed(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *allocator) {
+    CAMetalLayer *layer = chain_forget(swapchain);
+    minato_present_forget(layer);
     destroy_swapchain(device, swapchain, allocator);
     asked_forget(swapchain);
+    [layer release];
     [CATransaction flush];
 }
 

@@ -279,8 +279,11 @@ if(TARGET minato_graphics_host)
     add_guest_test(vulkan_present vulkan-present-test vulkan_present_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:present"
       "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:background:70" HOST_LINES "^metal:")
+    # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
+    add_guest_test(vulkan_drop vulkan-drop-test vulkan_drop_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:count" "MINATO_WINDOW=set:64x48")
   else()
-    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present)
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -312,8 +315,10 @@ if(TARGET minato_graphics_host)
     add_guest_test(gles_gate gles-gate-test gles_gate_test "${gles_system_libraries}" ${with_angle})
     add_guest_test(gles_glue gles-glue-test gles_glue_test "${gles_system_libraries}" ${with_angle}
       "MINATO_WINDOW_SCRIPT=set:glue")
+    # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
+    add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
   else()
-    foreach(name IN ITEMS gles_front gles_gate gles_glue)
+    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -419,7 +424,8 @@ if(TARGET minato_graphics_host)
   # test's GPU work could stall a frame past their limits (graphics.vulkan_live once saw a frame interval of 108 ms
   # in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
-    graphics.gles_gate graphics.gles_glue graphics.vulkan_queue graphics.vulkan_present graphics.gles_app
+    graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.vulkan_queue graphics.vulkan_present
+    graphics.vulkan_drop graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
     graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
@@ -439,9 +445,9 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock window_buffers
-      window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present probe gles_thunk
-      gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app window_app gles_live vulkan_live present_gles
-      present_vulkan bench recorder recorder_class)
+      window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop probe
+      gles_thunk gles_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app gles_live
+      vulkan_live present_gles present_vulkan bench recorder recorder_class)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

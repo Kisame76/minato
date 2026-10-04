@@ -93,17 +93,21 @@ target_compile_options(vulkan PRIVATE -Wall -Wextra)
 
 # ADR-0030, test 6: vulkan-fake-test and vulkan-window-test against graphics/tests/fake_vulkan.c in
 # MoltenVK's place, the others against MoltenVK itself.
-foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vulkan_window_test vulkan_present_test)
+foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vulkan_window_test vulkan_present_test
+    vulkan_drop_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")
   target_link_libraries(${program} PRIVATE vulkan nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
-# vulkan-window-test sets the refresh grid for VK_GOOGLE_display_timing through graphics-run's test control.
-target_sources(vulkan-window-test PRIVATE "${tests}/test_control_guest.c")
-target_include_directories(vulkan-window-test PRIVATE "${tests}")
-target_link_libraries(vulkan-window-test PRIVATE minato_bind)
+# vulkan-window-test sets the refresh grid for VK_GOOGLE_display_timing through graphics-run's test control, and
+# vulkan-drop-test (ADR-0041 decision 11 c)) also the present not to show.
+foreach(program IN ITEMS vulkan-window-test vulkan-drop-test)
+  target_sources(${program} PRIVATE "${tests}/test_control_guest.c")
+  target_include_directories(${program} PRIVATE "${tests}")
+  target_link_libraries(${program} PRIVATE minato_bind)
+endforeach()
 
 # ADR-0043 b1 and b2: window-lock-test, libnativewindow's lock and post against graphics-run's fake buffers, and
 # window-buffers-test, window-background-test and window-hide-test (b3) against graphics/host's.
@@ -155,7 +159,7 @@ target_include_directories(gles-thunk-test PRIVATE "${tests}")
 target_link_libraries(gles-thunk-test PRIVATE EGL dl)
 target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
-foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test)
+foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

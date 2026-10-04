@@ -60,6 +60,11 @@ int minato_graphics_set_window_buffers(void);
    scheduled, at once before the first lock, 0 when `deadline` (as for Vulkan's above) came first. */
 int minato_graphics_window_scheduled(uint64_t deadline);
 
+/* For tests and device probes (ADR-0041 decision 11 c)): the window's present that its app asked for at `asked`, in
+   nanoseconds of the uptime clock, is not shown, as one the rule drops. Returns 0 once noted, -1 when the window's
+   layer is no MinatoMetalLayer or 8 presents are noted already. */
+int minato_graphics_drop_present(uint64_t window, int64_t asked);
+
 #ifdef __cplusplus
 }
 #endif

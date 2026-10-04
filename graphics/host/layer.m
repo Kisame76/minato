@@ -1,15 +1,22 @@
-// graphics/host's layer and the parity benchmark's recorder (ADR-0037, decision 2), minato_layer.h.
+// graphics/host's layer and the parity benchmark's recorder (ADR-0037, decision 2), minato_layer.h, and the presents
+// on the layer's drawables (ADR-0041 decision 11 c), present_pace.h).
 #import "minato_layer.h"
 
 #import <objc/runtime.h>
 
 #include <TargetConditionals.h>
 #include <math.h>
+#include <os/lock.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "APKRuntime/apkrt.h"
+#include "minato_graphics.h"
+#include "present_pace.h"
 
 /// A drawable's place. The thread that took the drawable writes the first two fields before its presented handler
 /// can run; the handler writes the rest.
@@ -213,23 +220,50 @@ static MinatoLayerRecording *_Nullable stop_recording(_Atomic(uintptr_t) *active
     return recording;
 }
 
+/// The records a layer keeps: the presents on their way, a few more than its 3 drawables. A full layer forgets its
+/// oldest, which a present that never reached a drawable left.
+#define RECORDS 16
+/// The times asked for whose presents are not shown, noted by minato_graphics_drop_present.
+#define DROPS 8
+
+/// A layer's presents (present_pace.h), under `lock`.
+struct pace {
+    os_unfair_lock lock;
+    struct minato_present_record records[RECORDS];
+    uint64_t tickets[RECORDS];
+    unsigned first, count;
+    uint64_t last_ticket;
+    int64_t drops[DROPS];
+    unsigned drop_count;
+};
+
 @implementation MinatoMetalLayer {
+@public
     /// The running recording, unretained; 0 outside a run, which is the one flag test.
     _Atomic(uintptr_t) _active;
     /// The last recording, which keeps the running one alive.
     MinatoLayerRecording *_current;
+    /// Zeroed with the layer, which is an unlocked lock and no records.
+    struct pace _pace;
 }
 
-// The Simulator's MTLDrawable has no presented handlers, drawableID or presentedTime: there the layer keeps
-// CAMetalLayer's nextDrawable, and -startRecording: returns NO.
-#if !TARGET_OS_SIMULATOR
+static void pace_adopt(id<CAMetalDrawable> drawable);
+
+// The Simulator's MTLDrawable has no presented handlers, drawableID or presentedTime: there the layer records
+// nothing, and -startRecording: returns NO.
 - (nullable id<CAMetalDrawable>)nextDrawable {
+#if TARGET_OS_SIMULATOR
+    id<CAMetalDrawable> drawable = [super nextDrawable];
+#else
     const uintptr_t active = atomic_load_explicit(&_active, memory_order_acquire);
-    if (active == 0) return [super nextDrawable];
-    return record_next_drawable(self, (__bridge MinatoLayerRecording *)(void *)active,
-                                class_getMethodImplementation(CAMetalLayer.class, @selector(nextDrawable)));
-}
+    id<CAMetalDrawable> drawable =
+        active == 0 ? [super nextDrawable]
+                    : record_next_drawable(self, (__bridge MinatoLayerRecording *)(void *)active,
+                                           class_getMethodImplementation(CAMetalLayer.class, @selector(nextDrawable)));
 #endif
+    pace_adopt(drawable);
+    return drawable;
+}
 
 - (BOOL)startRecording:(NSUInteger)capacity {
     return start_recording(&_active, &_current, capacity);
@@ -240,6 +274,154 @@ static MinatoLayerRecording *_Nullable stop_recording(_Atomic(uintptr_t) *active
 }
 
 @end
+
+// The presents on MinatoMetalLayer's drawables (ADR-0041 decision 11 c), present_pace.h): each drawable the layer gives
+// out becomes graphics/host's subclass of its class, whose present and presentAtTime: take the layer's oldest record
+// and then hand the drawable to Core Animation, or not. Metal's presentDrawable: and presentDrawable:atTime: reach
+// them, and so does MoltenVK's present from its scheduled handler; neither ANGLE nor MoltenVK presents otherwise. A
+// drawable not handed over goes back to the layer's pool once it is let go, and its presented handlers run then, with
+// presentedTime 0; MoltenVK lets an image's drawable go when it acquires that image again. The subclass is made once,
+// for the first drawable's class; a drawable of another class goes as it comes.
+static Class drawable_class, paced_class;
+static dispatch_once_t paced_once;
+
+/// The layer as a MinatoMetalLayer, nil for any other.
+static MinatoMetalLayer *_Nullable paced_layer(void *layer) {
+    id object = (__bridge id)layer;
+    return [object isKindOfClass:MinatoMetalLayer.class] ? object : nil;
+}
+
+uint64_t minato_present_push(void *layer, const struct minato_present_record *record) {
+    MinatoMetalLayer *paced = paced_layer(layer);
+    if (paced == nil) return 0;
+    struct pace *pace = &paced->_pace;
+    os_unfair_lock_lock(&pace->lock);
+    if (pace->count == RECORDS) {
+        pace->first = (pace->first + 1) % RECORDS;
+        pace->count--;
+    }
+    const unsigned slot = (pace->first + pace->count++) % RECORDS;
+    pace->records[slot] = *record;
+    const uint64_t ticket = pace->tickets[slot] = ++pace->last_ticket;
+    os_unfair_lock_unlock(&pace->lock);
+    return ticket;
+}
+
+void minato_present_take_back(void *layer, uint64_t ticket) {
+    MinatoMetalLayer *paced = paced_layer(layer);
+    if (paced == nil || ticket == 0) return;
+    struct pace *pace = &paced->_pace;
+    os_unfair_lock_lock(&pace->lock);
+    for (unsigned index = 0; index < pace->count; index++) {
+        if (pace->tickets[(pace->first + index) % RECORDS] != ticket) continue;
+        // The later records move up one place.
+        for (unsigned later = index + 1; later < pace->count; later++) {
+            const unsigned to = (pace->first + later - 1) % RECORDS, from = (pace->first + later) % RECORDS;
+            pace->records[to] = pace->records[from];
+            pace->tickets[to] = pace->tickets[from];
+        }
+        pace->count--;
+        break;
+    }
+    os_unfair_lock_unlock(&pace->lock);
+}
+
+void minato_present_forget(void *layer) {
+    MinatoMetalLayer *paced = paced_layer(layer);
+    if (paced == nil) return;
+    os_unfair_lock_lock(&paced->_pace.lock);
+    paced->_pace.count = 0;
+    os_unfair_lock_unlock(&paced->_pace.lock);
+}
+
+void minato_present_unpaced(void *drawable) {
+    id object = (__bridge id)drawable;
+    if (object != nil && paced_class != Nil && object_getClass(object) == paced_class) {
+        object_setClass(object, drawable_class);
+    }
+}
+
+int minato_graphics_drop_present(uint64_t window, int64_t asked) {
+    CAMetalLayer *layer = (__bridge_transfer CAMetalLayer *)apkrt_window_layer(window);
+    MinatoMetalLayer *paced = paced_layer((__bridge void *)layer);
+    if (paced == nil) return -1;
+    struct pace *pace = &paced->_pace;
+    os_unfair_lock_lock(&pace->lock);
+    const BOOL noted = pace->drop_count < DROPS;
+    if (noted) pace->drops[pace->drop_count++] = asked;
+    os_unfair_lock_unlock(&pace->lock);
+    return noted ? 0 : -1;
+}
+
+/// Takes the oldest record of the drawable's layer: whether Core Animation gets the drawable. It does not when its
+/// time asked for was noted by minato_graphics_drop_present, which forgets the time then.
+static BOOL pace_hands_over(id<CAMetalDrawable> drawable) {
+    MinatoMetalLayer *layer = paced_layer((__bridge void *)drawable.layer);
+    if (layer == nil) return YES;
+    struct pace *pace = &layer->_pace;
+    struct minato_present_record record = {0};
+    BOOL hands_over = YES;
+    os_unfair_lock_lock(&pace->lock);
+    if (pace->count != 0) {
+        record = pace->records[pace->first];
+        pace->first = (pace->first + 1) % RECORDS;
+        pace->count--;
+        for (unsigned index = 0; record.asked != 0 && index < pace->drop_count; index++) {
+            if (pace->drops[index] == record.asked) {
+                pace->drops[index] = pace->drops[--pace->drop_count];
+                hands_over = NO;
+                break;
+            }
+        }
+    }
+    os_unfair_lock_unlock(&pace->lock);
+    if (!hands_over && record.dropped != NULL) record.dropped(&record);
+    return hands_over;
+}
+
+static void paced_present(id self, SEL command) {
+    if (pace_hands_over(self)) {
+        ((void (*)(id, SEL))class_getMethodImplementation(drawable_class, command))(self, command);
+    }
+}
+
+static void paced_present_at(id self, SEL command, CFTimeInterval time) {
+    if (pace_hands_over(self)) {
+        const IMP present_at = class_getMethodImplementation(drawable_class, command);
+        ((void (*)(id, SEL, CFTimeInterval))present_at)(self, command, time);
+    }
+}
+
+static void make_paced_class(Class concrete) {
+    Class made = objc_allocateClassPair(concrete, "MinatoPacedDrawable", 0);
+    if (made == Nil) return;
+    const struct {
+        SEL selector;
+        IMP implementation;
+    } methods[] = {{@selector(present), (IMP)paced_present}, {@selector(presentAtTime:), (IMP)paced_present_at}};
+    for (size_t index = 0; index < sizeof methods / sizeof *methods; index++) {
+        const Method method = class_getInstanceMethod(concrete, methods[index].selector);
+        if (method == NULL || !class_addMethod(made, methods[index].selector, methods[index].implementation,
+                                               method_getTypeEncoding(method))) {
+            fprintf(stderr, "MinatoMetalLayer: %s has no %s; its drawables go to Core Animation as they come\n",
+                    class_getName(concrete), sel_getName(methods[index].selector));
+            objc_disposeClassPair(made);
+            return;
+        }
+    }
+    objc_registerClassPair(made);
+    drawable_class = concrete;
+    paced_class = made;
+}
+
+static void pace_adopt(id<CAMetalDrawable> drawable) {
+    if (drawable == nil) return;
+    Class concrete = object_getClass(drawable);
+    dispatch_once(&paced_once, ^{
+        make_paced_class(concrete);
+    });
+    if (concrete == drawable_class) object_setClass(drawable, paced_class);
+}
 
 /// A layer's recording state under MinatoLayerRecorder, as MinatoMetalLayer's ivars, tied to the layer.
 @interface MinatoLayerRecorderState : NSObject {

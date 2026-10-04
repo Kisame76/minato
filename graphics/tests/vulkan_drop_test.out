@@ -1,0 +1,15 @@
+the present at 2.02 s to drop: noted
+presents: 0 0 0 0 0 0
+Core Animation got:
+  at 1995000000 ns
+  at 2005000000 ns
+  at 2025000000 ns
+  at 2035000000 ns
+  at 2045000000 ns
+past timings: MoltenVK keeps 6, the app gets 5 (0)
+  ID 1 asked for 2000000000 ns
+  ID 2 asked for 2010000000 ns
+  ID 4 asked for 2030000000 ns
+  ID 5 asked for 2040000000 ns
+  ID 6 asked for 2050000000 ns
+done
