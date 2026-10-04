@@ -1,0 +1,184 @@
+# References from framework.jar's code to compile-only stubs (ADR-0039 step c2a): ART cannot resolve such a class at
+# run time, so the instruction that names it throws NoClassDefFoundError when it runs, a checkcast or instanceof even
+# for null. tools/framework-check.sh fails on any reference no line here covers, and on a listed one that no longer
+# holds (tools/stub_references.py). framework.jar's classes go by their top-level name; "*" stands for all of them.
+# Each line says why it is here: the step that takes or answers the stub ("step c2c: ...", "ADR-0041 a): ...",
+# "M4 step 10: ..."); "stays: <why that code never runs on Minato's path>"; or "gap: <what>", an app's path that fails
+# today and has no step yet.
+# <stub> <- <class>, <class>...  # <why>
+
+# Binder and parcels (decision 10): no parcel is written or read in an app process.
+android.os.Parcel <- *  # stays: only writeToParcel, CREATOR and AIDL stub code, which runs on a parcel, calls it
+android.os.Parcel$SquashReadHelper <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's CREATOR
+android.os.BadParcelableException <- android.os.BaseBundle  # stays: catches around a Bundle's values from a parcel
+android.os.BadTypeParcelableException <- android.os.BaseBundle, android.os.Bundle  # stays: catches around a Bundle's lazy values from a parcel
+android.os.Messenger <- android.os.Message  # stays: Message's parcel methods
+android.os.MemoryFile <- android.os.ParcelFileDescriptor  # stays: ParcelFileDescriptor.fromData, a hidden way to send bytes through Binder
+android.os.SharedMemory <- android.graphics.Bitmap, android.graphics.Typeface  # stays: ashmem between processes: the hidden Bitmap.getSharedMemory and the font map system_server sends, which ours loads from /system/etc (ActivityThread.main)
+android.os.storage.StorageManager <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's parcel constructor
+android.content.pm.Attribution <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
+android.content.pm.FeatureGroupInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
+android.content.pm.InstrumentationInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
+android.content.pm.SharedLibraryInfo <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's parcel constructor
+android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, android.text.style.TypefaceSpan  # stays: the spans' parcel constructors and writeToParcel (b3.4b)
+android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.AccessibilityURLSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.AlignmentSpan$Standard <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.EasyEditSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.LineBackgroundSpan$Standard <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.LocaleSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.QuoteSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.ScaleXSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.SpellCheckSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.SuggestionRangeSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.SuggestionSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
+
+# System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
+android.os.ServiceManager <- android.app.compat.ChangeIdStateCache  # step c2c: ours, with a local platform compat service, since View and Activity ask CompatChanges.isChangeEnabled (ADR-0045)
+com.android.internal.compat.IPlatformCompat <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
+com.android.internal.compat.IPlatformCompat$Stub <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
+com.android.internal.compat.IPlatformCompat <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+com.android.internal.compat.CompatibilityOverrideConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+com.android.internal.compat.CompatibilityOverridesByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+com.android.internal.compat.CompatibilityOverridesToRemoveByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+com.android.internal.compat.CompatibilityOverridesToRemoveConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+android.os.ServiceManager <- android.os.Build  # gap: Build.getSerial, which throws SecurityException for apps on Android
+android.os.VintfObject <- android.os.Build  # stays: Build.isBuildConsistent, a hidden check of system_server
+android.os.ServiceManager <- android.os.SystemClock  # gap: SystemClock's network and GNSS clocks (API 33) and setCurrentTimeMillis
+android.app.IAlarmManager <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
+android.app.IAlarmManager$Stub <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
+android.app.time.UnixEpochTime <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
+android.app.timedetector.ITimeDetectorService <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
+android.app.timedetector.ITimeDetectorService$Stub <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
+android.location.ILocationManager <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
+android.location.ILocationManager$Stub <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
+android.location.LocationTime <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
+android.content.pm.IPackageManager <- android.content.pm.PackageManager  # stays: PackageManager's hidden static helpers, which ApplicationPackageManager does not use (b3.5a)
+android.app.PackageDeleteObserver <- android.content.pm.PackageManager  # stays: deleting packages, which ApplicationPackageManager never starts (b3.5a)
+android.content.pm.IPackageDeleteObserver <- android.content.pm.PackageManager  # stays: deleting packages, which ApplicationPackageManager never starts (b3.5a)
+android.content.pm.IPackageDeleteObserver2 <- android.content.pm.PackageManager  # stays: deleting packages, which ApplicationPackageManager never starts (b3.5a)
+android.content.pm.IPackageDeleteObserver2$Stub <- android.content.pm.PackageManager  # stays: deleting packages, which ApplicationPackageManager never starts (b3.5a)
+com.android.internal.pm.parsing.PackageInfoCommonUtils <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
+com.android.internal.pm.parsing.PackageParser2 <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
+com.android.internal.pm.parsing.PackageParser2$Callback <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
+com.android.internal.pm.parsing.PackageParserException <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
+android.graphics.drawable.AdaptiveIconDrawable <- android.content.pm.PackageManager  # stays: PackageManager.isDefaultApplicationIcon, a hidden method for launchers
+com.android.internal.util.AnnotationValidations <- android.content.pm.PackageManager  # gap: PackageManager.ComponentEnabledSetting (API 33)
+android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo  # stays: ActivityInfo's display sandboxing checks, which the window manager makes with its own config
+
+# StrictMode (c1 took it): the penalties and checks that need system_server.
+android.os.ServiceManager <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call, and penaltyFlashScreen and the CE storage check
+android.os.INetworkManagementService <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
+android.os.INetworkManagementService$Stub <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
+android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
+android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
+android.view.IWindowManager <- android.os.StrictMode  # gap: StrictMode's penaltyFlashScreen
+android.view.IWindowManager$Stub <- android.os.StrictMode  # gap: StrictMode's penaltyFlashScreen
+android.app.ActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
+android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
+com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
+com.android.internal.os.RuntimeInit <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
+android.os.NetworkOnMainThreadException <- android.os.StrictMode  # gap: death on network on the main thread, which Android's handleBindApplication sets for every app
+android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
+android.animation.ValueAnimator <- android.os.StrictMode  # gap: every StrictMode violation, whose ViolationInfo counts the running animations; ADR-0041 a)'s ValueAnimator closes it
+com.android.internal.os.RuntimeInit <- android.util.Log  # gap: every Log.wtf, whose default handler calls RuntimeInit.wtf
+android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
+
+# The app model, activities and views.
+android.app.Activity <- android.app.AppComponentFactory  # step c2c: taken
+android.content.ContentProvider <- android.app.AppComponentFactory  # step c2c: taken with providers
+android.app.Service <- android.app.AppComponentFactory  # gap: services
+android.content.BroadcastReceiver <- android.app.AppComponentFactory  # gap: broadcast receivers
+android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
+android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
+android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
+android.content.Intent <- android.app.IUnsafeIntentStrictModeCallback, android.content.pm.PackageManager, android.os.StrictMode, android.os.strictmode.UnsafeIntentLaunchViolation, android.text.style.URLSpan  # step c2c: taken with Activity
+android.net.Uri <- android.content.res.ResourcesImpl, android.graphics.ImageDecoder, android.text.style.URLSpan, com.android.internal.util.XmlUtils  # step c2c: taken with Intent
+android.view.View <- android.text.style.URLSpan  # step c2c: taken
+android.view.Gravity <- android.graphics.drawable.BitmapDrawable  # step c2c: taken with FrameLayout
+android.view.WindowManager$LayoutParams <- android.content.res.CompatibilityInfo  # step c2c: taken with WindowManager
+android.view.InsetsState <- android.content.res.CompatibilityInfo  # step c2c: taken with View's insets
+android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
+android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo.applyOverrideScaleIfNeeded, which the window manager's relayout calls
+android.view.MotionEvent <- android.content.res.CompatibilityInfo  # ADR-0041 a): taken with input
+android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
+android.view.Surface <- android.app.WindowConfiguration  # gap: every Configuration.toString, through WindowConfiguration's rotation; ADR-0041 a) takes Surface
+android.hardware.display.DisplayManagerGlobal <- android.app.ResourcesManager  # ADR-0041 a): the display (decision 6); until then the app's Resources take the session's metrics (c1)
+android.view.DisplayInfo <- android.app.ResourcesManager  # ADR-0041 a): the display (decision 6)
+android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
+android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: Theme.encode, for the view server's hierarchy dump
+android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
+
+# Drawables and graphics.
+android.graphics.drawable.DrawableContainer <- android.content.res.ResourcesImpl  # step c2c: taken, since every Resources.getDrawable asks instanceof DrawableContainer (ResourcesImpl.loadDrawable)
+android.graphics.drawable.ColorDrawable <- android.content.res.ResourcesImpl  # step c2c: taken, since a color resource loads as one
+android.graphics.drawable.ColorStateListDrawable <- android.content.res.ResourcesImpl  # gap: Resources.getDrawable of a color state list
+android.graphics.drawable.DrawableInflater <- android.content.res.Resources, android.graphics.drawable.Drawable  # gap: XML drawables (shape, selector, layer-list), which layouts' backgrounds inflate; M4 step 10 draws them
+android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
+com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (ADR-0043, Grafik)
+com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
+android.view.Choreographer <- android.graphics.animation.FallbackLUTInterpolator, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): Choreographer
+android.animation.AnimationHandler <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.ValueAnimator <- android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.ValueAnimator$AnimatorUpdateListener <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.AnimatorInflater <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators; until then an AnimatedVectorDrawable does not inflate
+android.animation.AnimatorSet <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.AnimatorSet$Builder <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.ObjectAnimator <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.PropertyValuesHolder <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.PropertyValuesHolder$PropertyValues <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.animation.PropertyValuesHolder$PropertyValues$DataSource <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
+android.util.IntArray <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): with AnimatedVectorDrawable's animators
+android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
+android.view.ThreadedRenderer <- android.graphics.Bitmap  # M4 step 10: Bitmap.createBitmap of a Picture, drawn on hwui's render thread
+android.hardware.HardwareBuffer <- android.graphics.Bitmap  # gap: hardware bitmaps (Bitmap.wrapHardwareBuffer, getHardwareBuffer) (ADR-0043, Grafik)
+android.graphics.PostProcessor <- android.graphics.ImageDecoder  # gap: ImageDecoder.setPostProcessor (ADR-0043, Grafik)
+android.content.ContentResolver <- android.graphics.ImageDecoder  # gap: images from content URIs (ImageDecoder.createSource with a ContentResolver)
+android.media.MediaCodecInfo <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
+android.media.MediaCodecInfo$CodecCapabilities <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
+android.media.MediaCodecList <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
+android.media.MediaFormat <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
+android.provider.FontRequest <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
+android.provider.FontsContract <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
+android.util.Base64 <- android.graphics.Typeface  # gap: downloadable fonts' certificates (Typeface.createFromResources)
+android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
+com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
+com.android.internal.util.AnnotationValidations <- android.content.om.OverlayableInfo  # stays: OverlayableInfo comes from the overlay manager, which Minato does not have
+android.annotation.NonNull <- android.content.om.OverlayableInfo  # stays: OverlayableInfo comes from the overlay manager, which Minato does not have
+
+# Text layout: TextView's step (M4 step 10).
+android.text.TextPaint <- android.content.res.StringBlock  # M4 step 10: StringBlock's line-height span measures with it during text layout
+android.text.TextPaint <- android.text.TextUtils  # M4 step 10: TextUtils.ellipsize, listEllipsize and makeSafeForPresentation
+android.text.TextPaint <- android.text.style.AbsoluteSizeSpan, android.text.style.BackgroundColorSpan, android.text.style.ClickableSpan, android.text.style.ForegroundColorSpan, android.text.style.RelativeSizeSpan, android.text.style.StrikethroughSpan, android.text.style.SubscriptSpan, android.text.style.SuperscriptSpan, android.text.style.TextAppearanceSpan, android.text.style.UnderlineSpan  # M4 step 10: the spans' updateDrawState and updateMeasureState, which text layout calls
+android.text.Layout <- android.text.style.BulletSpan  # M4 step 10: BulletSpan.drawLeadingMargin, which text layout calls
+android.text.MeasuredParagraph <- android.graphics.BaseCanvas, android.graphics.BaseRecordingCanvas, android.text.TextUtils  # M4 step 10: Canvas.drawTextRun of a CharSequence, and TextUtils.ellipsize
+android.text.PrecomputedText <- android.graphics.BaseCanvas, android.graphics.BaseRecordingCanvas  # M4 step 10: Canvas.drawTextRun of a CharSequence asks instanceof PrecomputedText
+android.text.SpannableStringBuilder <- android.text.TextUtils  # M4 step 10: TextUtils.concat, expandTemplate and the ellipsizers on styled text
+android.text.AutoGrowArray$FloatArray <- android.text.TextUtils  # M4 step 10: TextUtils.commaEllipsize
+android.text.BidiFormatter <- android.text.TextUtils  # M4 step 10: TextUtils.listEllipsize
+android.text.TextDirectionHeuristics <- android.text.TextUtils  # M4 step 10: TextUtils.ellipsize and commaEllipsize
+android.text.Html <- android.text.TextUtils  # M4 step 10: TextUtils.makeSafeForPresentation
+android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils.getReverse, on AndroidCharacter's natives
+android.text.style.ReplacementSpan <- android.text.TextUtils  # M4 step 10: TextUtils.getOffsetBefore and getOffsetAfter, for text editing
+
+# Files, bundles and the rest.
+android.app.AppGlobals <- android.os.Environment  # gap: Environment.isExternalStorageLegacy and isExternalStorageManager, whose app-ops part c1 kept as AOSP's
+android.app.AppOpsManager <- android.os.Environment  # gap: Environment.isExternalStorageLegacy and isExternalStorageManager, whose app-ops part c1 kept as AOSP's
+android.os.storage.StorageManager <- android.os.Environment  # stays: Environment's hidden per-user data folders, for system code
+android.app.AppGlobals <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
+android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
+android.os.CancellationSignal <- android.os.FileUtils  # stays: FileUtils' copies ask a signal only when their caller passes one, and nothing in framework.jar does
+com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
+android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
+android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFileName, for the hidden buildUniqueFile of documents providers
+android.os.PersistableBundle <- android.os.BaseBundle  # gap: Bundle.deepCopy, which asks each value whether it is a PersistableBundle
+android.util.SizeF <- android.os.Bundle  # gap: Bundle.getSizeF
+com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle  # stays: BaseBundle.dumpStats, for dumpsys
+android.util.TimeUtils <- android.os.Message  # gap: Message.toString
+android.util.Base64 <- com.android.internal.util.XmlUtils  # stays: XmlUtils' byte-array attributes, which SharedPreferences never write (c1)
+com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
+com.android.internal.util.ArtBinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
+com.android.modules.utils.BinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
+com.android.modules.utils.BinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)

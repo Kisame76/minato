@@ -8,7 +8,10 @@
 #   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship;
 #   - no class stands on a stub supertype, which would compile but not load, beyond framework/stub-supertypes.txt's
 #     entries, each entry still does, and each names the step that removes it or why its class never loads
-#     (tools/stub_supertypes.py, b3.4 and b3.5a).
+#     (tools/stub_supertypes.py, b3.4 and b3.5a);
+#   - no code refers to a stub class at run time (new, a call or field, checkcast, instanceof, a class constant, an
+#     array, a catch type, a lambda's interface) beyond framework/stub-references.txt's lines, each line still holds,
+#     and each says why (tools/stub_references.py, step c2a).
 # Prints the counts of taken files, hand stubs and classes, and framework.jar's size.
 # Usage: tools/framework-check.sh   (SKIP_BUILD=1 checks the build there is)
 set -euo pipefail
@@ -63,6 +66,15 @@ if [[ -z "$supertypes" ]]; then
   ok "no class stands on a stub supertype beyond framework/stub-supertypes.txt"
 else
   fail "stub supertypes: $(echo "$supertypes" | tr '\n' ';')"
+fi
+
+references=$(sed 's|/|.|g' "$OUT/classes.txt" | xargs "$JDK/bin/javap" -c -p -cp "$OUT/classes.jar" \
+  | python3 tools/stub_references.py "$OUT/classes.txt" "$OUT/boot-classes.txt" framework/stub-references.txt)
+if [[ -z "$references" ]]; then
+  listed=$(grep -cv '^#\|^$' framework/stub-references.txt)
+  ok "no run-time reference to a stub class beyond framework/stub-references.txt's $listed lines"
+else
+  fail "stub references: $(echo "$references" | tr '\n' ';')"
 fi
 
 taken=$(grep -cv '^#\|^$' framework/sources.txt)

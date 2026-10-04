@@ -6,6 +6,7 @@
 #   - framework/tests/managergen_test.py checks the generator on framework/tests/managergen's samples, whose
 #     output goes into the build folder for GeneratedSampleTest;
 #   - tools/tests/stub_supertypes_test.py checks framework-check's guard of stub supertypes (b3.5a);
+#   - tools/tests/stub_references_test.py checks its guard of run-time references to stubs (step c2a);
 #   - framework/tests/certificate_mask_test.py checks the harnesses' marks for the certificates a test APK's check
 #     proved (b3.5b1);
 #   - framework/tests/app_process_run_test.py checks that the harness converts a container again unless it was made
@@ -41,6 +42,8 @@ mkdir -p "$OUT/gen/com/android/minato/services" "$OUT/classes" "$OUT/json" "$OUT
 python3 framework/tests/managergen_test.py
 # framework-check's guard of stub supertypes and its allowlist's reasons (b3.5a).
 python3 tools/tests/stub_supertypes_test.py
+# framework-check's guard of run-time references to stubs and its list's reasons (step c2a).
+python3 tools/tests/stub_references_test.py
 # The harnesses' marks for the certificates a test APK's check proved (b3.5b1).
 python3 framework/tests/certificate_mask_test.py
 # The harness's containers, made again unless made from the very file (step c1).
