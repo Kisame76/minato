@@ -581,3 +581,20 @@ frameworks_base/core/java/android/view/animation/CycleInterpolator.java
 frameworks_base/core/java/android/view/animation/DecelerateInterpolator.java
 frameworks_base/core/java/android/view/animation/LinearInterpolator.java
 frameworks_base/core/java/android/view/animation/OvershootInterpolator.java
+# ADR-0039 step c2e: the compat changes an app's process asks. AppCompatCallbacks answers libcore's Compatibility
+# from the app's disabled changes and reports through ChangeReporter, as handleBindApplication installs it;
+# SafeZipPathValidatorCallback refuses a zip entry that leaves its folder, for an app of target SDK 34 or newer; and
+# IPlatformCompat, whose AIDL Default class our local "platform_compat" service is, with the parcelables and the
+# validator interface that its Stub and Proxy name.
+frameworks_base/core/java/android/app/AppCompatCallbacks.java
+frameworks_base/core/java/com/android/internal/compat/ChangeReporter.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityChangeConfig.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityChangeInfo.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityOverrideConfig.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityOverridesByPackageConfig.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityOverridesToRemoveByPackageConfig.java
+frameworks_base/core/java/com/android/internal/compat/CompatibilityOverridesToRemoveConfig.java
+frameworks_base/core/java/com/android/internal/compat/IOverrideValidator.aidl
+frameworks_base/core/java/com/android/internal/compat/IPlatformCompat.aidl
+frameworks_base/core/java/com/android/internal/compat/OverrideAllowedState.java
+frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.java

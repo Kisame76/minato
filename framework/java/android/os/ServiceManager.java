@@ -5,13 +5,16 @@
  * A service is made at its first lookup, under the table's lock, and every caller then gets the same Binder; a
  * service that looks up another while it is made takes the lock again. An unknown name gives null, as Android's
  * getService does for a service that does not exist, and is logged once per name. The table's first entry is
- * "display", DisplayManagerGlobal's (ADR-0041 a)); App's services join it.
+ * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e);
+ * App's services join it.
  */
 package android.os;
 
 import android.content.Context;
 import android.hardware.display.DisplayService;
 import android.util.Log;
+
+import com.android.internal.compat.PlatformCompatService;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,6 +33,7 @@ public final class ServiceManager {
 
     static {
         sMakers.put(Context.DISPLAY_SERVICE, DisplayService::newBinder);
+        sMakers.put(Context.PLATFORM_COMPAT_SERVICE, PlatformCompatService::newBinder);
     }
 
     private ServiceManager() {

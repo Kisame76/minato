@@ -9,7 +9,8 @@
 # asset-manager-test (b3.3), resources-test (b3.4a), config-test (b3.4c, test 3), styled-text-test (b3.4b),
 # package-manager-test (b3.5a), package-manager-legacy-test (b3.5b1), graphics-start-test and canvas-test (ADR-0043
 # test 2), context-test and looper-test (step c1), provider-test (step c2c1), view-tree-test (step c2c2), app-calls-test
-# (step c2d), animator-test (ADR-0041 a)).
+# (step c2d), animator-test (ADR-0041 a)), compat-test and compat-test-35 (step c2e). An app without its own
+# fixtures/java folder, a twin such as compat-test-35, takes the sources of the app it is named after.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, and for res/ tools/build-aapt2.sh and tools/build-framework-res.sh.
 # Usage: tools/build-java-test-app.sh <app>
@@ -17,13 +18,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP=${1:?usage: tools/build-java-test-app.sh <app>}
+JAVA=fixtures/java/$APP
+[[ -d "$JAVA" ]] || JAVA=fixtures/java/${APP%-*}
 JDK=$(echo build/tools/jdk-17/*/Contents/Home)
 R8=build/sources/r8/r8.jar
 BOOT_CLASSES=build/art/java/all-classes.jar
 FRAMEWORK_CLASSES=build/framework/classes.jar
 STUBS=build/framework/stubs.jar
 OUT=build/$APP
-if [[ ! -d "fixtures/java/$APP" || ! -f "fixtures/apps/$APP/AndroidManifest.xml" ]]; then
+if [[ ! -d "$JAVA" || ! -f "fixtures/apps/$APP/AndroidManifest.xml" ]]; then
   echo "No fixtures/java/$APP or fixtures/apps/$APP/AndroidManifest.xml." >&2
   exit 1
 fi
@@ -40,7 +43,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/classes" "$OUT/dex"
 # -Xlint:-options: the notes about source 8 on a newer JDK.
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
-  -classpath "$FRAMEWORK_CLASSES:$STUBS" -d "$OUT/classes" $(find "fixtures/java/$APP" -name '*.java' | sort)
+  -classpath "$FRAMEWORK_CLASSES:$STUBS" -d "$OUT/classes" $(find "$JAVA" -name '*.java' | sort)
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()

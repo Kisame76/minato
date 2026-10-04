@@ -1,0 +1,7 @@
+I/compat-test-35: target SDK 35
+I/compat-test-35: "abc".split(""): [a, b, c]
+I/compat-test-35: UUID.fromString of 37 characters: java.lang.IllegalArgumentException: UUID string too large
+I/compat-test-35: SharedPreferences.clear(): the listener got [null]
+I/compat-test-35: new SparseIntArray(1).valueAt(0): java.lang.ArrayIndexOutOfBoundsException: Array index out of range: 0
+I/compat-test-35: ZipInputStream of "../escape.txt": java.util.zip.ZipException: Invalid zip entry path: ../escape.txt
+I/compat-test-35: done

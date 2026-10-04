@@ -7,9 +7,10 @@
 #     (tools/aconfig-flags.py java), android.R, com.android.internal.R and android.Manifest from framework-res's link
 #     (tools/build-framework-res.sh), aidl's Java for the .aidl files framework/sources.txt names,
 #     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a), our
-#     AppOpsManager from managergen's API mode, the public API with the hand file's hidden members (step c2c1), and
+#     AppOpsManager from managergen's API mode, the public API with the hand file's hidden members (step c2c1),
 #     ManifestFeatureFlags, the feature flags' values framework-res was built with, for ManifestPackage's
-#     AconfigFlags.skipCurrentElement (b3.5b1);
+#     AconfigFlags.skipCurrentElement (b3.5b1), and CompatTable, the compat changes of framework.jar's and the boot
+#     jars' sources with the target SDK from which each is enabled (tools/compatgen.py, step c2e);
 #   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
 #     API of core, location and the Connectivity and Wi-Fi modules, with the hidden members of
 #     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
@@ -25,8 +26,8 @@
 #     boot jars' classes as its library;
 #   - the jar: its DEX files stored and 4-byte aligned, as the boot jars' are.
 # tools/framework-check.sh checks the result. Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars'
-# classes of tools/build-art.sh, the sources of --set framework, build/aidl/aidl (tools/build-aidl.sh) and framework-res
-# with its R classes (tools/build-framework-res.sh).
+# classes and boot_jars.json of tools/build-art.sh, the sources of --set framework, build/aidl/aidl
+# (tools/build-aidl.sh) and framework-res with its R classes (tools/build-framework-res.sh).
 # Usage: tools/build-framework.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -40,8 +41,8 @@ R_JAVA=build/framework-res/java
 FEATURE_FLAGS=build/framework-res/feature-flags.txt
 OUT=build/framework
 GEN=$OUT/gen
-for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" "$AIDL" "$R_JAVA/android/R.java" "$FEATURE_FLAGS" \
-    "$SOURCES/modules_utils/java" "$SOURCES/frameworks_base_api/core/api/current.txt"; do
+for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" build/art/boot_jars.json "$AIDL" "$R_JAVA/android/R.java" \
+    "$FEATURE_FLAGS" "$SOURCES/modules_utils/java" "$SOURCES/frameworks_base_api/core/api/current.txt"; do
   if [[ ! -e "$needed" ]]; then
     echo "$needed is missing: tools/fetch-sources.py --set art and --set framework, tools/build-art.sh," \
       "tools/build-aidl.sh and tools/build-framework-res.sh make it." >&2
@@ -133,6 +134,12 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
   --class android.view.accessibility.AccessibilityManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
+# The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
+# target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.
+python3 tools/compatgen.py --sources "$SOURCES" --list framework/sources.txt --java framework/java \
+  --boot-jars build/art/boot_jars.json --build "$SOURCES/frameworks_base/core/java/android/os/Build.java" \
+  --version-codes "$SOURCES/libcore/dalvik/src/main/java/dalvik/annotation/compat/VersionCodes.java" \
+  --out "$GEN/compat" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
 # one before.
@@ -162,13 +169,15 @@ while IFS= read -r type; do
   rm -f "$OUT/stubs-src/$type.java"
 done < "$OUT/defined.txt"
 find "$OUT/stubs-src" -name '*.java' | sort > "$OUT/stub-sources.txt"
+# The generated sources' folders, each a root of java.base's patch.
+GENERATED="$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers:$GEN/compat"
 # -XDstringConcat=inline as for the boot jars: their StringConcatFactory lacks makeConcatWithConstants.
 JAVAC=("$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system="$OUT/system" -XDstringConcat=inline
   -XDskipDuplicateBridges=true -encoding UTF-8 -g -Xmaxerrs 9999 -proc:none)
 # The stubs name framework.jar's types too (and their bodies Unwritten): those sources stand behind them on the patch
 # path, and only the stubs themselves become classes.
 "${JAVAC[@]}" -nowarn \
-  --patch-module java.base="$OUT/stubs-src:framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers" \
+  --patch-module java.base="$OUT/stubs-src:framework/java:$OUT/src:$GENERATED" \
   -implicit:none -d "$OUT/stub-classes" \
   @"$OUT/stub-sources.txt"
 
@@ -184,7 +193,7 @@ for directory, _, names in sorted(os.walk(classes)):
 PY
 (cd "$OUT/stub-classes" && "$JDK/bin/jar" --create --file ../stubs.jar @../stub-list.txt)
 
-PATCH="framework/java:$OUT/src:$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers:$OUT/stubs.jar"
+PATCH="framework/java:$OUT/src:$GENERATED:$OUT/stubs.jar"
 "${JAVAC[@]}" -nowarn --patch-module java.base="$PATCH" -implicit:none -d "$OUT/classes" @"$OUT/sources.txt"
 # Ours with every lint, against what was just compiled.
 mkdir -p "$OUT/lint"

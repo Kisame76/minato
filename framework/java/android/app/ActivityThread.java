@@ -13,7 +13,9 @@
  * the app's ContextImpl attached before attachBaseContext returns. Since step c2b, main() prepares the main Looper as
  * AOSP's does, calls the Application's onCreate as handleBindApplication does, and then runs the Looper, which ends
  * only with the process. Since step c2c1 it installs the process's providers before that onCreate, as
- * handleBindApplication does. The launcher activity comes in step c2c3, the lifecycle host in step c3.
+ * handleBindApplication does. Since step c2e it gives ART and libcore the app's target SDK and its disabled compat
+ * changes before the app's first class runs, as RuntimeInit and handleBindApplication do, from CompatTable where
+ * Android's come from system_server. The launcher activity comes in step c2c3, the lifecycle host in step c3.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -21,6 +23,7 @@
  */
 package android.app;
 
+import android.app.compat.CompatChanges;
 import android.content.ContentProvider;
 import android.content.Context;
 import android.content.Intent;
@@ -29,17 +32,26 @@ import android.content.pm.ProviderInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Typeface;
+import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.LocaleList;
 import android.os.Looper;
+import android.os.Message;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.UtilConfig;
+import com.android.internal.compat.CompatTable;
+import com.android.internal.os.SafeZipPathValidatorCallback;
+import dalvik.system.AppSpecializationHooks;
 import dalvik.system.RuntimeHooks;
 import dalvik.system.PathClassLoader;
+import dalvik.system.VMRuntime;
+import dalvik.system.ZipPathValidator;
 import java.io.IOException;
 import java.util.List;
 import org.xmlpull.v1.XmlPullParserException;
@@ -152,7 +164,8 @@ public final class ActivityThread {
         throw new UnsupportedOperationException("Minato has no system context (ADR-0045)");
     }
 
-    @SuppressWarnings("deprecation") // Looper.prepareMainLooper, deprecated for apps, which only this main calls.
+    // Looper.prepareMainLooper and AsyncTask's executors, deprecated for apps, which only this main calls.
+    @SuppressWarnings("deprecation")
     public static void main(String[] args) throws ErrnoException {
         // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1).
         LoggingHandler logging = new LoggingHandler();
@@ -202,12 +215,29 @@ public final class ActivityThread {
             throw new IllegalArgumentException("ActivityThread.main: " + apk + " is " + pkg.packageName + "'s, not "
                     + packageName + "'s");
         }
+        // As RuntimeInit.applicationInit before main (step c2e): ART's target SDK and the app's disabled compat
+        // changes, before the app's first class runs. Then handleBindApplication's first steps: libcore's
+        // Compatibility answers from those changes through AppCompatCallbacks, libcore and ICU apply theirs, and the
+        // zip path validator follows the target; then the target's other readers, in AOSP's order. system_server
+        // computes the changes from its compat config; CompatTable holds what it would, without overrides.
+        int targetSdk = pkg.applicationInfo(0).targetSdkVersion;
+        long[] disabledChanges = CompatTable.disabledFor(targetSdk);
+        VMRuntime.getRuntime().setTargetSdkVersion(targetSdk);
+        VMRuntime.getRuntime().setDisabledCompatChanges(disabledChanges);
+        AppCompatCallbacks.install(disabledChanges, CompatTable.loggableFor(targetSdk));
+        AppSpecializationHooks.handleCompatChangesBeforeBindingApplication();
+        initZipPathValidatorCallback();
+        if (targetSdk <= Build.VERSION_CODES.HONEYCOMB_MR1) {
+            AsyncTask.setDefaultExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        }
+        UtilConfig.setThrowExceptionForUpperArrayOutOfBounds(targetSdk >= Build.VERSION_CODES.Q);
+        Message.updateCheckRecycle(targetSdk);
         // As handleBindApplication: the target SDK for hwui's rendering, then the system fonts. Android loads the
         // preinstalled font map only when system_server's serialized one fails; with no system_server, ours always
         // loads it, from /system/etc's lists and /system/fonts. AOSP does both before it applies the resources'
         // configuration, and ours after, since ManifestPackage.read, which gives the target SDK, reads the manifest
         // through Resources; neither reads that configuration.
-        android.graphics.Compatibility.setTargetSdkVersion(pkg.applicationInfo(0).targetSdkVersion);
+        android.graphics.Compatibility.setTargetSdkVersion(targetSdk);
         Typeface.loadPreinstalledSystemFontMap();
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
@@ -240,6 +270,18 @@ public final class ActivityThread {
         // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
         Looper.loop();
         throw new RuntimeException("Main thread loop unexpectedly exited");
+    }
+
+    /**
+     * As AOSP's (step c2e): the zip path validator that refuses an entry leaving its folder, for an app whose target
+     * SDK enables VALIDATE_ZIP_PATH_FOR_PATH_TRAVERSAL, after AppCompatCallbacks, which answers that question.
+     */
+    private static void initZipPathValidatorCallback() {
+        if (CompatChanges.isChangeEnabled(SafeZipPathValidatorCallback.VALIDATE_ZIP_PATH_FOR_PATH_TRAVERSAL)) {
+            ZipPathValidator.setCallback(new SafeZipPathValidatorCallback());
+        } else {
+            ZipPathValidator.clearCallback();
+        }
     }
 
     /**

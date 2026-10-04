@@ -1,0 +1,7 @@
+I/compat-test: target SDK 28
+I/compat-test: "abc".split(""): [, a, b, c]
+I/compat-test: UUID.fromString of 37 characters: 00000000-0000-0000-0000-000000000001
+I/compat-test: SharedPreferences.clear(): the listener got []
+I/compat-test: new SparseIntArray(1).valueAt(0): 0
+I/compat-test: ZipInputStream of "../escape.txt": ../escape.txt
+I/compat-test: done

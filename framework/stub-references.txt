@@ -36,13 +36,7 @@ android.text.style.SuggestionSpan <- android.text.TextUtils  # stays: TextUtils.
 android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
 # System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
-com.android.internal.compat.IPlatformCompat <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
-com.android.internal.compat.IPlatformCompat$Stub <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
-com.android.internal.compat.IPlatformCompat <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
-com.android.internal.compat.CompatibilityOverrideConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
-com.android.internal.compat.CompatibilityOverridesByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
-com.android.internal.compat.CompatibilityOverridesToRemoveByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
-com.android.internal.compat.CompatibilityOverridesToRemoveConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
+android.os.PermissionEnforcer <- com.android.internal.compat.IPlatformCompat  # stays: IPlatformCompat's Stub and Proxy, which the local platform compat service never runs
 android.os.VintfObject <- android.os.Build  # stays: Build.isBuildConsistent, a hidden check of system_server
 android.app.IAlarmManager <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
 android.app.IAlarmManager$Stub <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
