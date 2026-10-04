@@ -243,6 +243,13 @@ struct SetChecksTests {
         #expect(!(try Self.checked([covered, Self.split("config.de")]).missingSplit))
     }
 
+    @Test func splitTypesOnlyTheResourceIDFindsCoverNothing() throws {
+        // Android reads splitTypes by name alone, so a renamed attribute gives none: INSTALL_FAILED_MISSING_SPLIT.
+        let renamed = AXMLBuilder.Attribute.android("st", 0x0101_064F, .string("base__abi"))
+        let split = try Self.member(SplitAPK.make(split: "config.arm64_v8a", attributes: [renamed]), "split_config.arm64_v8a.apk")
+        #expect(try Self.checked([Self.base(requiredSplitTypes: "base__abi"), split]).missingSplit)
+    }
+
     @Test func aSplitsOwnRequiredTypesCountOnceTheBaseRequiresSplits() throws {
         // Android unions the required types of every APK, but only checks them when the base requires splits.
         let feature = try Self.split("feature", requiredSplitTypes: "feature__abi", splitTypes: "base__abi")

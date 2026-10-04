@@ -127,57 +127,18 @@ struct UsesSdk: Equatable {
 
     // MARK: - The installer's parse
 
-    /// XmlBlock.getAttributeValue(namespace, name): the first attribute of that namespace and name, as text. A raw
-    /// string index the pool cannot give throws there (StringBlock.java:106-126), and Android refuses the file as
-    /// unparsable.
+    /// XmlBlock.getAttributeValue(namespace, name), as `InstallerReading` reads it: the first attribute of that
+    /// namespace and name, as text. What throws there, a raw string the pool cannot give (StringBlock.java:106-126),
+    /// TYPE_NULL or a unit without a name, makes Android refuse the file as unparsable (ApkLiteParseUtils.java:390).
     private static func installerLevel(_ element: XMLElement, _ name: String) throws -> Level {
-        guard let attribute = element.attributes.first(where: { $0.namespace == AndroidAttribute.namespace && $0.name == name }) else {
-            return .absent
+        let text: String?
+        do {
+            text = try InstallerReading(element).text(name, android: true)
+        } catch {
+            throw APKError.invalidManifest("<uses-sdk>'s \(name) is a value Android's installer cannot read")
         }
-        if attribute.rawString == nil, attribute.rawIndex < 0x8000_0000 {
-            throw APKError.invalidManifest("<uses-sdk>'s \(attribute.name) has a raw string Android's installer cannot read")
-        }
-        guard let text = try attribute.rawString ?? coerceToString(attribute), !text.isEmpty else { return .absent }
+        guard let text, !text.isEmpty else { return .absent }
         return parseInt(text).map(Level.number) ?? .codename(text)
-    }
-
-    /// TypedValue.coerceToString, as getAttributeValue takes it (XmlBlock.java:289-301): TYPE_NULL throws there, and so
-    /// does a dimension's or fraction's unit that has no name (DIMENSION_UNIT_STRS), both making Android refuse the
-    /// file as unparsable (ApkLiteParseUtils.java:390). A dynamic reference reads as a reference. A float's text is
-    /// Swift's, which is Java's for plain values; none of them is an integer.
-    private static func coerceToString(_ attribute: XMLAttribute) throws -> String? {
-        let data = attribute.data
-        let value = Int32(bitPattern: data)
-        switch attribute.dataType {
-        case 0x00:
-            throw APKError.invalidManifest("<uses-sdk>'s \(attribute.name) is null, which Android's installer cannot read")
-        case 0x01, 0x07:
-            return "@\(value)"
-        case 0x02:
-            return "?\(value)"
-        case 0x04:
-            return String(describing: Float(bitPattern: data))
-        case 0x05, 0x06:
-            let units = attribute.dataType == 0x05 ? ["px", "dip", "sp", "pt", "in", "mm"] : ["%", "%p"]
-            let unit = Int(data & 0xF)
-            guard unit < units.count else {
-                throw APKError.invalidManifest("<uses-sdk>'s \(attribute.name) has a unit Android's installer cannot read")
-            }
-            // TypedValue.complexToFloat: the signed mantissa above bit 8, scaled by the radix in bits 4 and 5.
-            let mantissa = Float(Int32(bitPattern: data & 0xFFFF_FF00))
-            let scale: Float = [0x1p-8, 0x1p-15, 0x1p-23, 0x1p-31][Int(data >> 4 & 0x3)]
-            return String(describing: mantissa * scale * (attribute.dataType == 0x06 ? 100 : 1)) + units[unit]
-        case 0x11:
-            return "0x" + String(data, radix: 16)
-        case 0x12:
-            return data != 0 ? "true" : "false"
-        case 0x1C...0x1F:
-            return "#" + String(data, radix: 16)
-        case 0x10...0x1F:
-            return String(value)
-        default:
-            return nil
-        }
     }
 
     /// Integer.parseInt(text, 10): an optional sign, then decimal digits of any script, as Character.digit takes each

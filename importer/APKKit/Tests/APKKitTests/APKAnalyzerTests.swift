@@ -368,4 +368,34 @@ struct APKAnalyzerTests {
         #expect(turning.configChanges == 0x480)
         #expect(unset.configChanges == nil)
     }
+
+    // MARK: - The installer's reading (ADR-0048 b2)
+
+    @Test func theManifestsIsSplitRequiredNeedsSplitAPKs() throws {
+        // Android 15 reads <manifest android:isSplitRequired> (F1), where bundletool writes <application ...>.
+        let report = try APKAnalyzer.analyze(ZipArchive(data: SplitAPK.make(manifestSplitRequired: true, signers: [])),
+                                             preferredLanguages: [])
+        #expect(report.requiresSplits)
+        #expect(report.compatibility.status == .needsSplits)
+    }
+
+    @Test func requiredSplitTypesOnlyTheResourceIDFindsNeedNoSplits() throws {
+        // Android's installer reads them by name alone, so the APK installs without splits.
+        let renamed = AXMLBuilder.Attribute.android("rst", 0x0101_064E, .string("base__abi"))
+        let report = try APKAnalyzer.analyze(ZipArchive(data: SplitAPK.make(attributes: [renamed], signers: [])),
+                                             preferredLanguages: [])
+        #expect(!report.requiresSplits)
+        #expect(report.compatibility.status == .ready)
+    }
+
+    @Test func aManifestReadTwoWaysIsNoAPK() {
+        // ADR-0048 decision 2, now also for one APK: the installer finds versionCodeMajor by name, the package parser
+        // by resource ID only.
+        let major = AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "versionCodeMajor", resourceID: nil,
+                                          value: .int(1))
+        let apk = SplitAPK.make(attributes: [major], signers: [])
+        #expect(throws: APKError.invalidManifest("Not a valid APK: its manifest's versionCodeMajor reads as 1 and as 0")) {
+            try APKAnalyzer.analyze(ZipArchive(data: apk), preferredLanguages: [])
+        }
+    }
 }

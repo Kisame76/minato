@@ -84,7 +84,7 @@ public enum SetChecks {
                 return .failure(SetRefusal(reason: "\(member.fileName) signatures are inconsistent"))
             }
             let installedName = SetDigest.installedName(of: member.splitName)
-            if !SetMember.isValidExtFilename(installedName) {
+            if !InstallerReading.isValidExtFilename(installedName) {
                 return .failure(SetRefusal(reason: "Invalid filename: \(installedName)"))
             }
         }

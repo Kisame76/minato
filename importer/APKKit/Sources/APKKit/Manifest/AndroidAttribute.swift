@@ -32,9 +32,10 @@ struct AndroidAttribute: Sendable {
     static let isFeatureSplit = AndroidAttribute(name: "isFeatureSplit", id: 0x0101_055B)
     static let versionCodeMajor = AndroidAttribute(name: "versionCodeMajor", id: 0x0101_0576)
     static let isSplitRequired = AndroidAttribute(name: "isSplitRequired", id: 0x0101_0591)
+    static let requiredSplitTypes = AndroidAttribute(name: "requiredSplitTypes", id: 0x0101_064E)
+    static let splitTypes = AndroidAttribute(name: "splitTypes", id: 0x0101_064F)
     // Matched by name only.
     static let version = AndroidAttribute(name: "version", id: nil)
-    static let requiredSplitTypes = AndroidAttribute(name: "requiredSplitTypes", id: nil)
 }
 
 extension XMLElement {

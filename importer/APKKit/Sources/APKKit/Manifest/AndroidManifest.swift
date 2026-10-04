@@ -13,10 +13,22 @@ public struct AndroidManifest: Sendable, Equatable {
     /// The `<uses-sdk>` attribute that names a resource, which Android resolves and Minato does not.
     public var sdkReference: String?
 
-    /// Set when this APK is itself a split (`<manifest split="config.arm64_v8a">`).
+    /// Set when this APK is itself a split (`<manifest split="config.arm64_v8a">`); an empty name is the base.
     public var splitName: String?
+    /// The module a configuration split configures (`configForSplit`).
+    public var configForSplit: String?
     public var isFeatureSplit: Bool
-    /// The base APK cannot run without its splits.
+    /// The first `<uses-split>`; Android ignores the others.
+    public var usesSplit: String?
+    /// `requiredSplitTypes` and `splitTypes` as Android splits and checks them.
+    public var requiredSplitTypes: Set<String>
+    public var splitTypes: Set<String>
+    /// `<manifest android:isSplitRequired>`, which Android 15 reads.
+    public var splitRequired: Bool
+    /// What bundletool wrote and Android 15 ignores: `<application android:isSplitRequired>` or the meta-data
+    /// `com.android.vending.splits.required` (F1). Minato reads them as "Needs split APKs" too.
+    public var stricterSplitSignal: Bool
+    /// The base APK cannot run without its splits: it says so in one of the three ways, or names split types.
     public var requiresSplits: Bool
 
     public var label: ResourceValue?
@@ -57,15 +69,43 @@ public struct AndroidManifest: Sendable, Equatable {
 
     public init(xml root: XMLElement) throws {
         guard root.name == "manifest" else { throw APKError.invalidManifest("root element is <\(root.name)>") }
-        guard let package = root.attribute(named: "package")?.string, !package.isEmpty else {
-            throw APKError.invalidManifest("missing package name")
+        // Android's installer reads the identity first, by namespace and name, and refuses what it cannot take
+        // (ApkLiteParseUtils.java:406-440, 685-773; ADR-0048 b2). Its package parser and the guest read package and
+        // split the same way, and no other reading takes the split attributes (PackageImpl.java:2720-2736).
+        let installer = InstallerReading(root)
+        let package: String, splitText: String?
+        do {
+            guard let text = try installer.text("package") else { throw APKError.invalidManifest("missing package name") }
+            package = text
+            if package != "android",
+               let problem = InstallerReading.validateName(package, requireSeparator: true, requireFilename: true) {
+                throw APKError.invalidManifest("Invalid manifest package: \(problem)")
+            }
+            splitText = try installer.text("split")
+            if let splitText, !splitText.isEmpty,
+               let problem = InstallerReading.validateName(splitText, requireSeparator: false, requireFilename: false) {
+                throw APKError.invalidManifest("Invalid manifest split: \(problem)")
+            }
+            requiredSplitTypes = try InstallerReading.splitTypes(installer.text("requiredSplitTypes", android: true))
+            splitTypes = try InstallerReading.splitTypes(installer.text("splitTypes", android: true))
+            configForSplit = try installer.text("configForSplit")
+            usesSplit = nil
+            if let element = root.children(named: "uses-split").first {
+                guard let name = try InstallerReading(element).text("name", android: true) else {
+                    throw APKError.invalidManifest("<uses-split> tag requires 'android:name' attribute")
+                }
+                usesSplit = name
+            }
+        } catch let unreadable as InstallerReading.Unreadable {
+            throw APKError.invalidManifest("Not a valid APK: Android cannot read the manifest's \(unreadable.name)")
         }
         packageName = package
+        splitName = splitText?.isEmpty == true ? nil : splitText
 
-        let code = Int64(UInt32(bitPattern: Int32(truncatingIfNeeded: root.android(.versionCode)?.integer ?? 0)))
-        let major = Int64(root.android(.versionCodeMajor)?.integer ?? 0)
-        versionCode = major << 32 | code
+        // The installer's flags are integer types' data (getAttributeBooleanValue).
         versionName = root.android(.versionName)?.value
+        isFeatureSplit = installer.integer("isFeatureSplit").map { $0 != 0 } ?? false
+        splitRequired = installer.integer("isSplitRequired").map { $0 != 0 } ?? false
 
         let sdk = try UsesSdk(manifest: root)
         minSdk = sdk.minSdk
@@ -73,8 +113,24 @@ public struct AndroidManifest: Sendable, Equatable {
         sdkRefusal = sdk.refusal
         sdkReference = sdk.reference
 
-        splitName = root.attribute(named: "split")?.string
-        isFeatureSplit = root.android(.isFeatureSplit)?.boolean ?? false
+        // The installer reads the versions by name (getAttributeIntValue), the package parser and the guest by resource
+        // ID (PackageImpl.java:2721-2723). Where the two readings differ, the library would key what the guest does not
+        // see (ADR-0048 decision 2). Where obfuscation renamed one, only the resource ID finds it, and that reading
+        // stands. `versionCodeMajor` takes the upper 32 bits, as the session compares them.
+        let parsedMinor = try Self.packageParserInteger(.versionCode, in: root)
+        let parsedMajor = try Self.packageParserInteger(.versionCodeMajor, in: root)
+        let minor = installer.find("versionCode", android: true) == nil
+            ? parsedMinor : installer.integer("versionCode") ?? 0
+        let major = installer.find("versionCodeMajor", android: true) == nil
+            ? parsedMajor : installer.integer("versionCodeMajor") ?? 0
+        func agree(_ name: String, _ installer: String, _ parser: String) throws {
+            guard installer == parser else {
+                throw APKError.invalidManifest("Not a valid APK: its manifest's \(name) reads as \(installer) and as \(parser)")
+            }
+        }
+        try agree("versionCode", "\(UInt32(bitPattern: minor))", "\(UInt32(bitPattern: parsedMinor))")
+        try agree("versionCodeMajor", "\(major)", "\(parsedMajor)")
+        versionCode = Int64(major) << 32 | Int64(UInt32(bitPattern: minor))
 
         let application = root.children(named: "application").first
         label = application?.android(.label)?.value
@@ -106,14 +162,16 @@ public struct AndroidManifest: Sendable, Equatable {
         self.usesLibraries = usesLibraries
         self.components = components
 
-        let splitTypes = root.android(.requiredSplitTypes)?.string ?? ""
-        let splitsFlag = application?.android(.isSplitRequired)?.boolean ?? false
+        // bundletool's marker, which Android does not read: integer types only, as Android reads the <manifest> flag.
+        let splitsFlag = application?.android(.isSplitRequired)
+            .map { (0x10...0x1F).contains($0.dataType) && $0.data != 0 } ?? false
         let splitsMetaData: Bool = switch metaData["com.android.vending.splits.required"] {
         case .boolean(let flag): flag
         case .string(let text): text.lowercased() == "true"
         default: false
         }
-        requiresSplits = splitsFlag || splitsMetaData || !splitTypes.isEmpty
+        stricterSplitSignal = splitsFlag || splitsMetaData
+        requiresSplits = splitRequired || !requiredSplitTypes.isEmpty || stricterSplitSignal
 
         let launcher = application.flatMap { Self.launcher(in: $0, package: package) }
         launcherActivity = launcher?.className
@@ -165,6 +223,28 @@ public struct AndroidManifest: Sendable, Equatable {
         permissions = root.children
             .filter { ["uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"].contains($0.name) }
             .compactMap { $0.android(.name)?.string }
+    }
+
+    /// An integer as Android's package parser reads it (`TypedArray.getInteger`, TypedArray.java:628-652), by resource
+    /// ID alone: none, TYPE_NULL or @null is 0, an integer type gives its data, and anything else throws there, failing
+    /// Android's parse. Android resolves a reference through the app's resources, which Minato does not read here, so
+    /// one is refused too [departure].
+    private static func packageParserInteger(_ attribute: AndroidAttribute, in root: XMLElement) throws -> Int32 {
+        guard let id = attribute.id, let value = root.attribute(resourceID: id) else { return 0 }
+        switch value.dataType {
+        case 0x00:
+            return 0
+        case 0x01, 0x07:
+            guard value.data == 0 else {
+                throw APKError.invalidManifest(
+                    "Not a valid APK: its manifest's \(attribute.name) names a resource, which Minato does not resolve")
+            }
+            return 0
+        case 0x10...0x1F:
+            return Int32(bitPattern: value.data)
+        default:
+            throw APKError.invalidManifest("Not a valid APK: Android cannot read the manifest's \(attribute.name)")
+        }
     }
 
     /// `.Foo` and `Foo` are relative to the package; anything with a dot inside is absolute.

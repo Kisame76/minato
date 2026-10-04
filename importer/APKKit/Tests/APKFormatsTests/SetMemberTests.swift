@@ -116,53 +116,78 @@ struct SetMemberTests {
         }
     }
 
+    @Test func whatAndroidReadsOneWayIsReadAsItsInstallerDoes() throws {
+        // Android reads package, split and configForSplit raw first everywhere (ParsingPackageUtils.java:702-703,
+        // 751-752), and the split attributes by name alone (PackageImpl.java:2720-2736): a typed value beside them is no
+        // second reading.
+        let package = AXMLBuilder.Attribute(namespace: nil, name: "package", resourceID: nil, value: .string("org.example.typed"),
+                                            raw: "org.example.raw")
+        #expect(try Self.member(SplitAPK.make(package: nil, attributes: [package])).packageName == "org.example.raw")
+        let emptyRaw = AXMLBuilder.Attribute(namespace: nil, name: "split", resourceID: nil, value: .string("config.arm64_v8a"),
+                                             raw: "")
+        #expect(try Self.member(SplitAPK.make(attributes: [emptyRaw])).isBase)
+        #expect(try Self.member(SplitAPK.make(attributes: [.plain("split", .bool(true))])).splitName == "true")
+        #expect(try Self.member(SplitAPK.make(attributes: [.plain("split", .typed(type: 0x04, data: 0x7FC0_0000))])).splitName
+            == "NaN")
+        let configForSplit = AXMLBuilder.Attribute(namespace: nil, name: "configForSplit", resourceID: nil, value: .string("feature"),
+                                                   raw: "other")
+        #expect(try Self.member(SplitAPK.make(attributes: [.plain("split", .string("feature.config.de")), configForSplit]))
+            .configForSplit == "other")
+        let color = AXMLBuilder.Attribute.android("isFeatureSplit", 0x0101_055B, .typed(type: 0x1C, data: 1))
+        #expect(try Self.member(SplitAPK.make(attributes: [.plain("split", .string("dynamic")), color])).isFeatureSplit)
+        let required = AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "requiredSplitTypes",
+                                             resourceID: 0x0101_064E, value: .string("base__abi"), raw: "")
+        #expect(try Self.member(SplitAPK.make(attributes: [required])).requiredSplitTypes.isEmpty)
+        let types = AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "splitTypes", resourceID: 0x0101_064F,
+                                          value: .string("base__abi"), raw: "base__density")
+        #expect(try Self.member(SplitAPK.make(attributes: [types])).splitTypes == ["base__density"])
+    }
+
     @Test(arguments: [
-        // Android's installer reads the raw string first, the analyzer the typed value: where they differ, the
-        // library would key what the checks did not see (the lead's decision, ADR-0048 decision 2).
-        ([AXMLBuilder.Attribute(namespace: nil, name: "package", resourceID: nil, value: .string("org.example.typed"),
-                                raw: "org.example.raw")],
-         "package reads as “org.example.raw” and as “org.example.typed”"),
-        ([AXMLBuilder.Attribute(namespace: nil, name: "split", resourceID: nil, value: .string("config.arm64_v8a"), raw: "")],
-         "split reads as “” and as “config.arm64_v8a”"),
-        ([AXMLBuilder.Attribute.plain("split", .bool(true))], "split reads as “true” and as nothing"),
-        ([AXMLBuilder.Attribute.plain("split", .typed(type: 0x04, data: 0x7FC0_0000))], "split reads as “NaN” and as nothing"),
-        ([AXMLBuilder.Attribute.plain("split", .string("feature.config.de")),
-          AXMLBuilder.Attribute(namespace: nil, name: "configForSplit", resourceID: nil, value: .string("feature"), raw: "other")],
-         "configForSplit reads as “other” and as “feature”"),
-        ([AXMLBuilder.Attribute.plain("split", .string("dynamic")),
-          AXMLBuilder.Attribute.android("isFeatureSplit", 0x0101_055B, .typed(type: 0x1C, data: 1))],
-         "isFeatureSplit reads as true and as false"),
-        ([AXMLBuilder.Attribute.android("versionCode", 0x0101_021B, .string("5"))], "versionCode reads as 0 and as 5"),
-        ([AXMLBuilder.Attribute.android("versionCodeMajor", 0x0101_0576, .string("2"))], "versionCodeMajor reads as 0 and as 2"),
+        // TypedArray.getInteger throws on a string (TypedArray.java:651), and Android's package parser fails.
+        ([AXMLBuilder.Attribute.android("versionCode", 0x0101_021B, .string("5"))], "Android cannot read the manifest's versionCode"),
+        ([AXMLBuilder.Attribute.android("versionCodeMajor", 0x0101_0576, .string("2"))],
+         "Android cannot read the manifest's versionCodeMajor"),
+        // The installer finds an attribute without a resource ID, the package parser does not: the library would key
+        // what the guest does not see (ADR-0048 decision 2).
+        ([AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "versionCodeMajor", resourceID: nil, value: .int(2))],
+         "its manifest's versionCodeMajor reads as 2 and as 0"),
     ])
-    func twoReadingsOfTheManifestAreRefused(attributes: [AXMLBuilder.Attribute], reason: String) {
-        #expect(Self.refusal(SplitAPK.make(package: attributes.contains { $0.name == "package" } ? nil : SplitAPK.package,
-                                           versionCode: attributes.contains { $0.name == "versionCode" } ? nil : 1,
+    func versionsAndroidReadsTwoWaysOrCannotReadAreRefused(attributes: [AXMLBuilder.Attribute], reason: String) {
+        #expect(Self.refusal(SplitAPK.make(versionCode: attributes.contains { $0.name == "versionCode" } ? nil : 1,
                                            attributes: attributes))
-            == "Not a valid APK: its manifest's \(reason)")
+            == "Not a valid APK: \(reason)")
     }
 
-    @Test(arguments: [
-        (AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "requiredSplitTypes", resourceID: 0x0101_064E,
-                               value: .string("base__abi"), raw: ""), "requiredSplitTypes reads as “” and as “base__abi”"),
-        (AXMLBuilder.Attribute(namespace: AXMLBuilder.androidNamespace, name: "splitTypes", resourceID: 0x0101_064F,
-                               value: .string("base__abi"), raw: "base__density"), "splitTypes reads as “base__density” and as “base__abi”"),
-    ])
-    func twoReadingsOfTheSplitTypesAreRefused(attribute: AXMLBuilder.Attribute, reason: String) {
-        #expect(Self.refusal(SplitAPK.make(attributes: [attribute])) == "Not a valid APK: its manifest's \(reason)")
-    }
-
-    @Test func anAttributeOnlyItsResourceIDFindsKeepsThatReading() throws {
-        // Obfuscators blank an attribute's name; Android's installer then misses it, but its package parser finds it
-        // by resource ID (obtainAttributes), as the analyzer does, and that reading stands (the lead's decision).
-        let member = try Self.member(SplitAPK.make(versionCode: nil, split: "dynamic", attributes: [
+    @Test func anAttributeOnlyItsResourceIDFindsKeepsThatReadingForTheVersionsOnly() throws {
+        // Obfuscators rename an attribute; Android's installer then misses it. Its package parser finds versionCode and
+        // versionCodeMajor by resource ID (PackageImpl.java:2721-2723), and that reading stands (the lead's decision).
+        // Nothing reads the split attributes so: a renamed isFeatureSplit leaves a configuration split.
+        let member = try Self.member(SplitAPK.make(versionCode: nil, split: "config.arm64_v8a", attributes: [
             .android("vc", 0x0101_021B, .int(7)), .android("vcm", 0x0101_0576, .int(1)), .android("fs", 0x0101_055B, .bool(true)),
             .android("rst", 0x0101_064E, .string("base__abi")), .android("st", 0x0101_064F, .string("feature__abi")),
         ]))
         #expect(member.versionCode == 1 << 32 | 7)
-        #expect(member.isFeatureSplit)
-        #expect(member.requiredSplitTypes == ["base__abi"])
-        #expect(member.splitTypes == ["feature__abi"])
+        #expect(!member.isFeatureSplit)
+        #expect(member.role == .config(module: nil, suffix: "arm64_v8a"))
+        #expect(member.requiredSplitTypes.isEmpty)
+        #expect(member.splitTypes.isEmpty)
+    }
+
+    @Test func theManifestIsReadWithinTheAnalyzersLimit() {
+        // 16 MiB, as APKAnalyzer reads it: a crafted string pool of a few hundred KB of deflated data could otherwise
+        // cost about a gigabyte to decode (the lead's reviewer). The entry claims one byte more in both its headers;
+        // only that size is read before the refusal.
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", AXMLBuilder().build(AXMLBuilder.Element("manifest", [.plain("package", .string(SplitAPK.package))], [])))
+        var data = zip.build().data
+        let claimed = UInt32(16 << 20) + 1
+        for (signature, field) in [([0x50, 0x4B, 0x03, 0x04] as [UInt8], 22), ([0x50, 0x4B, 0x01, 0x02], 24)] {
+            let header = data.firstRange(of: Data(signature))!.lowerBound
+            data.replaceSubrange(header + field..<header + field + 4, with: withUnsafeBytes(of: claimed.littleEndian) { Data($0) })
+        }
+        let tooLarge = APKError.entryTooLarge("AndroidManifest.xml", UInt64(claimed))
+        #expect(Self.refusal(data) == "Not a valid APK: \(tooLarge)")
     }
 
     @Test func androidsRefusalsComeBeforeTheReadingsAreCompared() throws {

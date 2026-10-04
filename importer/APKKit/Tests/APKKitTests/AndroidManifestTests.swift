@@ -513,4 +513,138 @@ struct AndroidManifestTests {
             _ = try Self.parse(E("resources", [.plain("package", .string("x"))], []))
         }
     }
+
+    // MARK: - The installer's reading (ApkLiteParseUtils.java:406-440, 685-773; ADR-0048 b2)
+
+    /// Why the manifest is refused, or nil.
+    static func refusal(_ root: E) -> String? {
+        do {
+            _ = try parse(root)
+            return nil
+        } catch APKError.invalidManifest(let reason) {
+            return reason
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    @Test func thePackageSplitAndConfigForSplitAreReadRawFirstOnly() throws {
+        // Android reads them so everywhere: its installer, its package parser (ParsingPackageUtils.java:702-703,
+        // 751-752) and the guest's ManifestPackage (framework/java/android/app/ManifestPackage.java:192). A typed value
+        // beside the raw string is no second reading.
+        let package = A(namespace: nil, name: "package", resourceID: nil, value: .string("org.example.typed"), raw: "org.example.raw")
+        let configForSplit = A(namespace: nil, name: "configForSplit", resourceID: nil, value: .string("feature"), raw: "other")
+        let manifest = try Self.parse(E("manifest", [package, .plain("split", .bool(true)), configForSplit], []))
+        #expect(manifest.packageName == "org.example.raw")
+        // coerceToString makes a typed boolean the split "true".
+        #expect(manifest.splitName == "true")
+        #expect(manifest.configForSplit == "other")
+    }
+
+    @Test(arguments: [("nodot", "must have at least one '.' separator"), ("", "Invalid filename"), ("org.1x", "bad character '1'")])
+    func aPackageNameAndroidRefusesIsRefused(name: String, problem: String) {
+        // FrameworkParsingPackageUtils.validateName (:72-103), from ApkLiteParseUtils.java:701-709.
+        #expect(Self.refusal(E("manifest", [.plain("package", .string(name))], [])) == "Invalid manifest package: \(problem)")
+    }
+
+    @Test func anEmptySplitIsTheBase() throws {
+        // ApkLiteParseUtils.java:711-715.
+        #expect(try Self.parse(Self.manifest([.plain("split", .string(""))], [])).splitName == nil)
+    }
+
+    @Test func aSplitAndroidRefusesIsRefused() {
+        #expect(Self.refusal(Self.manifest([.plain("split", .string("x-y"))], [])) == "Invalid manifest split: bad character '-'")
+        // TYPE_NULL throws in getAttributeValue, and Android's parse fails.
+        #expect(Self.refusal(Self.manifest([.plain("split", .typed(type: 0x00, data: 0))], []))
+            == "Not a valid APK: Android cannot read the manifest's split")
+    }
+
+    @Test func versionsAsTheInstallerAndThePackageParserReadThem() throws {
+        // The installer reads integer types by name (getAttributeIntValue, XmlBlock.java:484-530). The package parser
+        // reads by resource ID with TypedArray.getInteger (PackageImpl.java:2721-2723), which throws on a string
+        // (TypedArray.java:651), and Android's parse fails.
+        for (attribute, name) in [
+            (A.android("versionCode", 0x0101_021B, .string("0")), "versionCode"),
+            (A.android("versionCodeMajor", 0x0101_0576, .string("2")), "versionCodeMajor"),
+            (A(namespace: AXMLBuilder.androidNamespace, name: "", resourceID: 0x0101_021B, value: .string("5")), "versionCode"),
+        ] {
+            #expect(Self.refusal(Self.manifest([attribute], [])) == "Not a valid APK: Android cannot read the manifest's \(name)")
+        }
+        // An attribute only its name finds is 0 to the package parser: the two readings differ.
+        let minor = A(namespace: AXMLBuilder.androidNamespace, name: "versionCode", resourceID: nil, value: .int(5))
+        #expect(Self.refusal(Self.manifest([minor], [])) == "Not a valid APK: its manifest's versionCode reads as 5 and as 0")
+        let major = A(namespace: AXMLBuilder.androidNamespace, name: "versionCodeMajor", resourceID: nil, value: .int(1))
+        #expect(Self.refusal(Self.manifest([.android("versionCode", 0x0101_021B, .int(5)), major], []))
+            == "Not a valid APK: its manifest's versionCodeMajor reads as 1 and as 0")
+        // Where obfuscation blanked the name, only the resource ID finds it, and that reading stands.
+        let blanked = A(namespace: AXMLBuilder.androidNamespace, name: "", resourceID: 0x0101_021B, value: .int(7))
+        #expect(try Self.parse(Self.manifest([blanked], [])).versionCode == 7)
+        // TYPE_NULL and @null are 0 to both; every type from 0x10 to 0x1F is an integer, a color too.
+        for (value, code) in [(AXMLBuilder.Value.typed(type: 0x00, data: 0), 0), (.reference(0), 0), (.typed(type: 0x1F, data: 3), 3)] {
+            #expect(try Self.parse(Self.manifest([.android("versionCode", 0x0101_021B, value)], [])).versionCode == code)
+        }
+        // Android resolves a reference through the app's resources, which Minato does not read here [departure].
+        for reference in [AXMLBuilder.Value.reference(0x7F0A_0001), .typed(type: 0x07, data: 0x7F0A_0001)] {
+            #expect(Self.refusal(Self.manifest([.android("versionCode", 0x0101_021B, reference)], []))
+                == "Not a valid APK: its manifest's versionCode names a resource, which Minato does not resolve")
+        }
+    }
+
+    @Test func theSplitAttributesAreFoundByNameOnly() throws {
+        // No package parser reads isFeatureSplit, isSplitRequired or the split types by resource ID
+        // (PackageImpl.java:2720-2736), so where obfuscation renamed them, Android's installer finds none.
+        let manifest = try Self.parse(Self.manifest([
+            .android("fs", 0x0101_055B, .bool(true)), .android("sr", 0x0101_0591, .bool(true)),
+            .android("rst", 0x0101_064E, .string("base__abi")), .android("st", 0x0101_064F, .string("feature__abi")),
+        ], []))
+        #expect(!manifest.isFeatureSplit)
+        #expect(!manifest.splitRequired)
+        #expect(manifest.requiredSplitTypes.isEmpty)
+        #expect(manifest.splitTypes.isEmpty)
+        #expect(!manifest.requiresSplits)
+    }
+
+    @Test func bundletoolsSignalTakesIntegerTypesOnly() throws {
+        // bundletool's marker, which Android does not read: integer types only, as Android reads the <manifest> flag
+        // (XmlBlock.java:484-492), so a string, even "TRUE", is no flag.
+        func signal(_ value: AXMLBuilder.Value) throws -> Bool {
+            try Self.parse(Self.manifest([], [E("application", [.android("isSplitRequired", 0x0101_0591, value)])]))
+                .stricterSplitSignal
+        }
+        #expect(!(try signal(.string("TRUE"))))
+        #expect(try signal(.int(1)))
+        #expect(try signal(.bool(true)))
+        #expect(!(try signal(.bool(false))))
+    }
+
+    @Test func aFileNameIsCheckedPerCharacterAsJavaDoes() {
+        // FileUtils.isValidExtFilename checks each UTF-16 unit, so a combining mark does not hide '/' or NUL.
+        #expect(!InstallerReading.isValidExtFilename("a/\u{301}b"))
+        #expect(!InstallerReading.isValidExtFilename("a\u{0}\u{301}b"))
+        #expect(InstallerReading.isValidExtFilename("a\u{301}b"))
+    }
+
+    @Test func theManifestsIsSplitRequiredNeedsSplits() throws {
+        // Android 15 reads <manifest android:isSplitRequired> (F1); bundletool's <application android:isSplitRequired>
+        // and meta-data stay Minato's stricter signals.
+        let manifest = try Self.parse(Self.manifest([.android("isSplitRequired", 0x0101_0591, .bool(true))], []))
+        #expect(manifest.splitRequired)
+        #expect(!manifest.stricterSplitSignal)
+        #expect(manifest.requiresSplits)
+    }
+
+    @Test func requiredSplitTypesAsAndroidSplitsThem() throws {
+        // separateAndValidateSplitTypes (:757-773): "," holds no type, and each type is checked as a name.
+        #expect(!(try Self.parse(Self.manifest([.android("requiredSplitTypes", 0x0101_064E, .string(","))], [])).requiresSplits))
+        #expect(Self.refusal(Self.manifest([.android("requiredSplitTypes", 0x0101_064E, .string("a/b"))], []))
+            == "Invalid manifest split types: bad character '/'")
+    }
+
+    @Test func aFloatLevelReadsAsJavaWritesIt() throws {
+        // coerceToString writes a float with Float.toString, NaN and the infinities as Java spells them.
+        for (bits, text) in [(Float.nan.bitPattern, "NaN"), (Float.infinity.bitPattern, "Infinity"), ((-Float.infinity).bitPattern, "-Infinity")] {
+            let manifest = try Self.usesSdk([.android("targetSdkVersion", Self.targetID, .typed(type: 0x04, data: bits))])
+            #expect(manifest.sdkRefusal == Self.codename(text))
+        }
+    }
 }
