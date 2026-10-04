@@ -1,0 +1,12 @@
+I/app-calls-test: Log.wtf with a message
+E/app-calls-test: a terrible failure
+I/app-calls-test: returned a positive count, still running
+I/app-calls-test: Log.wtf with a message and a throwable
+E/app-calls-test: a terrible failure with a cause
+E/app-calls-test: java.lang.IllegalStateException: its cause
+I/app-calls-test: returned a positive count, still running
+I/app-calls-test: Log.wtf with a throwable
+E/app-calls-test: its cause
+E/app-calls-test: java.lang.IllegalStateException: its cause
+I/app-calls-test: returned a positive count, still running
+I/app-calls-test: done

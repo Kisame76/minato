@@ -77,11 +77,9 @@ android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictM
 android.app.ActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
-com.android.internal.os.RuntimeInit <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 android.os.NetworkOnMainThreadException <- android.os.StrictMode  # gap: death on network on the main thread, which Android's handleBindApplication sets for every app
 android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
 android.animation.ValueAnimator <- android.os.StrictMode  # gap: every StrictMode violation, whose ViolationInfo counts the running animations; ADR-0041 a)'s ValueAnimator closes it
-com.android.internal.os.RuntimeInit <- android.util.Log  # gap: every Log.wtf, whose default handler calls RuntimeInit.wtf
 android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
 
 # The app model, activities and views.
