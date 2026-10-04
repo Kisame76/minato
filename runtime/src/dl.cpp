@@ -70,6 +70,9 @@ struct Library {
     bool global = false;              // RTLD_GLOBAL, or loaded with the program
     bool linked = false;              // relocated and listed
     std::string apex_libraries;       // its APEX's lib64 when the APEX holds it: its namespace's folder
+    // The search path of the namespace android_dlopen_ext loaded it into, which the libraries loaded for it share,
+    // as a class loader's (ADR-0033 e0); empty for the others.
+    std::vector<std::string> search_paths;
 };
 
 /// Library containers (<file name>.dylib) the guest finds as the files of a directory.
@@ -170,19 +173,23 @@ std::optional<Found> library_at(const State &state, std::string path) {
 }
 
 /// Looks for a library file as linker64's open_library does: a name with a slash is a path, taken
-/// as it is (against the working directory when relative); a plain name is looked for in
+/// as it is (against the working directory when relative); a plain name is looked for in the search
+/// path of the namespace it is loaded into (`search_paths`, a class loader's, ADR-0033 e0), then in
 /// LD_LIBRARY_PATH, then, for a program or library of an APEX (`apex_libraries`, its folder), in the
 /// APEX's libraries, then in the default directories, and for the others through [system]'s links in
 /// ART's folder. Every place without the file is an open() that fails on Android and leaves ENOENT in
 /// errno; `missed` records that.
 std::optional<Found> find_library(const State &state, std::string_view name, std::string_view apex_libraries,
-                                  bool &missed) {
+                                  const std::vector<std::string> &search_paths, bool &missed) {
     const auto look = [&](std::string path) {
         auto found = library_at(state, std::move(path));
         if (!found) missed = true;
         return found;
     };
     if (name.find('/') != std::string_view::npos) return look(vfs::absolute(name, vfs::working_directory()));
+    for (const auto &directory : search_paths) {
+        if (auto found = look(std::format("{}/{}", directory, name))) return found;
+    }
     for (const auto &directory : state.library_path) {
         if (auto found = look(std::format("{}/{}", directory, name))) return found;
     }
@@ -223,7 +230,7 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
         for (const auto &name : library.object.dynamic.needed) {
             Library *dependency = find_loaded(state, name);
             if (dependency == nullptr) {
-                auto found = find_library(state, name, library.apex_libraries, missed);
+                auto found = find_library(state, name, library.apex_libraries, library.search_paths, missed);
                 if (!found) {
                     if (program && &library == &root) {
                         throw LoadError(std::format("library \"{}\" not found: needed by main executable", name));
@@ -234,6 +241,8 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
                 dependency = loaded_from(state, found->container);
                 if (dependency == nullptr) {
                     dependency = &load_library(state, name, std::move(*found));
+                    // Loaded into the namespace of the library that needs it, as linker64 loads it.
+                    dependency->search_paths = library.search_paths;
                     added.push_back(dependency);
                 }
             }
@@ -367,7 +376,21 @@ void *address_of(State &state, const Library &library, const linker::Symbol &sym
 // runs guest code under the lock only on the program's thread before it starts any other (the ifunc
 // resolvers of load_program, ADR-0028): a plain lock is enough here (decision 9).
 
-void *guest_dlopen(const char *name, int flags, const void *caller, int *error_number) {
+/// The folders of a namespace's search path, separated by colons, as linker64 keeps them (parse_path).
+std::vector<std::string> split_search_path(std::string_view value) {
+    std::vector<std::string> folders;
+    while (!value.empty()) {
+        const auto colon = value.find(':');
+        const auto part = value.substr(0, colon);
+        value = colon == std::string_view::npos ? std::string_view{} : value.substr(colon + 1);
+        if (!part.empty()) folders.push_back(vfs::absolute(part, vfs::working_directory()));
+    }
+    return folders;
+}
+
+/// dlopen, or with `search_path` android_dlopen_ext in the namespace of that search path (ADR-0033 e0).
+void *guest_dlopen(const char *name, int flags, const void *caller, int *error_number,
+                   const char *search_path = nullptr) {
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
     if (name == nullptr) return &state.libraries.front();
@@ -381,14 +404,19 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         }
     } report{.error_number = error_number};
 
+    // The namespace it opens in: the one android_dlopen_ext names, by its search path, else the caller's, as linker64
+    // takes the caller's (get_caller_namespace), with the folder of the caller's APEX.
+    const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
+    const std::vector<std::string> search_paths =
+        search_path != nullptr ? split_search_path(search_path)
+                               : (calling != nullptr ? calling->search_paths : std::vector<std::string>{});
+    const std::string_view apex_libraries =
+        search_path == nullptr && calling != nullptr ? std::string_view(calling->apex_libraries) : "";
     Library *loaded = find_loaded(state, wanted);
     std::optional<Found> found;
     if (loaded == nullptr || !loaded->linked) {
-        // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all. It looks
-        // where the caller's namespace does, as linker64 takes the caller's (get_caller_namespace).
-        const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
-        found = find_library(state, wanted, calling != nullptr ? std::string_view(calling->apex_libraries) : "",
-                             report.missed);
+        // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
+        found = find_library(state, wanted, apex_libraries, search_paths, report.missed);
         if (!found) {
             set_error(std::format("dlopen failed: library \"{}\" not found", wanted));
             return nullptr;
@@ -406,6 +434,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
     const auto before = state.libraries.size();
     try {
         Library *root = &load_library(state, wanted, std::move(*found));
+        root->search_paths = search_paths;
         auto added = load_needed(state, *root, false, report.missed);
         const auto scope = lookup_scope(state, *root, added);
         for (auto *library : added) linker::relocate(library->object, scope);
@@ -540,12 +569,14 @@ int guest_dladdr(const void *address, void *raw_info) {
 
 }  // namespace
 
-void set_loader_functions(apkrt_loader &loader) {
+void set_loader_functions(apkrt_loader &loader, std::size_t size) {
     loader.dlopen = apkrt_loader_dlopen;
     loader.dlsym = apkrt_loader_dlsym;
     loader.dlclose = apkrt_loader_dlclose;
     loader.dlerror = apkrt_loader_dlerror;
     loader.dladdr = apkrt_loader_dladdr;
+    // ADR-0033 e0's, which an older ld-android.so's table ends before.
+    if (size >= offsetof(apkrt_loader, dlopen_in) + sizeof loader.dlopen_in) loader.dlopen_in = apkrt_loader_dlopen_in;
 }
 
 long loader_syscall(const apkrt_syscall_frame &frame) {
@@ -561,6 +592,10 @@ long loader_syscall(const apkrt_syscall_frame &frame) {
         case APKRT_NR_DLERROR: return reinterpret_cast<long>(guest_dlerror());
         case APKRT_NR_DLADDR:
             return guest_dladdr(reinterpret_cast<const void *>(x[0]), reinterpret_cast<void *>(x[1]));
+        case APKRT_NR_DLOPEN_IN:
+            return reinterpret_cast<long>(guest_dlopen(reinterpret_cast<const char *>(x[0]), static_cast<int>(x[1]),
+                                                       reinterpret_cast<const void *>(x[2]), reinterpret_cast<int *>(x[3]),
+                                                       reinterpret_cast<const char *>(x[4])));
         default: return -38;  // ENOSYS: not one of the stubs' numbers
     }
 }
@@ -631,7 +666,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
             if (const auto *symbol = linker::find_symbol(object, APKRT_LOADER, "APKRT_PRIVATE")) {
                 auto &loader = *reinterpret_cast<apkrt_loader *>(at(symbol));
                 loader.objects = state.entries;
-                set_loader_functions(loader);
+                set_loader_functions(loader, symbol->size);
                 state.loader = &loader;
             }
         }

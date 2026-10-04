@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A program outside the APEXes and the folders of ART and Conscrypt (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a):
 apk-run runs the fixture ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system]
-section, three times:
+section, four times:
   - with the fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names
     that section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
     - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
@@ -15,7 +15,11 @@ section, three times:
       what it opens in its own folder;
   - with libns-plugin.so in an app's JNI folder, the lib/arm64 of Android 15's code path
     /data/app/~~<base64>==/<package>-<base64>==, which apk-run's --libraries and --mount must take whole, its '='
-    included (ADR-0042 b1): the program's dlopen of the library by that path opens it.
+    included (ADR-0042 b1): the program's dlopen of the library by that path opens it;
+  - with the three in that folder, libns-lib.so under its own name: in a namespace created on the folder as
+    libnativeloader creates a class loader's, android_dlopen_ext opens the library by its full path, as ART opens an
+    app's JNI library, and the library finds what it needs and what it opens in the namespace's folder, as linker64
+    finds them in the library's namespace (ADR-0033 e0).
 Each run is a process of its own: the loader's one scope would give the second run's library the first run's
 libraries by name (ADR-0033 decision 7). The runs must print exactly <expected> together and exit with 0. The
 expected output is ours: Android lets nothing be installed into /system/bin or an APEX. Prints "skipped: ..." while
@@ -43,6 +47,9 @@ RUNS = [
      ["libjavacrypto.so", "com_android_conscrypt:libjavacrypto.so"], None),
     ("app-lib", f"{APP_CODE}/lib/arm64", {"libns-plugin.so": "libns-plugin.so"},
      [f"{APP_CODE}/lib/arm64/libns-plugin.so"], APP_CODE),
+    ("class-loader-lib", f"{APP_CODE}/lib/arm64",
+     {"libns-lib.so": "libns-lib.so", "libns-dep.so": "libns-dep.so", "libns-plugin.so": "libns-plugin.so"},
+     [f"@{APP_CODE}/lib/arm64:{APP_CODE}/lib/arm64/libns-lib.so"], APP_CODE),
 ]
 
 

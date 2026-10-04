@@ -175,6 +175,7 @@ _\name:
     LOADER_STUB apkrt_loader_dlclose, APKRT_NR_DLCLOSE
     LOADER_STUB apkrt_loader_dlerror, APKRT_NR_DLERROR
     LOADER_STUB apkrt_loader_dladdr, APKRT_NR_DLADDR
+    LOADER_STUB apkrt_loader_dlopen_in, APKRT_NR_DLOPEN_IN
 
     .p2align 2
 Lloader_call:

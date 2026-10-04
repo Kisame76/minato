@@ -46,6 +46,8 @@ void *apkrt_loader_dlsym(void *handle, const char *symbol, const char *version, 
 int apkrt_loader_dlclose(void *handle);
 const char *apkrt_loader_dlerror(void);
 int apkrt_loader_dladdr(const void *address, void *info);
+void *apkrt_loader_dlopen_in(const char *name, int flags, const void *caller, int *error_number,
+                             const char *search_path);
 extern const std::uint32_t apkrt_loader_return[];
 /// Labels around the stubs (ADR-0025): from apkrt_loader_stubs up to apkrt_loader_back the thread
 /// is on its way into the loader, from there to apkrt_loader_end on its way back to the caller.

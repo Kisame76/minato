@@ -79,6 +79,10 @@ struct apkrt_loader {
     int (*dlclose)(void *handle);
     const char *(*dlerror)(void);
     int (*dladdr)(const void *address, void *info);  // info: a Dl_info
+    /// dlopen in a namespace, for android_dlopen_ext (ADR-0033 e0): `search_path`, the namespace's folders
+    /// separated by colons, serves the library, the libraries loaded for it and their dlopen by name, ahead of
+    /// where a plain dlopen looks, as linker64 searches the namespace a library belongs to.
+    void *(*dlopen_in)(const char *name, int flags, const void *caller, int *error_number, const char *search_path);
 };
 #define APKRT_LOADER "apkrt_loader"
 

@@ -877,6 +877,20 @@ TEST(a_host_thread_calls_guest_code_directly) {
     CHECK(apkrt_call_guest(reinterpret_cast<std::uint64_t>(&guest_sum), 4, 50, 600, 0, 0, 0, 0, 0) == 654);
 }
 
+// An ld-android.so from before ADR-0033 e0 has a table that ends before dlopen_in, and what lies after it is not
+// the runtime's: the loader fills the table only as far as its symbol's size reaches.
+TEST(an_older_ld_android_s_table_is_filled_only_as_far_as_it_reaches) {
+    alignas(apkrt_loader) unsigned char memory[sizeof(apkrt_loader)];
+    std::memset(memory, 0xa5, sizeof memory);
+    auto &table = *reinterpret_cast<apkrt_loader *>(memory);
+    apkrt::dl::set_loader_functions(table, offsetof(apkrt_loader, dlopen_in));
+    CHECK(table.dlopen != nullptr && table.dladdr != nullptr);
+    CHECK(std::all_of(memory + offsetof(apkrt_loader, dlopen_in), memory + sizeof memory,
+                      [](unsigned char byte) { return byte == 0xa5; }));
+    apkrt::dl::set_loader_functions(table, sizeof(apkrt_loader));
+    CHECK(table.dlopen_in != nullptr);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {

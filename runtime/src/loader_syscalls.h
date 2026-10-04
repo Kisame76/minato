@@ -8,3 +8,4 @@
 #define APKRT_NR_DLCLOSE 4098
 #define APKRT_NR_DLERROR 4099
 #define APKRT_NR_DLADDR 4100
+#define APKRT_NR_DLOPEN_IN 4122  // dlopen in a namespace's search path (ADR-0033 e0), after the others' numbers

@@ -21,8 +21,9 @@
 namespace apkrt::dl {
 
 /// Points libdl's functions in ld-android.so's table at the loader (load_program does it): at the
-/// stubs in syscall_entry.S, which make them syscalls of the runtime's own (ADR-0025).
-void set_loader_functions(apkrt_loader &loader);
+/// stubs in syscall_entry.S, which make them syscalls of the runtime's own (ADR-0025). `size` is the
+/// table's, from its symbol: an older ld-android.so's ends before the later functions.
+void set_loader_functions(apkrt_loader &loader, std::size_t size = sizeof(apkrt_loader));
 
 /// The syscalls of those stubs (loader_syscalls.h), with their arguments in x0-x3 as the C
 /// functions of apkrt_loader take them; the result goes back in x0.

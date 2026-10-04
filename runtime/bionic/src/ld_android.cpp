@@ -37,6 +37,7 @@ __attribute__((visibility("default"))) apkrt_loader apkrt_loader = {
     .dlclose = nullptr,
     .dlerror = nullptr,
     .dladdr = nullptr,
+    .dlopen_in = nullptr,
 };
 
 namespace {
@@ -169,10 +170,21 @@ void* __loader_android_dlopen_ext(const char* filename, int flags, const android
   }
   if (extinfo != nullptr && (extinfo->flags & ANDROID_DLEXT_USE_NAMESPACE) != 0 &&
       extinfo->library_namespace != nullptr && filename != nullptr) {
+    const auto* space = reinterpret_cast<const Namespace*>(extinfo->library_namespace);
+    {
+      // The runtime searches the namespace's folders for the library, for the libraries loaded for it and for
+      // their dlopen by name, as linker64 searches the namespace a library belongs to (ADR-0033 e0).
+      Locked locked;
+      if (apkrt_loader.dlopen_in != nullptr) {
+        int error_number = 0;
+        void* handle = apkrt_loader.dlopen_in(filename, flags, caller, &error_number, space->search_path);
+        if (error_number != 0) __get_thread()->errno_value = error_number;
+        return handle;
+      }
+    }
+    // A runtime without dlopen_in: the namespace's folders for a plain name, then wherever a plain dlopen looks.
     bool plain_name = true;
     for (const char* at = filename; *at != '\0'; ++at) plain_name = plain_name && *at != '/';
-    const auto* space = reinterpret_cast<const Namespace*>(extinfo->library_namespace);
-    // The namespace's folders first, in their order, then wherever a plain dlopen looks.
     for (const char* folder = space->search_path; plain_name && *folder != '\0';) {
       // Not zeroed as a whole, -ftrivial-auto-var-init or not: ld-android.so has no memset.
       [[clang::uninitialized]] char path[1024];
