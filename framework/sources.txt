@@ -750,3 +750,32 @@ frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL10Ext.java
 frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11.java
 frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11Ext.java
 frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11ExtensionPack.java
+
+# ADR-0045, the input service Godot's start asks for (gap 7a of the Godot survey): InputManager, InputManagerGlobal and
+# InputDevice over the local input service (android.hardware.input.InputService, ours), with IInputManager's AIDL and
+# what it names, and the gesture detectors Godot's input handler makes, with AppGlobals, whose core settings
+# ViewConfiguration's input timeouts ask from GestureDetector's static init on. KeyCharacterMap (step 7c) and
+# VelocityTracker (step 7b) stay compile-only, as do an input device's battery, lights, sensors and vibrators, which
+# Minato's devices lack.
+frameworks_base/core/java/android/app/AppGlobals.java
+frameworks_base/core/java/android/hardware/input/HostUsiVersion.java
+frameworks_base/core/java/android/hardware/input/IInputDeviceBatteryListener.aidl
+frameworks_base/core/java/android/hardware/input/IInputDeviceBatteryState.aidl
+frameworks_base/core/java/android/hardware/input/IInputDevicesChangedListener.aidl
+frameworks_base/core/java/android/hardware/input/IInputManager.aidl
+frameworks_base/core/java/android/hardware/input/IInputSensorEventListener.aidl
+frameworks_base/core/java/android/hardware/input/IKeyboardBacklightListener.aidl
+frameworks_base/core/java/android/hardware/input/IKeyboardBacklightState.aidl
+frameworks_base/core/java/android/hardware/input/IStickyModifierStateListener.aidl
+frameworks_base/core/java/android/hardware/input/ITabletModeChangedListener.aidl
+frameworks_base/core/java/android/hardware/input/InputDeviceIdentifier.java
+frameworks_base/core/java/android/hardware/input/InputManager.java
+frameworks_base/core/java/android/hardware/input/InputManagerGlobal.java
+frameworks_base/core/java/android/hardware/input/KeyboardBacklightState.java
+frameworks_base/core/java/android/hardware/input/KeyboardLayout.java
+frameworks_base/core/java/android/hardware/input/StickyModifierState.java
+frameworks_base/core/java/android/os/IVibratorStateListener.aidl
+frameworks_base/core/java/android/view/GestureDetector.java
+frameworks_base/core/java/android/view/InputDevice.java
+frameworks_base/core/java/android/view/ScaleGestureDetector.java
+frameworks_base/core/java/com/android/internal/os/SomeArgs.java

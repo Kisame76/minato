@@ -144,9 +144,7 @@ android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils
 android.text.style.ReplacementSpan <- android.text.TextUtils  # M4 step 10: TextUtils.getOffsetBefore and getOffsetAfter, for text editing
 
 # Files, bundles and the rest.
-android.app.AppGlobals <- android.os.Environment  # gap: Environment.isExternalStorageLegacy and isExternalStorageManager, whose app-ops part c1 kept as AOSP's
 android.os.storage.StorageManager <- android.os.Environment  # stays: Environment's hidden per-user data folders, for system code
-android.app.AppGlobals <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
@@ -191,11 +189,9 @@ android.os.RemoteCallback <- android.content.ContentProvider  # step c2d: a call
 android.os.UserManager <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
-android.app.AppGlobals <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.AttributionSource <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.ContentResolver <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.app.AppGlobals <- android.content.Intent  # step b3.5b2: Intent.prepareToLeaveProcess and migrateExtraStreamToClipData, as an activity starts another
 android.os.storage.StorageManager <- android.content.Intent  # step b3.5b2: Intent.prepareToLeaveProcess, as an activity starts another
 android.content.ClipData <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.ClipData$Item <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
@@ -237,11 +233,8 @@ android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.V
 android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
 android.view.WindowMetrics <- android.view.View  # ADR-0041 a): the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses (the window metrics come with the insets, decision 8)
 com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
-android.app.AppGlobals <- android.view.ViewConfiguration  # ADR-0041 a): the input timeouts that touch and keys ask the core settings for
-android.hardware.input.InputManagerGlobal <- android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
-android.view.InputDevice <- android.view.InputEvent, android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.KeyCharacterMap <- android.view.KeyEvent  # ADR-0041 a): key character maps, which KeyEvent's characters ask
 android.view.PointerIcon <- android.view.View  # ADR-0041 a): pointer icons; View's constructor loads a layout's android:pointerIcon
 android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
@@ -377,7 +370,6 @@ android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # 
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
 android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityManager  # gap: a task description's icon (TaskDescription with a Bitmap or a resource icon), as Icon is compile-only
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
-android.hardware.input.InputManagerGlobal <- android.app.Instrumentation  # stays: an instrumentation test's injected input, and no test instrumentation runs on Minato
 android.os.BadParcelableException <- android.app.Activity  # stays: catches around an intent's extras from a parcel (Activity.getReferrer)
 android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
@@ -444,5 +436,38 @@ android.view.SurfaceView <- android.opengl.EGL14, android.opengl.GLSurfaceView, 
 android.view.SurfaceHolder <- android.opengl.EGL14, android.opengl.GLSurfaceView, com.google.android.gles_jni.EGLImpl  # ADR-0043 c): window surfaces and GLSurfaceView's holder, with App's SurfaceView
 android.graphics.SurfaceTexture <- android.opengl.EGL14, com.google.android.gles_jni.EGLImpl  # gap: a window surface on a SurfaceTexture, which needs libgui
 android.hardware.SyncFence <- android.opengl.EGLExt  # gap: eglDupNativeFenceFDANDROID's fence, without EGL_ANDROID_native_fence_sync
-android.app.AppGlobals <- com.google.android.gles_jni.GLImpl  # gap: GLImpl's check, for a buffer that isn't direct, whether the app is older than Android 2.2
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
+
+# ADR-0045, the input service (Planung, gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
+# over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
+# devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.
+android.hardware.BatteryState <- android.hardware.input.InputManagerGlobal  # gap: an input device's battery (InputDevice.getBatteryState, API 31), which a device without one, as Minato's are, gets as a LocalBatteryState
+android.hardware.input.InputDeviceLightsManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
+android.hardware.input.InputDeviceSensorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's sensors (InputDevice.getSensorManager, API 31), whose manager Android makes for any device
+android.hardware.input.InputDeviceVibrator <- android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # stays: the vibrator of an input device that has one, and Minato's devices have none
+android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's vibrators (InputDevice.getVibratorManager, API 31), whose manager Android makes for any device
+android.hardware.input.InputSensorInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
+android.hardware.input.KeyboardLayoutPreviewDrawable <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
+android.hardware.input.KeyboardLayoutSelectionResult <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
+android.hardware.input.TouchCalibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.hardware.lights.Light <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.hardware.lights.Light <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
+android.hardware.lights.LightState <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.hardware.lights.LightState <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
+android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
+android.os.BadParcelableException <- android.hardware.input.IInputDeviceBatteryState, android.hardware.input.IKeyboardBacklightState  # stays: the AIDL parcelables' readFromParcel, which only a parcel runs
+android.os.CombinedVibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vibrator (InputDevice.getVibrator), which a device without one, as Minato's are, gets as NullVibrator; it comes with haptic feedback's Vibrator
+android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.os.VibrationEffect <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.KeyCharacterMap <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.KeyCharacterMap <- android.hardware.input.InputManagerGlobal  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
+android.view.KeyCharacterMap <- android.view.InputDevice  # stays: InputDevice's parcel constructor and writeToParcel, which only a parcel runs
+android.view.PointerIcon <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.VelocityTracker <- android.view.GestureDetector  # ADR-0045 7b): velocity tracking, which GestureDetector asks at its first touch event; its natives come with MotionEvent's
+android.view.VerifiedInputEvent <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
+android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs

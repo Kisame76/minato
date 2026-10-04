@@ -21,3 +21,4 @@ android.content.Loader$ForceLoadContentObserver -> android.database.ContentObser
 android.hardware.SystemSensorManager$3 -> android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener  # stays: SystemSensorManager listens for virtual devices only for a virtual device's context, which Minato has none of
 android.opengl.GLSurfaceView -> android.view.SurfaceView  # gap: GLSurfaceView, until App's SurfaceView (ADR-0043 c))
 android.opengl.GLSurfaceView -> android.view.SurfaceHolder$Callback2  # gap: GLSurfaceView, until App's SurfaceView (ADR-0043 c))
+android.hardware.input.InputManagerGlobal$LocalBatteryState -> android.hardware.BatteryState  # gap: an input device's battery (InputDevice.getBatteryState, API 31), which a device without one, as Minato's are, gets as a LocalBatteryState

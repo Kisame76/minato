@@ -26,7 +26,8 @@
 # apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
 # manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
 # whose hardware is closer to Minato's; its image still declares apk-runner-35's system features. services-test
-# (ADR-0045, the start's local services), whose sensor service has no sensor on either, runs there too. --features writes
+# (ADR-0045, the start's local services), whose sensor service has no sensor on either, and input-service-test
+# (ADR-0045, the input service) run there too. --features writes
 # that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). context-test (ADR-0039
 # step c1) is one more on apk-runner-35, stopped after its first "done" and started again, so that its second start
 # reads what the first one wrote; looper-test (step c1), provider-test (step c2c1), app-calls-test (step c2d),
@@ -146,7 +147,7 @@ fi
 # The package manager's tests and the system features: apk-runner-35-bare, without the hardware Minato reports as
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
-    || "$app" == services-test ]]; then
+    || "$app" == services-test || "$app" == input-service-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -351,7 +352,7 @@ run_app() {
     # SHA-256 is marked (b3.5b1).
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
-      | compat-test-35 | gles-java-test)
+      | compat-test-35 | gles-java-test | input-service-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

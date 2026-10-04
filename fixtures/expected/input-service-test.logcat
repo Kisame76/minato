@@ -1,0 +1,9 @@
+I/input-service-test: input service: android.hardware.input.InputManager
+I/input-service-test: device listener registered and unregistered
+I/input-service-test: virtual keyboard: name Virtual, descriptor a718a782d34bc767f4689c232d64d527998ea7fd, sources 0x301, keyboard type 2, virtual true, external false, vendor 0, product 0, motion ranges 0
+I/input-service-test: device ids hold the virtual keyboard: true
+I/input-service-test: InputDevice.getDevice(VIRTUAL_KEYBOARD): name Virtual, descriptor a718a782d34bc767f4689c232d64d527998ea7fd, sources 0x301, keyboard type 2, virtual true, external false, vendor 0, product 0, motion ranges 0
+I/input-service-test: GestureDetector: long press false
+I/input-service-test: ScaleGestureDetector: quick scale true, stylus scale true
+I/input-service-test: ScaleGestureDetector after setStylusScaleEnabled(true): true
+I/input-service-test: done

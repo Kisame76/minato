@@ -49,6 +49,7 @@ import android.os.IBinder;
 import android.os.LocaleList;
 import android.os.Looper;
 import android.os.Message;
+import android.permission.IPermissionManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.ArrayMap;
@@ -184,6 +185,25 @@ public final class ActivityThread {
      */
     public static IPackageManager getPackageManager() {
         return null;
+    }
+
+    /** The permission service, which Android's binds through ServiceManager: null, as the package service is. */
+    public static IPermissionManager getPermissionManager() {
+        return null;
+    }
+
+    /**
+     * A core setting, which Android's activity manager sends each app process (CoreSettingsObserver), for AppGlobals.
+     * Minato has none, so every key answers its caller's default: for ViewConfiguration's input timeouts, a long
+     * press after 400 ms, a multi-press within 300 ms, and key repeat after 400 ms every 50 ms.
+     */
+    public int getIntCoreSetting(String key, int defaultValue) {
+        return defaultValue;
+    }
+
+    /** As getIntCoreSetting: the caller's default. */
+    public float getFloatCoreSetting(String key, float defaultValue) {
+        return defaultValue;
     }
 
     /** The broadcast the main thread is receiving, which StrictMode names in a violation: none, Minato has none yet. */

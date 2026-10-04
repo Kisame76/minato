@@ -1,10 +1,20 @@
 package android.hardware.input;
 
 /**
- * Compile-only stub (ADR-0045, the start's sensors), never in framework.jar: Sensor's ctor for an input device's
- * sensor, which only InputManager makes.
+ * Compile-only stub (ADR-0045, the start's sensors and the input service), never in framework.jar: Sensor's ctor for
+ * an input device's sensor, which only InputManager makes, and the parcelable that IInputManager's Proxy reads.
  */
-public final class InputSensorInfo {
+public final class InputSensorInfo implements android.os.Parcelable {
+    public static final android.os.Parcelable.Creator<InputSensorInfo> CREATOR = null;
+
+    public int describeContents() {
+        throw new RuntimeException("stub");
+    }
+
+    public void writeToParcel(android.os.Parcel dest, int flags) {
+        throw new RuntimeException("stub");
+    }
+
     public String getName() {
         throw new RuntimeException("stub");
     }

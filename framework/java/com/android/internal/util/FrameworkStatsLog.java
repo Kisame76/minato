@@ -46,6 +46,10 @@ public final class FrameworkStatsLog {
     public static void write(int code, String arg1, int arg2) {
     }
 
+    /** GestureDetector's touch gesture, with its time and distance; statsd is absent, so it goes nowhere. */
+    public static void write(int code, String arg1, int arg2, int arg3, float arg4) {
+    }
+
     /** ChangeReporter's compat change report; statsd is absent, so it goes nowhere. */
     public static void write(int code, int arg1, long arg2, int arg3, int arg4) {
     }

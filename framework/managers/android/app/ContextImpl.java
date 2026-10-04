@@ -18,6 +18,7 @@ import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.hardware.SensorManager;
 import android.hardware.SystemSensorManager;
+import android.hardware.input.InputManager;
 import android.net.wifi.WifiManager;
 import android.net.Uri;
 import android.os.Build;
@@ -78,6 +79,7 @@ class ContextImpl {
     private WindowManager mWindowManager;
     private SensorManager mSensorManager;
     private WifiManager mWifiManager;
+    private InputManager mInputManager;
     /** An activity context's token and its own Resources; the application's has neither. */
     private IBinder mToken;
     private boolean mIsActivityContext;
@@ -186,9 +188,9 @@ class ContextImpl {
     }
 
     /**
-     * The LayoutInflater on the outer context and the window manager on this one, each made once per context as
-     * SystemServiceRegistry's CachedServiceFetcher keeps them; every other service is still unwritten, logged once per
-     * name, so that the log says which one an app asked for.
+     * The LayoutInflater and the sensor, Wi-Fi and input managers on the outer context and the window manager on this
+     * one, each made once per context as SystemServiceRegistry's CachedServiceFetcher keeps them; every other service
+     * is still unwritten, logged once per name, so that the log says which one an app asked for.
      */
     public Object getSystemService(String name) {
         if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {
@@ -221,6 +223,14 @@ class ContextImpl {
                     mWifiManager = new WifiManager(getOuterContext());
                 }
                 return mWifiManager;
+            }
+        }
+        if (Context.INPUT_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mInputManager == null) {
+                    mInputManager = new InputManager(getOuterContext());
+                }
+                return mInputManager;
             }
         }
         Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
@@ -285,6 +295,9 @@ class ContextImpl {
         }
         if (serviceClass == WifiManager.class) {
             return Context.WIFI_SERVICE;
+        }
+        if (serviceClass == InputManager.class) {
+            return Context.INPUT_SERVICE;
         }
         Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
                 + (serviceClass == null ? "null" : serviceClass.getName()), "null");
