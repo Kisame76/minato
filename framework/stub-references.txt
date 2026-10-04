@@ -87,16 +87,10 @@ com.android.internal.os.RuntimeInit <- android.util.Log  # gap: every Log.wtf, w
 android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
 
 # The app model, activities and views.
-android.app.Activity <- android.app.AppComponentFactory, android.app.Application  # step c2c: taken
-android.content.ContentProvider <- android.app.AppComponentFactory  # step c2c: taken with providers
-android.app.Service <- android.app.AppComponentFactory  # gap: services
-android.content.BroadcastReceiver <- android.app.AppComponentFactory  # gap: broadcast receivers
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
 android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
 android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
-android.content.Intent <- android.app.IUnsafeIntentStrictModeCallback, android.content.pm.PackageManager, android.os.StrictMode, android.os.strictmode.UnsafeIntentLaunchViolation, android.text.style.URLSpan  # step c2c: taken with Activity
-android.net.Uri <- android.content.res.ResourcesImpl, android.graphics.ImageDecoder, android.text.style.URLSpan, com.android.internal.util.XmlUtils  # step c2c: taken with Intent
 android.view.View <- android.app.Application, android.text.style.URLSpan  # step c2c: taken
 android.view.Window <- android.app.Application  # step c2c: taken with Activity (Application.getAutofillClient)
 android.view.Gravity <- android.graphics.drawable.BitmapDrawable  # step c2c: taken with FrameLayout
@@ -167,11 +161,9 @@ android.text.style.ReplacementSpan <- android.text.TextUtils  # M4 step 10: Text
 
 # Files, bundles and the rest.
 android.app.AppGlobals <- android.os.Environment  # gap: Environment.isExternalStorageLegacy and isExternalStorageManager, whose app-ops part c1 kept as AOSP's
-android.app.AppOpsManager <- android.os.Environment  # gap: Environment.isExternalStorageLegacy and isExternalStorageManager, whose app-ops part c1 kept as AOSP's
 android.os.storage.StorageManager <- android.os.Environment  # stays: Environment's hidden per-user data folders, for system code
 android.app.AppGlobals <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
-android.os.CancellationSignal <- android.os.FileUtils  # stays: FileUtils' copies ask a signal only when their caller passes one, and nothing in framework.jar does
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
 android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFileName, for the hidden buildUniqueFile of documents providers
@@ -184,3 +176,71 @@ com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: b
 com.android.internal.util.ArtBinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.modules.utils.BinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.modules.utils.BinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
+
+# The app's components (step c2c1): Intent, Uri, ContentProvider with its transport, Service, BroadcastReceiver and
+# ContentCaptureManager. Providers install and start; calls into them come with c2d's ContentResolver.
+android.content.AttributionSource <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.content.ContentProviderOperation <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.BulkCursorDescriptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.CursorToBulkCursorAdaptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.DatabaseUtils <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.IContentObserver$Stub <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.ICancellationSignal <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.ICancellationSignal$Stub <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.RemoteCallback <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.content.AttributionSource <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.content.ContentProviderOperation <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.BulkCursorDescriptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.BulkCursorToCursorAdaptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.DatabaseUtils <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.database.IContentObserver <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.ICancellationSignal <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.ICancellationSignal$Stub <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.os.RemoteCallback <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
+android.content.AttributionSource <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings
+android.content.ClipDescription <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (openTypedAssetFile)
+android.content.ContentProviderOperation <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (applyBatch)
+android.content.ContentResolver <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings
+android.content.OperationApplicationException <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (applyBatch)
+android.content.PermissionChecker <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (another caller's permission checks)
+android.database.MatrixCursor <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings
+android.os.RemoteCallback <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (the asynchronous getType and canonicalize)
+com.android.internal.util.FrameworkStatsLog <- android.content.ContentProvider  # step c2d: a call through ContentResolver to the app's own provider, which c2d's ContentResolver brings (getType's statsd event)
+android.os.UserManager <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
+android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
+android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
+android.app.AppGlobals <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
+android.content.AttributionSource <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
+android.content.ContentResolver <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
+android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
+android.app.AppGlobals <- android.content.Intent  # step c2c3: Intent.prepareToLeaveProcess and migrateExtraStreamToClipData, as an activity starts another
+android.os.storage.StorageManager <- android.content.Intent  # step c2c3: Intent.prepareToLeaveProcess, as an activity starts another
+android.content.ClipData <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
+android.content.ClipData$Item <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
+android.content.ContentResolver <- android.content.Intent  # step c2d: Intent.resolveType of a content URI, with c2d's ContentResolver
+android.content.pm.ResolveInfo <- android.content.Intent  # gap: intent resolution (Intent.resolveActivity, ResolveInfo), with ADR-0045's package queries
+android.os.BundleMerger <- android.content.Intent  # gap: Intent.mergeExtras with a BundleMerger (API 34)
+android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Minato has no MediaProvider
+android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
+android.os.ShellCommand <- android.content.Intent  # stays: the am shell command's parser, which no shell runs in an app process
+android.app.IActivityManager <- android.app.Service, android.content.BroadcastReceiver  # gap: services and broadcast receivers, with ADR-0045's local activity service
+android.app.ActivityManager <- android.content.BroadcastReceiver  # gap: broadcast receivers, with ADR-0045's local activity service
+android.content.ContentCaptureOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.content.ContentCaptureOptions$ContentProtectionOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.os.ServiceManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.WindowManager$LayoutParams <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.ContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.DataShareWriteAdapter <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.IContentCaptureManager$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.IDataShareWriteAdapter$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.MainContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.MainContentCaptureSessionV2 <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+com.android.internal.os.BackgroundThread <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+com.android.internal.util.RingBuffer <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+com.android.internal.util.SyncResultReceiver <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.os.ICancellationSignal <- android.os.CancellationSignal  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato: the remote half of a cancellation
+android.os.ICancellationSignal$Stub <- android.os.CancellationSignal  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato: the remote half of a cancellation

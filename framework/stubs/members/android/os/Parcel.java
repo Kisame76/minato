@@ -2,6 +2,7 @@
 // Configuration, ActivityInfo, Parcelling and others call them; ParcelFileDescriptor calls readRawFileDescriptor (b3.3),
 // ComponentInfo the String8 arrays (b3.4); BaseBundle and Bundle their map's and the helpers', ApplicationInfo and
 // PackageInfo the squashing (b3.5a), SigningDetails the ArraySet of its public keys (b3.5b1).
+// (ADR-0039 step c2c1) ContentValues parcels its values as an ArrayMap.
 class Parcel {
     /** @hide */
     public void writeArraySet(android.util.ArraySet<? extends Object> val) {
@@ -112,5 +113,15 @@ class Parcel {
     /** @hide */
     public interface SquashReadHelper<T> {
         T readRawParceled(Parcel p);
+    }
+
+    /** @hide */
+    public void readArrayMap(android.util.ArrayMap<? super String, Object> outVal, ClassLoader loader) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void writeArrayMap(android.util.ArrayMap<String, Object> val) {
+        throw new RuntimeException("stub");
     }
 }

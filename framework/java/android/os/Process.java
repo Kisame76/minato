@@ -62,6 +62,9 @@ public class Process {
 
     public static final int THREAD_PRIORITY_FOREGROUND = -2;
 
+    /** As AOSP's: a background thread's priority, which AsyncTask's workers take. */
+    public static final int THREAD_PRIORITY_BACKGROUND = 10;
+
     /** The app's process ID, as getpid() answers. */
     public static final int myPid() {
         return Os.getpid();
@@ -118,4 +121,7 @@ public class Process {
     public static final boolean is64Bit() {
         return VMRuntime.getRuntime().is64Bit();
     }
+
+    /** As AOSP's: no uid; BroadcastReceiver's pending result starts with it. */
+    public static final int INVALID_UID = -1;
 }

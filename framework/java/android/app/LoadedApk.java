@@ -2,8 +2,9 @@
  * The app's loaded package (ADR-0039 step c1): our class under AOSP's name, as decision 5 has it for ActivityThread.
  * Android's ActivityThread makes one from bindApplication's ApplicationInfo; it keeps the class loader, the app's
  * Resources and the Application, and makes the Application with its ContextImpl (makeApplicationInner). Ours does the
- * same for the one APK of the process. Android's also loads splits and shared libraries, and dispatches receivers and
- * services through system_server; those come with M5 and ADR-0045.
+ * same for the one APK of the process, and since step c2c1 it makes the app's AppComponentFactory once, as
+ * createAppFactory does, which then also makes the providers. Android's also loads splits and shared libraries, and
+ * dispatches receivers and services through system_server; those come with M5 and ADR-0045.
  */
 package android.app;
 
@@ -11,6 +12,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
+import android.util.Slog;
 import java.io.File;
 import java.io.IOException;
 
@@ -19,6 +21,7 @@ public final class LoadedApk {
     final String mPackageName;
     private final ApplicationInfo mApplicationInfo;
     private final ClassLoader mClassLoader;
+    private final AppComponentFactory mAppComponentFactory;
     private Resources mResources;
     private Application mApplication;
 
@@ -27,6 +30,7 @@ public final class LoadedApk {
         mPackageName = info.packageName;
         mApplicationInfo = info;
         mClassLoader = classLoader;
+        mAppComponentFactory = createAppFactory(info, classLoader);
     }
 
     public String getPackageName() {
@@ -103,7 +107,7 @@ public final class LoadedApk {
             return mApplication;
         }
         ContextImpl appContext = ContextImpl.createAppContext(mActivityThread, this);
-        Application app = appComponentFactory().instantiateApplication(mClassLoader,
+        Application app = mAppComponentFactory.instantiateApplication(mClassLoader,
                 className != null ? className : Application.class.getName());
         app.attach(appContext);
         appContext.setOuterContext(app);
@@ -111,11 +115,24 @@ public final class LoadedApk {
         return app;
     }
 
-    /** android:appComponentFactory's class, as createAppFactory makes it, else the default. */
-    private AppComponentFactory appComponentFactory() throws ReflectiveOperationException {
-        String factory = mApplicationInfo.appComponentFactory;
-        return factory != null
-                ? (AppComponentFactory) mClassLoader.loadClass(factory).getDeclaredConstructor().newInstance()
-                : AppComponentFactory.DEFAULT;
+    /** The app's AppComponentFactory, through which the Application and the providers are made (step c2c1). */
+    public AppComponentFactory getAppFactory() {
+        return mAppComponentFactory;
+    }
+
+    /**
+     * android:appComponentFactory's class, as createAppFactory makes it once for the package; one that cannot be
+     * made is logged and the default takes its place, as on Android.
+     */
+    @SuppressWarnings("deprecation") // Class.newInstance, as AOSP's.
+    private static AppComponentFactory createAppFactory(ApplicationInfo info, ClassLoader classLoader) {
+        if (info.appComponentFactory != null && classLoader != null) {
+            try {
+                return (AppComponentFactory) classLoader.loadClass(info.appComponentFactory).newInstance();
+            } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
+                Slog.e("LoadedApk", "Unable to instantiate appComponentFactory", e);
+            }
+        }
+        return AppComponentFactory.DEFAULT;
     }
 }

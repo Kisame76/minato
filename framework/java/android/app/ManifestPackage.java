@@ -1302,6 +1302,26 @@ final class ManifestPackage {
         return null;
     }
 
+    /**
+     * The providers Android installs as the process `processName` starts (step c2c1), as ActivityManagerService's
+     * generateApplicationProvidersLocked asks the package manager for them: the enabled ones of that process, with
+     * STOCK_PM_FLAGS, GET_URI_PERMISSION_PATTERNS and MATCH_DIRECT_BOOT_AUTO, by initOrder, highest first, and in the
+     * manifest's order among equals, as the package manager's sort keeps it.
+     */
+    List<ProviderInfo> processProviders(String processName) {
+        long flags = PackageManager.GET_SHARED_LIBRARY_FILES | PackageManager.GET_URI_PERMISSION_PATTERNS
+                | PackageManager.MATCH_DIRECT_BOOT_AUTO;
+        ApplicationInfo app = applicationInfo(flags);
+        List<ProviderInfo> providers = new ArrayList<>();
+        for (ProviderInfo provider : mProviders) {
+            if (matches(provider, flags) && processName.equals(provider.processName)) {
+                providers.add(providerInfo(provider, flags, app));
+            }
+        }
+        providers.sort((a, b) -> Integer.compare(b.initOrder, a.initOrder));
+        return providers;
+    }
+
     ProviderInfo providerInfo(ComponentName component, long flags) {
         for (ProviderInfo provider : mProviders) {
             if (named(provider, component) && matches(provider, flags)) {

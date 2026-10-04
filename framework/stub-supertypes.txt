@@ -5,3 +5,5 @@
 # <class> -> <supertype>  # <the step that removes it> | stays: <why it never loads>
 android.content.pm.PackageManager$LegacyPackageDeleteObserver -> android.app.PackageDeleteObserver  # step c: with Binder (decision 10)
 android.content.pm.PackageManager$1 -> com.android.internal.pm.parsing.PackageParser2$Callback  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, the only method that makes it, as decision 7 rejects AOSP's parser
+android.view.contentcapture.ContentCaptureManager$DataShareAdapterDelegate -> android.view.contentcapture.IDataShareWriteAdapter$Stub  # stays: ContentCaptureManager.shareData makes it, and content capture is off (step c2c1)
+android.os.CancellationSignal$Transport -> android.os.ICancellationSignal$Stub  # stays: CancellationSignal.createTransport makes it for a provider's IPC, which no other process calls on Minato (step c2c1)

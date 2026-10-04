@@ -12,7 +12,8 @@
  * handleBindApplication does. Since step c1 it makes the Application as makeApplication does: through LoadedApk, with
  * the app's ContextImpl attached before attachBaseContext returns. Since step c2b, main() prepares the main Looper as
  * AOSP's does, calls the Application's onCreate as handleBindApplication does, and then runs the Looper, which ends
- * only with the process. The providers and the launcher activity come in step c2c, the lifecycle host in step c3.
+ * only with the process. Since step c2c1 it installs the process's providers before that onCreate, as
+ * handleBindApplication does. The launcher activity comes in step c2c3, the lifecycle host in step c3.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -20,8 +21,11 @@
  */
 package android.app;
 
+import android.content.ContentProvider;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.IPackageManager;
+import android.content.pm.ProviderInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Typeface;
@@ -37,11 +41,16 @@ import android.util.Log;
 import dalvik.system.RuntimeHooks;
 import dalvik.system.PathClassLoader;
 import java.io.IOException;
+import java.util.List;
 import org.xmlpull.v1.XmlPullParserException;
 
 public final class ActivityThread {
     /** As AOSP's: off. ResourcesManager logs configuration changes when it is on (b3.4). */
     public static final boolean DEBUG_CONFIGURATION = false;
+
+    /** As AOSP's: BroadcastReceiver logs with them. */
+    public static final String TAG = "ActivityThread";
+    public static final boolean DEBUG_BROADCAST = false;
 
     private static volatile ActivityThread sCurrentActivityThread;
 
@@ -56,6 +65,9 @@ public final class ActivityThread {
     private final ClassLoader mClassLoader;
     private final ManifestPackage mPackage;
     private Application mInitialApplication;
+
+    /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
+    final ArrayMap<String, ContentProvider> mLocalProvidersByAuthority = new ArrayMap<>();
 
     /**
      * The activities by their token, as AOSP's ActivityThread keeps them, which Application.getAutofillClient walks:
@@ -202,9 +214,11 @@ public final class ActivityThread {
                     + ": " + e, e);
         }
         thread.mInitialApplication = app;
-        // As handleBindApplication after the providers (step c2c): Instrumentation.callApplicationOnCreate, which calls
+        // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
+        thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
+        // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, which calls
         // onCreate and nothing else, and Android's wrapping of what it throws. AOSP's Instrumentation comes with
-        // Activity in step c2c, whose closure it needs, and then makes this call.
+        // Activity in step c2c3, whose closure it needs, and then makes this call.
         try {
             app.onCreate();
         } catch (Exception e) {
@@ -214,6 +228,27 @@ public final class ActivityThread {
         // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
         Looper.loop();
         throw new RuntimeException("Main thread loop unexpectedly exited");
+    }
+
+    /**
+     * As installContentProviders and installProvider (step c2c1): each provider through the app's AppComponentFactory,
+     * attached to the Application, which calls its onCreate, and kept by its authorities. Android's then publishes
+     * them to system_server, which Minato has none of. A provider of a split or with attribution tags gets the
+     * Application's context here, as Minato's contexts have neither yet (M5, and c2a's gap of attribution contexts).
+     */
+    private void installContentProviders(Context context, LoadedApk packageInfo, List<ProviderInfo> providers) {
+        for (ProviderInfo info : providers) {
+            ContentProvider provider;
+            try {
+                provider = packageInfo.getAppFactory().instantiateProvider(context.getClassLoader(), info.name);
+                provider.attachInfo(context, info);
+            } catch (Exception e) {
+                throw new RuntimeException("Unable to get provider " + info.name + ": " + e, e);
+            }
+            for (String authority : info.authority.split(";")) {
+                mLocalProvidersByAuthority.put(authority, provider);
+            }
+        }
     }
 
     private static volatile boolean sCrashing;

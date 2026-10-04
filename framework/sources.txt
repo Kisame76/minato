@@ -434,3 +434,31 @@ frameworks_base/core/java/android/content/ComponentCallbacks.java
 frameworks_base/core/java/android/content/ComponentCallbacks2.java
 frameworks_base/core/java/android/content/ComponentCallbacksController.java
 frameworks_base/core/java/android/view/autofill/Helper.java
+
+# ADR-0039 step c2c1: the app's components without the window. androidx's CoreComponentFactory overrides
+# AppComponentFactory's instantiate methods, and ART resolves their types as it initializes the factory; an app's
+# provider class has every method of ContentInterface checked the same way. So: Intent with Uri and its codec;
+# ContentProvider with the transport its field makes (ContentProviderNative, IContentProvider), ContentInterface and
+# the types of its signatures (Cursor, ContentValues, CancellationSignal with OperationCanceledException,
+# ContentProviderResult), and SparseBooleanArray, which its constructor makes; Service, with StackTrace for its
+# foreground starts, and BroadcastReceiver; ContentCaptureManager, whose client interface Service implements, with
+# Dumpable; AsyncTask, the supertype of ContentProvider's pipe helper and of many apps' own classes.
+frameworks_base/core/java/android/content/Intent.java
+frameworks_base/core/java/android/net/Uri.java
+frameworks_base/core/java/android/net/UriCodec.java
+frameworks_base/core/java/android/content/ContentProvider.java
+frameworks_base/core/java/android/content/ContentProviderNative.java
+frameworks_base/core/java/android/content/IContentProvider.java
+frameworks_base/core/java/android/content/ContentInterface.java
+frameworks_base/core/java/android/database/Cursor.java
+frameworks_base/core/java/android/content/ContentValues.java
+frameworks_base/core/java/android/os/CancellationSignal.java
+frameworks_base/core/java/android/os/OperationCanceledException.java
+frameworks_base/core/java/android/content/ContentProviderResult.java
+frameworks_base/core/java/android/app/Service.java
+frameworks_base/core/java/android/content/BroadcastReceiver.java
+frameworks_base/core/java/android/view/contentcapture/ContentCaptureManager.java
+frameworks_base/core/java/android/app/StackTrace.java
+frameworks_base/core/java/android/os/AsyncTask.java
+frameworks_base/core/java/android/util/Dumpable.java
+frameworks_base/core/java/android/util/SparseBooleanArray.java

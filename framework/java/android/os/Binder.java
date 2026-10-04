@@ -146,4 +146,11 @@ public class Binder implements IBinder {
     public void shellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err, String[] args,
             ShellCallback shellCallback, ResultReceiver resultReceiver) {
     }
+
+    /**
+     * As AOSP's hidden one: lets a proxy block on calls. Minato's binders are all local objects, so there is no
+     * proxy (ContentProviderNative's provider proxy asks it).
+     */
+    public static void copyAllowBlocking(IBinder fromBinder, IBinder toBinder) {
+    }
 }

@@ -6,7 +6,8 @@
 #   - the generated sources in build/framework/gen: aconfig's Java classes with ap3a's values
 #     (tools/aconfig-flags.py java), android.R, com.android.internal.R and android.Manifest from framework-res's link
 #     (tools/build-framework-res.sh), aidl's Java for the .aidl files framework/sources.txt names,
-#     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a), and
+#     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a), our
+#     AppOpsManager from managergen's API mode, the public API with the hand file's hidden members (step c2c1), and
 #     ManifestFeatureFlags, the feature flags' values framework-res was built with, for ManifestPackage's
 #     AconfigFlags.skipCurrentElement (b3.5b1);
 #   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
@@ -127,6 +128,10 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
+# Our AppOpsManager (step c2c1): the public API, logged once where framework/managers' hand file does not answer.
+python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
+  --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
+  --hand framework/managers --out "$GEN/managers" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
 # one before.
