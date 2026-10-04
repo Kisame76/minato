@@ -29,12 +29,18 @@ cd "$(dirname "$0")/.."
 BUNDLE_ID="io.github.kisame76.minato"
 CHECK=build/benchmark-check
 
-# The build-time values of a Release build in the Simulator, into $CHECK/<name>.
+# The build-time values of a Release build in the Simulator, into $CHECK/<name>; prints the app's path. xcodebuild's
+# output goes to $CHECK/<name>.log, whose end goes to stderr when the build fails.
 simulator_release() {
   local name=$1 simulator=$2
   shift 2
-  xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Release -destination "id=$simulator" \
-    -derivedDataPath "$CHECK/$name" -quiet build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "$@"
+  mkdir -p "$CHECK"
+  if ! xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Release -destination "id=$simulator" \
+    -derivedDataPath "$CHECK/$name" -quiet build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "$@" >"$CHECK/$name.log" 2>&1; then
+    echo "The Release build $name failed; the end of $CHECK/$name.log:" >&2
+    tail -40 "$CHECK/$name.log" >&2
+    return 1
+  fi
   echo "$CHECK/$name/Build/Products/Release-iphonesimulator/Minato.app"
 }
 
@@ -156,7 +162,11 @@ if [[ "${1:-}" == "--build-check" ]]; then
   for setting in without with; do
     value=NO
     [[ "$setting" == without ]] || value=YES
-    app=$(simulator_release "$setting" "$SIM_UDID" APK_EMBED_BENCHMARK=$value | tail -1)
+    if ! app=$(simulator_release "$setting" "$SIM_UDID" APK_EMBED_BENCHMARK=$value); then
+      echo "FAILED   Release $setting APK_EMBED_BENCHMARK: the build failed"
+      failed=1
+      continue
+    fi
     problems=$(check_app "$app" "$setting")
     if [[ -z "$problems" ]]; then
       echo "same     Release $setting APK_EMBED_BENCHMARK"
