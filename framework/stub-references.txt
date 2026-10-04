@@ -102,7 +102,6 @@ android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penal
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 android.os.NetworkOnMainThreadException <- android.os.StrictMode  # gap: death on network on the main thread, which Android's handleBindApplication sets for every app
 android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
-android.animation.ValueAnimator <- android.os.StrictMode  # gap: every StrictMode violation, whose ViolationInfo counts the running animations; ADR-0041 a)'s ValueAnimator closes it
 android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
 
 # The app model, activities and views.
@@ -126,17 +125,6 @@ android.graphics.drawable.ColorStateListDrawable <- android.content.res.Resource
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (App: VirtualRefBasePtr's natives are libandroid_runtime's)
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
-android.animation.AnimationHandler <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.ValueAnimator <- android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.ValueAnimator$AnimatorUpdateListener <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.AnimatorInflater <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators; until then an AnimatedVectorDrawable does not inflate
-android.animation.AnimatorSet <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.AnimatorSet$Builder <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.ObjectAnimator <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.PropertyValuesHolder <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.PropertyValuesHolder$PropertyValues <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.animation.PropertyValuesHolder$PropertyValues$DataSource <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
-android.util.IntArray <- android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): with AnimatedVectorDrawable's animators
 android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
 android.view.ThreadedRenderer <- android.graphics.Bitmap  # M4 step 10: Bitmap.createBitmap of a Picture, drawn on hwui's render thread
 android.hardware.HardwareBuffer <- android.graphics.Bitmap  # gap: hardware bitmaps (Bitmap.wrapHardwareBuffer, getHardwareBuffer) (ADR-0043, Grafik)
@@ -274,14 +262,6 @@ android.view.WindowMetrics <- android.view.View  # step c2c3: the window manager
 android.view.accessibility.AccessibilityNodeIdManager <- android.view.View  # step c2c3: every attach registers the view's accessibility ID (View.onAttachedToWindow)
 android.window.WindowOnBackInvokedDispatcher <- android.view.ViewGroup  # step c2c3: the window's back dispatcher, through ViewRootImpl
 com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # step c2c3: PrivacyIndicatorBounds' checked constructor, which only the window's insets reach (WindowInsets.inset, a rotation)
-android.animation.AnimatorInflater <- android.view.View  # ADR-0041 a): the animators; View's constructor loads a style's or layout's android:stateListAnimator, which Material's buttons have
-android.animation.Keyframe <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
-android.animation.KeyframeSet <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
-android.animation.Keyframes <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
-android.animation.ObjectAnimator <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
-android.animation.PropertyValuesHolder <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
-android.animation.StateListAnimator <- android.view.View  # ADR-0041 a): the animators; a view's android:stateListAnimator
-android.animation.ValueAnimator <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
 android.app.AppGlobals <- android.view.ViewConfiguration  # ADR-0041 a): the input timeouts that touch and keys ask the core settings for
 android.hardware.input.InputManagerGlobal <- android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
@@ -296,22 +276,12 @@ android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surface
 android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
 android.view.TouchDelegate <- android.view.View  # ADR-0041 a): touch
-android.view.animation.AccelerateDecelerateInterpolator <- android.animation.LayoutTransition, android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, LayoutTransition's defaults and what AnimationUtils.loadInterpolator makes
-android.view.animation.AccelerateInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.AnticipateInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.AnticipateOvershootInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.BounceInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.CycleInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.DecelerateInterpolator <- android.animation.LayoutTransition, android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, LayoutTransition's defaults and what AnimationUtils.loadInterpolator makes
-android.view.animation.LinearInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
-android.view.animation.OvershootInterpolator <- android.view.animation.AnimationUtils  # ADR-0041 a): the animators' interpolators, which AnimationUtils.loadInterpolator makes from XML
 android.view.FrameMetricsObserver <- android.view.View  # M4 step 10: drawing's frame metrics
 android.view.GhostView <- android.view.View  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.ThreadedRenderer <- android.view.View  # M4 step 10: drawing through hwui's renderer
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
 android.view.ViewGroupOverlay <- android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
 android.view.ViewOverlay <- android.view.View, android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
-android.view.ViewPropertyAnimator <- android.view.View  # M4 step 10: animations, which drawing shows
 android.view.animation.AlphaAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.Animation <- android.view.View, android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.Animation$AnimationListener <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
@@ -327,7 +297,6 @@ android.view.animation.Transformation <- android.view.View, android.view.ViewGro
 android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.autofill.AutofillManager <- android.view.View, android.view.ViewGroup  # M4 step 10: View.getAutofillManager names the class for a view with an autofill type, which TextView has; autofill itself stays off
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
-android.util.IntArray <- android.view.ViewGroup  # stays: transient views (ViewGroup.addTransientView), a hidden API no app calls
 android.util.SuperNotCalledException <- android.view.View  # stays: only when a subclass's onCancelPendingInputEvents skips super
 android.view.AccessibilityIterators$CharacterTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.AccessibilityIterators$ParagraphTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes

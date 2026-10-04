@@ -20,8 +20,8 @@
 # is a Java app from build/config-test (tools/build-java-test-app.sh), started through the framework's
 # android.app.Activity, on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at density 480: the AVD
 # apk-runner-35-iphone, the same image with that display, which the script creates and starts for it and
-# view-tree-test (step c2c2) alone (the window manager forces at most three times apk-runner-35's 320 x 480 px on a
-# side). styled-text-test (ADR-0039
+# view-tree-test (step c2c2) and animator-test (ADR-0041 a)) alone (the window manager forces at most three times
+# apk-runner-35's 320 x 480 px on a side). styled-text-test (ADR-0039
 # b3.4b), package-manager-test (b3.5a) and package-manager-legacy-test (b3.5b1) are Java apps of the same kind on
 # apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
 # manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
@@ -128,10 +128,10 @@ else
   done
 fi
 
-# config-test's AVD has the M4 plan's display, and view-tree-test's, whose sizes in dp it lays out at that density;
-# every other test keeps apk-runner-35's, which its reference has.
+# config-test's AVD has the M4 plan's display, and view-tree-test's and animator-test's, whose sizes in dp they turn
+# into px at that density; every other test keeps apk-runner-35's, which its reference has.
 avd_display=""
-if [[ "$app" == config-test || "$app" == view-tree-test ]]; then
+if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-test ]]; then
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
@@ -341,7 +341,7 @@ run_app() {
     # A Java app (ADR-0039) with the framework's activity, which ends its log with "done"; its own certificate's
     # SHA-256 is marked (b3.5b1).
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
-      | provider-test | view-tree-test | app-calls-test | vsync-test)
+      | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

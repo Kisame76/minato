@@ -1,0 +1,46 @@
+I/animator-test: duration scale 1.0, animators enabled true
+I/animator-test: linear (LinearInterpolator): 0.0000 0.2500 0.5000 0.7500 1.0000
+I/animator-test: accelerate (AccelerateInterpolator): 0.0000 0.0625 0.2500 0.5625 1.0000
+I/animator-test: accelerate 2 (AccelerateInterpolator): 0.0000 0.0039 0.0625 0.3164 1.0000
+I/animator-test: decelerate (DecelerateInterpolator): 0.0000 0.4375 0.7500 0.9375 1.0000
+I/animator-test: accelerate decelerate (AccelerateDecelerateInterpolator): 0.0000 0.1464 0.5000 0.8536 1.0000
+I/animator-test: anticipate (AnticipateInterpolator): -0.0000 -0.0781 -0.1250 0.1406 1.0000
+I/animator-test: overshoot (OvershootInterpolator): 0.0000 0.8594 1.1250 1.0781 1.0000
+I/animator-test: anticipate overshoot (AnticipateOvershootInterpolator): -0.0000 -0.1250 0.5000 1.1250 1.0000
+I/animator-test: bounce (BounceInterpolator): 0.0000 0.6301 0.7016 0.9009 1.0001
+I/animator-test: cycle 1 (CycleInterpolator): 0.0000 1.0000 0.0000 -1.0000 -0.0000
+I/animator-test: path 0.4 0 0.2 1 (PathInterpolator): 0.0000 0.2369 0.7751 0.9591 1.0000
+I/animator-test: fast_out_slow_in from XML (PathInterpolator): 0.0000 0.2369 0.7751 0.9591 1.0000
+I/animator-test: argb halfway from black to white 0xffbababa
+I/animator-test: value animator with AccelerateDecelerateInterpolator at 0 ms 0.0000 250 ms 14.6447 500 ms 50.0000 750 ms 85.3553 1000 ms 100.0000
+I/animator-test: keyframes 0 80 100 at 0, 1/4, 1/2, 3/4 and 1: setLevel(0.0) setLevel(40.0) setLevel(80.0) setLevel(90.0) setLevel(100.0)
+I/animator-test: setters by name at 1/2: setLevel(5.0) setCount(5) setPoint(5.0, 10.0) setRgb(0.5, 0.25, 0.125) setBox(5.0, 10.0, 15.0, 20.0) setSize(50, 100) setTriple(5, 10, 15) setQuad(5, 10, 15, 20)
+I/animator-test: level from its getter to 15 at 1/2: setLevel(10.0)
+I/animator-test: fade_in: ObjectAnimator alpha, duration 400, delay 0, total 400, interpolator AccelerateInterpolator, repeat 0 mode 1, values 0.0000 0.2500 1.0000
+I/animator-test: sequence: AnimatorSet, duration -1, delay 0, total 800, interpolator null, 4 children
+I/animator-test:   ObjectAnimator alpha, duration 150, delay 0, total 150, interpolator LinearInterpolator, repeat 0 mode 1, values 0.0000 0.5000 1.0000
+I/animator-test:   AnimatorSet, duration -1, delay 0, total 450, interpolator null, 2 children
+I/animator-test:     ObjectAnimator scaleX, duration 200, delay 50, total 450, interpolator AccelerateDecelerateInterpolator, repeat 1 mode 2, values 1.0000 1.5000 2.0000
+I/animator-test:     ObjectAnimator rotation, duration 300, delay 0, total 300, interpolator PathInterpolator, repeat 0 mode 1, values 0.0000 69.7595 90.0000
+I/animator-test:   ObjectAnimator translationX, duration 100, delay 0, total 100, interpolator AccelerateDecelerateInterpolator, repeat 0 mode 1, values 0.0000 80.0000 100.0000
+I/animator-test:   ValueAnimator, duration 100, delay 0, total 100, interpolator AccelerateDecelerateInterpolator, repeat 0 mode 1, values 0 5 10
+I/animator-test: layout transition LayoutTransition
+I/animator-test:   change appearing: enabled true, duration 300, delay 0, stagger 0, interpolator DecelerateInterpolator, animator ObjectAnimator left,top,right,bottom,scrollX,scrollY
+I/animator-test:   change disappearing: enabled true, duration 300, delay 300, stagger 0, interpolator DecelerateInterpolator, animator ObjectAnimator left,top,right,bottom,scrollX,scrollY
+I/animator-test:   appearing: enabled true, duration 300, delay 300, stagger 0, interpolator AccelerateDecelerateInterpolator, animator ObjectAnimator alpha
+I/animator-test:   disappearing: enabled true, duration 300, delay 0, stagger 0, interpolator AccelerateDecelerateInterpolator, animator ObjectAnimator alpha
+I/animator-test:   changing: enabled false, duration 300, delay 0, stagger 0, interpolator DecelerateInterpolator, animator ObjectAnimator left,top,right,bottom,scrollX,scrollY
+I/animator-test: state list animator StateListAnimator, translationZ 0.0
+I/animator-test: pressed: translationZ 24.0
+I/animator-test: released: translationZ 0.0
+I/animator-test: first start
+I/animator-test: set start
+I/animator-test: first end
+I/animator-test: second start
+I/animator-test: second end
+I/animator-test: set end
+I/animator-test: set ended: first's value 1.0, updated true, alpha 0.0, at least 200 ms true
+I/animator-test: time animator's first tick: total 0 ms, delta 0 ms
+I/animator-test: animate()'s end action: alpha 1.0
+I/animator-test: off a looper: android.util.AndroidRuntimeException: Animators may only be run on Looper threads
+I/animator-test: done

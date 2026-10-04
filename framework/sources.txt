@@ -538,3 +538,46 @@ frameworks_base/core/java/android/hardware/display/IDisplayManagerCallback.aidl
 frameworks_base/core/java/android/hardware/display/IVirtualDisplayCallback.aidl
 frameworks_base/core/java/android/view/DisplayInfo.java
 frameworks_base/core/java/android/view/Display.java
+
+# ADR-0041 a): android.animation's animators, which tick on Choreographer's frames (AnimationHandler, ValueAnimator,
+# ObjectAnimator, AnimatorSet, TimeAnimator, PropertyValuesHolder with its keyframes and evaluators, AnimatorInflater
+# and StateListAnimator), the interpolators that AnimationUtils makes from XML and LayoutTransition takes,
+# View.animate()'s ViewPropertyAnimator, AndroidRuntimeException, which they throw off a looper thread, and IntArray,
+# where AnimatedVectorDrawable's animator queues its actions. RevealAnimator stays out with
+# android.view.RenderNodeAnimator, which only ViewAnimationUtils makes.
+frameworks_base/core/java/android/animation/AnimationHandler.java
+frameworks_base/core/java/android/animation/AnimatorInflater.java
+frameworks_base/core/java/android/animation/AnimatorSet.java
+frameworks_base/core/java/android/animation/ArgbEvaluator.java
+frameworks_base/core/java/android/animation/BidirectionalTypeConverter.java
+frameworks_base/core/java/android/animation/FloatArrayEvaluator.java
+frameworks_base/core/java/android/animation/FloatEvaluator.java
+frameworks_base/core/java/android/animation/FloatKeyframeSet.java
+frameworks_base/core/java/android/animation/IntArrayEvaluator.java
+frameworks_base/core/java/android/animation/IntEvaluator.java
+frameworks_base/core/java/android/animation/IntKeyframeSet.java
+frameworks_base/core/java/android/animation/Keyframe.java
+frameworks_base/core/java/android/animation/KeyframeSet.java
+frameworks_base/core/java/android/animation/Keyframes.java
+frameworks_base/core/java/android/animation/ObjectAnimator.java
+frameworks_base/core/java/android/animation/PathKeyframes.java
+frameworks_base/core/java/android/animation/PointFEvaluator.java
+frameworks_base/core/java/android/animation/PropertyValuesHolder.java
+frameworks_base/core/java/android/animation/RectEvaluator.java
+frameworks_base/core/java/android/animation/StateListAnimator.java
+frameworks_base/core/java/android/animation/TimeAnimator.java
+frameworks_base/core/java/android/animation/TypeConverter.java
+frameworks_base/core/java/android/animation/TypeEvaluator.java
+frameworks_base/core/java/android/animation/ValueAnimator.java
+frameworks_base/core/java/android/util/AndroidRuntimeException.java
+frameworks_base/core/java/android/util/IntArray.java
+frameworks_base/core/java/android/view/ViewPropertyAnimator.java
+frameworks_base/core/java/android/view/animation/AccelerateDecelerateInterpolator.java
+frameworks_base/core/java/android/view/animation/AccelerateInterpolator.java
+frameworks_base/core/java/android/view/animation/AnticipateInterpolator.java
+frameworks_base/core/java/android/view/animation/AnticipateOvershootInterpolator.java
+frameworks_base/core/java/android/view/animation/BounceInterpolator.java
+frameworks_base/core/java/android/view/animation/CycleInterpolator.java
+frameworks_base/core/java/android/view/animation/DecelerateInterpolator.java
+frameworks_base/core/java/android/view/animation/LinearInterpolator.java
+frameworks_base/core/java/android/view/animation/OvershootInterpolator.java

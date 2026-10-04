@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- animator-test's layout: a FrameLayout that animates its layout changes, which makes a LayoutTransition in
+     ViewGroup's constructor, and a child that rises while pressed through a state list animator. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:animateLayoutChanges="true">
+  <View android:layout_width="100dp" android:layout_height="100dp" android:stateListAnimator="@animator/raise"/>
+</FrameLayout>

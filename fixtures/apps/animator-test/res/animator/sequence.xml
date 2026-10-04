@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- animator-test's inflated set: in sequence, a fade with the platform's linear interpolator, a set that scales
+     after a delay, repeated in reverse, while it rotates with fast_out_slow_in, a keyframed move, and a plain integer
+     animator. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:ordering="sequentially">
+  <objectAnimator android:propertyName="alpha" android:duration="150" android:valueFrom="0" android:valueTo="1"
+      android:valueType="floatType" android:interpolator="@android:interpolator/linear"/>
+  <set android:ordering="together">
+    <objectAnimator android:propertyName="scaleX" android:duration="200" android:startOffset="50"
+        android:valueFrom="1" android:valueTo="2" android:valueType="floatType" android:repeatCount="1"
+        android:repeatMode="reverse"/>
+    <objectAnimator android:propertyName="rotation" android:duration="300" android:valueFrom="0"
+        android:valueTo="90" android:valueType="floatType"
+        android:interpolator="@android:interpolator/fast_out_slow_in"/>
+  </set>
+  <objectAnimator android:duration="100">
+    <propertyValuesHolder android:propertyName="translationX">
+      <keyframe android:fraction="0" android:value="0" android:valueType="floatType"/>
+      <keyframe android:fraction="0.5" android:value="80" android:valueType="floatType"/>
+      <keyframe android:fraction="1" android:value="100" android:valueType="floatType"/>
+    </propertyValuesHolder>
+  </objectAnimator>
+  <animator android:duration="100" android:valueFrom="0" android:valueTo="10" android:valueType="intType"/>
+</set>
