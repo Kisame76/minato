@@ -12,6 +12,7 @@ public enum APKError: Error, Equatable, Sendable {
     case duplicateEntry(String)
     case invalidEntryName(String)
     case inconsistentEntry(String, String)
+    case invalidArchive(String)
     case invalidBinaryXML(String)
     case invalidManifest(String)
     case invalidResourceTable(String)

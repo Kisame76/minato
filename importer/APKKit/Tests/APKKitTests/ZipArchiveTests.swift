@@ -446,4 +446,224 @@ struct ZipArchiveTests {
         }
         #expect(try archive.prefix(of: entry, count: 4) == bad.content.prefix(4))
     }
+
+    // MARK: - What libziparchive refuses, part two (ADR-0048 b1.1, the lead's reviewer)
+
+    static func localHeader(_ name: [UInt8], _ data: Data, crc: UInt32? = nil) -> Data {
+        var out = ByteWriter()
+        let size = UInt32(data.count)
+        out.u32(0x0403_4b50); out.u16(20); out.u16(0); out.u16(0); out.u16(0); out.u16(0x21)
+        out.u32(crc ?? CRC32.checksum(data)); out.u32(size); out.u32(size); out.u16(UInt16(name.count)); out.u16(0)
+        out.bytes(name); out.bytes(data)
+        return out.data
+    }
+
+    static func directoryRecord(_ name: [UInt8], crc: UInt32, compressed: UInt32, uncompressed: UInt32, offset: UInt32,
+                                extra: Data = Data()) -> Data {
+        var out = ByteWriter()
+        out.u32(0x0201_4b50); out.u16(20); out.u16(20); out.u16(0); out.u16(0); out.u16(0); out.u16(0x21)
+        out.u32(crc); out.u32(compressed); out.u32(uncompressed)
+        out.u16(UInt16(name.count)); out.u16(UInt16(extra.count)); out.u16(0); out.u16(0); out.u16(0); out.u32(0); out.u32(offset)
+        out.bytes(name); out.bytes(extra)
+        return out.data
+    }
+
+    static func endRecord(count: UInt16, size: Int, offset: Int, comment: Data = Data()) -> Data {
+        var out = ByteWriter()
+        out.u32(0x0605_4b50); out.u16(0); out.u16(0); out.u16(count); out.u16(count)
+        out.u32(UInt32(size)); out.u32(UInt32(offset)); out.u16(UInt16(comment.count)); out.bytes(comment)
+        return out.data
+    }
+
+    /// Stored entries with raw names: `prefix` before the first local header, `comment` and `trailing` after the
+    /// end record.
+    static func rawArchive(_ entries: [(name: [UInt8], data: Data)], prefix: Data = Data(), comment: Data = Data(),
+                           trailing: Data = Data()) -> Data {
+        var out = prefix, directory = Data()
+        for (name, data) in entries {
+            let crc = CRC32.checksum(data)
+            directory += Self.directoryRecord(name, crc: crc, compressed: UInt32(data.count), uncompressed: UInt32(data.count),
+                                              offset: UInt32(out.count))
+            out += Self.localHeader(name, data)
+        }
+        let directoryOffset = out.count
+        out += directory
+        return out + Self.endRecord(count: UInt16(entries.count), size: directory.count, offset: directoryOffset, comment: comment)
+            + trailing
+    }
+
+    static let good = Data("GOODGOOD".utf8), evil = Data("EVILEVIL".utf8)
+
+    /// "a.txt" twice: a local header with `good` at 0 and one with `evil` after it. The central directory record
+    /// points at the first with its 32-bit offset; its ZIP64 field `field` may point at the second.
+    static func zip64Archive(compressed: UInt32 = 8, uncompressed: UInt32 = 8, offset: UInt32 = 0,
+                             field: (_ second: Int) -> Data) -> Data {
+        let name = Array("a.txt".utf8)
+        var out = Self.localHeader(name, Self.good, crc: CRC32.checksum(Self.evil))
+        let second = out.count
+        out += Self.localHeader(name, Self.evil)
+        let directory = Self.directoryRecord(name, crc: CRC32.checksum(Self.evil), compressed: compressed,
+                                             uncompressed: uncompressed, offset: offset, extra: field(second))
+        let directoryOffset = out.count
+        return out + directory + Self.endRecord(count: 1, size: directory.count, offset: directoryOffset)
+    }
+
+    static func zip64Field(_ values: [UInt64], size: Int? = nil, trailing: Data = Data()) -> Data {
+        var out = ByteWriter()
+        out.u16(0x0001); out.u16(UInt16(size ?? values.count * 8))
+        for value in values { out.u64(value) }
+        return out.data + trailing
+    }
+
+    @Test func aCompleteZip64FieldGivesAllThreeValues() throws {
+        // zip_archive.cc:492-511, read at :832-848: 24 bytes are all three values, whichever 32-bit field is
+        // saturated, so Android reads the second header; a disk number after them (28 bytes) is ignored (:483-487).
+        for disk in [false, true] {
+            let data = Self.zip64Archive(compressed: UInt32.max, uncompressed: 99) { second in
+                Self.zip64Field([8, 8, UInt64(second)], size: disk ? 28 : 24, trailing: disk ? Data(count: 4) : Data())
+            }
+            #expect(try ZipArchive(data: data).data(named: "a.txt") == Self.evil)
+        }
+        // The compressed size too, where only the size is saturated.
+        let sizeOnly = Self.zip64Archive(compressed: 99, uncompressed: UInt32.max) { Self.zip64Field([8, 8, UInt64($0)]) }
+        #expect(try ZipArchive(data: sizeOnly).data(named: "a.txt") == Self.evil)
+    }
+
+    @Test func aZip64FieldOfAnotherSizeThanItsValuesIsRefused() throws {
+        // zip_archive.cc:513-529: the record is exactly what was read. An entry with only its size saturated fails
+        // when it is read; one with a saturated offset fails the open (:598-608).
+        let long = Self.zip64Archive(uncompressed: UInt32.max) { _ in Self.zip64Field([8, 0xDEAD]) }
+        let archive = try ZipArchive(data: long)
+        let entry = try #require(archive.entry(named: "a.txt"))
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its ZIP64 field does not hold its saturated values")) {
+            _ = try archive.data(for: entry)
+        }
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its ZIP64 field does not hold its saturated values")) {
+            _ = try archive.prefix(of: entry, count: 4)
+        }
+        let offset = Self.zip64Archive(offset: UInt32.max) { _ in Self.zip64Field([0, 0]) }
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its ZIP64 field does not hold its saturated values")) {
+            try ZipArchive(data: offset)
+        }
+        let missing = Self.zip64Archive(offset: UInt32.max) { _ in Data([0x99, 0x99, 8, 0]) + Data(count: 8) }
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its ZIP64 field does not hold its saturated values")) {
+            try ZipArchive(data: missing)
+        }
+    }
+
+    @Test func aCompleteZip64FieldsOffsetIsCheckedWhenTheEntryIsRead() throws {
+        // zip_archive.cc:610-614 checks the 32-bit offset the open reads, :850-856 the ZIP64 one when the entry is read.
+        let data = Self.zip64Archive(compressed: UInt32.max) { _ in Self.zip64Field([8, 8, 0x10000]) }
+        let archive = try ZipArchive(data: data)
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its local header runs into the central directory")) {
+            _ = try archive.data(named: "a.txt")
+        }
+    }
+
+    @Test func refusesBytesAroundTheArchive() throws {
+        // zip_archive.cc:318-324: nothing after the end record and its comment; :649-663: a local header at 0.
+        let entries = [(name: Array("a.txt".utf8), data: Self.good)]
+        #expect(try ZipArchive(data: Self.rawArchive(entries, comment: Data("note".utf8))).entries.count == 1)
+        #expect(throws: APKError.invalidArchive("bytes follow its end record")) {
+            try ZipArchive(data: Self.rawArchive(entries, trailing: Data("XYZ".utf8)))
+        }
+        #expect(throws: APKError.invalidArchive("it does not start with a local header")) {
+            try ZipArchive(data: Self.rawArchive(entries, prefix: Data("JUNKJUNKJUNKJUNK".utf8)))
+        }
+    }
+
+    @Test(arguments: [(8, 2), (10, 2), (12, 4), (16, 4)])
+    func aSaturatedEndRecordNeedsZip64(field: Int, width: Int) throws {
+        // zip_archive.cc:326-336, 214-275: a saturated field asks for a ZIP64 locator.
+        var data = Self.rawArchive([(name: Array("a.txt".utf8), data: Self.good)])
+        data.replaceSubrange((data.count - 22 + field)..<(data.count - 22 + field + width), with: Data(repeating: 0xFF, count: width))
+        #expect(throws: APKError.invalidArchive("its end record asks for ZIP64, which is missing")) { try ZipArchive(data: data) }
+    }
+
+    @Test func aFullCommentOrNoRoomForALocatorAsksForZip64Too() throws {
+        // zip_archive.cc:326-336 counts a comment of 0xFFFF bytes as saturated; :215-218 finds no room for a locator.
+        #expect(throws: APKError.invalidArchive("its end record asks for ZIP64, which is missing")) {
+            try ZipArchive(data: Self.rawArchive([(name: Array("a.txt".utf8), data: Self.good)], comment: Data(count: 0xFFFF)))
+        }
+        #expect(throws: APKError.invalidArchive("its end record asks for ZIP64, which is missing")) {
+            try ZipArchive(data: Self.endRecord(count: 0xFFFF, size: 0, offset: 0))
+        }
+    }
+
+    @Test func refusesACentralDirectoryPastItsEndRecord() throws {
+        // zip_archive.cc:343-347 for the classic end record, :237-242 and :261-267 for the ZIP64 one.
+        let entries = [(name: Array("a.txt".utf8), data: Self.good)]
+        var data = Self.rawArchive(entries)
+        Self.patch(UInt32(data.count - 22 - 45), at: data.count - 22 + 16, in: &data)
+        #expect(throws: APKError.notAZipArchive) { try ZipArchive(data: data) }
+
+        var zip = ZipBuilder()
+        zip.forceZip64 = true
+        zip.add("a.txt", "abc", method: .stored)
+        let zip64 = zip.build().data
+        #expect(try ZipArchive(data: zip64).entries.count == 1)
+        let locator = try #require(zip64.range(of: Data([0x50, 0x4B, 0x06, 0x07]), options: .backwards))
+        var record = zip64.subdata(in: 0..<zip64.count)
+        let recordOffset = Int(record.subdata(in: (locator.lowerBound + 8)..<(locator.lowerBound + 16))
+            .withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) })
+        var unsigned = record
+        unsigned[recordOffset] = 0
+        #expect(throws: APKError.invalidArchive("its end record asks for ZIP64, which is missing")) { try ZipArchive(data: unsigned) }
+        var overlapping = record
+        Self.patch(UInt64(locator.lowerBound - 10), at: locator.lowerBound + 8, in: &overlapping)
+        #expect(throws: APKError.notAZipArchive) { try ZipArchive(data: overlapping) }
+        Self.patch(UInt64(recordOffset), at: recordOffset + 48, in: &record)
+        #expect(throws: APKError.notAZipArchive) { try ZipArchive(data: record) }
+    }
+
+    @Test func aZip64LocatorCountsOnlyForASaturatedEndRecord() throws {
+        // zip_archive.cc:326-347: an end record with no saturated field is read as it is, a ZIP64 locator before it
+        // or not. Here the ZIP64 record points at another central directory.
+        let name = Array("a.txt".utf8)
+        var out = Self.localHeader(name, Self.good)
+        let second = out.count
+        out += Self.localHeader(name, Self.evil)
+        let classic = Self.directoryRecord(name, crc: CRC32.checksum(Self.evil), compressed: 8, uncompressed: 8,
+                                           offset: UInt32(second))
+        let classicOffset = out.count
+        out += classic
+        let other = Self.directoryRecord(name, crc: CRC32.checksum(Self.good), compressed: 8, uncompressed: 8, offset: 0)
+        let otherOffset = out.count
+        out += other
+        var zip64 = ByteWriter()
+        let recordOffset = out.count
+        zip64.u32(0x0606_4b50); zip64.u64(44); zip64.u16(45); zip64.u16(45); zip64.u32(0); zip64.u32(0)
+        zip64.u64(1); zip64.u64(1); zip64.u64(UInt64(other.count)); zip64.u64(UInt64(otherOffset))
+        zip64.u32(0x0706_4b50); zip64.u32(0); zip64.u64(UInt64(recordOffset)); zip64.u32(1)
+        out += zip64.data + Self.endRecord(count: 1, size: classic.count, offset: classicOffset)
+
+        #expect(try ZipArchive(data: out).data(named: "a.txt") == Self.evil)
+    }
+
+    @Test func anEmptyArchiveIsRefused() throws {
+        // zip_archive.cc:409-414: kEmptyArchive.
+        #expect(throws: APKError.invalidArchive("it holds no entries")) { try ZipArchive(data: Self.rawArchive([])) }
+    }
+
+    @Test func aNameThatIsNotUTF8IsNeverFoundForAnother() throws {
+        // A raw name Android accepts but UTF-8 does not (an overlong form) must not read as another entry's name, and
+        // a byte-order mark is part of a name, which Foundation's decoding drops (the lead's reviewer).
+        let entries: [(name: [UInt8], data: Data)] = [
+            ([0x61, 0xC0, 0xAF], Data("ONE".utf8)), ([0x61, 0xC3, 0x80, 0xC2, 0xAF], Data("TWO".utf8)),
+            ([0xEF, 0xBB, 0xBF] + Array("b.txt".utf8), Data("BOM".utf8)), (Array("b.txt".utf8), Data("PLAIN".utf8)),
+            ([0xEF, 0xBB, 0xBF] + Array("lib/arm64-v8a/libx.so".utf8), Data("LIB".utf8)),
+            // What a lossy decoding of the first would read as: replacement characters, which a name may hold.
+            ([0x61, 0xEF, 0xBF, 0xBD, 0xEF, 0xBF, 0xBD], Data("REPLACED".utf8)),
+        ]
+        let archive = try ZipArchive(data: Self.rawArchive(entries))
+
+        #expect(Set(archive.entries.map(\.name)).count == entries.count)
+        for entry in archive.entries {
+            let found = archive.entry(named: entry.name)
+            #expect(found == nil || found == entry)
+        }
+        #expect(archive.entry(named: archive.entries[0].name) == nil)
+        #expect(try archive.data(named: "\u{FEFF}b.txt") == Data("BOM".utf8))
+        #expect(!archive.entries.contains { $0.name.hasPrefix("lib/") })
+    }
 }
