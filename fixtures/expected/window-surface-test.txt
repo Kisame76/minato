@@ -1,0 +1,35 @@
+# ADR-0043 c2: what window-surface-test (fixtures/java/window-surface-test) prints without its "window-surface-test: "
+# prefix on graphics-run's window 1 of 64 x 48 pixels, and the Metal hook's line for each of the first 4 drawables
+# presented (tools/window-surface-check.sh). Minato only, as Android has no WindowSurface; the values follow from the
+# sources at android-15.0.0_r1:
+# - a) Surface.transferFrom moves the native object and leaves the old Surface without one (Surface.java).
+# - b) An EGL window surface has the window's size, and a clear to blue reads back exactly.
+# - c) lockCanvas gives a raster canvas of the buffer's size (android_view_Surface.cpp's nativeLockCanvas).
+# - d) The host answers the app's dirty rectangle for a buffer of the last post's geometry and copies the rest back
+#   (ADR-0043 b2), and nativeLockCanvas clips the canvas to the rectangle the lock answered.
+# - e) ANativeWindow_setBuffersGeometry refuses a size with one 0 with -EINVAL and takes 32 x 24.
+# - f) ANativeWindow_getWidth answers the window's size whatever the geometry, getFormat the geometry's format,
+#   RGBA_8888 = 1 (ADR-0028 decision 7).
+# - g) release leaves the Surface invalid; fromSurface's reference holds the window until it is released.
+# The CRC-32s are of the drawables' B, G, R, A bytes, row by row: all blue; red left and green right; that with blue
+# in (8, 8, 24, 24); yellow left and cyan right at 32 x 24. The app's last line is done.
+a) create: valid true, 64 x 48
+a) transferFrom into a new Surface: valid true, 64 x 48; the old one valid false
+b) EGL14: a window config true, a window surface true of 64 x 48, current true
+b) clear (32, 24) 0 0 255 255, eglSwapBuffers true, glGetError 0
+b) the drawable must have CRC-32 ec8c3e46
+b) released true, destroyed true true, eglTerminate true
+c) lockCanvas: 64 x 48, hardware accelerated false
+c) the drawable must have CRC-32 66ad36d7
+d) lockCanvas(8, 8, 24, 24): dirty [8,8][24,24], clip [8,8][24,24]
+d) the drawable must have CRC-32 09ba138c
+e) setBuffersGeometry (0, 24, RGBA_8888) -22, (32, 24, RGBA_8888) 0; lockCanvas: 32 x 24
+e) the drawable must have CRC-32 95a7790f
+f) ANativeWindow_fromSurface: 64 x 48, format 1
+f) ANativeWindow_toSurface: valid true, 64 x 48
+g) release: valid false; the window of fromSurface's reference: 64 x 48
+done
+logcat metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 ec8c3e46
+logcat metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 66ad36d7
+logcat metal: drawable 3: 64 x 48, BGRA8Unorm, CRC-32 09ba138c
+logcat metal: drawable 4: 32 x 24, BGRA8Unorm, CRC-32 95a7790f

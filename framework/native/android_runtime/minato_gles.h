@@ -9,8 +9,8 @@
 namespace android {
 
 // The libnativewindow window of `surface`, acquired for the caller, who releases it with ANativeWindow_release; null
-// when it has none. Until Grafik's Surface step gives Surface its natives no Surface has one: the first call logs that
-// window surfaces wait for that step, and the bindings then throw their IllegalArgumentException.
+// for a released Surface or another object, and the bindings then throw their IllegalArgumentException. Defined with
+// Surface's natives (android_view_Surface.cpp, ADR-0043 c2), which keep the window in mNativeObject.
 ANativeWindow *minato_surface_window(JNIEnv *env, jobject surface);
 
 // Logs `method` once through com.android.minato.services.Unwritten, as the generated managers do (ADR-0045 decision

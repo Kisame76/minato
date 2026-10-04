@@ -202,9 +202,11 @@ sources_in(android_runtime_sources "${jni}"
 # The GLES bindings (ADR-0041 a), decision 4): AOSP's core/jni files for android.opengl, javax.microedition.khronos and
 # com.google.android.gles_jni, five of them in tools/build-framework-native.sh's patched copies
 # (native/patches/opengl-without-libgui.patch: no libgui, libui or libEGL's private API, and no ETC1), with ours for a
-# Surface's window (minato_gles.cpp). They call EGL and GLES directly, so the library links the NDK's libEGL,
-# libGLESv1_CM, libGLESv2 and libGLESv3, as an app does; Minato's front libs of the same names answer at run time.
-# GLUtils' bitmap natives take a Bitmap through hwui's ABitmap C API (a3).
+# Surface's window (android_view_Surface.cpp) and Unwritten's line (minato_gles.cpp). They call EGL and GLES
+# directly, so the library links the NDK's libEGL, libGLESv1_CM, libGLESv2 and libGLESv3, as an app does; Minato's
+# front libs of the same names answer at run time.
+# GLUtils' bitmap natives take a Bitmap through hwui's ABitmap C API (a3). Surface's natives (ADR-0043 c2) lock and
+# post a window through libnativewindow and draw on it through hwui's ACanvas C API.
 sources_in(gles_sources "${jni}"
   android_opengl_GLES10.cpp android_opengl_GLES10Ext.cpp android_opengl_GLES11.cpp android_opengl_GLES11Ext.cpp
   android_opengl_GLES20.cpp android_opengl_GLES30.cpp android_opengl_GLES31.cpp android_opengl_GLES31Ext.cpp
@@ -220,7 +222,7 @@ endforeach()
 add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
-            native/android_runtime/android_view_DisplayEventReceiver.cpp
+            native/android_runtime/android_view_DisplayEventReceiver.cpp native/android_runtime/android_view_Surface.cpp
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp

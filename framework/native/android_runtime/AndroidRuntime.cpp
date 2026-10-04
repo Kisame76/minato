@@ -43,6 +43,7 @@ extern int register_android_content_XmlBlock(JNIEnv *env);
 extern int register_android_content_res_ApkAssets(JNIEnv *env);
 extern int register_android_os_SystemProperties(JNIEnv *env);
 extern int register_android_view_DisplayEventReceiver(JNIEnv *env);
+extern int register_android_view_Surface(JNIEnv *env);
 extern int register_android_hardware_display_DisplayService(JNIEnv *env);
 extern int register_android_os_MessageQueue(JNIEnv *env);
 extern int register_android_os_Trace(JNIEnv *env);
@@ -94,7 +95,8 @@ int register_framework_natives(JNIEnv *env) {
          {register_android_os_SystemClock, register_android_util_Log, register_android_content_AssetManager,
           register_android_content_StringBlock, register_android_content_XmlBlock,
           register_android_content_res_ApkAssets, register_android_os_SystemProperties,
-          register_android_view_DisplayEventReceiver, register_android_hardware_display_DisplayService,
+          register_android_view_DisplayEventReceiver, register_android_view_Surface,
+          register_android_hardware_display_DisplayService,
           register_com_google_android_gles_jni_EGLImpl, register_com_google_android_gles_jni_GLImpl,
           register_android_opengl_jni_EGL14, register_android_opengl_jni_EGL15, register_android_opengl_jni_EGLExt,
           register_android_opengl_jni_GLES10, register_android_opengl_jni_GLES10Ext, register_android_opengl_jni_GLES11,

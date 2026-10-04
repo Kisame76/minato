@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0043 c2's test of Surface's natives (window-surface-test): a Surface on graphics-run's window 1 through
+     Minato's WindowSurface, its EGL window surface, lockCanvas and unlockCanvasAndPost, and ANativeWindow_fromSurface
+     and ANativeWindow_toSurface from its JNI library. Minato only: Android has no WindowSurface. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.windowsurface" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
+  <uses-feature android:glEsVersion="0x00020000" android:required="true"/>
+  <application android:label="Window Surface Test"
+      android:name="io.github.kisame76.minato.test.windowsurface.WindowSurfaceApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -53,6 +53,8 @@ LIBRARIES = {
             "ANativeWindow_acquire", "ANativeWindow_release", "ANativeWindow_getWidth", "ANativeWindow_getHeight",
             "ANativeWindow_getFormat", "ANativeWindow_setBuffersGeometry", "ANativeWindow_lock",
             "ANativeWindow_unlockAndPost",
+            # a Java Surface's window, through libandroid_runtime (native_window_jni.cpp, ADR-0043 c2)
+            "ANativeWindow_fromSurface", "ANativeWindow_toSurface",
         ],
         # M3 has no resource matching. libandroid's own AHardwareBuffer functions stay stubs; they would
         # forward once libnativewindow has buffers. Input's Java side waits for Java (M4).
