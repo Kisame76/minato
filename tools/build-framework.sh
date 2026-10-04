@@ -142,6 +142,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
   --class android.view.accessibility.AccessibilityManager \
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
+  --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
 # target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.

@@ -46,6 +46,9 @@ public final class SystemFeatures {
         features.put("android.hardware.vulkan.compute", 0);
         features.put("android.hardware.vulkan.level", 0);
         features.put("android.hardware.vulkan.version", 0x403000);
+        // The iPhone's Wi-Fi, switched off: WifiManager reports WIFI_STATE_DISABLED, and ConnectivityManager no network
+        // (ADR-0045 decision 4 as changed on 2026-10-04). Without the feature Android gives no WifiManager.
+        features.put("android.hardware.wifi", 0);
         // Android 11's package visibility holds: the app sees no other package (ADR-0039 decision 7).
         features.put("android.software.app_enumeration", 0);
         FEATURES = Collections.unmodifiableMap(features);
@@ -77,8 +80,8 @@ public final class SystemFeatures {
         for (String name : new String[] {"location", "location.gps", "location.network"}) {
             left.put("android.hardware." + name, location);
         }
-        String network = "no network: ConnectivityManager and WifiManager report none (ADR-0045 decision 4)";
-        for (String name : new String[] {"wifi", "wifi.direct", "wifi.passpoint"}) {
+        String network = "no network: ConnectivityManager reports none, Wi-Fi is switched off (ADR-0045 decision 4)";
+        for (String name : new String[] {"wifi.direct", "wifi.passpoint"}) {
             left.put("android.hardware." + name, network);
         }
         left.put("android.software.ipsec_tunnels", network);

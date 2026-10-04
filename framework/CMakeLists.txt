@@ -204,6 +204,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} native/android_run
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp
             native/android_runtime/android_hardware_display_DisplayService.cpp
+            native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
             native/android_runtime/android_view_KeyEvent.cpp)
 target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"

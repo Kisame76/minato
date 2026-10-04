@@ -676,3 +676,21 @@ frameworks_base/core/java/com/android/internal/dynamicanimation/animation/FloatV
 frameworks_base/core/java/com/android/internal/dynamicanimation/animation/Force.java
 frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringAnimation.java
 frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringForce.java
+
+# ADR-0045, the local services Godot's start asks for (gaps 11 and 14 of the Godot survey): UtteranceProgressListener,
+# which Godot's speech class extends, and the sensors, AOSP's SensorManager and SystemSensorManager over natives of ours
+# that report none (decision 3), with the classes their API names. LegacySensorManager, the helper of the
+# SensorListener API (deprecated since API 3), stays a compile-only stub.
+frameworks_base/core/java/android/hardware/Sensor.java
+frameworks_base/core/java/android/hardware/SensorAdditionalInfo.java
+frameworks_base/core/java/android/hardware/SensorDirectChannel.java
+frameworks_base/core/java/android/hardware/SensorEvent.java
+frameworks_base/core/java/android/hardware/SensorEventCallback.java
+frameworks_base/core/java/android/hardware/SensorEventListener.java
+frameworks_base/core/java/android/hardware/SensorEventListener2.java
+frameworks_base/core/java/android/hardware/SensorListener.java
+frameworks_base/core/java/android/hardware/SensorManager.java
+frameworks_base/core/java/android/hardware/SystemSensorManager.java
+frameworks_base/core/java/android/hardware/TriggerEvent.java
+frameworks_base/core/java/android/hardware/TriggerEventListener.java
+frameworks_base/core/java/android/speech/tts/UtteranceProgressListener.java

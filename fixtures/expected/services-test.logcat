@@ -1,0 +1,15 @@
+I/services-test: UtteranceProgressListener's defaults called: onError(u)
+I/services-test: sensor service: android.hardware.SystemSensorManager
+I/services-test: sensors: 0, dynamic discovery false
+I/services-test: default sensors: accelerometer null, gyroscope null, magnetic field null, gravity null
+I/services-test: registerListener without a sensor: false
+I/services-test: Wi-Fi feature: true
+I/services-test: wifi service: android.net.wifi.WifiManager
+I/services-test: isWifiEnabled without ACCESS_WIFI_STATE: java.lang.SecurityException
+I/services-test: multicast lock held: false, after acquire true, after a second acquire and one release true, after the second release false
+I/services-test: one release more: java.lang.RuntimeException: MulticastLock under-locked services-test
+I/services-test: without a reference count, acquired twice and released once: held false
+I/services-test: multicast lock 51: java.lang.UnsupportedOperationException: Exceeded maximum number of wifi locks
+I/services-test: Wi-Fi lock without WAKE_LOCK: java.lang.SecurityException, held false
+I/services-test: Wi-Fi lock release without WAKE_LOCK: java.lang.SecurityException
+I/services-test: done

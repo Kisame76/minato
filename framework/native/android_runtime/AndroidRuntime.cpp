@@ -27,6 +27,7 @@ extern int register_android_view_DisplayEventReceiver(JNIEnv *env);
 extern int register_android_hardware_display_DisplayService(JNIEnv *env);
 extern int register_android_os_MessageQueue(JNIEnv *env);
 extern int register_android_os_Trace(JNIEnv *env);
+extern int register_android_hardware_SensorManager(JNIEnv *env);
 extern int register_android_app_ActivityThread(JNIEnv *env);
 extern int register_android_animation_PropertyValuesHolder(JNIEnv *env);
 extern int register_android_util_EventLog(JNIEnv *env);
@@ -68,6 +69,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_content_res_ApkAssets, register_android_os_SystemProperties,
           register_android_view_DisplayEventReceiver, register_android_hardware_display_DisplayService,
           register_android_graphics_classes, register_android_os_MessageQueue, register_android_os_Trace,
+          register_android_hardware_SensorManager,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent}) {
         if (registration(env) < 0) {

@@ -16,11 +16,15 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
+import android.hardware.SensorManager;
+import android.hardware.SystemSensorManager;
+import android.net.wifi.WifiManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Process;
 import android.os.UserHandle;
 import android.system.ErrnoException;
@@ -72,6 +76,8 @@ class ContextImpl {
     private Resources.Theme mTheme;
     private LayoutInflater mLayoutInflater;
     private WindowManager mWindowManager;
+    private SensorManager mSensorManager;
+    private WifiManager mWifiManager;
     /** An activity context's token and its own Resources; the application's has neither. */
     private IBinder mToken;
     private boolean mIsActivityContext;
@@ -201,8 +207,29 @@ class ContextImpl {
                 return mWindowManager;
             }
         }
+        if (Context.SENSOR_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mSensorManager == null) {
+                    mSensorManager = new SystemSensorManager(getOuterContext(), Looper.getMainLooper());
+                }
+                return mSensorManager;
+            }
+        }
+        if (Context.WIFI_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mWifiManager == null) {
+                    mWifiManager = new WifiManager(getOuterContext());
+                }
+                return mWifiManager;
+            }
+        }
         Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
         return null;
+    }
+
+    /** The default device's, as an app's context on a phone has it: Minato has no virtual devices. */
+    public int getDeviceId() {
+        return Context.DEVICE_ID_DEFAULT;
     }
 
     /** The display a context without one has, as the tag's answers: the default display. */
@@ -252,6 +279,12 @@ class ContextImpl {
         }
         if (serviceClass == WindowManager.class) {
             return Context.WINDOW_SERVICE;
+        }
+        if (serviceClass == SensorManager.class) {
+            return Context.SENSOR_SERVICE;
+        }
+        if (serviceClass == WifiManager.class) {
+            return Context.WIFI_SERVICE;
         }
         Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
                 + (serviceClass == null ? "null" : serviceClass.getName()), "null");

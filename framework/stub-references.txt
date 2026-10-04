@@ -425,3 +425,13 @@ android.window.SplashScreen$SplashScreenImpl <- android.app.Activity  # gap: Act
 com.android.internal.app.ToolbarActionBar <- android.app.Activity  # gap: Activity.setActionBar with a platform Toolbar, which needs the widget
 com.android.internal.app.WindowDecorActionBar <- android.app.Activity  # stays: the window's action bar, which initWindowDecorActionBar makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
 com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # step b3.5b2: a new intent delivered to a running activity (onNewIntent)
+
+# ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
+# sensor runs, and the speech listener.
+android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
+android.content.IntentFilter <- android.hardware.SystemSensorManager  # gap: getDynamicSensorList and the dynamic and runtime sensor callbacks, whose receivers need IntentFilter and decision 5's broadcasts
+android.hardware.HardwareBuffer <- android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers
+android.hardware.LegacySensorManager <- android.hardware.SensorManager  # gap: the SensorListener API, deprecated since API 3, which needs the window manager's rotation watcher
+android.hardware.input.InputSensorInfo <- android.hardware.Sensor  # stays: an input device's sensor, which only InputManager makes
+android.os.MemoryFile <- android.hardware.SensorDirectChannel, android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers
+android.speech.tts.TextToSpeech$OnUtteranceCompletedListener <- android.speech.tts.UtteranceProgressListener  # gap: TextToSpeech, whose old listener only its from() wraps; it comes with Settings in gap 13's step
