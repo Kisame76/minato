@@ -2,6 +2,7 @@
 """The checks of test 2's APKs, script and twin (ADR-0042 a and c), for CTest's godot.export, godot.script and godot.twin.
 Usage: tools/godot-check.py export   checks build/godot/godot-bench-{vulkan,gles}.apk from tools/build-godot.sh
        tools/godot-check.py script   runs the project headless on the Mac for 3 s (tools/build-godot.sh --run)
+       tools/godot-check.py pack     runs the twin's build/godot/Minato.pck (tools/build-godot.sh --pack) the same way
        tools/godot-check.py twin     checks build/MinatoGodot.xcframework from tools/build-godot.sh --twin
 Each prints "skipped:" while tools/fetch-godot.py --fetch has not unpacked the editor. Runs on /usr/bin/python3 (3.9).
 export, for each APK:
@@ -12,9 +13,11 @@ export, for each APK:
   - assets/_cl_ names the driver it must draw with (--bench-driver), and the GLES APK's also the Compatibility
     renderer (--rendering-method gl_compatibility);
   - its launcher and splash icons are ours: none equals the template's, which are Godot's logo.
-script: a bench.conf of 3 s at 60 Hz gives the script's lines, a scene.csv row per frame and the done file, and exit 0.
+script: a bench.conf of 3 s at 60 Hz gives the script's lines, a scene.csv row per frame and the done file, and exit 0;
+  Godot's user:// lies in build/godot/home. pack: the same from the iOS preset's pack, which the twin loads (c) 2).
 twin: the framework exports only the wrapper's entries of twin/exports.txt and holds no _main; its Vulkan calls bind to
   MoltenVK.framework, of which it defines nothing; it links no Swift library; it is an iOS device binary from iOS 26.0.
+  The wrapper's window fallback (twin/ensure_method.m) passes its check on the Mac.
 """
 import json
 import os
@@ -121,18 +124,30 @@ def check_export():
               f"({fields.get('packageName')}, {fields.get('launcherActivity')}, {fields.get('selectedABI')})")
 
 
-def check_script():
+def check_run(kind):
+    """script: the project through tools/build-godot.sh --run; pack: the twin's Minato.pck, run by the editor."""
     os.makedirs(BUILD, exist_ok=True)
-    folder = tempfile.mkdtemp(prefix="godot-script-", dir=BUILD)
+    folder = tempfile.mkdtemp(prefix=f"godot-{kind}-", dir=BUILD)
     conf = os.path.join(folder, "bench.conf")
     with open(conf, "w") as handle:
-        handle.write("run=godot-script\nrate=60\nload=light\nseconds=3\n")
-    script = os.path.join(ROOT, "tools", "build-godot.sh")
-    if not os.access(script, os.X_OK):
-        check(False, "tools/build-godot.sh exists")
-        return
+        handle.write(f"run=godot-{kind}\nrate=60\nload=light\nseconds=3\n")
+    if kind == "script":
+        script = os.path.join(ROOT, "tools", "build-godot.sh")
+        if not os.access(script, os.X_OK):
+            check(False, "tools/build-godot.sh exists")
+            return
+        command, environment = [script, "--run", conf], None
+    else:
+        pack = os.path.join(BUILD, "Minato.pck")
+        if not os.path.isfile(pack):
+            check(False, "build/godot/Minato.pck exists: run tools/build-godot.sh --pack")
+            return
+        with open(pack, "rb") as handle:
+            check(handle.read(4) == b"GDPC", "Minato.pck is a Godot pack")
+        command = [EDITOR, "--headless", "--main-pack", pack, "--", f"--bench-config={conf}"]
+        environment = dict(os.environ, HOME=os.path.join(BUILD, "home"))
     start = int(time.time())
-    run = subprocess.run([script, "--run", conf], capture_output=True, text=True, timeout=300)
+    run = subprocess.run(command, capture_output=True, text=True, timeout=300, env=environment)
     # Godot's user:// on macOS follows $HOME alone: the run's log must land in build/godot/home, not in the user's.
     log = os.path.join("Library", "Application Support", "Godot", "app_userdata", "godot-bench", "logs", "godot.log")
     inside = os.path.join(BUILD, "home", log)
@@ -141,11 +156,11 @@ def check_script():
     check(not os.path.isfile(outside) or os.path.getmtime(outside) < start, "the run writes nothing to ~/Library's user://")
     lines = run.stdout.splitlines()
     check(run.returncode == 0, f"the project ends with exit status 0 ({run.returncode})")
-    check("godot-bench: start godot-script rate 60 load light seconds 3 meshes 512" in lines, "the start line names bench.conf's run")
+    check(f"godot-bench: start godot-{kind} rate 60 load light seconds 3 meshes 512" in lines, "the start line names bench.conf's run")
     check(any(line.startswith("godot-bench: rendering ") for line in lines), "a line names the renderer and driver")
     seconds = [line for line in lines if re.match(r"^godot-bench-device: second [0-9]+: [0-9]+ frames$", line)]
     check(len(seconds) >= 2, f"a line a second ({len(seconds)})")
-    ends = [re.match(r"^run godot-script: ([1-9][0-9]*) frames, 0 failures$", line) for line in lines]
+    ends = [re.match(rf"^run godot-{kind}: ([1-9][0-9]*) frames, 0 failures$", line) for line in lines]
     ends = [match for match in ends if match]
     frames = int(ends[0].group(1)) if len(ends) == 1 else 0
     check(len(ends) == 1 and 150 <= frames <= 200, f"one run line, with about 3 s of 60 frames ({frames})")
@@ -167,9 +182,26 @@ def tool(*command):
     return subprocess.run(command, capture_output=True, text=True, check=True).stdout
 
 
+def check_fallback():
+    """The wrapper's window fallback (c) 2), built and run on the Mac: it uses the Objective-C runtime only."""
+    source = os.path.join(ROOT, "fixtures", "apps", "godot-bench", "twin")
+    work = os.path.join(BUILD, "twin-test")
+    os.makedirs(work, exist_ok=True)
+    binary = os.path.join(work, "ensure_method_test")
+    built = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation",
+                            "-I", source, os.path.join(source, "ensure_method.m"),
+                            os.path.join(source, "ensure_method_test.m"), "-o", binary], capture_output=True, text=True)
+    check(built.returncode == 0, "the window fallback builds for the Mac" + ("" if built.returncode == 0 else f" ({built.stderr.strip()[-300:]})"))
+    if built.returncode == 0:
+        ran = subprocess.run([binary], capture_output=True, text=True)
+        check(ran.returncode == 0 and ran.stdout.rstrip().endswith("ensure_method: ok"),
+              "the window fallback gives a window only to a delegate without one" + ("" if ran.returncode == 0 else f"\n{ran.stdout}"))
+
+
 def check_twin():
     """The twin's framework (ADR-0042 decision 3, c) 1): Godot's iOS template library with our wrapper, linked
     against our MoltenVK 1.4.2 instead of the template's own."""
+    check_fallback()
     binary = os.path.join(TWIN, "MinatoGodot")
     if not os.path.isfile(binary):
         check(False, "build/MinatoGodot.xcframework exists: run tools/build-godot.sh --twin")
@@ -199,15 +231,15 @@ def check_twin():
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("export", "script", "twin"):
-        raise SystemExit("usage: tools/godot-check.py export|script|twin")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("export", "script", "pack", "twin"):
+        raise SystemExit("usage: tools/godot-check.py export|script|pack|twin")
     if not os.access(EDITOR, os.X_OK):
         print("skipped: no Godot editor in build/godot: run tools/fetch-godot.py --fetch", flush=True)
         return
     if sys.argv[1] == "export":
         check_export()
-    elif sys.argv[1] == "script":
-        check_script()
+    elif sys.argv[1] in ("script", "pack"):
+        check_run(sys.argv[1])
     else:
         check_twin()
     if failures:

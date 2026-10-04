@@ -10,9 +10,12 @@
 # fixtures/apps/godot-bench/twin/minato_godot.mm, linked against ADR-0030's MoltenVK 1.4.2 into
 # build/MinatoGodot.xcframework, for iOS devices only: the template's Simulator library is x86_64 alone.
 # tools/godot-check.py twin checks it.
+# With --pack it exports the iOS preset's pack, build/godot/Minato.pck, which the twin loads from the bundle's root as
+# <executable>.pck (tools/godot-check.py pack).
 # Usage: tools/build-godot.sh                    both APKs
 #        tools/build-godot.sh --run <bench.conf>  the project headless on the Mac with that bench.conf, writing
 #                                                 scene.csv and done beside it (tools/godot-check.py script)
+#        tools/build-godot.sh --pack              the twin's pack
 #        tools/build-godot.sh --twin              the twin's framework
 set -euo pipefail
 
@@ -42,9 +45,12 @@ twin() {
   unzip -q "$templates/ios.zip" "$library" -d "$work"
   xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=26.0 -std=c++17 -fobjc-arc -fvisibility=hidden \
     -O2 -Wall -Wextra -Werror -c "$source/minato_godot.mm" -o "$work/minato_godot.o"
+  xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=26.0 -fobjc-arc -fvisibility=hidden \
+    -O2 -Wall -Wextra -Werror -c "$source/ensure_method.m" -o "$work/ensure_method.o"
   xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=26.0 -dynamiclib \
     -install_name @rpath/MinatoGodot.framework/MinatoGodot -o "$framework/MinatoGodot" "$work/minato_godot.o" \
-    "$work/$library" -F"$moltenvk" -framework MoltenVK -Wl,-exported_symbols_list,"$source/exports.txt" -Wl,-dead_strip
+    "$work/ensure_method.o" "$work/$library" -F"$moltenvk" -framework MoltenVK \
+    -Wl,-exported_symbols_list,"$source/exports.txt" -Wl,-dead_strip
   xcrun strip -x "$framework/MinatoGodot"
   plutil -convert binary1 -o "$framework/Info.plist" "$source/Info.plist"
   rm -rf "$work/libgodot.ios.release.xcframework" "$ROOT/build/MinatoGodot.xcframework"
@@ -74,8 +80,18 @@ HOME="$USER_HOME" "$EDITOR" --headless --path "$PROJECT" --import >"$GODOT/impor
 
 if [[ $# -eq 2 && "$1" == --run ]]; then
   HOME="$USER_HOME" exec "$EDITOR" --headless --path "$PROJECT" -- "--bench-config=$2"
+elif [[ $# -eq 1 && "$1" == --pack ]]; then
+  rm -f "$GODOT/Minato.pck"
+  if ! HOME="$USER_HOME" "$EDITOR" --headless --path "$PROJECT" --export-pack iOS "$GODOT/Minato.pck" \
+      >"$GODOT/export-pack.log" 2>&1 || [[ ! -f "$GODOT/Minato.pck" ]]; then
+    tail -20 "$GODOT/export-pack.log" >&2
+    echo "build-godot: the export of the pack failed, see $GODOT/export-pack.log" >&2
+    exit 1
+  fi
+  echo "build-godot: $GODOT/Minato.pck ($(stat -f %z "$GODOT/Minato.pck") bytes)"
+  exit 0
 elif [[ $# -ne 0 ]]; then
-  echo "usage: tools/build-godot.sh [--run <bench.conf> | --twin]" >&2
+  echo "usage: tools/build-godot.sh [--run <bench.conf> | --pack | --twin]" >&2
   exit 2
 fi
 

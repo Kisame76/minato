@@ -123,11 +123,12 @@ if(APK_HOST_BUILD)
   endforeach()
 
   # Test 2 with Godot (ADR-0042 a and c): the guards of tools/fetch-godot.py, without the network; the APKs of
-  # tools/build-godot.sh; the project run headless on the Mac; and the twin's framework of its --twin. The last
-  # three say "skipped:" without the editor, and share build/godot/ through their lock.
+  # tools/build-godot.sh; the project run headless on the Mac; the twin's pack of its --pack, run the same way; and the
+  # twin's framework of its --twin. The last four say "skipped:" without the editor, and share build/godot/ through
+  # their lock.
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME godot.fetch COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/fetch-godot.py" --self-test)
-  foreach(check export script twin)
+  foreach(check export script pack twin)
     add_test(NAME godot.${check} COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/godot-check.py" ${check})
     set_tests_properties(godot.${check} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" RESOURCE_LOCK godot TIMEOUT 600)
   endforeach()
