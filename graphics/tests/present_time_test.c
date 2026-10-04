@@ -7,11 +7,11 @@
    its limit and 1 ns beyond, also on the tick's refresh and before it.
    Decision 11 c)'s rule, at 60 and 120 Hz, on streams of 10 frames: on time asking 2 periods ahead, 1 period ahead
    (which only the next refresh but one reaches) and 5 periods back, none dropped; a period behind, with the drawable's
-   wait, for 2 frames and then caught up, one dropped; a period behind for good, every second frame dropped, or every
-   fourth with a guard of 3; the same without a time, none; one refresh asked for three times, only the one whose
-   drawable waited dropped; a frame without a time after one far out, which shows after it, so the next frame asking
-   for that refresh is dropped; on time across a switch from 60 to 120 Hz, none. Before the first tick a frame goes
-   and takes nothing. */
+   wait, for 2 frames and then caught up, one dropped; a period behind for good, every second frame dropped, and none of
+   frames the rule does not rule, as Vulkan's; the same without a time, none; one refresh asked for three times, only
+   the one whose drawable waited dropped; a frame without a time after one far out, which shows after it, so the next
+   frame asking for that refresh is dropped; on time across a switch from 60 to 120 Hz, none. Before the first tick a
+   frame goes and takes nothing. */
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -57,18 +57,18 @@ struct frame {
 enum { kFrames = 10 };
 static const int64_t kMs = 1000000;
 
-/* Each frame's fate in order, G for shown and D for dropped, against `wanted`. */
-static void expect_fates(const char *what, int64_t period, int guard, const struct frame *frames, const char *wanted) {
+/* Each frame's fate in order, G for shown and D for dropped, against `wanted`; `ruled` as the rule takes it. */
+static void expect_fates(const char *what, int64_t period, int ruled, const struct frame *frames, const char *wanted) {
     struct minato_present_pace pace = {0};
     char got[kFrames + 1] = {0};
     for (int index = 0; index < kFrames; index++) {
         const struct frame *frame = &frames[index];
-        const int shown = minato_present_paced_on_grid(&pace, frame->asked, frame->time, frame->waited, frame->present,
-                                                       guard, 0, period);
+        const int shown = minato_present_paced_on_grid(&pace, ruled, frame->asked, frame->time, frame->waited,
+                                                       frame->present, 0, period);
         got[index] = shown ? 'G' : 'D';
     }
     if (strcmp(got, wanted) != 0) {
-        printf("present-time: %s, period %" PRId64 " ns, guard %d: %s, not %s\n", what, period, guard, got, wanted);
+        printf("present-time: %s, period %" PRId64 " ns, ruled %d: %s, not %s\n", what, period, ruled, got, wanted);
         failures++;
     }
 }
@@ -87,21 +87,21 @@ static void stream(struct frame *frames, int64_t period, int64_t ahead, int behi
 static void expect_rule(int64_t period) {
     struct frame frames[kFrames];
     stream(frames, period, 2, 0, 0, 200000);
-    expect_fates("on time, 2 periods ahead", period, 0, frames, "GGGGGGGGGG");
+    expect_fates("on time, 2 periods ahead", period, 1, frames, "GGGGGGGGGG");
     stream(frames, period, 1, 0, 0, 200000);
-    expect_fates("on time, 1 period ahead, which only the next refresh but one reaches", period, 0, frames,
+    expect_fates("on time, 1 period ahead, which only the next refresh but one reaches", period, 1, frames,
                  "GGGGGGGGGG");
     stream(frames, period, -5, 0, 0, 200000);
-    expect_fates("5 periods in the past", period, 0, frames, "GGGGGGGGGG");
+    expect_fates("5 periods in the past", period, 1, frames, "GGGGGGGGGG");
     stream(frames, period, 2, 0, 2, 0);
-    expect_fates("a period behind for 2 frames, then caught up", period, 0, frames, "GDGGGGGGGG");
+    expect_fates("a period behind for 2 frames, then caught up", period, 1, frames, "GDGGGGGGGG");
     stream(frames, period, 2, 0, kFrames, 0);
-    expect_fates("a period behind for good", period, 0, frames, "GDGDGDGDGD");
-    expect_fates("a period behind for good, a guard of 3", period, 3, frames, "GDGGGDGGGD");
+    expect_fates("a period behind for good", period, 1, frames, "GDGDGDGDGD");
+    expect_fates("a period behind for good, not ruled, as Vulkan's", period, 0, frames, "GGGGGGGGGG");
     for (int index = 0; index < kFrames; index++) {
         frames[index].asked = 0;
     }
-    expect_fates("a period behind for good, without a time", period, 0, frames, "GGGGGGGGGG");
+    expect_fates("a period behind for good, without a time", period, 1, frames, "GGGGGGGGGG");
     /* One refresh 20 periods out asked for three times, with a time: the second's drawable waited, the third's did
        not; the fourth asks for the refresh after. */
     const int64_t far = 30 * period, time = minato_present_time_on_grid(far, 0, period);
@@ -110,7 +110,7 @@ static void expect_rule(int64_t period) {
         frames[index] = (struct frame){(index + 10) * period + 1 * kMs, far + later, time + later,
                                        index == 1 ? period - 1 * kMs : 0};
     }
-    expect_fates("one refresh asked for three times, then the next ones", period, 0, frames, "GDGGGGGGGG");
+    expect_fates("one refresh asked for three times, then the next ones", period, 1, frames, "GDGGGGGGGG");
     /* A frame without a time after one 20 periods out shows after it, as Core Animation shows drawables in order, so
        the next frame, which asks for that refresh and whose drawable waited, is dropped. */
     for (int index = 0; index < kFrames; index++) {
@@ -119,7 +119,7 @@ static void expect_rule(int64_t period) {
                                        asked != 0 ? minato_present_time_on_grid(asked, 0, period) : 0,
                                        index == 2 ? period - 1 * kMs : 0};
     }
-    expect_fates("a frame without a time after one far out, then one asking for the refresh after", period, 0, frames,
+    expect_fates("a frame without a time after one far out, then one asking for the refresh after", period, 1, frames,
                  "GGDGGGGGGG");
 }
 
@@ -133,8 +133,8 @@ static void expect_switch(void) {
     for (int index = 0; index < kFrames; index++) {
         const int64_t period = index < 5 ? sixty : one_twenty;
         const int64_t frame_time = index < 5 ? (index + 10) * sixty : 15 * sixty + (index - 5) * one_twenty;
-        const int shown = minato_present_paced_on_grid(&pace, frame_time + 2 * period, 0, 200000, frame_time + 1 * kMs,
-                                                       0, 0, period);
+        const int shown = minato_present_paced_on_grid(&pace, 1, frame_time + 2 * period, 0, 200000,
+                                                       frame_time + 1 * kMs, 0, period);
         got[index] = shown ? 'G' : 'D';
     }
     if (strcmp(got, "GGGGGGGGGG") != 0) {
@@ -166,7 +166,7 @@ int main(void) {
        session), then grids of 10 ms from 1 s and from 1.007 s, and of 120 Hz from 1 s. */
     expect_time("before the first tick", 2000000000, 2000000000);
     struct minato_present_pace before = {0};
-    if (minato_present_paced(&before, 2000000000, 0, 20000000, 2000000000, 0) != 1 || before.taken != 0) {
+    if (minato_present_paced(&before, 1, 2000000000, 0, 20000000, 2000000000) != 1 || before.taken != 0) {
         printf("present-time: before the first tick, a frame did not go, or took a refresh\n");
         failures++;
     }

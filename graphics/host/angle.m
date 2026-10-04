@@ -203,7 +203,7 @@ static egl_boolean swapped(void *display, void *surface) {
     void *layer = NULL;
     int64_t asked = 0;
     const uint64_t window = window_of(surface, &layer, &asked);
-    const struct minato_present_record record = {.asked = asked};
+    const struct minato_present_record record = {.asked = asked, .ruled = 1};
     const uint64_t ticket = layer != NULL ? minato_present_push(layer, &record) : 0;
     const egl_boolean result = swap_buffers(display, surface);
     if (!result) {

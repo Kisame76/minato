@@ -15,9 +15,10 @@ struct minato_present_record {
     /* Called with the record, on the thread that presents the drawable, when Core Animation does not get it; NULL
        for none. The other fields are its caller's. */
     void (*dropped)(const struct minato_present_record *record);
-    /* How many presents go anyway after decision 11 c)'s rule dropped one: the swapchain's image count for Vulkan, as
-       MoltenVK lets a dropped drawable go only when it acquires that image again; 0 for EGL. */
-    int guard;
+    /* 1 when decision 11 c)'s rule may withhold the present: EGL's, whose drawables ANGLE lets go after the swap; 0
+       for Vulkan's, as MoltenVK keeps a dropped drawable until it acquires that image again (ADR-0041, the sitting
+       of 2026-10-04). */
+    int ruled;
     uint64_t swapchain;
     uint64_t handed;
     uint32_t id;

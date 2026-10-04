@@ -275,36 +275,31 @@ struct chain {
     struct chain *next;
     VkSwapchainKHR swapchain;
     CAMetalLayer *layer;
-    uint32_t images;  /* the swapchain's, the guard of decision 11 c)'s rule */
 };
 static struct chain *chains;
 static pthread_mutex_t chains_lock = PTHREAD_MUTEX_INITIALIZER;
 
-/* Keeps the swapchain's layer, whose retain it takes, and its image count. */
-static void chain_keep(VkSwapchainKHR swapchain, CAMetalLayer *layer, uint32_t images) {
+/* Keeps the swapchain's layer, whose retain it takes. */
+static void chain_keep(VkSwapchainKHR swapchain, CAMetalLayer *layer) {
     struct chain *entry = malloc(sizeof *entry);
     if (entry == NULL) {
         [layer release];
         return;  /* its presents leave no records */
     }
-    *entry = (struct chain){NULL, swapchain, layer, images};
+    *entry = (struct chain){NULL, swapchain, layer};
     pthread_mutex_lock(&chains_lock);
     entry->next = chains;
     chains = entry;
     pthread_mutex_unlock(&chains_lock);
 }
 
-/* The swapchain's layer, unretained: the list holds it while the app presents on the swapchain. nil for none. With
-   `images`, its image count too. */
-static CAMetalLayer *chain_layer(VkSwapchainKHR swapchain, uint32_t *images) {
+/* The swapchain's layer, unretained: the list holds it while the app presents on the swapchain. nil for none. */
+static CAMetalLayer *chain_layer(VkSwapchainKHR swapchain) {
     CAMetalLayer *layer = nil;
     pthread_mutex_lock(&chains_lock);
     for (const struct chain *entry = chains; entry != NULL; entry = entry->next) {
         if (entry->swapchain == swapchain) {
             layer = entry->layer;
-            if (images != NULL) {
-                *images = entry->images;
-            }
             break;
         }
     }
@@ -371,15 +366,12 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
     for (uint32_t index = 0; tickets != NULL && index < info->swapchainCount; index++) {
         const int timed = asked != NULL && index < asked->swapchainCount;
         const int64_t time = timed ? (int64_t)asked->pTimes[index].desiredPresentTime : 0;
-        uint32_t images = 0;
-        CAMetalLayer *layer = chain_layer(info->pSwapchains[index], &images);
         const struct minato_present_record record = {.asked = !without_time && time > 0 ? time : 0,
                                                      .dropped = present_dropped,
-                                                     .guard = (int)images,
                                                      .swapchain = (uint64_t)info->pSwapchains[index],
                                                      .handed = timed ? times[index].desiredPresentTime : 0,
                                                      .id = timed ? asked->pTimes[index].presentID : 0};
-        tickets[index] = minato_present_push(layer, &record);
+        tickets[index] = minato_present_push(chain_layer(info->pSwapchains[index]), &record);
     }
     const VkResult result = queue_present(queue, &ours);
     left();
@@ -388,7 +380,7 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
     for (uint32_t index = 0; tickets != NULL && result < 0 && result != VK_ERROR_OUT_OF_DATE_KHR &&
                              result != VK_ERROR_SURFACE_LOST_KHR && index < info->swapchainCount;
          index++) {
-        minato_present_take_back(chain_layer(info->pSwapchains[index], NULL), tickets[index]);
+        minato_present_take_back(chain_layer(info->pSwapchains[index]), tickets[index]);
     }
     if (tickets != some) {
         free(tickets);
@@ -445,14 +437,8 @@ static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKH
         [CATransaction flush];
         CAMetalLayer *layer =
             windows != NULL && windows->count == 1 ? (CAMetalLayer *)apkrt_window_layer(windows->windows[0]) : nil;
-        uint32_t images = 0;
-        const PFN_vkGetSwapchainImagesKHR get_images =
-            (PFN_vkGetSwapchainImagesKHR)device_function(device, "vkGetSwapchainImagesKHR");
-        if (get_images == NULL || get_images(device, *swapchain, &images, NULL) != VK_SUCCESS) {
-            images = 0;
-        }
         if (layer != nil) {
-            chain_keep(*swapchain, layer, images);
+            chain_keep(*swapchain, layer);
         }
     }
     return result;

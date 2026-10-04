@@ -289,7 +289,7 @@ static void pace_adopt(MinatoMetalLayer *layer, id<CAMetalDrawable> drawable, in
 // The presents on MinatoMetalLayer's drawables (ADR-0041 decision 11 c), present_pace.h): each drawable the layer gives
 // out becomes graphics/host's subclass of its class, whose present and presentAtTime: take the layer's oldest record
 // and then hand the drawable to Core Animation, or not, as decision 11 c)'s rule decides (present_time.h) from the time
-// its app asked for, its wait in nextDrawable and the record's guard. Metal's presentDrawable: and
+// its app asked for, its wait in nextDrawable and whether its record is ruled. Metal's presentDrawable: and
 // presentDrawable:atTime: reach them, and so does MoltenVK's present from its scheduled handler; neither ANGLE nor
 // MoltenVK presents otherwise. A drawable not handed over goes back to the layer's pool once it is let go, and its
 // presented handlers run then, with presentedTime 0; MoltenVK lets an image's drawable go when it acquires that image
@@ -399,7 +399,7 @@ static BOOL pace_hands_over(id<CAMetalDrawable> drawable, int64_t time) {
             }
         }
         if (hands_over) {
-            hands_over = minato_present_paced(&pace->rule, record.asked, time, waited, now_ns(), record.guard) != 0;
+            hands_over = minato_present_paced(&pace->rule, record.ruled, record.asked, time, waited, now_ns()) != 0;
         }
     }
     os_unfair_lock_unlock(&pace->lock);

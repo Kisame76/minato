@@ -28,25 +28,26 @@ enum minato_present_kind {
 enum minato_present_kind minato_present_time(int64_t asked, int64_t *time);
 
 /* A layer's pace (ADR-0041 decision 11 c)), zeroed before its first frame: the refresh the last frame Core Animation
-   got shows at, 0 before one, and how many more frames go before one may be dropped again. */
+   got shows at, 0 before one. */
 struct minato_present_pace {
     int64_t taken;
-    int guard;
 };
 
 /* A frame at its present at `now`, on the grid of the refreshes at `phase` + k x `period` (`period` > 0): 1 when Core
-   Animation gets it, 0 when it does not (decision 11 c)). `asked` is the time its app asked for (0 or less: none),
-   `time` the one Core Animation gets (0: none, as minato_present_time gives it), `waited` how long its drawable took to
-   come, in nanoseconds, and `guard` how many frames go anyway after a drop. A frame is not shown when its app asked for
-   a time, an older frame already takes the refresh it asked for (the first on the grid at or after the time less 1 ms),
-   its drawable waited longer than half a period and the last drop's guard has run out. Any other frame goes and takes
-   its refresh: the time's with a time, else the 2nd refresh after `now`, at least the one after the older frame's. */
-int minato_present_paced_on_grid(struct minato_present_pace *pace, int64_t asked, int64_t time, int64_t waited,
-                                 int64_t now, int guard, int64_t phase, int64_t period);
+   Animation gets it, 0 when it does not (decision 11 c)). `ruled` is 1 when the rule may withhold the frame, as for
+   EGL's presents, whose drawables ANGLE lets go at once, and 0 for Vulkan's, since MoltenVK keeps a dropped drawable
+   until it acquires that image again. `asked` is the time its app asked for (0 or less: none), `time` the one Core
+   Animation gets (0: none, as minato_present_time gives it), and `waited` how long its drawable took to come, in
+   nanoseconds. A ruled frame is not shown when its app asked for a time, an older frame already takes the refresh it
+   asked for (the first on the grid at or after the time less 1 ms) and its drawable waited longer than half a period.
+   Any other frame goes and takes its refresh: the time's with a time, else the 2nd refresh after `now`, at least the
+   one after the older frame's. */
+int minato_present_paced_on_grid(struct minato_present_pace *pace, int ruled, int64_t asked, int64_t time,
+                                 int64_t waited, int64_t now, int64_t phase, int64_t period);
 
 /* The same on the grid of the runtime's last display-link tick (apkrt_vsync_grid). A frame before the first tick, or on
    a grid without a period, goes and takes nothing. */
-int minato_present_paced(struct minato_present_pace *pace, int64_t asked, int64_t time, int64_t waited, int64_t now,
-                         int guard);
+int minato_present_paced(struct minato_present_pace *pace, int ruled, int64_t asked, int64_t time, int64_t waited,
+                         int64_t now);
 
 #endif
