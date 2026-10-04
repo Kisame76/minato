@@ -216,6 +216,14 @@ The engine of test 2's app and the tool its export needs, in `build/godot/`, not
 
 The two test APKs that `tools/build-godot.sh` exports at test time, never kept in the repo or the app, carry what Godot's Android template holds: AndroidX and Kotlin's standard library (Apache-2.0), and Swappy, the Android Game Development Kit's frame pacing (Apache-2.0), inside `libgodot_android.so`, also while `godot-bench` turns Swappy off.
 
+## Build tools for the formats (M5)
+
+Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the app; pinned in `third_party/sources.json`, fetched on your go of 2026-10-04 in the chat Formate.
+
+| Tool | Version | License |
+|---|---|---|
+| bundletool (`bundletool-all-1.18.3.jar`) in `build/tools/bundletool/`, run with the JDK above and our aapt2 (`--aapt2 build/aapt2/aapt2`); the aapt2 binaries inside the jar are never run | `1.18.3` (`586a43a45071`), SHA-256 `a099cfa1543f` | Apache-2.0 |
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.

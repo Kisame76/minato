@@ -12,6 +12,7 @@
     "Graphics sources": "never",
     "Guest fonts": "always",
     "Test 2 with Godot": "MinatoGodot.framework",
+    "Build tools for the formats": "never",
     "References without adopted code": "never"
   },
   "components": [

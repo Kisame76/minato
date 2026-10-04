@@ -1033,5 +1033,20 @@
         "sha256": "c01e4b763da96ae5ef67e8bdf2abc94fb6cb3e73a42209581feb6a7019a51b9c"
       }
     ]
+  },
+  "bundletool": {
+    "comment": "bundletool 1.18.3 as released, for M5: the test cases of formats 2, 6 and 7 and the .aab tool (M5 plan, decision 2), fetched on the user's go of 2026-10-04 into build/tools/bundletool/ and checked against the SHA-256 that GitHub's release API states. A Mac build tool run with build/tools/jdk-17 and build/aapt2, never in the app. tools/fetch-sources.py does not read this entry.",
+    "project": "https://github.com/google/bundletool",
+    "tag": "1.18.3",
+    "commit": "586a43a450712a1067f3d92cf7574dee68226302",
+    "license": "Apache-2.0",
+    "assets": [
+      {
+        "name": "bundletool-all-1.18.3.jar",
+        "url": "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
+        "bytes": 32520401,
+        "sha256": "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
+      }
+    ]
   }
 }
