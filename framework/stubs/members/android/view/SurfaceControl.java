@@ -3,6 +3,13 @@
 // (ADR-0041 a)) DisplayInfo and Display read a display's refresh-rate range, which the local display service
 // leaves out.
 class SurfaceControl {
+    /** @hide AttachedSurfaceControl.getBufferTransformHint's IntDef (ADR-0039 step c2c3). */
+    public @interface BufferTransform {
+    }
+
+    /** @hide The layer that Surface.copyFrom takes over, which ADR-0041 a)'s surfaces give. */
+    public long mNativeObject;
+
     public static class Transaction {
         /** @hide */
         public Transaction setMatrix(SurfaceControl sc, float dsdx, float dtdx, float dtdy, float dsdy) {

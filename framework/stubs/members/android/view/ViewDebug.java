@@ -20,4 +20,14 @@ class ViewDebug {
 
         android.graphics.Bitmap createBitmap();
     }
+
+    /** @hide */
+    public static String intToString(Class<?> clazz, String field, int integer) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public static String flagsToString(Class<?> clazz, String field, int flags) {
+        throw new RuntimeException("stub");
+    }
 }

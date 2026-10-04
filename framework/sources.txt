@@ -598,3 +598,81 @@ frameworks_base/core/java/com/android/internal/compat/IOverrideValidator.aidl
 frameworks_base/core/java/com/android/internal/compat/IPlatformCompat.aidl
 frameworks_base/core/java/com/android/internal/compat/OverrideAllowedState.java
 frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.java
+
+# ADR-0039 step c2c3, App: the activity and its window. AOSP's Activity and Instrumentation (which then calls the
+# Application's onCreate), with what their constructor, attach and perform methods reach: ActivityClient over our
+# local controller (AIDL's Default class, as IActivityClientController names types that framework.jar lacks),
+# ComponentCaller, the transition state with SharedElementCallback, autofill's client controller (autofill stays
+# off), EventLog for EventLogTags (generated from EventLogTags.logtags by tools/event-log-tags.py), Activity's
+# dumpables (DumpableContainerImpl, API 33's addDumpable), android.app's
+# fragments and loaders (with android.content's Loader, whose listeners LoaderManager's records implement), and
+# AppDetailsActivity in place of b3.5a's interim one.
+frameworks_base/core/java/android/app/Activity.java
+frameworks_base/core/java/android/app/Instrumentation.java
+frameworks_base/core/java/android/app/AppDetailsActivity.java
+frameworks_base/core/java/android/app/ActivityClient.java
+frameworks_base/core/java/android/app/IActivityClientController.aidl
+frameworks_base/core/java/android/app/ICompatCameraControlCallback.aidl
+frameworks_base/core/java/android/app/IRequestFinishCallback.aidl
+frameworks_base/core/java/com/android/internal/policy/IKeyguardDismissCallback.aidl
+frameworks_base/core/java/android/os/IRemoteCallback.aidl
+frameworks_base/core/java/android/app/ComponentCaller.java
+frameworks_base/core/java/android/app/ActivityTransitionState.java
+frameworks_base/core/java/android/app/SharedElementCallback.java
+frameworks_base/core/java/android/view/autofill/AutofillClientController.java
+frameworks_base/core/java/android/util/SuperNotCalledException.java
+frameworks_base/core/java/android/util/EventLog.java
+frameworks_base/core/java/android/app/EventLogTags.logtags
+frameworks_base/core/java/android/util/LogWriter.java
+frameworks_base/core/java/android/util/DebugUtils.java
+frameworks_base/core/java/android/util/DumpableContainer.java
+frameworks_base/core/java/com/android/internal/util/dump/DumpableContainerImpl.java
+frameworks_base/core/java/android/app/Fragment.java
+frameworks_base/core/java/android/app/FragmentManager.java
+frameworks_base/core/java/android/app/FragmentController.java
+frameworks_base/core/java/android/app/FragmentHostCallback.java
+frameworks_base/core/java/android/app/FragmentContainer.java
+frameworks_base/core/java/android/app/FragmentTransaction.java
+frameworks_base/core/java/android/app/FragmentManagerNonConfig.java
+frameworks_base/core/java/android/app/FragmentState.java
+frameworks_base/core/java/android/app/FragmentTransition.java
+frameworks_base/core/java/android/app/BackStackRecord.java
+frameworks_base/core/java/android/app/LoaderManager.java
+frameworks_base/core/java/android/content/Loader.java
+frameworks_base/core/java/com/android/internal/view/OneShotPreDrawListener.java
+# The window's types that AOSP's code and every activity (ART's check of its interfaces, the plan's fact 1) name,
+# LinearLayout, which the window's layout (screen_simple) holds the content in, Transformation, which every window's
+# View.AttachInfo makes, AccessibilityNodeIdManager (with its WeakSparseArray), which every attach registers a view
+# with, and Surface for WindowConfiguration's and DisplayInfo's text (step c2d2); Surface's natives stay unregistered
+# until ADR-0041 a)'s surfaces. Our window classes (PhoneWindow, DecorView, WindowManagerImpl, WindowManagerGlobal,
+# ViewRootImpl, with ImeFocusController and HandwritingInitiator) are under framework/java.
+frameworks_base/core/java/android/view/Window.java
+frameworks_base/core/java/android/widget/LinearLayout.java
+frameworks_base/core/java/android/view/animation/Transformation.java
+frameworks_base/core/java/android/view/accessibility/AccessibilityNodeIdManager.java
+frameworks_base/core/java/android/view/accessibility/WeakSparseArray.java
+frameworks_base/core/java/android/view/WindowManager.java
+frameworks_base/core/java/android/view/AttachedSurfaceControl.java
+frameworks_base/core/java/android/view/MotionEvent.java
+frameworks_base/core/java/android/view/SearchEvent.java
+frameworks_base/core/java/android/view/MenuItem.java
+frameworks_base/core/java/android/view/Surface.java
+# The window's back dispatcher, local without a window session: the callbacks' types, which androidx's back
+# callbacks meet, and the touch tracker and progress animator its constructor makes, on dynamicanimation's springs.
+frameworks_base/core/java/android/window/WindowOnBackInvokedDispatcher.java
+frameworks_base/core/java/android/window/ProxyOnBackInvokedDispatcher.java
+frameworks_base/core/java/android/window/ImeOnBackInvokedDispatcher.java
+frameworks_base/core/java/android/window/OnBackInvokedCallback.java
+frameworks_base/core/java/android/window/OnBackAnimationCallback.java
+frameworks_base/core/java/android/window/CompatOnBackInvokedCallback.java
+frameworks_base/core/java/android/window/BackEvent.java
+frameworks_base/core/java/android/window/BackMotionEvent.java
+frameworks_base/core/java/android/window/IOnBackInvokedCallback.aidl
+frameworks_base/core/java/android/window/BackTouchTracker.java
+frameworks_base/core/java/android/window/BackProgressAnimator.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/DynamicAnimation.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/FlingAnimation.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/FloatValueHolder.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/Force.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringAnimation.java
+frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringForce.java

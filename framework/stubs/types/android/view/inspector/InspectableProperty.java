@@ -7,6 +7,8 @@ package android.view.inspector;
 public @interface InspectableProperty {
     String name() default "";
 
+    int attributeId() default 0;
+
     boolean hasAttributeId() default true;
 
     ValueType valueType() default ValueType.INFERRED;

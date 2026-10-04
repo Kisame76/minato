@@ -12,4 +12,12 @@ public final class InputManagerGlobal {
     public android.view.InputDevice getInputDevice(int id) {
         throw new RuntimeException("stub");
     }
+
+    public boolean injectInputEvent(android.view.InputEvent event, int mode) {
+        throw new RuntimeException("stub");
+    }
+
+    public boolean injectInputEvent(android.view.InputEvent event, int mode, int targetUid) {
+        throw new RuntimeException("stub");
+    }
 }

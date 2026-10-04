@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0039 step c2c3's test (activity-start-test): an app's own Activity subclass starts as the launcher, behind an
+     activity-alias, on a theme without an action bar, and its window shows its content view. A provider and the
+     Application's lifecycle callbacks show where the start falls among the app's own steps. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.activitystart" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.activitystart.StartApplication">
+    <activity android:name="io.github.kisame76.minato.test.activitystart.StartActivity" android:exported="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"/>
+    <activity-alias android:name="io.github.kisame76.minato.test.activitystart.Launcher" android:exported="true"
+        android:targetActivity="io.github.kisame76.minato.test.activitystart.StartActivity">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity-alias>
+    <provider android:name="io.github.kisame76.minato.test.activitystart.StartProvider"
+        android:authorities="io.github.kisame76.minato.test.activitystart.provider" android:exported="false"/>
+  </application>
+</manifest>

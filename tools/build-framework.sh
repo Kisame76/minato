@@ -9,8 +9,9 @@
 #     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a), our
 #     AppOpsManager from managergen's API mode, the public API with the hand file's hidden members (step c2c1),
 #     ManifestFeatureFlags, the feature flags' values framework-res was built with, for ManifestPackage's
-#     AconfigFlags.skipCurrentElement (b3.5b1), and CompatTable, the compat changes of framework.jar's and the boot
-#     jars' sources with the target SDK from which each is enabled (tools/compatgen.py, step c2e);
+#     AconfigFlags.skipCurrentElement (b3.5b1), CompatTable, the compat changes of framework.jar's and the boot jars'
+#     sources with the target SDK from which each is enabled (tools/compatgen.py, step c2e), and the EventLogTags
+#     classes of the .logtags files framework/sources.txt names (tools/event-log-tags.py, step c2c3);
 #   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
 #     API of core, location and the Connectivity and Wi-Fi modules, with the hidden members of
 #     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
@@ -51,7 +52,8 @@ for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" build/art/boot_jars.json "$
 done
 
 rm -rf "$OUT"
-mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex" "$OUT/src" "$GEN/aidl" "$GEN/r" "$OUT/stubs-src" "$OUT/stub-classes"
+mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex" "$OUT/src" "$GEN/aidl" "$GEN/r" "$GEN/logtags" "$OUT/stubs-src" \
+  "$OUT/stub-classes"
 "$JDK/bin/jmod" create --module-version 17 --target-platform android --class-path "$BOOT_CLASSES" \
   "$OUT/jmod/java.base.jmod"
 "$JDK/bin/jlink" --module-path "$OUT/jmod" --add-modules java.base --output "$OUT/system" \
@@ -59,8 +61,9 @@ mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex" "$OUT/src" "$GEN/aidl" "$GEN/r" "
 # javac reads a system image through its jrt file system.
 cp "$JDK/lib/jrt-fs.jar" "$OUT/system/lib/"
 
-# The taken files, linked into their packages' folders; .aidl files go through aidl. A taken file that would replace
-# one of ours is an error: framework/java wins by being left out of AOSP's list.
+# The taken files, linked into their packages' folders; .aidl files go through aidl, .logtags files through
+# tools/event-log-tags.py. A taken file that would replace one of ours is an error: framework/java wins by being left
+# out of AOSP's list.
 taken=()
 while IFS= read -r line; do taken+=("$line"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' framework/sources.txt)
 for path in "${taken[@]}"; do
@@ -71,6 +74,10 @@ for path in "${taken[@]}"; do
   if [[ "$name" == *.aidl ]]; then
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
       -Iframework/aidl-imports -o "$GEN/aidl" "$source"
+    continue
+  fi
+  if [[ "$name" == *.logtags ]]; then
+    python3 tools/event-log-tags.py "$source" --out "$GEN/logtags"
     continue
   fi
   if [[ -f "framework/java/${package//.//}/$name" ]]; then
@@ -129,10 +136,12 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
-# Our managers from the public API (steps c2c1, c2c2), logged once where framework/managers' hand files do not answer.
+# Our managers from the public API (steps c2c1, c2c2, c2c3), logged once where framework/managers' hand files do
+# not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
   --class android.view.accessibility.AccessibilityManager \
+  --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
 # target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.
@@ -170,7 +179,7 @@ while IFS= read -r type; do
 done < "$OUT/defined.txt"
 find "$OUT/stubs-src" -name '*.java' | sort > "$OUT/stub-sources.txt"
 # The generated sources' folders, each a root of java.base's patch.
-GENERATED="$GEN/aconfig:$GEN/aidl:$GEN/r:$GEN/managers:$GEN/compat"
+GENERATED="$GEN/aconfig:$GEN/aidl:$GEN/logtags:$GEN/r:$GEN/managers:$GEN/compat"
 # -XDstringConcat=inline as for the boot jars: their StringConcatFactory lacks makeConcatWithConstants.
 JAVAC=("$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system="$OUT/system" -XDstringConcat=inline
   -XDskipDuplicateBridges=true -encoding UTF-8 -g -Xmaxerrs 9999 -proc:none)

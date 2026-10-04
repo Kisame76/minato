@@ -21,4 +21,7 @@ public interface IWindowSession extends android.os.IInterface {
     android.os.IBinder performDrag(IWindow window, int flags, SurfaceControl surface, int touchSource, int touchDeviceId,
             int touchPointerId, float touchX, float touchY, float thumbCenterX, float thumbCenterY,
             android.content.ClipData data) throws android.os.RemoteException;
+
+    void setOnBackInvokedCallbackInfo(IWindow window, android.window.OnBackInvokedCallbackInfo callbackInfo)
+            throws android.os.RemoteException;
 }

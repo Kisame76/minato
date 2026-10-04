@@ -1,7 +1,21 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 step c2c2), which tools/managergen joins with it:
 // ViewConfiguration's settings names; javac inlines them, so they carry AOSP's values.
 class Settings {
+    public static class Global {
+        /** @hide */
+        public static final String DEVELOPMENT_FORCE_RESIZABLE_ACTIVITIES = "force_resizable_activities";
+
+        /** @hide */
+        public static final String DEVELOPMENT_RENDER_SHADOWS_IN_COMPOSITOR = "render_shadows_in_compositor";
+    }
+
     public static class Secure {
+        /** @hide */
+        public static final String USER_SETUP_COMPLETE = "user_setup_complete";
+
+        /** @hide */
+        public static final String TV_USER_SETUP_COMPLETE = "tv_user_setup_complete";
+
         /** @hide */
         public static final String LONG_PRESS_TIMEOUT = "long_press_timeout";
 

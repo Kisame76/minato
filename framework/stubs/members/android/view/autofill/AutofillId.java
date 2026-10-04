@@ -17,12 +17,22 @@ class AutofillId {
     }
 
     /** @hide */
-    public AutofillId( AutofillId hostId, int virtualChildId) {
+    public AutofillId(AutofillId hostId, int virtualChildId) {
         throw new RuntimeException("stub");
     }
 
     /** @hide */
     public AutofillId(int hostId, int virtualChildId) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public boolean isVirtualInt() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public int getVirtualChildIntId() {
         throw new RuntimeException("stub");
     }
 }

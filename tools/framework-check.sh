@@ -2,7 +2,8 @@
 # Checks framework.jar's bounded sources (ADR-0039 b3.1): tools/build-framework.sh compiles framework/sources.txt's
 # AOSP files with framework/java and the generated sources against the boot jars and compile-only stubs, then:
 #   - every root of sources.txt (its first group) is a class in framework.jar;
-#   - our ActivityThread (framework/java) is the one there: its main throws, AOSP's has getApplicationThread;
+#   - our ActivityThread (framework/java) is the one there: its main throws, and it lacks AOSP's systemMain (since step
+#     c2c3 ours has getApplicationThread too);
 #   - AssetManager is the one with Minato's patch (framework/patches, b3.3): its system path loads framework-res's
 #     folder with loadFromDir and never calls OverlayConfig;
 #   - no class is both in framework.jar and among the stubs (build/framework/stubs.jar): stubs never ship;
@@ -36,7 +37,7 @@ done
 [[ $missing -eq 0 ]] && ok "the $(echo "$roots" | wc -w | tr -d ' ') roots are in framework.jar"
 
 thread=$("$JDK/bin/javap" -cp "$OUT/classes.jar" android.app.ActivityThread)
-if [[ "$thread" == *"void main(java.lang.String[]) throws"* && "$thread" != *"getApplicationThread"* ]]; then
+if [[ "$thread" == *"void main(java.lang.String[]) throws"* && "$thread" != *"systemMain"* ]]; then
   ok "android.app.ActivityThread is ours"
 else
   fail "android.app.ActivityThread is not ours"

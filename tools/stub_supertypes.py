@@ -3,8 +3,9 @@
 prints each class whose superclass or interface is neither in framework.jar nor in the boot jars, as
 "<class> -> <supertype>", against the allowlist framework/stub-supertypes.txt: "unloadable ..." for a pair not on it,
 "stale ..." for an entry that no longer holds. A stub supertype compiles but is missing at run time, so the class
-cannot load. Each entry's comment names the step that removes it ("step c: ...", "b3.5b: ...") or says
-"stays: <reason>", why the class never loads on Minato's path (b3.5a); "unexplained ..." for one that does neither.
+cannot load. Each entry's comment names the step that removes it ("step c: ...", "b3.5b: ..."), says
+"stays: <reason>", why the class never loads on Minato's path (b3.5a), or "gap: <what>", an app's path that fails
+today without a step yet (step c2c3); "unexplained ..." for one that does none of them.
 
 Usage: javap ... | stub_supertypes.py <framework classes.txt> <boot classes.txt> <allowlist>
 """
@@ -33,16 +34,20 @@ def main():
         if not entry:
             continue
         allowed.add(entry)
-        if not re.match(r"(step [a-z0-9]+|b\d+\.\d+[a-z]?)\b|stays: *\S", comment.strip()):
+        if not re.match(r"(step [a-z0-9]+|b\d+\.\d+[a-z]?)\b|(stays|gap): *\S", comment.strip()):
             unexplained.append(entry)
     found = set()
     for line in sys.stdin:
+        # Type arguments go first, the class's own parameters too, whose bounds may name the class (step c2c3).
+        while "<" in line:
+            stripped = re.sub(r"<[^<>]*>", "", line)
+            if stripped == line:
+                break
+            line = stripped
         match = re.match(r"^[a-z ]*(?:class|interface) (\S+)(?: extends ([^{]*?))?(?: implements ([^{]*))? \{", line)
         if not match:
             continue
         supertypes = ",".join(filter(None, match.group(2, 3)))
-        while "<" in supertypes:
-            supertypes = re.sub(r"<[^<>]*>", "", supertypes)
         for supertype in filter(None, (part.strip() for part in supertypes.split(","))):
             if not known_name(supertype, known):
                 found.add(f"{match.group(1)} -> {supertype}")

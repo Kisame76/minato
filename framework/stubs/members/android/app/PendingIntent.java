@@ -12,4 +12,8 @@ class PendingIntent {
     public boolean isActivity() {
         throw new RuntimeException("stub");
     }
+
+    /** @hide */
+    public @interface Flags {
+    }
 }

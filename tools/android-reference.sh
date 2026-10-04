@@ -136,6 +136,12 @@ if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-te
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
+# activity-start-test's AVD (ADR-0039 step c2c3) has that display without navigation keys, as an iPhone has none, and
+# gesture navigation, as our window manager answers that a navigation bar exists (step c2c2).
+if [[ "$app" == activity-start-test ]]; then
+  AVD=apk-runner-35-iphone-gesture
+  avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
+fi
 # The package manager's tests and the system features: apk-runner-35-bare, without the hardware Minato reports as
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test ]]; then
@@ -346,6 +352,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
+    # activity-start-test (ADR-0039 step c2c3): its own activity, behind the alias Launcher, ends with "done" once its
+    # window has focus.
+    activity-start-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.Launcher
+      ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="app-start-test: MessageDigest"
@@ -369,6 +380,12 @@ run_app() {
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
   run logcat -c
+  if [[ "$AVD" == apk-runner-35-iphone-gesture ]]; then
+    # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.
+    run cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural >/dev/null
+    run input keyevent KEYCODE_WAKEUP
+    run wm dismiss-keyguard
+  fi
   local rotation=""
   if [[ "$app" == rotation-test ]]; then
     # The activity leaves its orientation unspecified, so with the rotation locked it follows the user rotation.

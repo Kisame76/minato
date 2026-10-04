@@ -11,6 +11,7 @@ package android.app;
 import android.content.pm.ApplicationInfo;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.util.Slog;
 import java.io.File;
@@ -22,6 +23,7 @@ public final class LoadedApk {
     private final ApplicationInfo mApplicationInfo;
     private final ClassLoader mClassLoader;
     private final AppComponentFactory mAppComponentFactory;
+    private ApkAssets mApkAssets;
     private Resources mResources;
     private Application mApplication;
 
@@ -79,18 +81,34 @@ public final class LoadedApk {
     public Resources getResources() {
         synchronized (this) {
             if (mResources == null) {
-                ApkAssets apk;
                 try {
-                    apk = ApkAssets.loadFromPath(getResDir());
+                    mApkAssets = ApkAssets.loadFromPath(getResDir());
                 } catch (IOException e) {
                     throw new IllegalStateException("cannot load " + getResDir() + "'s resources", e);
                 }
-                AssetManager assets = new AssetManager.Builder().addApkAssets(apk).build();
+                AssetManager assets = new AssetManager.Builder().addApkAssets(mApkAssets).build();
                 Resources system = Resources.getSystem();
                 mResources = new Resources(assets, system.getDisplayMetrics(), system.getConfiguration());
             }
             return mResources;
         }
+    }
+
+    /**
+     * An activity's own Resources (step c2c3), as ResourcesManager.createBaseTokenResources gives each activity its
+     * own: the package's APK in an AssetManager of their own, the session's display metrics, and the session's
+     * configuration with what the activity's window adds, its WindowConfiguration.
+     */
+    @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
+    Resources createActivityResources(Configuration overrideConfiguration) {
+        getResources();
+        AssetManager assets = new AssetManager.Builder().addApkAssets(mApkAssets).build();
+        Resources system = Resources.getSystem();
+        Configuration config = new Configuration(system.getConfiguration());
+        if (overrideConfiguration != null) {
+            config.updateFrom(overrideConfiguration);
+        }
+        return new Resources(assets, system.getDisplayMetrics(), config);
     }
 
     /** The Application once makeApplication made it, else null: also while its attachBaseContext runs. */

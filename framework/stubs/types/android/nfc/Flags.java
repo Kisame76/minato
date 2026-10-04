@@ -6,4 +6,6 @@ package android.nfc;
  */
 public final class Flags {
     public static final String FLAG_ENABLE_NFC_CHARGING = "android.nfc.enable_nfc_charging";
+
+    public static final String FLAG_ENABLE_NFC_MAINLINE = "android.nfc.enable_nfc_mainline";
 }

@@ -13,6 +13,9 @@
 #     proved (b3.5b1);
 #   - framework/tests/app_process_run_test.py checks that the harness converts a container again unless it was made
 #     from the very ELF file given (step c1);
+#   - framework/tests/event_log_tags_test.py checks tools/event-log-tags.py, which writes EventLogTags for
+#     framework.jar (ADR-0039 step c2c3);
+#   - framework/tests/keycode_labels_test.py checks KeyEvent's native key labels against KeyEvent.java (step c2c3);
 #   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
 #     SampleBaseManager, for ImplementedSampleTest;
 #   - Wide, an interface of 300 methods as big as IActivityManager, is generated into the build folder;
@@ -54,6 +57,10 @@ python3 framework/tests/certificate_mask_test.py
 python3 framework/tests/app_process_run_test.py
 # ADR-0045 decision 6's protection levels in our framework-res against the AVD's; skipped while not built.
 python3 framework/tests/platform_permissions_test.py
+# The event log tags generator, which writes EventLogTags for framework.jar (ADR-0039 step c2c3).
+python3 framework/tests/event_log_tags_test.py
+# KeyEvent's key labels in libandroid_runtime against KeyEvent.java's constants (ADR-0039 step c2c3).
+python3 framework/tests/keycode_labels_test.py
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \
   --hand framework/tests/managergen/hand --out "$OUT/gen" \
   --class com.android.minato.sample.SampleManager --class com.android.minato.sample.SampleDevice \

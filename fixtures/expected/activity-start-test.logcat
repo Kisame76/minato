@@ -1,0 +1,23 @@
+I/activity-start-test: application attachBaseContext
+I/activity-start-test: provider onCreate
+I/activity-start-test: application onCreate
+I/activity-start-test: callback preCreated StartActivity
+I/activity-start-test: callback created StartActivity
+I/activity-start-test: onCreate, saved state false
+I/activity-start-test: component .Launcher, the intent's .Launcher, action android.intent.action.MAIN, categories {android.intent.category.LAUNCHER}
+I/activity-start-test: window configuration winConfig={ mBounds=Rect(0, 0 - 1290, 2796) mAppBounds=Rect(0, 0 - 1290, 2796) mMaxBounds=Rect(0, 0 - 1290, 2796) mDisplayRotation=ROTATION_0 mWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0}
+I/activity-start-test: content android.widget.FrameLayout, parents android.widget.LinearLayout < com.android.internal.policy.DecorView
+I/activity-start-test: callback postCreated StartActivity
+I/activity-start-test: callback started StartActivity
+I/activity-start-test: onStart
+I/activity-start-test: onPostCreate
+I/activity-start-test: callback resumed StartActivity
+I/activity-start-test: onResume
+I/activity-start-test: onPostResume
+I/activity-start-test: callback postResumed StartActivity
+I/activity-start-test: onTopResumedActivityChanged true
+I/activity-start-test: onAttachedToWindow
+I/activity-start-test: global layout: content 1290 x 2796, box 300 x 150 at 495 1323
+I/activity-start-test: posted, attached true, the root's parent android.view.ViewRootImpl
+I/activity-start-test: onWindowFocusChanged true
+I/activity-start-test: done

@@ -9,8 +9,9 @@
 # asset-manager-test (b3.3), resources-test (b3.4a), config-test (b3.4c, test 3), styled-text-test (b3.4b),
 # package-manager-test (b3.5a), package-manager-legacy-test (b3.5b1), graphics-start-test and canvas-test (ADR-0043
 # test 2), context-test and looper-test (step c1), provider-test (step c2c1), view-tree-test (step c2c2), app-calls-test
-# (step c2d), animator-test (ADR-0041 a)), compat-test and compat-test-35 (step c2e). An app without its own
-# fixtures/java folder, a twin such as compat-test-35, takes the sources of the app it is named after.
+# (step c2d), animator-test (ADR-0041 a)), compat-test and compat-test-35 (step c2e), and activity-start-test
+# (step c2c3). An app without its own fixtures/java folder, a twin such as compat-test-35, takes the sources of the
+# app it is named after.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, and for res/ tools/build-aapt2.sh and tools/build-framework-res.sh.
 # Usage: tools/build-java-test-app.sh <app>

@@ -26,6 +26,7 @@
 package android.app;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
@@ -119,6 +120,8 @@ final class ManifestPackage {
     private final ApplicationInfo mApplication = new ApplicationInfo();
     private final List<ActivityInfo> mActivities = new ArrayList<>();
     private final List<ActivityInfo> mReceivers = new ArrayList<>();
+    /** The activities and aliases with a filter a home screen's launch intent matches, in manifest order. */
+    private final List<ActivityInfo> mLaunchers = new ArrayList<>();
     private final List<ServiceInfo> mServices = new ArrayList<>();
     private final List<ProviderInfo> mProviders = new ArrayList<>();
     private final List<PermissionInfo> mPermissions = new ArrayList<>();
@@ -841,10 +844,13 @@ final class ManifestPackage {
         } finally {
             sa.recycle();
         }
-        int[] filters = {0, 0};
+        int[] filters = {0, 0, 0};
         info.metaData = children(parser, filters);
         // An intent filter without an action is dropped, so it does not count.
         info.exported = exportedSet ? exported : filters[0] > 0;
+        if (!receiver && filters[2] > 0) {
+            mLaunchers.add(info);
+        }
         Bundle meta = info.metaData;
         if (!receiver && meta != null && "singleInstancePerTask".equals(meta.getString(META_LAUNCH_MODE))) {
             info.launchMode = ActivityInfo.LAUNCH_SINGLE_INSTANCE_PER_TASK;
@@ -914,9 +920,12 @@ final class ManifestPackage {
         } finally {
             sa.recycle();
         }
-        int[] filters = {0, 0};
+        int[] filters = {0, 0, 0};
         info.metaData = children(parser, filters);
         info.exported = exportedSet ? exported : filters[0] > 0;
+        if (filters[2] > 0) {
+            mLaunchers.add(info);
+        }
         return info;
     }
 
@@ -953,7 +962,7 @@ final class ManifestPackage {
         } finally {
             sa.recycle();
         }
-        int[] filters = {0, 0};
+        int[] filters = {0, 0, 0};
         info.metaData = children(parser, filters);
         // A service's intent filter counts even without an action.
         info.exported = exportedSet ? exported : filters[1] > 0;
@@ -1042,7 +1051,8 @@ final class ManifestPackage {
 
     /**
      * A component's children: its <meta-data> as a Bundle, null if it has none, and in filters[0] the number of
-     * <intent-filter>s with an action (an activity's, receiver's or alias's count), in filters[1] of all of them.
+     * <intent-filter>s with an action (an activity's, receiver's or alias's count), in filters[1] of all of them, in
+     * filters[2] of those a home screen's launch intent (MAIN, LAUNCHER, no data) matches.
      */
     private Bundle children(XmlResourceParser parser, int[] filters) throws IOException, XmlPullParserException {
         Bundle metaData = null;
@@ -1056,8 +1066,12 @@ final class ManifestPackage {
             if ("meta-data".equals(parser.getName())) {
                 metaData = metaData(parser, metaData);
             } else if ("intent-filter".equals(parser.getName()) && filters != null) {
-                if (hasAction(parser)) {
+                int kind = filterKind(parser);
+                if ((kind & FILTER_ACTION) != 0) {
                     filters[0]++;
+                }
+                if ((kind & FILTER_LAUNCHER) != 0) {
+                    filters[2]++;
                 }
                 filters[1]++;
             }
@@ -1065,18 +1079,43 @@ final class ManifestPackage {
         return metaData;
     }
 
-    private static boolean hasAction(XmlResourceParser parser) throws IOException, XmlPullParserException {
+    private static final int FILTER_ACTION = 1;
+    private static final int FILTER_LAUNCHER = 2;
+
+    /**
+     * What an <intent-filter> holds: FILTER_ACTION for an action, FILTER_LAUNCHER where a home screen's launch intent
+     * matches it, which needs the MAIN action, the LAUNCHER category and no <data>. Action and category names are
+     * read by name, as ParsedIntentInfoUtils reads them.
+     */
+    private static int filterKind(XmlResourceParser parser) throws IOException, XmlPullParserException {
         boolean action = false;
+        boolean main = false;
+        boolean launcher = false;
+        boolean data = false;
         int depth = parser.getDepth();
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-            if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1
-                    && "action".equals(parser.getName()) && !skipped(parser)) {
-                action = true;
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
+                continue;
+            }
+            String name = parser.getAttributeValue(ANDROID_NAMESPACE, "name");
+            switch (parser.getName()) {
+                case "action":
+                    action = true;
+                    main |= Intent.ACTION_MAIN.equals(name);
+                    break;
+                case "category":
+                    launcher |= Intent.CATEGORY_LAUNCHER.equals(name);
+                    break;
+                case "data":
+                    data = true;
+                    break;
+                default:
+                    break;
             }
         }
-        return action;
+        return (action ? FILTER_ACTION : 0) | (main && launcher && !data ? FILTER_LAUNCHER : 0);
     }
 
     /** One <meta-data> into the Bundle, as ParsingPackageUtils.parseMetaData and Property.toBundle put it. */
@@ -1281,6 +1320,20 @@ final class ManifestPackage {
             info.sharedLibraryFiles = null;
         }
         return info;
+    }
+
+    /**
+     * The activity a home screen starts (ADR-0039 step c2c3): the first enabled activity or alias of the manifest
+     * whose filter the launch intent (MAIN, LAUNCHER) matches, as the launcher's queryIntentActivities lists them in
+     * manifest order; null for an app without one.
+     */
+    ActivityInfo launcherActivity(long flags) {
+        for (ActivityInfo activity : mLaunchers) {
+            if (matches(activity, flags)) {
+                return activityInfo(activity, flags, applicationInfo(flags));
+            }
+        }
+        return null;
     }
 
     /** The activity, alias or receiver of that name, or null. */

@@ -9,4 +9,12 @@ public class GhostView extends View {
         super(null);
         throw new RuntimeException("stub");
     }
+
+    public static GhostView addGhost(View view, ViewGroup viewGroup, android.graphics.Matrix matrix) {
+        throw new RuntimeException("stub");
+    }
+
+    public static void removeGhost(View view) {
+        throw new RuntimeException("stub");
+    }
 }

@@ -78,12 +78,10 @@ android.hardware.display.WifiDisplayStatus <- android.hardware.display.IDisplayM
 android.hardware.graphics.common.DisplayDecorationSupport <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.media.projection.IMediaProjection$Stub <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.os.PermissionEnforcer <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
-android.view.Surface <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.OverlayProperties <- android.view.Display  # stays: Display.getOverlaySupport makes the default only for a display that is neither internal nor external, and display 0 is internal
 android.hardware.display.DeviceProductInfo <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
 android.view.DisplayAddress <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
 android.view.SurfaceControl$RefreshRateRange <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
-android.view.Surface <- android.view.DisplayInfo  # gap: DisplayInfo.toString and so Display.toString, through the rotation's name, until Surface is taken
 com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
 
 # StrictMode (c1 took it): the penalties and checks that need system_server.
@@ -91,25 +89,19 @@ android.os.INetworkManagementService <- android.os.StrictMode  # gap: StrictMode
 android.os.INetworkManagementService$Stub <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
-android.app.ActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 android.os.NetworkOnMainThreadException <- android.os.StrictMode  # gap: death on network on the main thread, which Android's handleBindApplication sets for every app
 android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
-android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
 
 # The app model, activities and views.
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
 android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
 android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
-android.view.Window <- android.app.Application  # step c2c: taken with Activity (Application.getAutofillClient)
-android.view.WindowManager$LayoutParams <- android.content.res.CompatibilityInfo  # step c2c: taken with WindowManager
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo.applyOverrideScaleIfNeeded, which the window manager's relayout calls
-android.view.MotionEvent <- android.content.res.CompatibilityInfo  # ADR-0041 a): taken with input
 android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
-android.view.Surface <- android.app.WindowConfiguration  # gap: every Configuration.toString, through WindowConfiguration's rotation; ADR-0041 a) takes Surface
 android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
 android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: Theme.encode, for the view server's hierarchy dump
 android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
@@ -203,8 +195,8 @@ android.app.AppGlobals <- android.content.IContentProvider  # stays: IContentPro
 android.content.AttributionSource <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.ContentResolver <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.app.AppGlobals <- android.content.Intent  # step c2c3: Intent.prepareToLeaveProcess and migrateExtraStreamToClipData, as an activity starts another
-android.os.storage.StorageManager <- android.content.Intent  # step c2c3: Intent.prepareToLeaveProcess, as an activity starts another
+android.app.AppGlobals <- android.content.Intent  # step b3.5b2: Intent.prepareToLeaveProcess and migrateExtraStreamToClipData, as an activity starts another
+android.os.storage.StorageManager <- android.content.Intent  # step b3.5b2: Intent.prepareToLeaveProcess, as an activity starts another
 android.content.ClipData <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.ClipData$Item <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.ContentResolver <- android.content.Intent  # step c2d: Intent.resolveType of a content URI, with c2d's ContentResolver
@@ -214,10 +206,8 @@ android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Min
 android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
 android.os.ShellCommand <- android.content.Intent  # stays: the am shell command's parser, which no shell runs in an app process
 android.app.IActivityManager <- android.app.Service, android.content.BroadcastReceiver  # gap: services and broadcast receivers, with ADR-0045's local activity service
-android.app.ActivityManager <- android.content.BroadcastReceiver  # gap: broadcast receivers, with ADR-0045's local activity service
 android.content.ContentCaptureOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.content.ContentCaptureOptions$ContentProtectionOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.WindowManager$LayoutParams <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
@@ -235,36 +225,25 @@ android.os.ICancellationSignal <- android.os.CancellationSignal  # stays: a prov
 android.os.ICancellationSignal$Stub <- android.os.CancellationSignal  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato: the remote half of a cancellation
 
 # The view tree (step c2c2): LayoutInflater, View, ViewGroup, FrameLayout and the rest of the tree, which an app's
-# code inflates, measures and lays out detached. What only an attached view reaches stays a stub until step c2c3's
+# code inflates, measures and lays out detached. What only an attached view reaches stayed a stub until step c2c3's
 # window; the display, input, Choreographer and the animators until ADR-0041 a); drawing until M4 step 10. XML
 # drawables whose classes framework.jar lacks stay gaps.
-android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # step c2c3: PrivacyIndicatorBounds' checked constructor, which only the window's insets reach (WindowInsets.inset, a rotation)
-android.view.FocusFinder <- android.view.View, android.view.ViewGroup  # step c2c3: focus moves among the views of a window
-android.view.HandwritingInitiator <- android.view.View  # step c2c3: the window's stylus handwriting, through ViewRootImpl
-android.view.IWindow <- android.view.View  # step c2c3: the window's binder, which an attached view's AttachInfo holds
-android.view.IWindowSession <- android.view.View  # step c2c3: the window's session, which an attached view's AttachInfo holds
-android.view.ImeFocusController <- android.view.View  # step c2c3: the window's IME focus, through ViewRootImpl
-android.view.InsetsController <- android.view.PendingInsetsController  # step c2c3: the window's insets controller, which replaces the pending one
-android.view.ViewRootImpl <- android.view.LayoutInflater, android.view.View, android.view.ViewAnimationHostBridge, android.view.ViewGroup  # step c2c3: the window's root, which only an attached view reaches
-android.view.Window$OnContentApplyWindowInsetsListener <- android.view.View  # step c2c3: the window's content insets listener
-android.view.WindowId <- android.view.View  # step c2c3: the window's ID, which an attached view's AttachInfo holds
-android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # step c2c3: insets animations, which the window's controller runs
-android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # step c2c3: insets animations, which the window's controller runs
-android.view.WindowManager <- android.view.View  # step c2c3: the window manager, which a detached view's getWindowVisibleDisplayFrame asks for its metrics
-android.view.WindowManager$LayoutParams <- android.view.View  # step c2c3: the window's attributes, which an attached view reads
-android.view.WindowMetrics <- android.view.View  # step c2c3: the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses
-android.view.accessibility.AccessibilityNodeIdManager <- android.view.View  # step c2c3: every attach registers the view's accessibility ID (View.onAttachedToWindow)
-android.window.WindowOnBackInvokedDispatcher <- android.view.ViewGroup  # step c2c3: the window's back dispatcher, through ViewRootImpl
-com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # step c2c3: PrivacyIndicatorBounds' checked constructor, which only the window's insets reach (WindowInsets.inset, a rotation)
+android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
+android.view.FocusFinder <- android.view.View, android.view.ViewGroup, android.view.ViewRootImpl  # ADR-0041 a): focus moves among the views of a window by keys and the D-pad, which come with input; touch mode moves none
+android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
+android.view.InsetsController <- android.view.PendingInsetsController  # ADR-0041 a): the window's insets controller, which replaces the pending one (decision 8)
+android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
+android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
+android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
+android.view.WindowMetrics <- android.view.View  # ADR-0041 a): the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses (the window metrics come with the insets, decision 8)
+com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.app.AppGlobals <- android.view.ViewConfiguration  # ADR-0041 a): the input timeouts that touch and keys ask the core settings for
 android.hardware.input.InputManagerGlobal <- android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.InputDevice <- android.view.InputEvent, android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.KeyCharacterMap <- android.view.KeyEvent  # ADR-0041 a): key character maps, which KeyEvent's characters ask
-android.view.MotionEvent <- android.view.InputEvent, android.view.InputEventConsistencyVerifier, android.view.View, android.view.ViewGroup  # ADR-0041 a): MotionEvent
 android.view.PointerIcon <- android.view.View  # ADR-0041 a): pointer icons; View's constructor loads a layout's android:pointerIcon
-android.view.Surface <- android.view.DisplayCutout, android.view.View  # ADR-0041 a): Surface
 android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
@@ -287,11 +266,8 @@ android.view.animation.LayoutAnimationController <- android.view.ViewGroup, andr
 android.view.animation.LayoutAnimationController$AnimationParameters <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
 android.view.animation.RotateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ScaleAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.Transformation <- android.view.View, android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
 android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.autofill.AutofillManager <- android.view.View, android.view.ViewGroup  # M4 step 10: View.getAutofillManager names the class for a view with an autofill type, which TextView has; autofill itself stays off
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
-android.util.SuperNotCalledException <- android.view.View  # stays: only when a subclass's onCancelPendingInputEvents skips super
 android.view.AccessibilityIterators$CharacterTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.AccessibilityIterators$ParagraphTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.AccessibilityIterators$TextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
@@ -354,3 +330,98 @@ android.view.displayhash.DisplayHashResultCallback <- android.view.View  # gap: 
 android.view.inputmethod.InputMethodManager <- android.view.View  # gap: the soft keyboard (ADR-0042 b0's gap 5)
 com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, which need a popup window
 com.android.internal.view.menu.MenuBuilder <- android.view.View  # gap: context menus
+
+# Step c2c3 (App): the activity and its window. AOSP's Activity, Instrumentation, ActivityClient, Window and their
+# helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
+# parcel code never runs.
+android.app.ActionBar <- android.app.Activity  # stays: the action bar's calls, which Activity makes only with an action bar, and our PhoneWindow requests none, so getActionBar() is null (a listed gap)
+android.app.ActivityOptions <- android.app.Activity, android.app.ActivityTransitionState, android.app.Instrumentation  # step b3.5b2: options of an activity that starts another, as Instrumentation's execStartActivity hands them on
+android.app.ActivityOptions <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
+android.app.ActivityOptions$SceneTransitionInfo <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
+android.app.ActivityTaskManager <- android.app.ActivityClient  # stays: ActivityClient's controller from the task manager, which Minato's ActivityThread replaces at the bind (LocalActivityClientController)
+android.app.ActivityTaskManager <- android.app.Activity, android.app.Instrumentation  # step b3.5b2: starting another activity, and Activity's questions of the task manager (picture-in-picture actions, local voice interaction)
+android.app.ActivityTaskManager <- android.view.WindowManager  # gap: WindowManager.hasWindowExtensionsEnabled, which androidx.window asks; the task manager is a system service (ADR-0045's local services)
+android.app.AlertDialog$Builder <- android.app.Activity  # gap: performStart's warning dialog for a debuggable app with a linker warning, a second window (ADR-0041 decision 2)
+android.app.Dialog <- android.app.Activity  # ADR-0041 a): Activity's managed dialogs (showDialog), a second window (decision 2, step 8)
+android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
+android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
+android.app.ExitTransitionCoordinator$ActivityExitTransitionCallbacks <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
+android.app.FullscreenRequestHandler <- android.app.Activity  # gap: Activity.requestFullscreenMode (API 34), which leaves a freeform window, and Minato's windows are always fullscreen
+android.app.IActivityManager <- android.app.Activity  # gap: Activity.createPendingResult and setLocusContext, which ask the activity manager (ADR-0045's local services)
+android.app.IActivityManager <- android.app.Instrumentation  # stays: an instrumentation test's results, and no test instrumentation runs on Minato
+android.app.IActivityTaskManager <- android.app.ActivityClient  # stays: ActivityClient's controller from the task manager, which Minato's ActivityThread replaces at the bind (LocalActivityClientController)
+android.app.IActivityTaskManager <- android.app.Activity, android.app.Instrumentation  # step b3.5b2: starting another activity through the task manager
+android.app.IAppTask <- android.app.Instrumentation  # stays: app tasks (ActivityManager.AppTask), which no Context's ActivityManager gives on Minato
+android.app.IInstrumentationWatcher <- android.app.Instrumentation  # stays: an instrumentation test's watcher, and no test instrumentation runs on Minato
+android.app.PendingIntent <- android.app.Activity  # gap: Activity.createPendingResult, whose PendingIntent the activity manager makes (ADR-0045's local services)
+android.app.PictureInPictureParams <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
+android.app.PictureInPictureParams$Builder <- android.app.Activity  # gap: the deprecated enterPictureInPictureMode(), which builds its params first; Minato has no picture-in-picture (no FEATURE_PICTURE_IN_PICTURE), where Android returns false
+android.app.ScreenCaptureCallbackHandler <- android.app.Activity  # gap: screenshot detection (API 34's registerScreenCaptureCallback), which Minato's windows report none of
+android.app.SearchManager <- android.app.Activity  # gap: the search dialog (startSearch, onSearchRequested), a system service and a second window
+android.app.TaskInfo <- android.app.ActivityManager  # stays: ActivityManager's task lists, which no Context's ActivityManager gives on Minato (ADR-0045's local services)
+android.app.TaskStackBuilder <- android.app.Activity  # stays: up navigation recreates the task only when ActivityClient.shouldUpRecreateTask says so, and the local controller never does
+android.app.UiAutomation <- android.app.Instrumentation  # stays: UI automation of an instrumentation test, and no test instrumentation runs on Minato
+android.app.VoiceInteractor <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
+android.app.VoiceInteractor$Request <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
+android.content.ActivityNotFoundException <- android.app.Instrumentation  # step b3.5b2: starting another activity, whose result Instrumentation checks
+android.content.AttributionSource <- android.app.Activity  # gap: an activity's runtime permission request (requestPermissions), which ADR-0045 decision 6's request flow answers
+android.content.ContentResolver <- android.app.Activity  # gap: Activity.managedQuery (deprecated), through ContentResolver, which is compile-only (step c2c1's providers)
+android.content.IntentFilter <- android.app.Instrumentation  # stays: an instrumentation test's activity monitors, and no test instrumentation runs on Minato
+android.content.IntentSender <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
+android.content.IntentSender$SendIntentException <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
+android.content.IntentSender$SendIntentException <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
+android.database.ContentObserver <- android.content.Loader  # gap: a loader that watches a content URI with Loader's own observer; ContentObserver stays compile-only until providers notify observers
+android.graphics.BLASTBufferQueue <- android.view.Surface  # ADR-0041 a): a window's buffer queue, which Minato's surfaces replace with M3's layers
+android.graphics.HardwareRenderer <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
+android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
+android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
+android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityManager  # gap: a task description's icon (TaskDescription with a Bitmap or a resource icon), as Icon is compile-only
+android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
+android.hardware.input.InputManagerGlobal <- android.app.Instrumentation  # stays: an instrumentation test's injected input, and no test instrumentation runs on Minato
+android.os.BadParcelableException <- android.app.Activity  # stays: catches around an intent's extras from a parcel (Activity.getReferrer)
+android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
+android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
+android.os.PersistableBundle <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
+android.os.ResultReceiver <- android.window.ImeOnBackInvokedDispatcher  # stays: the input method's back dispatcher, which only InputMethodManager makes for an input method's window, and Minato has no input method yet
+android.os.TestLooperManager <- android.app.Instrumentation  # stays: an instrumentation test's looper control, and no test instrumentation runs on Minato
+android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
+android.text.Selection <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
+android.text.SpannableStringBuilder <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
+android.text.method.TextKeyListener <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
+android.transition.Transition <- android.app.ActivityTransitionState, android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment or an activity with a Transition runs
+android.transition.Transition$EpicenterCallback <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
+android.transition.TransitionInflater <- android.app.Fragment  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
+android.transition.TransitionListenerAdapter <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
+android.transition.TransitionManager <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
+android.transition.TransitionSet <- android.app.FragmentTransition  # stays: transitions, compile-only (step c2c3's decision 5), which only a fragment with a Transition runs
+android.transition.TransitionSet <- android.app.Fragment  # gap: android.app.Fragment's class initializer makes a TransitionSet, so platform fragments (deprecated since API 28) fail until transitions are taken
+android.transition.TransitionUtils <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
+android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
+android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
+android.view.DragAndDropPermissions <- android.app.Activity  # gap: drag and drop (Activity.requestDragAndDropPermissions), not in ADR-0041
+android.view.IWindowSession <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
+android.view.InsetsFrameProvider <- android.view.WindowManager  # stays: WindowManager.LayoutParams' parcel constructor
+android.view.KeyCharacterMap <- android.app.Instrumentation  # stays: an instrumentation test's typed strings, and no test instrumentation runs on Minato
+android.view.KeyboardShortcutGroup <- android.app.Activity  # stays: Activity.onProvideKeyboardShortcuts, which only the system's keyboard shortcuts helper calls
+android.view.KeyboardShortcutInfo <- android.app.Activity  # stays: Activity.onProvideKeyboardShortcuts, which only the system's keyboard shortcuts helper calls
+android.view.MenuInflater <- android.app.Activity  # gap: options menus (Activity.getMenuInflater), which our PhoneWindow never prepares, and which AppCompat's menu inflater extends
+android.view.RemoteAnimationDefinition <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
+android.view.RemoteAnimationTarget <- android.window.BackMotionEvent  # stays: BackMotionEvent's parcel constructor
+android.view.SurfaceControl <- android.view.Surface  # ADR-0041 a): a Surface made from a layer, which Minato's surfaces give
+android.view.SurfaceControl$Transaction <- android.app.Instrumentation  # stays: an instrumentation test's synchronous start, and no test instrumentation runs on Minato
+android.view.ViewDebug <- android.view.WindowManager  # gap: WindowManager.LayoutParams.toString, through ViewDebug's flag names (M4 step 10's view debugging)
+android.view.ViewHierarchyEncoder <- android.view.WindowManager, android.widget.LinearLayout  # stays: the view server's hierarchy dump
+android.view.autofill.AutofillId <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
+android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
+android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
+android.view.contentcapture.ContentCaptureSession <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
+android.view.translation.UiTranslationController <- android.app.Activity  # stays: UI translation, which only the system's translation service starts
+android.widget.ImageView <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
+android.widget.ImageView$ScaleType <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
+android.widget.Toast <- android.app.Activity  # gap: performStart's warning toast for an app that used a hidden API, a second window (ADR-0041 decision 2)
+android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
+android.window.SizeConfigurationBuckets <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
+android.window.SplashScreen$SplashScreenImpl <- android.app.Activity  # gap: Activity.getSplashScreen (API 31), which androidx's core-splashscreen asks on Android 12 and later
+com.android.internal.app.ToolbarActionBar <- android.app.Activity  # gap: Activity.setActionBar with a platform Toolbar, which needs the widget
+com.android.internal.app.WindowDecorActionBar <- android.app.Activity  # stays: the window's action bar, which initWindowDecorActionBar makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
+com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # step b3.5b2: a new intent delivered to a running activity (onNewIntent)

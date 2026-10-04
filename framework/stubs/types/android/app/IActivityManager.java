@@ -36,4 +36,15 @@ public interface IActivityManager {
 
     android.os.IBinder peekService(android.content.Intent service, String resolvedType, String callingPackage)
             throws android.os.RemoteException;
+    void closeSystemDialogs(String reason) throws android.os.RemoteException;
+
+    void setActivityLocusContext(android.content.ComponentName activity, android.content.LocusId locusId,
+            android.os.IBinder appToken) throws android.os.RemoteException;
+
+    android.content.IIntentSender getIntentSenderWithFeature(int type, String packageName, String featureId,
+            android.os.IBinder token, String resultWho, int requestCode, android.content.Intent[] intents,
+            String[] resolvedTypes, int flags, android.os.Bundle options, int userId) throws android.os.RemoteException;
+
+    void addInstrumentationResults(android.app.IApplicationThread target, android.os.Bundle results)
+            throws android.os.RemoteException;
 }

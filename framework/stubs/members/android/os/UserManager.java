@@ -12,4 +12,14 @@ class UserManager {
     public UserHandle getProfileParent(UserHandle user) {
         throw new RuntimeException("stub");
     }
+
+    /** @hide */
+    public static boolean isVisibleBackgroundUsersEnabled() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public int getMainDisplayIdAssignedToUser() {
+        throw new RuntimeException("stub");
+    }
 }

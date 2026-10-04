@@ -5,11 +5,15 @@
 // class loader, the package and its PackageManager, SharedPreferences through AOSP's SharedPreferencesImpl, and
 // permission checks from the manifest's grants. The paths and SharedPreferences follow the tag's ContextImpl.java, the
 // external folders through Environment's one emulated volume (framework/patches). Step c2c2 adds the theme and the
-// LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made.
+// LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made. Step c2c3
+// adds an activity's context, with its token and its own Resources, the window manager and the display: an
+// activity's context is a UI context associated with display 0, the application's is not, as on Android.
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.net.Uri;
@@ -24,7 +28,10 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.view.Display;
 import android.view.LayoutInflater;
+import android.view.WindowManager;
+import android.view.WindowManagerImpl;
 import com.android.internal.policy.PhoneLayoutInflater;
 import com.android.minato.services.Unwritten;
 import dalvik.system.BlockGuard;
@@ -64,6 +71,11 @@ class ContextImpl {
     private int mThemeResource = 0;
     private Resources.Theme mTheme;
     private LayoutInflater mLayoutInflater;
+    private WindowManager mWindowManager;
+    /** An activity context's token and its own Resources; the application's has neither. */
+    private IBinder mToken;
+    private boolean mIsActivityContext;
+    private Resources mResources;
 
     private ContextImpl(ActivityThread mainThread, LoadedApk packageInfo) {
         mMainThread = mainThread;
@@ -94,6 +106,21 @@ class ContextImpl {
         return (ContextImpl) context;
     }
 
+    /**
+     * An activity's context, as ActivityThread.createBaseContextForActivity asks for it: the activity's token, and
+     * Resources of its own with the window's configuration (step c2c3).
+     *
+     * @hide
+     */
+    static ContextImpl createActivityContext(ActivityThread mainThread, LoadedApk packageInfo,
+            ActivityInfo activityInfo, IBinder activityToken, int displayId, Configuration overrideConfiguration) {
+        ContextImpl context = new ContextImpl(mainThread, packageInfo);
+        context.mToken = activityToken;
+        context.mIsActivityContext = true;
+        context.mResources = packageInfo.createActivityResources(overrideConfiguration);
+        return context;
+    }
+
     /** @hide */
     final void setOuterContext(Context context) {
         mOuterContext = context;
@@ -111,7 +138,7 @@ class ContextImpl {
     }
 
     public Resources getResources() {
-        return mPackageInfo.getResources();
+        return mResources != null ? mResources : mPackageInfo.getResources();
     }
 
     // The theme and the services (step c2c2).
@@ -153,9 +180,9 @@ class ContextImpl {
     }
 
     /**
-     * The LayoutInflater on the outer context, one per context as SystemServiceRegistry's CachedServiceFetcher keeps
-     * it; every other service is still unwritten, logged once per name, so that the log says which one an app asked
-     * for.
+     * The LayoutInflater on the outer context and the window manager on this one, each made once per context as
+     * SystemServiceRegistry's CachedServiceFetcher keeps them; every other service is still unwritten, logged once per
+     * name, so that the log says which one an app asked for.
      */
     public Object getSystemService(String name) {
         if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {
@@ -164,6 +191,14 @@ class ContextImpl {
                     mLayoutInflater = new PhoneLayoutInflater(getOuterContext());
                 }
                 return mLayoutInflater;
+            }
+        }
+        if (Context.WINDOW_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mWindowManager == null) {
+                    mWindowManager = new WindowManagerImpl((Context) (Object) this);
+                }
+                return mWindowManager;
             }
         }
         Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
@@ -175,9 +210,48 @@ class ContextImpl {
         return android.view.Display.DEFAULT_DISPLAY;
     }
 
+    /** Display 0, adjusted to the context's Resources as the tag's asks ResourcesManager (step c2c3). */
+    public Display getDisplayNoVerify() {
+        return ResourcesManager.getInstance().getAdjustedDisplay(getDisplayId(), getResources());
+    }
+
+    /** As the tag's: only a context associated with a display, an activity's here, has one to give. */
+    public Display getDisplay() {
+        if (!mIsActivityContext) {
+            throw new UnsupportedOperationException("Tried to obtain display from a Context not associated with one."
+                    + " Only visual Contexts (such as Activity or one created with Context#createWindowContext) or"
+                    + " ones created with Context#createDisplayContext are associated with displays. Other types of"
+                    + " Contexts are typically related to background entities and may return an arbitrary display.");
+        }
+        return getDisplayNoVerify();
+    }
+
+    /** @hide */
+    public int getAssociatedDisplayId() {
+        return mIsActivityContext ? getDisplayId() : Display.INVALID_DISPLAY;
+    }
+
+    /** @hide An activity's context is a UI context, the application's is not. */
+    public boolean isUiContext() {
+        return mIsActivityContext;
+    }
+
+    /** @hide */
+    public IBinder getActivityToken() {
+        return mIsActivityContext ? mToken : null;
+    }
+
+    /** @hide No context of Minato's is a window context (createWindowContext). */
+    public IBinder getWindowContextToken() {
+        return null;
+    }
+
     public String getSystemServiceName(Class<?> serviceClass) {
         if (serviceClass == LayoutInflater.class) {
             return Context.LAYOUT_INFLATER_SERVICE;
+        }
+        if (serviceClass == WindowManager.class) {
+            return Context.WINDOW_SERVICE;
         }
         Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
                 + (serviceClass == null ? "null" : serviceClass.getName()), "null");

@@ -2,7 +2,8 @@
  * Interim (ADR-0039 step a): the getters of Android 15's android.os.Process that the app process needs before the
  * framework's own build, with their signatures from the tag's class; is64Bit for b3.1's Build. AOSP's Process replaces
  * it when framework.jar is built from the tag's sources (step b3/c): its sources pull in most of the framework, 80,799
- * javac errors on their own. Step c1 adds what UserHandle, HandlerThread, StrictMode and ContextImpl call.
+ * javac errors on their own. Step c1 adds what UserHandle, HandlerThread, StrictMode and ContextImpl call, step c2c3
+ * what Instrumentation calls.
  */
 package android.os;
 
@@ -124,4 +125,12 @@ public class Process {
 
     /** As AOSP's: no uid; BroadcastReceiver's pending result starts with it. */
     public static final int INVALID_UID = -1;
+
+    /** As AOSP's: the priority of a thread that shows the display's frames (Instrumentation's helper threads). */
+    public static final int THREAD_PRIORITY_URGENT_DISPLAY = -8;
+
+    /** Whether this is an SDK sandbox's process, whose activities Instrumentation checks: never on Minato. */
+    public static boolean isSdkSandbox() {
+        return false;
+    }
 }

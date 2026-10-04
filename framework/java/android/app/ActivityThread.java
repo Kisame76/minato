@@ -15,7 +15,10 @@
  * only with the process. Since step c2c1 it installs the process's providers before that onCreate, as
  * handleBindApplication does. Since step c2e it gives ART and libcore the app's target SDK and its disabled compat
  * changes before the app's first class runs, as RuntimeInit and handleBindApplication do, from CompatTable where
- * Android's come from system_server. The launcher activity comes in step c2c3, the lifecycle host in step c3.
+ * Android's come from system_server. Since step c2c3 AOSP's Instrumentation calls that onCreate, ActivityClient asks
+ * the process's own controller (LocalActivityClientController), and once the bind is done the manifest's launcher
+ * activity starts as the system's first launch transaction starts it: performLaunchActivity, handleStartActivity,
+ * handleResumeActivity with the window, then the top resumed state. The lifecycle host comes in step c3.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -26,13 +29,20 @@ package android.app;
 import android.app.compat.CompatChanges;
 import android.content.ContentProvider;
 import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.IPackageManager;
+import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.hardware.display.DisplayManagerGlobal;
 import android.os.AsyncTask;
+import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -44,7 +54,13 @@ import android.system.Os;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.SuperNotCalledException;
 import android.util.UtilConfig;
+import android.view.Display;
+import android.view.View;
+import android.view.ViewManager;
+import android.view.Window;
+import android.view.WindowManager;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
@@ -78,6 +94,11 @@ public final class ActivityThread {
     private final ManifestPackage mPackage;
     private LoadedApk mLoadedApk;
     private Application mInitialApplication;
+    /** AOSP's Instrumentation, made at the bind as handleBindApplication makes it (step c2c3). */
+    Instrumentation mInstrumentation;
+    /** The task's root activity and its top resumed one, which LocalActivityClientController answers for. */
+    IBinder mTaskRootToken;
+    IBinder mTopToken;
 
     /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
     final ArrayMap<String, ContentProvider> mLocalProvidersByAuthority = new ArrayMap<>();
@@ -88,10 +109,26 @@ public final class ActivityThread {
      */
     final ArrayMap<IBinder, ActivityClientRecord> mActivities = new ArrayMap<>();
 
-    /** An activity's record, with what AOSP's Application reads; step c2c's launch makes and fills it. */
+    /** The lifecycle states a record passes, as ActivityLifecycleItem numbers them. */
+    static final int ON_CREATE = 1;
+    static final int ON_START = 2;
+    static final int ON_RESUME = 3;
+
+    /** An activity's record, with what AOSP's Application reads; the launch makes and fills it (step c2c3). */
     public static final class ActivityClientRecord {
+        IBinder token;
+        Intent intent;
+        ActivityInfo activityInfo;
+        LoadedApk packageInfo;
+        /** What the activity's window adds to the process's configuration: its WindowConfiguration. */
+        Configuration overrideConfig;
         Activity activity;
+        Window window;
+        int state;
         boolean isTopResumedActivity;
+        boolean lastReportedTopResumedState;
+        /** The orientation the activity asks for, from its manifest until it sets one. */
+        int requestedOrientation;
     }
 
     private ActivityThread(String packageName, String processName, ClassLoader classLoader, ManifestPackage pkg) {
@@ -256,16 +293,25 @@ public final class ActivityThread {
                     + ": " + e, e);
         }
         thread.mInitialApplication = app;
+        // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
+        // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).
+        thread.mInstrumentation = new Instrumentation();
+        thread.mInstrumentation.basicInit(thread);
+        ActivityClient.setActivityClientController(new LocalActivityClientController(thread));
         // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
         thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
-        // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, which calls
-        // onCreate and nothing else, and Android's wrapping of what it throws. AOSP's Instrumentation comes with
-        // Activity in step c2c3, whose closure it needs, and then makes this call.
+        // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, and Android's
+        // wrapping of what it throws.
         try {
-            app.onCreate();
+            thread.mInstrumentation.callApplicationOnCreate(app);
         } catch (Exception e) {
-            throw new RuntimeException("Unable to create application " + app.getClass().getName() + ": " + e, e);
+            if (!thread.mInstrumentation.onException(app, e)) {
+                throw new RuntimeException("Unable to create application " + app.getClass().getName() + ": " + e, e);
+            }
         }
+        // The system's launch transaction comes after the bind, so the app's own posts from Application.onCreate run
+        // first [inferred].
+        sMainThreadHandler.post(thread::handleLaunchLauncherActivity);
         // As AOSP's main: the Looper runs the app's messages until the process ends. Android ends it from outside (am
         // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
         Looper.loop();
@@ -405,4 +451,238 @@ public final class ActivityThread {
      * returns its locale as a language tag, or null without a session.
      */
     private static native String nativeSessionConfiguration(Configuration config, DisplayMetrics metrics);
+    // The launch (step c2c3), as the system's first launch transaction: LaunchActivityItem, then ResumeActivityItem
+    // with its start, then TopResumedActivityChangeItem.
+
+    /**
+     * Starts the manifest's launcher activity as the home screen does: the launch intent with the launcher's flags,
+     * whose component is the alias where the manifest has one, with the window's configuration from the display.
+     */
+    private void handleLaunchLauncherActivity() {
+        ActivityInfo info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
+        if (info == null) {
+            Log.w(TAG, mPackageName + " has no launcher activity, so none starts");
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_MAIN);
+        intent.addCategory(Intent.CATEGORY_LAUNCHER);
+        intent.setComponent(new ComponentName(info.packageName, info.name));
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        ActivityClientRecord r = new ActivityClientRecord();
+        r.token = new Binder();
+        r.intent = intent;
+        r.activityInfo = info;
+        r.packageInfo = mLoadedApk;
+        r.overrideConfig = windowConfiguration();
+        r.requestedOrientation = info.screenOrientation;
+        mActivities.put(r.token, r);
+        if (mTaskRootToken == null) {
+            mTaskRootToken = r.token;
+        }
+        if (performLaunchActivity(r) == null) {
+            return;
+        }
+        handleStartActivity(r);
+        handleResumeActivity(r);
+        handleTopResumedActivityChanged(r, true);
+    }
+
+    /**
+     * The configuration an activity's window adds to the process's, as system_server's ActivityRecord gives a
+     * fullscreen task's: the display's bounds, which the window covers whole (ADR-0038), as bounds, app bounds and
+     * maximum bounds, fullscreen and standard, at the display's rotation.
+     */
+    @SuppressWarnings("deprecation") // Display.getRealSize, the display's whole size, which the window covers.
+    private static Configuration windowConfiguration() {
+        Display display = DisplayManagerGlobal.getInstance().getRealDisplay(Display.DEFAULT_DISPLAY);
+        Point size = new Point();
+        display.getRealSize(size);
+        Rect bounds = new Rect(0, 0, size.x, size.y);
+        Configuration config = new Configuration();
+        config.windowConfiguration.setBounds(bounds);
+        config.windowConfiguration.setAppBounds(bounds);
+        config.windowConfiguration.setMaxBounds(bounds);
+        config.windowConfiguration.setWindowingMode(WindowConfiguration.WINDOWING_MODE_FULLSCREEN);
+        config.windowConfiguration.setActivityType(WindowConfiguration.ACTIVITY_TYPE_STANDARD);
+        config.windowConfiguration.setRotation(display.getRotation());
+        config.windowConfiguration.setDisplayRotation(display.getRotation());
+        return config;
+    }
+
+    /**
+     * As AOSP's performLaunchActivity: the activity's class (the alias's target), its context with the window's
+     * configuration, attach, the manifest's theme and onCreate through Instrumentation.
+     */
+    private Activity performLaunchActivity(ActivityClientRecord r) {
+        ActivityInfo aInfo = r.activityInfo;
+        ComponentName component = r.intent.getComponent();
+        if (aInfo.targetActivity != null) {
+            component = new ComponentName(aInfo.packageName, aInfo.targetActivity);
+        }
+        ContextImpl appContext = ContextImpl.createActivityContext(this, r.packageInfo, aInfo, r.token,
+                Display.DEFAULT_DISPLAY, r.overrideConfig);
+        Activity activity = null;
+        try {
+            ClassLoader cl = appContext.getClassLoader();
+            activity = mInstrumentation.newActivity(cl, component.getClassName(), r.intent);
+            r.intent.setExtrasClassLoader(cl);
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(activity, e)) {
+                throw new RuntimeException("Unable to instantiate activity " + component + ": " + e, e);
+            }
+        }
+        try {
+            if (activity != null) {
+                CharSequence title = aInfo.loadLabel(appContext.getPackageManager());
+                Configuration config = new Configuration(Resources.getSystem().getConfiguration());
+                if (r.overrideConfig != null) {
+                    config.updateFrom(r.overrideConfig);
+                }
+                appContext.setOuterContext(activity);
+                activity.attach(appContext, this, mInstrumentation, r.token, 0, mInitialApplication, r.intent, aInfo,
+                        title, null, null, null, config, null, null, null, null, null, null, null);
+                activity.mStartedActivity = false;
+                int theme = aInfo.getThemeResource();
+                if (theme != 0) {
+                    activity.setTheme(theme);
+                }
+                activity.mCalled = false;
+                // As AOSP's: the record knows the activity before onCreate, for the lifecycle callbacks.
+                r.activity = activity;
+                mInstrumentation.callActivityOnCreate(activity, null);
+                if (!activity.mCalled) {
+                    throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
+                            + " did not call through to super.onCreate()");
+                }
+            }
+            r.state = ON_CREATE;
+        } catch (SuperNotCalledException e) {
+            throw e;
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(activity, e)) {
+                throw new RuntimeException("Unable to start activity " + component + ": " + e, e);
+            }
+        }
+        return activity;
+    }
+
+    /** As AOSP's handleStartActivity for a new activity: onStart, then onPostCreate, as there is no saved state. */
+    private void handleStartActivity(ActivityClientRecord r) {
+        final Activity activity = r.activity;
+        activity.performStart("handleStartActivity");
+        r.state = ON_START;
+        activity.mCalled = false;
+        mInstrumentation.callActivityOnPostCreate(activity, null);
+        if (!activity.mCalled) {
+            throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
+                    + " did not call through to super.onPostCreate()");
+        }
+    }
+
+    /**
+     * As AOSP's handleResumeActivity: onResume, then the window, added invisible and made visible, so that its first
+     * traversal attaches and lays out the decor at the next frame.
+     */
+    private void handleResumeActivity(ActivityClientRecord r) {
+        final Activity a = r.activity;
+        a.performResume(false, "RESUME_ACTIVITY");
+        r.state = ON_RESUME;
+        mTopToken = r.token;
+        final boolean willBeVisible = !a.mStartedActivity;
+        if (r.window == null && !a.mFinished && willBeVisible) {
+            r.window = a.getWindow();
+            View decor = r.window.getDecorView();
+            decor.setVisibility(View.INVISIBLE);
+            ViewManager wm = a.getWindowManager();
+            WindowManager.LayoutParams l = r.window.getAttributes();
+            a.mDecor = decor;
+            l.type = WindowManager.LayoutParams.TYPE_BASE_APPLICATION;
+            l.softInputMode |= WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION;
+            if (a.mVisibleFromClient && !a.mWindowAdded) {
+                a.mWindowAdded = true;
+                wm.addView(decor, l);
+            }
+        }
+        if (!a.mFinished && willBeVisible && a.mDecor != null) {
+            a.mVisibleFromServer = true;
+            if (a.mVisibleFromClient) {
+                a.makeVisible();
+            }
+        }
+    }
+
+    /** As AOSP's handleTopResumedActivityChanged for a resumed activity. */
+    private void handleTopResumedActivityChanged(ActivityClientRecord r, boolean onTop) {
+        if (r.isTopResumedActivity == onTop) {
+            return;
+        }
+        r.isTopResumedActivity = onTop;
+        if (r.state == ON_RESUME && r.lastReportedTopResumedState != onTop) {
+            r.lastReportedTopResumedState = onTop;
+            r.activity.performTopResumedActivityChanged(onTop, "topStateChangedWhenResumed");
+        }
+    }
+
+    /** The process's binder, which Activity hands to Instrumentation.execStartActivity; no system_server calls it. */
+    final class ApplicationThread extends IApplicationThread.Stub {
+    }
+
+    private final ApplicationThread mAppThread = new ApplicationThread();
+
+    public ApplicationThread getApplicationThread() {
+        return mAppThread;
+    }
+
+    public Instrumentation getInstrumentation() {
+        return mInstrumentation;
+    }
+
+    public Looper getLooper() {
+        return Looper.getMainLooper();
+    }
+
+    public Handler getHandler() {
+        return sMainThreadHandler;
+    }
+
+    public String getProcessName() {
+        return mProcessName;
+    }
+
+    /** As AOSP's for an app without a profiler: Minato starts none. */
+    public boolean isProfiling() {
+        return false;
+    }
+
+    public String getProfileFilePath() {
+        return null;
+    }
+
+    /** The bind's data that Instrumentation reads: never an SDK sandbox's on Minato. */
+    static final class AppBindData {
+        boolean isSdkInSandbox;
+    }
+
+    final AppBindData mBoundApplication = new AppBindData();
+
+    /** The app's own package, the only one a Minato process loads; null for any other, as AOSP's for one not loaded. */
+    public final LoadedApk peekPackageInfo(String packageName, boolean includeCode) {
+        return mPackageName.equals(packageName) ? mLoadedApk : null;
+    }
+
+    /** A result for an activity started for one, which comes with step b3.5b2's intents. */
+    public final void sendActivityResult(IBinder token, String id, int requestCode, int resultCode, Intent data) {
+        Log.w(TAG, "No activity results yet (ADR-0039 b3.5b2): " + requestCode + " for " + token);
+    }
+
+    /** Activity.recreate's relaunch, which comes with step c3's lifecycle host. */
+    public void scheduleRelaunchActivity(IBinder token) {
+        Log.w(TAG, "No relaunch yet (ADR-0039 step c3): " + token);
+    }
+
+    /** Instrumentation.finish: no instrumentation test runs on Minato. */
+    final void finishInstrumentation(int resultCode, android.os.Bundle results) {
+        Log.w(TAG, "No instrumentation to finish: " + resultCode);
+    }
+
 }
