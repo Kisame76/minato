@@ -10,10 +10,14 @@
 # EXPECTED_ERROR on stderr (nothing when not given), and exits with EXPECTED_STATUS (0 if not given).
 # NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out; TEST names the run when it is not the program's name.
 # MEASURES marks a benchmark: its stdout is not compared, and EXPECTED_OUTPUT is not read.
+# HOST_LINES is a regular expression for the lines of stderr that RUN writes on a thread of its own,
+# which the program does not wait for (graphics-run's Metal hook, as Metal presents drawables): they
+# race with the program's lines, so the lines that match it and the others are compared apart, each
+# kind in its order.
 #   cmake -D CONVERT=<apk-convert> -D RUN=<apk-run> -D FIXTURE=<elf> -D WORK=<dir>
 #         -D EXPECTED_OUTPUT=<file> [-D EXPECTED_ERROR=<file>] [-D EXPECTED_STATUS=<status>]
 #         [-D LIBRARIES=<elf>;<elf>...] [-D SYSTEM_LIBRARIES=<elf>;<elf>...] [-D SYSTEM=<dir>]
-#         [-D NO_LIBRARY_PATH=TRUE] [-D MEASURES=TRUE] [-D TEST=<name>]
+#         [-D NO_LIBRARY_PATH=TRUE] [-D MEASURES=TRUE] [-D TEST=<name>] [-D HOST_LINES=<regex>]
 #         -P tools/run-fixture.cmake
 foreach(elf IN LISTS FIXTURE LIBRARIES SYSTEM_LIBRARIES)
   if(NOT EXISTS "${elf}")
@@ -83,6 +87,42 @@ endif()
 if(NOT MEASURES AND NOT output STREQUAL expected_output)
   message(FATAL_ERROR "${TEST} printed [${output}], expected [${expected_output}]")
 endif()
-if(NOT error STREQUAL expected_error)
+
+# The lines of `text` that match HOST_LINES into `host`, the others into `program`, in their order.
+function(split_lines text host program)
+  set(matching "")
+  set(others "")
+  while(NOT text STREQUAL "")
+    string(FIND "${text}" "\n" end)
+    if(end EQUAL -1)
+      string(LENGTH "${text}" end)
+    else()
+      math(EXPR end "${end} + 1")
+    endif()
+    string(SUBSTRING "${text}" 0 ${end} line)
+    string(SUBSTRING "${text}" ${end} -1 text)
+    if(line MATCHES "${HOST_LINES}")
+      string(APPEND matching "${line}")
+    else()
+      string(APPEND others "${line}")
+    endif()
+  endwhile()
+  set(${host} "${matching}" PARENT_SCOPE)
+  set(${program} "${others}" PARENT_SCOPE)
+endfunction()
+
+# With HOST_LINES, each kind in its order: whether the program or RUN's thread writes first is a race.
+if(HOST_LINES)
+  split_lines("${error}" host_error program_error)
+  split_lines("${expected_error}" expected_host_error expected_program_error)
+  if(NOT program_error STREQUAL expected_program_error)
+    message(FATAL_ERROR "${TEST} wrote [${program_error}] to stderr besides the lines of ${HOST_LINES}, "
+      "expected [${expected_program_error}]")
+  endif()
+  if(NOT host_error STREQUAL expected_host_error)
+    message(FATAL_ERROR "${TEST}'s lines of ${HOST_LINES} on stderr were [${host_error}], "
+      "expected [${expected_host_error}]")
+  endif()
+elseif(NOT error STREQUAL expected_error)
   message(FATAL_ERROR "${TEST} wrote [${error}] to stderr, expected [${expected_error}]")
 endif()

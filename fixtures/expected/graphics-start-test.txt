@@ -2,7 +2,9 @@
 # "graphics-start-test: " prefix. The values follow from the sources at android-15.0.0_r1 and our fonts
 # (graphics/fonts), without a reference device:
 # - An 8 x 8 ARGB_8888 bitmap has 4 bytes per pixel. setPixel and getPixel of an opaque color give it back, and
-#   drawColor of opaque green covers every pixel.
+#   drawColor of opaque green covers every pixel. copyPixelsToBuffer gives the bytes in the order R, G, B, A
+#   [verified: Bitmap.java's ARGB_8888, "(A & 0xff) << 24 | (B & 0xff) << 16 | (G & 0xff) << 8 | (R & 0xff)"].
+#   createBitmap(int[]) takes Java's int colors and getPixel gives them back, as hwui converts them both ways.
 # - Typeface.DEFAULT is sans-serif: Roboto-Regular.ttf with supportedAxes wght and ital, which FontListParser gives
 #   weight 400 and no italic. RobotoStatic-Regular.ttf is in no list; Typeface's class init only preloads it, as
 #   Roboto-Regular.ttf.
@@ -14,6 +16,8 @@
 #   in DroidSansFallbackFull, the last fallback, and U+1F600 is in none of the fonts [verified: their cmap and hmtx].
 bitmap 8x8 ARGB_8888 256 bytes, 32 per row
 setPixel getPixel 0xff336699
+copyPixelsToBuffer bytes 33 66 99 ff
+createBitmap(int[]) getPixel 0xff336699 0xff00ff80, bytes 33 66 99 ff 00 ff 80 ff
 drawColor getPixel 0xff00ff00 0xff00ff00
 default weight 400, italic false
 available fonts 0

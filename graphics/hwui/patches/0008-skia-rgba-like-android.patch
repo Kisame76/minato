@@ -1,0 +1,21 @@
+Android's byte order for Skia's 32-bit pixels (ADR-0043 test 2).
+
+The host flavor takes Skia's linux config, whose SK_R32_SHIFT 16 makes kN32 BGRA, as layoutlib wants for Java's int
+ARGB images. Android's framework build leaves it to Skia's default, RGBA everywhere but Windows (SkTypes.h), which
+Bitmap.Config.ARGB_8888 documents for copyPixelsToBuffer: R, G, B, A in memory. With BGRA, every raw pixel an app
+reads or writes, and every buffer handed on unconverted, had red and blue swapped. So the define goes, and kN32 is
+RGBA, as on a device.
+
+--- a/external/skia/linux/include/config/SkUserConfig.h
++++ b/external/skia/linux/include/config/SkUserConfig.h
+@@ -67,10 +67,6 @@
+ #define SK_HAS_WUFFS_LIBRARY
+ #endif
+ 
+-#ifndef SK_R32_SHIFT
+-#define SK_R32_SHIFT 16
+-#endif
+-
+ #ifndef SK_SUPPORT_PDF
+ #define SK_SUPPORT_PDF
+ #endif

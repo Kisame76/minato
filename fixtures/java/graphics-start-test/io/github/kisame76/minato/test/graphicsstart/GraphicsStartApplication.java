@@ -8,6 +8,7 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.fonts.Font;
 import android.graphics.fonts.SystemFonts;
+import java.nio.ByteBuffer;
 import java.util.TreeSet;
 
 /**
@@ -39,6 +40,19 @@ public class GraphicsStartApplication extends Application {
                 + small.getByteCount() + " bytes, " + small.getRowBytes() + " per row");
         small.setPixel(1, 2, 0xff336699);
         print("setPixel getPixel " + hex(small.getPixel(1, 2)));
+        // The bytes in memory, as copyPixelsToBuffer gives them: ARGB_8888's order on Android.
+        ByteBuffer bytes = ByteBuffer.allocate(small.getByteCount());
+        small.copyPixelsToBuffer(bytes);
+        int at = (2 * small.getWidth() + 1) * 4;
+        print(String.format("copyPixelsToBuffer bytes %02x %02x %02x %02x", bytes.get(at), bytes.get(at + 1),
+                bytes.get(at + 2), bytes.get(at + 3)));
+        // Java's int colors go in through createBitmap(int[]) and out through getPixel unchanged, whatever the order.
+        Bitmap colors = Bitmap.createBitmap(new int[] {0xff336699, 0xff00ff80}, 2, 1, Bitmap.Config.ARGB_8888);
+        ByteBuffer pair = ByteBuffer.allocate(colors.getByteCount());
+        colors.copyPixelsToBuffer(pair);
+        print(String.format("createBitmap(int[]) getPixel %s %s, bytes %02x %02x %02x %02x %02x %02x %02x %02x",
+                hex(colors.getPixel(0, 0)), hex(colors.getPixel(1, 0)), pair.get(0), pair.get(1), pair.get(2),
+                pair.get(3), pair.get(4), pair.get(5), pair.get(6), pair.get(7)));
         new Canvas(small).drawColor(0xff00ff00);
         print("drawColor getPixel " + hex(small.getPixel(1, 2)) + " " + hex(small.getPixel(7, 7)));
 

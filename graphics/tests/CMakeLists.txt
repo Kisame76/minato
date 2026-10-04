@@ -183,11 +183,17 @@ if(TARGET minato_graphics_host)
   set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
   # One run of a guest program from tools/build-front-libs.sh: its name, the program, its expected output
   # (<expected>.out, and <expected>.err when it exists), the system's libraries and the changes of the
-  # environment that set the providers (ENVIRONMENT_MODIFICATION).
+  # environment that set the providers (ENVIRONMENT_MODIFICATION). HOST_LINES <regex> names the lines of stderr
+  # that graphics-run writes on a thread the program does not wait for (tools/run-fixture.cmake).
   function(add_guest_test name program expected libraries)
+    cmake_parse_arguments(PARSE_ARGV 4 GUEST "" "HOST_LINES" "")
     set(error "")
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
       set(error "-D EXPECTED_ERROR=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.err")
+    endif()
+    set(host_lines "")
+    if(DEFINED GUEST_HOST_LINES)
+      set(host_lines "-D HOST_LINES=${GUEST_HOST_LINES}")
     endif()
     add_test(NAME graphics.${name}
       COMMAND ${CMAKE_COMMAND}
@@ -199,9 +205,10 @@ if(TARGET minato_graphics_host)
         -D WORK=${CMAKE_CURRENT_BINARY_DIR}/${name}_runs
         -D EXPECTED_OUTPUT=${CMAKE_CURRENT_SOURCE_DIR}/${expected}.out
         ${error}
+        ${host_lines}
         -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
         -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
-    set_tests_properties(graphics.${name} PROPERTIES ENVIRONMENT_MODIFICATION "${ARGN}"
+    set_tests_properties(graphics.${name} PROPERTIES ENVIRONMENT_MODIFICATION "${GUEST_UNPARSED_ARGUMENTS}"
       SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
   endfunction()
   function(add_bind_test name expected)
@@ -222,7 +229,8 @@ if(TARGET minato_graphics_host)
   # the Metal hook, and without the log level, which graphics/host sets before it opens MoltenVK; then the
   # queue's part against MoltenVK, with the Metal hook asking for "scheduled". The window's part: against
   # the fake, which plays the app's host side, and against MoltenVK, with the Metal hook reading drawables
-  # back and the window host's background script.
+  # back and the window host's background script. The hook prints each drawable as Metal presents it, which
+  # the program does not wait for, so its lines are compared apart from the program's (HOST_LINES).
   set(vulkan_system_libraries ${thunk_system_libraries} "${APK_BIONIC_DIR}/libnativewindow.so"
     "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
   add_guest_test(vulkan_fake vulkan-fake-test vulkan_fake_test "${vulkan_system_libraries}"
@@ -239,7 +247,7 @@ if(TARGET minato_graphics_host)
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:scheduled")
     add_guest_test(vulkan_present vulkan-present-test vulkan_present_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:present"
-      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:background:70")
+      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:background:70" HOST_LINES "^metal:")
   else()
     foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
