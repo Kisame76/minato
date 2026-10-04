@@ -15,6 +15,8 @@ public struct SetMember: Sendable, Equatable {
     public var splitName: String?
     public var configForSplit: String?
     public var isFeatureSplit: Bool
+    /// `<manifest android:isolatedSplits>`, which Android takes from the base alone (`PackageLite.java:142`).
+    public var isolatedSplits: Bool
     /// The first `<uses-split>`; Android ignores the others.
     public var usesSplit: String?
     public var requiredSplitTypes: Set<String>
@@ -90,7 +92,7 @@ public struct SetMember: Sendable, Equatable {
         return SetMember(
             fileName: fileName, packageName: manifest.packageName, versionCode: manifest.versionCode,
             splitName: manifest.splitName, configForSplit: manifest.configForSplit, isFeatureSplit: manifest.isFeatureSplit,
-            usesSplit: manifest.usesSplit, requiredSplitTypes: manifest.requiredSplitTypes, splitTypes: manifest.splitTypes,
+            isolatedSplits: manifest.isolatedSplits, usesSplit: manifest.usesSplit, requiredSplitTypes: manifest.requiredSplitTypes, splitTypes: manifest.splitTypes,
             splitRequired: manifest.splitRequired, stricterSplitSignal: manifest.stricterSplitSignal,
             targetSdk: manifest.targetSdk, signature: signature, certificates: certificates, sha256: sha256,
             abis: abis.sorted())

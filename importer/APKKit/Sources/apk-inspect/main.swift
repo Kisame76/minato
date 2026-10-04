@@ -2,12 +2,18 @@
 // instead, as the library writes it into a version's folder (ADR-0034 decision 2), for the guest's
 // PackageManager on the Mac (ADR-0039 b3.5b1): what the signature check proved. An unsigned or unverified APK
 // gets none, and a file there is removed; one whose check failed, which the library would not install, exits 1.
+// With --set or --join it prints Minato's answer to one install session of split APKs instead (SessionAnswer.swift).
 // Usage: swift run apk-inspect [--json] <file.apk>
 //        swift run apk-inspect --signers <signers.json> <file.apk>
+//        swift run apk-inspect --set <file.apk>...
+//        swift run apk-inspect --join <installed.apk>... -- <split.apk>...
 import APKKit
 import Foundation
 
 var arguments = Array(CommandLine.arguments.dropFirst())
+if let mode = arguments.first, mode == "--set" || mode == "--join" {
+    exit(SessionAnswer.run(mode, Array(arguments.dropFirst())))
+}
 let asJSON = arguments.first == "--json"
 if asJSON { arguments.removeFirst() }
 var signersPath: String?

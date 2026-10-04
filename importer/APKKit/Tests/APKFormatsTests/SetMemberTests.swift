@@ -40,6 +40,20 @@ struct SetMemberTests {
         #expect(member.stricterSplitSignal)
     }
 
+    /// `getAttributeBooleanValue` (`ApkLiteParseUtils.java:431-432`, android-15.0.0_r1): any integer type's data, and
+    /// false for a string.
+    @Test func readsIsolatedSplitsAsAndroidsInstallerDoes() throws {
+        let isolated = { (value: AXMLBuilder.Value) in
+            try Self.member(SplitAPK.make(attributes: [.android("isolatedSplits", 0x0101_054B, value)])).isolatedSplits
+        }
+
+        #expect(try isolated(.bool(true)))
+        #expect(try isolated(.typed(type: 0x10, data: 2)))
+        #expect(try !isolated(.bool(false)))
+        #expect(try !isolated(.string("true")))
+        #expect(try !Self.member(SplitAPK.make()).isolatedSplits)
+    }
+
     @Test func rolesComeFromTheManifestNotTheFileName() throws {
         #expect(try Self.member(SplitAPK.make(), named: "split_config.en.apk").role == .base)
         #expect(try Self.member(SplitAPK.make(split: "config.arm64_v8a"), named: "base.apk").role

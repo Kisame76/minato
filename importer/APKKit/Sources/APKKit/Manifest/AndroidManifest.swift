@@ -18,6 +18,9 @@ public struct AndroidManifest: Sendable, Equatable {
     /// The module a configuration split configures (`configForSplit`).
     public var configForSplit: String?
     public var isFeatureSplit: Bool
+    /// `<manifest android:isolatedSplits>`: only where the base sets it does Android build the splits' dependency tree,
+    /// and check it.
+    public var isolatedSplits: Bool
     /// The first `<uses-split>`; Android ignores the others.
     public var usesSplit: String?
     /// `requiredSplitTypes` and `splitTypes` as Android splits and checks them.
@@ -105,6 +108,7 @@ public struct AndroidManifest: Sendable, Equatable {
         // The installer's flags are integer types' data (getAttributeBooleanValue).
         versionName = root.android(.versionName)?.value
         isFeatureSplit = installer.integer("isFeatureSplit").map { $0 != 0 } ?? false
+        isolatedSplits = installer.integer("isolatedSplits").map { $0 != 0 } ?? false
         splitRequired = installer.integer("isSplitRequired").map { $0 != 0 } ?? false
 
         let sdk = try UsesSdk(manifest: root)

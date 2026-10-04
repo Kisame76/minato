@@ -93,9 +93,49 @@ public enum SetChecks {
         guard first.isBase else {
             return .success(CheckedSet(base: nil, splits: splits, signing: signing, missingSplit: false, needsSplits: false))
         }
-        return .success(CheckedSet(base: first, splits: splits, signing: signing,
-                                   missingSplit: missesSplit(base: first, splits: splits),
+        let missingSplit = missesSplit(base: first, splits: splits)
+        // The session refuses a missing split before the package parser reads the dependencies.
+        if !missingSplit, first.isolatedSplits, let error = dependencyError(splits: splits) {
+            return .failure(SetRefusal(reason: error))
+        }
+        return .success(CheckedSet(base: first, splits: splits, signing: signing, missingSplit: missingSplit,
                                    needsSplits: needsSplits(base: first, splits: splits)))
+    }
+
+    /// INSTALL_PARSE_FAILED_BAD_MANIFEST of a base with isolatedSplits, whose splits' dependency tree Android builds
+    /// (`ParsingPackageUtils.java:358-364`, `SplitDependencyLoader.createDependenciesFromPackage`, :161-249): a feature
+    /// split's `<uses-split>` names a split of the set, a configuration split's `configForSplit` a feature split of it,
+    /// and following each split's `<uses-split>` ends at the base. `splits` in split-name order, as Android goes
+    /// through them; its words, or nil.
+    static func dependencyError(splits: [SetMember]) -> String? {
+        let byName = Dictionary(uniqueKeysWithValues: splits.map { ($0.splitName!, $0) })
+        // Each feature split's dependency: another split, or the base (nil).
+        var dependencies: [String: String?] = [:]
+        for split in splits where split.isFeatureSplit {
+            if let dependency = split.usesSplit, byName[dependency] == nil {
+                return "Split '\(split.splitName!)' requires split '\(dependency)', which is missing."
+            }
+            dependencies[split.splitName!] = .some(split.usesSplit)
+        }
+        for split in splits where !split.isFeatureSplit {
+            guard let target = split.configForSplit else { continue }
+            guard let configured = byName[target] else {
+                return "Split '\(split.splitName!)' targets split '\(target)', which is missing."
+            }
+            if !configured.isFeatureSplit {
+                return "Split '\(split.splitName!)' declares itself as configuration split for a non-feature split '\(target)'"
+            }
+        }
+        // A configuration split, which has no dependency of its own, ends the walk as the base does.
+        for start in dependencies.keys {
+            var seen: Set<String> = []
+            var next: String? = start
+            while let name = next {
+                guard seen.insert(name).inserted else { return "Cycle detected in split dependencies." }
+                next = dependencies[name] ?? nil
+            }
+        }
+        return nil
     }
 
     /// Splits without their base on the installed version, as Android's inherit mode stages them

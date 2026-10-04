@@ -34,8 +34,8 @@ let package = Package(
         .testTarget(name: "APKBenchTests", dependencies: ["APKBench"]),
         // Development tool: tells tools/benchmark.sh the next run from the results so far (ADR-0037).
         .executableTarget(name: "bench-plan", dependencies: ["APKBench"]),
-        // Development tool: prints what APKKit reads from a real APK.
-        .executableTarget(name: "apk-inspect", dependencies: ["APKKit"]),
+        // Development tool: prints what APKKit reads from a real APK, and what SetChecks answers to a set of them.
+        .executableTarget(name: "apk-inspect", dependencies: ["APKKit", "APKFormats"]),
         // Writes APKs for our test apps (make-apk, ADR-0031): ZIP, binary XML and string pools,
         // encoded independently of the production parsers, plus the manifest compiler and the layout.
         .target(name: "APKPack", dependencies: ["APKKit"]),

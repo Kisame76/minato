@@ -304,4 +304,116 @@ struct SetChecksTests {
         let other = try Self.member(SplitAPK.make(package: "org.example.other", split: "config.en"), "split_config.en.apk")
         #expect(try SetChecks.joining([de, other], installed: [Self.base()]) == nil)
     }
+
+    // MARK: - Isolated splits (b8c)
+
+    static var isolatedSplits: AXMLBuilder.Attribute { .android("isolatedSplits", 0x0101_054B, .bool(true)) }
+
+    static func base(isolated: Bool) throws -> SetMember {
+        try member(SplitAPK.make(attributes: isolated ? [isolatedSplits] : []), "base.apk")
+    }
+
+    static func feature(_ name: String, usesSplit: String? = nil) throws -> SetMember {
+        try member(SplitAPK.make(split: name, isFeatureSplit: true, usesSplit: usesSplit), "split_\(name).apk")
+    }
+
+    static func config(_ name: String, for target: String?) throws -> SetMember {
+        try member(SplitAPK.make(split: name, configForSplit: target), "split_\(name).apk")
+    }
+
+    /// What `SplitDependencyLoader.createDependenciesFromPackage` refuses (:161-249, android-15.0.0_r1), which the
+    /// package parser runs only where the base sets isolatedSplits (`ParsingPackageUtils.java:358-364`), and Android's
+    /// words for it, with INSTALL_PARSE_FAILED_BAD_MANIFEST.
+    enum Dependencies: CaseIterable, Sendable {
+        case configForMissingFeature, usesMissingSplit, configForConfig, circle, circleOfOne
+
+        func splits() throws -> [SetMember] {
+            typealias Make = SetChecksTests
+            return switch self {
+            case .configForMissingFeature: [try Make.config("feature_missing.config.de", for: "feature_missing")]
+            case .usesMissingSplit: [try Make.feature("feature_extra", usesSplit: "feature_missing")]
+            case .configForConfig: [try Make.config("config.fr", for: nil), try Make.config("extra.config.de", for: "config.fr")]
+            case .circle: [try Make.feature("feature_a", usesSplit: "feature_b"), try Make.feature("feature_b", usesSplit: "feature_a")]
+            case .circleOfOne: [try Make.feature("feature_a", usesSplit: "feature_a")]
+            }
+        }
+
+        var reason: String {
+            switch self {
+            case .configForMissingFeature: "Split 'feature_missing.config.de' targets split 'feature_missing', which is missing."
+            case .usesMissingSplit: "Split 'feature_extra' requires split 'feature_missing', which is missing."
+            case .configForConfig:
+                "Split 'extra.config.de' declares itself as configuration split for a non-feature split 'config.fr'"
+            case .circle, .circleOfOne: "Cycle detected in split dependencies."
+            }
+        }
+    }
+
+    @Test(arguments: Dependencies.allCases)
+    func underIsolatedSplitsAndroidsDependencyErrorsAreRefused(_ dependencies: Dependencies) throws {
+        #expect(try Self.refusal([Self.base(isolated: true)] + dependencies.splits()) == dependencies.reason)
+    }
+
+    @Test(arguments: Dependencies.allCases)
+    func withoutIsolatedSplitsAndroidBuildsNoDependencyTree(_ dependencies: Dependencies) throws {
+        #expect(try Self.refusal([Self.base(isolated: false)] + dependencies.splits()) == nil)
+    }
+
+    @Test func isolatedSplitsCountsOnTheBaseAlone() throws {
+        // PackageLite.java:142.
+        let split = try Self.member(SplitAPK.make(split: "feature_missing.config.de", configForSplit: "feature_missing",
+                                                  attributes: [Self.isolatedSplits]), "split_feature_missing.config.de.apk")
+
+        #expect(try Self.refusal([Self.base(isolated: false), split]) == nil)
+    }
+
+    @Test func anIsolatedSetWhoseDependenciesResolveIsAccepted() throws {
+        // A <uses-split> may name any split; a configuration split ends the walk as a leaf, and one without configForSplit
+        // configures the base.
+        let set = try Self.checked([
+            Self.base(isolated: true), Self.feature("feature_extra"), Self.config("feature_extra.config.de", for: "feature_extra"),
+            Self.feature("feature_more", usesSplit: "feature_extra"), Self.config("config.de", for: nil),
+            Self.feature("feature_leaf", usesSplit: "config.de"),
+        ])
+
+        #expect(set.splits.count == 5)
+    }
+
+    @Test func eachKindOfSplitHasOnlyItsOwnDependency() throws {
+        // "Non-feature splits don't have dependencies", and "Feature splits are not configForSplits".
+        let config = try Self.member(SplitAPK.make(split: "config.de", usesSplit: "missing"), "split_config.de.apk")
+        let feature = try Self.member(SplitAPK.make(split: "feature_extra", configForSplit: "missing", isFeatureSplit: true),
+                                      "split_feature_extra.apk")
+
+        #expect(try Self.refusal([Self.base(isolated: true), config, feature]) == nil)
+    }
+
+    @Test func theFeatureSplitsComeBeforeTheConfigurationSplits() throws {
+        // createDependenciesFromPackage goes through the feature splits first, then the configuration splits, each in
+        // split-name order.
+        let reason = try Self.refusal([Self.base(isolated: true), Self.config("a.config.de", for: "a_missing"),
+                                       Self.feature("z_feature", usesSplit: "z_missing")])
+
+        #expect(reason == "Split 'z_feature' requires split 'z_missing', which is missing.")
+    }
+
+    @Test func aMissingSplitComesFirst() throws {
+        // The session refuses with INSTALL_FAILED_MISSING_SPLIT (PackageInstallerSession.java:3651-3655) before the
+        // package parser builds the dependency tree.
+        let base = try Self.member(SplitAPK.make(manifestSplitRequired: true, requiredSplitTypes: "base__abi",
+                                                 attributes: [Self.isolatedSplits]), "base.apk")
+
+        let set = try Self.checked([base, Self.feature("feature_extra", usesSplit: "feature_missing")])
+
+        #expect(set.missingSplit)
+    }
+
+    @Test func aJoinedSetIsCheckedAgain() throws {
+        let installed = try [Self.base(isolated: true), Self.feature("feature_extra")]
+
+        let joined = try #require(SetChecks.joining([Self.config("feature_missing.config.de", for: "feature_missing")],
+                                                    installed: installed))
+
+        #expect(Self.refusal(joined) == "Split 'feature_missing.config.de' targets split 'feature_missing', which is missing.")
+    }
 }
