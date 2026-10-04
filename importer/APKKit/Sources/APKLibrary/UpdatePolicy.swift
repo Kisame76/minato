@@ -66,8 +66,10 @@ public enum UpdatePolicy {
     public static func decide(installed: AppVersion?, new: AppVersion) -> UpdateDecision {
         guard let installed else { return .install }
         // A damaged or forged file never replaces anything, and an unusable one never replaces a working
-        // version, whatever its version or signer.
-        if new.signatureFailed || installed.state == .ready && (new.state == .incompatible || new.state == .needsSplits) {
+        // version, whatever its version or signer. A version that needs splits is a base waiting for its split
+        // APKs: a file that cannot run, a lone split APK among them, never replaces it either.
+        if new.signatureFailed || installed.state == .ready && (new.state == .incompatible || new.state == .needsSplits)
+            || installed.state == .needsSplits && new.state == .incompatible {
             return .reject(new.state)
         }
         var warnings: Set<UpdateWarning> = []

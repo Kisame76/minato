@@ -33,10 +33,23 @@ struct UpdatePolicyTests {
         #expect(UpdatePolicy.decide(installed: Self.version(1, installed), new: Self.version(2, sha256: "bb")) == .update)
     }
 
-    @Test(arguments: [LibraryEntry.State.needsSplits, .incompatible])
-    func protectsOnlyAReadyVersion(installed: LibraryEntry.State) {
+    @Test func leavesAnIncompatibleVersionUnprotected() {
         // An installed version that cannot run anyway is updated even by a file that cannot run either.
-        #expect(UpdatePolicy.decide(installed: Self.version(1, installed), new: Self.version(2, .incompatible, sha256: "bb")) == .update)
+        #expect(UpdatePolicy.decide(installed: Self.version(1, .incompatible), new: Self.version(2, .incompatible, sha256: "bb")) == .update)
+    }
+
+    @Test func rejectsAnIncompatibleFileWhileAVersionThatNeedsSplitsIsInstalled() {
+        // That version is a base waiting for its split APKs: a lone split APK, or any other file that cannot run,
+        // never replaces it, whatever its version (the row ADR-0034 decision 1 gains for M5's split sets).
+        for code: Int64 in [1, 2, 3] {
+            #expect(UpdatePolicy.decide(installed: Self.version(2, .needsSplits), new: Self.version(code, .incompatible, sha256: "bb"))
+                == .reject(.incompatible))
+        }
+        // Before any question about the signer.
+        var unproven = Self.version(2, .incompatible, sha256: "bb", signer: SignerIdentity(current: ["k2"]))
+        #expect(UpdatePolicy.decide(installed: Self.version(2, .needsSplits), new: unproven) == .reject(.incompatible))
+        unproven.signerProven = false
+        #expect(UpdatePolicy.decide(installed: Self.version(2, .needsSplits), new: unproven) == .reject(.incompatible))
     }
 
     @Test(arguments: [LibraryEntry.State.ready, .needsSplits, .incompatible])

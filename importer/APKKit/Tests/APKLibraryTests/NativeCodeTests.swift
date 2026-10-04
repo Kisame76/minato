@@ -338,7 +338,28 @@ struct NativeCodeTests {
     }
 
     @Test func aRefusedUpdateOverAnAppThatCannotRunReplacesIt() async throws {
-        // Only a ready version is kept (ADR-0034, decision 1).
+        // Only a ready version, or one that waits for its split APKs, is kept (ADR-0034, decision 1).
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(
+            sandbox.file(SampleAPK.make(package: "io.github.kisame76.minato.test.activity", abis: ["armeabi-v7a"], nativeActivity: true,
+                                        signers: [TestKey(debugKey: Self.key)]),
+                         named: "v1.apk"), signing: Self.signing()).entry
+        #expect(installed.state == .incompatible)
+
+        let result = try await library.importFile(
+            sandbox.file(Self.madeAPK(extractNativeLibs: false, versionCode: 2), named: "v2.apk"),
+            signing: Self.signing(Converter(refuses: "libhelper.so")))
+
+        #expect(result.decision == .update)
+        #expect(result.entry.state == .incompatible)
+        #expect(result.entry.report?.versionCode == 2)
+        #expect(Self.names(in: sandbox.paths.installDirectory(for: installed.id)) == [result.entry.folder].compactMap { $0 })
+    }
+
+    @Test func aRefusedUpdateOverABaseThatNeedsSplitsLeavesIt() async throws {
+        // A base that waits for its split APKs is kept as a ready version is (ADR-0034, decision 1).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -352,10 +373,10 @@ struct NativeCodeTests {
             sandbox.file(Self.madeAPK(extractNativeLibs: false, versionCode: 2), named: "v2.apk"),
             signing: Self.signing(Converter(refuses: "libhelper.so")))
 
-        #expect(result.decision == .update)
-        #expect(result.entry.state == .incompatible)
-        #expect(result.entry.report?.versionCode == 2)
-        #expect(Self.names(in: sandbox.paths.installDirectory(for: installed.id)) == [result.entry.folder].compactMap { $0 })
+        #expect(result.decision == .reject(.incompatible))
+        #expect(result.entry == installed)
+        #expect(await library.entries == [installed])
+        #expect(Self.names(in: sandbox.paths.installDirectory(for: installed.id)) == [installed.folder].compactMap { $0 })
     }
 
     @Test func signingAgainGivesTheSameVerdict() async throws {

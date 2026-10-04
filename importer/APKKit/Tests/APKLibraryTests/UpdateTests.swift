@@ -389,6 +389,64 @@ struct UpdateTests {
 
     // MARK: - Files that change nothing
 
+    /// A split APK of the sample app, signed with the same key, which holds its library.
+    static func splitAPK(_ name: String, versionCode: Int32 = 1) -> Data {
+        let manifest = AXMLBuilder.Element("manifest", [
+            .plain("package", .string("org.example.game")),
+            .plain("split", .string(name)),
+            .android("versionCode", 0x0101_021B, .int(versionCode)),
+        ], [AXMLBuilder.Element("application", [.android("hasCode", 0x0101_000C, .bool(false))])])
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", AXMLBuilder().build(manifest))
+        zip.add("lib/arm64-v8a/libgame.so", ELFBuilder(segments: [.load(align: 0x4000)]).build())
+        return TestSigner.sign(zip, v2: [TestSigner.Signer(.ec)])
+    }
+
+    @Test func aSplitPickedWithItsBaseNeverReplacesTheBase() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let base = SampleAPK.make(versionCode: 1, splitRequired: true)
+        // "+" with both files: they wait in incoming/ and are imported in scan's order, as LibraryModel does.
+        _ = try await library.adopt(sandbox.file(base, named: "base.apk"))
+        _ = try await library.adopt(sandbox.file(Self.splitAPK("config.arm64_v8a"), named: "split_config.arm64_v8a.apk"))
+        var decisions: [UpdateDecision] = []
+        for file in try await library.scan() {
+            decisions.append(try await library.importFile(file).decision)
+        }
+
+        #expect(decisions == [.install, .reject(.incompatible)])
+        let entries = await library.entries
+        #expect(entries.count == 1)
+        let entry = try #require(entries.first)
+        #expect(entry.state == .needsSplits)
+        #expect(entry.base != nil)
+        #expect(try Self.installedAPK(sandbox, entry) == base)
+        #expect(try await library.scan().isEmpty)
+    }
+
+    @Test func aBaseImportedAfterItsSplitReplacesTheSplitsEntry() async throws {
+        // The other order: the lone split's entry cannot run and keeps no APK, so its base replaces it.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let base = SampleAPK.make(versionCode: 1, splitRequired: true)
+        _ = try await library.adopt(sandbox.file(Self.splitAPK("config.arm64_v8a"), named: "a_split.apk"))
+        _ = try await library.adopt(sandbox.file(base, named: "base.apk"))
+        var decisions: [UpdateDecision] = []
+        for file in try await library.scan() {
+            decisions.append(try await library.importFile(file).decision)
+        }
+
+        #expect(decisions == [.install, .reinstall])
+        let entries = await library.entries
+        #expect(entries.count == 1)
+        let entry = try #require(entries.first)
+        #expect(entry.state == .needsSplits)
+        #expect(try Self.installedAPK(sandbox, entry) == base)
+        #expect(try await library.scan().isEmpty)
+    }
+
     @Test(arguments: [(["armeabi-v7a"], false, LibraryEntry.State.incompatible), (["arm64-v8a"], true, .needsSplits)])
     func anUnusableFileLeavesTheWorkingVersion(abis: [String], splitRequired: Bool, state: LibraryEntry.State) async throws {
         let sandbox = try Sandbox()
