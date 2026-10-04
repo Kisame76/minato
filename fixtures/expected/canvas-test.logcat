@@ -1,0 +1,9 @@
+I/canvas-test: bitmap 480x480 ARGB_8888, canvas density 0
+I/canvas-test: nine-patch 32x32, chunk true
+I/canvas-test: text Minato at 30 px: width 93.00, ascent -27.83, descent 7.32
+I/canvas-test: png 64x64 ARGB_8888, alpha false, pixel 30,30 0xff787880
+I/canvas-test: jpeg 64x64 ARGB_8888, alpha false
+I/canvas-test: webp lossy 64x64 ARGB_8888, alpha false
+I/canvas-test: webp lossless 64x64 ARGB_8888, alpha false, pixel 30,30 0xff787880
+I/canvas-test: pixels 921600 bytes in canvas-test.rgba
+I/canvas-test: done

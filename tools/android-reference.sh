@@ -29,6 +29,8 @@
 # is one more on apk-runner-35, whose lines are System.out's that start with "app-start-test: ". A test app's lines of
 # logcat with its own tag (logcat -v tag) must
 # be fixtures/expected/<app>.logcat; those with the tag <app>-device differ by device and are only shown.
+# canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
+# pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
 # The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
@@ -339,6 +341,10 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="app-start-test: MessageDigest"
       activity_class=android.app.Activity tag=System.out
       ;;
+    # canvas-test (ADR-0043 test 2): as those above, and its pixels follow its log.
+    canvas-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      ;;
     # present-test's apps draw 1200 frames, at 60 Hz on the emulator also in their 120 Hz half: about 45 s.
     present-gles | present-vulkan)
       limit=120
@@ -451,6 +457,10 @@ run_app() {
     app_lines "$tag" | grep -F ": $app: " >"$RESULTS/$app.logcat" || true
   fi
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  if [[ "$app" == canvas-test ]]; then
+    # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
+    device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"
+  fi
   if [[ -n "$mask" ]]; then
     # make-apk signs with a per-machine debug key (ADR-0031): each certificate SHA-256 the APK's check proved becomes
     # the mark of its role that framework/tests/java_app_run.py puts in our log, so the expected file holds no
@@ -484,6 +494,10 @@ run_app() {
     return 1
   fi
   device uninstall "$package" >/dev/null 2>&1 || true
+  if [[ "$app" == canvas-test ]] && ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
+    echo "DIFFERS  $app's pixels: $RESULTS/$app.rgba.gz"
+    return 1
+  fi
   if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then
     echo "same     $app"
   else

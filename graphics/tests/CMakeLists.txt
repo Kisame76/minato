@@ -76,6 +76,12 @@ add_test(NAME graphics.present_check
     --tool "${PROJECT_SOURCE_DIR}/tools/present-check.py" --scratch "${CMAKE_CURRENT_BINARY_DIR}/present_check")
 set_tests_properties(graphics.present_check PROPERTIES TIMEOUT 120)
 
+# ADR-0043 test 2: graphics/tests/canvas_compare.py, which compares canvas-test's pixels with Android's
+# (tools/canvas-check.sh), at both limits of its tolerance.
+add_test(NAME graphics.canvas_compare
+  COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/canvas_compare_test.py")
+set_tests_properties(graphics.canvas_compare PROPERTIES TIMEOUT 120)
+
 # ADR-0043 a1: tools/hwui-plan.py plans hwui's host flavor on the tag's sources, tools/soong_plan.py's planner on a
 # made-up set, its host side of __ANDROID__ through unifdef on made-up sources, and tools/sysprop.py's accessors.
 add_test(NAME graphics.hwui_plan

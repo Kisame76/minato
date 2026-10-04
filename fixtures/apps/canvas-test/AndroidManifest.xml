@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0043 test 2 (canvas-test): the Application class draws into a Bitmap on the CPU and logs each step. It is
+     debuggable, so that tools/android-reference.sh can pull its pixels from its cache folder with run-as. The launcher
+     activity is the framework's own android.app.Activity, as in app-start-test; the driver loads only the Application
+     class. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.canvas" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Canvas Test" android:debuggable="true"
+      android:name="io.github.kisame76.minato.test.canvas.CanvasApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
