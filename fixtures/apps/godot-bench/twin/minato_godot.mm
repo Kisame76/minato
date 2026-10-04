@@ -5,6 +5,10 @@
 // controller. Godot's app.swift, whose @main would clash with Minato's, stays out of the link, and every symbol
 // but the three entries of exports.txt stays hidden.
 
+// Apple marks OpenGL ES deprecated; the GLES run gives Godot's layer its context of it.
+#define GLES_SILENCE_DEPRECATION 1
+
+#import <OpenGLES/EAGL.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
@@ -72,14 +76,40 @@ static void minato_godot_forward_scene_events(void) {
     }];
 }
 
+// Godot's GLES layer, GDTOpenGLLayer of platform/ios/display_layer_ios.mm: its -initializeDisplayLayer makes the
+// layer's context, [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3], only when the project's rendering
+// method is gl_compatibility, as in a Compatibility project, and then makes it current and builds the framebuffer on
+// it. The twin picks the method per run with --rendering-method, which main.cpp keeps to itself, and its pack says
+// mobile, so the GLES run had no context and no framebuffer (c4). The layer therefore gets that same context first
+// when it has none, and Godot's own code goes on as for a Compatibility project (c4.1).
+static IMP initialize_display_layer;
+
+static void minato_godot_initialize_display_layer(id self, SEL command) {
+    if (minato_godot_ensure_ivar(self, "context", ^id {
+            return [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3];
+        })) {
+        NSLog(@"MinatoGodot: an OpenGL ES 3.0 context for Godot's layer, as in a Compatibility project");
+    }
+    ((void (*)(id, SEL))initialize_display_layer)(self, command);
+}
+
+static void minato_godot_hook_gles_layer(void) {
+    Method method = class_getInstanceMethod(NSClassFromString(@"GDTOpenGLLayer"), @selector(initializeDisplayLayer));
+    if (method != NULL && initialize_display_layer == NULL) {
+        initialize_display_layer = method_setImplementation(method, (IMP)minato_godot_initialize_display_layer);
+    }
+}
+
 // Sets up the engine on the main thread, before the view controller's view first draws: Godot's renderer ends the
 // process when it draws without an engine. argv[0] must hold a '/', as an executable's path does. Returns 0, or the
 // error of Main::setup.
 // It calls apple_embedded_main itself, as Godot's didFinishLaunching does, without the audio session that one sets
 // (the bench plays no sound). Godot starts unfocused and the app's scene is active already, so the engine gets
-// one focus-in here; later scene events follow through the notifications.
+// one focus-in here; later scene events follow through the notifications. Godot's GLES layer is hooked before it
+// exists, for a GLES run; the other runs never make one.
 extern "C" __attribute__((visibility("default"))) int minato_godot_start(int argc, char **argv) {
     minato_godot_ensure_method(UIApplication.sharedApplication.delegate, @selector(window), (IMP)minato_godot_window, "@@:");
+    minato_godot_hook_gles_layer();
     int error = apple_embedded_main(argc, argv);
     if (error != 0) {
         return error;

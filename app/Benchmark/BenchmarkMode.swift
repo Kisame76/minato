@@ -359,7 +359,7 @@ final class BenchmarkRunner {
     }
 
     /// The variant ended, or failed with `reason`: the recording, the scene's frames and the CSVs, then the
-    /// process ends. Only the first call counts.
+    /// process ends, the twin's with _exit. Only the first call counts.
     private func end(_ reason: String?) {
         guard !hasEnded else { return }
         hasEnded = true
@@ -393,6 +393,13 @@ final class BenchmarkRunner {
             record.meshes = Int(meshes.meshes(configuration.api.rawValue, configuration.load.rawValue))
         }
         write(frames: BenchCSV.join(drawables: recording.drawables, scene: scene))
+        // The CSVs are written and closed. Test 2's twin ends without exit's static destructors, which would run
+        // under Godot's live threads and abort on a destroyed mutex (c4); stdio's buffers, Godot's last console
+        // lines, go out first.
+        if run.variant == .twin {
+            fflush(nil)
+            _exit(0)
+        }
         exit(0)
     }
 

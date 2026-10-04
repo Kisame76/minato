@@ -17,7 +17,7 @@ script: a bench.conf of 3 s at 60 Hz gives the script's lines, a scene.csv row p
   Godot's user:// lies in build/godot/home. pack: the same from the iOS preset's pack, which the twin loads (c) 2).
 twin: the framework exports only the wrapper's entries of twin/exports.txt and holds no _main; its Vulkan calls bind to
   MoltenVK.framework, of which it defines nothing; it links no Swift library; it is an iOS device binary from iOS 26.0.
-  The wrapper's window fallback (twin/ensure_method.m) passes its check on the Mac.
+  The wrapper's fallbacks (twin/ensure_method.m), the window and the GLES layer's context, pass their check on the Mac.
 """
 import json
 import os
@@ -183,7 +183,8 @@ def tool(*command):
 
 
 def check_fallback():
-    """The wrapper's window fallback (c) 2), built and run on the Mac: it uses the Objective-C runtime only."""
+    """The wrapper's fallbacks, the window (c) 2) and the GLES layer's context (c4.1), built and run on the Mac: they
+    use the Objective-C runtime only."""
     source = os.path.join(ROOT, "fixtures", "apps", "godot-bench", "twin")
     work = os.path.join(BUILD, "twin-test")
     os.makedirs(work, exist_ok=True)
@@ -191,11 +192,12 @@ def check_fallback():
     built = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation",
                             "-I", source, os.path.join(source, "ensure_method.m"),
                             os.path.join(source, "ensure_method_test.m"), "-o", binary], capture_output=True, text=True)
-    check(built.returncode == 0, "the window fallback builds for the Mac" + ("" if built.returncode == 0 else f" ({built.stderr.strip()[-300:]})"))
+    check(built.returncode == 0, "the wrapper's fallbacks build for the Mac" + ("" if built.returncode == 0 else f" ({built.stderr.strip()[-300:]})"))
     if built.returncode == 0:
         ran = subprocess.run([binary], capture_output=True, text=True)
         check(ran.returncode == 0 and ran.stdout.rstrip().endswith("ensure_method: ok"),
-              "the window fallback gives a window only to a delegate without one" + ("" if ran.returncode == 0 else f"\n{ran.stdout}"))
+              "they give a window only to a delegate without one and a context only to a layer without one" +
+              ("" if ran.returncode == 0 else f"\n{ran.stdout}"))
 
 
 def check_twin():
