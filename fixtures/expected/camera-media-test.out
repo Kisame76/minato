@@ -1,0 +1,8 @@
+libcamera2ndk.so: loaded
+libmediandk.so: loaded
+libgodot_android.so's 23 camera and 9 image functions: all there
+camera manager: made
+camera IDs: status 0, 0 cameras
+camera IDs without a list to fill: status -10001
+openCamera of "0": status -10001, no device
+AImageReader_new: status -10002, no reader

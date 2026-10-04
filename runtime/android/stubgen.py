@@ -84,6 +84,21 @@ LIBRARIES = {
     # OpenSL ES on libaaudio (opensles.cpp, ADR-0036, decision 7): its 3 functions and 53 interface IDs, every name
     # written by hand.
     "libOpenSLES": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
+    # No camera (ADR-0042 b, gap 15), so that an app that links the library loads, as Godot's libgodot_android.so
+    # does: the camera manager answers an empty ID list (camera_manager.c), every other function an error.
+    "libcamera2ndk": {
+        "version": None,
+        "implemented": ["ACameraManager_create", "ACameraManager_delete", "ACameraManager_getCameraIdList",
+                        "ACameraManager_deleteCameraIdList"],
+        "stubbed": [],
+        "private": [],
+    },
+    # No codec, extractor, muxer, DRM or image reader (gap 15): every function answers an error. Its key strings
+    # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*) are data, whose values only AOSP's NdkMediaFormat.cpp and
+    # NdkMediaCodec.cpp have, which are not fetched: they stay absent until AMediaFormat is written, and an app
+    # that imports one fails at the link, as it did without the library.
+    "libmediandk": {"version": None, "implemented": [], "stubbed": [], "private": [],
+                    "absent": ["AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*"]},
 }
 
 # The kinds of the functions the NDK's headers do not declare.
@@ -153,6 +168,22 @@ VALUES = {
     "android_res_nquery": "-ENOSYS", "android_res_nresult": "-ENOSYS", "android_res_nsend": "-ENOSYS",
     "android_setprocdns": _ERRNO, "android_setprocnetwork": _ERRNO, "android_setsocknetwork": _ERRNO,
     "android_tag_socket": "-ENOSYS", "android_tag_socket_with_uid": "-ENOSYS", "android_untag_socket": "-ENOSYS",
+    # Cameras: none exists (ADR-0042 b, gap 15); their status results come from STATUS_VALUES
+    "ACameraMetadata_isLogicalMultiCamera": "0",
+    # Media: nothing can be made (gap 15), so no value is found, nothing is supported, and nothing is counted
+    "AMediaCodecActionCode_isRecoverable": "0", "AMediaCodecActionCode_isTransient": "0",
+    "AMediaCrypto_isCryptoSchemeSupported": "0", "AMediaCrypto_requiresSecureDecoderComponent": "0",
+    "AMediaDrm_isCryptoSchemeSupported": "0", "AMediaExtractor_advance": "0", "AMediaFormat_getBuffer": "0",
+    "AMediaFormat_getDouble": "0", "AMediaFormat_getFloat": "0", "AMediaFormat_getInt32": "0",
+    "AMediaFormat_getInt64": "0", "AMediaFormat_getRect": "0", "AMediaFormat_getSize": "0",
+    "AMediaFormat_getString": "0",
+    "AMediaCodecCryptoInfo_getMode": "0",  # AMEDIACODECRYPTOINFO_MODE_CLEAR
+    "AMediaCodecCryptoInfo_getNumSubSamples": "0", "AMediaExtractor_getTrackCount": "0", "AMediaMuxer_getTrackCount": "0",
+    "AMediaExtractor_getSampleFlags": "0",
+    "AMediaCodec_dequeueInputBuffer": "-1", "AMediaCodec_dequeueOutputBuffer": "-1",  # AMEDIACODEC_INFO_TRY_AGAIN_LATER
+    "AMediaExtractor_getSampleTrackIndex": "-1", "AMediaExtractor_getSampleSize": "-1",  # no sample
+    "AMediaExtractor_readSampleData": "-1", "AMediaExtractor_getSampleTime": "-1", "AMediaExtractor_getCachedDuration": "-1",
+    "AMediaMuxer_addTrack": "-10002",  # AMEDIA_ERROR_UNSUPPORTED
 }
 
 HEADERS = [
@@ -162,7 +193,19 @@ HEADERS = [
     "permission_manager", "sensor", "sharedmem", "sharedmem_jni", "storage_manager", "surface_control",
     "surface_control_input_receiver", "surface_control_jni", "surface_texture", "surface_texture_jni",
     "system_fonts", "thermal", "trace", "window",
+    # Not in android/: the camera's and the media's (ADR-0042 b, gap 15).
+    "camera/NdkCameraCaptureSession", "camera/NdkCameraDevice", "camera/NdkCameraManager", "camera/NdkCameraMetadata",
+    "camera/NdkCaptureRequest", "media/NdkImage", "media/NdkImageReader", "media/NdkMediaCodec",
+    "media/NdkMediaCrypto", "media/NdkMediaDataSource", "media/NdkMediaDrm", "media/NdkMediaExtractor",
+    "media/NdkMediaFormat", "media/NdkMediaMuxer",
 ]
+
+# The value of every stub whose result is its API's status type and that VALUES does not name: the error that fits
+# a call when nothing of the API exists (the NDK's NdkCameraError.h and NdkMediaError.h).
+STATUS_VALUES = {
+    "camera_status_t": "-10001",  # ACAMERA_ERROR_INVALID_PARAMETER: no camera ID is valid, no camera object exists
+    "media_status_t": "-10002",  # AMEDIA_ERROR_UNSUPPORTED
+}
 
 INTEGERS = {"char", "signed char", "unsigned char", "short", "unsigned short", "int", "unsigned int", "long",
             "unsigned long", "long long", "unsigned long long", "_Bool", "bool"}
@@ -203,12 +246,24 @@ def strip(type_name):
     return " ".join(type_name.split()).replace(" *", "*")
 
 
+def contains_kind(node, kind):
+    """Whether an AST node of clang's JSON dump has a node of `kind` below it."""
+    stack = list(node.get("inner", []) or [])
+    while stack:
+        inner = stack.pop()
+        if inner.get("kind") == kind:
+            return True
+        stack.extend(inner.get("inner", []) or [])
+    return False
+
+
 def return_kinds(clang, sysroot, names):
-    """The kind of each name's result: void, int, float, double or pointer."""
+    """The kind of each name's result: void, int, float, double or pointer; and for each name whose result is a
+    status type of STATUS_VALUES, that type."""
     with tempfile.TemporaryDirectory() as work:
         source = os.path.join(work, "all.h")
         with open(source, "w") as handle:
-            handle.writelines(f"#include <android/{header}.h>\n" for header in HEADERS)
+            handle.writelines(f"#include <{header if '/' in header else 'android/' + header}.h>\n" for header in HEADERS)
         dump = subprocess.run([clang, f"--target={TRIPLE}{API}", f"--sysroot={sysroot}", "-x", "c",
                                "-fsyntax-only", "-Xclang", "-ast-dump=json", source],
                               check=True, capture_output=True, text=True).stdout
@@ -220,7 +275,10 @@ def return_kinds(clang, sysroot, names):
         if kind == "FunctionDecl" and "name" in node:
             functions.setdefault(node["name"], node["type"]["qualType"])
         elif kind == "TypedefDecl" and "name" in node:
-            typedefs.setdefault(node["name"], node["type"].get("desugaredQualType", node["type"]["qualType"]))
+            target = node["type"].get("desugaredQualType", node["type"]["qualType"])
+            if strip(target) == node["name"] and contains_kind(node, "EnumType"):
+                target = f"enum {node['name']}"  # typedef enum { ... } name, the camera's and the media's status
+            typedefs.setdefault(node["name"], target)
         stack.extend(node.get("inner", []) or [])
 
     def classify(type_name, depth=0):
@@ -239,7 +297,7 @@ def return_kinds(clang, sysroot, names):
             return classify(typedefs[type_name], depth + 1)
         fail(f"cannot tell the kind of {type_name}")
 
-    kinds = {}
+    kinds, statuses = {}, {}
     for name in names:
         if name in KINDS:
             kinds[name] = KINDS[name]
@@ -251,10 +309,22 @@ def return_kinds(clang, sysroot, names):
         if parameters <= 0 or function_type[parameters + 1:parameters + 2] == "*":
             fail(f"{name} has a type stubgen.py does not know: {function_type}")
         kinds[name] = classify(function_type[:parameters])
-    return kinds
+        if strip(function_type[:parameters]) in STATUS_VALUES:
+            statuses[name] = strip(function_type[:parameters])
+    return kinds, statuses
 
 
-def check_tables(library, names, kinds):
+def present_names(nm, sysroot, library):
+    """The names of the NDK's stub that the library exports, each with its version or None: all but those that
+    LIBRARIES gives as absent; and the problems of those patterns."""
+    absent = LIBRARIES[library].get("absent", [])
+    names = stub_names(nm, sysroot, library)
+    problems = [f"{library}: the absent pattern {pattern} matches no name of the NDK's stub" for pattern in absent
+                if not any(fnmatch.fnmatchcase(name, pattern) for name in names)]
+    return {name: version for name, version in names.items() if not matches(name, absent)}, problems
+
+
+def check_tables(library, names, kinds, statuses):
     """The problems of the tables for one library."""
     problems = []
     table = LIBRARIES[library]
@@ -262,7 +332,7 @@ def check_tables(library, names, kinds):
         if not any(fnmatch.fnmatchcase(name, pattern) for name in names):
             problems.append(f"{library}: {pattern} matches no name of the NDK's stub")
     for name, kind in kinds.items():
-        if kind == "int" and name not in VALUES:
+        if kind == "int" and name not in VALUES and name not in statuses:
             problems.append(f"{library}: the stub {name} returns an integer and has no value in VALUES")
         if kind in ("void", "pointer") and name in VALUES and VALUES[name] != "NULL":
             problems.append(f"{library}: the stub {name} returns {kind}, VALUES cannot give it {VALUES[name]}")
@@ -273,7 +343,7 @@ C_TYPES = {"void": "void", "int": "long", "float": "float", "double": "double", 
 DEFAULTS = {"int": None, "float": "0.0f", "double": "0.0", "pointer": "NULL"}
 
 
-def write_stubs(path, library, kinds):
+def write_stubs(path, library, kinds, statuses):
     lines = [
         f"// Generated by runtime/android/stubgen.py from the NDK's {library}.so and headers: do not edit.",
         "// Each stub logs its name once and answers what means \"nothing\" or \"failed\" (ADR-0028, decision 9).",
@@ -291,7 +361,7 @@ def write_stubs(path, library, kinds):
     ]
     for name in sorted(kinds):
         kind = kinds[name]
-        value = VALUES.get(name, DEFAULTS.get(kind))
+        value = VALUES.get(name, STATUS_VALUES[statuses[name]] if name in statuses else DEFAULTS.get(kind))
         body = f"static char logged; log_once(&logged, \"{name}\");"
         if kind != "void":
             body += f" return {value};"
@@ -317,18 +387,20 @@ def write_map(path, library, names):
 
 
 def generate(arguments):
-    names = stub_names(arguments.nm, arguments.sysroot, arguments.library)
+    names, problems = present_names(arguments.nm, arguments.sysroot, arguments.library)
+    if problems:
+        fail("\n".join(problems))
     wrong = [f"{name}@{version}" for name, version in names.items() if version != LIBRARIES[arguments.library]["version"]
              and version is not None]
     if wrong:
         fail(f"{arguments.library}: versions stubgen.py does not expect: {', '.join(wrong)}")
     stubbed = stubbed_names(arguments.library, names)
     if arguments.stubs:
-        kinds = return_kinds(arguments.clang, arguments.sysroot, stubbed)
-        problems = check_tables(arguments.library, names, kinds)
+        kinds, statuses = return_kinds(arguments.clang, arguments.sysroot, stubbed)
+        problems = check_tables(arguments.library, names, kinds, statuses)
         if problems:
             fail("\n".join(problems))
-        write_stubs(arguments.stubs, arguments.library, kinds)
+        write_stubs(arguments.stubs, arguments.library, kinds, statuses)
     elif stubbed:
         fail(f"{arguments.library} has stubs, give --stubs")
     write_map(arguments.map, arguments.library, names)
@@ -353,11 +425,12 @@ def check(arguments):
         return
     problems, checked, missing, all_stubbed = [], [], [], set()
     for library, table in LIBRARIES.items():
-        names = stub_names(nm, sysroot, library)
+        names, absent_problems = present_names(nm, sysroot, library)
+        problems += absent_problems
         stubbed = stubbed_names(library, names)
         all_stubbed.update(stubbed)
         if stubbed:
-            problems += check_tables(library, names, return_kinds(clang, sysroot, stubbed))
+            problems += check_tables(library, names, *return_kinds(clang, sysroot, stubbed))
         built = os.path.join(arguments.built, f"{library}.so") if arguments.built else None
         if built is None or not os.path.exists(os.path.join(arguments.built, "libc.so")):
             continue

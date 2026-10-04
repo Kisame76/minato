@@ -162,6 +162,7 @@ foreach(header IN ITEMS jni zconf zlib)
   file(COPY "${ndk_sysroot_include}/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
 endforeach()
 file(COPY "${ndk_sysroot_include}/aaudio/AAudio.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/aaudio")
+file(COPY "${ndk_sysroot_include}/camera" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
 foreach(header IN ITEMS OpenSLES OpenSLES_Android OpenSLES_AndroidConfiguration OpenSLES_AndroidMetadata
     OpenSLES_Platform)
   file(COPY "${ndk_sysroot_include}/SLES/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/SLES")
@@ -234,6 +235,26 @@ add_custom_command(OUTPUT "${opensles_map}"
 apk_bionic_unit(apk_opensles SOURCES "${android_sources}/opensles.cpp" INCLUDES ${android_includes}
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libOpenSLES UNITS apk_opensles NEEDED libc libm liblog libaaudio VERSION_SCRIPTS "${opensles_map}")
+
+# libcamera2ndk.so and libmediandk.so (ADR-0042 b, gap 15): no camera and no media codecs, so that an app that
+# links them, as Godot's libgodot_android.so does, loads. The camera manager has no camera
+# (runtime/android/camera_manager.c); every other function is a generated stub that answers its API's error.
+# libmediandk exports no key strings yet (stubgen.py).
+set(camera2ndk_map "${android_generated}/libcamera2ndk.map")
+set(camera2ndk_stubs "${android_generated}/libcamera2ndk_stubs.c")
+add_custom_command(OUTPUT "${camera2ndk_map}" "${camera2ndk_stubs}"
+  COMMAND ${stubgen} libcamera2ndk ${stubgen_tools} --map "${camera2ndk_map}" --stubs "${camera2ndk_stubs}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libcamera2ndk.so" VERBATIM)
+apk_bionic_unit(apk_camera2ndk SOURCES "${android_sources}/camera_manager.c" "${camera2ndk_stubs}"
+  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libcamera2ndk UNITS apk_camera2ndk NEEDED libc liblog VERSION_SCRIPTS "${camera2ndk_map}")
+set(mediandk_map "${android_generated}/libmediandk.map")
+set(mediandk_stubs "${android_generated}/libmediandk_stubs.c")
+add_custom_command(OUTPUT "${mediandk_map}" "${mediandk_stubs}"
+  COMMAND ${stubgen} libmediandk ${stubgen_tools} --map "${mediandk_map}" --stubs "${mediandk_stubs}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libmediandk.so" VERBATIM)
+apk_bionic_unit(apk_mediandk SOURCES "${mediandk_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc liblog VERSION_SCRIPTS "${mediandk_map}")
 
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with

@@ -101,6 +101,9 @@ target_link_libraries(hwui-load PRIVATE dl)
 add_executable(property-test suite/property-test.c)
 # hwcap-test: the CPU features a program learns, from getauxval and in its own ifunc resolver (ADR-0047 a).
 add_executable(hwcap-test suite/hwcap-test.c)
+# camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b, gap 15).
+add_executable(camera-media-test suite/camera-media-test.c)
+target_link_libraries(camera-media-test PRIVATE dl)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
 # (runtime/tests/environment_run.py).
 add_executable(env-test suite/env-test.c)
