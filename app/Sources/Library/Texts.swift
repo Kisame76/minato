@@ -137,17 +137,41 @@ enum Texts {
 
     // MARK: - Units (ADR-0048 b7b)
 
-    /// The question about a unit's sets that ask (F7): one set as before, several in one alert, and "Install" where
-    /// none it lists is installed.
+    /// The question about a unit's sets that ask (F7): one set as before, several in one alert, "Install" where none it
+    /// lists is installed, and "Replace and Install" where it lists installed and new apps.
     static func unitQuestion(_ question: UpdateQuestion) -> (title: String, message: String, confirm: String, decline: String) {
-        let (confirm, decline) = question.replacesAny ? ("Replace", "Keep Installed") : ("Install", "Don’t Install")
+        let replacing = question.sets.filter { $0.installed != nil }.count
+        let installing = question.sets.count - replacing
+        let (confirm, decline) = switch (replacing, installing) {
+        case (0, _): ("Install", "Don’t Install")
+        case (_, 0): ("Replace", "Keep Installed")
+        default: ("Replace and Install", "Don’t Install")
+        }
         guard question.sets.count > 1 else {
             let (title, message) = question.sets.first.map(setQuestion) ?? ("", "")
             return (title, message, confirm, decline)
         }
-        let title = "\(confirm) \(question.sets.count) Apps?"
+        let title = replacing > 0 && installing > 0
+            ? "Replace \(apps(replacing)) and Install \(installing)?" : "\(confirm) \(apps(question.sets.count))?"
         let message = question.sets.map { "“\($0.name)”: \(setQuestion($0).message)" }
         return (title, message.joined(separator: "\n\n"), confirm, decline)
+    }
+
+    /// The alert about a unit's files the installed apps keep their versions against (F7): one as before, several in
+    /// one alert with a paragraph each; nil where none is rejected.
+    static func updateRejected(_ results: [ImportResult]) -> (title: String, message: String)? {
+        let rejected = results.compactMap { result -> (name: String, message: String, title: String)? in
+            guard case .reject(let state) = result.decision else { return nil }
+            let (title, message) = updateRejected(installed: result.entry, report: result.report, state: state)
+            return (result.entry.displayName, message, title)
+        }
+        guard rejected.count > 1 else { return rejected.first.map { ($0.title, $0.message) } }
+        return ("Can’t Update \(apps(rejected.count))", rejected.map { "“\($0.name)”: \($0.message)" }.joined(separator: "\n\n"))
+    }
+
+    /// "1 App", "2 Apps".
+    private static func apps(_ count: Int) -> String {
+        count == 1 ? "1 App" : "\(count) Apps"
     }
 
     /// One set's question: the update question over an installed app, else whether to install it.

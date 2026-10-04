@@ -92,7 +92,8 @@ struct UpdateQuestion: Identifiable {
 
     var id: URL { unit }
 
-    /// "Replace" where the question lists an installed app, "Install" where it lists none.
+    /// Whether the question lists an installed app, which "Replace" or "Replace and Install" replaces, so the button is
+    /// destructive; "Install" where it lists none.
     var replacesAny: Bool { sets.contains { $0.installed != nil } }
 
     /// Whether `result` is of a version the question lists.
@@ -361,7 +362,7 @@ final class LibraryModel {
     // MARK: - Updates (ADR-0034)
 
     /// Tells the user what a unit's import did to installed apps: one note for those it updated or found installed,
-    /// the rejection, or one question for every set that asks (ADR-0048, F7).
+    /// one alert for its rejections, and one question for every set that asks (ADR-0048, F7).
     private func show(_ results: [ImportResult], of unit: URL, installed: [LibraryEntry]) {
         var notes: [String] = []
         var asking: [UpdateQuestion.Asking] = []
@@ -370,23 +371,29 @@ final class LibraryModel {
             UpdateCheck.event("import \(result.decision)")
             #endif
             switch result.decision {
-            case .install:
+            case .install, .reject:
                 break
             case .update, .unchanged, .reinstall:
                 if let text = Texts.updateNote(result) { notes.append(text) }
-            case .reject(let state):
-                reject(result, state: state)
             case .ask:
                 if let set = UpdateQuestion.Asking(result, installed: installed) { asking.append(set) }
             }
         }
+        #if DEBUG
+        UpdateCheck.tiles(of: results, in: installed)
+        #endif
+        reject(results)
         if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
         ask(asking, about: unit)
     }
 
-    private func reject(_ result: ImportResult, state: LibraryEntry.State) {
-        updateRejected = Texts.updateRejected(installed: result.entry, report: result.report, state: state)
+    /// The files of a unit the installed apps keep their versions against, in one alert.
+    private func reject(_ results: [ImportResult]) {
+        guard let texts = Texts.updateRejected(results) else { return }
+        updateRejected = texts
         #if DEBUG
+        // Recorded here too, as the alert on top may be a question: SwiftUI shows the two in either order.
+        UpdateCheck.event("rejection \(texts.title) | \(texts.message)")
         UpdateCheck.recordAlert()
         #endif
     }
@@ -417,7 +424,8 @@ final class LibraryModel {
                 results = try await library.importUnit(question.unit, replacing: Set(question.sets.map(\.version)),
                                                        signing: importSigning())
             } catch {
-                let done = question.replacesAny ? "replaced" : "installed"
+                let installs = question.sets.contains { $0.installed == nil }
+                let done = question.replacesAny ? (installs ? "replaced and installed" : "replaced") : "installed"
                 errorMessage = "\(Texts.subject(of: question)) could not be \(done): \(error.localizedDescription)"
             }
         } else {
@@ -425,7 +433,7 @@ final class LibraryModel {
         }
         let installed = await library.entries
         entries = installed
-        // Nothing suspends from here on, so no scan takes the unit between its release and a question that holds it again.
+        // Nothing suspends from here on: no scan takes the unit between its release and a question that holds it again.
         held.remove(question.unit)
         var notes: [String] = []
         var asking: [UpdateQuestion.Asking] = []
@@ -433,15 +441,18 @@ final class LibraryModel {
             switch result.decision {
             case .update where question.lists(result):
                 notes.append(Texts.replacedNote(result.entry))
-            case .reject(let state):
-                reject(result, state: state)
             case .ask:
                 if let set = UpdateQuestion.Asking(result, installed: installed) { asking.append(set) }
             default:
-                // A fresh install shows its tile; the unit's other sets were noted before the question.
+                // A fresh install shows its tile, and the unit's other sets were noted or alerted before the question.
                 break
             }
         }
+        #if DEBUG
+        UpdateCheck.tiles(of: results, in: installed)
+        #endif
+        // The answer imports the whole unit again: only a rejection of a version the question listed alerts here.
+        reject(results.filter(question.lists))
         if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
         ask(asking, about: question.unit)
     }

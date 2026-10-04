@@ -4,9 +4,9 @@ import Darwin
 import Foundation
 import UIKit
 
-/// Answers tools/update-check.sh in the Simulator (ADR-0034, test 4). The script leaves its requests as files
-/// in tmp/update-check/; nothing happens without that folder. Each process appends what it shows to
-/// tmp/update-check/events, one line per event: "<seconds since 1970> <pid> <event>".
+/// Answers tools/update-check.sh (ADR-0034, test 4) and tools/set-check.sh (ADR-0048 b7c) in the Simulator. A script
+/// leaves its requests as files in tmp/update-check/; nothing happens without that folder. Each process appends what it
+/// shows to tmp/update-check/events, one line per event: "<seconds since 1970> <pid> <event>".
 ///   answer  "replace" or "keep": the library answers the question that is up, and removes the file.
 ///   end     a package: the library removes that app, then the whole folder, which ends the check.
 enum UpdateCheck {
@@ -53,6 +53,15 @@ enum UpdateCheck {
     @MainActor
     static func recordAlert() {
         Task { await alertShown() }
+    }
+
+    /// The tile of each result's entry once the import is done, as the library shows it: "tile <name> | <status line>".
+    static func tiles(of results: [ImportResult], in entries: [LibraryEntry]) {
+        guard isOn else { return }
+        for result in results {
+            guard let entry = entries.first(where: { $0.id == result.entry.id }) else { continue }
+            event("tile \(entry.displayName) | \(Texts.statusLine(Texts.status(of: entry)))")
+        }
     }
 
     /// The question is up: records it, then answers it when the script asks for that.
