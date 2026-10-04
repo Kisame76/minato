@@ -10,6 +10,7 @@
 #include "check.h"
 
 #include <fcntl.h>
+#include <mach/mach.h>
 #include <pthread.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -37,6 +38,7 @@ namespace {
 
 // Linux AArch64 syscall numbers and constants (asm-generic headers).
 constexpr std::uint64_t nr_munmap = 215;
+constexpr std::uint64_t nr_mremap = 216;
 constexpr std::uint64_t nr_mmap = 222;
 constexpr std::uint64_t nr_mprotect = 226;
 constexpr std::uint64_t nr_madvise = 233;
@@ -63,8 +65,9 @@ constexpr std::uint64_t prot_read = 1, prot_write = 2, prot_exec = 4;
 constexpr std::uint64_t map_private = 0x02, map_fixed = 0x10, map_anonymous = 0x20, map_stack = 0x20000;
 constexpr std::uint64_t map_fixed_noreplace = 0x10'0000, map_hugetlb = 0x40000;
 constexpr std::uint64_t madv_dontneed = 4, madv_wipeonfork = 18, madv_hwpoison = 100;
-constexpr std::int64_t ebadf = 9, eacces = 13, eexist = 17, einval = 22, esrch = 3, enoent = 2, eagain = 11,
-                         etimedout = 110;
+constexpr std::uint64_t mremap_maymove = 1, mremap_fixed = 2, mremap_dontunmap = 4;
+constexpr std::int64_t eperm = 1, ebadf = 9, enomem = 12, eacces = 13, efault = 14, eexist = 17, einval = 22,
+                         esrch = 3, enoent = 2, eagain = 11, etimedout = 110;
 
 constexpr std::uint64_t page = 16 * 1024;
 
@@ -156,6 +159,271 @@ TEST(madvise_accepts_fork_advice_and_refuses_unknown_advice) {
     CHECK(call(nr_madvise, {address, page, madv_wipeonfork}) == 0);  // iOS has no fork (F11)
     CHECK(call(nr_madvise, {address, page, madv_hwpoison}) == -einval);
     CHECK(call(nr_munmap, {address, page}) == 0);
+}
+
+/// Whether [address, address + length) is free: MAP_FIXED_NOREPLACE maps exactly there only then.
+bool is_free(std::uint64_t address, std::uint64_t length) {
+    const auto result =
+        call(nr_mmap, {address, length, prot_read, map_private | map_anonymous | map_fixed_noreplace, ~0ull, 0});
+    if (result != static_cast<std::int64_t>(address)) return false;
+    CHECK(call(nr_munmap, {address, length}) == 0);
+    return true;
+}
+
+/// The host's current protection of the page at `address`, or -1 where nothing is mapped.
+int protection_at(std::uint64_t address) {
+    vm_address_t region = static_cast<vm_address_t>(address);
+    vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    if (::vm_region_64(::mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                       reinterpret_cast<vm_region_info_t>(&info), &count, &object) != KERN_SUCCESS) {
+        return -1;
+    }
+    if (object != MACH_PORT_NULL) ::mach_port_deallocate(::mach_task_self(), object);
+    return region <= address ? info.protection : -1;
+}
+
+TEST(mremap_grows_a_mapping_where_it_lies) {
+    // Three pages, of which the last two are given back: the first grows into them in place.
+    const auto address = map_anonymous_pages(3);
+    CHECK(call(nr_munmap, {address + page, 2 * page}) == 0);
+    std::memset(reinterpret_cast<void *>(address), 0x5a, page);
+    CHECK(call(nr_mremap, {address, page, 3 * page, 0, 0}) == static_cast<std::int64_t>(address));
+    auto *bytes = reinterpret_cast<volatile std::uint8_t *>(address);
+    CHECK(bytes[0] == 0x5a && bytes[page - 1] == 0x5a && bytes[page] == 0 && bytes[3 * page - 1] == 0);
+    bytes[2 * page] = 1;  // writable, as the mapping is
+    CHECK(protection_at(address + 2 * page) == (VM_PROT_READ | VM_PROT_WRITE));
+    CHECK(call(nr_munmap, {address, 3 * page}) == 0);
+}
+
+TEST(mremap_moves_a_mapping_that_cannot_grow_where_it_lies) {
+    // The first page of a two-page mapping ends inside it, so it cannot grow in place, as on Linux: ENOMEM
+    // without MREMAP_MAYMOVE, a move with it. Lengths round up to the page.
+    const auto address = map_anonymous_pages(2);
+    std::memset(reinterpret_cast<void *>(address), 0x5a, page);
+    reinterpret_cast<volatile std::uint8_t *>(address)[page] = 0x77;
+    CHECK(call(nr_mremap, {address, page, 2 * page, 0, 0}) == -enomem);
+    const auto moved = call(nr_mremap, {address, page - 100, 3 * page - 100, mremap_maymove, 0});
+    const auto target = static_cast<std::uint64_t>(moved);
+    CHECK(moved > 0 && target != address && target % page == 0);
+    const auto *bytes = reinterpret_cast<const volatile std::uint8_t *>(target);
+    CHECK(bytes[0] == 0x5a && bytes[page - 1] == 0x5a && bytes[page] == 0 && bytes[3 * page - 1] == 0);
+    CHECK(is_free(address, page));  // the old range is gone
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(address)[page] == 0x77);  // the rest of its mapping stays
+    // A moved mapping grows again, as bionic's array does at its next doubling.
+    const auto again = call(nr_mremap, {target, 3 * page, 6 * page, mremap_maymove, 0});
+    CHECK(again > 0 && reinterpret_cast<const volatile std::uint8_t *>(again)[page - 1] == 0x5a);
+    // Scudo frees with MADV_DONTNEED and takes zero pages back, after a move too.
+    CHECK(call(nr_madvise, {static_cast<std::uint64_t>(again), page, madv_dontneed}) == 0);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(again)[page - 1] == 0);
+    CHECK(call(nr_munmap, {static_cast<std::uint64_t>(again), 6 * page}) == 0);
+    CHECK(call(nr_munmap, {address + page, page}) == 0);
+}
+
+TEST(mremap_shrinks_a_mapping_by_unmapping_its_tail) {
+    const auto address = map_anonymous_pages(3);
+    reinterpret_cast<volatile std::uint8_t *>(address)[0] = 9;
+    CHECK(call(nr_mremap, {address, 3 * page, page, 0, 0}) == static_cast<std::int64_t>(address));
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(address)[0] == 9);
+    CHECK(is_free(address + page, 2 * page));
+    // Equal lengths, after rounding up to the page, change nothing.
+    CHECK(call(nr_mremap, {address, page, page - 100, 0, 0}) == static_cast<std::int64_t>(address));
+    CHECK(call(nr_mremap, {address, page - 100, page, 0, 0}) == static_cast<std::int64_t>(address));
+    CHECK(call(nr_munmap, {address, page}) == 0);
+}
+
+TEST(mremap_grows_a_read_only_array_as_bionic_atexit_does) {
+    // bionic's __cxa_atexit keeps its handler array read-only and grows it with MREMAP_MAYMOVE; then it makes the
+    // page of the next entry writable for a moment.
+    const auto address = map_anonymous_pages(1);
+    std::memset(reinterpret_cast<void *>(address), 0x5a, page);
+    CHECK(call(nr_mprotect, {address, page, prot_read}) == 0);
+    const auto grown = call(nr_mremap, {address, page, 2 * page, mremap_maymove, 0});
+    const auto base = static_cast<std::uint64_t>(grown);
+    CHECK(grown > 0 && base % page == 0);
+    CHECK(protection_at(base) == VM_PROT_READ && protection_at(base + page) == VM_PROT_READ);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(base)[page - 1] == 0x5a);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(base)[page] == 0);
+    CHECK(call(nr_mprotect, {base + page, page, prot_read | prot_write}) == 0);
+    reinterpret_cast<volatile std::uint8_t *>(base)[page] = 1;
+    CHECK(call(nr_mprotect, {base + page, page, prot_read}) == 0);
+    CHECK(call(nr_munmap, {base, 2 * page}) == 0);
+}
+
+TEST(mremap_moves_inaccessible_pages_without_reading_them) {
+    // PROT_NONE pages move with their contents and their protection; nothing reads them on the way.
+    const auto address = map_anonymous_pages(2);
+    reinterpret_cast<volatile std::uint8_t *>(address)[0] = 3;
+    CHECK(call(nr_mprotect, {address, page, 0}) == 0);
+    const auto moved = call(nr_mremap, {address, page, 2 * page, mremap_maymove, 0});
+    CHECK(moved > 0 && static_cast<std::uint64_t>(moved) != address);
+    const auto target = static_cast<std::uint64_t>(moved);
+    CHECK(protection_at(target) == VM_PROT_NONE && protection_at(target + page) == VM_PROT_NONE);
+    CHECK(call(nr_mprotect, {target, page, prot_read}) == 0);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(target)[0] == 3);
+    CHECK(call(nr_munmap, {target, 2 * page}) == 0);
+    CHECK(call(nr_munmap, {address + page, page}) == 0);
+}
+
+TEST(mremap_grows_only_within_one_mapping) {
+    // Two pages of different protections are two mappings on Linux: growing across them answers EFAULT.
+    const auto address = map_anonymous_pages(2);
+    CHECK(call(nr_mprotect, {address + page, page, prot_read}) == 0);
+    CHECK(call(nr_mremap, {address, 2 * page, 3 * page, mremap_maymove, 0}) == -efault);
+    // Shrinking crosses them freely, as Linux unmaps whatever lies in the tail.
+    CHECK(call(nr_mremap, {address, 2 * page, page, 0, 0}) == static_cast<std::int64_t>(address));
+    CHECK(is_free(address + page, page));
+    // Two neighbours of one protection, mapped one by one, are one mapping, as Linux merges them.
+    CHECK(call(nr_mmap, {address + page, page, prot_read | prot_write, map_private | map_anonymous | map_fixed, ~0ull,
+                         0}) == static_cast<std::int64_t>(address + page));
+    const auto grown = call(nr_mremap, {address, 2 * page, 3 * page, mremap_maymove, 0});
+    CHECK(grown > 0);
+    CHECK(call(nr_munmap, {static_cast<std::uint64_t>(grown), 3 * page}) == 0);
+    // A hole is no mapping either.
+    const auto holed = map_anonymous_pages(3);
+    CHECK(call(nr_munmap, {holed + page, page}) == 0);
+    CHECK(call(nr_mremap, {holed, 3 * page, 4 * page, mremap_maymove, 0}) == -efault);
+    CHECK(call(nr_munmap, {holed, 3 * page}) == 0);
+}
+
+/// mremap of the page right below the one that the call's runtime frames lie in, made from near the top of a page
+/// so that sys_mremap and the calls it makes share that page: only the guard's extra page covers the one below.
+[[gnu::noinline]] std::int64_t remap_below_the_calls() {
+    std::uint8_t mark = 0;
+    const auto here = reinterpret_cast<std::uint64_t>(&mark);
+    auto *room = static_cast<volatile std::uint8_t *>(__builtin_alloca((here & (page - 1)) + 512));
+    room[0] = mark;
+    const auto calls = reinterpret_cast<std::uint64_t>(room) & ~(page - 1);
+    return call(nr_mremap, {calls - page, page, 2 * page, mremap_maymove, 0});
+}
+
+TEST(mremap_leaves_the_runtime_frames_of_the_calling_thread_mapped) {
+    // The syscall layer runs on the guest thread's stack, as in sys_munmap: neither the old range nor a FIXED
+    // target may take the pages it runs on (EPERM, as for executable pages).
+    std::uint8_t local = 0;
+    const auto here = (reinterpret_cast<std::uint64_t>(&local) & ~(page - 1)) - page;
+    CHECK(call(nr_mremap, {here, 4 * page, 5 * page, mremap_maymove, 0}) == -eperm);
+    const auto spare = map_anonymous_pages(1);
+    CHECK(call(nr_mremap, {spare, page, 4 * page, mremap_maymove | mremap_fixed, here}) == -eperm);
+    CHECK(call(nr_munmap, {spare, page}) == 0);
+    CHECK(local == 0);
+    // The page below the calls' own is kept too, for the calls sys_mremap makes.
+    CHECK(remap_below_the_calls() == -eperm);
+}
+
+TEST(mremap_fixed_moves_onto_its_target) {
+    const auto source = map_anonymous_pages(1);
+    std::memset(reinterpret_cast<void *>(source), 0x5a, page);
+    const auto target = map_anonymous_pages(3);
+    std::memset(reinterpret_cast<void *>(target), 0x11, 3 * page);
+    CHECK(call(nr_mremap, {source, page, 2 * page, mremap_fixed, target}) == -einval);  // FIXED needs MAYMOVE
+    CHECK(call(nr_mremap, {source, page, 2 * page, mremap_maymove | mremap_fixed, target + 1}) == -einval);
+    CHECK(call(nr_mremap, {source, page, 2 * page, mremap_maymove | mremap_fixed, source - page}) == -einval);
+    CHECK(call(nr_mremap, {source, page, 2 * page, mremap_maymove | mremap_fixed, target}) ==
+          static_cast<std::int64_t>(target));
+    const auto *bytes = reinterpret_cast<const volatile std::uint8_t *>(target);
+    // What lay at the target went: the source's page, then zero; beyond the new length the target's mapping stays.
+    CHECK(bytes[0] == 0x5a && bytes[page - 1] == 0x5a && bytes[page] == 0 && bytes[2 * page - 1] == 0);
+    CHECK(bytes[2 * page] == 0x11);
+    CHECK(is_free(source, page));
+    CHECK(call(nr_munmap, {target, 3 * page}) == 0);
+
+    // A shorter FIXED move takes the old range's first pages, and its tail goes.
+    const auto longer = map_anonymous_pages(3);
+    std::memset(reinterpret_cast<void *>(longer), 0x22, 3 * page);
+    const auto place = map_anonymous_pages(1);
+    CHECK(call(nr_mremap, {longer, 3 * page, page, mremap_maymove | mremap_fixed, place}) ==
+          static_cast<std::int64_t>(place));
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(place)[page - 1] == 0x22);
+    CHECK(is_free(longer, 3 * page));
+    CHECK(call(nr_munmap, {place, page}) == 0);
+}
+
+TEST(mremap_moves_a_file_mapping_but_grows_none) {
+    // Growing a file mapping would map more of the file on Linux; here it answers ENOMEM (named). A move keeps a
+    // private mapping of the file: its pages show the file, and a write stays in the mapping.
+    char path[] = "/tmp/apkrt-mremap-XXXXXX";
+    const int host_fd = ::mkstemp(path);
+    CHECK(host_fd >= 0);
+    const std::vector<char> content(2 * page, 'f');
+    CHECK(::write(host_fd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
+    const auto fd = static_cast<std::uint64_t>(apkrt::descriptors::add(::dup(host_fd), false));
+    const auto mapped = call(nr_mmap, {0, page, prot_read | prot_write, map_private, fd, 0});
+    CHECK(mapped > 0);
+    const auto address = static_cast<std::uint64_t>(mapped);
+    CHECK(call(nr_mremap, {address, page, 2 * page, mremap_maymove, 0}) == -enomem);
+    const auto target = map_anonymous_pages(1);
+    CHECK(call(nr_mremap, {address, page, page, mremap_maymove | mremap_fixed, target}) ==
+          static_cast<std::int64_t>(target));
+    auto *bytes = reinterpret_cast<volatile char *>(target);
+    CHECK(bytes[0] == 'f' && bytes[page - 1] == 'f');
+    bytes[0] = 'x';
+    char first = 0;
+    CHECK(::pread(host_fd, &first, 1, 0) == 1 && first == 'f');
+    CHECK(call(nr_munmap, {target, page}) == 0);
+    CHECK(apkrt::descriptors::close(static_cast<int>(fd)) == 0);
+    ::close(host_fd);
+    ::unlink(path);
+}
+
+TEST(mremap_answers_overflowing_lengths) {
+    const auto address = map_anonymous_pages(1);
+    // An old range that wraps past the end of the address space: EFAULT, where Linux's munmap of the tail answers
+    // EINVAL (named).
+    CHECK(call(nr_mremap, {address, ~std::uint64_t{0} - 2 * page + 1, page, 0, 0}) == -efault);
+    // A FIXED target that wraps: EINVAL, as on Linux.
+    CHECK(call(nr_mremap, {address, page, page, mremap_maymove | mremap_fixed, ~std::uint64_t{0} - page + 1}) ==
+          -einval);
+    // An old length that rounds up to 0: a duplicate of a private mapping, EINVAL, as on Linux.
+    CHECK(call(nr_mremap, {address, ~std::uint64_t{0}, 2 * page, mremap_maymove, 0}) == -einval);
+    CHECK(call(nr_munmap, {address, page}) == 0);
+}
+
+TEST(mremap_leaves_neighbouring_host_memory_alone) {
+    // A guest mapping right below host memory of another tag (malloc's): one range over both is no mapping of
+    // Linux's, so growing it answers EFAULT and never moves the host's pages.
+    void *const host = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON,
+                              VM_MAKE_TAG(VM_MEMORY_MALLOC), 0);
+    CHECK(host != MAP_FAILED);
+    const auto above = reinterpret_cast<std::uint64_t>(host) + page;
+    CHECK(::munmap(host, page) == 0);  // the guest's page goes right below the host's
+    const auto below = above - page;
+    CHECK(call(nr_mmap, {below, page, prot_read | prot_write, map_private | map_anonymous | map_fixed_noreplace,
+                         ~0ull, 0}) == static_cast<std::int64_t>(below));
+    reinterpret_cast<volatile std::uint8_t *>(above)[0] = 0x44;
+    CHECK(call(nr_mremap, {below, 2 * page, 3 * page, mremap_maymove, 0}) == -efault);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(above)[0] == 0x44);
+    CHECK(call(nr_munmap, {below, page}) == 0);
+    CHECK(::munmap(reinterpret_cast<void *>(above), page) == 0);
+}
+
+void code_page_marker() {}
+
+TEST(mremap_leaves_executable_pages_where_they_are) {
+    // Signed code stays where the loader put it: remapping it answers EPERM, Linux's answer for a sealed mapping,
+    // and the code still runs.
+    const auto code = reinterpret_cast<std::uint64_t>(&code_page_marker) & ~(page - 1);
+    CHECK((protection_at(code) & VM_PROT_EXECUTE) != 0);
+    CHECK(call(nr_mremap, {code, page, 2 * page, mremap_maymove, 0}) == -eperm);
+    CHECK(call(nr_mremap, {code, 2 * page, page, 0, 0}) == -eperm);
+    const auto spare = map_anonymous_pages(1);
+    CHECK(call(nr_mremap, {code, page, page, mremap_maymove | mremap_fixed, spare}) == -eperm);
+    CHECK(call(nr_munmap, {spare, page}) == 0);
+    code_page_marker();
+}
+
+TEST(mremap_answers_linux_errors) {
+    const auto address = map_anonymous_pages(1);
+    CHECK(call(nr_mremap, {address, page, 2 * page, 8, 0}) == -einval);  // an unknown flag
+    CHECK(call(nr_mremap, {address + 1, page, 2 * page, mremap_maymove, 0}) == -einval);  // an unaligned address
+    CHECK(call(nr_mremap, {address, page, 0, mremap_maymove, 0}) == -einval);  // a new length of 0
+    CHECK(call(nr_mremap, {address, 0, page, mremap_maymove, 0}) == -einval);  // duplicating a private mapping
+    // MREMAP_DONTUNMAP is not offered, as before Linux 5.7, which refuses it as an unknown flag.
+    CHECK(call(nr_mremap, {address, page, page, mremap_maymove | mremap_dontunmap, 0}) == -einval);
+    CHECK(call(nr_munmap, {address, page}) == 0);
+    CHECK(call(nr_mremap, {address, page, 2 * page, mremap_maymove, 0}) == -efault);  // nothing mapped there
 }
 
 TEST(rt_sigprocmask_keeps_real_time_signals_in_the_guest_mask) {
@@ -1077,7 +1345,7 @@ constexpr std::uint64_t nr_getrlimit = 163, nr_setrlimit = 164, nr_prlimit64 = 2
 constexpr std::uint64_t rlimit_stack = 3, rlimit_nofile = 7, rlimit_as = 9;
 constexpr std::uint64_t rlim_infinity = ~std::uint64_t{0};
 constexpr std::uint64_t mib = 1 << 20;
-constexpr std::int64_t eperm = 1, enosys = 38;
+constexpr std::int64_t enosys = 38;
 
 /// Runs `body` in a child process and returns whether its checks passed there, as descriptors_test.cpp
 /// does: for changes the process cannot take back. It runs on a thread of its own there, with a signal
@@ -1248,7 +1516,6 @@ TEST(process_vm_readv_reads_the_process_s_own_memory_without_faulting) {
     // and the call stacks of crashes (ADR-0033 test 3). The guest can name only its own process. A transfer ends at
     // the first remote element that cannot be read whole, and an element is never split.
     constexpr std::uint64_t nr_process_vm_readv = 270;
-    constexpr std::int64_t efault = 14;
     struct Iovec {
         std::uint64_t base, length;
     };

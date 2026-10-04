@@ -49,6 +49,8 @@ fd-test system
 poll-test system
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).
 memory-test system
+# 2,000 handlers of __cxa_atexit, whose read-only array bionic grows with mremap (ADR-0021, Godot's stop 8).
+atexit-test system
 # ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
 start-test system
 # What ART's start asks of the kernel, /proc and /sys, and init's environment (ADR-0033 decision 8,

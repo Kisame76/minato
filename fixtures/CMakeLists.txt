@@ -143,6 +143,8 @@ add_executable(poll-test suite/poll-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
 # (ADR-0035).
 add_executable(memory-test suite/memory-test.c)
+# atexit-test: 2,000 handlers of __cxa_atexit, whose read-only array bionic grows with mremap (ADR-0021).
+add_executable(atexit-test suite/atexit-test.c)
 # start-test: ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
 add_executable(start-test suite/start-test.c)
 # kernel-test: what ART's start asks of the kernel, /proc and /sys (ADR-0033, decision 8).

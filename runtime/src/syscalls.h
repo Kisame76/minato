@@ -234,6 +234,12 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
 /// munmap; a range the calling guest thread still runs on (its own stack, unmapped right before
 /// exit) is unmapped once the thread has left it.
 long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::uint64_t length);
+/// mremap with Linux's checks and errors (mm/mremap.c) on Darwin's VM map: shrinking unmaps the tail; growing takes
+/// the free pages after the mapping or, with MREMAP_MAYMOVE, moves its pages elsewhere with vm_remap; MREMAP_FIXED
+/// replaces what lies at its target, as MAP_FIXED does. Executable pages and the calling thread's runtime frames
+/// stay where they are (EPERM).
+long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::uint64_t old_length,
+                std::uint64_t new_length, int flags, std::uint64_t new_address);
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection);
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice);
 /// process_vm_readv on the process's own memory: libunwindstack reads through it so that an unwinder never faults

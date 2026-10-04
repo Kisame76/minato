@@ -221,6 +221,7 @@ constexpr std::uint64_t gettid = 178;
 constexpr std::uint64_t socket = 198;
 constexpr std::uint64_t getsockopt = 209;
 constexpr std::uint64_t munmap = 215;
+constexpr std::uint64_t mremap = 216;
 constexpr std::uint64_t clone = 220;
 constexpr std::uint64_t mmap = 222;
 constexpr std::uint64_t mprotect = 226;
@@ -630,6 +631,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_mmap(x[0], x[1], as_int(x[2]), as_int(x[3]), as_int(x[4]), x[5]);
         case nr::munmap:
             return sys_munmap(frame, x[0], x[1]);
+        case nr::mremap:
+            return sys_mremap(frame, x[0], x[1], x[2], as_int(x[3]), x[4]);
         case nr::mprotect:
             return sys_mprotect(x[0], x[1], as_int(x[2]));
         case nr::madvise:
