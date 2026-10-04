@@ -1,0 +1,22 @@
+; Test 2 with Godot (ADR-0042 decision 1): godot-bench, the scene of ADR-0037 in Godot 4.7.2 (bench.gd).
+; tools/build-godot.sh exports it from a copy in build/godot/project/, with the icons it writes there.
+
+config_version=5
+
+[application]
+
+config/name="godot-bench"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7", "Mobile")
+config/icon="res://icons/icon_192.png"
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0, 0, 0, 1)
+
+[display]
+
+window/ios/allow_high_refresh_rate=true
+
+[rendering]
+
+renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true

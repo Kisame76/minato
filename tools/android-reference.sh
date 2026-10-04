@@ -30,6 +30,10 @@
 # The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
+# Test 2's Godot APKs godot-bench-vulkan and godot-bench-gles (ADR-0042 a) come from build/godot
+# (tools/build-godot.sh) and run with the emulator's defaults too. Godot logs under its own tag, godot: bench.gd's
+# lines that begin "godot-bench:" must be fixtures/expected/<app>.logcat, the rest are only shown, and the line of
+# their run must count frames and no failure, after which the app has finished by itself.
 # A Java program of fixtures/java (ADR-0033 b) runs with --art as `dalvikvm64 -Xint` runs it from
 # /data/local/tmp, its jar from build/art/test (tools/build-art.sh) and its JNI library, if it names one, from the
 # fixtures' build, found through -Djava.library.path: its stdout must be fixtures/expected/<program>.out, and the
@@ -259,7 +263,51 @@ present_timestamp_back() {
   fi
 }
 
+# Test 2's Godot APKs (ADR-0042 a): their lines under Godot's tag, split into bench.gd's "godot-bench:" lines, which
+# are compared, and the rest, which are only shown; the run's line and the app's own end, as for bench-gles.
+run_godot() {
+  local apk="build/godot/$app.apk" package="io.github.kisame76.minato.godotbench.${app#godot-bench-}"
+  local activity finished=no crashes
+  activity="$package/com.godot.game.GodotApp"
+  if [[ ! -f "$apk" ]]; then
+    echo "No $apk: run tools/build-godot.sh first." >&2
+    return 1
+  fi
+  device uninstall "$package" >/dev/null 2>&1 || true
+  device install "$apk" >/dev/null
+  run logcat -c
+  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  # The emulator draws on the CPU: the engine's start, its shader compiles and 10 s of frames.
+  wait_for godot " failures" 180 || return 1
+  sleep 1
+  app_lines godot | grep -E '^[A-Z]/godot: godot-bench: ' >"$RESULTS/$app.logcat" || true
+  app_lines godot | grep -v -E '^[A-Z]/godot: godot-bench: ' >"$RESULTS/$app-device.logcat" || true
+  for _ in $(seq 1 20); do
+    if [[ "$(run dumpsys activity activities)" != *"$activity"* ]]; then
+      finished=yes
+      break
+    fi
+    sleep 0.5
+  done
+  crashes=$(run logcat -d -b crash)
+  device uninstall "$package" >/dev/null 2>&1 || true
+  sed 's/^/    /' "$RESULTS/$app-device.logcat"
+  if [[ "$finished" != yes || "$crashes" == *"$package"* ]] ||
+    ! grep -Eq '^[A-Z]/godot: run [^:]+: [1-9][0-9]* frames, 0 failures' "$RESULTS/$app-device.logcat"; then
+    echo "FAILED   $app (finished by itself: $finished)"
+    return 1
+  fi
+  if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then
+    echo "same     $app"
+  else
+    echo "DIFFERS  $app"
+    diff -u "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat" | sed 's/^/    /' || true
+    return 1
+  fi
+}
+
 run_app() {
+  [[ "$app" != godot-bench-* ]] || { run_godot; return; }
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
   local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask=
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
