@@ -1,8 +1,8 @@
-// Checks the CPU features the guest is told (ADR-0047 a): the table from a device's sysctl names to Linux's HWCAP
-// and HWCAP2 bits, against the real dumps of the Mac (M4 Pro) and the iPhone 15 Pro Max (A17 Pro), which must give
-// the bits the ADR measured with; each reported bit from each of its names alone; nothing from the features that
-// need a check first (decision 3) or are never reported (decision 4); and the device's own read, kept for the
-// process.
+// Checks the CPU features the guest is told (ADR-0047 a and b2): the table from a device's sysctl names to Linux's
+// HWCAP and HWCAP2 bits, against the real dumps of the Mac (M4 Pro) and the iPhone 15 Pro Max (A17 Pro), which must
+// give decision 2's bits the ADR measured with, the same on both, and decision 3's as each device has them; each
+// reported bit from each of its names alone; nothing from the features never reported (decision 4); and the
+// device's own read, kept for the process.
 #include "hwcap.h"
 
 #include "check.h"
@@ -75,8 +75,8 @@ constexpr std::uint64_t bit(unsigned number) {
     return std::uint64_t{1} << number;
 }
 
-// Decision 2, each Linux bit with every name a device may give it under (arch/arm64's uapi hwcap.h; the NDK's
-// asm/hwcap.h has the same values).
+// Decision 2, and decision 3's bits that b1's checks at EL0 let in (b2), each Linux bit with every name a device may
+// give it under (arch/arm64's uapi hwcap.h; the NDK's asm/hwcap.h has the same values).
 struct Reported {
     const char *name;
     std::uint64_t hwcap, hwcap2;
@@ -113,13 +113,17 @@ const Reported reported[] = {
     {"hw.optional.arm.FEAT_LSE2", bit(25), 0},             // USCAT
     {"hw.optional.arm.FEAT_LRCPC2", bit(26), 0},           // ILRCPC
     {"hw.optional.arm.FEAT_FlagM", bit(27), 0},            // FLAGM
+    {"hw.optional.arm.FEAT_SSBS", bit(28), 0},             // SSBS
     {"hw.optional.arm.FEAT_SB", bit(29), 0},               // SB
     {"hw.optional.arm.FEAT_DPB2", 0, bit(0)},              // DCPODP
     {"hw.optional.arm.FEAT_FlagM2", 0, bit(7)},            // FLAGM2
     {"hw.optional.arm.FEAT_FRINTTS", 0, bit(8)},           // FRINT
     {"hw.optional.arm.FEAT_I8MM", 0, bit(13)},             // I8MM
     {"hw.optional.arm.FEAT_BF16", 0, bit(14)},             // BF16
+    {"hw.optional.arm.FEAT_ECV", 0, bit(19)},              // ECV
+    {"hw.optional.arm.FEAT_AFP", 0, bit(20)},              // AFP
     {"hw.optional.arm.FEAT_RPRES", 0, bit(21)},            // RPRES
+    {"hw.optional.arm.FEAT_WFxT", 0, bit(31)},             // WFXT
     {"hw.optional.arm.FEAT_EBF16", 0, bit(32)},            // EBF16
     {"hw.optional.arm.FEAT_CSSC", 0, bit(34)},             // CSSC
     {"hw.optional.arm.FEAT_HBC", 0, bit(44)},              // HBC
@@ -127,11 +131,13 @@ const Reported reported[] = {
     {"hw.optional.arm.FEAT_FAMINMAX", 0, bit(50)},         // FAMINMAX
 };
 
-TEST(the_mac_and_the_iphone_get_the_bits_the_adr_measured_with) {
+TEST(the_mac_and_the_iphone_get_the_bits_the_adr_measured_with_and_their_own_of_decision_3) {
+    // Decision 2's bits are the same on both, 0x2fb3f7fb and 0x206181. Decision 3's as b1 found them: ECV, AFP and
+    // WFXT on the Mac; SSBS, ECV and AFP on the iPhone, which has no WFxT.
     const Bits on_the_mac = bits_of(mac);
-    CHECK(on_the_mac.hwcap == 0x2fb3f7fb && on_the_mac.hwcap2 == 0x206181);
+    CHECK(on_the_mac.hwcap == 0x2fb3f7fb && on_the_mac.hwcap2 == 0x80386181);
     const Bits on_the_iphone = bits_of(iphone);
-    CHECK(on_the_iphone.hwcap == 0x2fb3f7fb && on_the_iphone.hwcap2 == 0x206181);
+    CHECK(on_the_iphone.hwcap == 0x3fb3f7fb && on_the_iphone.hwcap2 == 0x386181);
 }
 
 TEST(each_reported_bit_comes_from_each_of_its_names_alone) {
@@ -147,12 +153,11 @@ TEST(each_reported_bit_comes_from_each_of_its_names_alone) {
     CHECK(wrong == 0);
 }
 
-TEST(the_features_that_need_a_check_or_are_never_reported_give_nothing) {
-    // Decision 3: SSBS, ECV, AFP and WFXT, until b) checks each at EL0. Decision 4: CPUID (no name), the pointer
-    // authentication keys, BTI, SVE and SME with their sub-bits, MTE, the event stream (no name) and FPMR.
+TEST(the_features_never_reported_give_nothing) {
+    // Decision 4: CPUID (no name), the pointer authentication keys, BTI, SVE and SME with their sub-bits, MTE, the
+    // event stream (no name) and FPMR.
     const Bits got = bits_of({
-        "hw.optional.arm.FEAT_SSBS", "hw.optional.arm.FEAT_ECV", "hw.optional.arm.FEAT_AFP",
-        "hw.optional.arm.FEAT_WFxT", "hw.optional.arm.FEAT_PAuth", "hw.optional.arm.FEAT_PAuth2",
+        "hw.optional.arm.FEAT_PAuth", "hw.optional.arm.FEAT_PAuth2",
         "hw.optional.arm.FEAT_FPAC", "hw.optional.arm.FEAT_FPACCOMBINE", "hw.optional.arm.FEAT_PACIMP",
         "hw.optional.arm.FEAT_BTI", "hw.optional.arm.FEAT_SVE", "hw.optional.arm.FEAT_SVE2",
         "hw.optional.arm.FEAT_SME", "hw.optional.arm.FEAT_SME2", "hw.optional.arm.SME_F32F32",
@@ -170,12 +175,14 @@ TEST(without_any_feature_nothing_is_reported) {
 
 TEST(the_features_line_names_the_reported_bits_as_linux_s_cpuinfo_does) {
     // /proc/cpuinfo's Features line (ADR-0047 c): Linux's names, AT_HWCAP's bits from the lowest, then AT_HWCAP2's
-    // (hwcap_str of arch/arm64/kernel/cpuinfo.c, 6.6 and, for lut and faminmax, 6.12). The Mac and the iPhone give
-    // the same line.
+    // (hwcap_str of arch/arm64/kernel/cpuinfo.c, 6.6 and, for lut and faminmax, 6.12). The Mac's and the iPhone's
+    // lines differ in decision 3's bits.
     CHECK(apkrt::hwcap::features(bits_of(mac)) ==
           "fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 "
-          "asimdfhm dit uscat ilrcpc flagm sb dcpodp flagm2 frint i8mm bf16 rpres");
-    CHECK(apkrt::hwcap::features(bits_of(iphone)) == apkrt::hwcap::features(bits_of(mac)));
+          "asimdfhm dit uscat ilrcpc flagm sb dcpodp flagm2 frint i8mm bf16 ecv afp rpres wfxt");
+    CHECK(apkrt::hwcap::features(bits_of(iphone)) ==
+          "fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 "
+          "asimdfhm dit uscat ilrcpc flagm ssbs sb dcpodp flagm2 frint i8mm bf16 ecv afp rpres");
     Bits every{0, 0};
     for (const Reported &entry : reported) {
         every.hwcap |= entry.hwcap;
@@ -183,7 +190,8 @@ TEST(the_features_line_names_the_reported_bits_as_linux_s_cpuinfo_does) {
     }
     CHECK(apkrt::hwcap::features(every) ==
           "fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimdrdm jscvt fcma lrcpc dcpop sha3 asimddp sha512 "
-          "asimdfhm dit uscat ilrcpc flagm sb dcpodp flagm2 frint i8mm bf16 rpres ebf16 cssc hbc lut faminmax");
+          "asimdfhm dit uscat ilrcpc flagm ssbs sb dcpodp flagm2 frint i8mm bf16 ecv afp rpres wfxt ebf16 cssc hbc lut "
+          "faminmax");
     CHECK(apkrt::hwcap::features(Bits{0, 0}).empty());
 }
 

@@ -5,6 +5,7 @@
 // the signal context, which the handler has rewritten (signals::resume, R9).
 #pragma once
 
+#include "hwcap.h"
 #include "syscall_frame.h"
 
 #include <signal.h>
@@ -20,7 +21,7 @@ struct GuestContext {
     std::uint64_t x[31];
     std::uint64_t sp;
     std::uint64_t pc;
-    std::uint64_t nzcv;
+    std::uint64_t nzcv;  // NZCV, and the kept PSTATE bits (kept_pstate_bits) where the device has them
     std::uint64_t fpsr;
     std::uint64_t fpcr;
     __uint128_t q[32];
@@ -53,5 +54,15 @@ std::optional<GuestContext> context_at_syscall(const apkrt_syscall_frame &frame)
 /// The state a Darwin signal context holds, and writing a state into one.
 GuestContext context_from(const ucontext_t &uc);
 void apply(const GuestContext &context, ucontext_t &uc);
+
+/// The PSTATE bits besides NZCV that a GuestContext's nzcv word keeps, as Linux's signal frames keep the whole
+/// PSTATE (ADR-0047 b2): the ones EL0 may write among the features the guest is told in `bits`, SSBS (bit 12) where
+/// AT_HWCAP has SSBS and DIT (bit 24) where it has DIT. No MRS or MSR of either runs on a device without it.
+std::uint64_t kept_pstate_bits(const hwcap::Bits &bits);
+/// This device's (hwcap::guest()).
+std::uint64_t kept_pstate_bits();
+/// This device's kept bits as PSTATE has them now: for a context the runtime builds without them (a thread's start,
+/// a call into guest code), which keeps them as they are. apply() sets them, by MSR where they differ.
+std::uint64_t live_pstate_bits();
 
 }  // namespace apkrt

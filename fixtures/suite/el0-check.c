@@ -1,10 +1,12 @@
 // el0-check (ADR-0047 b1): the instructions of the CPU features that ADR-0047 decision 3 reports only after a check
-// at EL0 on the device, each tried under a SIGILL handler, with what each did. The runtime does not report these
-// features yet; this probe decides which may come in (b2). Each line names a feature and its result:
+// at EL0 on the device, each tried under a SIGILL handler, with what each did. This probe decided which came in (b2).
+// Each line names a feature and its result:
 //   - ECV: CNTVCTSS_EL0 and CNTPCTSS_EL0, the self-synchronized counter reads, against CNTVCT_EL0 read around them;
 //   - AFP: FPCR's FIZ, AH and NEP bits: kept when written, FIZ flushing a denormal input, and FPCR as the interrupted
 //     code had it after a signal handler that cleared it;
 //   - SSBS: PSTATE.SSBS through MRS and both forms of MSR, and after a signal handler that changed it;
+//   - DIT: the same for PSTATE.DIT, reported since a), the other PSTATE bit EL0 writes, which signal frames keep with
+//     SSBS since b2;
 //   - WFXT: WFET and WFIT with a deadline that has passed.
 // The results differ by device (decision 3 lists which device has what), so tests.txt marks it measures;
 // runtime.el0_check_fixture compares the Mac's lines with what its sysctl lets one expect (runtime/tests/el0_check.py).
@@ -128,6 +130,46 @@ static void ssbs(void) {
            ssbs_in_handler & ssbs_bit ? "set" : "clear", after_handler & ssbs_bit ? "restored" : "lost");
 }
 
+// --- DIT ----------------------------------------------------------------------------------------------------
+
+static const uint64_t dit_bit = UINT64_C(1) << 24;
+
+static uint64_t read_dit(void) {
+    uint64_t value = 0;
+    __asm__ volatile("mrs %0, s3_3_c4_c2_5" : "+r"(value));  // DIT
+    return value;
+}
+
+static volatile uint64_t dit_in_handler;
+
+static void on_user_dit(int signal_number) {
+    (void)signal_number;
+    dit_in_handler = read_dit();
+    __asm__ volatile(".inst 0xd503405f");  // MSR DIT, #0
+}
+
+static void dit(void) {
+    illegal = 0;
+    const uint64_t first = read_dit();
+    if (illegal) {
+        printf("DIT: MRS SIGILL\n");
+        return;
+    }
+    __asm__ volatile(".inst 0xd503415f");  // MSR DIT, #1
+    const uint64_t set_immediate = read_dit();
+    __asm__ volatile("msr s3_3_c4_c2_5, %0" : : "r"(UINT64_C(0)));  // MSR DIT, Xt
+    const uint64_t cleared_register = read_dit();
+    __asm__ volatile(".inst 0xd503415f");
+    signal(SIGUSR1, on_user_dit);
+    raise(SIGUSR1);
+    const uint64_t after_handler = read_dit();
+    __asm__ volatile("msr s3_3_c4_c2_5, %0" : : "r"(first));
+    printf("DIT: MRS %s; MSR #1 %s; MSR Xt %s; in a signal handler %s; after it cleared it %s\n",
+           illegal ? "SIGILL in a later step" : "reads", set_immediate & dit_bit ? "sets it" : "does not set it",
+           cleared_register & dit_bit ? "does not clear it" : "clears it",
+           dit_in_handler & dit_bit ? "set" : "clear", after_handler & dit_bit ? "restored" : "lost");
+}
+
 // --- WFXT ---------------------------------------------------------------------------------------------------
 
 static void wfxt(void) {
@@ -150,6 +192,7 @@ int main(void) {
     ecv();
     afp();
     ssbs();
+    dit();
     wfxt();
     return 0;
 }

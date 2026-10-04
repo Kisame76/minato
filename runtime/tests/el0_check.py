@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """ADR-0047 b1's probe on the Mac: apk-run runs the fixture el0-check, which tries the instructions of decision 3's
-features under a SIGILL handler (fixtures/suite/el0-check.c). Each line must be what this Mac's sysctl lets one expect:
-ECV, AFP and WFXT work where hw.optional.arm.FEAT_ECV, FEAT_AFP and FEAT_WFxT are 1 and raise SIGILL or drop their bits
-where they are 0, and without SSBS (FEAT_SSBS 0) its MRS raises SIGILL. A Mac with SSBS has its line shown, not
-compared: b2 decides from the iPhone's. The runtime reports none of these features yet (decision 3).
+features, and DIT's, under a SIGILL handler (fixtures/suite/el0-check.c). Each line must be what this Mac's sysctl lets
+one expect: ECV, AFP and WFXT work where hw.optional.arm.FEAT_ECV, FEAT_AFP and FEAT_WFxT are 1 and raise SIGILL or
+drop their bits where they are 0; SSBS and DIT, the PSTATE bits signal frames keep since b2, come back after a handler
+that cleared them where FEAT_SSBS and FEAT_DIT are 1, and their MRS raises SIGILL where they are 0.
 Prints "skipped: ..." while the fixture is not built.
 
 Usage: el0_check.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work>
@@ -24,6 +24,12 @@ LINES = {
                   "after it cleared them restored",
             False: "AFP: FIZ, AH and NEP dropped; FIZ flushes nothing; in a signal handler cleared; "
                    "after it cleared them lost"},
+    "SSBS": {True: "SSBS: MRS reads; MSR #1 sets it; MSR Xt clears it; in a signal handler set; "
+                   "after it cleared it restored",
+             False: "SSBS: MRS SIGILL"},
+    "DIT": {True: "DIT: MRS reads; MSR #1 sets it; MSR Xt clears it; in a signal handler set; "
+                  "after it cleared it restored",
+            False: "DIT: MRS SIGILL"},
     "WFxT": {True: "WFXT: WFET returns, WFIT returns", False: "WFXT: WFET SIGILL, WFIT SIGILL"},
 }
 
@@ -57,15 +63,13 @@ def main():
         print(f"FAIL: no end within {timeout.timeout} s")
         sys.exit(1)
     ones = sysctl_ones()
-    has = {feature: ARM + "FEAT_" + feature in ones for feature in ("ECV", "AFP", "SSBS", "WFxT")}
+    features = ("ECV", "AFP", "SSBS", "DIT", "WFxT")
+    has = {feature: ARM + "FEAT_" + feature in ones for feature in features}
     got = result.stdout.splitlines()
-    ssbs = [line for line in got if line.startswith("SSBS:")]
-    wanted = [LINES["ECV"][has["ECV"]], LINES["AFP"][has["AFP"]],
-              ssbs[0] if has["SSBS"] and ssbs else "SSBS: MRS SIGILL", LINES["WFxT"][has["WFxT"]]]
+    wanted = [LINES[feature][has[feature]] for feature in features]
     if result.returncode == 0 and got == wanted:
         print("el0-check finds what this Mac's sysctl says: "
-              + ", ".join(f"{feature} {int(value)}" for feature, value in has.items())
-              + ("; SSBS shown: " + ssbs[0] if has["SSBS"] and ssbs else ""))
+              + ", ".join(f"{feature} {int(value)}" for feature, value in has.items()))
         return
     print(f"FAIL: exit status {result.returncode}")
     print("wanted:\n  " + "\n  ".join(wanted))

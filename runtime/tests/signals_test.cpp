@@ -1,14 +1,17 @@
 // Checks guest signal frames against the x18 islands (ADR-0020 X4). XNU clears x18 at every context
 // switch, so converted guest code keeps its x18 in Darwin TSD slot 11: a handler must find that value
-// in its frame, and rt_sigreturn must give the thread the frame's x18. The guest threads are clone
-// children that make their syscalls through the veneer's exact instructions (threads_probe.S,
-// signals_probe.S).
+// in its frame, and rt_sigreturn must give the thread the frame's x18. Likewise PSTATE's DIT, which
+// frames keep with SSBS as Linux's do (ADR-0047 b2). The guest threads are clone children that make
+// their syscalls through the veneer's exact instructions (threads_probe.S, signals_probe.S).
 #include "APKRuntime/apkrt.h"
+#include "guest_context.h"
+#include "hwcap.h"
 #include "threads.h"
 
 #include "check.h"
 
 #include <sys/mman.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -160,6 +163,95 @@ TEST(a_signal_names_the_process_and_the_app_uid_as_its_sender) {
     CHECK(sender.pid.load() == ::getpid());
     CHECK(sender.uid.load() == 10100);
     ::munmap(stack, stack_size);
+}
+
+// PSTATE.DIT (bit 24) by MRS and MSR, which every Apple Silicon Mac has (FEAT_DIT); SSBS (bit 12) goes the same
+// way on a device that has it, which no Mac does (el0-check shows the iPhone's).
+constexpr std::uint64_t dit = std::uint64_t{1} << 24;
+// The Linux ucontext on arm64: pstate after regs[31], sp and pc.
+constexpr std::size_t linux_pstate_offset = linux_regs_offset + 33 * 8;
+
+bool host_has_dit() {
+    int value = 0;
+    std::size_t size = sizeof value;
+    return ::sysctlbyname("hw.optional.arm.FEAT_DIT", &value, &size, nullptr, 0) == 0 && value == 1;
+}
+
+std::uint64_t read_dit() {
+    std::uint64_t value;
+    asm volatile("mrs %0, s3_3_c4_c2_5" : "=r"(value));
+    return value & dit;
+}
+
+void write_dit(std::uint64_t value) {
+    asm volatile("msr s3_3_c4_c2_5, %0" : : "r"(value));
+}
+
+/// What the guest thread of the next test saw, per round: the handler clears DIT itself in round 0, and only in its
+/// frame in round 1.
+struct DitSeen {
+    std::atomic<int> handled{0};
+    std::atomic<std::uint64_t> at_handler_entry[2]{}, in_frame[2]{}, after_return[2]{};
+};
+DitSeen dit_seen;
+
+void on_dit_signal(int, void *, void *ucontext) {
+    auto *pstate = reinterpret_cast<std::uint64_t *>(static_cast<char *>(ucontext) + linux_pstate_offset);
+    const int round = dit_seen.handled.load();
+    dit_seen.at_handler_entry[round].store(read_dit());
+    dit_seen.in_frame[round].store(*pstate & dit);
+    if (round == 0) {
+        write_dit(0);
+    } else {
+        *pstate &= ~dit;
+    }
+    dit_seen.handled.fetch_add(1);
+}
+
+void send_dit_through_a_handler(void *) {
+    struct {
+        std::uint64_t handler, flags, restorer, mask;
+    } action{reinterpret_cast<std::uint64_t>(&on_dit_signal), sa_siginfo | sa_restorer,
+             reinterpret_cast<std::uint64_t>(&probe_sigreturn), 0};
+    probe_syscall(nr_rt_sigaction, sigusr1, reinterpret_cast<std::uint64_t>(&action), 0, 8);
+    const long tid = probe_syscall(nr_gettid, 0);
+    for (int round = 0; round < 2; ++round) {
+        write_dit(dit);
+        // A signal to the thread itself: the runtime delivers it at the end of this syscall.
+        probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()), static_cast<std::uint64_t>(tid), sigusr1);
+        dit_seen.after_return[round].store(read_dit());
+    }
+    write_dit(0);
+}
+
+// ADR-0047 b2: DIT goes through a handler as on Linux, whose frames keep the whole PSTATE (setup_sigframe) and whose
+// rt_sigreturn takes it back (restore_sigframe; valid_native_regs leaves bits 12 and 24): the handler starts with the
+// interrupted DIT and finds it in its frame; the thread returns with the frame's DIT, not with what the handler left.
+TEST(the_signal_frame_carries_dit_and_rt_sigreturn_restores_it) {
+    if (!host_has_dit()) return;  // no Apple Silicon Mac lacks it
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, send_dit_through_a_handler,
+                      nullptr) > 0);
+    join(&tid_word);
+    CHECK(dit_seen.handled.load() == 2);
+    for (int round = 0; round < 2; ++round) {
+        CHECK(dit_seen.at_handler_entry[round].load() == dit);
+        CHECK(dit_seen.in_frame[round].load() == dit);
+    }
+    CHECK(dit_seen.after_return[0].load() == dit);  // the handler's own change ends with it
+    CHECK(dit_seen.after_return[1].load() == 0);    // the frame's value is the one that comes back
+    ::munmap(stack, stack_size);
+}
+
+// The PSTATE bits a guest context keeps besides NZCV are the ones EL0 may write among the features the guest is told:
+// SSBS where AT_HWCAP has SSBS (bit 28), DIT where it has DIT (bit 24). The Mac has DIT only, the iPhone both.
+TEST(the_kept_pstate_bits_follow_the_reported_features) {
+    CHECK(apkrt::kept_pstate_bits(apkrt::hwcap::Bits{0x2fb3f7fb, 0x80386181}) == dit);
+    CHECK(apkrt::kept_pstate_bits(apkrt::hwcap::Bits{0x3fb3f7fb, 0x386181}) == (dit | (std::uint64_t{1} << 12)));
+    CHECK(apkrt::kept_pstate_bits(apkrt::hwcap::Bits{0x3, 0}) == 0);
+    CHECK(apkrt::kept_pstate_bits() == apkrt::kept_pstate_bits(apkrt::hwcap::guest()));
 }
 
 }  // namespace

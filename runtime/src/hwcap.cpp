@@ -42,21 +42,26 @@ constexpr Entry table[] = {
     {{"hw.optional.arm.FEAT_LSE2"}, bit(25), 0},                                              // USCAT
     {{"hw.optional.arm.FEAT_LRCPC2"}, bit(26), 0},                                            // ILRCPC
     {{"hw.optional.arm.FEAT_FlagM"}, bit(27), 0},                                             // FLAGM
+    {{"hw.optional.arm.FEAT_SSBS"}, bit(28), 0},                                              // SSBS (b2)
     {{"hw.optional.arm.FEAT_SB"}, bit(29), 0},                                                // SB
     {{"hw.optional.arm.FEAT_DPB2"}, 0, bit(0)},                                               // DCPODP
     {{"hw.optional.arm.FEAT_FlagM2"}, 0, bit(7)},                                             // FLAGM2
     {{"hw.optional.arm.FEAT_FRINTTS"}, 0, bit(8)},                                            // FRINT
     {{"hw.optional.arm.FEAT_I8MM"}, 0, bit(13)},                                              // I8MM
     {{"hw.optional.arm.FEAT_BF16"}, 0, bit(14)},                                              // BF16
+    {{"hw.optional.arm.FEAT_ECV"}, 0, bit(19)},                                               // ECV (b2)
+    {{"hw.optional.arm.FEAT_AFP"}, 0, bit(20)},                                               // AFP (b2)
     {{"hw.optional.arm.FEAT_RPRES"}, 0, bit(21)},                                             // RPRES
+    {{"hw.optional.arm.FEAT_WFxT"}, 0, bit(31)},                                              // WFXT (b2)
     {{"hw.optional.arm.FEAT_EBF16"}, 0, bit(32)},                                             // EBF16
     {{"hw.optional.arm.FEAT_CSSC"}, 0, bit(34)},                                              // CSSC
     {{"hw.optional.arm.FEAT_HBC"}, 0, bit(44)},                                               // HBC
     {{"hw.optional.arm.FEAT_LUT"}, 0, bit(49)},                                               // LUT
     {{"hw.optional.arm.FEAT_FAMINMAX"}, 0, bit(50)},                                          // FAMINMAX
 };
-// Not in the table: SSBS, ECV, AFP and WFXT until a check at EL0 on the device lets each in (decision 3); CPUID,
-// PACA, PACG, BTI, SVE, SME, MTE, EVTSTRM and FPMR never (decision 4).
+// Decision 3's SSBS, ECV, AFP and WFXT came in with b1's checks at EL0, which each passed where the device's name is 1
+// (b2); guest contexts and signal frames keep PSTATE.SSBS as they keep DIT (guest_context.h). Not in the table, never:
+// CPUID, PACA, PACG, BTI, SVE, SME, MTE, EVTSTRM and FPMR (decision 4).
 
 // The names that Linux's /proc/cpuinfo gives the table's bits on its Features line, in its order: AT_HWCAP's bits
 // from the lowest, then AT_HWCAP2's (hwcap_str of arch/arm64/kernel/cpuinfo.c; lut and faminmax since 6.12).
@@ -72,9 +77,10 @@ constexpr LinuxName linux_names[] = {
     {bit(9), 0, "fphp"},      {bit(10), 0, "asimdhp"},  {bit(12), 0, "asimdrdm"},  {bit(13), 0, "jscvt"},
     {bit(14), 0, "fcma"},     {bit(15), 0, "lrcpc"},    {bit(16), 0, "dcpop"},     {bit(17), 0, "sha3"},
     {bit(20), 0, "asimddp"},  {bit(21), 0, "sha512"},   {bit(23), 0, "asimdfhm"},  {bit(24), 0, "dit"},
-    {bit(25), 0, "uscat"},    {bit(26), 0, "ilrcpc"},   {bit(27), 0, "flagm"},     {bit(29), 0, "sb"},
-    {0, bit(0), "dcpodp"},    {0, bit(7), "flagm2"},    {0, bit(8), "frint"},      {0, bit(13), "i8mm"},
-    {0, bit(14), "bf16"},     {0, bit(21), "rpres"},    {0, bit(32), "ebf16"},     {0, bit(34), "cssc"},
+    {bit(25), 0, "uscat"},    {bit(26), 0, "ilrcpc"},   {bit(27), 0, "flagm"},     {bit(28), 0, "ssbs"},
+    {bit(29), 0, "sb"},       {0, bit(0), "dcpodp"},    {0, bit(7), "flagm2"},     {0, bit(8), "frint"},
+    {0, bit(13), "i8mm"},     {0, bit(14), "bf16"},     {0, bit(19), "ecv"},       {0, bit(20), "afp"},
+    {0, bit(21), "rpres"},    {0, bit(31), "wfxt"},     {0, bit(32), "ebf16"},     {0, bit(34), "cssc"},
     {0, bit(44), "hbc"},      {0, bit(49), "lut"},      {0, bit(50), "faminmax"},
 };
 

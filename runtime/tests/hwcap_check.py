@@ -14,7 +14,8 @@ import subprocess
 import sys
 
 ARM = "hw.optional.arm."
-# Decision 2: each Linux bit (arch/arm64's uapi asm/hwcap.h) with the sysctl names that give it.
+# Decision 2, and decision 3's bits since b2: each Linux bit (arch/arm64's uapi asm/hwcap.h) with the sysctl names that
+# give it.
 HWCAP = {
     0: ["hw.optional.floatingpoint"],                                        # FP
     1: [ARM + "AdvSIMD", "hw.optional.AdvSIMD", "hw.optional.neon"],         # ASIMD
@@ -32,11 +33,13 @@ HWCAP = {
     21: [ARM + "FEAT_SHA512", "hw.optional.armv8_2_sha512"],                 # SHA512
     23: [ARM + "FEAT_FHM", "hw.optional.armv8_2_fhm"],                       # ASIMDFHM
     24: [ARM + "FEAT_DIT"], 25: [ARM + "FEAT_LSE2"], 26: [ARM + "FEAT_LRCPC2"],  # DIT, USCAT, ILRCPC
-    27: [ARM + "FEAT_FlagM"], 29: [ARM + "FEAT_SB"],                         # FLAGM, SB
+    27: [ARM + "FEAT_FlagM"], 28: [ARM + "FEAT_SSBS"], 29: [ARM + "FEAT_SB"],  # FLAGM, SSBS, SB
 }
 HWCAP2 = {
     0: [ARM + "FEAT_DPB2"], 7: [ARM + "FEAT_FlagM2"], 8: [ARM + "FEAT_FRINTTS"],  # DCPODP, FLAGM2, FRINT
-    13: [ARM + "FEAT_I8MM"], 14: [ARM + "FEAT_BF16"], 21: [ARM + "FEAT_RPRES"],   # I8MM, BF16, RPRES
+    13: [ARM + "FEAT_I8MM"], 14: [ARM + "FEAT_BF16"],                             # I8MM, BF16
+    19: [ARM + "FEAT_ECV"], 20: [ARM + "FEAT_AFP"], 21: [ARM + "FEAT_RPRES"],      # ECV, AFP, RPRES
+    31: [ARM + "FEAT_WFxT"],                                                       # WFXT
     32: [ARM + "FEAT_EBF16"], 34: [ARM + "FEAT_CSSC"], 44: [ARM + "FEAT_HBC"],     # EBF16, CSSC, HBC
     49: [ARM + "FEAT_LUT"], 50: [ARM + "FEAT_FAMINMAX"],                           # LUT, FAMINMAX
 }
@@ -45,9 +48,9 @@ IFUNC_ARG_HWCAP = 1 << 62
 # writes AT_HWCAP's from the lowest bit, then AT_HWCAP2's.
 NAMES = {0: "fp", 1: "asimd", 3: "aes", 4: "pmull", 5: "sha1", 6: "sha2", 7: "crc32", 8: "atomics", 9: "fphp",
          10: "asimdhp", 12: "asimdrdm", 13: "jscvt", 14: "fcma", 15: "lrcpc", 16: "dcpop", 17: "sha3", 20: "asimddp",
-         21: "sha512", 23: "asimdfhm", 24: "dit", 25: "uscat", 26: "ilrcpc", 27: "flagm", 29: "sb"}
-NAMES2 = {0: "dcpodp", 7: "flagm2", 8: "frint", 13: "i8mm", 14: "bf16", 21: "rpres", 32: "ebf16", 34: "cssc",
-          44: "hbc", 49: "lut", 50: "faminmax"}
+         21: "sha512", 23: "asimdfhm", 24: "dit", 25: "uscat", 26: "ilrcpc", 27: "flagm", 28: "ssbs", 29: "sb"}
+NAMES2 = {0: "dcpodp", 7: "flagm2", 8: "frint", 13: "i8mm", 14: "bf16", 19: "ecv", 20: "afp", 21: "rpres",
+          31: "wfxt", 32: "ebf16", 34: "cssc", 44: "hbc", 49: "lut", 50: "faminmax"}
 
 
 def sysctl_ones():

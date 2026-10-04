@@ -262,7 +262,7 @@ void setup_frame(ThreadSignals &state, int signal, const LinuxSiginfo &info, con
     uc.regs[18] = apkrt_get_guest_x18();  // XNU clears the register itself; the guest's x18 is in slot 11
     uc.sp = context.sp;
     uc.pc = context.pc;
-    uc.pstate = context.nzcv & 0xf000'0000;
+    uc.pstate = context.nzcv & (0xf000'0000 | kept_pstate_bits());  // NZCV and the kept bits (ADR-0047 b2)
     auto *fpsimd = reinterpret_cast<FpsimdRecord *>(uc.reserved);
     fpsimd->head = {fpsimd_magic, sizeof(FpsimdRecord)};
     fpsimd->fpsr = static_cast<std::uint32_t>(context.fpsr);
@@ -582,6 +582,7 @@ void enter_guest(std::uint64_t entry, std::uint64_t stack_pointer) {
     GuestContext context{};  // every register 0, the flags, FPSR and FPCR as well
     context.pc = entry;
     context.sp = stack_pointer;
+    context.nzcv = live_pstate_bits();  // SSBS and DIT as the thread has them
     resume(context);
 }
 
@@ -802,7 +803,8 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     apkrt_set_guest_x18(uc.regs[18]);
     context.sp = uc.sp;
     context.pc = uc.pc;
-    context.nzcv = uc.pstate & 0xf000'0000;
+    // NZCV, and the kept bits as the frame has them, as Linux's restore_sigframe takes PSTATE (ADR-0047 b2).
+    context.nzcv = uc.pstate & (0xf000'0000 | kept_pstate_bits());
     context.fpsr = fpsimd->fpsr;
     context.fpcr = fpsimd->fpcr;
     std::memcpy(context.q, fpsimd->v, sizeof context.q);
@@ -816,12 +818,17 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
 
 }  // namespace apkrt::signals
 
+// The entry's context has NZCV at most: the kept PSTATE bits stay as the thread has them.
 extern "C" void apkrt_call_guest_enter(const apkrt::GuestContext *context) {
-    apkrt::signals::resume(*context);
+    auto entry = *context;
+    entry.nzcv |= apkrt::live_pstate_bits();
+    apkrt::signals::resume(entry);
 }
 
 extern "C" void apkrt_host_call_deliver(const apkrt::GuestContext *context) {
-    apkrt::signals::resume(*context);
+    auto back = *context;
+    back.nzcv |= apkrt::live_pstate_bits();
+    apkrt::signals::resume(back);
 }
 
 extern "C" void apkrt_settle_runtime_signals(apkrt::signals::ThreadSignals *state) {
