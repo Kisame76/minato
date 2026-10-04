@@ -37,3 +37,40 @@ enum minato_present_kind minato_present_time(int64_t asked, int64_t *time) {
     }
     return MINATO_PRESENT_WITH_TIME;
 }
+
+/* The first refresh at or after `at` on the grid of `phase` + k x `period`. */
+static int64_t refresh_from(int64_t at, int64_t phase, int64_t period) {
+    const int64_t from = at - phase;
+    return phase + (from / period + (from % period > 0)) * period;
+}
+
+int minato_present_paced_on_grid(struct minato_present_pace *pace, int64_t asked, int64_t time, int64_t waited,
+                                 int64_t now, int guard, int64_t phase, int64_t period) {
+    const int timed_ask = asked > 0 && asked <= INT64_MAX - period;
+    if (timed_ask && pace->taken != 0 && pace->guard == 0 && waited > period / 2 &&
+        refresh_asked(asked, phase, period) <= pace->taken) {
+        pace->guard = guard;
+        return 0;
+    }
+    /* A present with a time shows on its time's refresh, one without on the 2nd refresh after now (decision 11 b)),
+       and Core Animation shows them in order. */
+    int64_t shows = time > 0 && time <= INT64_MAX - period ? refresh_from(time, phase, period)
+                                                           : refresh_from(now + 1, phase, period) + period;
+    if (pace->taken != 0 && shows < pace->taken + period) {
+        shows = pace->taken + period;
+    }
+    pace->taken = shows;
+    if (pace->guard > 0) {
+        pace->guard--;
+    }
+    return 1;
+}
+
+int minato_present_paced(struct minato_present_pace *pace, int64_t asked, int64_t time, int64_t waited, int64_t now,
+                         int guard) {
+    int64_t phase = 0, period = 0;
+    if (apkrt_vsync_grid(&phase, &period) != 0 || period <= 0) {
+        return 1;
+    }
+    return minato_present_paced_on_grid(pace, asked, time, waited, now, guard, phase, period);
+}
