@@ -161,7 +161,8 @@ include("${CMAKE_BINARY_DIR}/plan.cmake")
 
 # The patches this build carries, as shasum -a 256 lists them, in patches.sha256 once every library of the set is
 # linked: app_process loads hwui at every start (ADR-0043 test 2), and a build of older patches crashes there (patch
-# 0007), so graphics.hwui_load compares it with graphics/hwui/patches.
+# 0007), so graphics.hwui_load, and graphics/tests/hwui_ready.py before every app process, compare it with
+# graphics/hwui/patches.
 set(patch_digests "")
 file(GLOB hwui_patches RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch")
 foreach(patch IN LISTS hwui_patches)

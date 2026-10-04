@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0043 test 2's first test (graphics-start-test): the Application class draws into Bitmaps through hwui's
+     graphics natives, which app_process registers at every start, and reads the system fonts. The launcher activity
+     is the framework's own android.app.Activity, as in app-start-test; the driver loads only the Application class. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.graphicsstart" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Graphics Start Test"
+      android:name="io.github.kisame76.minato.test.graphicsstart.GraphicsStartApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

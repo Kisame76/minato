@@ -1,9 +1,11 @@
 # The framework's guest code (ADR-0039), built with the NDK's toolchain as the fixtures are
 # (tools/build-framework-native.sh): app_process, libandroidfw with the libraries it links (b3.2), and
-# libandroid_runtime.so with framework.jar's natives (b3.3), which app_process registers.
+# libandroid_runtime.so with framework.jar's natives (b3.3), which app_process registers, libhwui's among them
+# (ADR-0043 test 2).
 # app_process links the guest's ART libraries of tools/build-art.sh as dalvikvm does
 # (runtime/art, build/art/plan.cmake): libnativehelper and libsigchain ahead of libc, liblog, and --export-dynamic.
-# Its C++ library is static: a /system/bin program finds no libc++_shared.so, since ART's copy stays in its APEX.
+# Its C++ library is static: a /system/bin program finds no libc++_shared.so in the app's guest system, since ART's copy
+# stays in its APEX; only the Mac harnesses put one into /system/lib64, for hwui's set (ADR-0043 test 2).
 # JNI's headers come from the fetched libnativehelper.
 cmake_minimum_required(VERSION 3.24)
 project(MinatoFramework LANGUAGES C CXX)
@@ -164,6 +166,22 @@ target_compile_options(androidfw-test PRIVATE -Wall -Wextra -Werror)
 target_link_options(androidfw-test PRIVATE -Wl,-z,max-page-size=16384)
 target_link_libraries(androidfw-test PRIVATE androidfw)
 
+# --- libhwui.so (ADR-0043 test 2): the natives of framework.jar's android.graphics classes, from the build of
+# tools/build-hwui.sh, which a clean copy can point elsewhere with HWUI_LIB. libandroid_runtime calls the two C
+# functions of hwui's jni_runtime.h, as AOSP's does: only they and a JNIEnv cross between its static libc++ and the
+# libc++_shared of hwui's set.
+set(HWUI_LIB "${MINATO_ROOT}/build/hwui/lib" CACHE PATH "libhwui.so and its set (tools/build-hwui.sh)")
+if(NOT EXISTS "${HWUI_LIB}/libhwui.so")
+  message(FATAL_ERROR "${HWUI_LIB}/libhwui.so is missing: run tools/build-hwui.sh first")
+endif()
+set(hwui_include "${SOURCES}/frameworks_base_hwui/libs/hwui/apex/include")
+if(NOT EXISTS "${hwui_include}/android/graphics/jni_runtime.h")
+  message(FATAL_ERROR "No ${hwui_include}/android/graphics/jni_runtime.h: run tools/fetch-sources.py --set graphics")
+endif()
+add_library(hwui SHARED IMPORTED)
+set_target_properties(hwui PROPERTIES IMPORTED_LOCATION "${HWUI_LIB}/libhwui.so"
+                      INTERFACE_INCLUDE_DIRECTORIES "${hwui_include}")
+
 # --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
 # files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
 # for AndroidRuntime's statics, Trace without Perfetto and the one function of android_util_Binder.cpp they call.
@@ -190,7 +208,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   -Wthread-safety -Wno-error=deprecated-declarations -Wunused -Wunreachable-code
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
-target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log)
+target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

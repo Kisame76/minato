@@ -5,7 +5,8 @@
 #   - libandroidfw and the libraries it links as static archives (ADR-0039 b3.2), and androidfw-test, which
 #     tools/androidfw-check.sh runs. libandroidfw's AssetsProvider.cpp gets Minato's patch
 #     (framework/native/patches) in a copy, build/framework-native/patched, so build/sources keeps its digests.
-# Needs the sources of tools/fetch-sources.py --set art and --set framework.
+# Needs the sources of tools/fetch-sources.py --set art, --set framework and --set graphics (hwui's jni_runtime.h), and
+# tools/build-hwui.sh's libhwui.so, which libandroid_runtime links (ADR-0043 test 2).
 # Usage: tools/build-framework-native.sh
 # Optional environment:
 #   ANDROID_NDK  NDK to build with, default: r30 in ~/Library/Android/sdk/ndk

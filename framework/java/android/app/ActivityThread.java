@@ -8,7 +8,8 @@
  * on Android. Before that it gives the system Resources the session's configuration and display metrics (b3.4c),
  * as handleBindApplication does, and reads the app's manifest, from which ApplicationPackageManager answers (b3.5a),
  * as bindApplication hands Android's app its ApplicationInfo, with who signed it from the import's signers.json
- * (b3.5b1). It creates no Context and runs no Looper or lifecycle; those come in step c.
+ * (b3.5b1). Then it gives hwui the app's target SDK and loads the system's font map (ADR-0043 test 2), as
+ * handleBindApplication does. It creates no Context and runs no Looper or lifecycle; those come in step c.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -19,6 +20,7 @@ package android.app;
 import android.content.pm.IPackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Typeface;
 import android.os.LocaleList;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -136,6 +138,13 @@ public final class ActivityThread {
             throw new IllegalArgumentException("ActivityThread.main: " + apk + " is " + pkg.packageName + "'s, not "
                     + packageName + "'s");
         }
+        // As handleBindApplication: the target SDK for hwui's rendering, then the system fonts. Android loads the
+        // preinstalled font map only when system_server's serialized one fails; with no system_server, ours always
+        // loads it, from /system/etc's lists and /system/fonts. AOSP does both before it applies the resources'
+        // configuration, and ours after, since ManifestPackage.read, which gives the target SDK, reads the manifest
+        // through Resources; neither reads that configuration.
+        android.graphics.Compatibility.setTargetSdkVersion(pkg.applicationInfo(0).targetSdkVersion);
+        Typeface.loadPreinstalledSystemFontMap();
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         sCurrentActivityThread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);

@@ -1,0 +1,25 @@
+# ADR-0043 test 2: what graphics-start-test (fixtures/java/graphics-start-test) prints without its
+# "graphics-start-test: " prefix. The values follow from the sources at android-15.0.0_r1 and our fonts
+# (graphics/fonts), without a reference device:
+# - An 8 x 8 ARGB_8888 bitmap has 4 bytes per pixel. setPixel and getPixel of an opaque color give it back, and
+#   drawColor of opaque green covers every pixel.
+# - Typeface.DEFAULT is sans-serif: Roboto-Regular.ttf with supportedAxes wght and ital, which FontListParser gives
+#   weight 400 and no italic. RobotoStatic-Regular.ttf is in no list; Typeface's class init only preloads it, as
+#   Roboto-Regular.ttf.
+# - SystemFonts.getAvailableFonts lists the native font API's fonts, which only the font map that system_server
+#   serializes fills (Typeface.setSystemFontMap with its SharedMemory calls nativeAddFontCollections).
+#   loadPreinstalledSystemFontMap, which ActivityThread calls without a system_server, leaves it empty, as on
+#   Android when that map is missing [verified: Typeface.java lines 1385 to 1389].
+# - In Roboto, "i" is narrower than "M" (advances 498 and 1788 of 2048); in DroidSansMono both are 1229. U+65E5 is only
+#   in DroidSansFallbackFull, the last fallback, and U+1F600 is in none of the fonts [verified: their cmap and hmtx].
+bitmap 8x8 ARGB_8888 256 bytes, 32 per row
+setPixel getPixel 0xff336699
+drawColor getPixel 0xff00ff00 0xff00ff00
+default weight 400, italic false
+available fonts 0
+text Minato changes pixels true, width above 0 true
+sans-serif iiii narrower than MMMM true
+monospace iiii as wide as MMMM true
+glyph U+65E5 true, U+1F600 false
+logcat I/Typeface: Preloading /system/fonts/Roboto-Regular.ttf
+logcat I/Typeface: Preloading /system/fonts/RobotoStatic-Regular.ttf

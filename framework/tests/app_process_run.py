@@ -9,6 +9,10 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     framework.jar in /system/framework;
   - bionic's libraries and libandroid_runtime.so (ADR-0039 decision 10) in /system/lib64, bionic's /system, ICU's
     data and the time zone file in their APEXes;
+  - libhwui.so and its set (tools/build-hwui.sh) in /system/lib64, with ART's build's copies of libbase,
+    libziparchive, libexpat and libc++_shared beside them, as graphics/tests/hwui_load_run.py lays them out:
+    libandroid_runtime registers hwui's graphics natives at every start, and bionic's /system has the fonts that
+    ActivityThread loads (ADR-0043 test 2);
   - the APK at Android 15's code path (/data/app/~~<a>/<package>-<b>/base.apk, ADR-0039 decision 6), and the data
     folder /data/user/0/<package> with cache and code_cache, as installd creates them;
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
@@ -23,7 +27,7 @@ differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100
 zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Prints "skipped: ..." while a part is
 not built. framework/tests/java_app_run.py starts its apps with this file's start().
 
-Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work>
+Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work>
                           <app_process64> <framework.jar> <framework-res folder> <app-start-test.apk> <expected>
 """
 import base64
@@ -33,6 +37,11 @@ import re
 import shutil
 import subprocess
 import sys
+
+# hwui's checks (graphics/tests): whether an app process can start with hwui, and the layout of its set.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "graphics", "tests"))
+import hwui_ready  # noqa: E402
+from hwui_load_run import PLATFORM_COPIES  # noqa: E402
 
 ART_ROOT = "/apex/com.android.art"
 PACKAGE = "io.github.kisame76.minato.test.appstart"
@@ -86,8 +95,9 @@ def our_lines(stdout):
     return lines
 
 
-def missing(art, bionic_system, app_process, framework_jar, apk, app):
-    """The first part that is not built, as "skipped: ..." text, or None."""
+def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
+    """The first part that is not built, as "skipped: ..." text, or None, and then hwui's set and bionic's font lists
+    as graphics/tests/hwui_ready.py has them: every start registers hwui's natives and loads the font map."""
     for needed, how in ((os.path.join(art, "lib", "libart.so"), "tools/build-art.sh"),
                         (app_process, "tools/build-framework-native.sh"),
                         (framework_jar, "tools/build-framework.sh"),
@@ -95,22 +105,25 @@ def missing(art, bionic_system, app_process, framework_jar, apk, app):
                         (os.path.join(bionic_system, "etc", "public.libraries.txt"), "tools/build-bionic.sh")):
         if not os.path.exists(needed):
             return f"skipped: {needed} is not built ({how})"
-    return None
+    return hwui_ready.missing(hwui_lib, bionic_system)
 
 
-def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, apk,
-          package, application, mounts=(), configuration=None, signers=None):
+def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
+          apk, package, application, mounts=(), configuration=None, signers=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
-    a timeout. libandroid_runtime.so beside app_process goes to /system/lib64, `mounts` are more --mount entries
-    (guest path, host path), and `configuration` begins a session with apk-run's --configuration
-    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts. `signers`, the APK's
-    signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it
-    in the version's folder, and ActivityThread gets it with --signers (b3.5b1)."""
+    a timeout. libandroid_runtime.so beside app_process goes to /system/lib64 with hwui's set and ART's copies for
+    it, `mounts` are more --mount entries (guest path, host path), and `configuration` begins a session with
+    apk-run's --configuration (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts.
+    `signers`, the APK's signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the
+    library keeps it in the version's folder, and ActivityThread gets it with --signers (b3.5b1)."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
     convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64)
     convert_directory(apk_convert, bionic_lib, system_lib64)
+    convert_directory(apk_convert, hwui_lib, system_lib64)
+    for name in PLATFORM_COPIES:
+        convert(apk_convert, os.path.join(art, "lib", name), os.path.join(system_lib64, name + ".dylib"))
     # app_process needs it once it links it: then the loader names it missing.
     runtime = os.path.join(os.path.dirname(app_process), "libandroid_runtime.so")
     if os.path.exists(runtime):
@@ -163,18 +176,18 @@ def start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, 
 
 
 def main():
-    if len(sys.argv) != 13:
+    if len(sys.argv) != 14:
         raise SystemExit(__doc__)
-    (art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar, folder, apk,
-     expected) = sys.argv[1:]
-    skipped = missing(art, bionic_system, app_process, framework_jar, apk, "app-start-test")
+    (art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
+     folder, apk, expected) = sys.argv[1:]
+    skipped = missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, "app-start-test")
     if not skipped and not os.path.isdir(folder):
         skipped = f"skipped: {folder} is not built (tools/build-framework-res.sh)"
     if skipped:
         print(skipped)
         return
-    result = start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
-                   apk, PACKAGE, APPLICATION, mounts=[("/system/framework/framework-res", folder)])
+    result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
+                   framework_jar, apk, PACKAGE, APPLICATION, mounts=[("/system/framework/framework-res", folder)])
     if result is None:
         print("FAIL: no end within 300 s")
         sys.exit(1)

@@ -19,8 +19,8 @@ import, and each certificate SHA-256 the APK's check proved becomes framework/te
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] <app> <package> <application class> <art> <bionic-lib>
-                       <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <app_process64> <framework.jar>
-                       <framework-res folder> <app.apk> <expected> [<configuration>]
+                       <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work> <app_process64>
+                       <framework.jar> <framework-res folder> <app.apk> <expected> [<configuration>]
 """
 import os
 import re
@@ -39,12 +39,15 @@ def main():
     apk_inspect = None
     if args[:1] == ["--apk-inspect"] and len(args) > 1:
         apk_inspect, args = args[1], args[2:]
-    if len(args) not in (15, 16):
+    if len(args) not in (16, 17):
         raise SystemExit(__doc__)
-    (app, package, application, art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process,
-     framework_jar, folder, apk, expected) = args[:15]
-    configuration = args[15] if len(args) == 16 else None
-    skipped = missing(art, bionic_system, app_process, framework_jar, apk, app)
+    (app, package, application, art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work,
+     app_process, framework_jar, folder, apk, expected) = args[:16]
+    configuration = args[16] if len(args) == 17 else None
+    if os.path.isfile(hwui_lib):
+        # 16 arguments were also the layout before <hwui-lib> with a configuration, which put ICU's data file here.
+        raise SystemExit(f"java_app_run.py: <hwui-lib> is a file: {hwui_lib}\n{__doc__}")
+    skipped = missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app)
     if not skipped and not os.path.isdir(folder):
         skipped = f"skipped: {folder} is not built (tools/build-framework-res.sh)"
     if skipped:
@@ -60,8 +63,9 @@ def main():
         subprocess.run([apk_inspect, "--signers", signers, apk], check=True, capture_output=True)
         if not os.path.exists(signers):
             signers = None  # an unsigned APK has none
-    result = start(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
-                   apk, package, application, mounts=mounts, configuration=configuration, signers=signers)
+    result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
+                   framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
+                   signers=signers)
     if result is None:
         print("FAIL: no end within 300 s")
         sys.exit(1)
