@@ -12,3 +12,13 @@ android_dlopen_ext(/data/user/0/io.github.kisame76.minato.test.ns/files/libns-da
 android_set_application_target_sdk_version(23)
 android_dlopen_ext(/system/lib64/libutils.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
 android_dlopen_ext(libutils.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
+dlopen(/system/lib64/libns-private.so, RTLD_GLOBAL): no ns_lib_check
+dlopen(libns-find.so): sees ns_plugin_value
+android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-find.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): does not see ns_plugin_value
+android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-lib.so, @@/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): dep 1, plugin 2
+android_create_namespace(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): null: android_create_namespace failed: failed to set namespace: [name="clns-ns-test", ld_library_path="", default_library_paths="/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64" permitted_paths="/data:/mnt/expand"] as the anonymous namespace
+dlopen(/system/lib64/libns-private.so): no ns_lib_check
+dlopen(libns-find.so): does not see ns_plugin_value
+android_set_application_target_sdk_version(22)
+dlopen(/system/lib64/libutils.so): no ns_lib_check
+dlopen(libns-find.so): sees ns_plugin_value

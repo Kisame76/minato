@@ -10,9 +10,10 @@
 // isolated with the app's library folder as its search path, and opens the library in it with android_dlopen_ext,
 // by its full path, as ART opens an app's JNI library (ADR-0033 e0). Its permitted path is /data:/mnt/expand, as
 // libnativeloader gives a class loader's namespace that it creates for System.load, and below target SDK 24 it has
-// the exempt list (ADR-0033 e2b1).
+// the exempt list (ADR-0033 e2b1). With @@<folder> the namespace is also the anonymous one, as libnativeloader asks for
+// the namespace of an app's main class loader (ADR-0033 e2b2).
 // An argument sdk=<version> sets the app's target SDK version, as ART does for an app, through
-// android_set_application_target_sdk_version.
+// android_set_application_target_sdk_version. An argument +<library> opens the library with RTLD_GLOBAL.
 #include <android/dlext.h>
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -59,8 +60,9 @@ static int target_sdk_version(void) {
 // A class loader's namespace on `folder`, as libnativeloader's CreateClassLoaderNamespace asks for one when
 // System.load comes from a class loader no namespace was made for: no LD_LIBRARY_PATH part, the folder as the default
 // library path, /data:/mnt/expand as the permitted path (kAlwaysPermittedDirectories), isolated, the exempt list
-// below target SDK 24, and linked to the exported "default" namespace for the public libraries.
-static struct android_namespace_t *class_loader_namespace(const char *folder) {
+// below target SDK 24, and linked to the exported "default" namespace for the public libraries. With `anonymous` it
+// is also the anonymous namespace (ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS), as for an app's main class loader.
+static struct android_namespace_t *class_loader_namespace(const char *folder, bool anonymous) {
     struct android_namespace_t *(*create)(const char *, const char *, const char *, uint64_t, const char *,
                                           struct android_namespace_t *) =
         (struct android_namespace_t *(*)(const char *, const char *, const char *, uint64_t, const char *,
@@ -71,6 +73,7 @@ static struct android_namespace_t *class_loader_namespace(const char *folder) {
     if (create == NULL || link == NULL) return NULL;
     uint64_t type = 1;  // ANDROID_NAMESPACE_TYPE_ISOLATED
     if (target_sdk_version() < 24) type |= 0x08000000;  // ANDROID_NAMESPACE_TYPE_EXEMPT_LIST_ENABLED
+    if (anonymous) type |= 0x10000000;                   // ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS
     struct android_namespace_t *space = create("clns-ns-test", NULL, folder, type, "/data:/mnt/expand", NULL);
     char libraries[2048];
     public_libraries(libraries, sizeof libraries);
@@ -90,17 +93,27 @@ int main(int argc, char **argv) {
             continue;
         }
         const char *colon = strchr(argv[index], ':');
-        if (colon == NULL) {
+        if (argv[index][0] == '+') {
+            snprintf(shown, sizeof shown, "dlopen(%s, RTLD_GLOBAL)", argv[index] + 1);
+            library = dlopen(argv[index] + 1, RTLD_NOW | RTLD_GLOBAL);
+        } else if (colon == NULL) {
             snprintf(shown, sizeof shown, "dlopen(%s)", argv[index]);
             library = dlopen(argv[index], RTLD_NOW);
         } else {
             char name[256];
             snprintf(name, sizeof name, "%.*s", (int)(colon - argv[index]), argv[index]);
             const int created = name[0] == '@';
-            struct android_namespace_t *space = created ? class_loader_namespace(name + 1) : exported_namespace(name);
+            const int anonymous = created && name[1] == '@';
+            const char *folder = name + (anonymous ? 2 : 1);
+            struct android_namespace_t *space =
+                created ? class_loader_namespace(folder, anonymous) : exported_namespace(name);
+            if (space == NULL && created) {
+                const char *why = dlerror();
+                printf("android_create_namespace(%s): null: %s\n", folder, why != NULL ? why : "no dlerror");
+                continue;
+            }
             if (space == NULL) {
-                printf("%s(%s): null\n", created ? "android_create_namespace" : "android_get_exported_namespace",
-                       created ? name + 1 : name);
+                printf("android_get_exported_namespace(%s): null\n", name);
                 continue;
             }
             snprintf(shown, sizeof shown, "android_dlopen_ext(%s, %s)", colon + 1, name);

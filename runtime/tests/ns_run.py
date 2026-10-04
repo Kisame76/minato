@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A program outside the APEXes and the folders of ART and Conscrypt (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a):
 apk-run runs the fixture ns-test as /system/bin/ns-test, where Android 15 runs a program in linkerconfig's [system]
-section, seven times:
+section, ten times:
   - with the fixture library libns-lib.so in /apex/com.android.art/lib64 under the name libjdwp.so, one of the names
     that section links to com_android_art, and libns-dep.so and libns-plugin.so beside it:
     - the program's dlopen of libns-dep.so, a library of that folder off the link list, fails as linker64 says;
@@ -30,7 +30,14 @@ section, seven times:
     app's data folder loads (ADR-0033 e2b1);
   - the same below target SDK 24, where the namespace has the exempt list: libutils.so, which is on it, loads by its
     path in /system/lib64 with linker64's warning on stderr, and by its name from the default namespace (ADR-0033
-    e2b1).
+    e2b1), which takes the instance of the first namespace with a line in the log (ADR-0040 decision 6, e2b2);
+  - with libns-find.so, whose ns_lib_check asks dlsym(RTLD_DEFAULT) for ns_plugin_value, in /system/lib64 and in the
+    app's folder: after the program opened a library with ns_plugin_value RTLD_GLOBAL in the default namespace, the
+    copy in the default namespace sees it and the one in a class loader's namespace does not (ADR-0033 e2b2);
+  - two class loaders' namespaces that each ask to be the anonymous namespace: the first is made and opens its
+    library, the second is refused with linker64's message (ADR-0033 e2b2);
+  - dlsym(RTLD_DEFAULT) passes over a library opened without RTLD_GLOBAL, but not one opened below target SDK 23
+    (ADR-0033 e2b2).
 Each run is a process of its own: the loader's one scope would give the second run's library the first run's
 libraries by name (ADR-0033 decision 7). The runs must print exactly <expected> together and exit with 0. The
 expected output is ours: Android lets nothing be installed into /system/bin or an APEX. Prints "skipped: ..." while
@@ -64,8 +71,14 @@ CLASS_LOADER = f"@{APP_CODE}/lib/arm64:{APP_CODE}/lib/arm64/libns-lib.so"
 # The app's data folder, as Android 15 names it, with a library the app put into its files.
 APP_DATA = "/data/user/0/io.github.kisame76.minato.test.ns"
 DATA = ("data-files", f"{APP_DATA}/files", {"libns-data.so": "libns-plugin.so"}, f"{APP_DATA}/files")
-# Libraries of /system/lib64 besides bionic's: one off the public list, and libutils.so, on the exempt list.
-SYSTEM_EXTRA = {"libns-private.so": "libns-plugin.so", "libutils.so": "libns-plugin.so"}
+# Libraries of /system/lib64 besides bionic's: one off the public list, libutils.so, on the exempt list, and the probe
+# of dlsym(RTLD_DEFAULT).
+SYSTEM_EXTRA = {"libns-private.so": "libns-plugin.so", "libutils.so": "libns-plugin.so",
+                "libns-find.so": "libns-find.so"}
+FIND = ("find-lib", f"{APP_CODE}/lib/arm64", {"libns-find.so": "libns-find.so"}, APP_CODE)
+# The log's line when a namespace takes an instance of another where linker64 would load the file again.
+TAKEN = ('I/linker  : namespace "(default)" takes library "/system/lib64/libutils.so" from namespace "clns-ns-test", '
+         "where linker64 would load the file again (ADR-0040 decision 6)")
 # linker64's warning for a library of the exempt list that a namespace could not load otherwise.
 EXEMPT_WARNING = (
     'WARNING: linker: Warning: library "/system/lib64/libutils.so" ("/system/lib64/libutils.so") needed or dlopened '
@@ -83,7 +96,11 @@ RUNS = [
     ([APP, DATA], [f"@{APP_CODE}/lib/arm64:/system/lib64/libns-private.so", f"@{APP_CODE}/lib/arm64:/system/lib64/libz.so",
                    f"@{APP_CODE}/lib/arm64:{APP_DATA}/files/libns-data.so"]),
     ([APP], ["sdk=23", f"@{APP_CODE}/lib/arm64:/system/lib64/libutils.so", f"@{APP_CODE}/lib/arm64:libutils.so"],
-     [EXEMPT_WARNING]),
+     [EXEMPT_WARNING, TAKEN]),
+    ([FIND], ["+/system/lib64/libns-private.so", "libns-find.so",
+              f"@{APP_CODE}/lib/arm64:{APP_CODE}/lib/arm64/libns-find.so"]),
+    ([APP], [f"@{CLASS_LOADER}", f"@{CLASS_LOADER}"]),
+    ([], ["/system/lib64/libns-private.so", "libns-find.so", "sdk=22", "/system/lib64/libutils.so", "libns-find.so"]),
 ]
 FOLDERS = list({folder[0]: folder for folders, *_ in RUNS for folder in folders}.values())
 

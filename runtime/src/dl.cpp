@@ -88,6 +88,7 @@ struct Library {
     bool global = false;              // RTLD_GLOBAL, or loaded with the program
     bool linked = false;              // relocated and listed
     Namespace *ns = nullptr;          // the namespace it was loaded into, its primary one (ADR-0040)
+    int target_sdk = 10000;           // the app's target SDK version when dlopen loaded it (target_sdk_version_)
 };
 
 /// A link of a namespace to another, for some sonames or all (android_namespace_link_t).
@@ -132,6 +133,9 @@ struct State {
     // The namespaces, default, com_android_art and com_android_conscrypt first (ADR-0040 decision 2), then those
     // that libnativeloader creates; a deque keeps the handles stable.
     std::deque<Namespace> namespaces;
+    // The anonymous namespace, once a namespace asked to be it (ANDROID_NAMESPACE_TYPE_ALSO_USED_AS_ANONYMOUS); the
+    // default one until then, as linker64's g_anonymous_namespace.
+    Namespace *anonymous = nullptr;
     std::vector<Directory> directories;
     std::vector<std::string> library_path;  // LD_LIBRARY_PATH as linker64 keeps it
     std::string program_name;               // argv[0], for linker64's messages
@@ -172,6 +176,7 @@ std::string_view base_name(std::string_view path) {
 /// APEX's lib64, linked to default for what their libraries need of the system's.
 void make_namespaces(State &state) {
     state.namespaces.clear();
+    state.anonymous = nullptr;
     auto &system = state.namespaces.emplace_back(Namespace{.name = "default", .ld_library_paths = state.library_path});
     for (const auto folder : default_library_paths) system.default_library_paths.emplace_back(folder);
     auto &art = state.namespaces.emplace_back(Namespace{.name = "com_android_art", .isolated = true,
@@ -429,10 +434,27 @@ Located locate(State &state, Namespace &space, std::string_view name, const Libr
     return {};
 }
 
-/// Puts `library` into `space`'s list, unless it is there: as linker64's add_soinfo, also for an instance of
-/// another namespace that `space` takes, since one file has one instance here (ADR-0040 decision 6).
+/// Puts `library` into `space`'s list, unless it is there: as linker64's add_soinfo.
 void add_to(Namespace &space, Library &library) {
     if (std::ranges::find(space.libraries, &library) == space.libraries.end()) space.libraries.push_back(&library);
+}
+
+/// Puts an instance of another namespace into `space`'s list, where linker64 would load the file again: one file
+/// has one instance here (ADR-0040 decision 6). The log says so once for each namespace that takes it.
+void take(Namespace &space, Library &library) {
+    if (std::ranges::find(space.libraries, &library) != space.libraries.end()) return;
+    if (library.ns != nullptr && library.ns != &space) {
+        log_line('I', std::format("namespace \"{}\" takes library \"{}\" from namespace \"{}\", where linker64 would "
+                                  "load the file again (ADR-0040 decision 6)",
+                                  shown_name(space), library.object.shown_name(), shown_name(*library.ns)));
+    }
+    space.libraries.push_back(&library);
+}
+
+/// The namespace of a caller in `caller`, else the anonymous one, as linker64's get_caller_namespace.
+Namespace &caller_namespace(State &state, const Library *caller) {
+    if (caller != nullptr && caller->ns != nullptr) return *caller->ns;
+    return state.anonymous != nullptr ? *state.anonymous : state.namespaces[0];
 }
 
 /// Loads the library file the search found for `name` into `space` and appends it to the list. One marked
@@ -476,7 +498,7 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
                     dependency = &load_library(state, name, std::move(*located.found), *located.space);
                     added.push_back(dependency);
                 } else {
-                    add_to(*located.space, *dependency);
+                    take(*located.space, *dependency);
                 }
             }
             library.needed.push_back(dependency);
@@ -680,12 +702,11 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
     } report{.error_number = error_number};
 
     // The namespace it opens in: the one android_dlopen_ext names, else the caller's, as linker64 takes the
-    // caller's (get_caller_namespace); a caller outside every library gets the default one until e2b's anonymous one.
+    // caller's (get_caller_namespace); a caller outside every library gets the anonymous one.
     const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
-    Namespace &space = in != nullptr                ? *in
-                       : search_path != nullptr     ? search_path_namespace(state, search_path)
-                       : calling != nullptr && calling->ns != nullptr ? *calling->ns
-                                                    : state.namespaces[0];
+    Namespace &space = in != nullptr            ? *in
+                       : search_path != nullptr ? search_path_namespace(state, search_path)
+                                                : caller_namespace(state, calling);
     // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
     auto located = locate(state, space, wanted, calling, false, report.missed);
     Library *loaded = located.loaded;
@@ -696,7 +717,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
             return nullptr;
         }
         loaded = loaded_from(state, located.found->container);
-        if (loaded != nullptr) add_to(*located.space, *loaded);
+        if (loaded != nullptr) take(*located.space, *loaded);
     }
     if (loaded != nullptr && loaded->linked) {
         if (flags & rtld_global) loaded->global = true;
@@ -729,6 +750,8 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
             library->group_root = root;
             // linker64 gives all of them the flags, and DF_1_GLOBAL implies RTLD_GLOBAL (soinfo::set_dt_flags_1).
             library->global = (flags & rtld_global) != 0 || library->object.dynamic.global;
+            // The local group root's target SDK version, which soinfo::get_target_sdk_version gives each of them.
+            library->target_sdk = target_sdk_version(state);
         }
         list(state, index);
         std::vector<const Object *> objects;
@@ -752,10 +775,12 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
 constexpr std::uint64_t namespace_isolated = 1;
 constexpr std::uint64_t namespace_shared = 2;
 constexpr std::uint64_t namespace_exempt_list = 0x08000000;
+constexpr std::uint64_t namespace_also_used_as_anonymous = 0x10000000;
 
 /// android_create_namespace, as linker64's create_namespace does (ADR-0040 decision 4): the parent is the given
 /// one, else the caller's namespace; a shared namespace takes the parent's folders, permitted paths, libraries and
-/// links, another one the parent's shared group. The anonymous namespace comes with e2b2.
+/// links, another one the parent's shared group. One that asks to be the anonymous namespace becomes it, unless one
+/// is already (set_anonymous_namespace).
 void *guest_create_namespace(const char *name, const char *ld_library_path, const char *default_library_path,
                              std::uint64_t type, const char *permitted_path, void *parent_handle, const void *caller) {
     auto &state = ::apkrt::dl::state();
@@ -766,8 +791,7 @@ void *guest_create_namespace(const char *name, const char *ld_library_path, cons
         return nullptr;
     }
     if (parent == nullptr) {
-        const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
-        parent = calling != nullptr && calling->ns != nullptr ? calling->ns : &state.namespaces[0];
+        parent = &caller_namespace(state, containing(state, reinterpret_cast<std::uint64_t>(caller)));
     }
     auto &space = state.namespaces.emplace_back(Namespace{
         .name = name != nullptr ? name : "", .isolated = (type & namespace_isolated) != 0,
@@ -786,6 +810,18 @@ void *guest_create_namespace(const char *name, const char *ld_library_path, cons
         space.links = parent->links;
     } else {
         add_shared_group(state, space, *parent);
+    }
+    if ((type & namespace_also_used_as_anonymous) != 0) {
+        if (state.anonymous != nullptr) {
+            set_error(std::format("android_create_namespace failed: failed to set namespace: [name=\"{}\", "
+                                  "ld_library_path=\"{}\", default_library_paths=\"{}\" permitted_paths=\"{}\"] as the "
+                                  "anonymous namespace",
+                                  space.name, joined(space.ld_library_paths), joined(space.default_library_paths),
+                                  joined(space.permitted_paths)));
+            state.namespaces.pop_back();
+            return nullptr;
+        }
+        state.anonymous = &space;
     }
     return &space;
 }
@@ -862,16 +898,16 @@ void *guest_dlsym(void *handle, const char *name, const char *version_text, cons
         }
     };
     if (handle == rtld_default || handle == rtld_next) {
-        // All global libraries in load order (after the caller's for RTLD_NEXT), then the caller's
-        // local group, as dlsym_linear_lookup does.
+        // The libraries of the caller's namespace in its order (after the caller for RTLD_NEXT), those opened with
+        // RTLD_GLOBAL or by an app below target SDK 23, then the caller's local group, as dlsym_linear_lookup does.
         Library *caller_library = containing(state, reinterpret_cast<std::uint64_t>(caller));
         bool started = handle == rtld_default;
-        for (auto &library : state.libraries) {
+        for (auto *library : caller_namespace(state, caller_library).libraries) {
             if (!started) {
-                started = &library == caller_library;
+                started = library == caller_library;
                 continue;
             }
-            if (library.linked && library.global) search(library);
+            if (library->linked && (library->global || library->target_sdk < 23)) search(*library);
         }
         if (symbol == nullptr && caller_library != nullptr) {
             bool after_caller = handle == rtld_default;
