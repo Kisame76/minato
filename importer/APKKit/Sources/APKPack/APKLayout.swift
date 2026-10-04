@@ -128,7 +128,8 @@ public enum APKLayout {
             && magic[4..<7].allSatisfy { (0x30...0x39).contains($0) } && magic[7] == 0
     }
 
-    /// Refuses what Android would skip or Minato could not run, before anything is written.
+    /// Refuses what Android would skip or Minato could not run, before anything is written. A NativeActivity base whose
+    /// manifest needs splits may leave its library to one (ADR-0048 b8).
     private static func check(_ libraries: [PackFile], for manifest: AndroidManifest) throws {
         var names = Set<String>()
         for library in libraries {
@@ -145,7 +146,7 @@ public enum APKLayout {
                 throw PackError(file: library.origin, message: "not AArch64 code; Minato runs arm64-v8a only (ADR-0006)")
             }
         }
-        if let name = manifest.nativeLibraryName, !names.contains("lib\(name).so") {
+        if let name = manifest.nativeLibraryName, !names.contains("lib\(name).so"), !manifest.requiresSplits {
             throw PackError(file: "lib\(name).so", message: "missing: the manifest's NativeActivity loads it (android.app.lib_name)")
         }
     }

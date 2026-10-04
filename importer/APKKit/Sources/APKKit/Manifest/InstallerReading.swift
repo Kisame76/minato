@@ -81,7 +81,7 @@ public struct InstallerReading {
 
     /// `FrameworkParsingPackageUtils.validateName` (:72-103): dot-separated parts, each a letter, then letters, digits
     /// or '_'; as a file name, at most 223 characters; with a separator, at least two parts. Android's problem, or nil.
-    static func validateName(_ name: String, requireSeparator: Bool, requireFilename: Bool) -> String? {
+    public static func validateName(_ name: String, requireSeparator: Bool, requireFilename: Bool) -> String? {
         var hasSeparator = false
         var front = true
         for character in name.unicodeScalars {
@@ -113,7 +113,7 @@ public struct InstallerReading {
     /// `requiredSplitTypes` or `splitTypes` (`separateAndValidateSplitTypes`, ApkLiteParseUtils.java:757-773): Java's
     /// trim and split(","), which drops trailing empty parts, then each part trimmed and checked as a name and a file
     /// name. Android's problem refuses the manifest.
-    static func splitTypes(_ value: String?) throws -> Set<String> {
+    public static func splitTypes(_ value: String?) throws -> Set<String> {
         guard let value, !value.isEmpty else { return [] }
         var parts = javaTrim(value).split(separator: ",", omittingEmptySubsequences: false).map(String.init)
         if parts.count > 1 {

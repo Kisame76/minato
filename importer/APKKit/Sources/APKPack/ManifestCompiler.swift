@@ -1,9 +1,11 @@
+import APKKit
 import Foundation
 
 /// Compiles a text AndroidManifest.xml into Android's binary XML, the way aapt2 does (ADR-0031):
-/// element names pass through; `package` and a closed table of `android:` attributes are encoded
-/// with aapt2's value types, and each element's attributes are sorted by resource ID, which
-/// libandroidfw's attribute lookup relies on. Anything else is refused with file and line.
+/// element names pass through; `package`, a split's `split` and `configForSplit` (ADR-0048 b8) and a closed
+/// table of `android:` attributes are encoded with aapt2's value types, and each element's attributes are
+/// sorted by resource ID, which libandroidfw's attribute lookup relies on. Anything else is refused with file
+/// and line.
 public enum ManifestCompiler {
     static let androidNamespace = "http://schemas.android.com/apk/res/android"
 
@@ -17,6 +19,8 @@ public enum ManifestCompiler {
         case enumeration([String: Int32])
         /// A flag attribute: names joined by "|", written as their OR in hexadecimal (aapt2's `TryParseFlagSymbol`).
         case flags([String: UInt32])
+        /// `requiredSplitTypes` or `splitTypes`: a string whose names Android checks (ADR-0048 b8).
+        case splitTypes
     }
 
     /// `screenOrientation`'s enum in AOSP's attrs_manifest.xml (read 2026-09-26).
@@ -58,7 +62,16 @@ public enum ManifestCompiler {
         "required": Definition(id: 0x0101_028E, encoding: .boolean),
         "extractNativeLibs": Definition(id: 0x0101_04EA, encoding: .boolean),
         "version": Definition(id: 0x0101_0519, encoding: .integer),
+        // A split set's (ADR-0048 b8, public-final.xml at android-15.0.0_r1).
+        "isolatedSplits": Definition(id: 0x0101_054B, encoding: .boolean),
+        "isFeatureSplit": Definition(id: 0x0101_055B, encoding: .boolean),
+        "isSplitRequired": Definition(id: 0x0101_0591, encoding: .boolean),
+        "requiredSplitTypes": Definition(id: 0x0101_064E, encoding: .splitTypes),
+        "splitTypes": Definition(id: 0x0101_064F, encoding: .splitTypes),
     ]
+
+    /// The attributes of `<manifest>` without a namespace, as Android reads them (`ApkLiteParseUtils.java:437, 711`).
+    static let plainManifestAttributes: Set<String> = ["package", "split", "configForSplit"]
 
     /// `text` is the manifest's content, `file` its name for messages.
     public static func compile(_ text: Data, file: String) throws -> Data {
@@ -167,11 +180,23 @@ public enum ManifestCompiler {
         private func attribute(_ name: String, _ value: String, of element: String, isRoot: Bool,
                                scope: [String: String], line: Int) throws -> AXMLBuilder.Attribute {
             guard let colon = name.firstIndex(of: ":") else {
-                guard isRoot, name == "package" else { throw fail(line, "unknown attribute \(name) on <\(element)>") }
-                guard Self.isPackageName(value) else {
-                    throw fail(line, "package \"\(value)\" is not an Android package name: two or more segments, each a letter followed by letters, digits or _")
+                guard isRoot, ManifestCompiler.plainManifestAttributes.contains(name) else {
+                    throw fail(line, "unknown attribute \(name) on <\(element)>")
                 }
-                return .plain("package", .string(value))
+                switch name {
+                case "package":
+                    guard Self.isPackageName(value) else {
+                        throw fail(line, "package \"\(value)\" is not an Android package name: two or more segments, each a letter followed by letters, digits or _")
+                    }
+                case "split":
+                    // Android's check, where an empty name is the base's (ApkLiteParseUtils.java:711-720).
+                    if let problem = InstallerReading.validateName(value, requireSeparator: false, requireFilename: false) {
+                        throw fail(line, "split \"\(value)\" is not a split name Android installs: \(problem)")
+                    }
+                default:
+                    try checkWrittenAsIs(value, name: name, line: line)
+                }
+                return .plain(name, .string(value))
             }
             let prefix = String(name[..<colon])
             let local = String(name[name.index(after: colon)...])
@@ -185,15 +210,19 @@ public enum ManifestCompiler {
             if value.hasPrefix("@") || value.hasPrefix("?") {
                 throw fail(line, "android:\(local): references such as \(value) are not supported")
             }
-            // aapt2 trims some values and resolves backslash escapes in others; make-apk writes values
-            // exactly as they are and so refuses what it would write differently.
+            try checkWrittenAsIs(value, name: "android:\(local)", line: line)
+            return .android(local, definition.id, try encode(value, as: definition.encoding, name: "android:\(local)", line: line))
+        }
+
+        /// aapt2 trims some values and resolves backslash escapes in others; make-apk writes values
+        /// exactly as they are and so refuses what it would write differently.
+        private func checkWrittenAsIs(_ value: String, name: String, line: Int) throws {
             if value.first?.isWhitespace == true || value.last?.isWhitespace == true {
-                throw fail(line, "android:\(local): spaces at the start or the end are not supported")
+                throw fail(line, "\(name): spaces at the start or the end are not supported")
             }
             if value.contains("\\") {
-                throw fail(line, "android:\(local): backslash escapes are not supported")
+                throw fail(line, "\(name): backslash escapes are not supported")
             }
-            return .android(local, definition.id, try encode(value, as: definition.encoding, name: "android:\(local)", line: line))
         }
 
         private func encode(_ value: String, as encoding: Encoding, name: String, line: Int) throws -> AXMLBuilder.Value {
@@ -225,6 +254,14 @@ public enum ManifestCompiler {
                     throw fail(line, "\(name) must be names of \(values.keys.sorted().joined(separator: ", ")) joined by |, not \"\(value)\"")
                 }
                 return .hex(flags.reduce(0, |))
+            case .splitTypes:
+                // Android refuses the APK (ApkLiteParseUtils.java:757-773), with this text.
+                do {
+                    _ = try InstallerReading.splitTypes(value)
+                } catch APKError.invalidManifest(let reason) {
+                    throw fail(line, "\(name) \"\(value)\" is refused by Android: \(reason)")
+                }
+                return .string(value)
             }
         }
 
