@@ -16,6 +16,15 @@ struct BenchSceneTests {
         #expect(BenchConf.text(for: BenchRun("gles-120-heavy-native-00")!, seconds: 3).hasSuffix("seconds=3\n"))
     }
 
+    /// Test 2's done file (ADR-0042 c): "<frames> frames", written after scene.csv.
+    @Test func theDoneFileCountsTheFrames() {
+        #expect(BenchDone.frames("6240 frames\n") == 6240)
+        #expect(BenchDone.frames("0 frames\n") == 0)
+        for bad in ["", "6240 frames", "frames\n", "-1 frames\n", "6240 frame\n", "x frames\n"] {
+            #expect(BenchDone.frames(bad) == nil, "\(bad)")
+        }
+    }
+
     @Test func sceneCSVReads() throws {
         let frames = try BenchCSV.scene("index,tick_ns,cpu_ns\n0,100,2000000\n1,8333433,1900000\n")
         #expect(frames == [BenchSceneFrame(index: 0, tickNs: 100, cpuNs: 2_000_000),

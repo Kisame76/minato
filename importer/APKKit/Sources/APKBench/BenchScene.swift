@@ -9,6 +9,18 @@ public enum BenchConf {
     }
 }
 
+/// Test 2's done file (ADR-0042 c): "<frames> frames\n", which the script writes after scene.csv.
+public enum BenchDone {
+    /// The frames it counts; nil for anything else.
+    public static func frames(_ text: String) -> Int? {
+        let suffix = " frames\n"
+        guard text.hasSuffix(suffix) else { return nil }
+        let count = text.dropLast(suffix.count)
+        guard !count.isEmpty, count.allSatisfy(\.isASCII), count.allSatisfy(\.isNumber) else { return nil }
+        return Int(count)
+    }
+}
+
 /// A drawable the layer recorded: frame k of a run is its k-th drawable.
 public struct BenchDrawable: Equatable, Sendable {
     /// When nextDrawable returned.

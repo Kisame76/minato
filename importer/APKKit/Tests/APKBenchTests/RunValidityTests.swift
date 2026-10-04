@@ -73,6 +73,30 @@ struct RunValidityTests {
         }
     }
 
+    /// ADR-0042, decision 4: test 2's script ends with its done file, and the GLES twin's frames are the
+    /// script's alone.
+    @Test func godotRunsEndWithTheirDoneFile() {
+        func record(_ run: String, done: Int, drawables: Int) -> BenchRunRecord {
+            var record = BenchRunRecord(run: BenchRun(run)!)
+            record.linkPeriodMedianNs = 1_000_000_000 / 120
+            record.sceneFrames = 6240
+            record.doneFrames = done
+            record.drawables = drawables
+            return record
+        }
+        #expect(RunValidity.reasons(for: record("godot-vulkan-120-light-twin-01", done: 6240, drawables: 6240)) == [])
+        #expect(RunValidity.reasons(for: record("godot-gles-120-light-twin-01", done: 6240, drawables: 0)) == [])
+        #expect(RunValidity.reasons(for: record("godot-gles-120-light-apk-01", done: 6240, drawables: 0))
+            == ["frames 6240, drawables 0"])
+        #expect(RunValidity.reasons(for: record("godot-metal-120-light-twin-01", done: 6239, drawables: 6240))
+            == ["done 6239, frames 6240"])
+        var empty = record("godot-gles-120-light-twin-01", done: 0, drawables: 0)
+        empty.sceneFrames = 0
+        #expect(RunValidity.reasons(for: empty) == ["frames 0, drawables 0"])
+        // ADR-0037's scene writes no done file.
+        #expect(RunValidity.reasons(for: Self.record()) == [])
+    }
+
     @Test func everyReasonCounts() {
         var record = Self.record()
         record.lowPower = true

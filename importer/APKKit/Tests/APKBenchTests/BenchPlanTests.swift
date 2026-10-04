@@ -35,9 +35,51 @@ struct BenchPlanTests {
         #expect(run.description == "gles-120-heavy-apk-03")
         #expect(Self.run("vulkan-60-light-native-00").isWarmUp)
         for bad in ["gles-120-heavy-apk-3", "metal-120-heavy-apk-03", "gles-0-heavy-apk-03", "gles-120-heavy-apk",
-                    "gles-120-medium-native-01", "gles-120-heavy-other-01", "gles-120-heavy-apk-03-x"] {
+                    "gles-120-medium-native-01", "gles-120-heavy-other-01", "gles-120-heavy-apk-03-x",
+                    "vulkan-120-heavy-twin-03", "metal-120-heavy-native-03"] {
             #expect(BenchRun(bad) == nil, "\(bad)")
         }
+    }
+
+    /// ADR-0042, decision 5: test 2's runs begin with godot-; the twin is the native side, and Metal is the
+    /// twin's alone.
+    @Test func godotRunIDsReadAndWrite() {
+        let run = Self.run("godot-vulkan-120-light-twin-03")
+        #expect(run.configuration == BenchConfiguration(api: .vulkan, rate: 120, load: .light, scene: .godot))
+        #expect(run.configuration.scene == .godot)
+        #expect(run.variant == .twin)
+        #expect(run.number == 3)
+        #expect(run.description == "godot-vulkan-120-light-twin-03")
+        #expect(Self.run("godot-metal-60-light-twin-00").isWarmUp)
+        #expect(Self.run("godot-gles-120-heavy-apk-01").configuration.description == "godot-gles-120-heavy")
+        for bad in ["godot-metal-120-light-apk-01", "godot-vulkan-120-light-native-01", "godot-gles-120-light-twin-1",
+                    "godot-gles-120-light-twin", "godot-godot-gles-120-light-twin-01", "parity-gles-120-light-apk-01"] {
+            #expect(BenchRun(bad) == nil, "\(bad)")
+        }
+    }
+
+    @Test func theGodotSeriesPairsTheTwinWithTheAPKAndRunsMetalAlone() throws {
+        let (runs, end) = Self.play(BenchPlan(scene: .godot))
+        #expect(end == .done)
+        #expect(runs.prefix(6).map(\.description) == [
+            "godot-gles-120-heavy-twin-00", "godot-gles-120-heavy-apk-00",
+            "godot-gles-60-light-twin-01", "godot-gles-60-light-apk-01", "godot-gles-60-light-apk-02",
+            "godot-gles-60-light-twin-02",
+        ])
+        try #require(runs.count == 2 * (2 + 3 * 10) + (1 + 3 * 5))
+        #expect(runs[64].description == "godot-metal-120-heavy-twin-00")
+        #expect(runs[65].description == "godot-metal-60-light-twin-01")
+        #expect(runs.last?.description == "godot-metal-120-heavy-twin-05")
+        #expect(runs.allSatisfy { $0.configuration.scene == .godot && $0.variant != .native })
+        #expect(runs.filter { $0.configuration.api == .metal }.allSatisfy { $0.variant == .twin })
+    }
+
+    /// The GLES twin draws on a CAEAGLLayer, which has no drawables to compare with the APK's layer.
+    @Test func aRunWithoutLayerValuesIsNotComparedWithItsPair() {
+        let (_, end) = Self.play(BenchPlan(scene: .godot, apis: [.gles])) { run in
+            run.variant == .twin ? Self.result(run, width: 0, count: 0) : Self.result(run)
+        }
+        #expect(end == .done)
     }
 
     @Test func aSeriesBeginsWithTheDiscardedPairThenInterleaves() throws {
@@ -53,9 +95,9 @@ struct BenchPlanTests {
         #expect(runs[12].description == "gles-120-light-native-01")
         #expect(runs[32].description == "vulkan-120-heavy-native-00")
         #expect(runs.last?.description == "vulkan-120-heavy-apk-05")
-        for api in BenchAPI.allCases {
+        for api in BenchScene.parity.apis {
             for configuration in BenchConfiguration.series(of: api) {
-                for variant in BenchVariant.allCases {
+                for variant in BenchScene.parity.variants(of: api) {
                     let counted = runs.filter { $0.configuration == configuration && $0.variant == variant && !$0.isWarmUp }
                     #expect(counted.count == BenchPlan.validRunsPerVariant, "\(configuration) \(variant)")
                 }

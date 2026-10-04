@@ -21,8 +21,15 @@ public enum RunValidity {
         }
         if record.debugger { reasons.append(debugger) }
         if !record.focusLosses.isEmpty { reasons.append(focusLoss) }
-        // A drawable taken before frame 0 would shift every frame by one.
-        if record.sceneFrames != record.drawables || record.sceneFrames == 0 {
+        let run = record.run, godot = run.configuration.scene == .godot
+        // Test 2's script ends with its done file, which counts the rows of its scene.csv (ADR-0042, decision 4).
+        if godot && record.doneFrames != record.sceneFrames {
+            reasons.append("done \(record.doneFrames), frames \(record.sceneFrames)")
+        }
+        // A drawable taken before frame 0 would shift every frame by one. The GLES twin's CAEAGLLayer gives no
+        // drawables: its frames are the script's alone.
+        let drawn = !(godot && run.variant == .twin && run.configuration.api == .gles)
+        if (drawn && record.sceneFrames != record.drawables) || record.sceneFrames == 0 {
             reasons.append("frames \(record.sceneFrames), drawables \(record.drawables)")
         }
         return reasons

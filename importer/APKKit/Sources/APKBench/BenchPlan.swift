@@ -1,14 +1,37 @@
-/// The parity benchmark's series (ADR-0037, decisions 4, 6 and 7): which run comes next.
+/// The parity benchmark's series (ADR-0037, decisions 4, 6 and 7) and test 2's (ADR-0042, decision 5): which run
+/// comes next.
 public enum BenchVariant: String, Sendable, CaseIterable {
     /// A: the scene built for iOS, in MinatoBench.framework.
     case native
     /// B: the scene as an APK in Minato.
     case apk
+    /// Test 2's A: Godot's iOS template in the benchmark build, MinatoGodot.framework (ADR-0042, decision 3).
+    case twin
 }
 
 public enum BenchAPI: String, Sendable, CaseIterable {
     case gles
     case vulkan
+    /// The twin's Metal driver, Godot's default on iOS: reported against the Vulkan APK, not judged (ADR-0042).
+    case metal
+}
+
+/// What a run draws: ADR-0037's parity scene, or test 2's Godot project (ADR-0042), whose IDs begin with godot-.
+public enum BenchScene: String, Sendable, CaseIterable {
+    case parity
+    case godot
+
+    public var apis: [BenchAPI] { self == .parity ? [.gles, .vulkan] : [.gles, .vulkan, .metal] }
+
+    /// The variants a configuration compares, A first, then B; the Metal twin runs alone.
+    public func variants(of api: BenchAPI) -> [BenchVariant] {
+        switch (self, api) {
+        case (.parity, .metal): []
+        case (.parity, _): [.native, .apk]
+        case (.godot, .metal): [.twin]
+        case (.godot, _): [.twin, .apk]
+        }
+    }
 }
 
 public enum BenchLoad: String, Sendable, CaseIterable {
@@ -21,35 +44,44 @@ public struct BenchConfiguration: Hashable, Sendable, CustomStringConvertible {
     public var api: BenchAPI
     public var rate: Int
     public var load: BenchLoad
+    public var scene: BenchScene
 
-    public init(api: BenchAPI, rate: Int, load: BenchLoad) {
+    public init(api: BenchAPI, rate: Int, load: BenchLoad, scene: BenchScene = .parity) {
         self.api = api
         self.rate = rate
         self.load = load
+        self.scene = scene
     }
 
-    /// `gles-120-heavy`.
+    /// `gles-120-heavy`, or test 2's `godot-gles-120-heavy`.
     public init?(_ description: String) {
-        let parts = description.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 3, let api = BenchAPI(rawValue: parts[0]), let rate = Int(parts[1]), rate > 0,
-            let load = BenchLoad(rawValue: parts[2])
+        var parts = description.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        let scene: BenchScene = parts.first == BenchScene.godot.rawValue ? .godot : .parity
+        if scene == .godot { parts.removeFirst() }
+        guard parts.count == 3, let api = BenchAPI(rawValue: parts[0]), scene.apis.contains(api),
+            let rate = Int(parts[1]), rate > 0, let load = BenchLoad(rawValue: parts[2])
         else { return nil }
-        self.init(api: api, rate: rate, load: load)
+        self.init(api: api, rate: rate, load: load, scene: scene)
     }
 
-    public var description: String { "\(api.rawValue)-\(rate)-\(load.rawValue)" }
+    public var description: String {
+        "\(scene == .godot ? "godot-" : "")\(api.rawValue)-\(rate)-\(load.rawValue)"
+    }
 
     /// Decision 7, per API: a light load at 60 and 120 Hz and a heavy load at 120 Hz.
-    public static func series(of api: BenchAPI) -> [BenchConfiguration] {
-        [.init(api: api, rate: 60, load: .light), .init(api: api, rate: 120, load: .light),
-         .init(api: api, rate: 120, load: .heavy)]
+    public static func series(of api: BenchAPI, scene: BenchScene = .parity) -> [BenchConfiguration] {
+        [.init(api: api, rate: 60, load: .light, scene: scene), .init(api: api, rate: 120, load: .light, scene: scene),
+         .init(api: api, rate: 120, load: .heavy, scene: scene)]
     }
 
     /// The discarded pair that fills Metal's shader cache before an API's series.
-    public static func warmUp(of api: BenchAPI) -> BenchConfiguration { .init(api: api, rate: 120, load: .heavy) }
+    public static func warmUp(of api: BenchAPI, scene: BenchScene = .parity) -> BenchConfiguration {
+        .init(api: api, rate: 120, load: .heavy, scene: scene)
+    }
 }
 
-/// One process with one variant: `gles-120-heavy-apk-03`. Number 0 is the discarded warm-up run.
+/// One process with one variant: `gles-120-heavy-apk-03`, or test 2's `godot-gles-120-heavy-twin-03`. Number 0 is
+/// the discarded warm-up run.
 public struct BenchRun: Hashable, Sendable, CustomStringConvertible {
     public var configuration: BenchConfiguration
     public var variant: BenchVariant
@@ -63,9 +95,10 @@ public struct BenchRun: Hashable, Sendable, CustomStringConvertible {
 
     public init?(_ description: String) {
         let parts = description.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 5, let configuration = BenchConfiguration(parts[0...2].joined(separator: "-")),
-            let variant = BenchVariant(rawValue: parts[3]), parts[4].count == 2, let number = Int(parts[4]),
-            number >= 0
+        guard parts.count >= 5, let configuration = BenchConfiguration(parts.dropLast(2).joined(separator: "-")),
+            let variant = BenchVariant(rawValue: parts[parts.count - 2]),
+            configuration.scene.variants(of: configuration.api).contains(variant), parts[parts.count - 1].count == 2,
+            let number = Int(parts[parts.count - 1]), number >= 0
         else { return nil }
         self.init(configuration: configuration, variant: variant, number: number)
     }
@@ -114,30 +147,34 @@ public struct BenchPlan: Sendable {
     /// Invalid runs in a row of one configuration after which the series stops.
     public static let invalidRunsInARow = 3
 
+    public var scene: BenchScene
     public var apis: [BenchAPI]
     /// Configurations whose native runs spread more than 5 %: 5 more runs per variant (decision 8).
     public var more: Set<BenchConfiguration>
 
-    public init(apis: [BenchAPI] = BenchAPI.allCases, more: Set<BenchConfiguration> = []) {
-        self.apis = apis
+    /// Every API of the scene unless `apis` names some.
+    public init(scene: BenchScene = .parity, apis: [BenchAPI]? = nil, more: Set<BenchConfiguration> = []) {
+        self.scene = scene
+        self.apis = apis ?? scene.apis
         self.more = more
     }
 
     /// The next run, given the results so far in any order.
     public func next(after results: [BenchResult]) -> BenchStep {
         for api in apis {
-            for variant in BenchVariant.allCases {
-                let warmUp = BenchRun(configuration: .warmUp(of: api), variant: variant, number: 0)
+            let variants = scene.variants(of: api)
+            for variant in variants {
+                let warmUp = BenchRun(configuration: .warmUp(of: api, scene: scene), variant: variant, number: 0)
                 if !results.contains(where: { $0.run == warmUp }) { return .run(warmUp) }
             }
-            for configuration in BenchConfiguration.series(of: api) {
+            for configuration in BenchConfiguration.series(of: api, scene: scene) {
                 let own = results.filter { $0.run.configuration == configuration && !$0.run.isWarmUp }
                 if let mismatch = Self.pairMismatch(own) { return .stop("\(configuration): \(mismatch)") }
                 let valid = own.filter(\.valid).count
-                let wanted = 2 * Self.validRunsPerVariant * (more.contains(configuration) ? 2 : 1)
+                let wanted = variants.count * Self.validRunsPerVariant * (more.contains(configuration) ? 2 : 1)
                 guard valid < wanted else { continue }
                 // An invalid run is repeated right away, so the valid runs follow A B B A.
-                let variant: BenchVariant = [0, 3].contains(valid % 4) ? .native : .apk
+                let variant = variants.count == 1 || [0, 3].contains(valid % 4) ? variants[0] : variants[1]
                 let runs = own.filter { $0.run.variant == variant }.sorted { $0.run.number < $1.run.number }
                 let invalid = runs.reversed().prefix { !$0.valid }
                 if invalid.count >= Self.invalidRunsInARow {
@@ -156,16 +193,21 @@ public struct BenchPlan: Sendable {
     }
 
     /// Decision 6: the layer's size and drawable count as in the other variant. A mismatch is
-    /// systematic, so repeating would not help.
+    /// systematic, so repeating would not help. A run without layer values, the GLES twin's CAEAGLLayer
+    /// (ADR-0042, decision 4), has nothing to compare.
     static func pairMismatch(_ results: [BenchResult]) -> String? {
+        guard let configuration = results.first?.run.configuration else { return nil }
+        let variants = configuration.scene.variants(of: configuration.api)
+        guard variants.count == 2 else { return nil }
         func layers(_ variant: BenchVariant) -> Set<String> {
-            Set(results.filter { $0.valid && $0.run.variant == variant }.map {
+            Set(results.filter { $0.valid && $0.run.variant == variant && $0.maxDrawableCount > 0 }.map {
                 "\($0.drawableWidth)x\($0.drawableHeight)/\($0.maxDrawableCount)"
             })
         }
-        let native = layers(.native), apk = layers(.apk)
-        guard !native.isEmpty, !apk.isEmpty, native != apk else { return nil }
-        return "the pair differs in layer size or drawable count: native \(native.sorted().joined(separator: " ")), "
-            + "apk \(apk.sorted().joined(separator: " "))"
+        let first = layers(variants[0]), second = layers(variants[1])
+        guard !first.isEmpty, !second.isEmpty, first != second else { return nil }
+        return "the pair differs in layer size or drawable count: \(variants[0].rawValue) "
+            + "\(first.sorted().joined(separator: " ")), "
+            + "\(variants[1].rawValue) \(second.sorted().joined(separator: " "))"
     }
 }

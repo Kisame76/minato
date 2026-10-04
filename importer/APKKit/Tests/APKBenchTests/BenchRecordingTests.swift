@@ -61,5 +61,9 @@ struct BenchRecordingTests {
         #expect(BenchAPI.vulkan.apkFile == "bench-vulkan.apk")
         #expect(BenchAPI.gles.package == "io.github.kisame76.minato.bench.gles")
         #expect(BenchAPI.vulkan.package == "io.github.kisame76.minato.bench.vulkan")
+        #expect(BenchConfiguration("vulkan-120-light")!.apkFile == "bench-vulkan.apk")
+        #expect(BenchConfiguration("godot-vulkan-120-light")!.apkFile == "godot-bench-vulkan.apk")
+        #expect(BenchConfiguration("godot-gles-60-light")!.package == "io.github.kisame76.minato.godotbench.gles")
+        #expect(BenchConfiguration("gles-60-light")!.package == "io.github.kisame76.minato.bench.gles")
     }
 }

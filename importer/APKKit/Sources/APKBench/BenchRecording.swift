@@ -68,3 +68,12 @@ extension BenchAPI {
     /// The package it installs as (graphics/bench/android).
     public var package: String { "io.github.kisame76.minato.bench.\(rawValue)" }
 }
+
+extension BenchConfiguration {
+    /// The APK of the configuration's scene in Benchmark/: ADR-0037's, or test 2's from tools/build-godot.sh.
+    public var apkFile: String { scene == .godot ? "godot-bench-\(api.rawValue).apk" : api.apkFile }
+    /// The package it installs as (fixtures/apps/godot-bench/export_presets.cfg for test 2's).
+    public var package: String {
+        scene == .godot ? "io.github.kisame76.minato.godotbench.\(api.rawValue)" : api.package
+    }
+}

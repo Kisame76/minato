@@ -68,6 +68,8 @@ public struct BenchRunRecord: Equatable, Sendable {
     /// reason for unequal counts names them.
     public var sceneFrames = 0
     public var drawables = 0
+    /// The frames test 2's done file counts (ADR-0042 c); 0 for ADR-0037's scene, which writes none.
+    public var doneFrames = 0
 
     public init(run: BenchRun) {
         self.run = run
