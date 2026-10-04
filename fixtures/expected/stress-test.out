@@ -1,0 +1,12 @@
+a) 8 threads, 60 rounds each: the lists they kept across collections, with identity hashes and large arrays, and those weak references still held: intact
+a) counts under 4 monitors, a ReentrantLock and an AtomicLong: exact
+a) the monitors kept their identity hashes: yes
+a) 24000 tokens handed over through wait and notify, each in its place: yes
+b) SIGUSR2 to part a's threads, and to the main thread while it collects: 2000 signals or more, each handled: yes
+c) Boehm's stop-the-world among 6 native threads, 4 of them attached to the VM: 300 stops or more, each with every other thread stopped and restarted: yes
+c) the world stood still in each stop: yes
+c) SIGXCPU stayed blocked in the stop handler, also after sigsuspend: yes
+c) a restart that came before the handler's sigsuspend waited for it, pending: yes
+c) the stops found threads computing, waiting and in Java: yes
+c) the calls into Java between the stops returned their sums: yes
+done

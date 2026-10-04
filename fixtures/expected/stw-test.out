@@ -1,0 +1,6 @@
+6 threads: 3 collect in turn, one spins, one sleeps, one waits on a semaphore
+300 stops, each with every other thread stopped and restarted: yes
+the world stood still in each stop: yes
+SIGXCPU stayed blocked in the stop handler, also after sigsuspend: yes
+a restart that came before the handler's sigsuspend waited for it, pending: yes
+the stops found threads computing, sleeping and waiting: yes

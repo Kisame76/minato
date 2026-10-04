@@ -15,9 +15,10 @@
 # ART's tests (ADR-0033 d2), staged in build/device-art by runtime/tests/device_art.py, which
 # tools/embed-fixtures.sh puts into the bundle, each started with -runART <test>, given 300 s and
 # compared by device_art.py check; the results go to <results>-art/ (-art-debug/ with --debug):
-#   --art: the Java fixtures (art-hello, codec-test, conscrypt-test, crypto-test): their stdout,
-#       the status 0, codec-test's offsets, and that ART's log names the heap window once, with
-#       4 GiB, or 2 GiB without increased-memory-limit.
+#   --art: the Java fixtures (art-hello, codec-test, conscrypt-test, crypto-test, stress-test):
+#       their stdout, the status 0, codec-test's offsets, a signal stress-test handled during a
+#       collection, and that ART's log names the heap window once, with 4 GiB, or 2 GiB without
+#       increased-memory-limit.
 #   --art-run-tests [--sample]: the run-tests of fixtures/art-run-tests.txt, or CTest's sample of
 #       them: stdout, stderr without the logger's lines and the status, as on the Mac.
 #   --debug: ART's debug flavor (-flavor debug), with -Xcheck:jni.

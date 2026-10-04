@@ -132,6 +132,10 @@ target_link_libraries(session-test PRIVATE android dl)
 # libcodec-test.so: the JNI half of the Java fixture codec-test (fixtures/java/codec-test, ADR-0033 test 2), which
 # runtime.art_codec runs on ART.
 add_library(codec-test SHARED suite/libcodec-test.c)
+# libstress-test.so: the JNI half of the Java fixture stress-test (fixtures/java/stress-test, ADR-0033 test 4), which
+# runtime.art_stress runs on ART. stw-test runs its part c, Boehm's stop-the-world of suite/stw.h, without ART.
+add_library(stress-test SHARED suite/libstress-test.c)
+add_executable(stw-test suite/stw-test.c)
 # fd-test: descriptor numbers as Linux hands them out, whatever the process holds on the host (ADR-0027).
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).

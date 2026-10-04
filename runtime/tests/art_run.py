@@ -24,12 +24,15 @@ that order, as Android 15 has them (ADR-0046 d).
 --nativeloader checks libnativeloader's lines that name a namespace, where it loads each JNI library and which
 namespace it configures for a class loader: they must be Android 15's lines of logcat in <reference>, which
 tools/android-reference.sh --art writes (ADR-0040 test 4).
+--stress checks the line "stress-test stats: ..." that stress-test writes to stderr (ADR-0033 test 4): at least one
+of its signals must have been handled while the main thread collected, so that the run covered a signal handler
+during ART's stop-the-world.
 Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files or the added jars are missing, or the
 guest system lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
-                  [--bouncycastle] [--nativeloader <reference>]
+                  [--bouncycastle] [--nativeloader <reference>] [--stress]
 """
 import contextlib
 import fcntl
@@ -176,6 +179,22 @@ def offsets_failure(stderr):
     return None
 
 
+def stress_line(stderr):
+    """stress-test's line of what its parts saw, or None."""
+    return next((line for line in stderr.splitlines() if line.startswith("stress-test stats: ")), None)
+
+
+def stress_failure(stderr):
+    """Why stress-test's line does not show a signal handled during a collection, or None when it does."""
+    line = stress_line(stderr)
+    match = re.search(r", inside a collection (\d+) ", line or "")
+    if not match:
+        return "stderr has no line \"stress-test stats: ...\" with the signals inside a collection"
+    if int(match.group(1)) == 0:
+        return "no signal was handled while the main thread collected"
+    return None
+
+
 def window_failure(stderr, upper_half=False):
     """Why ART's log does not name the heap window once, with all 4 GiB or only their upper 2 GiB, or None."""
     sizes = re.findall(r"The heap window holds (\d+) MiB from 0x[0-9a-f]+, its base at 0x[0-9a-f]+$", stderr,
@@ -204,10 +223,11 @@ def main():
     offsets = "--offsets" in arguments
     upper_half = "--upper-half" in arguments
     conscrypt = "--conscrypt" in arguments
+    stress = "--stress" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
                  if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
-                                     "--bouncycastle")]
+                                     "--bouncycastle", "--stress")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -270,11 +290,14 @@ def main():
         failure = window_failure(result.stderr, upper_half)
     if failure is None and nativeloader is not None:
         failure = nativeloader_failure(result.stderr, nativeloader)
+    if failure is None and stress:
+        failure = stress_failure(result.stderr)
     if result.returncode == 0 and result.stdout == wanted and failure is None:
         print(f"{os.path.basename(jar)} printed what Android 15 prints" + (" (debug flavor)" if debug else "") +
               (" in the window's upper half" if upper_half else "") +
               ("; libnativeloader names Android 15's namespaces" if nativeloader else "") +
-              (f"; {result.stderr.splitlines()[-1]}" if offsets else ""))
+              (f"; {result.stderr.splitlines()[-1]}" if offsets else "") +
+              (f"; {stress_line(result.stderr)}" if stress else ""))
         return
     print(f"FAIL: exit status {result.returncode}" + (f"; {failure}" if failure else ""))
     print(f"stdout: [{result.stdout}]")

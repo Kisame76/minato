@@ -1008,6 +1008,10 @@ TEST(futex_requeue_moves_waiters_to_another_word_like_linux) {
     // Both wait on the mutex's word now; a wake of the condition's word finds nobody.
     CHECK(requeue_when_waiting(from, to, 2));
     CHECK(call(nr_futex, {from, futex_wake | futex_private, everyone}) == 0);
+    // One call moves both, as ART's Broadcast moves every waiter of a condition variable at once (ADR-0033 c2: a
+    // requeue that moved only one would show in no other test, as later wakes end the waits it left).
+    CHECK(call(nr_futex, {to, futex_requeue | futex_private, 0, everyone, from}) == 2);
+    CHECK(call(nr_futex, {from, futex_requeue | futex_private, 0, everyone, to}) == 2);
     // Back again: one woken and one moved is 2.
     CHECK(call(nr_futex, {to, futex_requeue | futex_private, 1, everyone, from}) == 2);
     CHECK(call(nr_futex, {to, futex_wake | futex_private, everyone}) == 0);

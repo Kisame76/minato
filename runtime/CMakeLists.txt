@@ -255,6 +255,16 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/crypto-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/crypto-test.out" ${flag}
         --conscrypt --okhttp --bouncycastle)
     set_tests_properties(runtime.art_crypto${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # Stress (ADR-0033 test 4): stress-test runs three parts at once, with its JNI library: threads, monitors and
+    # allocation; SIGUSR2 handlers while ART stops the world; Boehm's stop-the-world with SIGPWR and SIGXCPU in native
+    # code. --stress checks that a signal was handled while the main thread collected.
+    add_test(NAME runtime.art_stress${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
+        --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress)
+    set_tests_properties(runtime.art_stress${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
     # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
     # --sample). The first run builds the sample's jars, about 0.5 s each.

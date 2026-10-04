@@ -41,6 +41,8 @@ dl-lock-test system libraries=libdl-lock.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
 x18-test system
 x18-stress system
+# Boehm's stop-the-world with SIGPWR and SIGXCPU, as IL2CPP's collector makes it (ADR-0033 test 4, part c).
+stw-test system
 # Descriptor numbers are the guest's own, whatever the process holds on the host (ADR-0027).
 fd-test system
 # eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).

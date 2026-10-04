@@ -19,7 +19,7 @@ A command is a JSON object:
                        /data/local/tmp
   "files"              the guest folder of files/, under /data
   "libraries"          the guest folder of libraries/, absent without JNI libraries
-The tests are the four Java fixtures of runtime/CMakeLists.txt (art_run.py's runs) and ART's run-tests of
+The tests are the five Java fixtures of runtime/CMakeLists.txt (art_run.py's runs) and ART's run-tests of
 fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments those scripts give dalvikvm.
 
 `run` runs staged tests through apk-run with what the app's ART mode gives them: /apex as Android has it, Conscrypt's
@@ -27,8 +27,8 @@ APEX included; bionic's /system; a new /data per test; ART's release flavor, aft
 Each test's stdout, stderr, status and measures (apk-run --measures) go to <outputs>/<test>/, as the app leaves them
 for tools/device-suite.sh.
 `check` compares such outputs with the references: for a Java fixture its expected stdout, the status 0, that ART's
-log names the heap window once, with 4 GiB or, with --upper-half, as without increased-memory-limit, 2 GiB, and for
-codec-test its offsets (art_run.py); for a run-test its stdout, its stderr without the logger's lines, and its exit
+log names the heap window once, with 4 GiB or, with --upper-half, as without increased-memory-limit, 2 GiB, for
+codec-test its offsets, and for stress-test a signal handled during a collection (art_run.py); for a run-test its stdout, its stderr without the logger's lines, and its exit
 status (art_run_tests.py). `selftest` stages the Java fixtures and CTest's sample of the run-tests, runs them and
 checks them, so the stage is right before the app reads it.
 
@@ -64,12 +64,13 @@ DEBUG_LIBRARIES = {"libart.so": "libartd.so", "libartbased.so": "libartbased.so"
                    "libopenjdkd.so": "libopenjdkd.so", "libopenjdkjvmd.so": "libopenjdkjvmd.so",
                    "libprofiled.so": "libprofiled.so"}
 # The Java fixtures as runtime/CMakeLists.txt runs them with art_run.py: a JNI library, Conscrypt, the jars after
-# core-libart, and codec-test's offsets.
+# core-libart, codec-test's offsets and stress-test's line of what it saw.
 JAVA_FIXTURES = {
     "art-hello": {},
     "codec-test": {"library": "libcodec-test.so", "offsets": True},
     "conscrypt-test": {"conscrypt": True},
     "crypto-test": {"conscrypt": True, "added_jars": ["okhttp", "bouncycastle"]},
+    "stress-test": {"library": "libstress-test.so", "stress": True},
 }
 MARKER = ".device-art"  # in every stage, so that nothing but a stage is ever cleared
 
@@ -146,7 +147,7 @@ def stage(art, fixtures_bin, root, out, sample=False):
                 command["libraries"] = "/data/local/tmp"
             write_json(os.path.join(folder, "command-debug.json" if debug else "command.json"), command)
         manifest[name] = {"kind": "java", "expected": f"fixtures/expected/{name}.out",
-                          "offsets": flags.get("offsets", False)}
+                          "offsets": flags.get("offsets", False), "stress": flags.get("stress", False)}
 
     # As art_run_tests.py runs them: in their own DEX_LOCATION, which is also ANDROID_DATA and the working directory.
     boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
@@ -245,6 +246,8 @@ def check(out, outputs, root, names=(), upper_half=False):
             wanted_out, should = art_run_tests.read(os.path.join(root, entry["expected"])), "0"
             if entry["offsets"] and art_run.offsets_failure(stderr):
                 problems.append(art_run.offsets_failure(stderr))
+            if entry.get("stress") and art_run.stress_failure(stderr):
+                problems.append(art_run.stress_failure(stderr))
             if art_run.window_failure(stderr, upper_half):
                 problems.append(art_run.window_failure(stderr, upper_half))
         else:
