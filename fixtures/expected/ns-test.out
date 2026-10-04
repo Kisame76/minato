@@ -2,3 +2,4 @@ dlopen(libns-dep.so): dlopen failed: library "libns-dep.so" not found
 dlopen(libjdwp.so): dep 1, plugin 2
 dlopen(libjavacrypto.so): dlopen failed: library "libjavacrypto.so" not found
 android_dlopen_ext(libjavacrypto.so, com_android_conscrypt): dep 1, plugin 2
+dlopen(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-plugin.so): no ns_lib_check

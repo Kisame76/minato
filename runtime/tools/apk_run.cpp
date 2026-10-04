@@ -5,7 +5,9 @@
 //           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
-// library containers of a host directory the libraries in a guest directory, e.g. /system/lib64.
+// library containers of a host directory the libraries in a guest directory, e.g. /system/lib64. Both split at
+// their last '=': a guest path may hold one, as Android 15's code paths do (/data/app/~~<base64>==/...), a host
+// path may not. --env splits at its first, as a value may hold one (--env NAME=a=b gives NAME the value a=b).
 // --cwd sets the working directory the program starts in ("/" by default). The program starts with init's
 // environment (ADR-0039 decision 2) and on top of it what an Android shell sets (PATH, ANDROID_DATA,
 // ANDROID_ROOT, HOME); --app-environment leaves the shell's out, as an app starts, and --env adds entries on
@@ -35,7 +37,8 @@ int usage() {
                  "usage: apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...\n"
                  "               [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]\n"
                  "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
-                 "               [--measures <file>] <container.dylib> [argument...]\n");
+                 "               [--measures <file>] <container.dylib> [argument...]\n"
+                 "--mount and --libraries split at the last '=', --env at the first.\n");
     return 2;
 }
 
@@ -72,9 +75,9 @@ bool parse_configuration(const std::string &value, apkrt_configuration &configur
     return true;
 }
 
-/// Splits <left>=<right>; false without an equals sign.
-bool split(const std::string &value, std::string &left, std::string &right) {
-    const auto equals = value.find('=');
+/// Splits <left>=<right> at the first equals sign, or at the last with `last`; false without one.
+bool split(const std::string &value, std::string &left, std::string &right, bool last = false) {
+    const auto equals = last ? value.rfind('=') : value.find('=');
     if (equals == std::string::npos) return false;
     left = value.substr(0, equals);
     right = value.substr(equals + 1);
@@ -108,10 +111,10 @@ int main(int argc, char **argv) {
         std::string left, right;
         int result = 0;
         if (option == "--mount") {
-            if (!split(value, left, right)) return usage();
+            if (!split(value, left, right, true)) return usage();
             result = apkrt_mount(left.c_str(), right.c_str(), error, sizeof error);
         } else if (option == "--libraries") {
-            if (!split(value, left, right)) return usage();
+            if (!split(value, left, right, true)) return usage();
             result = apkrt_add_library_directory(left.c_str(), right.c_str(), error, sizeof error);
         } else if (option == "--cwd") {
             result = apkrt_set_working_directory(value.c_str(), error, sizeof error);

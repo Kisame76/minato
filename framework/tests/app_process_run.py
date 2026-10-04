@@ -43,6 +43,8 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
+import zlib
 
 # hwui's checks (graphics/tests): whether an app process can start with hwui, and the layout of its set.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "graphics", "tests"))
@@ -52,6 +54,8 @@ from hwui_load_run import PLATFORM_COPIES  # noqa: E402
 ART_ROOT = "/apex/com.android.art"
 CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
 CONSCRYPT_LIBRARY = "libjavacrypto.so"
+# The APK folder of the JNI libraries that Android's installer extracts for an arm64 device.
+APP_ABI = "lib/arm64-v8a/"
 PACKAGE = "io.github.kisame76.minato.test.appstart"
 APPLICATION = "io.github.kisame76.minato.test.appstart.StartApplication"
 APP_UID = 10100
@@ -82,6 +86,68 @@ def convert_directory(apk_convert, source, target, leave_out=()):
     for name in sorted(os.listdir(source)):
         if name.endswith(".so") and name not in leave_out:
             convert(apk_convert, os.path.join(source, name), os.path.join(target, name + ".dylib"))
+
+
+def extracted(name):
+    """Whether Android's installer extracts a file of lib/<abi>/ by this name, as APKLibrary.isExtracted has its rule
+    (NativeLibraryHelper's isFilenameSafe): lib*.so of A-Z, a-z, 0-9 and + , - . = _."""
+    return (name.startswith("lib") and name.endswith(".so")
+            and all(char.isascii() and (char.isalnum() or char in "+,-.=_") for char in name))
+
+
+def install_libraries(apk_convert, apk, folder, work):
+    """The APK's JNI libraries as the import installs them (APKLibrary.installNativeCode, ADR-0042 b1): every
+    lib/arm64-v8a/<name> that Android's installer extracts, its ELF original read-only in `folder`, the app's
+    lib/arm64, where ART's class loader looks for the file, and its container in work/app-lib64, which apk-run's
+    --libraries makes that folder's libraries. The originals stay in work/app-lib, dated as the APK's entries, so that
+    convert()'s stamps keep the containers across runs; `folder` gets hard links to them. A changed library is
+    converted again, and one the APK no longer holds goes with its container. Returns the names, sorted."""
+    originals = os.path.join(work, "app-lib")
+    containers = os.path.join(work, "app-lib64")
+    with zipfile.ZipFile(apk) as archive:
+        entries = {info.filename[len(APP_ABI):]: info for info in archive.infolist()
+                   if info.filename.startswith(APP_ABI) and extracted(info.filename[len(APP_ABI):])}
+        for name, info in sorted(entries.items()):
+            original = os.path.join(originals, name)
+            container = os.path.join(containers, name + ".dylib")
+            dated = time.mktime(info.date_time + (0, 0, -1))
+            if not same_file(original, info, dated):
+                # A changed library may keep its size and date: its container goes, so that convert() makes it again.
+                for stale in (original, container, os.path.join(containers, ".from", name + ".dylib")):
+                    if os.path.lexists(stale):
+                        os.remove(stale)
+                os.makedirs(originals, exist_ok=True)
+                with archive.open(info) as source, open(original, "wb") as target:
+                    shutil.copyfileobj(source, target)
+                os.chmod(original, 0o444)
+                os.utime(original, (dated, dated))
+            convert(apk_convert, original, container)
+            link = os.path.join(folder, name)
+            if not (os.path.exists(link) and os.path.samefile(link, original)):
+                if os.path.lexists(link):
+                    os.remove(link)
+                os.link(original, link)
+    for directory, suffix in ((originals, ""), (containers, ".dylib")):
+        for file in os.listdir(directory) if os.path.isdir(directory) else []:
+            if not file.startswith(".") and file[:len(file) - len(suffix)] not in entries:
+                os.remove(os.path.join(directory, file))
+                if os.path.lexists(os.path.join(directory, ".from", file)):
+                    os.remove(os.path.join(directory, ".from", file))
+    return sorted(entries)
+
+
+def same_file(path, info, dated):
+    """Whether the file at `path` is the archive entry `info`, extracted and dated `dated`: its size, date and CRC."""
+    if not os.path.isfile(path):
+        return False
+    status = os.stat(path)
+    if status.st_size != info.file_size or int(status.st_mtime) != int(dated):
+        return False
+    crc = 0
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            crc = zlib.crc32(block, crc)
+    return crc == info.CRC
 
 
 def code_path(apk, package):
@@ -231,6 +297,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                                (os.path.join(art, "javalib", "conscrypt.jar"),
                                 "apex/com.android.conscrypt/javalib/conscrypt.jar")):
             os.link(source, os.path.join(run, target))
+    # Over the same run too, where they are already in place: the APK's JNI libraries (ADR-0042 b1).
+    libraries = install_libraries(apk_convert, apk, os.path.join(run, app.lstrip("/"), "lib", "arm64"), work)
 
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
@@ -247,8 +315,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--configuration", configuration]
     command += ["--libraries", f"/system/lib64={system_lib64}",
                 "--libraries", f"{ART_ROOT}/lib64={art_lib64}",
-                "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}",
-                "--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
+                "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}"]
+    if libraries:
+        command += ["--libraries", f"{app}/lib/arm64={os.path.join(work, 'app-lib64')}"]
+    command += ["--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",
                 "--library-path", f"{app}/lib/arm64", "--data-dir", data, "--application", application]
