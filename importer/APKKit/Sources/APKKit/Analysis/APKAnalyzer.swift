@@ -7,27 +7,54 @@ public enum APKAnalyzer {
     private static let thirtyTwoBitABIs: Set<String> = ["armeabi", "armeabi-v7a"]
 
     public static func analyze(_ archive: ZipArchive, preferredLanguages: [String]) throws -> APKReport {
-        let manifest = try AndroidManifest(xml: BinaryXML.parse(archive.data(named: "AndroidManifest.xml", maxSize: 16 << 20)))
-        let resources = try? ResourceTable(data: archive.data(named: "resources.arsc"))
+        try analyze(base: archive, splits: [], preferredLanguages: preferredLanguages).report
+    }
+
+    /// A split set's report (ADR-0048, decision 5): the base's manifest, with the native code, the ELF probe, "32-bit
+    /// only" and "needs Java" judged over the base and the splits Minato installs, and the label, version name and icon
+    /// resolved over all their resource tables, the base's IDs with the best configuration in any of them. `otherABIs`
+    /// are the ABIs of APKs Minato skips, so a set whose ABI splits are 32-bit only says so; `needsSplits`, the set's own
+    /// verdict, replaces the base's. `icon` is the APK that holds the chosen icon.
+    public static func analyze(base: ZipArchive, splits: [ZipArchive], otherABIs: [String] = [], needsSplits: Bool? = nil,
+                               preferredLanguages: [String]) throws -> (report: APKReport, icon: ZipArchive?) {
+        func readManifest(_ archive: ZipArchive) throws -> AndroidManifest {
+            try AndroidManifest(xml: BinaryXML.parse(archive.data(named: "AndroidManifest.xml", maxSize: 16 << 20)))
+        }
+        let manifest = try readManifest(base)
+        let apks: [(split: String?, archive: ZipArchive, hasCode: Bool)] = try [(nil, base, manifest.hasCode)]
+            + splits.map { split in
+                let splitManifest = try readManifest(split)
+                return (splitManifest.splitName, split, splitManifest.hasCode)
+            }
+        let tables = apks.compactMap { apk in
+            (try? ResourceTable(data: apk.archive.data(named: "resources.arsc"))).map { (table: $0, archive: apk.archive) }
+        }
 
         func text(_ value: ResourceValue?) -> String? {
             switch value {
             case .string(let string): return string
-            case .reference(let id): return resources?.string(for: id, preferredLanguages: preferredLanguages)
+            case .reference(let id): return string(for: id, in: tables.map(\.table), preferredLanguages: preferredLanguages)
             default: return nil
             }
         }
 
-        let libraryEntries = archive.entries.filter { entry in
-            let parts = entry.name.split(separator: "/", omittingEmptySubsequences: false)
-            return parts.count == 3 && parts[0] == "lib" && entry.name.hasSuffix(".so")
+        let libraryEntries = apks.flatMap { apk in
+            apk.archive.entries.filter { entry in
+                let parts = entry.name.split(separator: "/", omittingEmptySubsequences: false)
+                return parts.count == 3 && parts[0] == "lib" && entry.name.hasSuffix(".so")
+            }.map { (split: apk.split, archive: apk.archive, entry: $0) }
         }
-        let abis = Set(libraryEntries.map { String($0.name.split(separator: "/")[1]) }).sorted()
+        let abis = Set(libraryEntries.map { String($0.entry.name.split(separator: "/")[1]) }).union(otherABIs).sorted()
         let selectedABI = abis.contains(arm64) ? arm64 : nil
         let nativeLibraries = libraryEntries
-            .filter { $0.name.hasPrefix("lib/\(arm64)/") }
-            .map { inspectLibrary($0, in: archive) }
-        let allLibraryNames = Set(libraryEntries.map { String($0.name.split(separator: "/")[2]) })
+            .filter { $0.entry.name.hasPrefix("lib/\(arm64)/") }
+            .map { library in
+                var inspected = inspectLibrary(library.entry, in: library.archive)
+                inspected.split = library.split
+                return inspected
+            }
+        let allLibraryNames = Set(libraryEntries.map { String($0.entry.name.split(separator: "/")[2]) })
+        let icon = chooseIcon(manifest, tables: tables, archives: apks.map(\.archive))
 
         let runtime: APKReport.Runtime = manifest.usesNativeActivity
             ? .nativeActivity(library: manifest.nativeLibraryName ?? "main")
@@ -54,14 +81,31 @@ public enum APKAnalyzer {
             requiredVulkanLevel: manifest.requiredVulkanLevel,
             requiresAndroidExtensionPack: manifest.requiresAndroidExtensionPack,
             splitName: manifest.splitName,
-            requiresSplits: manifest.requiresSplits,
+            requiresSplits: needsSplits ?? manifest.requiresSplits,
             playDependencies: playDependencies(manifest),
             engine: engine(allLibraryNames),
-            iconPath: chooseIcon(manifest, resources: resources, archive: archive),
-            signature: signature(of: archive, targetSdk: manifest.targetSdk),
+            iconPath: icon?.path,
+            signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
-        report.compatibility = compatibility(of: report, manifest: manifest)
-        return report
+        report.compatibility = compatibility(of: report, manifest: manifest, hasCode: apks.contains(where: \.hasCode))
+        return (report, icon?.archive)
+    }
+
+    /// A string resource over a set's resource tables, following references: the variants of every table compete,
+    /// as AssetManager2 resolves across a set's APKs (`AssetManager2.cpp:596-625`).
+    private static func string(for id: UInt32, in tables: [ResourceTable], preferredLanguages: [String]) -> String? {
+        var visited: Set<UInt32> = []
+        var current = id
+        while visited.insert(current).inserted, visited.count <= 16 {
+            guard let chosen = ResourceTable.pickLanguage(tables.flatMap { $0.values(for: current) }, preferredLanguages)
+            else { return nil }
+            switch chosen.value {
+            case .string(let text): return text
+            case .reference(let target): current = target
+            default: return nil
+            }
+        }
+        return nil
     }
 
     /// The certificates and the signer as the file names them, checked cryptographically (ADR-0034,
@@ -109,7 +153,8 @@ public enum APKAnalyzer {
 
     // MARK: - Compatibility
 
-    private static func compatibility(of report: APKReport, manifest: AndroidManifest) -> Compatibility {
+    /// `hasCode`: whether any of the APKs has Java code.
+    private static func compatibility(of report: APKReport, manifest: AndroidManifest, hasCode: Bool) -> Compatibility {
         var issues: [Compatibility.Issue] = []
         var blocked = false
 
@@ -150,7 +195,7 @@ public enum APKAnalyzer {
             }
         }
 
-        if manifest.hasCode { issues.append(.needsART) }
+        if hasCode { issues.append(.needsART) }
         if let gles = report.requiredGLESVersion, gles > 0x0003_0000 { issues.append(.requiresGLES(gles)) }
         let fourK = report.nativeLibraries.filter { ($0.elf?.pageAlignment ?? 16_384) < 16_384 }.map(\.name)
         if !fourK.isEmpty { issues.append(.pageAligned4K(fourK)) }
@@ -203,29 +248,35 @@ public enum APKAnalyzer {
 
     private static let rasterExtensions = [".png", ".webp", ".jpg", ".jpeg"]
 
-    static func chooseIcon(_ manifest: AndroidManifest, resources: ResourceTable?, archive: ZipArchive) -> String? {
+    /// The icon's image and the APK that holds it, over a set's resource tables: the best raster of the icon or the round
+    /// icon in any of them, else an adaptive icon's foreground.
+    static func chooseIcon(_ manifest: AndroidManifest, tables: [(table: ResourceTable, archive: ZipArchive)],
+                           archives: [ZipArchive]) -> (path: String, archive: ZipArchive)? {
         let references: [UInt32] = [manifest.icon, manifest.roundIcon].compactMap {
             if case .reference(let id) = $0 { return id }
             return nil
         }
-        if let resources {
-            for id in references {
-                let files = resources.files(for: id)
-                if let raster = bestRaster(files, in: archive) { return raster }
-                for file in files where file.path.hasSuffix(".xml") {
-                    if let foreground = adaptiveForeground(file.path, in: archive),
-                       let raster = bestRaster(resources.files(for: foreground), in: archive) {
-                        return raster
-                    }
+        func candidates(for id: UInt32) -> [(file: ResourceFile, archive: ZipArchive)] {
+            tables.flatMap { table in table.table.files(for: id).map { (file: $0, archive: table.archive) } }
+        }
+        for id in references {
+            let files = candidates(for: id)
+            if let raster = bestRaster(files) { return raster }
+            for file in files where file.file.path.hasSuffix(".xml") {
+                if let foreground = adaptiveForeground(file.file.path, in: file.archive),
+                   let raster = bestRaster(candidates(for: foreground)) {
+                    return raster
                 }
             }
         }
         // Vector or unresolvable icon: the largest launcher-named image, then any mipmap image.
-        let names = references.compactMap { resources?.name(of: $0)?.split(separator: "/").last.map(String.init) }
-        return largestImage(in: archive) { path in
+        let names = references.compactMap { id in
+            tables.lazy.compactMap { $0.table.name(of: id) }.first?.split(separator: "/").last.map(String.init)
+        }
+        return largestImage(in: archives) { path in
             let file = path.split(separator: "/").last.map(String.init) ?? ""
             return names.contains { file.hasPrefix($0) }
-        } ?? largestImage(in: archive) { $0.hasPrefix("res/mipmap") }
+        } ?? largestImage(in: archives) { $0.hasPrefix("res/mipmap") }
     }
 
     private static func isRaster(_ path: String) -> Bool {
@@ -233,7 +284,7 @@ public enum APKAnalyzer {
         return rasterExtensions.contains { lower.hasSuffix($0) }
     }
 
-    private static func bestRaster(_ files: [ResourceFile], in archive: ZipArchive) -> String? {
+    private static func bestRaster(_ files: [(file: ResourceFile, archive: ZipArchive)]) -> (path: String, archive: ZipArchive)? {
         func score(_ config: ResourceConfig) -> Int {
             switch config.density {
             case 0, ResourceConfig.densityNone: return 160
@@ -242,9 +293,9 @@ public enum APKAnalyzer {
             }
         }
         return files
-            .filter { isRaster($0.path) && archive.entry(named: $0.path) != nil }
-            .max { score($0.config) < score($1.config) }?
-            .path
+            .filter { isRaster($0.file.path) && $0.archive.entry(named: $0.file.path) != nil }
+            .max { score($0.file.config) < score($1.file.config) }
+            .map { ($0.file.path, $0.archive) }
     }
 
     private static func adaptiveForeground(_ path: String, in archive: ZipArchive) -> UInt32? {
@@ -255,10 +306,12 @@ public enum APKAnalyzer {
         return id
     }
 
-    private static func largestImage(in archive: ZipArchive, where matches: (String) -> Bool) -> String? {
-        archive.entries
-            .filter { $0.name.hasPrefix("res/") && isRaster($0.name) && matches($0.name) }
-            .max { $0.uncompressedSize < $1.uncompressedSize }?
-            .name
+    private static func largestImage(in archives: [ZipArchive], where matches: (String) -> Bool)
+        -> (path: String, archive: ZipArchive)? {
+        archives
+            .flatMap { archive in archive.entries.map { (entry: $0, archive: archive) } }
+            .filter { $0.entry.name.hasPrefix("res/") && isRaster($0.entry.name) && matches($0.entry.name) }
+            .max { $0.entry.uncompressedSize < $1.entry.uncompressedSize }
+            .map { ($0.entry.name, $0.archive) }
     }
 }

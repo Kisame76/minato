@@ -65,6 +65,8 @@ public struct NativeLibrary: Sendable, Equatable, Codable {
     public var elf: ELFInfo?
     /// Why the ELF header could not be read, if it could not.
     public var problem: String?
+    /// The split APK that holds it in a split set (ADR-0048, decision 8); nil for the base, and in reports from before.
+    public var split: String? = nil
 }
 
 public struct Compatibility: Sendable, Equatable, Codable {
