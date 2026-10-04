@@ -10,6 +10,13 @@ I/provider-test: FirstProvider onCreate
 I/provider-test: FirstProvider attached, getContext is the application true
 I/provider-test: application onCreate
 I/provider-test: getProviderInfo authority io.github.kisame76.minato.test.provider.second;minato.provider-test.alias, meta-data startup
+I/provider-test: resolveContentProvider io.github.kisame76.minato.test.provider.FirstProvider, authority io.github.kisame76.minato.test.provider.first, meta-data [android.support.FILE_PROVIDER_PATHS], process io.github.kisame76.minato.test.provider
+I/provider-test: paths paths name null, path null
+I/provider-test: paths files-path name shared, path shared/
+I/provider-test: paths cache-path name cache, path .
+I/provider-test: resolveContentProvider alias io.github.kisame76.minato.test.provider.SecondProvider, meta-data null
+I/provider-test: resolveContentProvider remote io.github.kisame76.minato.test.provider.RemoteProvider, process io.github.kisame76.minato.test.provider:remote
+I/provider-test: resolveContentProvider disabled null, unknown null
 I/provider-test: intent Intent { act=io.github.kisame76.minato.test.provider.ACTION cat=[android.intent.category.DEFAULT] dat=content://io.github.kisame76.minato.test.provider.first/... typ=vnd.android.cursor.item/test flg=0x14000000 cmp=io.github.kisame76.minato.test.provider/.Target (has extras) }
 I/provider-test: component io.github.kisame76.minato.test.provider/.Target, flags 0x14000000, categories {android.intent.category.DEFAULT}
 I/provider-test: toUri intent://io.github.kisame76.minato.test.provider.first/items/7?sort=name#top#Intent;scheme=content;action=io.github.kisame76.minato.test.provider.ACTION;category=android.intent.category.DEFAULT;type=vnd.android.cursor.item/test;launchFlags=0x14000000;component=io.github.kisame76.minato.test.provider/.Target;i.number=7;B.flag=true;S.text=value;end

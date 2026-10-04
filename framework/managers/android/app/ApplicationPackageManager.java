@@ -11,6 +11,7 @@ import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
+import android.content.res.XmlResourceParser;
 import android.os.SystemProperties;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -125,6 +126,37 @@ class ApplicationPackageManager {
             throw new NameNotFoundException(className.toString());
         }
         return pkg;
+    }
+
+    // Providers by authority and the XML their meta-data names (step c2c1.1), as androidx's FileProvider finds its
+    // paths: resolveContentProvider and then ProviderInfo.loadXmlMetaData, which asks getXml.
+
+    public ProviderInfo resolveContentProvider(String authority, int flags) {
+        return resolveContentProvider(authority, ComponentInfoFlags.of(flags));
+    }
+
+    public ProviderInfo resolveContentProvider(String authority, ComponentInfoFlags flags) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null ? pkg.providerForAuthority(authority, flags.getValue()) : null;
+    }
+
+    /**
+     * As Android's: the XML resource of a package, null for an unknown package, and null with a warning when the
+     * resource cannot be read. The app's own Resources answer, as getResourcesForApplication gives them.
+     */
+    public XmlResourceParser getXml(String packageName, int resid, ApplicationInfo appInfo) {
+        LoadedApk loaded = mThread.getLoadedApk();
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (loaded == null || pkg == null || !pkg.packageName.equals(packageName)) {
+            return null;
+        }
+        try {
+            return loaded.getResources().getXml(resid);
+        } catch (RuntimeException e) {
+            Log.w("PackageManager", "Failure retrieving xml 0x" + Integer.toHexString(resid) + " in package "
+                    + packageName, e);
+        }
+        return null;
     }
 
     // Permissions (b3.5b1): the app's own and the platform's, answered by PermissionPolicy (ADR-0045 decision 6).

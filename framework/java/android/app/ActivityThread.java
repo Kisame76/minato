@@ -64,6 +64,7 @@ public final class ActivityThread {
     private final String mProcessName;
     private final ClassLoader mClassLoader;
     private final ManifestPackage mPackage;
+    private LoadedApk mLoadedApk;
     private Application mInitialApplication;
 
     /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
@@ -91,6 +92,11 @@ public final class ActivityThread {
     /** The app's package as its manifest declares it (b3.5a). */
     ManifestPackage getManifestPackage() {
         return mPackage;
+    }
+
+    /** The app's loaded package, from the bind on (step c2c1.1); ApplicationPackageManager reads its Resources. */
+    LoadedApk getLoadedApk() {
+        return mLoadedApk;
     }
 
     public static ActivityThread currentActivityThread() {
@@ -206,6 +212,7 @@ public final class ActivityThread {
         // android.app.Application, through the app's AppComponentFactory, which loads and initializes it, then its
         // attachBaseContext with the app's ContextImpl. currentApplication() gives it out from then on.
         LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
+        thread.mLoadedApk = packageInfo;
         Application app;
         try {
             app = packageInfo.makeApplication(application);

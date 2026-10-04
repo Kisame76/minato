@@ -2,8 +2,9 @@
 <!-- ADR-0039 step c2c1's test (provider-test): the app's components without the window. Its own AppComponentFactory
      overrides the five instantiate methods as androidx's CoreComponentFactory does. Of its four providers, the two of
      the main process that are enabled install before Application.onCreate, by initOrder; the one of :remote and the
-     disabled one do not. The launcher activity is the framework's own android.app.Activity, so that `am start`
-     starts the process on Android. -->
+     disabled one do not. The first one's meta-data names an XML resource, as androidx's FileProvider's does, which
+     PackageManager.resolveContentProvider gives (step c2c1.1). The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.provider" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
@@ -18,7 +19,9 @@
     </activity>
     <provider android:name="io.github.kisame76.minato.test.provider.FirstProvider"
         android:authorities="io.github.kisame76.minato.test.provider.first" android:exported="false"
-        android:initOrder="5"/>
+        android:initOrder="5">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/paths"/>
+    </provider>
     <provider android:name="io.github.kisame76.minato.test.provider.SecondProvider"
         android:exported="true" android:initOrder="10"
         android:authorities="io.github.kisame76.minato.test.provider.second;minato.provider-test.alias">

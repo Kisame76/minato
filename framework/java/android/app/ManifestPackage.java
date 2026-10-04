@@ -1322,6 +1322,20 @@ final class ManifestPackage {
         return providers;
     }
 
+    /**
+     * The provider one of whose authorities is `authority`, as the package manager's resolveContentProvider finds it
+     * (step c2c1.1), of any process; a disabled one only with MATCH_DISABLED_COMPONENTS. Null for none.
+     */
+    ProviderInfo providerForAuthority(String authority, long flags) {
+        for (ProviderInfo provider : mProviders) {
+            if (provider.authority != null && matches(provider, flags)
+                    && java.util.Arrays.asList(provider.authority.split(";")).contains(authority)) {
+                return providerInfo(provider, flags, applicationInfo(flags));
+            }
+        }
+        return null;
+    }
+
     ProviderInfo providerInfo(ComponentName component, long flags) {
         for (ProviderInfo provider : mProviders) {
             if (named(provider, component) && matches(provider, flags)) {

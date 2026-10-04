@@ -6,9 +6,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
+import android.content.res.XmlResourceParser;
 import android.net.Uri;
 import android.util.Log;
 import java.io.File;
+import java.util.TreeSet;
 
 /**
  * ADR-0039 step c2c1's test: the app's components without the window. The factory makes the Application, then the
@@ -33,6 +35,7 @@ public class ProviderApplication extends Application {
         Log.i(TAG, "application onCreate");
         try {
             metaData();
+            resolve();
             intents();
             uris();
         } catch (Throwable t) {
@@ -49,6 +52,33 @@ public class ProviderApplication extends Application {
                 PackageManager.GET_META_DATA);
         Log.i(TAG, "getProviderInfo authority " + info.authority + ", meta-data "
                 + info.metaData.getString("io.github.kisame76.minato.test.provider.KEY"));
+    }
+
+    /**
+     * As androidx's FileProvider finds its paths (step c2c1.1): the provider of an authority with its meta-data, and
+     * the XML resource that meta-data names.
+     */
+    private void resolve() throws Exception {
+        PackageManager pm = getPackageManager();
+        ProviderInfo info = pm.resolveContentProvider("io.github.kisame76.minato.test.provider.first",
+                PackageManager.GET_META_DATA);
+        Log.i(TAG, "resolveContentProvider " + info.name + ", authority " + info.authority + ", meta-data "
+                + new TreeSet<>(info.metaData.keySet()) + ", process " + info.processName);
+        XmlResourceParser xml = info.loadXmlMetaData(pm, "android.support.FILE_PROVIDER_PATHS");
+        for (int type = xml.next(); type != XmlResourceParser.END_DOCUMENT; type = xml.next()) {
+            if (type == XmlResourceParser.START_TAG) {
+                Log.i(TAG, "paths " + xml.getName() + " name " + xml.getAttributeValue(null, "name") + ", path "
+                        + xml.getAttributeValue(null, "path"));
+            }
+        }
+        xml.close();
+        ProviderInfo alias = pm.resolveContentProvider("minato.provider-test.alias", 0);
+        Log.i(TAG, "resolveContentProvider alias " + alias.name + ", meta-data " + alias.metaData);
+        ProviderInfo remote = pm.resolveContentProvider("io.github.kisame76.minato.test.provider.remote", 0);
+        Log.i(TAG, "resolveContentProvider remote " + remote.name + ", process " + remote.processName);
+        Log.i(TAG, "resolveContentProvider disabled "
+                + pm.resolveContentProvider("io.github.kisame76.minato.test.provider.disabled", 0) + ", unknown "
+                + pm.resolveContentProvider("io.github.kisame76.minato.test.none", 0));
     }
 
     private void intents() throws Exception {

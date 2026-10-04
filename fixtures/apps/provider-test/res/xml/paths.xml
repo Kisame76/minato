@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The paths a FileProvider shares, which androidx's FileProvider reads through its provider's meta-data. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+  <files-path name="shared" path="shared/"/>
+  <cache-path name="cache" path="."/>
+</paths>
