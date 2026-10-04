@@ -606,6 +606,9 @@ struct SignatureVerifierTests {
         let kept = TestSigner.sign(Self.zip(), v2: [.init(.ec, attributes: [(TestSigner.strippingProtectionID, TestSigner.u32(3))])],
                                    v3: [.init(.ec)])
         #expect(try Self.verify(kept) == Self.verified([.ec]))
+        // A value under 4 bytes fails the signer (ApkSignatureSchemeV2Verifier.java:384-388).
+        let short = TestSigner.sign(Self.zip(), v2: [.init(.ec, attributes: [(TestSigner.strippingProtectionID, Data([3, 0]))])])
+        #expect(try Self.failure(short)?.kind == .damaged)
     }
 
     @Test func v3ThatNamesARemovedV31() throws {
@@ -1010,5 +1013,203 @@ struct SignatureVerifierTests {
         // v2 and newer pass; an unsigned file stays unsigned (Minato installs it, ADR-0034).
         #expect(try Self.verify(TestSigner.sign(Self.zip(), v1: TestSigner.V1([.ec]), v2: [.init(.ec)]), targetSdk: 30) == Self.verified([.ec]))
         #expect(try Self.verify(Self.zip().build().data, targetSdk: 30) == Outcome(check: .unsigned))
+    }
+
+    // MARK: - The signing block as Android finds it (ApkSigningBlockUtils, ADR-0048 b1.3)
+
+    /// v1 by `.ec` and v2 by `.rsa`, so the signer tells which scheme decided; `last`, when given, is the zip's last
+    /// entry, after v1's files, so its name ends the central directory.
+    static func v1AndV2(androidSigned: String? = nil, last: String? = nil) -> Data {
+        var zip = Self.zip()
+        if let last { zip.add(last, Data("last".utf8)) }
+        let files = TestSigner.jarSignatureFiles(for: zip.entries, TestSigner.V1([.ec], androidSigned: androidSigned))
+        zip.entries.insert(contentsOf: files, at: zip.entries.count - (last == nil ? 0 : 1))
+        return TestSigner.sign(zip, v2: [.init(.rsa)])
+    }
+
+    /// What Android does where it finds no signing block (`SignatureNotFoundException`): v1 decides below
+    /// targetSdkVersion 30 and nothing from 30 on. The report names no v2 either.
+    static func expectNoBlock(_ apk: Data, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        #expect(try Self.verify(apk) == Self.verified([.ec]), sourceLocation: sourceLocation)
+        #expect(try Self.failure(apk, targetSdk: 30)?.kind == .noV2Signature, sourceLocation: sourceLocation)
+        #expect(APKSignatures.read(try ZipArchive(data: apk)).schemes == [.v1], sourceLocation: sourceLocation)
+    }
+
+    /// `apk` with the little-endian `value` over the 8 bytes at `offset`.
+    static func patched(_ apk: Data, _ value: UInt64, at offset: Int) -> Data {
+        var copy = apk
+        withUnsafeBytes(of: value.littleEndian) { copy.replaceSubrange(offset..<offset + 8, with: $0) }
+        return copy
+    }
+
+    /// One pair of a signing block: its length, its ID and its value.
+    static func pair(_ id: UInt32, _ value: Data) -> Data {
+        var writer = ByteWriter()
+        writer.u64(UInt64(4 + value.count))
+        writer.u32(id)
+        writer.bytes(value)
+        return writer.data
+    }
+
+    /// A pair whose length is below 4, which Android's search gives up at (:770-773), with bytes after it.
+    static let malformedPair = Data([2, 0, 0, 0, 0, 0, 0, 0]) + Data(count: 8)
+    /// A pair whose length runs past the block (:777-780).
+    static let overlongPair = Data([0xFF, 0xFF, 0xFF, 0x7F, 0, 0, 0, 0]) + Data(count: 8)
+
+    /// `apk` with a signing block of `body`, as it is, in place of its own. The block starts where the old one did,
+    /// so the content digests stay right.
+    static func withBlock(of body: Data, in apk: Data) throws -> Data {
+        let archive = try ZipArchive(data: apk)
+        let start = Int(try #require(try APKSignatures.signingBlock(archive)).offset)
+        let directory = Int(archive.centralDirectoryOffset), end = Int(archive.endOfCentralDirectoryOffset)
+        var block = ByteWriter()
+        block.u64(UInt64(body.count + 24))
+        block.bytes(body)
+        block.u64(UInt64(body.count + 24))
+        block.bytes(Data("APK Sig Block 42".utf8))
+        var out = apk.prefix(start) + block.data + apk.suffix(from: directory)
+        let newEnd = end - directory + start + block.count
+        withUnsafeBytes(of: UInt32(start + block.count).littleEndian) { out.replaceSubrange(newEnd + 16..<newEnd + 20, with: $0) }
+        return out
+    }
+
+    /// The value of each scheme's pair in a signed APK.
+    static func schemeValues(_ apk: Data) throws -> [UInt32: Data] {
+        let pairs = try #require(try APKSignatures.signingBlock(ZipArchive(data: apk))).pairs
+        return Dictionary(pairs.map { ($0.0, $0.1) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    @Test func aZip64LocatorBeforeTheEndRecordHidesTheBlock() throws {
+        // findSignature (:75-76) finds no block where a ZIP64 locator's signature stands 20 bytes before the end
+        // record, here in the central directory's last name, which libziparchive ignores while the end record is
+        // not saturated (ADR-0048 b1.1). v2 itself verifies: it covers those bytes.
+        let apk = Self.v1AndV2(last: "assets/PK\u{06}\u{07}0123456789abcdef")
+        let archive = try ZipArchive(data: apk)
+        #expect(archive.centralDirectoryOffset + archive.centralDirectorySize == archive.endOfCentralDirectoryOffset)
+        #expect(try Self.verify(Self.v1AndV2(last: "assets/PK\u{06}\u{08}0123456789abcdef")) == Self.verified([.rsa]))
+        try Self.expectNoBlock(apk)
+    }
+
+    @Test func aGapBeforeTheEndRecordHidesTheBlock() throws {
+        // getCentralDirOffset (:404-418) finds no block unless the central directory ends where the end record
+        // starts; libziparchive opens a file with bytes between them (:343-347).
+        let apk = Self.v1AndV2()
+        #expect(try Self.verify(apk) == Self.verified([.rsa]))
+        let end = Int(try ZipArchive(data: apk).endOfCentralDirectoryOffset)
+        try Self.expectNoBlock(apk.prefix(end) + Data(count: 4) + apk.suffix(from: end))
+    }
+
+    @Test(arguments: ["sizes that differ", "a size below 24", "a size past Int32.max - 8", "a start before the file's",
+                      "a start before the file's past 64 MiB", "a size of 2^64 - 1"])
+    func aSigningBlockAndroidCannotFindIsNoBlock(flaw: String) throws {
+        // findApkSigningBlock (:702-749): Android finds no block whose sizes differ or are out of range, and the 64 MiB
+        // cap counts only after that. 2^64 - 1 is -1 to Android, below 24, and its range check precedes the sum.
+        let apk = Self.v1AndV2()
+        let archive = try ZipArchive(data: apk)
+        let directory = Int(archive.centralDirectoryOffset)
+        let start = Int(try #require(try APKSignatures.signingBlock(archive)).offset)
+        let footer = directory - 24
+        let flawed = switch flaw {
+        case "sizes that differ": Self.patched(apk, UInt64(directory - start), at: start)
+        case "a size below 24": Self.patched(apk, 16, at: footer)
+        case "a size past Int32.max - 8": Self.patched(apk, UInt64(Int32.max) - 7, at: footer)
+        case "a start before the file's past 64 MiB": Self.patched(apk, 100 << 20, at: footer)
+        case "a size of 2^64 - 1": Self.patched(apk, .max, at: footer)
+        default: Self.patched(apk, UInt64(directory - 7), at: footer)
+        }
+        try Self.expectNoBlock(flawed)
+    }
+
+    /// A sparse file of one stored entry with a signing block of `size` bytes before its central directory, whose
+    /// header says `header`; the caller removes it.
+    static func sparseAPK(blockSize size: UInt64, header: UInt64) throws -> URL {
+        var zip = ZipBuilder()
+        zip.add("a.txt", Data("a".utf8), method: .stored)
+        let built = zip.build()
+        let entries = built.data.prefix(built.centralDirectoryOffset)
+        let directory = built.data[built.centralDirectoryOffset..<built.data.count - 22]
+        let newDirectory = UInt64(entries.count) + size + 8
+        let url = URL.temporaryDirectory.appending(path: "signing-block-\(UUID().uuidString).apk")
+        #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
+        func littleEndian(_ value: UInt64) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+        var endRecord = ByteWriter()
+        endRecord.u32(0x0605_4b50); endRecord.u16(0); endRecord.u16(0); endRecord.u16(1); endRecord.u16(1)
+        endRecord.u32(UInt32(directory.count)); endRecord.u32(UInt32(newDirectory)); endRecord.u16(0)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.write(contentsOf: entries + littleEndian(header))
+        try handle.seek(toOffset: newDirectory - 24)
+        try handle.write(contentsOf: littleEndian(size) + Data("APK Sig Block 42".utf8) + directory + endRecord.data)
+        try handle.close()
+        return url
+    }
+
+    @Test func aSizePastInt32IsNoBlockAlsoWhereTheFileHoldsIt() throws {
+        // :727-731: Android reads the block into one ByteBuffer, so a size past Int32.max - 8 is no block even in a
+        // file that holds it, and the 64 MiB cap does not refuse it. A sparse file of 2 GiB holds one.
+        let url = try Self.sparseAPK(blockSize: UInt64(Int32.max) - 7, header: UInt64(Int32.max) - 7)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(SignatureVerifier.verify(try ZipArchive(url: url), targetSdk: 29).check == .unsigned)
+    }
+
+    @Test func aBlockOver64MiBWhoseHeaderDiffersIsNoBlock() throws {
+        // :741-746 comes before the 64 MiB cap: a block Android does not find is never refused for its size.
+        let url = try Self.sparseAPK(blockSize: 100 << 20, header: (100 << 20) + 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(SignatureVerifier.verify(try ZipArchive(url: url), targetSdk: 29).check == .unsigned)
+    }
+
+    @Test func v1NamingAV2AndroidCannotFindIsStripped() throws {
+        // A scheme Android does not find is absent for v1's X-Android-APK-Signed (StrictJarVerifier), so the file is
+        // refused as stripped rather than verified with v1.
+        let apk = Self.v1AndV2(androidSigned: "2")
+        let directory = Int(try ZipArchive(data: apk).centralDirectoryOffset)
+        let failure = try #require(try Self.failure(Self.patched(apk, 16, at: directory - 24)))
+        #expect(failure.kind == .signatureMismatch)
+        #expect(failure.detail.hasSuffix("says the APK has a v2 signature, which was removed"))
+    }
+
+    @Test(arguments: [SignatureVerifierTests.malformedPair, SignatureVerifierTests.overlongPair])
+    func aPairAndroidCannotReadEndsTheBlock(bad: Data) throws {
+        // findApkSignatureSchemeBlock (:752-790) looks for a scheme from the first pair on and gives up at a
+        // malformed one: a scheme after it is absent, also for v2's stripping protection; one before it counts, and
+        // nothing after it is read.
+        let protected = TestSigner.Signer(.ec, attributes: [(TestSigner.strippingProtectionID, TestSigner.u32(3))])
+        let signed = TestSigner.sign(Self.zip(), v2: [protected], v3: [.init(.ec)])
+        let values = try Self.schemeValues(signed)
+        let v2 = Self.pair(TestSigner.v2ID, try #require(values[TestSigner.v2ID]))
+        let v3 = Self.pair(TestSigner.v3ID, try #require(values[TestSigner.v3ID]))
+
+        let hidden = try #require(try Self.failure(Self.withBlock(of: v2 + bad + v3, in: signed)))
+        #expect(hidden.kind == .signatureMismatch)
+        #expect(hidden.detail == "the v3 signature was removed")
+        #expect(try Self.verify(Self.withBlock(of: v3 + v2 + bad, in: signed)) == Self.verified([.ec]))
+        // Fewer than 8 bytes left end it too (:765-768).
+        #expect(try Self.verify(Self.withBlock(of: v3 + v2 + Data(count: 4), in: signed)) == Self.verified([.ec]))
+    }
+
+    @Test func theCapOnPairsCountsOnlyThoseAndroidReads() throws {
+        // The pairs' cap (a logged departure) refuses a 65th pair, but not a malformed one after 64.
+        let limit = APKSignatures.maximumListLength
+        let signed = TestSigner.sign(Self.zip(), v2: [.init(.ec)], extra: Array(repeating: (0x4272_6577, Data()), count: limit - 1))
+        let pairs = try #require(try APKSignatures.signingBlock(ZipArchive(data: signed))).pairs
+        #expect(pairs.count == limit)
+        let body = pairs.map { Self.pair($0.0, $0.1) }.reduce(Data(), +)
+        #expect(try Self.verify(Self.withBlock(of: body + Self.malformedPair, in: signed)) == Self.verified([.ec]))
+    }
+
+    @Test func aSchemeTwiceIsRefusedOnlyWhereAndroidWouldSeeIt() throws {
+        // A logged departure (ADR-0034): Android verifies a scheme's first pair, and Minato refuses a second one
+        // rather than let the report count it. Past a malformed pair Android sees nothing, and neither does Minato.
+        let signed = TestSigner.sign(Self.zip(), v2: [.init(.ec)])
+        let v2 = Self.pair(TestSigner.v2ID, try #require(try Self.schemeValues(signed)[TestSigner.v2ID]))
+        #expect(try Self.failure(Self.withBlock(of: v2 + v2 + Self.malformedPair, in: signed))?.kind == .damaged)
+        #expect(try Self.verify(Self.withBlock(of: v2 + Self.malformedPair + v2, in: signed)) == Self.verified([.ec]))
+    }
+
+    @Test func aBlockOver64MiBIsStillRefused() throws {
+        // A logged departure (ADR-0034): Android would verify such a block. Minato refuses it rather than read it,
+        // and never takes it for no block, which would leave the decision to v1.
+        let apk = TestSigner.sign(Self.zip(), v1: TestSigner.V1([.ec]), v2: [.init(.rsa)], extra: [(0x4272_6577, Data(count: 64 << 20))])
+        #expect(try Self.failure(apk)?.kind == .damaged)
     }
 }

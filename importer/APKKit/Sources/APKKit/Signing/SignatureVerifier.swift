@@ -415,9 +415,12 @@ public enum SignatureVerifier {
             throw SignatureFailure(.signatureMismatch, "the \(scheme) signature does not verify")
         }
 
-        for attribute in signer.attributes {
-            if id == v2ID, attribute.id == strippingProtectionID, attribute.value.count >= 4,
-               try ByteReader(attribute.value).u32(at: 0) == 3, !present.contains(v3ID) {
+        for attribute in signer.attributes where id == v2ID && attribute.id == strippingProtectionID {
+            // ApkSignatureSchemeV2Verifier.java:384-388: a value under 4 bytes fails the signer.
+            guard attribute.value.count >= 4 else {
+                throw SignatureFailure(.damaged, "the v2 stripping protection is \(attribute.value.count) bytes")
+            }
+            if try ByteReader(attribute.value).u32(at: 0) == 3, !present.contains(v3ID) {
                 throw SignatureFailure(.signatureMismatch, "the v3 signature was removed")
             }
         }

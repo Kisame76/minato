@@ -256,26 +256,39 @@ public enum APKSignatures {
         try signingBlock(archive)?.pairs ?? []
     }
 
-    /// The APK Signing Block: where it starts, and its ID/value pairs; nil without one.
+    /// The APK Signing Block as Android 15 finds it (`ApkSigningBlockUtils.findSignature`, :69-96): where it starts,
+    /// and its ID/value pairs up to the first malformed one, where Android's search for each scheme gives up
+    /// (:752-790); nil where Android finds no block, and v1 decides below targetSdkVersion 30. The caps on its size
+    /// and its pairs refuse, logged departures (ADR-0034).
     static func signingBlock(_ archive: ZipArchive) throws -> (offset: UInt64, pairs: [(UInt32, Data)])? {
         let centralDirectory = archive.centralDirectoryOffset
+        let endRecord = archive.endOfCentralDirectoryOffset
+        // :75-76: no ZIP64 locator's signature right before the end record, which libziparchive may ignore.
+        if endRecord >= 20, try archive.source.read(at: endRecord - 20, count: 4) == Data([0x50, 0x4B, 0x06, 0x07]) {
+            return nil
+        }
+        // :404-418: the central directory ends where the end record starts.
+        guard centralDirectory + archive.centralDirectorySize == endRecord else { return nil }
+        // :702-749: the footer's magic, a size in range, the block within the file and its header's size the same.
         guard centralDirectory >= 32 else { return nil }
         let footer = ByteReader(try archive.source.read(at: centralDirectory - 24, count: 24), context: "signing block footer")
         guard footer.data.suffix(16) == Data("APK Sig Block 42".utf8) else { return nil }
         let size = try footer.u64(at: 0)
-        guard size >= 24, size <= 64 << 20, size + 8 <= centralDirectory else {
-            throw APKError.invalidSigningBlock("size \(size)")
-        }
+        guard size >= 24, size <= UInt64(Int32.max) - 8, size + 8 <= centralDirectory else { return nil }
         let offset = centralDirectory - size - 8
-        let block = ByteReader(try archive.source.read(at: offset, count: Int(size + 8)), context: "signing block")
-        guard try block.u64(at: 0) == size else { throw APKError.invalidSigningBlock("size fields differ") }
+        guard try ByteReader(archive.source.read(at: offset, count: 8), context: "signing block").u64(at: 0) == size else {
+            return nil
+        }
+        // A block Android reads, which took minutes here.
+        guard size <= 64 << 20 else { throw APKError.invalidSigningBlock("size \(size)") }
 
-        var pairs = ByteReader(block.data.subdata(in: 8..<block.count - 24), context: "signing block pairs")
+        var pairs = ByteReader(try archive.source.read(at: offset + 8, count: Int(size) - 24), context: "signing block pairs")
         var result: [(UInt32, Data)] = []
-        while pairs.remaining >= 12 {
-            guard result.count < maximumListLength else { throw APKError.invalidSigningBlock("more than \(maximumListLength) pairs") }
+        while pairs.remaining > 0 {
+            guard pairs.remaining >= 8 else { break }
             let length = try pairs.u64()
-            guard length >= 4, length <= UInt64(pairs.remaining) else { throw APKError.invalidSigningBlock("pair length \(length)") }
+            guard length >= 4, length <= UInt64(pairs.remaining) else { break }
+            guard result.count < maximumListLength else { throw APKError.invalidSigningBlock("more than \(maximumListLength) pairs") }
             let id = try pairs.u32()
             result.append((id, try pairs.bytes(Int(length) - 4)))
         }
