@@ -87,16 +87,18 @@ com.android.internal.os.RuntimeInit <- android.util.Log  # gap: every Log.wtf, w
 android.app.ActivityManager <- android.util.PackageUtils  # stays: PackageUtils' digests of large files, which nothing in framework.jar calls
 
 # The app model, activities and views.
-android.app.Activity <- android.app.AppComponentFactory  # step c2c: taken
+android.app.Activity <- android.app.AppComponentFactory, android.app.Application  # step c2c: taken
 android.content.ContentProvider <- android.app.AppComponentFactory  # step c2c: taken with providers
 android.app.Service <- android.app.AppComponentFactory  # gap: services
 android.content.BroadcastReceiver <- android.app.AppComponentFactory  # gap: broadcast receivers
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
 android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
+android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
 android.content.Intent <- android.app.IUnsafeIntentStrictModeCallback, android.content.pm.PackageManager, android.os.StrictMode, android.os.strictmode.UnsafeIntentLaunchViolation, android.text.style.URLSpan  # step c2c: taken with Activity
 android.net.Uri <- android.content.res.ResourcesImpl, android.graphics.ImageDecoder, android.text.style.URLSpan, com.android.internal.util.XmlUtils  # step c2c: taken with Intent
-android.view.View <- android.text.style.URLSpan  # step c2c: taken
+android.view.View <- android.app.Application, android.text.style.URLSpan  # step c2c: taken
+android.view.Window <- android.app.Application  # step c2c: taken with Activity (Application.getAutofillClient)
 android.view.Gravity <- android.graphics.drawable.BitmapDrawable  # step c2c: taken with FrameLayout
 android.view.WindowManager$LayoutParams <- android.content.res.CompatibilityInfo  # step c2c: taken with WindowManager
 android.view.InsetsState <- android.content.res.CompatibilityInfo  # step c2c: taken with View's insets
@@ -117,7 +119,7 @@ android.graphics.drawable.ColorDrawable <- android.content.res.ResourcesImpl  # 
 android.graphics.drawable.ColorStateListDrawable <- android.content.res.ResourcesImpl  # gap: Resources.getDrawable of a color state list
 android.graphics.drawable.DrawableInflater <- android.content.res.Resources, android.graphics.drawable.Drawable  # gap: XML drawables (shape, selector, layer-list), which layouts' backgrounds inflate; M4 step 10 draws them
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
-com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (ADR-0043, Grafik)
+com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (App: VirtualRefBasePtr's natives are libandroid_runtime's)
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
 android.view.Choreographer <- android.graphics.animation.FallbackLUTInterpolator, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): Choreographer
 android.animation.AnimationHandler <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer

@@ -4,6 +4,7 @@
 # Resources have decision 9's density 480: density and scaledDensity 3 at font scale 1, where sp scales linearly
 # (FontScaleConverterFactory starts its curves above 1), so 16dp is 48 px and 14sp and 18sp are 42 and 54 px.
 # raw/data.txt is "raw bytes" and a newline, 10 bytes, stored as build-java-test-app.sh links .txt.
+# The app's last line is done, which ends the run (step c2b).
 system cancel "Cancel"
 app_name (en-US) "Resources Test"
 color harbor #ff1e5aa8
@@ -18,3 +19,4 @@ TextAppearance.Medium textSize 18.0sp, 54.0 px, textStyle 0
 app_name (de-DE) "Ressourcen-Test"
 greeting (de-DE) "Hello, Minato!"
 system cancel through the app (de-DE) "Abbrechen"
+done

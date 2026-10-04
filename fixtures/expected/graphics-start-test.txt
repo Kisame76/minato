@@ -14,6 +14,7 @@
 #   Android when that map is missing [verified: Typeface.java lines 1385 to 1389].
 # - In Roboto, "i" is narrower than "M" (advances 498 and 1788 of 2048); in DroidSansMono both are 1229. U+65E5 is only
 #   in DroidSansFallbackFull, the last fallback, and U+1F600 is in none of the fonts [verified: their cmap and hmtx].
+# The app's last line is done, which ends the run (step c2b).
 bitmap 8x8 ARGB_8888 256 bytes, 32 per row
 setPixel getPixel 0xff336699
 copyPixelsToBuffer bytes 33 66 99 ff
@@ -27,3 +28,4 @@ monospace iiii as wide as MMMM true
 glyph U+65E5 true, U+1F600 false
 logcat I/Typeface: Preloading /system/fonts/Roboto-Regular.ttf
 logcat I/Typeface: Preloading /system/fonts/RobotoStatic-Regular.ttf
+done

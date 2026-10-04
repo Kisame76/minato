@@ -1,8 +1,6 @@
 package io.github.kisame76.minato.test.packagemanager;
 
-import android.app.ActivityThread;
 import android.app.Application;
-import android.app.ApplicationPackageManager;
 import android.content.ComponentName;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
@@ -31,10 +29,8 @@ import java.util.UUID;
 /**
  * ADR-0039 b3.5a's test: what PackageManager answers about the app's own package, from its manifest, logged with the
  * tag package-manager-test and compared with Android 15's log (tools/android-reference.sh --app
- * package-manager-test). Each side reports once. Here the static initializer reports through our
- * ApplicationPackageManager, whose constructor takes the ActivityThread, since step a's driver creates no Context. On
- * Android that constructor does not exist (NoSuchMethodError), and onCreate reports through getPackageManager(); ours
- * does not call onCreate before step c.
+ * package-manager-test). onCreate reports through getPackageManager(), on Minato since step c2b's ActivityThread
+ * calls it, and ends with "done".
  *
  * Every public field of the SDK's info classes is logged, by name, since reflection on Android hides the hidden ones
  * and ours does not. What differs by decision is masked, after checking its shape: the code paths' random folders
@@ -103,7 +99,7 @@ public class PackageManagerApplication extends Application {
             "descriptionRes", "uiOptions", "configChanges", "softInputMode", "reqGlEsVersion", "version",
             "sharedUserLabel", "protectionLevel", "reqInputFeatures");
 
-    /** SHA-256's round constants, before the static initializer, which reports on Minato. */
+    /** SHA-256's round constants. */
     private static final int[] K = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -116,18 +112,6 @@ public class PackageManagerApplication extends Application {
     };
 
     private static long sFirstInstallTime;
-
-    static {
-        PackageManager pm = null;
-        try {
-            pm = new ApplicationPackageManager(ActivityThread.currentActivityThread());
-        } catch (NoSuchMethodError e) {
-            // Android: there is no such constructor, and onCreate reports.
-        }
-        if (pm != null) {
-            run(pm);
-        }
-    }
 
     @Override
     public void onCreate() {

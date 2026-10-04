@@ -28,6 +28,8 @@ public class GraphicsStartApplication extends Application {
             print("FAILED " + e);
             e.printStackTrace();
         }
+        // The last line, after which the run on the Mac ends (framework/tests/java_app_run.py, step c2b).
+        print("done");
     }
 
     static void print(String line) {

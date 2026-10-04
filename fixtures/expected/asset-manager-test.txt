@@ -7,6 +7,7 @@
 # DirectoryAssetsProvider gives with a "/". An app's AssetManager holds the system's ApkAssets and its own.
 # libandroidfw's LOG(ERROR) has no LOG_TAG, so it goes out under the default tag, which zygote's SetThreadName sets to
 # the process name's last 15 characters.
+# The app's last line is done, which ends the run (step c2b).
 system ApkAssets <empty> and /system/framework/framework-res/
 list "" 3: geoid_map images webkit
 list "geoid_map" 15: README.md expiration-distance-disk-tile-1.pb expiration-distance-disk-tile-3.pb expiration-distance-disk-tile-5.pb expiration-distance-disk-tile-7.pb expiration-distance-disk-tile-9.pb expiration-distance-disk-tile-b.pb expiration-distance-params.pb geoid-height-disk-tile-1.pb geoid-height-disk-tile-3.pb geoid-height-disk-tile-5.pb geoid-height-disk-tile-7.pb geoid-height-disk-tile-9.pb geoid-height-disk-tile-b.pb geoid-height-params.pb
@@ -21,3 +22,4 @@ ro.build.version.sdk 35
 loadFromDir of a missing folder throws java.io.IOException
 logcat I/asset-manager-test: Log.i reaches logcat
 logcat E/st.assetmanager: Failed to find directory '/system/framework/no-such-folder'.
+done

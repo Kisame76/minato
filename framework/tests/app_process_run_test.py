@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """framework/tests/app_process_run.py's convert() (ADR-0039 step c1): a container is made again unless it was made
 from the very ELF file given, by its real path, size and time, so a folder pointed at an older build gets that
-build's containers. Run with a stand-in for apk-convert in a scratch directory."""
+build's containers. Run with a stand-in for apk-convert in a scratch directory. And its run_app() (step c2b): an app
+process runs its main Looper and never ends by itself, so a run ends 2 s after the app's last line, killed as
+am force-stop ends it on Android, and counts as ended; a process that ends by itself keeps its exit status. Run with
+stand-ins for the app process in Python."""
 import os
 import stat
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app_process_run  # noqa: E402
@@ -65,6 +69,48 @@ with tempfile.TemporaryDirectory() as scratch:
     app_process_run.convert(fake, older, container)
     check(len(calls_made()) == count + 1, "a container without its stamp is converted again")
 
+
+def program(*lines):
+    """A stand-in for the app process: Python's lines, with print and stderr flushed as the app's log is."""
+    return [sys.executable, "-c", "import sys, time\n" + "\n".join(lines)]
+
+
+LAST = r"^(?:[VDIWEF]/)?app: done$"
+LOG = "sys.stderr.write('I/app: {}\\n'); sys.stderr.flush()"
+
+# The last line, then more output within the grace, and a process that would run on: killed, and the run ended.
+began = time.monotonic()
+result = app_process_run.run_app(program("print('app: one', flush=True)", "print('app: done', flush=True)",
+                                     "print('app: after', flush=True)", LOG.format("logged"), "time.sleep(60)"),
+                             LAST, grace=0.5)
+took = time.monotonic() - began
+check(result is not None and result.returncode == 0, f"the run ends with its last line: {result}")
+check(result is not None and result.stdout.splitlines() == ["app: one", "app: done", "app: after"]
+      and result.stderr.splitlines() == ["I/app: logged"], f"the output before the kill is kept: {result}")
+check(took < 10, f"the process is killed after the grace, not at its end: {took:.1f} s")
+
+# The last line in the log ends it too, as Log.i(TAG, "done") gives it.
+result = app_process_run.run_app(program(LOG.format("done"), "time.sleep(60)"), LAST, grace=0.5)
+check(result is not None and result.returncode == 0 and result.stderr == "I/app: done\n", f"a log line: {result}")
+
+# A line that only holds the text is not the last line: the process runs on past the grace and ends by itself.
+began = time.monotonic()
+result = app_process_run.run_app(program("print('app: done or not', flush=True)", "time.sleep(1.5)", "sys.exit(3)"),
+                                 LAST, grace=0.5)
+check(result is not None and result.returncode == 3 and time.monotonic() - began < 10,
+      f"another line, then an end by itself with its status: {result}")
+
+# A crash within the grace keeps the crash's status.
+result = app_process_run.run_app(program("print('app: done', flush=True)", "time.sleep(0.2)", "sys.exit(10)"), LAST,
+                             grace=5)
+check(result is not None and result.returncode == 10, f"a crash after the last line: {result}")
+
+# Without its last line, no end within the timeout: None, and the process is killed.
+began = time.monotonic()
+result = app_process_run.run_app(program("print('app: one', flush=True)", "time.sleep(60)"), LAST, grace=0.5,
+                             timeout=1)
+check(result is None and time.monotonic() - began < 10, f"no last line within the timeout: {result}")
+
 if failures:
     sys.exit(f"app_process_run_test: {failures} failed")
-print("app_process_run_test: convert() fine")
+print("app_process_run_test: convert() and run_app() fine")

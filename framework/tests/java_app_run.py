@@ -14,6 +14,10 @@ holds the app's log lines with its own tag, which the process's log must hold in
 <app>-device differ by device and are only shown. A configuration begins a session (apk-run --configuration).
 Prints "skipped: ..." while a part is not built.
 
+Since step c2b the app process runs its main Looper and never ends by itself. Every Java test ends with the line
+"<app>: done", in System.out or in its log, and the run ends 2 s after it, as tools/android-reference.sh stops the app
+on the AVD after that line (app_process_run.run_app).
+
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
@@ -75,7 +79,7 @@ def main():
     for again in ((False, True) if restart else (False,)):
         result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
-                       signers=signers, again=again)
+                       signers=signers, again=again, last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: done$")
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

@@ -355,7 +355,7 @@ frameworks_base/core/java/android/os/DeadObjectException.java
 frameworks_base/core/java/android/os/DeadSystemException.java
 frameworks_base/core/java/android/os/DeadSystemRuntimeException.java
 
-# ADR-0039 step c1: Context and ContextWrapper, under our interim Application and our ContextImpl; their hidden types
+# ADR-0039 step c1: Context and ContextWrapper, under the Application and our ContextImpl; their hidden types
 # and members are compile-only stubs, and the broadcast options, autofill and feature contexts wait for ADR-0045 and
 # ADR-0041. AppComponentFactory, through which LoadedApk makes the Application, as an app's android:appComponentFactory
 # (AndroidX's CoreComponentFactory) may name a subclass of it.
@@ -424,3 +424,13 @@ frameworks_base/core/java/android/app/IUnsafeIntentStrictModeCallback.aidl
 # ADR-0039 step c1: Environment, for decision 6's paths, the DIRECTORY_* names apps read and ContextImpl's external
 # folders, patched to the one emulated volume (framework/patches/environment-one-emulated-volume.patch).
 frameworks_base/core/java/android/os/Environment.java
+
+# ADR-0039 step c2b: AOSP's Application, which replaces our interim one now that ActivityThread calls its onCreate:
+# the activity lifecycle callbacks Activity dispatches to it, the ComponentCallbacks2 it implements, the controller
+# that passes configuration and memory events on to registered callbacks, and autofill's Helper for its log flags.
+# AOSP's Instrumentation comes with Activity in step c2c, whose closure it needs.
+frameworks_base/core/java/android/app/Application.java
+frameworks_base/core/java/android/content/ComponentCallbacks.java
+frameworks_base/core/java/android/content/ComponentCallbacks2.java
+frameworks_base/core/java/android/content/ComponentCallbacksController.java
+frameworks_base/core/java/android/view/autofill/Helper.java

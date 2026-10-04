@@ -10,8 +10,9 @@
  * as bindApplication hands Android's app its ApplicationInfo, with who signed it from the import's signers.json
  * (b3.5b1). Then it gives hwui the app's target SDK and loads the system's font map (ADR-0043 test 2), as
  * handleBindApplication does. Since step c1 it makes the Application as makeApplication does: through LoadedApk, with
- * the app's ContextImpl attached before attachBaseContext returns. It runs no main Looper, no onCreate and no
- * lifecycle yet; those come in step c2. Until then the process exits once the Application is made.
+ * the app's ContextImpl attached before attachBaseContext returns. Since step c2b, main() prepares the main Looper as
+ * AOSP's does, calls the Application's onCreate as handleBindApplication does, and then runs the Looper, which ends
+ * only with the process. The providers and the launcher activity come in step c2c, the lifecycle host in step c3.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -25,9 +26,12 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Typeface;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.LocaleList;
+import android.os.Looper;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.util.ArrayMap;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import dalvik.system.RuntimeHooks;
@@ -42,8 +46,8 @@ public final class ActivityThread {
     private static volatile ActivityThread sCurrentActivityThread;
 
     /**
-     * The main thread's Handler, to which SharedPreferencesImpl posts its listeners' calls from another thread. AOSP's
-     * main() sets it with the main Looper, which comes in step c2; until then it is null.
+     * The main thread's Handler, to which SharedPreferencesImpl posts its listeners' calls from another thread. main()
+     * sets it with the main Looper, as AOSP's does (step c2b).
      */
     static volatile Handler sMainThreadHandler;
 
@@ -52,6 +56,18 @@ public final class ActivityThread {
     private final ClassLoader mClassLoader;
     private final ManifestPackage mPackage;
     private Application mInitialApplication;
+
+    /**
+     * The activities by their token, as AOSP's ActivityThread keeps them, which Application.getAutofillClient walks:
+     * none until step c2c launches the first.
+     */
+    final ArrayMap<IBinder, ActivityClientRecord> mActivities = new ArrayMap<>();
+
+    /** An activity's record, with what AOSP's Application reads; step c2c's launch makes and fills it. */
+    public static final class ActivityClientRecord {
+        Activity activity;
+        boolean isTopResumedActivity;
+    }
 
     private ActivityThread(String packageName, String processName, ClassLoader classLoader, ManifestPackage pkg) {
         mPackageName = packageName;
@@ -103,7 +119,7 @@ public final class ActivityThread {
         return null;
     }
 
-    /** The broadcast the main thread is receiving, which StrictMode names in a violation: none before step c2. */
+    /** The broadcast the main thread is receiving, which StrictMode names in a violation: none, Minato has none yet. */
     public static Intent getIntentBeingBroadcast() {
         return null;
     }
@@ -113,6 +129,7 @@ public final class ActivityThread {
         return false;
     }
 
+    @SuppressWarnings("deprecation") // Looper.prepareMainLooper, deprecated for apps, which only this main calls.
     public static void main(String[] args) throws ErrnoException {
         // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1).
         LoggingHandler logging = new LoggingHandler();
@@ -143,6 +160,9 @@ public final class ActivityThread {
                     + "--library-path <folder> --data-dir <folder> [--signers <signers.json>] "
                     + "[--application <class>]");
         }
+        // As AOSP's main: the main thread's Looper, and the Handler that framework classes post to it with.
+        Looper.prepareMainLooper();
+        sMainThreadHandler = new Handler(Looper.myLooper());
         // Context.getCacheDir's folder, which installd creates at the install.
         String tmpdir = dataDir + "/cache";
         System.setProperty("java.io.tmpdir", tmpdir);
@@ -174,17 +194,26 @@ public final class ActivityThread {
         // android.app.Application, through the app's AppComponentFactory, which loads and initializes it, then its
         // attachBaseContext with the app's ContextImpl. currentApplication() gives it out from then on.
         LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
+        Application app;
         try {
-            thread.mInitialApplication = packageInfo.makeApplication(application);
+            app = packageInfo.makeApplication(application);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException("Unable to instantiate application " + application + " package " + packageName
                     + ": " + e, e);
         }
-        // Until step c2 runs the main Looper and the lifecycle, the process ends once the Application is made. First
-        // what SharedPreferences' apply() queued reaches the disk, as QueuedWork.waitToFinish makes sure before Android
-        // stops an app; then the process exits, which QueuedWork's thread, among the app's own, would keep alive.
-        QueuedWork.waitToFinish();
-        System.exit(0);
+        thread.mInitialApplication = app;
+        // As handleBindApplication after the providers (step c2c): Instrumentation.callApplicationOnCreate, which calls
+        // onCreate and nothing else, and Android's wrapping of what it throws. AOSP's Instrumentation comes with
+        // Activity in step c2c, whose closure it needs, and then makes this call.
+        try {
+            app.onCreate();
+        } catch (Exception e) {
+            throw new RuntimeException("Unable to create application " + app.getClass().getName() + ": " + e, e);
+        }
+        // As AOSP's main: the Looper runs the app's messages until the process ends. Android ends it from outside (am
+        // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
+        Looper.loop();
+        throw new RuntimeException("Main thread loop unexpectedly exited");
     }
 
     private static volatile boolean sCrashing;
