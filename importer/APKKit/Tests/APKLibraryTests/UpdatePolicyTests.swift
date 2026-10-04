@@ -58,6 +58,21 @@ struct UpdatePolicyTests {
         #expect(UpdatePolicy.decide(installed: Self.version(3, state), new: Self.version(3, state)) == .unchanged)
     }
 
+    @Test func leavesTheSameBytesUnchangedBeforeAnyQuestion() {
+        // The same bytes carry the same signature, so an answer could change nothing: "Replace" on them used to throw
+        // versionFolderInUse (ADR-0048 b5b2, the lead's reviewer).
+        var unsigned = Self.version(3, signer: SignerIdentity(current: []))
+        unsigned.signerProven = false
+        #expect(UpdatePolicy.decide(installed: unsigned, new: unsigned) == .unchanged)
+        var unchecked = Self.version(3)
+        unchecked.uncheckedFiles = ["de.apk"]
+        #expect(UpdatePolicy.decide(installed: Self.version(3), new: unchecked) == .unchanged)
+        // A damaged file is still turned away first.
+        var damaged = Self.version(3, .incompatible)
+        damaged.signatureFailed = true
+        #expect(UpdatePolicy.decide(installed: Self.version(3), new: damaged) == .reject(.incompatible))
+    }
+
     @Test(arguments: [LibraryEntry.State.ready, .needsSplits, .incompatible])
     func installsTheSameVersionWithOtherBytesAgain(state: LibraryEntry.State) {
         #expect(UpdatePolicy.decide(installed: Self.version(3, state), new: Self.version(3, state, sha256: "bb")) == .reinstall)

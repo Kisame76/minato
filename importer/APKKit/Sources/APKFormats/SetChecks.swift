@@ -98,6 +98,19 @@ public enum SetChecks {
                                    needsSplits: needsSplits(base: first, splits: splits)))
     }
 
+    /// Splits without their base on the installed version, as Android's inherit mode stages them
+    /// (`PackageInstallerSession.java:3433-3437, 3678-3718`; ADR-0048, decision 7): its base and splits with each of
+    /// `splits` added, or in place of the one of its name, to be checked as a set again. nil where they cannot join it:
+    /// no installed base, or a split of another package, version code or signer than its base's ("Missing existing base
+    /// package", "Existing … inconsistent with …", "Existing signatures are inconsistent").
+    public static func joining(_ splits: [SetMember], installed: [SetMember]) -> [SetMember]? {
+        guard !splits.isEmpty, let base = installed.first(where: \.isBase), splits.allSatisfy({ split in
+            split.packageName == base.packageName && split.versionCode == base.versionCode && sameSigner(split, base)
+        }) else { return nil }
+        let names = Set(splits.map(\.splitName))
+        return [base] + installed.filter { !$0.isBase && !names.contains($0.splitName) } + splits
+    }
+
     /// "Needs split APKs": a missing split, or bundletool's older signals with no split at all (F1).
     static func needsSplits(base: SetMember, splits: [SetMember]) -> Bool {
         missesSplit(base: base, splits: splits) || base.stricterSplitSignal && splits.isEmpty

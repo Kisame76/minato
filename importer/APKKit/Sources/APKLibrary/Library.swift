@@ -342,12 +342,12 @@ public actor Library {
         return finish(ImportResult(entry: entry, decision: decision, report: report))
     }
 
-    /// Imports a unit (ADR-0048, decisions 1 to 6): its APKs grouped into sets by package and version. A set is
-    /// checked as Android's installer checks a session, its splits are chosen for the device, and it is analysed over
-    /// the APKs Minato installs, then installed, updated or asked about as one APK is (ADR-0034); a set Android refuses
-    /// becomes an `.invalid` entry. One APK, and a file that is no APK, go through `importFile`, as before. The unit
-    /// stays while a set asks, so the question comes again at the next scan; `replacing` answers "Replace" for the
-    /// unit. Returns a result for each set and each such file.
+    /// Imports a unit (ADR-0048, decisions 1 to 7): its APKs grouped into sets by package and version, where splits
+    /// without their base join the installed version. A set is checked as Android's installer checks a session, its
+    /// splits are chosen for the device, and it is analysed over the APKs Minato installs, then installed, updated or
+    /// asked about as one APK is (ADR-0034); a set Android refuses becomes an `.invalid` entry. One APK, and a file
+    /// that is no APK, go through `importFile`, as before. The unit stays while a set asks, so the question comes again
+    /// at the next scan; `replacing` answers "Replace" for the unit. Returns a result for each set and each such file.
     @discardableResult
     public func importUnit(_ unit: URL, replacing: Bool = false, signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
@@ -384,8 +384,8 @@ public actor Library {
         return results
     }
 
-    /// One set of a unit (ADR-0048, decisions 3 to 6): the base with its chosen splits, or splits without their base,
-    /// which only an installed version may take (decision 7, step b5b2).
+    /// One set of a unit (ADR-0048, decisions 3 to 7): the base with its chosen splits, or splits without their base,
+    /// which join the installed version.
     private func importSet(_ group: [SetMember], files: [String: (url: URL, archive: ZipArchive)], replacing: Bool,
                            signing: ImportSigning?) throws -> ImportResult {
         func refuse(_ reason: String, file: SetMember) throws -> ImportResult {
@@ -396,10 +396,41 @@ public actor Library {
             try store(entry)
             return ImportResult(entry: entry, decision: .install, report: nil)
         }
-        let set: CheckedSet
+        var set: CheckedSet
         switch SetChecks.check(group) {
         case .success(let checked): set = checked
         case .failure(let refusal): return try refuse(refusal.reason, file: group[0])
+        }
+        // Each APK of the set by its split name, unique once checked: the unit's, then the installed version's.
+        var apks = Dictionary(uniqueKeysWithValues: group.map { ($0.splitName, files[$0.fileName]!) })
+        var installedSource: SourceFile?
+        if set.base == nil, let installed = entries.first(where: { $0.id == group[0].packageName }) {
+            // Splits without their base join the installed version, as Android's inherit mode adds them, and the
+            // joined set is checked again (decision 7).
+            let installedAPKs = installedAPKs(of: installed)
+            if let joined = SetChecks.joining(set.splits, installed: installedAPKs.map(\.member)),
+               let installedBase = joined.first(where: \.isBase) {
+                let first = set.splits[0]
+                switch SetChecks.check(joined) {
+                case .success(let checked): set = checked
+                case .failure(let refusal): return try refuse(refusal.reason, file: first)
+                }
+                // The session's signer comes from its first APK, here a split (Minato's first by name, as SetChecks
+                // orders them), and Android holds it to the scheme the package's targetSdkVersion asks for
+                // (PackageInstallerSession.java:3501-3503, InstallPackageHelper.java:1330-1331, ScanPackageUtils.java:
+                // 740-751), while SetMember verified the split for no targetSdkVersion.
+                if installedBase.targetSdk >= 30,
+                   case .failed(let failure) = SignatureVerifier.verify(files[first.fileName]!.archive,
+                                                                        targetSdk: installedBase.targetSdk).check,
+                   failure.kind == .noV2Signature {
+                    return try refuse("No signature found in package of version 2 or newer for package \(first.packageName)",
+                                      file: first)
+                }
+                for apk in installedAPKs where apks[apk.member.splitName] == nil {
+                    apks[apk.member.splitName] = (apk.url, apk.archive)
+                }
+                installedSource = installed.source
+            }
         }
         guard let base = set.base else {
             let split = set.splits[0]
@@ -407,11 +438,12 @@ public actor Library {
                               file: split)
         }
         guard Self.isSafePackageName(base.packageName) else {
-            return try refuse(String(describing: LibraryError.unsafePackageName(base.packageName)), file: base)
+            // The unit's first file: after a join, the base is the installed one.
+            return try refuse(String(describing: LibraryError.unsafePackageName(base.packageName)), file: group[0])
         }
         let choice = SplitSelector.choose(set, for: device)
         var (report, icon) = try SetAnalysis.analyze(set, choice: choice, preferredLanguages: preferredLanguages) {
-            files[$0.fileName]!.archive
+            apks[$0.splitName]!.archive
         }
         if let reason = choice.incompatibility {
             report.compatibility.issues.append(.splitChoice(reason))
@@ -419,12 +451,12 @@ public actor Library {
         }
         let installing = [base] + choice.chosen
         let digest = choice.chosen.isEmpty ? base.sha256 : try SetDigest.of(installing.map { ($0.splitName, $0.sha256) })
-        var source = try Self.sourceFile(for: files[base.fileName]!.url)
+        var source = try installedSource ?? Self.sourceFile(for: apks[nil]!.url)
         source.sha256 = base.sha256
         let new = NewVersion(
             report: report, digest: digest, source: source,
             files: try installing.map { member in
-                let url = files[member.fileName]!.url
+                let url = apks[member.splitName]!.url
                 return (url, PackageFile(fileName: SetDigest.installedName(of: member.splitName), splitName: member.splitName,
                                          size: try Self.sourceFile(for: url).size, sha256: member.sha256,
                                          kind: Self.kind(of: member.role), configForSplit: member.configForSplit))
@@ -432,9 +464,28 @@ public actor Library {
             skippedSplits: choice.skipped.map {
                 SkippedSplit(fileName: $0.member.fileName, splitName: $0.member.splitName ?? "", reason: $0.reason)
             },
-            icon: icon, archive: files[base.fileName]!.archive,
-            version: { state in AppVersion(set: set, state: state, sha256: digest) })
+            icon: icon, archive: apks[nil]!.archive,
+            version: { [set] state in AppVersion(set: set, state: state, sha256: digest) })
         return try install(new, replacing: replacing, signing: signing, discarding: nil, progress: { _ in })
+    }
+
+    /// The APKs of an installed version as members of a set, under their names in its folder: none where it keeps no
+    /// base, where one of them cannot be read or has other bytes than its entry names, or where they no longer pass
+    /// as a set, which Android, taking them unverified, would not notice (PackageInstallerSession.java:3680-3681).
+    private func installedAPKs(of entry: LibraryEntry) -> [(member: SetMember, url: URL, archive: ZipArchive)] {
+        guard let base = entry.base else { return [] }
+        let folder = paths.versionDirectory(for: entry)
+        var apks: [(member: SetMember, url: URL, archive: ZipArchive)] = []
+        for file in [base] + entry.splits {
+            let url = folder.appendingPathComponent(file.fileName)
+            guard let size = try? Self.sourceFile(for: url).size,
+                  let sha256 = try? Self.sha256(of: url, size: size, progress: { _ in }), sha256 == file.sha256,
+                  let archive = try? ZipArchive(url: url),
+                  let member = try? SetMember.read(archive, fileName: file.fileName, sha256: sha256) else { return [] }
+            apks.append((member, url, archive))
+        }
+        guard case .success = SetChecks.check(apks.map(\.member)) else { return [] }
+        return apks
     }
 
     static func kind(of role: SplitRole) -> PackageFile.Kind {

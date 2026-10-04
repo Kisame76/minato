@@ -102,6 +102,8 @@ public enum UpdatePolicy {
             || installed.state == .needsSplits && new.state == .incompatible {
             return .reject(new.state)
         }
+        // The same bytes carry the same signature, so no answer could change anything (ADR-0048 b5b2).
+        if let bytes = installed.sha256, bytes == new.sha256 { return .unchanged }
         var warnings: Set<UpdateWarning> = []
         if !new.uncheckedFiles.isEmpty { warnings.insert(.uncheckedContent) }
         if !new.signerProven || !installed.signerProven || !new.signer.canUpdate(installed.signer) {
@@ -110,7 +112,6 @@ public enum UpdatePolicy {
         if new.versionCode < installed.versionCode { warnings.insert(.olderVersion) }
         if !warnings.isEmpty { return .ask(warnings) }
         if new.versionCode > installed.versionCode { return .update }
-        if let bytes = installed.sha256, bytes == new.sha256 { return .unchanged }
         return .reinstall
     }
 }

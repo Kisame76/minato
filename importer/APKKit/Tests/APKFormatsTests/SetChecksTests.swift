@@ -263,4 +263,45 @@ struct SetChecksTests {
         #expect(!alone.missingSplit && alone.needsSplits)
         #expect(!(try Self.checked([Self.base(applicationSplitRequired: true), Self.split("config.de")]).needsSplits))
     }
+
+    // MARK: - Joining the installed version (decision 7)
+
+    @Test func aLoneSplitJoinsTheInstalledVersion() throws {
+        // Android's inherit mode stages the installed base and splits with the new ones (:3687-3718).
+        let joined = try SetChecks.joining([Self.split("config.de")], installed: [Self.base(), Self.split("config.arm64_v8a")])
+        #expect(joined?.map(\.fileName) == ["base.apk", "split_config.arm64_v8a.apk", "split_config.de.apk"])
+    }
+
+    @Test func aSplitTakesThePlaceOfTheInstalledOneOfItsName() throws {
+        let new = try Self.member(SplitAPK.make(split: "config.de", files: ["assets/text": Data("new".utf8)]), "de.apk")
+        let joined = try SetChecks.joining([new, Self.split("config.en")],
+                                           installed: [Self.base(), Self.split("config.de"), Self.split("config.fr")])
+        #expect(joined?.map(\.fileName) == ["base.apk", "split_config.fr.apk", "de.apk", "split_config.en.apk"])
+    }
+
+    @Test func splitsJoinOnlyAnInstalledBaseOfTheirPackageVersionAndExactSigner() throws {
+        // "Missing existing base package", "Existing … inconsistent with …", "Existing signatures are inconsistent"
+        // (:3433-3437, 3678-3685): the splits then need their base (decision 3).
+        let de = try Self.split("config.de")
+        #expect(SetChecks.joining([de], installed: []) == nil)
+        #expect(try SetChecks.joining([de], installed: [Self.split("config.arm64_v8a")]) == nil)
+        #expect(try SetChecks.joining([Self.split("config.de", versionCode: 2)], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([de], installed: [Self.base(versionCode: 2)]) == nil)
+        let other = try Self.member(SplitAPK.make(package: "org.example.other", split: "config.de"), "split_config.de.apk")
+        #expect(try SetChecks.joining([other], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([Self.split("config.de", signers: [.rsa])], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([Self.split("config.de", signers: [.ec, .rsa])], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([Self.split("config.de", signers: [])], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([Self.split("config.de", signers: [])], installed: [Self.base(signers: [])])?.count == 2)
+        #expect(try SetChecks.joining([], installed: [Self.base()]) == nil)
+    }
+
+    @Test func everySplitMustMatchTheInstalledBase() throws {
+        // Not only the first (the lead's reviewer): joining promises it for each of them.
+        let de = try Self.split("config.de")
+        #expect(try SetChecks.joining([de, Self.split("config.en", signers: [.rsa])], installed: [Self.base()]) == nil)
+        #expect(try SetChecks.joining([de, Self.split("config.en", versionCode: 2)], installed: [Self.base()]) == nil)
+        let other = try Self.member(SplitAPK.make(package: "org.example.other", split: "config.en"), "split_config.en.apk")
+        #expect(try SetChecks.joining([de, other], installed: [Self.base()]) == nil)
+    }
 }
