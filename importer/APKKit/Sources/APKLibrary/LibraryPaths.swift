@@ -19,7 +19,8 @@ public struct LibraryPaths: Sendable {
             applicationSupport: try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
     }
 
-    /// Files picked with + or "Open with" wait here, hidden, until they are installed.
+    /// Files picked with + or "Open with" wait here, hidden, until they are installed: each pick in a folder of its own,
+    /// `<uuid>.partial` while it is taken over (ADR-0048, decision 1).
     public var incoming: URL { applicationSupport.appendingPathComponent("incoming", isDirectory: true) }
 
     /// Where iOS puts copies of files that "Open with" cannot hand over in place (Mail, Safari).

@@ -1,6 +1,8 @@
+import APKFormats
 import APKKit
 import CryptoKit
 import Foundation
+import Synchronization
 
 public enum LibraryError: Error, Equatable, Sendable {
     /// The manifest's package name is not a valid Android package name (and could escape the library folders).
@@ -8,6 +10,8 @@ public enum LibraryError: Error, Equatable, Sendable {
     /// The new version's folder would be the one in use: another file whose SHA-256 begins like the
     /// installed version's (ADR-0034).
     case versionFolderInUse(String)
+    /// A pick with nothing to take over: a folder without `.apk` or `.obb` files, or only links (ADR-0048, decision 1).
+    case nothingToImport
 }
 
 /// The installed apps and the import pipeline: picked file → hidden copy → analysis → install directory → index.
@@ -20,6 +24,22 @@ public actor Library {
         self.paths = paths
         self.preferredLanguages = preferredLanguages
         entries = try Self.entries(in: paths)
+        Self.launched.withLock { launched in
+            if launched.insert(paths.incoming.standardizedFileURL.path).inserted { Self.removeUnfinishedPicks(in: paths) }
+        }
+    }
+
+    /// The incoming folders this process has cleaned up. Only its first Library does so, before any pick of the process
+    /// starts and while later ones wait, so a pick another Library is still taking over stays: "Open with" during a
+    /// session makes one for each file. iOS runs one process of the app at a time (ADR-0048, decision 1).
+    private static let launched = Mutex<Set<String>>([])
+
+    /// Removes the picks an earlier launch did not finish taking over, `incoming/<uuid>.partial/`.
+    private static func removeUnfinishedPicks(in paths: LibraryPaths) {
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: paths.incoming.path)) ?? []
+        where (name as NSString).pathExtension == "partial" {
+            try? FileManager.default.removeItem(at: paths.incoming.appendingPathComponent(name))
+        }
     }
 
     /// The entries the index holds, read without the actor: at launch, game mode or the library is chosen
@@ -30,37 +50,112 @@ public actor Library {
             .map { findingFolder(of: $0, in: paths) }
     }
 
-    /// Picked files that are not installed yet: normally the ones `adopt` just took over, after an
-    /// interrupted import also those left over from last time. What such an import left in apps/ goes first.
+    /// The APKs of picks that are not installed yet, each pick's in name order and the oldest pick first: normally
+    /// those `adopt` just took over, after an interrupted import also those left over from last time. A pick still
+    /// being taken over is none yet (ADR-0048, decision 1). What such an import left in apps/ goes first.
     public func scan() throws -> [URL] {
         removeLeftovers()
         syncSignersFiles()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
-        return try fileManager.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: nil)
-            .filter(Self.isAPK)
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        // Resource values describe a link itself, so a link is neither a folder nor a regular file.
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .creationDateKey]
+        var units: [(created: Date, name: String, files: [URL])] = []
+        for item in try fileManager.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: Array(keys),
+                                                        options: [.skipsHiddenFiles]) {
+            let values = try item.resourceValues(forKeys: keys)
+            if values.isDirectory == true, item.pathExtension != "partial" {
+                let files = try Self.files(inUnit: item)
+                if files.isEmpty {
+                    rmdir(item.path) // its last file went, the folder did not
+                } else {
+                    units.append((values.creationDate ?? .distantPast, item.lastPathComponent, files.filter(Self.isAPK)))
+                }
+            } else if values.isRegularFile == true, Self.isAPK(item) {
+                // Older builds took a file over flat, and tools/session-check.sh and tools/update-check.sh still drop
+                // one there: a unit of its own.
+                units.append((values.creationDate ?? .distantPast, item.lastPathComponent, [item]))
+            }
+        }
+        return units.sorted { ($0.created, $0.name) < ($1.created, $1.name) }.flatMap(\.files)
     }
 
-    /// Takes over a file picked with + or opened with "Open with" and returns where it waits for `importFile`.
-    /// The file is cloned into a hidden folder: on APFS that takes no extra space, nothing new appears in the
-    /// Files app, and the original stays where it is. Only a copy iOS itself put into Documents/Inbox is removed.
-    /// Callers own security-scoped access to `url`.
-    public func adopt(_ url: URL) throws -> URL {
+    /// Takes over one pick (ADR-0048, decision 1): files picked together with +, a folder, or a file opened with "Open
+    /// with". A folder gives its `.apk` and `.obb` files, or its only subfolder's (`ImportUnit.files`). They are cloned
+    /// into `incoming/<uuid>.partial/`, which becomes `incoming/<uuid>/` once complete, so a scan never sees a pick half
+    /// taken over: on APFS a clone takes no extra space, nothing new appears in the Files app, and the originals stay
+    /// where they are. Only regular files are taken, never a link, so nothing in incoming/ points outside the pick, and
+    /// only a copy iOS itself put into Documents/Inbox is removed. Returns the unit's folder. Callers own
+    /// security-scoped access to the pick.
+    public func adopt(_ pick: [URL]) async throws -> URL {
         let fileManager = FileManager.default
+        var sources: [URL] = []
+        for item in pick {
+            sources += try Self.coordinatedRead(item) { readable in
+                // Resource values describe a link itself, so a picked link is neither and gives nothing.
+                let values = try readable.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                if values.isDirectory == true { return try ImportUnit.files(inFolder: readable) }
+                return values.isRegularFile == true ? [readable] : []
+            }
+        }
+        guard sources.count <= ImportUnit.maxFiles else { throw ImportUnitError.tooManyFiles(sources.count) }
         try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
-        let target = Self.unusedURL(in: paths.incoming, name: url.lastPathComponent)
+        let unit = paths.incoming.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let partial = unit.appendingPathExtension("partial")
+        try fileManager.createDirectory(at: partial, withIntermediateDirectories: false)
+        do {
+            var taken = 0
+            for source in sources {
+                let target = Self.unusedURL(in: partial, name: source.lastPathComponent)
+                try Self.coordinatedRead(source) { readable in
+                    // A clone where the volume allows one, else a copy. A link that took the file's place in the
+                    // meantime is copied as a link, and goes below.
+                    let flags = copyfile_flags_t(COPYFILE_CLONE | COPYFILE_NOFOLLOW)
+                    guard copyfile(readable.path, target.path, nil, flags) == 0 else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                }
+                if Self.isRegularFile(target) { taken += 1 } else { try? fileManager.removeItem(at: target) }
+                try await faultBetweenClones?()
+            }
+            guard taken > 0 else { throw LibraryError.nothingToImport }
+            try fileManager.moveItem(at: partial, to: unit)
+        } catch {
+            try? fileManager.removeItem(at: partial)
+            throw error
+        }
+        for item in pick where Self.isDirectChild(item, of: paths.inbox) {
+            try? fileManager.removeItem(at: item)
+        }
+        return unit
+    }
+
+    /// Takes over one file, as "Open with" hands it over, and returns where it waits for `importFile`: in its unit.
+    public func adopt(_ url: URL) async throws -> URL {
+        let unit = try await adopt([url])
+        let files = try Self.files(inUnit: unit)
+        return files.count == 1 ? files[0] : unit
+    }
+
+    /// Runs `access` on `url` in a coordinated read, so that files in iCloud Drive or other file providers are
+    /// materialised first.
+    private static func coordinatedRead<Result>(_ url: URL, _ access: (URL) throws -> Result) throws -> Result {
         var coordinationError: NSError?
-        var copyError: Error?
-        // Coordinated read, so that files in iCloud Drive or other file providers are materialised first.
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
-            do { try fileManager.copyItem(at: readableURL, to: target) } catch { copyError = error }
+        var outcome: Swift.Result<Result, Error>?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
+            outcome = Swift.Result { try access(readable) }
         }
-        if let error = coordinationError ?? copyError { throw error }
-        if Self.isDirectChild(url, of: paths.inbox) {
-            try? fileManager.removeItem(at: url)
-        }
-        return target
+        if let coordinationError { throw coordinationError }
+        guard let outcome else { throw CocoaError(.fileReadUnknown) }
+        return try outcome.get()
+    }
+
+    /// A unit's files: regular ones, never links or hidden files, in byte order of their names.
+    static func files(inUnit unit: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: unit, includingPropertiesForKeys: [.isRegularFileKey],
+                                                    options: [.skipsHiddenFiles])
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
     }
 
     /// Analyses one APK and installs it, updates the installed app of its package, or leaves that app as
@@ -232,6 +327,13 @@ public actor Library {
         faultBeforeTheSwitch = fault
     }
 
+    /// Runs after each file `adopt` clones for a pick; a test scans from it, or throws to stand for an interruption.
+    private var faultBetweenClones: (@Sendable () async throws -> Void)?
+
+    func runBetweenClones(_ hook: @escaping @Sendable () async throws -> Void) {
+        faultBetweenClones = hook
+    }
+
     /// Runs right before a scan writes a version's signers.json; a test throws from it to stand for a write that fails.
     private var faultWritingSignersFile: (@Sendable () throws -> Void)?
 
@@ -250,10 +352,14 @@ public actor Library {
         entries.removeAll { $0.id == id }
     }
 
-    /// The hidden copy `adopt` made is not needed once the app is installed or recorded as invalid.
+    /// The hidden copy `adopt` made is not needed once the app is installed or recorded as invalid. A unit goes with its
+    /// last file; a file flat in incoming/ is one of its own.
     private func discardPickedCopy(_ url: URL) {
         if Self.isDirectChild(url, of: paths.incoming) {
             try? FileManager.default.removeItem(at: url)
+        } else if Self.isDirectChild(url.deletingLastPathComponent(), of: paths.incoming) {
+            try? FileManager.default.removeItem(at: url)
+            rmdir(url.deletingLastPathComponent().path) // only once the folder is empty
         }
     }
 
