@@ -1,3 +1,4 @@
+import APKFormats
 import APKKit
 import Foundation
 
@@ -13,15 +14,41 @@ public struct AppVersion: Sendable, Equatable {
     public var signerProven: Bool
     /// Whether the signature check found the file damaged or forged.
     public var signatureFailed: Bool
+    /// The APKs of a set whose content Minato cannot check: a set's unverifiable APKs beside verified ones
+    /// (ADR-0048 b3).
+    public var uncheckedFiles: [String]
 
     public init(state: LibraryEntry.State, versionCode: Int64, sha256: String?, signer: SignerIdentity,
-                signerProven: Bool = true, signatureFailed: Bool = false) {
+                signerProven: Bool = true, signatureFailed: Bool = false, uncheckedFiles: [String] = []) {
         self.state = state
         self.versionCode = versionCode
         self.sha256 = sha256
         self.signer = signer
         self.signerProven = signerProven
         self.signatureFailed = signatureFailed
+        self.uncheckedFiles = uncheckedFiles
+    }
+
+    /// The version a checked set is about to become (ADR-0048 b3), its signer from how the set is signed, never from
+    /// its base's own report. A set of APKs Minato cannot check, or of unsigned APKs, is one such APK; one that mixes
+    /// verified and unverifiable APKs has the verified APKs' signer, proven, and names the others.
+    public init(set: CheckedSet, state: LibraryEntry.State, sha256: String?) {
+        let first = set.base ?? set.splits.first
+        let versionCode = first?.versionCode ?? 0
+        switch set.signing {
+        case .verified(let signer):
+            self.init(state: state, versionCode: versionCode, sha256: sha256, signer: signer)
+        case .partlyVerified(let signer, let unverifiable):
+            self.init(state: state, versionCode: versionCode, sha256: sha256, signer: signer,
+                      uncheckedFiles: unverifiable.map(\.fileName))
+        case .unverified:
+            // The certificates every APK names, the same in each (SetChecks).
+            self.init(state: state, versionCode: versionCode, sha256: sha256,
+                      signer: SignerIdentity(current: first?.certificates ?? []), signerProven: false)
+        case .unsigned:
+            self.init(state: state, versionCode: versionCode, sha256: sha256, signer: SignerIdentity(current: []),
+                      signerProven: false)
+        }
     }
 
     /// The version an entry holds; nil for a file that was not a readable APK. A report from before the
@@ -43,6 +70,9 @@ public enum UpdateWarning: Sendable, Hashable {
     /// Someone else signed the file, one of the two is unsigned, or the check could not prove the file's
     /// signer: it would get the installed app's data.
     case otherSigner
+    /// APKs of the set are signed in a way Minato cannot check, so it cannot check their content; the question names
+    /// them. Asked also where nothing is installed (ADR-0048 b3, the lead's decision).
+    case uncheckedContent
 }
 
 /// What importing a file does to the installed app of the same package (ADR-0034, decision 1).
@@ -64,7 +94,7 @@ public enum UpdateDecision: Sendable, Equatable {
 
 public enum UpdatePolicy {
     public static func decide(installed: AppVersion?, new: AppVersion) -> UpdateDecision {
-        guard let installed else { return .install }
+        guard let installed else { return new.uncheckedFiles.isEmpty ? .install : .ask([.uncheckedContent]) }
         // A damaged or forged file never replaces anything, and an unusable one never replaces a working
         // version, whatever its version or signer. A version that needs splits is a base waiting for its split
         // APKs: a file that cannot run, a lone split APK among them, never replaces it either.
@@ -73,6 +103,7 @@ public enum UpdatePolicy {
             return .reject(new.state)
         }
         var warnings: Set<UpdateWarning> = []
+        if !new.uncheckedFiles.isEmpty { warnings.insert(.uncheckedContent) }
         if !new.signerProven || !installed.signerProven || !new.signer.canUpdate(installed.signer) {
             warnings.insert(.otherSigner)
         }

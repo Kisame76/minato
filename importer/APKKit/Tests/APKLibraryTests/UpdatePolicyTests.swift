@@ -1,3 +1,4 @@
+import APKFormats
 import APKKit
 import APKTestSupport
 import Foundation
@@ -212,5 +213,51 @@ struct UpdatePolicyTests {
         beforeTheSigner.report?.signature.certificates.append(SigningCertificate(der: TestCertificates.rotatedSigner))
         #expect(AppVersion(entry: beforeTheSigner)?.signer
             == SignerIdentity(current: [TestCertificates.signerSHA256, TestCertificates.rotatedSignerSHA256].sorted()))
+    }
+
+    // MARK: - Sets (ADR-0048 b3)
+
+    static func member(_ data: Data, _ fileName: String) throws -> SetMember {
+        try SetMember.read(ZipArchive(data: data), fileName: fileName, sha256: fileName)
+    }
+
+    /// A checked set of a base by `.ec` and one split, `split`.
+    static func set(base: Data = SplitAPK.make(), split: Data) throws -> CheckedSet {
+        try SetChecks.check([member(base, "base.apk"), member(split, "split_feature.apk")]).get()
+    }
+
+    @Test func aSetWithFilesMinatoCannotCheckAsksAlsoOnAFreshInstall() throws {
+        // A DSA signer naming the base's certificate proves nothing about its APK's content, so the set asks and
+        // names it, also where nothing is installed (the lead's decision); its signer is the verified APKs', proven.
+        let partly = try Self.set(split: SplitAPK.make(split: "feature", v2: [TestSigner.Signer(.dsa, certificate: TestKey.ec.certificate)]))
+        let new = AppVersion(set: partly, state: .ready, sha256: "set")
+        #expect(new == AppVersion(state: .ready, versionCode: 1, sha256: "set", signer: SignerIdentity(current: [TestKey.ec.sha256]),
+                                  uncheckedFiles: ["split_feature.apk"]))
+        #expect(UpdatePolicy.decide(installed: nil, new: new) == .ask([.uncheckedContent]))
+        #expect(UpdatePolicy.decide(installed: Self.version(0, signer: new.signer), new: new) == .ask([.uncheckedContent]))
+        #expect(UpdatePolicy.decide(installed: Self.version(0), new: new) == .ask([.uncheckedContent, .otherSigner]))
+    }
+
+    @Test func aSetOfAPKsMinatoCannotCheckIsOneSuchAPK() throws {
+        // The certificates its APKs name, unproven (ADR-0034).
+        let unverified = try Self.set(base: SplitAPK.make(signers: [.dsa]), split: SplitAPK.make(split: "feature", signers: [.dsa]))
+        let new = AppVersion(set: unverified, state: .ready, sha256: "set")
+        #expect(new == AppVersion(state: .ready, versionCode: 1, sha256: "set", signer: SignerIdentity(current: [TestKey.dsa.sha256]),
+                                  signerProven: false))
+        #expect(UpdatePolicy.decide(installed: nil, new: new) == .install)
+        #expect(UpdatePolicy.decide(installed: Self.version(0, signer: new.signer), new: new) == .ask([.otherSigner]))
+    }
+
+    @Test func aVerifiedOrUnsignedSetIsDecidedAsOneSuchAPK() throws {
+        let verified = AppVersion(set: try Self.set(split: SplitAPK.make(split: "feature")), state: .ready, sha256: "set")
+        #expect(verified == AppVersion(state: .ready, versionCode: 1, sha256: "set", signer: SignerIdentity(current: [TestKey.ec.sha256])))
+        #expect(UpdatePolicy.decide(installed: nil, new: verified) == .install)
+        #expect(UpdatePolicy.decide(installed: Self.version(0, signer: verified.signer), new: verified) == .update)
+
+        let unsigned = try Self.set(base: SplitAPK.make(signers: []), split: SplitAPK.make(split: "feature", signers: []))
+        let bare = AppVersion(set: unsigned, state: .ready, sha256: "set")
+        #expect(bare == AppVersion(state: .ready, versionCode: 1, sha256: "set", signer: SignerIdentity(current: []), signerProven: false))
+        #expect(UpdatePolicy.decide(installed: nil, new: bare) == .install)
+        #expect(UpdatePolicy.decide(installed: Self.version(0), new: bare) == .ask([.otherSigner]))
     }
 }

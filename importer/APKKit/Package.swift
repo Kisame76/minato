@@ -21,8 +21,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "APKKit"),
-        .target(name: "APKLibrary", dependencies: ["APKKit", "APKSigning"]),
-        .testTarget(name: "APKLibraryTests", dependencies: ["APKLibrary", "APKKit", "APKSigning", "APKTestSupport"]),
+        .target(name: "APKLibrary", dependencies: ["APKKit", "APKSigning", "APKFormats"]),
+        .testTarget(name: "APKLibraryTests", dependencies: ["APKLibrary", "APKKit", "APKSigning", "APKFormats", "APKTestSupport"]),
         .target(name: "APKSigning"),
         .testTarget(name: "APKSigningTests", dependencies: ["APKSigning"]),
         // Game mode's pure logic (ADR-0032), tested on the Mac: the launch request and decision, the
