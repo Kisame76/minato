@@ -694,3 +694,59 @@ frameworks_base/core/java/android/hardware/SystemSensorManager.java
 frameworks_base/core/java/android/hardware/TriggerEvent.java
 frameworks_base/core/java/android/hardware/TriggerEventListener.java
 frameworks_base/core/java/android/speech/tts/UtteranceProgressListener.java
+
+# ADR-0041 a), Grafik: GLES from Java (decision 4; test 2's gap 8), opengl/java's three packages: android.opengl, the
+# Khronos interfaces javax.microedition.khronos.egl and .opengles, and their implementations in
+# com.google.android.gles_jni, whose natives are AOSP's core/jni files in libandroid_runtime over Minato's front libs
+# (EGL10 makes a GLImpl, whose natives are ES 1.x's, from libGLESv1_CM). ETC1 and ETC1Util stay out: libETC1 is not
+# fetched (a gap). GLSurfaceView extends SurfaceView, a stub until App's SurfaceView.
+frameworks_base/opengl/java/android/opengl/EGL14.java
+frameworks_base/opengl/java/android/opengl/EGL15.java
+frameworks_base/opengl/java/android/opengl/EGLConfig.java
+frameworks_base/opengl/java/android/opengl/EGLContext.java
+frameworks_base/opengl/java/android/opengl/EGLDisplay.java
+frameworks_base/opengl/java/android/opengl/EGLExt.java
+frameworks_base/opengl/java/android/opengl/EGLImage.java
+frameworks_base/opengl/java/android/opengl/EGLLogWrapper.java
+frameworks_base/opengl/java/android/opengl/EGLObjectHandle.java
+frameworks_base/opengl/java/android/opengl/EGLSurface.java
+frameworks_base/opengl/java/android/opengl/EGLSync.java
+frameworks_base/opengl/java/android/opengl/GLDebugHelper.java
+frameworks_base/opengl/java/android/opengl/GLES10.java
+frameworks_base/opengl/java/android/opengl/GLES10Ext.java
+frameworks_base/opengl/java/android/opengl/GLES11.java
+frameworks_base/opengl/java/android/opengl/GLES11Ext.java
+frameworks_base/opengl/java/android/opengl/GLES20.java
+frameworks_base/opengl/java/android/opengl/GLES30.java
+frameworks_base/opengl/java/android/opengl/GLES31.java
+frameworks_base/opengl/java/android/opengl/GLES31Ext.java
+frameworks_base/opengl/java/android/opengl/GLES32.java
+frameworks_base/opengl/java/android/opengl/GLErrorWrapper.java
+frameworks_base/opengl/java/android/opengl/GLException.java
+frameworks_base/opengl/java/android/opengl/GLLogWrapper.java
+frameworks_base/opengl/java/android/opengl/GLSurfaceView.java
+frameworks_base/opengl/java/android/opengl/GLU.java
+frameworks_base/opengl/java/android/opengl/GLUtils.java
+frameworks_base/opengl/java/android/opengl/GLWallpaperService.java
+frameworks_base/opengl/java/android/opengl/GLWrapperBase.java
+frameworks_base/opengl/java/android/opengl/Matrix.java
+frameworks_base/opengl/java/android/opengl/Visibility.java
+frameworks_base/opengl/java/com/google/android/gles_jni/EGLConfigImpl.java
+frameworks_base/opengl/java/com/google/android/gles_jni/EGLContextImpl.java
+frameworks_base/opengl/java/com/google/android/gles_jni/EGLDisplayImpl.java
+frameworks_base/opengl/java/com/google/android/gles_jni/EGLImpl.java
+frameworks_base/opengl/java/com/google/android/gles_jni/EGLSurfaceImpl.java
+frameworks_base/opengl/java/com/google/android/gles_jni/GLImpl.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGL.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGL10.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGL11.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGLConfig.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGLContext.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGLDisplay.java
+frameworks_base/opengl/java/javax/microedition/khronos/egl/EGLSurface.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL10.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL10Ext.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11Ext.java
+frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11ExtensionPack.java

@@ -7,7 +7,8 @@ am force-stop ends it on Android, and counts as ended; a process that ends by it
 stand-ins for the app process in Python. And its install_libraries() with start() (ADR-0042 b1): the APK's JNI
 libraries go in as the import installs them, the ELF originals read-only in the app's lib/arm64 and their containers
 beside the run, converted again only for a changed library and gone with a removed one; an APK without libraries
-keeps start()'s command as it was. Run with stand-ins for apk-convert and apk-run."""
+keeps start()'s command as it was. Run with stand-ins for apk-convert and apk-run. And start() with the graphics
+front libs (ADR-0041 a)): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder."""
 import os
 import stat
 import sys
@@ -204,6 +205,12 @@ with tempfile.TemporaryDirectory() as scratch:
             os.path.join(tree, "framework.jar")]:
         with open(path, "w") as handle:
             handle.write(os.path.basename(path))
+    # The graphics front libs, which tools/build-front-libs.sh builds beside app_process's build.
+    fronts = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so")
+    os.makedirs(os.path.join(scratch, "graphics", "guest", "bin"))
+    for name in fronts:
+        with open(os.path.join(scratch, "graphics", "guest", "bin", name), "w") as handle:
+            handle.write(f"{name}'s ELF")
     echo = os.path.join(scratch, "apk-run")
     with open(echo, "w") as handle:
         handle.write('#!/bin/sh\nfor argument in "$@"; do echo "$argument"; done\n')
@@ -220,6 +227,10 @@ with tempfile.TemporaryDirectory() as scratch:
     entries = [plain_command[i + 1] for i, argument in enumerate(plain_command) if argument == "--libraries"]
     check(len(entries) == 3 and not any("/lib/arm64=" in entry for entry in entries),
           f"without libraries the command's library folders stay those of today: {entries}")
+    plain_lib64 = os.path.join(scratch, "plain-work", "system-lib64")
+    check([open(os.path.join(plain_lib64, name + ".dylib")).read() if name + ".dylib" in files(plain_lib64) else None
+           for name in fronts] == [f"{name}'s ELF" for name in fronts],
+          f"the graphics front libs' containers go to /system/lib64: {files(plain_lib64)}")
     godot_work = os.path.join(scratch, "godot-work")
     command = started(godot, godot_work)
     app = app_process_run.code_path(godot, "io.example.app")

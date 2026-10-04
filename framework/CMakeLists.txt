@@ -199,24 +199,43 @@ sources_in(android_runtime_sources "${jni}"
 # ActivityThread's native (b3.4c) reads the session's configuration through libandroid, which it opens with dlopen
 # rather than linking: on Android libandroid needs libandroid_runtime, not the other way. DisplayEventReceiver's
 # natives (ADR-0041 a)) take libandroid's AChoreographer the same way.
-add_library(android_runtime SHARED ${android_runtime_sources} native/android_runtime/AndroidRuntime.cpp
+# The GLES bindings (ADR-0041 a), decision 4): AOSP's core/jni files for android.opengl, javax.microedition.khronos and
+# com.google.android.gles_jni, five of them in tools/build-framework-native.sh's patched copies
+# (native/patches/opengl-without-libgui.patch: no libgui, libui or libEGL's private API, no ETC1 or GLUtils' bitmaps),
+# with ours for a Surface's window (minato_gles.cpp). They call EGL and GLES directly, so the library links the NDK's
+# libEGL, libGLESv1_CM, libGLESv2 and libGLESv3, as an app does; Minato's front libs of the same names answer at run
+# time.
+sources_in(gles_sources "${jni}"
+  android_opengl_GLES10.cpp android_opengl_GLES10Ext.cpp android_opengl_GLES11.cpp android_opengl_GLES11Ext.cpp
+  android_opengl_GLES20.cpp android_opengl_GLES30.cpp android_opengl_GLES31.cpp android_opengl_GLES31Ext.cpp
+  android_opengl_GLES32.cpp com_google_android_gles_jni_GLImpl.cpp android/opengl/poly_clip.cpp)
+set(gles_patched "${CMAKE_BINARY_DIR}/patched/core/jni")
+foreach(file android_opengl_EGL14.cpp android_opengl_EGL15.cpp android_opengl_EGLExt.cpp
+    com_google_android_gles_jni_EGLImpl.cpp android/opengl/util.cpp)
+  if(NOT EXISTS "${gles_patched}/${file}")
+    message(FATAL_ERROR "${gles_patched}/${file} is missing: build with tools/build-framework-native.sh")
+  endif()
+  list(APPEND gles_sources "${gles_patched}/${file}")
+endforeach()
+add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
-            native/android_runtime/android_view_KeyEvent.cpp)
+            native/android_runtime/android_view_KeyEvent.cpp native/android_runtime/minato_gles.cpp)
 target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"
-                           PRIVATE "${jni}" native/include "${NATIVEHELPER}/include" "${NATIVEHELPER}/include_platform"
-                           "${NATIVEHELPER}/header_only_include" ../runtime/include)
+                           PRIVATE "${jni}" "${jni}/android/opengl" native/include "${NATIVEHELPER}/include"
+                           "${NATIVEHELPER}/include_platform" "${NATIVEHELPER}/header_only_include" ../runtime/include)
 set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
 soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -Wno-parentheses
   -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES -DU_USING_ICU_NAMESPACE=0 -Wall -Werror -Wextra
   -Wthread-safety -Wno-error=deprecated-declarations -Wunused -Wunreachable-code
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
-target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui)
+target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
+                      GLESv2 GLESv3 nativewindow)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

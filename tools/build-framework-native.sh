@@ -4,7 +4,8 @@
 #   - app_process64 (ADR-0039 decision 1), which links the ART libraries of tools/build-art.sh;
 #   - libandroidfw and the libraries it links as static archives (ADR-0039 b3.2), and androidfw-test, which
 #     tools/androidfw-check.sh runs. libandroidfw's AssetsProvider.cpp gets Minato's patch
-#     (framework/native/patches) in a copy, build/framework-native/patched, so build/sources keeps its digests.
+#     (framework/native/patches) in a copy, build/framework-native/patched, so build/sources keeps its digests;
+#     so do the five core/jni files of the GLES bindings (ADR-0041 a), opengl-without-libgui.patch).
 # Needs the sources of tools/fetch-sources.py --set art, --set framework and --set graphics (hwui's jni_runtime.h), and
 # tools/build-hwui.sh's libhwui.so, which libandroid_runtime links (ADR-0043 test 2).
 # Usage: tools/build-framework-native.sh
@@ -28,6 +29,22 @@ if cmp -s "$PATCHED/AssetsProvider.cpp.new" "$PATCHED/AssetsProvider.cpp"; then
 else
   mv "$PATCHED/AssetsProvider.cpp.new" "$PATCHED/AssetsProvider.cpp"
 fi
+# The GLES bindings' five files (ADR-0041 a)): patched together in a scratch folder, each copy replaced only when it
+# changes.
+GLES_PATCHED=build/framework-native/patched/core/jni
+GLES_FILES=(android_opengl_EGL14.cpp android_opengl_EGL15.cpp android_opengl_EGLExt.cpp
+  com_google_android_gles_jni_EGLImpl.cpp android/opengl/util.cpp)
+GLES_WORK=$(mktemp -d build/framework-native/patch.XXXXXX)
+for file in "${GLES_FILES[@]}"; do
+  mkdir -p "$GLES_WORK/$(dirname "$file")"
+  cp "build/sources/frameworks_base/core/jni/$file" "$GLES_WORK/$file"
+done
+patch --quiet -d "$GLES_WORK" -p1 < framework/native/patches/opengl-without-libgui.patch
+for file in "${GLES_FILES[@]}"; do
+  mkdir -p "$GLES_PATCHED/$(dirname "$file")"
+  cmp -s "$GLES_WORK/$file" "$GLES_PATCHED/$file" || cp "$GLES_WORK/$file" "$GLES_PATCHED/$file"
+done
+rm -rf "${GLES_WORK:?}"
 cmake -S framework -B build/framework-native -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=c++_static \

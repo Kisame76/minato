@@ -15,6 +15,9 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     libziparchive, libexpat and libc++_shared beside them, as graphics/tests/hwui_load_run.py lays them out:
     libandroid_runtime registers hwui's graphics natives at every start, and bionic's /system has the fonts that
     ActivityThread loads (ADR-0043 test 2);
+  - the graphics front libs libEGL, libGLESv1_CM, libGLESv2 and libGLESv3 (tools/build-front-libs.sh) in
+    /system/lib64, which libandroid_runtime's GLES bindings need (ADR-0041 a)). Under apk-run they bind no driver;
+    under graphics-run, apk-run with graphics/host's providers, they reach the Mac's ANGLE (MINATO_ANGLE);
   - the APK at Android 15's code path (/data/app/~~<a>/<package>-<b>/base.apk, ADR-0039 decision 6), and the data
     folder /data/user/0/<package> with cache and code_cache, as installd creates them;
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
@@ -56,6 +59,8 @@ CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
 CONSCRYPT_LIBRARY = "libjavacrypto.so"
 # The APK folder of the JNI libraries that Android's installer extracts for an arm64 device.
 APP_ABI = "lib/arm64-v8a/"
+# The graphics front libs that libandroid_runtime.so needs (ADR-0041 a)).
+FRONT_LIBS = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so")
 PACKAGE = "io.github.kisame76.minato.test.appstart"
 APPLICATION = "io.github.kisame76.minato.test.appstart.StartApplication"
 APP_UID = 10100
@@ -180,10 +185,17 @@ def our_lines(stdout):
     return lines
 
 
+def front_libs(app_process):
+    """The folder of the graphics front libs: tools/build-front-libs.sh's, which lies beside app_process's build."""
+    return os.path.join(os.path.dirname(app_process), "..", "graphics", "guest", "bin")
+
+
 def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
     """The first part that is not built, as "skipped: ..." text, or None, and then hwui's set and bionic's font lists
     as graphics/tests/hwui_ready.py has them: every start registers hwui's natives and loads the font map."""
-    for needed, how in ((os.path.join(art, "lib", "libart.so"), "tools/build-art.sh"),
+    for needed, how in (*((os.path.join(front_libs(app_process), name), "tools/build-front-libs.sh")
+                          for name in FRONT_LIBS),
+                        (os.path.join(art, "lib", "libart.so"), "tools/build-art.sh"),
                         (os.path.join(art, "lib", CONSCRYPT_LIBRARY), "tools/build-art.sh"),
                         (os.path.join(art, "javalib", "conscrypt.jar"), "tools/build-art.sh"),
                         (app_process, "tools/build-framework-native.sh"),
@@ -262,6 +274,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     convert_directory(apk_convert, hwui_lib, system_lib64)
     for name in PLATFORM_COPIES:
         convert(apk_convert, os.path.join(art, "lib", name), os.path.join(system_lib64, name + ".dylib"))
+    for name in FRONT_LIBS:
+        convert(apk_convert, os.path.join(front_libs(app_process), name), os.path.join(system_lib64, name + ".dylib"))
     # app_process needs it once it links it: then the loader names it missing.
     runtime = os.path.join(os.path.dirname(app_process), "libandroid_runtime.so")
     if os.path.exists(runtime):

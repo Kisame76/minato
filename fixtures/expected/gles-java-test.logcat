@@ -1,0 +1,15 @@
+I/gles-java-test: EGL10: getEGL com.google.android.gles_jni.EGLImpl
+I/gles-java-test: EGL10: a default display true, initialized true
+I/gles-java-test: EGL10: configs for Godot's spec true, one of 8-bit RGBA and 16-bit depth or more true
+I/gles-java-test: EGL10: a context of client version 3 true, a pbuffer true, current true
+I/gles-java-test: EGL10: getGL com.google.android.gles_jni.GLImpl, a GL11 true
+I/gles-java-test: GLES30 on EGL10's context: linked true, clear (48, 48) 51 102 153 255, triangle (16, 16) 255 0 255 255, outside (48, 48) 51 102 153 255, glGetError 0
+I/gles-java-test: EGL10: eglSwapBuffers on the pbuffer true, released true, destroyed true true, eglTerminate true
+I/gles-java-test: EGL14: a default display true, initialized true
+I/gles-java-test: EGL14: a config of 8-bit RGBA true, an ES 2.0 context true, a pbuffer true, current true
+I/gles-java-test: GLES20 on EGL14's context: linked true, clear (48, 48) 51 102 153 255, triangle (16, 16) 0 255 255 255, outside (48, 48) 51 102 153 255, glGetError 0
+I/gles-java-test: EGL14: released true, destroyed true true, eglTerminate true
+I/gles-java-test: GL10: a config for ES 1.x true, an ES 1.1 context current true, GL_VERSION of the Common profile true
+I/gles-java-test: GL10: triangle (16, 16) 255 255 0 255, outside (48, 48) 51 102 153 255, glGetError 0
+I/gles-java-test: GL10: destroyed true true, eglTerminate true
+I/gles-java-test: done

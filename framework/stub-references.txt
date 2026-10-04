@@ -435,3 +435,14 @@ android.hardware.LegacySensorManager <- android.hardware.SensorManager  # gap: t
 android.hardware.input.InputSensorInfo <- android.hardware.Sensor  # stays: an input device's sensor, which only InputManager makes
 android.os.MemoryFile <- android.hardware.SensorDirectChannel, android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers
 android.speech.tts.TextToSpeech$OnUtteranceCompletedListener <- android.speech.tts.UtteranceProgressListener  # gap: TextToSpeech, whose old listener only its from() wraps; it comes with Settings in gap 13's step
+
+# GLES from Java (ADR-0041 a), Grafik): opengl/java's three packages. eglCreateWindowSurface first asks what kind of
+# window it was given, so window surfaces wait for App's SurfaceView (and a Surface's window for Grafik's Surface
+# natives); a SurfaceTexture needs libgui, and a native fence EGL_ANDROID_native_fence_sync, which ANGLE's Metal
+# display lacks.
+android.view.SurfaceView <- android.opengl.EGL14, android.opengl.GLSurfaceView, com.google.android.gles_jni.EGLImpl  # ADR-0043 c): window surfaces and GLSurfaceView, with App's SurfaceView
+android.view.SurfaceHolder <- android.opengl.EGL14, android.opengl.GLSurfaceView, com.google.android.gles_jni.EGLImpl  # ADR-0043 c): window surfaces and GLSurfaceView's holder, with App's SurfaceView
+android.graphics.SurfaceTexture <- android.opengl.EGL14, com.google.android.gles_jni.EGLImpl  # gap: a window surface on a SurfaceTexture, which needs libgui
+android.hardware.SyncFence <- android.opengl.EGLExt  # gap: eglDupNativeFenceFDANDROID's fence, without EGL_ANDROID_native_fence_sync
+android.app.AppGlobals <- com.google.android.gles_jni.GLImpl  # gap: GLImpl's check, for a buffer that isn't direct, whether the app is older than Android 2.2
+android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's

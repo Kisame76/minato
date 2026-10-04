@@ -1,7 +1,8 @@
 // Ours, not AOSP's core/jni/AndroidRuntime.cpp (ADR-0039 decision 10, b3.3). AOSP's file is zygote's runtime: start,
 // startVm and gRegJNI's registrations of all of core/jni, which pull in libbinder and more. The core/jni files we
-// take call only its static getJNIEnv (android_content_res_ApkAssets.cpp's LoaderAssetsProvider), so this file
-// defines only AndroidRuntime's statics getJavaVM and getJNIEnv, with the VM app_process passes in through
+// take call only its statics getJNIEnv (android_content_res_ApkAssets.cpp's LoaderAssetsProvider) and
+// registerNativeMethods (the GLES bindings, ADR-0041 a)), so this file defines only AndroidRuntime's statics
+// getJavaVM, getJNIEnv and registerNativeMethods, with the VM app_process passes in through
 // register_framework_natives (register_framework_natives.h). That stands in for AOSP's private startReg: it registers
 // the natives of framework.jar's classes in gRegJNI's order, libhwui's graphics classes among them (ADR-0043 test 2),
 // through hwui's jni_runtime.h as AOSP's does; AOSP's also hooks libutils' thread creation into the VM, which
@@ -13,6 +14,24 @@
 
 #include <jni.h>
 #include <log/log.h>
+#include <nativehelper/JNIHelp.h>
+
+// The GLES bindings (ADR-0041 a)): AOSP's core/jni files, which define these outside namespace android, as AOSP's
+// AndroidRuntime.cpp declares them.
+extern int register_com_google_android_gles_jni_EGLImpl(JNIEnv *env);
+extern int register_com_google_android_gles_jni_GLImpl(JNIEnv *env);
+extern int register_android_opengl_jni_EGL14(JNIEnv *env);
+extern int register_android_opengl_jni_EGL15(JNIEnv *env);
+extern int register_android_opengl_jni_EGLExt(JNIEnv *env);
+extern int register_android_opengl_jni_GLES10(JNIEnv *env);
+extern int register_android_opengl_jni_GLES10Ext(JNIEnv *env);
+extern int register_android_opengl_jni_GLES11(JNIEnv *env);
+extern int register_android_opengl_jni_GLES11Ext(JNIEnv *env);
+extern int register_android_opengl_jni_GLES20(JNIEnv *env);
+extern int register_android_opengl_jni_GLES30(JNIEnv *env);
+extern int register_android_opengl_jni_GLES31(JNIEnv *env);
+extern int register_android_opengl_jni_GLES31Ext(JNIEnv *env);
+extern int register_android_opengl_jni_GLES32(JNIEnv *env);
 
 namespace android {
 
@@ -33,6 +52,8 @@ extern int register_android_animation_PropertyValuesHolder(JNIEnv *env);
 extern int register_android_util_EventLog(JNIEnv *env);
 extern int register_android_app_Activity(JNIEnv *env);
 extern int register_android_view_KeyEvent(JNIEnv *env);
+// The GLES bindings (ADR-0041 a)): AOSP's core/jni files; util.cpp's classes are in namespace android.
+extern int register_android_opengl_classes(JNIEnv *env);
 
 namespace {
 JavaVM *gJavaVM = nullptr;
@@ -53,6 +74,12 @@ JNIEnv *AndroidRuntime::getJNIEnv() {
     return env;
 }
 
+// As AOSP's: libnativehelper's registration, which aborts when the class or a method is missing.
+int AndroidRuntime::registerNativeMethods(JNIEnv *env, const char *className, const JNINativeMethod *gMethods,
+                                          int numMethods) {
+    return jniRegisterNativeMethods(env, className, gMethods, numMethods);
+}
+
 int register_framework_natives(JNIEnv *env) {
     if (env->GetJavaVM(&gJavaVM) != JNI_OK) {
         return -1;
@@ -68,8 +95,13 @@ int register_framework_natives(JNIEnv *env) {
           register_android_content_StringBlock, register_android_content_XmlBlock,
           register_android_content_res_ApkAssets, register_android_os_SystemProperties,
           register_android_view_DisplayEventReceiver, register_android_hardware_display_DisplayService,
+          register_com_google_android_gles_jni_EGLImpl, register_com_google_android_gles_jni_GLImpl,
+          register_android_opengl_jni_EGL14, register_android_opengl_jni_EGL15, register_android_opengl_jni_EGLExt,
+          register_android_opengl_jni_GLES10, register_android_opengl_jni_GLES10Ext, register_android_opengl_jni_GLES11,
+          register_android_opengl_jni_GLES11Ext, register_android_opengl_jni_GLES20, register_android_opengl_jni_GLES30,
+          register_android_opengl_jni_GLES31, register_android_opengl_jni_GLES31Ext, register_android_opengl_jni_GLES32,
           register_android_graphics_classes, register_android_os_MessageQueue, register_android_os_Trace,
-          register_android_hardware_SensorManager,
+          register_android_hardware_SensorManager, register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent}) {
         if (registration(env) < 0) {
