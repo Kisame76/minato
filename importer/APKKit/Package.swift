@@ -16,6 +16,8 @@ let package = Package(
         .library(name: "APKSession", targets: ["APKSession"]),
         // The parity benchmark's run plan, CSV and validity (ADR-0037).
         .library(name: "APKBench", targets: ["APKBench"]),
+        // Split sets and containers (M5, ADR-0048 and ADR-0049): import units, Android's checks, the split choice.
+        .library(name: "APKFormats", targets: ["APKFormats"]),
     ],
     targets: [
         .target(name: "APKKit"),
@@ -44,5 +46,8 @@ let package = Package(
         // re-exports APKPack's writers.
         .target(name: "APKTestSupport", dependencies: ["APKPack"], path: "Tests/APKTestSupport"),
         .testTarget(name: "APKKitTests", dependencies: ["APKKit", "APKTestSupport"]),
+        // Split sets and containers (M5, ADR-0048 and ADR-0049), pure logic tested on the Mac.
+        .target(name: "APKFormats", dependencies: ["APKKit"]),
+        .testTarget(name: "APKFormatsTests", dependencies: ["APKFormats", "APKKit", "APKTestSupport"]),
     ]
 )

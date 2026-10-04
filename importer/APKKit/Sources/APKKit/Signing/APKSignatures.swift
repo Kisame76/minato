@@ -158,6 +158,31 @@ public enum APKSignatures {
     static let maximumListLength = 64
 
     public static func read(_ archive: ZipArchive) -> SignatureInfo {
+        let (found, signers, hasPlayStamp) = collect(archive)
+        var certificates: [SigningCertificate] = []
+        var seen: Set<Data> = []
+        for scheme in SignatureInfo.Scheme.allCases.reversed() {
+            for der in found[scheme] ?? [] where seen.insert(der).inserted {
+                certificates.append(SigningCertificate(der: der))
+            }
+        }
+        return SignatureInfo(
+            schemes: SignatureInfo.Scheme.allCases.filter { found[$0] != nil },
+            certificates: certificates,
+            hasGooglePlayStamp: hasPlayStamp,
+            signer: identity(signers))
+    }
+
+    /// The SHA-256 of each signer's certificate in the scheme that decides for Android 15, as `read`'s signer, but in
+    /// the APK's order and with a certificate named twice kept twice, as Android's exact match counts them
+    /// (`Signature.java:331-334`). Unproven: ADR-0048's set check compares what an APK Minato cannot verify names.
+    public static func signerCertificates(_ archive: ZipArchive) -> [String] {
+        deciding(collect(archive).signers).map { SigningCertificate(der: $0.certificates[0]).sha256 }
+    }
+
+    /// Every scheme's certificates and signers, and whether Google Play's source stamp is there.
+    private static func collect(_ archive: ZipArchive)
+        -> (found: [SignatureInfo.Scheme: [Data]], signers: [SignatureInfo.Scheme: [Signer]], hasPlayStamp: Bool) {
         var found: [SignatureInfo.Scheme: [Data]] = [:]
         var signers: [SignatureInfo.Scheme: [Signer]] = [:]
         var hasPlayStamp = false
@@ -178,19 +203,7 @@ public enum APKSignatures {
                 hasPlayStamp = hasPlayStamp || SigningCertificate(der: certificate).sha256 == googlePlayStampSHA256
             }
         }
-
-        var certificates: [SigningCertificate] = []
-        var seen: Set<Data> = []
-        for scheme in SignatureInfo.Scheme.allCases.reversed() {
-            for der in found[scheme] ?? [] where seen.insert(der).inserted {
-                certificates.append(SigningCertificate(der: der))
-            }
-        }
-        return SignatureInfo(
-            schemes: SignatureInfo.Scheme.allCases.filter { found[$0] != nil },
-            certificates: certificates,
-            hasGooglePlayStamp: hasPlayStamp,
-            signer: identity(signers))
+        return (found, signers, hasPlayStamp)
     }
 
     /// One signer of a scheme: its certificate chain, and for v3 and v3.1 the Android versions it is
@@ -208,22 +221,27 @@ public enum APKSignatures {
         func isFor(sdk: UInt32) -> Bool { minSdk <= sdk && sdk <= maxSdk }
     }
 
-    /// The newest scheme with a signer for Android 15 decides: v3.1, v3, v2, then v1.
-    private static func identity(_ signers: [SignatureInfo.Scheme: [Signer]]) -> SignerIdentity {
+    /// The newest scheme with a signer for Android 15 decides: v3.1, v3, v2, then v1. Its signers, or none.
+    private static func deciding(_ signers: [SignatureInfo.Scheme: [Signer]]) -> [Signer] {
         for scheme in SignatureInfo.Scheme.allCases.reversed() {
             let chosen = (signers[scheme] ?? []).filter { $0.isFor(sdk: platformSDK) && !$0.certificates.isEmpty }
-            guard !chosen.isEmpty else { continue }
-            let current = chosen.map { SigningCertificate(der: $0.certificates[0]).sha256 }
-            var lineage: [LineageNode] = []
-            if chosen.count == 1 {
-                // The lineage ends with the signer's own certificate.
-                lineage = chosen[0].lineage
-                    .map { LineageNode(sha256: SigningCertificate(der: $0.certificate).sha256, flags: $0.flags) }
-                    .filter { $0.sha256 != current[0] }
-            }
-            return SignerIdentity(current: current, lineage: lineage)
+            if !chosen.isEmpty { return chosen }
         }
-        return SignerIdentity(current: [])
+        return []
+    }
+
+    private static func identity(_ signers: [SignatureInfo.Scheme: [Signer]]) -> SignerIdentity {
+        let chosen = deciding(signers)
+        guard !chosen.isEmpty else { return SignerIdentity(current: []) }
+        let current = chosen.map { SigningCertificate(der: $0.certificates[0]).sha256 }
+        var lineage: [LineageNode] = []
+        if chosen.count == 1 {
+            // The lineage ends with the signer's own certificate.
+            lineage = chosen[0].lineage
+                .map { LineageNode(sha256: SigningCertificate(der: $0.certificate).sha256, flags: $0.flags) }
+                .filter { $0.sha256 != current[0] }
+        }
+        return SignerIdentity(current: current, lineage: lineage)
     }
 
     /// A v1 signature block, as StrictJarVerifier finds them: case matters, and META-INF/'s folders count.

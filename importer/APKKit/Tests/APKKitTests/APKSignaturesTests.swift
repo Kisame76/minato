@@ -172,6 +172,35 @@ struct APKSignaturesTests {
         #expect(APKSignatures.read(try Self.apk(block: block)).signer == SignerIdentity(current: [Self.newSHA256, Self.oldSHA256].sorted()))
     }
 
+    @Test func theSignerCertificatesKeepEachSignerInItsOrder() throws {
+        // ADR-0048's set check counts what an APK Minato cannot verify names, as Android's exact match counts
+        // (Signature.java:331-334); read's signer has each certificate once.
+        let block = SigningBlockBuilder.block([Self.scheme(SigningBlockBuilder.v2ID, [
+            SigningBlockBuilder.v2Signer(certificates: [Self.new]),
+            SigningBlockBuilder.v2Signer(certificates: [Self.old, Self.third]),
+            SigningBlockBuilder.v2Signer(certificates: [Self.new]),
+        ])])
+        let apk = try Self.apk(block: block)
+
+        #expect(APKSignatures.signerCertificates(apk) == [Self.newSHA256, Self.oldSHA256, Self.newSHA256])
+        #expect(APKSignatures.read(apk).signer?.current == [Self.newSHA256, Self.oldSHA256].sorted())
+    }
+
+    @Test func theSignerCertificatesComeFromTheSchemeThatDecides() throws {
+        // As read's signer: the v3 signer for Android 15 before v2 and v1, then v1 alone, and none when unsigned.
+        let block = SigningBlockBuilder.block([
+            Self.scheme(SigningBlockBuilder.v2ID, [SigningBlockBuilder.v2Signer(certificates: [Self.third])]),
+            Self.scheme(SigningBlockBuilder.v3ID, [
+                SigningBlockBuilder.v3Signer(certificates: [Self.third], maxSdk: 34),
+                SigningBlockBuilder.v3Signer(certificates: [Self.new], minSdk: 35),
+            ]),
+        ])
+
+        #expect(APKSignatures.signerCertificates(try Self.apk(block: block, v1: TestCertificates.signerPKCS7)) == [Self.newSHA256])
+        #expect(APKSignatures.signerCertificates(try Self.apk(v1: TestCertificates.signerPKCS7)) == [Self.oldSHA256])
+        #expect(APKSignatures.signerCertificates(try Self.apk()).isEmpty)
+    }
+
     @Test func aReportFromBeforeTheSignerDecodes() throws {
         let json = #"{"schemes":["v2"],"certificates":[{"sha256":"aa"}],"hasGooglePlayStamp":false}"#
         #expect(try JSONDecoder().decode(SignatureInfo.self, from: Data(json.utf8)).signer == nil)
