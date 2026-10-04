@@ -2,11 +2,11 @@
 """tools/compatgen.py (ADR-0039 step c2e): from the @ChangeId fields of sample sources (a list as framework/sources.txt
 is one, a folder as framework/java, and a boot jar of boot_jars.json) it writes CompatTable, whose disabledFor and
 loggableFor must answer as system_server's CompatConfig does: each annotation, @EnabledAfter's boundary, a target
-from Build.VERSION_CODES, libcore's VersionCodes or a literal, a target of 0, which gates nothing, an alias of
-CUR_DEVELOPMENT, the platform's SDK as the cap on a release build and not on a development one, a duplicate
-declaration, and Compatibility's parameters, which the processor skips. The table is compiled and run on the JDK
-with an android.os.Build of the test's. Then what it must refuse, as Android's annotation processor does or because
-it cannot read it, each with the file and line."""
+from Build.VERSION_CODES, libcore's VersionCodes or a literal, a target of 0, which gates nothing, an interface's
+constant without written modifiers, an alias of CUR_DEVELOPMENT, the platform's SDK as the cap on a release build and
+not on a development one, a duplicate declaration, and Compatibility's parameters, which the processor skips. The
+table is compiled and run on the JDK with an android.os.Build of the test's. Then what it must refuse, as Android's
+annotation processor does or because it cannot read it, each with the file and line."""
 import glob
 import os
 import subprocess
@@ -118,6 +118,13 @@ public final class Ours {
     @android.compat.annotation.ChangeId
     @android.compat.annotation.EnabledSince(targetSdkVersion = 30)
     static final long AGAIN = 100L;
+
+    /** An interface's constant has no written modifiers: it is public, static and final all the same (JLS 9.3). */
+    public interface Constants {
+        @android.compat.annotation.ChangeId
+        @android.compat.annotation.Disabled
+        long IN_INTERFACE = 1300L;
+    }
 }
 """
 
@@ -157,19 +164,19 @@ public final class Main {
 
 # What disabledFor and loggableFor give on a release build of SDK 35 (the cap at 35: SINCE_36 stays disabled for
 # target 36), and on a development build, without the cap.
-RELEASE = """disabled 28 [100, 200, 300, 600, 700, 800, 900, 1000, 1100]
+RELEASE = """disabled 28 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300]
 loggable 28 []
-disabled 29 [100, 200, 300, 600, 700, 800, 900, 1000, 1100]
+disabled 29 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300]
 loggable 29 []
-disabled 30 [300, 700, 800, 900, 1100]
+disabled 30 [300, 700, 800, 900, 1100, 1300]
 loggable 30 [100, 200, 600, 1000]
-disabled 35 [300, 700, 1100]
+disabled 35 [300, 700, 1100, 1300]
 loggable 35 [900]
-disabled 36 [300, 700, 1100]
+disabled 36 [300, 700, 1100, 1300]
 loggable 36 []
 """
-DEVELOPMENT = RELEASE.replace("disabled 36 [300, 700, 1100]\nloggable 36 []",
-                              "disabled 36 [300, 700]\nloggable 36 [1100]")
+DEVELOPMENT = RELEASE.replace("disabled 36 [300, 700, 1100, 1300]\nloggable 36 []",
+                              "disabled 36 [300, 700, 1300]\nloggable 36 [1100]")
 
 
 def check(condition, what):
@@ -228,8 +235,8 @@ def main():
         write(boot_jars, '{"jars": {"core-sample": {"sources": ["%s", "%s"], "resources": []}}, "compile_only": []}'
               % (boot, compatibility))
         result = generate(scratch, LISTED, os.path.join(scratch, "java"), boot_jars)
-        check(result.returncode == 0 and "12 changes" in result.stdout,
-              f"writes the sample's 12 changes: {result.returncode} {result.stdout.strip()} {result.stderr.strip()}")
+        check(result.returncode == 0 and "13 changes" in result.stdout,
+              f"writes the sample's 13 changes: {result.returncode} {result.stdout.strip()} {result.stderr.strip()}")
         table = os.path.join(scratch, "out", "com", "android", "internal", "compat", "CompatTable.java")
         if result.returncode == 0:
             text = open(table, encoding="utf-8").read()
@@ -259,6 +266,8 @@ def main():
                 "both @EnabledAfter and @EnabledSince", 8)
         refused(scratch, "    @ChangeId public final long X = 1L;", "must be static and final", 7)
         refused(scratch, "    @ChangeId static long X = 1L;", "must be static and final", 7)
+        refused(scratch, "    interface Outer {\n        class Inner {\n            @ChangeId final long X = 1L;\n"
+                "        }\n    }", "must be static and final", 9)
         refused(scratch, "    @ChangeId static final int X = 1;", "must be a long", 7)
         refused(scratch, "    @ChangeId static final long X = 1L << 3;", "a value it cannot read", 7)
         refused(scratch, "    @ChangeId static final long X = Y;", "a value it cannot read", 7)

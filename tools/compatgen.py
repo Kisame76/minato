@@ -9,9 +9,10 @@ It reads every @ChangeId field of framework.jar's sources (the AOSP files of fra
 framework/java) and of the boot jars' (build/art/boot_jars.json), with the annotations that ChangeIdProcessor reads at
 android-15.0.0_r1: @Disabled, @EnabledSince and @EnabledAfter with their targetSdkVersion, @LoggingOnly and
 @Overridable. A target SDK is a literal or a name of android.os.Build.VERSION_CODES or of libcore's VersionCodes.
-Like the processor, it refuses a field that is not a static final long, and the combinations the processor forbids
-(ChangeIdProcessor.java:136-170 and 230-250): @Disabled with a target, @LoggingOnly with any of the three, both
-targets. It also refuses a value or a target it cannot read, and one id declared twice with different annotations.
+Like the processor, it refuses a field that is not a static final long (as an interface's field is without a written
+modifier), and the combinations the processor forbids (ChangeIdProcessor.java:136-170 and 230-250): @Disabled with a
+target, @LoggingOnly with any of the three, both targets. It also refuses a value or a target it cannot read, and
+one id declared twice with different annotations.
 Any refusal fails the build.
 
 The table keeps each id with the first target SDK at which its change is enabled: @EnabledSince's, @EnabledAfter's
@@ -112,6 +113,21 @@ def enclosing_parenthesis(code, at):
         elif depth == 0 and code[i] in ";{}":
             return None
     return None
+
+
+def in_interface(code, at):
+    """Whether the type whose body holds `at` is an interface or an annotation type, whose fields are public, static and
+    final without a written modifier (JLS 9.3), as javax.lang.model reports them to the processor."""
+    depth = 0
+    for i in range(at - 1, -1, -1):
+        if code[i] == "}":
+            depth += 1
+        elif code[i] == "{":
+            if depth == 0:
+                header = code[max(code.rfind(";", 0, i), code.rfind("{", 0, i), code.rfind("}", 0, i)) + 1:i]
+                return re.search(r"\binterface\b", header) is not None
+            depth -= 1
+    return False
 
 
 def member(code, at):
@@ -244,6 +260,8 @@ def changes_in(path, build, libcore):
             if end != ";":
                 raise Refusal("@ChangeId on something other than a field")
             annotations, modifiers, kind, name, value = parse_member(text)
+            if in_interface(code, at.start()):
+                modifiers |= {"static", "final"}
             if kind != "long":
                 raise Refusal(f"{name}: a @ChangeId field must be a long, not {kind}")
             if "static" not in modifiers or "final" not in modifiers:
