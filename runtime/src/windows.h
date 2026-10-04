@@ -1,5 +1,6 @@
 // The window registry (ADR-0028, decisions 6 and 7): the host's windows with their layers and gates, the
-// process's background state and "scheduled". The host's side is apkrt.h; the guest's is window_gate.
+// process's background state, "scheduled" and the windows' buffers (ADR-0043, decision 3). The host's side is
+// apkrt.h; the guest's is window_gate, window_size, window_lock and window_post.
 #pragma once
 
 #include <cstdint>
@@ -14,6 +15,14 @@ long gate(std::uint64_t id, std::uint64_t kind);
 /// at `address`, both under the registry's lock. 0, -EINVAL for a window that is removed or unknown, -EFAULT for
 /// address 0.
 long size(std::uint64_t id, std::uint64_t address);
+
+/// The private syscall window_lock (guest_interface.h, ADR-0043 decision 3): the windows' buffers fill the struct at
+/// `address`. The registry's checks under its lock, the buffers' call outside it.
+long lock_buffer(std::uint64_t id, std::uint64_t address);
+
+/// The private syscall window_post (guest_interface.h, ADR-0043 decision 3): the registry's checks under its lock,
+/// the buffers' post outside it, also for a window removed meanwhile.
+long post_buffer(std::uint64_t id);
 
 /// ANativeWindow_setFrameRate (ADR-0036, decision 2): keeps `bits`, a float's, as the frame rate of the window
 /// `id`, and when they changed calls `report` with them under the registry's lock, so that no report of a

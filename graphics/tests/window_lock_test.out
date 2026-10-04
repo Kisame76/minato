@@ -1,0 +1,18 @@
+unlockAndPost without a lock: -38
+lock: 0, 64x48 stride 64 format 2
+lock again: -38
+unlockAndPost: 0
+the first post waited for the gate: yes
+unlockAndPost again: -38
+lock 50x20 RGB_565 with a dirty rectangle: 0, 50x20 stride 64 format 4, dirty 0 0 50 20
+unlockAndPost: 0
+lock again with a rectangle beyond its right edge: 0, 50x20 stride 64 format 4, dirty 10 5 50 15
+unlockAndPost: 0
+lock RGBA_8888: 0, 64x48 stride 64 format 1
+unlockAndPost: 0
+lock RGBA_FP16: -22
+unlockAndPost: -38
+lock of something else: -22
+unlockAndPost of something else: -22
+lock without a buffer: -22
+unlockAndPost after it: -38

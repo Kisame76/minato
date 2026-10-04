@@ -14,7 +14,13 @@
      gate closed; the order at background of ADR-0029's decision 15 (the background flag, "scheduled", the
      window's removal, only then onPause, the window's destruction, the saved state and onStop, each answer
      within 500 ms of its event); the foreground and onDestroy. It prints each step to stderr, and the command
-     buffers guest threads committed from "scheduled" to the foreground, which must be none. */
+     buffers guest threads committed from "scheduled" to the foreground, which must be none.
+   - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), the windows' buffers are a fake that
+     prints to stderr what reaches it: lock takes RGBA_8888, RGBX_8888 and RGB_565 and refuses other formats with
+     -EINVAL; its buffer starts cleared, with the width rounded up to 16 pixels as its stride; the dirty rectangle it
+     answers is the whole buffer for another geometry than the last posted one's, else the app's within the buffer.
+     post prints the buffer's first pixel. The window's gate stays closed until 200 ms after the first lock, so that
+     the first post waits at it. */
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 #include <pthread.h>
@@ -119,6 +125,83 @@ static void *background(void *unused) {
     return NULL;
 }
 
+/* The fake buffers of MINATO_WINDOW_BUFFERS=fake, on the program's one thread. */
+static struct {
+    int locks;
+    int32_t width, height, format;  // the locked buffer's
+    int32_t posted_width, posted_height, posted_format;
+    void *pixels;
+} fake;
+
+static void *open_gate_later(void *unused) {
+    (void)unused;
+    usleep(200000);
+    fprintf(stderr, "window host: the gate opens\n");
+    apkrt_window_set_gate(minato_test_window, 1);
+    return NULL;
+}
+
+static int fake_lock(void *context, uint64_t id, struct apkrt_window_buffer *buffer) {
+    (void)context;
+    fprintf(stderr, "fake buffers: lock window %llu, %dx%d, format %d, dirty %d %d %d %d\n", (unsigned long long)id,
+            buffer->width, buffer->height, buffer->format, buffer->dirty[0], buffer->dirty[1], buffer->dirty[2],
+            buffer->dirty[3]);
+    // AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, R8G8B8X8_UNORM and R5G6B5_UNORM.
+    const int bytes = buffer->format == 1 || buffer->format == 2 ? 4 : buffer->format == 4 ? 2 : 0;
+    if (bytes == 0) {
+        return -22;  // EINVAL
+    }
+    if (fake.locks++ == 0) {
+        pthread_t thread;
+        pthread_create(&thread, NULL, open_gate_later, NULL);
+        pthread_detach(thread);
+    }
+    const int32_t stride = (buffer->width + 15) / 16 * 16;
+    fake.pixels = calloc((size_t)stride * (size_t)buffer->height, (size_t)bytes);
+    buffer->stride = stride;
+    buffer->bits = fake.pixels;
+    int32_t *const dirty = buffer->dirty;
+    if (buffer->width != fake.posted_width || buffer->height != fake.posted_height ||
+        buffer->format != fake.posted_format) {
+        dirty[0] = dirty[1] = 0;
+        dirty[2] = buffer->width;
+        dirty[3] = buffer->height;
+    } else {
+        dirty[0] = dirty[0] < 0 ? 0 : dirty[0];
+        dirty[1] = dirty[1] < 0 ? 0 : dirty[1];
+        dirty[2] = dirty[2] > buffer->width ? buffer->width : dirty[2];
+        dirty[3] = dirty[3] > buffer->height ? buffer->height : dirty[3];
+    }
+    fake.width = buffer->width;
+    fake.height = buffer->height;
+    fake.format = buffer->format;
+    return 0;
+}
+
+static int fake_post(void *context, uint64_t id) {
+    (void)context;
+    if (fake.format == 4) {
+        fprintf(stderr, "fake buffers: post window %llu, first pixel 0x%04x\n", (unsigned long long)id,
+                ((const uint16_t *)fake.pixels)[0]);
+    } else {
+        fprintf(stderr, "fake buffers: post window %llu, first pixel 0x%08x\n", (unsigned long long)id,
+                ((const uint32_t *)fake.pixels)[0]);
+    }
+    fake.posted_width = fake.width;
+    fake.posted_height = fake.height;
+    fake.posted_format = fake.format;
+    free(fake.pixels);
+    fake.pixels = NULL;
+    return 0;
+}
+
+static void fake_removed(void *context, uint64_t id) {
+    (void)context;
+    fprintf(stderr, "fake buffers: window %llu removed\n", (unsigned long long)id);
+}
+
+static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL};
+
 __attribute__((constructor)) static void add_window(void) {
     const char *size = getenv("MINATO_WINDOW");
     int width = 0, height = 0;
@@ -138,6 +221,14 @@ __attribute__((constructor)) static void add_window(void) {
     if (minato_test_window == 0 || apkrt_window_set_gate(minato_test_window, 1) != 0) {
         fprintf(stderr, "window host: the runtime refused the window (%llu)\n", (unsigned long long)minato_test_window);
         exit(2);
+    }
+    const char *buffers = getenv("MINATO_WINDOW_BUFFERS");
+    if (buffers != NULL) {
+        if (strcmp(buffers, "fake") != 0 || apkrt_set_window_buffers(&fake_buffers) != 0) {
+            fprintf(stderr, "window host: MINATO_WINDOW_BUFFERS=%s is not fake, or the runtime refused it\n", buffers);
+            exit(2);
+        }
+        apkrt_window_set_gate(minato_test_window, 0);
     }
     const char *script = getenv("MINATO_WINDOW_SCRIPT");
     if (script != NULL) {

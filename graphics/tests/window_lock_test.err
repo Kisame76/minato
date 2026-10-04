@@ -1,0 +1,10 @@
+fake buffers: lock window 1, 64x48, format 2, dirty 0 0 64 48
+window host: the gate opens
+fake buffers: post window 1, first pixel 0x11223344
+fake buffers: lock window 1, 50x20, format 4, dirty 10 5 30 15
+fake buffers: post window 1, first pixel 0xf800
+fake buffers: lock window 1, 50x20, format 4, dirty 10 5 60 15
+fake buffers: post window 1, first pixel 0x0000
+fake buffers: lock window 1, 64x48, format 1, dirty 0 0 64 48
+fake buffers: post window 1, first pixel 0x00000000
+fake buffers: lock window 1, 64x48, format 22, dirty 0 0 64 48

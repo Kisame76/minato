@@ -1,5 +1,3 @@
-W/libnativewindow: ANativeWindow_lock: not implemented
-W/libnativewindow: ANativeWindow_unlockAndPost: not implemented
 W/libnativewindow: AHardwareBuffer_isSupported: not implemented
 W/libnativewindow: AHardwareBuffer_allocate: not implemented
 W/libandroid: AThermal_acquireManager: not implemented

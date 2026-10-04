@@ -69,6 +69,8 @@ LIBRARIES = {
             "ANativeWindow_setFrameRateWithChangeStrategy", "ANativeWindow_setBuffersTransform",
             "ANativeWindow_setBuffersDataSpace", "ANativeWindow_getBuffersDataSpace",
             "ANativeWindow_getBuffersDefaultDataSpace", "ANativeWindow_tryAllocateBuffers",
+            # drawing by the CPU, on the host's buffers (ADR-0043, decision 3)
+            "ANativeWindow_lock", "ANativeWindow_unlockAndPost",
         ],
         "stubbed": [],
         "private": ["minato_ANativeWindow_create", "minato_ANativeWindow_getInfo"],
@@ -110,8 +112,7 @@ VALUES = {
     "AKeyEvent_getAction": "0", "AKeyEvent_getDownTime": "0", "AKeyEvent_getEventTime": "0", "AKeyEvent_getFlags": "0",
     "AKeyEvent_getKeyCode": "0", "AKeyEvent_getMetaState": "0", "AKeyEvent_getRepeatCount": "0",
     "AKeyEvent_getScanCode": "0",
-    # Drawing by the CPU is not in M3 (decision 7): INVALID_OPERATION
-    "ANativeWindow_lock": "-ENOSYS", "ANativeWindow_unlockAndPost": "-ENOSYS",
+    # Windows in parcels: INVALID_OPERATION
     "ANativeWindow_readFromParcel": "-ENOSYS", "ANativeWindow_writeToParcel": "-ENOSYS",
     # OBBs
     "AObbInfo_getFlags": "0", "AObbInfo_getVersion": "0", "AStorageManager_isObbMounted": "0",

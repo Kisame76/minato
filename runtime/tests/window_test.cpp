@@ -1,12 +1,13 @@
-// Checks the host's window registry and the window's gate (ADR-0028, decisions 6 and 7): a new window's
-// gate is closed; the layer comes back retained, and NULL once the window is removed; an open gate answers
-// at once and a closed one waits; a signal ends the wait with EINTR after its handler ran, and an
-// SA_RESTART handler makes the runtime wait on; opening wakes the wait; removal answers "gone" at once,
-// also to a thread that waits; the background kind waits until the foreground, and ID 0 ignores windows;
-// "scheduled" gives every provider the one deadline and says when one misses it. Host threads call the
-// dispatcher directly, as blocking_test.cpp does; the guest threads are clone children that make their
-// syscalls through the veneer's instructions (threads_probe.S), the gate's at a site as the converter lays
-// it out, which a restart runs again (window_probe.S), and the test's own thread plays the host.
+// Checks the host's window registry and the window's gate (ADR-0028, decisions 6 and 7): a new window's gate is
+// closed; the layer comes back retained, and NULL once the window is removed; an open gate answers at once and a
+// closed one waits; a signal ends the wait with EINTR after its handler ran, and an SA_RESTART handler makes the
+// runtime wait on; opening wakes the wait; removal answers "gone" at once, also to a thread that waits; the
+// background kind waits until the foreground, and ID 0 ignores windows; "scheduled" gives every provider the one
+// deadline and says when one misses it; the windows' buffers (ADR-0043, decision 3) take lock and post on the
+// calling thread, hear of a removed window, and without them both answer ENOSYS. Host threads call the dispatcher
+// directly, as blocking_test.cpp does; the guest threads are clone children that make their syscalls through the
+// veneer's instructions (threads_probe.S), the gate's at a site as the converter lays it out, which a restart runs
+// again (window_probe.S), and the test's own thread plays the host.
 #include "signals.h"
 #include "syscall_frame.h"
 #include "threads.h"
@@ -21,13 +22,17 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <mutex>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 extern "C" {
@@ -58,7 +63,7 @@ constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134;
 constexpr std::uint64_t futex_wait = 0;
 constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
-constexpr long eintr = 4, eagain = 11, efault = 14, einval = 22, etimedout = 110;
+constexpr long eintr = 4, eagain = 11, efault = 14, enodev = 19, einval = 22, enosys = 38, etimedout = 110;
 
 constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND,
                         present_try = APKRT_GATE_PRESENT_TRY;
@@ -272,6 +277,143 @@ TEST(a_size_read_during_turns_is_always_one_of_them_whole) {
     for (auto &reader : readers) reader.join();
     CHECK(torn.load() == 0);
     apkrt_window_remove(id);
+}
+
+// --- The windows' buffers (ADR-0043, decision 3) ------------------------------------------------
+
+/// graphics/host's buffers as the tests play them: each call is noted with its thread, and lock and post answer
+/// what the test sets. lock fills the guest's struct with a buffer of its own and the dirty rectangle 1 2 3 4.
+struct FakeBuffers {
+    std::mutex lock;
+    std::vector<std::string> calls;
+    std::vector<std::thread::id> threads;
+    int lock_answer = 0, post_answer = 0;
+    std::uint32_t pixels[64 * 48];
+};
+FakeBuffers fake;
+
+void note(const std::string &call) {
+    const std::lock_guard<std::mutex> hold(fake.lock);
+    fake.calls.push_back(call);
+    fake.threads.push_back(std::this_thread::get_id());
+}
+
+int fake_lock(void *context, std::uint64_t id, apkrt_window_buffer *buffer) {
+    auto *const buffers = static_cast<FakeBuffers *>(context);
+    char line[160];
+    std::snprintf(line, sizeof line, "lock %llu %dx%d format %d dirty %d %d %d %d", static_cast<unsigned long long>(id),
+                  buffer->width, buffer->height, buffer->format, buffer->dirty[0], buffer->dirty[1], buffer->dirty[2],
+                  buffer->dirty[3]);
+    note(line);
+    buffer->stride = buffer->width;
+    buffer->bits = buffers->pixels;
+    const std::int32_t dirty[4] = {1, 2, 3, 4};
+    std::copy(dirty, dirty + 4, buffer->dirty);
+    return buffers->lock_answer;
+}
+
+int fake_post(void *context, std::uint64_t id) {
+    note("post " + std::to_string(id));
+    return static_cast<FakeBuffers *>(context)->post_answer;
+}
+
+void fake_removed(void *, std::uint64_t id) {
+    note("removed " + std::to_string(id));
+}
+
+const apkrt_window_buffers fake_buffers{fake_lock, fake_post, fake_removed, &fake};
+
+/// The calls so far, which it forgets; with `on_this_thread`, whether each came on the calling thread.
+std::vector<std::string> taken_calls(bool *on_this_thread = nullptr) {
+    const std::lock_guard<std::mutex> hold(fake.lock);
+    if (on_this_thread != nullptr) {
+        *on_this_thread = std::all_of(fake.threads.begin(), fake.threads.end(),
+                                      [](std::thread::id thread) { return thread == std::this_thread::get_id(); });
+    }
+    fake.threads.clear();
+    fake.lock_answer = fake.post_answer = 0;
+    return std::exchange(fake.calls, {});
+}
+
+apkrt_window_buffer whole(std::int32_t width, std::int32_t height, std::int32_t format) {
+    return {width, height, 0, format, nullptr, {0, 0, width, height}};
+}
+
+TEST(without_buffers_lock_and_post_answer_enosys_as_the_stubs_did) {
+    CHECK(apkrt_set_window_buffers(nullptr) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    auto buffer = whole(64, 48, 1);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == -enosys);
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == -enosys);
+    CHECK(buffer.bits == nullptr);
+    apkrt_window_remove(id);
+}
+
+TEST(the_buffers_come_whole_or_not_at_all) {
+    CHECK(apkrt_set_window_buffers(nullptr) == 0);
+    const apkrt_window_buffers without_post{fake_lock, nullptr, fake_removed, &fake};
+    const apkrt_window_buffers without_lock{nullptr, fake_post, fake_removed, &fake};
+    const apkrt_window_buffers without_removed{fake_lock, fake_post, nullptr, &fake};
+    CHECK(apkrt_set_window_buffers(&without_post) == -1);
+    CHECK(apkrt_set_window_buffers(&without_lock) == -1);
+    CHECK(apkrt_set_window_buffers(&without_removed) == -1);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    auto buffer = whole(64, 48, 1);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == -enosys);  // still none
+    apkrt_window_remove(id);
+    CHECK(taken_calls().empty());
+}
+
+TEST(lock_and_post_reach_the_buffers_on_the_calling_thread_with_the_guest_s_buffer) {
+    CHECK(apkrt_set_window_buffers(&fake_buffers) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    apkrt_window_set_gate(id, 1);
+    apkrt_window_buffer buffer{50, 20, 0, 4, nullptr, {10, 5, 30, 15}};
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == 0);
+    CHECK(buffer.stride == 50 && buffer.bits == fake.pixels);
+    CHECK(buffer.dirty[0] == 1 && buffer.dirty[1] == 2 && buffer.dirty[2] == 3 && buffer.dirty[3] == 4);
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == 0);
+    bool on_this_thread = false;
+    const std::string with_id = std::to_string(id);
+    CHECK(taken_calls(&on_this_thread) ==
+          std::vector<std::string>({"lock " + with_id + " 50x20 format 4 dirty 10 5 30 15", "post " + with_id}));
+    CHECK(on_this_thread);
+    // Their answers are the calls'.
+    fake.lock_answer = -einval;
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == -einval);
+    fake.post_answer = -enodev;
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == -enodev);
+    taken_calls();
+    apkrt_window_remove(id);
+    CHECK(taken_calls() == std::vector<std::string>({"removed " + with_id}));
+}
+
+TEST(lock_and_post_need_a_window_the_host_gave_and_lock_a_buffer_and_a_removed_window_is_gone) {
+    CHECK(apkrt_set_window_buffers(&fake_buffers) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    auto buffer = whole(64, 48, 1);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, 0) == -efault);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, 0, address(&buffer)) == -einval);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id + 1000, address(&buffer)) == -einval);  // never given
+    CHECK(call(APKRT_NR_WINDOW_POST, 0) == -einval);
+    CHECK(call(APKRT_NR_WINDOW_POST, id + 1000) == -einval);
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == -enodev);  // as Android's abandoned BufferQueue
+    CHECK(taken_calls() == std::vector<std::string>({"removed " + std::to_string(id)}));
+}
+
+TEST(a_post_after_the_removal_still_reaches_the_buffers_which_take_their_buffer_back) {
+    CHECK(apkrt_set_window_buffers(&fake_buffers) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    auto buffer = whole(64, 48, 2);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == 0);
+    CHECK(apkrt_window_remove(id) == 0);
+    fake.post_answer = -enodev;
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == -enodev);
+    const std::string with_id = std::to_string(id);
+    CHECK(taken_calls() == std::vector<std::string>({"lock " + with_id + " 64x48 format 2 dirty 0 0 64 48",
+                                                     "removed " + with_id, "post " + with_id}));
+    CHECK(apkrt_set_window_buffers(nullptr) == 0);
 }
 
 // --- The gate -----------------------------------------------------------------------------------

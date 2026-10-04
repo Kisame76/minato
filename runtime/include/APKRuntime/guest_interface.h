@@ -214,6 +214,20 @@ enum apkrt_gate_kind {
 /// number of times. It is the configuration of apkrt_session_begin: a turn does not change it (ADR-0038). Returns 0;
 /// -ENOENT without a session, -EFAULT for NULL.
 #define APKRT_NR_SESSION_CONFIGURATION 4119
+/// window_lock, libnativewindow's ANativeWindow_lock (ADR-0043, decision 3): x0 the window's ID, x1 a struct
+/// apkrt_window_buffer, in which the guest asks for a buffer of its width, height and format, the rectangle in dirty
+/// being what it will draw (the whole buffer when the app gives none). The host's buffers (apkrt_set_window_buffers)
+/// answer on the calling thread with a buffer that the guest writes until window_post: its stride and bits, and in
+/// dirty what the guest must draw, the whole buffer when they could not copy the last posted pixels into it. Returns
+/// 0; -ENOSYS without the host's buffers, on a host that draws nothing by the CPU; -EFAULT for address 0; -EINVAL for
+/// ID 0 or an ID the host never gave; -ENODEV once the window is removed, as Android's abandoned BufferQueue answers;
+/// else the buffers' answer, -EINVAL for a format they do not take.
+#define APKRT_NR_WINDOW_LOCK 4120
+/// window_post, libnativewindow's ANativeWindow_unlockAndPost (ADR-0043, decision 3), after the window's present gate:
+/// x0 the window's ID. The host's buffers present the buffer of window_lock on the window's layer and take it back;
+/// for a window removed meanwhile, they only take it back and answer -ENODEV. Returns 0; -ENOSYS without the host's
+/// buffers, -EINVAL for ID 0 or an ID the host never gave; else the buffers' answer, -EINVAL without a locked buffer.
+#define APKRT_NR_WINDOW_POST 4121
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //
@@ -410,6 +424,16 @@ struct minato_window_info {
     int32_t buffer_width;   // those of ANativeWindow_setBuffersGeometry, 0 while none is set
     int32_t buffer_height;
     int32_t buffer_format;
+};
+
+/// The buffer of window_lock (ADR-0043, decision 3): ANativeWindow_Buffer's fields and the dirty ARect.
+struct apkrt_window_buffer {
+    int32_t width;      // in: the size the guest asks for, which the buffer has
+    int32_t height;
+    int32_t stride;     // out: in pixels, from a row to the next
+    int32_t format;     // in: an AHardwareBuffer format (WINDOW_FORMAT_*), which the buffer has
+    void *bits;         // out: the first pixel's address
+    int32_t dirty[4];   // left, top, right, bottom; in: what the guest will draw, out: what it must draw
 };
 
 struct ANativeWindow;

@@ -839,6 +839,10 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::windows::gate(x[0], x[1]);
         case APKRT_NR_WINDOW_SIZE:
             return apkrt::windows::size(x[0], x[1]);  // ADR-0038 c)
+        case APKRT_NR_WINDOW_LOCK:
+            return apkrt::windows::lock_buffer(x[0], x[1]);  // ADR-0043, decision 3
+        case APKRT_NR_WINDOW_POST:
+            return apkrt::windows::post_buffer(x[0]);
         case APKRT_NR_SESSION_CONFIGURATION:
             return apkrt::session::configuration(x[0]);  // ADR-0039, config-test
         // The vsync channel (ADR-0036, decision 1).

@@ -242,6 +242,29 @@ typedef int (*apkrt_scheduled_provider)(void *context, uint64_t deadline);
 /// or 4 are set already.
 int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *context);
 
+/// The windows' buffers for drawing by the CPU (ADR-0043, decision 3), graphics/host's. The runtime calls them on the
+/// guest's thread: lock from window_lock, once the registry found the window, with the guest's struct
+/// (guest_interface.h); post from window_post, also for a window removed meanwhile. Each answers 0 or a negative Linux
+/// errno. removed comes from apkrt_window_remove on the app's thread, once the registry let the window go, so that
+/// its buffers can go too.
+/// - A lock may still come for an ID right after its removed, since the registry's check and the call are apart: the
+///   buffers answer -ENODEV and keep nothing of it. A call already past the registry when apkrt_set_window_buffers
+///   changes or clears them still reaches the old functions and context.
+/// - removed and post may run at once for the same ID: a guest thread in unlockAndPost passes the present gate as
+///   "gone" while the app's thread is inside removed. The buffers synchronize the two themselves.
+/// - lock and post must not wait long: they run inside a private syscall that guest signals cannot interrupt, and the
+///   present gate before the post is the only wait. A post without a locked buffer answers -EINVAL.
+struct apkrt_window_buffers {
+    int (*lock)(void *context, uint64_t id, struct apkrt_window_buffer *buffer);
+    int (*post)(void *context, uint64_t id);
+    void (*removed)(void *context, uint64_t id);
+    void *context;
+};
+
+/// For graphics/host: sets the windows' buffers, which the runtime copies, or takes them away with NULL. Returns 0,
+/// or -1 when a function is NULL.
+int apkrt_set_window_buffers(const struct apkrt_window_buffers *buffers);
+
 // MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
 //
 // For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and

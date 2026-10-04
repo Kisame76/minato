@@ -1,7 +1,7 @@
-// The window registry (ADR-0028, decisions 6 and 7): the host's windows, their gates, the background
-// state and "scheduled". The host changes them under `lock` and then notifies every thread that waits at a
-// gate, whose wait (ADR-0026) reads its signal word before it looks at the registry: so no change slips in
-// between.
+// The window registry (ADR-0028, decisions 6 and 7): the host's windows, their gates, the background state,
+// "scheduled" and the windows' buffers for drawing by the CPU (ADR-0043, decision 3). The host changes them under
+// `lock` and then notifies every thread that waits at a gate, whose wait (ADR-0026) reads its signal word before
+// it looks at the registry: so no change slips in between.
 #include "windows.h"
 
 #include "APKRuntime/apkrt.h"
@@ -49,6 +49,8 @@ Provider providers[provider_limit];
 int provider_count = 0;
 
 std::atomic<bool> in_background{false};  // sequentially consistent, for the count-then-flag protocol
+
+apkrt_window_buffers buffers{};  // the windows' buffers (ADR-0043, decision 3); lock is NULL without them
 
 Window *find(std::uint64_t id) {
     const auto found = std::find_if(windows.begin(), windows.end(), [id](const Window &window) { return window.id == id; });
@@ -117,6 +119,30 @@ long size(std::uint64_t id, std::uint64_t address) {
     return 0;
 }
 
+long lock_buffer(std::uint64_t id, std::uint64_t address) {
+    apkrt_window_buffers with;
+    {
+        const std::lock_guard<std::mutex> hold(lock);
+        with = buffers;
+        if (with.lock == nullptr) return -linux_errno::enosys;
+        if (address == 0) return -linux_errno::efault;
+        if (id == 0 || id >= next_id) return -linux_errno::einval;
+        if (find(id) == nullptr) return -linux_errno::enodev;
+    }
+    return with.lock(with.context, id, reinterpret_cast<apkrt_window_buffer *>(address));
+}
+
+long post_buffer(std::uint64_t id) {
+    apkrt_window_buffers with;
+    {
+        const std::lock_guard<std::mutex> hold(lock);
+        with = buffers;
+        if (with.post == nullptr) return -linux_errno::enosys;
+        if (id == 0 || id >= next_id) return -linux_errno::einval;
+    }
+    return with.post(with.context, id);
+}
+
 void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits)) {
     const std::lock_guard<std::mutex> hold(lock);
     Window *window = find(id);
@@ -163,6 +189,7 @@ int apkrt_window_set_size(uint64_t id, int32_t width, int32_t height) {
 
 int apkrt_window_remove(uint64_t id) {
     void *layer;
+    apkrt_window_buffers with;
     {
         const std::lock_guard<std::mutex> hold(lock);
         Window *window = find(id);
@@ -170,7 +197,9 @@ int apkrt_window_remove(uint64_t id) {
         layer = window->layer;
         windows.erase(windows.begin() + (window - windows.data()));
         notify_waiters();
+        with = buffers;
     }
+    if (with.removed != nullptr) with.removed(with.context, id);
     if (layer != nullptr) CFRelease(layer);
     return 0;
 }
@@ -236,6 +265,13 @@ int apkrt_is_background(void) {
 void apkrt_wait_foreground(void) {
     std::unique_lock<std::mutex> hold(lock);
     foreground.wait(hold, [] { return !in_background.load(); });
+}
+
+int apkrt_set_window_buffers(const apkrt_window_buffers *set) {
+    if (set != nullptr && (set->lock == nullptr || set->post == nullptr || set->removed == nullptr)) return -1;
+    const std::lock_guard<std::mutex> hold(lock);
+    buffers = set != nullptr ? *set : apkrt_window_buffers{};
+    return 0;
 }
 
 int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *context) {

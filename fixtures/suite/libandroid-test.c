@@ -97,7 +97,8 @@ int main(void) {
     ANativeWindow_tryAllocateBuffers(window);
     print_getters("  getters", window);
 
-    // Drawing by the CPU and hardware buffers: errors, each logged once.
+    // Drawing by the CPU, which apk-run's host has no buffers for (ADR-0043 b1): -ENOSYS from the host, and for a
+    // post without a lock Android's INVALID_OPERATION, -ENOSYS too. Hardware buffers: errors, each logged once.
     ANativeWindow_Buffer buffer;
     printf("lock: %d\n", ANativeWindow_lock(window, &buffer, NULL));
     printf("lock again: %d\n", ANativeWindow_lock(window, &buffer, NULL));

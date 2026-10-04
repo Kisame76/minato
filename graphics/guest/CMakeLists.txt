@@ -105,6 +105,11 @@ target_sources(vulkan-window-test PRIVATE "${tests}/test_control_guest.c")
 target_include_directories(vulkan-window-test PRIVATE "${tests}")
 target_link_libraries(vulkan-window-test PRIVATE minato_bind)
 
+# ADR-0043 b1: window-lock-test, libnativewindow's lock and post against graphics-run's fake buffers.
+add_executable(window-lock-test "${tests}/window_lock_test.c")
+target_link_libraries(window-lock-test PRIVATE nativewindow dl)
+target_compile_options(window-lock-test PRIVATE -Wall -Wextra)
+
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv2
 # and libGLESv3 are one set of objects with two export lists; each exports exactly the NDK's names, and the

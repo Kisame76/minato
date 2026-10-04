@@ -243,6 +243,11 @@ if(TARGET minato_graphics_host)
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:")
   add_guest_test(vulkan_window vulkan-window-test vulkan_window_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_WINDOW=set:64x48")
+  # ADR-0043 b1: libnativewindow's lock and post against the window host's fake buffers, whose first lock opens the
+  # window's gate 200 ms later (window_host.m).
+  add_guest_test(window_lock window-lock-test window_lock_test
+    "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
+    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_BUFFERS=set:fake")
   if(EXISTS "${moltenvk}")
     add_guest_test(vulkan_moltenvk vulkan-moltenvk-test vulkan_moltenvk_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:1"
@@ -404,9 +409,9 @@ if(TARGET minato_graphics_host)
     set_tests_properties(graphics.probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
   endif()
 else()
-  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window vulkan_moltenvk vulkan_queue
-      vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app gles_live
-      vulkan_live present_gles present_vulkan bench recorder recorder_class)
+  foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock vulkan_moltenvk
+      vulkan_queue vulkan_present probe gles_thunk gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app
+      gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
