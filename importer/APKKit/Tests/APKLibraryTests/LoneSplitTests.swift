@@ -213,7 +213,8 @@ struct LoneSplitTests {
         #expect(try await library.importUnit(unit).map(\.decision) == [.ask([.uncheckedContent])])
         #expect(await library.entries == [old])
         #expect(sandbox.exists(unit))
-        #expect(try await library.importUnit(unit, replacing: [AskingVersion(package: SplitAPK.package, versionCode: 1)]).map(\.decision) == [.update])
+        let shown = AskingVersion(package: SplitAPK.package, versionCode: 1, warnings: [.uncheckedContent])
+        #expect(try await library.importUnit(unit, replacing: [shown]).map(\.decision) == [.update])
         #expect(await library.entries.first?.splits.map(\.splitName) == ["config.arm64_v8a", "config.de"])
     }
 

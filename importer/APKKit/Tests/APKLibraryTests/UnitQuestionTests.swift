@@ -2,12 +2,14 @@ import APKFormats
 import APKKit
 import APKTestSupport
 import Foundation
+import Synchronization
 import Testing
 
 @testable import APKLibrary
 
-/// The library side of the app's units (ADR-0048 b7a, F7): a scan by unit, a question that answers only the sets it
-/// listed, the files Minato cannot check, and the text of a set Android refuses.
+/// The library side of the app's units (ADR-0048 b7a and b7b, F7): a scan by unit, a question that answers only the sets
+/// it listed as it listed them, the files Minato cannot check, the text of a set Android refuses, "Keep Installed" for a
+/// unit, and a unit's progress.
 @Suite("Questions per unit")
 struct UnitQuestionTests {
     typealias Sandbox = LibraryTests.Sandbox
@@ -49,8 +51,8 @@ struct UnitQuestionTests {
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
         let unit = try await Self.olderUnit(library, sandbox.paths)
-        let set = AskingVersion(package: SplitAPK.package, versionCode: 1)
-        let apk = AskingVersion(package: "org.example.b", versionCode: 1)
+        let set = AskingVersion(package: SplitAPK.package, versionCode: 1, warnings: [.olderVersion])
+        let apk = AskingVersion(package: "org.example.b", versionCode: 1, warnings: [.olderVersion])
         // The set's group comes first: it has the unit's first file, arm64.apk.
         #expect(try await library.importUnit(unit).map(\.asking) == [set, apk])
 
@@ -161,5 +163,107 @@ struct UnitQuestionTests {
         #expect(LibraryError.unsafePackageName("../x").localizedDescription == "“../x” is not a valid package name")
         #expect(ImportUnitError.tooManyFiles(600).localizedDescription
             == "it has 600 files, and Minato takes at most \(ImportUnit.maxFiles) at a time")
+    }
+
+    @Test func anAnswerReplacesOnlyTheQuestionAsShown() async throws {
+        // "Replace" answered "1.0 is older than the installed 2.0". Meanwhile another pick put another signer's 3.0 in
+        // its place, so the answer would give this version that app's data without a word about the other signer.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        _ = try await library.importFile(UpdateTests.picked(sandbox, library, SampleAPK.make(versionCode: 2), named: "v2.apk"))
+        let unit = try await library.adopt([try sandbox.file(UpdateTests.olderVersion, named: "v1.apk")])
+        let shown = try #require(try await library.importUnit(unit).first)
+        #expect(shown.decision == .ask([.olderVersion]))
+        let other = try await library.importFile(UpdateTests.picked(sandbox, library, UpdateTests.otherSigner, named: "v3.apk"),
+                                                 replacing: true).entry
+
+        let answered = try await library.importUnit(unit, replacing: [try #require(shown.asking)])
+
+        #expect(answered.map(\.decision) == [.ask([.olderVersion, .otherSigner])])
+        #expect(await library.entries == [other])
+        #expect(sandbox.exists(unit.appendingPathComponent("v1.apk")))
+    }
+
+    @Test(arguments: [true, false])
+    func keepInstalledOnAUnitDropsItsAPKsWhileItsOBBsWait(withOBB: Bool) async throws {
+        // As the unit's end after an import: an OBB waits for ADR-0049, and a unit without one goes.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(UpdateTests.picked(sandbox, library, SampleAPK.make(versionCode: 2),
+                                                                        named: "v2.apk")).entry
+        let obb = "main.1.\(installed.id).obb"
+        var pick = [try sandbox.file(UpdateTests.olderVersion, named: "v1.apk")]
+        if withOBB { pick.append(try sandbox.file(Data("obb".utf8), named: obb)) }
+        let unit = try await library.adopt(pick)
+        #expect(try await library.importUnit(unit).map(\.decision) == [.ask([.olderVersion])])
+
+        await library.keepInstalled(discarding: unit)
+
+        #expect(!sandbox.exists(unit.appendingPathComponent("v1.apk")))
+        #expect(sandbox.exists(unit.appendingPathComponent(obb)) == withOBB)
+        #expect(sandbox.exists(unit) == withOBB)
+        #expect(try await library.scanUnits().isEmpty)
+        #expect(await library.entries == [installed])
+    }
+
+    @Test func keepInstalledLeavesAFolderOutsideIncomingAlone() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let apk = try sandbox.file(SampleAPK.make(), named: "app.apk")
+
+        await library.keepInstalled(discarding: apk.deletingLastPathComponent())
+
+        #expect(sandbox.exists(apk))
+    }
+
+    /// Picks whose progress the app shows: one large APK, two small ones around a file that is no APK, or two sets.
+    enum Pick: CaseIterable, Sendable {
+        case large, mixed, sets
+
+        var files: [String: Data] {
+            switch self {
+            case .large:
+                // Three of the 4 MiB chunks the hash reads at a time.
+                return ["app.apk": SampleAPK.make { zip in
+                    var zip = zip
+                    zip.add("assets/large.bin", Data(count: 9 << 20), method: .stored)
+                    return TestSigner.sign(zip, v2: [TestSigner.Signer(.ec)])
+                }]
+            case .mixed:
+                return ["b.apk": SampleAPK.make(package: "org.example.b"), "c.apk": Data("junk".utf8),
+                        "d.apk": SampleAPK.make(package: "org.example.d")]
+            case .sets:
+                return ["base.apk": Sets.base, "arm64.apk": Sets.arm64, "other.apk": SplitAPK.make(package: "org.example.other"),
+                        "other-arm64.apk": SplitAPK.make(package: "org.example.other", split: "config.arm64_v8a",
+                                                         abis: ["arm64-v8a"])]
+            }
+        }
+    }
+
+    @Test(arguments: Pick.allCases)
+    func aUnitShowsItsProgressAndReadsEachAPKOnce(pick: Pick) async throws {
+        // The app shows a unit's progress on its tile: one large APK used to sit at 0 until it was done, and was read
+        // twice, by the unit and by its import.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let read = Mutex<[String]>([])
+        await library.observeHashing { url in read.withLock { $0.append(url.lastPathComponent) } }
+        let files = pick.files
+        let unit = try Sets.unit(files, in: sandbox.paths)
+        let values = Mutex<[Double]>([])
+
+        _ = try await library.importUnit(unit) { value in values.withLock { $0.append(value) } }
+
+        let shown = values.withLock { $0 }
+        #expect(shown.first == 0)
+        #expect(shown.last == 1)
+        #expect(zip(shown, shown.dropFirst()).allSatisfy { $0 <= $1 })
+        #expect(shown.contains { $0 > 0 && $0 < 0.5 }) // while the unit reads its APKs
+        #expect(shown.contains { $0 > 0.5 && $0 < 1 }) // while it imports them
+        #expect(read.withLock { $0 } == files.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) })
     }
 }

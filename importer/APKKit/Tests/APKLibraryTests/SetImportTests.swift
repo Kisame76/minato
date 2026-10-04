@@ -174,7 +174,8 @@ struct SetImportTests {
         #expect(try await library.importUnit(unit).map(\.decision) == [.ask([.uncheckedContent])])
         #expect(await library.entries.isEmpty)
         #expect(sandbox.exists(unit))
-        #expect(try await library.importUnit(unit, replacing: [AskingVersion(package: SplitAPK.package, versionCode: 1)]).map(\.decision) == [.install])
+        let shown = AskingVersion(package: SplitAPK.package, versionCode: 1, warnings: [.uncheckedContent])
+        #expect(try await library.importUnit(unit, replacing: [shown]).map(\.decision) == [.install])
         #expect(await library.entries.map(\.id) == [SplitAPK.package])
     }
 
@@ -230,7 +231,8 @@ struct SetImportTests {
 
         #expect(try await library.importUnit(older).map(\.decision) == [.ask([.olderVersion])])
         #expect(sandbox.exists(older))
-        #expect(try await library.importUnit(older, replacing: [AskingVersion(package: SplitAPK.package, versionCode: 1)]).map(\.decision) == [.update])
+        let shown = AskingVersion(package: SplitAPK.package, versionCode: 1, warnings: [.olderVersion])
+        #expect(try await library.importUnit(older, replacing: [shown]).map(\.decision) == [.update])
         #expect(await library.entries.first?.report?.versionCode == 1)
         #expect(!sandbox.exists(older))
     }

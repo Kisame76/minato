@@ -31,7 +31,8 @@ struct LibraryView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
                 .toolbar { toolbar }
-                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk], allowsMultipleSelection: true) { result in
+                // An app's APKs, or their folder, as one pick (ADR-0048, decision 1).
+                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .folder], allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }
                 }
@@ -53,17 +54,20 @@ struct LibraryView: View {
                     Button("OK") { exit(0) }
                 }
                 // ADR-0034, decision 5: a file that would not run, and the question before an older version or
-                // another signer replaces the installed app.
+                // another signer replaces the installed app, for every set of a unit that asks (ADR-0048, F7).
                 .alert(model.updateRejected?.title ?? "", isPresented: rejectionShown) {
                     Button("OK") {}
                 } message: {
                     Text(model.updateRejected?.message ?? "")
                 }
                 .alert(questionTitle, isPresented: questionShown, presenting: model.questions.first) { question in
-                    Button("Replace", role: .destructive) { Task { await model.answer(question, replace: true) } }
-                    Button("Keep Installed", role: .cancel) { Task { await model.answer(question, replace: false) } }
+                    let texts = Texts.unitQuestion(question)
+                    Button(texts.confirm, role: question.replacesAny ? .destructive : nil) {
+                        Task { await model.answer(question, replace: true) }
+                    }
+                    Button(texts.decline, role: .cancel) { Task { await model.answer(question, replace: false) } }
                 } message: { question in
-                    Text(Texts.updateQuestion(installed: question.installed, report: question.report, warnings: question.warnings).message)
+                    Text(Texts.unitQuestion(question).message)
                 }
                 .alert("Error", isPresented: errorShown) {
                     Button("OK") { model.errorMessage = nil }
@@ -296,10 +300,10 @@ struct LibraryView: View {
     }
 
     private var questionTitle: String {
-        model.questions.first.map { Texts.updateQuestion(installed: $0.installed, report: $0.report, warnings: $0.warnings).title } ?? ""
+        model.questions.first.map { Texts.unitQuestion($0).title } ?? ""
     }
 
-    /// Dismissing it without a button leaves the question: the file waits, and the next launch asks again.
+    /// Dismissing it without a button leaves the question: the unit waits, and the next launch asks again.
     private var questionShown: Binding<Bool> {
         Binding(get: { !model.questions.isEmpty }, set: { _ in })
     }

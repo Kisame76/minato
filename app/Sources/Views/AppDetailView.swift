@@ -74,9 +74,30 @@ struct AppDetailView: View {
                     }
                 }
 
+                // A set's APKs (ADR-0048 b7b): what is installed, and what the choice for this iPhone left out.
+                let skipped = entry.skippedSplits ?? []
+                if !entry.splits.isEmpty || !skipped.isEmpty {
+                    Section("Split APKs") {
+                        if let base = entry.base {
+                            LabeledContent("Base", value: size(base.size))
+                        }
+                        ForEach(entry.splits, id: \.fileName) { split in
+                            LabeledContent(split.splitName ?? split.fileName, value: size(split.size))
+                        }
+                        ForEach(skipped, id: \.fileName) { split in
+                            LabeledContent {
+                                Text("Not installed")
+                            } label: {
+                                Text(split.splitName)
+                                Text(split.reason)
+                            }
+                        }
+                    }
+                }
+
                 Section("File") {
                     LabeledContent("Source", value: entry.source.fileName)
-                    LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(entry.source.size), countStyle: .file))
+                    LabeledContent("Size", value: size(entry.source.size))
                 }
 
                 Section {
@@ -107,6 +128,10 @@ struct AppDetailView: View {
         entry.iconFile.flatMap { file in
             (try? LibraryPaths.standard()).map { $0.applicationSupport.appendingPathComponent(file) }
         }
+    }
+
+    private func size(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 

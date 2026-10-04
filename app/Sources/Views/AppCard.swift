@@ -109,7 +109,7 @@ struct StatusView: View {
         switch status {
         case .new, .installing, .updating, .ready: .secondary
         case .needsSplits: .orange
-        case .incompatible, .invalid: .red
+        case .incompatible, .invalid, .notInstalled: .red
         }
     }
 }

@@ -8,7 +8,7 @@ import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "import")
 
-/// One tile in the library grid: an installed entry or a dropped file that is not imported yet.
+/// One tile in the library grid: an installed entry or a pick that is not imported yet.
 struct LibraryItem: Identifiable {
     enum Status {
         case new
@@ -19,6 +19,8 @@ struct LibraryItem: Identifiable {
         case needsSplits
         case incompatible(String)
         case invalid(String)
+        /// A set that was not installed, with why, in words to show (ADR-0048 b7b).
+        case notInstalled(String)
     }
 
     let id: String
@@ -28,16 +30,76 @@ struct LibraryItem: Identifiable {
     let iconURL: URL?
 }
 
-/// An import that waits for the user's answer (ADR-0034, decision 1): until then its file stays in incoming/.
-struct UpdateQuestion: Identifiable {
+/// A pick that waits in incoming/ (ADR-0048, decision 1): a unit's folder, or a file an older build left there.
+struct WaitingUnit {
     let url: URL
-    /// The installed app, which stays until the answer.
-    let installed: LibraryEntry
-    /// The new file's report.
-    let report: APKReport
-    let warnings: Set<UpdateWarning>
+    /// Its APKs' names in the order the library reads them (`Library.scan`), so the title stays the same.
+    let apks: [String]
+    /// Their size together, for the log.
+    let size: Int
 
-    var id: URL { url }
+    init(_ url: URL) {
+        self.url = url
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+        let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys),
+                                                                  options: [.skipsHiddenFiles])) ?? [url]
+        let apks = files
+            .filter { $0.pathExtension.lowercased() == "apk" && (try? $0.resourceValues(forKeys: keys))?.isRegularFile == true }
+            .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
+        self.apks = apks.map(\.lastPathComponent)
+        size = apks.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: keys))?.fileSize ?? 0) }
+    }
+
+    /// Its tile's title: the first APK, and how many more the unit holds.
+    var title: String {
+        guard let first = apks.first else { return url.lastPathComponent }
+        let name = url.appendingPathComponent(first).deletingPathExtension().lastPathComponent
+        return apks.count > 1 ? "\(name) +\(apks.count - 1)" : name
+    }
+}
+
+/// A unit whose sets ask first (ADR-0034, decision 1; ADR-0048, F7): until the answer, its files stay in incoming/.
+struct UpdateQuestion: Identifiable {
+    /// One set or APK of the unit that asks.
+    struct Asking {
+        /// The installed app, which stays until the answer; nil where nothing of its package is installed.
+        let installed: LibraryEntry?
+        /// The app's name: the installed one's, or else the new version's.
+        let name: String
+        /// The new version's report.
+        let report: APKReport
+        /// Its APKs Minato cannot verify, by the names the user picked.
+        let uncheckedFiles: [String]
+        /// What "Replace" answers: this version, as the question shows it.
+        let version: AskingVersion
+
+        var warnings: Set<UpdateWarning> { version.warnings }
+
+        /// The set `result` asks about; nil where it does not ask. `installed` tells an installed app from the entry
+        /// a fresh install would make.
+        init?(_ result: ImportResult, installed: [LibraryEntry]) {
+            guard let report = result.report, let version = result.asking else { return nil }
+            self.installed = installed.contains(result.entry) ? result.entry : nil
+            name = result.entry.displayName
+            self.report = report
+            uncheckedFiles = result.uncheckedFiles
+            self.version = version
+        }
+    }
+
+    let unit: URL
+    let sets: [Asking]
+
+    var id: URL { unit }
+
+    /// "Replace" where the question lists an installed app, "Install" where it lists none.
+    var replacesAny: Bool { sets.contains { $0.installed != nil } }
+
+    /// Whether `result` is of a version the question lists.
+    func lists(_ result: ImportResult) -> Bool {
+        guard let report = result.report else { return false }
+        return sets.contains { $0.version.package == report.packageName && $0.version.versionCode == report.versionCode }
+    }
 }
 
 /// UI state around the `Library` actor, which does the file work off the main thread.
@@ -45,7 +107,7 @@ struct UpdateQuestion: Identifiable {
 @Observable
 final class LibraryModel {
     private(set) var entries: [LibraryEntry] = []
-    private(set) var pending: [URL] = []
+    private(set) var pending: [WaitingUnit] = []
     private(set) var progress: [URL: Double] = [:]
     /// Entries whose converted code is being signed again, shown as "Updating".
     private(set) var resigningIDs: Set<String> = []
@@ -76,7 +138,7 @@ final class LibraryModel {
     @ObservationIgnored private var needsAnotherScan = false
     /// A tap is being handled: until it ends, and after it started an app, taps do nothing.
     @ObservationIgnored private var isLaunching = false
-    /// Files that wait for an answer or are being answered: a scan leaves them alone, so a question comes
+    /// Units that wait for an answer or are being answered: a scan leaves them alone, so a question comes
     /// only once per process. The next launch asks again.
     @ObservationIgnored private var held: Set<URL> = []
 
@@ -95,11 +157,11 @@ final class LibraryModel {
     }
 
     var items: [LibraryItem] {
-        let waiting = pending.map { url in
+        let waiting = pending.map { unit in
             LibraryItem(
-                id: "pending:" + url.lastPathComponent,
-                title: url.deletingPathExtension().lastPathComponent,
-                status: progress[url].map(LibraryItem.Status.installing) ?? .new,
+                id: "pending:" + unit.url.lastPathComponent,
+                title: unit.title,
+                status: progress[unit.url].map(LibraryItem.Status.installing) ?? .new,
                 entry: nil,
                 iconURL: nil)
         }
@@ -116,7 +178,7 @@ final class LibraryModel {
         return waiting + installed
     }
 
-    /// Installs picked files that are not installed yet, one after the other. A call while a refresh
+    /// Installs picks that are not installed yet, one unit after the other. A call while a refresh
     /// is running is not lost: the running refresh scans once more when it is done.
     func refresh() async {
         guard let library else { return }
@@ -131,13 +193,13 @@ final class LibraryModel {
             needsAnotherScan = false
             entries = await library.entries
             do {
-                pending = try await library.scan().filter { !held.contains($0) }
+                pending = try await library.scanUnits().filter { !held.contains($0) }.map(WaitingUnit.init)
             } catch {
                 errorMessage = "Waiting imports cannot be read: \(error.localizedDescription)"
                 return
             }
-            while let url = pending.first {
-                await install(url, with: library)
+            while let unit = pending.first {
+                await install(unit, with: library)
                 pending.removeFirst()
             }
         } while needsAnotherScan
@@ -148,21 +210,26 @@ final class LibraryModel {
         await open([url])
     }
 
-    /// The + button: takes over every picked file, then installs them in one pass. The originals stay where they are.
+    /// The + button: takes the pick over as one unit, its files and folders together (ADR-0048, decision 1), then
+    /// installs what waits. The originals stay where they are.
     func open(_ urls: [URL]) async {
-        guard let library else { return }
-        for url in urls {
-            let hasAccess = url.startAccessingSecurityScopedResource()
+        guard let library, !urls.isEmpty else { return }
+        let names = Texts.files(urls.map(\.lastPathComponent))
+        do {
+            // The library reads the pick while it takes it over: one start per URL, and a stop for each that
+            // started, on every path.
+            var accessed: [URL] = []
+            for url in urls where url.startAccessingSecurityScopedResource() {
+                accessed.append(url)
+            }
             defer {
-                if hasAccess { url.stopAccessingSecurityScopedResource() }
+                for url in accessed { url.stopAccessingSecurityScopedResource() }
             }
-            do {
-                let start = ContinuousClock.now
-                _ = try await library.adopt(url)
-                log.info("Adopted \(url.lastPathComponent, privacy: .public) in \(ContinuousClock.now - start, privacy: .public)")
-            } catch {
-                errorMessage = "“\(url.lastPathComponent)” could not be added: \(error.localizedDescription)"
-            }
+            let start = ContinuousClock.now
+            _ = try await library.adopt(urls)
+            log.info("Adopted \(names, privacy: .public) in \(ContinuousClock.now - start, privacy: .public)")
+        } catch {
+            errorMessage = "\(names) could not be added: \(error.localizedDescription)"
         }
         await refresh()
     }
@@ -293,52 +360,90 @@ final class LibraryModel {
 
     // MARK: - Updates (ADR-0034)
 
-    /// Tells the user what an import did to an installed app: a note, the rejection or the question.
-    private func show(_ result: ImportResult, of url: URL) {
-        #if DEBUG
-        UpdateCheck.event("import \(result.decision)")
-        #endif
-        switch result.decision {
-        case .install:
-            break
-        case .update, .unchanged, .reinstall:
-            if let text = Texts.updateNote(result) { showNote(text) }
-        case .reject(let state):
-            updateRejected = Texts.updateRejected(installed: result.entry, report: result.report, state: state)
+    /// Tells the user what a unit's import did to installed apps: one note for those it updated or found installed,
+    /// the rejection, or one question for every set that asks (ADR-0048, F7).
+    private func show(_ results: [ImportResult], of unit: URL, installed: [LibraryEntry]) {
+        var notes: [String] = []
+        var asking: [UpdateQuestion.Asking] = []
+        for result in results {
             #if DEBUG
-            UpdateCheck.recordAlert()
+            UpdateCheck.event("import \(result.decision)")
             #endif
-        case .ask(let warnings):
-            guard let report = result.report else { return }
-            held.insert(url)
-            questions.append(UpdateQuestion(url: url, installed: result.entry, report: report, warnings: warnings))
-            #if DEBUG
-            if questions.count == 1 { UpdateCheck.questionShown(questions[0], in: self) }
-            #endif
+            switch result.decision {
+            case .install:
+                break
+            case .update, .unchanged, .reinstall:
+                if let text = Texts.updateNote(result) { notes.append(text) }
+            case .reject(let state):
+                reject(result, state: state)
+            case .ask:
+                if let set = UpdateQuestion.Asking(result, installed: installed) { asking.append(set) }
+            }
         }
+        if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
+        ask(asking, about: unit)
     }
 
-    /// "Replace" installs the waiting file over the installed app, which keeps its data; "Keep Installed"
-    /// discards the file.
+    private func reject(_ result: ImportResult, state: LibraryEntry.State) {
+        updateRejected = Texts.updateRejected(installed: result.entry, report: result.report, state: state)
+        #if DEBUG
+        UpdateCheck.recordAlert()
+        #endif
+    }
+
+    /// Holds the unit, and queues one question for its sets that ask.
+    private func ask(_ sets: [UpdateQuestion.Asking], about unit: URL) {
+        guard !sets.isEmpty else { return }
+        held.insert(unit)
+        questions.append(UpdateQuestion(unit: unit, sets: sets))
+        #if DEBUG
+        if questions.count == 1 { UpdateCheck.questionShown(questions[0], in: self) }
+        #endif
+    }
+
+    /// "Replace" (or "Install") installs the versions the question listed, as it listed them, over the installed apps,
+    /// which keep their data; one that asks otherwise now asks again. "Keep Installed" (or "Don’t Install") discards
+    /// the unit's APKs: its other sets were installed before the question.
     func answer(_ question: UpdateQuestion, replace: Bool) async {
         questions.removeAll { $0.id == question.id }
-        defer { held.remove(question.url) }
         #if DEBUG
         UpdateCheck.event("answered \(replace ? "replace" : "keep")")
         if let next = questions.first { UpdateCheck.questionShown(next, in: self) }
         #endif
         guard let library else { return }
+        var results: [ImportResult] = []
         if replace {
             do {
-                let result = try await library.importFile(question.url, replacing: true, signing: importSigning())
-                showNote(Texts.replacedNote(result.entry))
+                results = try await library.importUnit(question.unit, replacing: Set(question.sets.map(\.version)),
+                                                       signing: importSigning())
             } catch {
-                errorMessage = "“\(question.installed.displayName)” could not be replaced: \(error.localizedDescription)"
+                let done = question.replacesAny ? "replaced" : "installed"
+                errorMessage = "\(Texts.subject(of: question)) could not be \(done): \(error.localizedDescription)"
             }
         } else {
-            await library.keepInstalled(discarding: question.url)
+            await library.keepInstalled(discarding: question.unit)
         }
-        entries = await library.entries
+        let installed = await library.entries
+        entries = installed
+        // Nothing suspends from here on, so no scan takes the unit between its release and a question that holds it again.
+        held.remove(question.unit)
+        var notes: [String] = []
+        var asking: [UpdateQuestion.Asking] = []
+        for result in results {
+            switch result.decision {
+            case .update where question.lists(result):
+                notes.append(Texts.replacedNote(result.entry))
+            case .reject(let state):
+                reject(result, state: state)
+            case .ask:
+                if let set = UpdateQuestion.Asking(result, installed: installed) { asking.append(set) }
+            default:
+                // A fresh install shows its tile; the unit's other sets were noted before the question.
+                break
+            }
+        }
+        if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
+        ask(asking, about: question.unit)
     }
 
     private func showNote(_ text: String) {
@@ -356,23 +461,24 @@ final class LibraryModel {
         }
     }
 
-    private func install(_ url: URL, with library: Library) async {
+    private func install(_ unit: WaitingUnit, with library: Library) async {
+        let url = unit.url
         progress[url] = 0
         do {
             let start = ContinuousClock.now
-            // Read first: the import discards the picked copy.
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            let result = try await library.importFile(url, signing: importSigning()) { [weak self] value in
+            let results = try await library.importUnit(url, signing: importSigning()) { [weak self] value in
                 Task { @MainActor in
-                    guard let self, self.pending.contains(url) else { return }
+                    guard let self, self.pending.contains(where: { $0.url == url }) else { return }
                     self.progress[url] = value
                 }
             }
-            let megabytes = Double(size) / 1_000_000
-            log.info("Imported \(url.lastPathComponent, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB, \(String(describing: result.decision), privacy: .public)) in \(ContinuousClock.now - start, privacy: .public)")
-            show(result, of: url)
+            let megabytes = Double(unit.size) / 1_000_000
+            let decisions = results.map { String(describing: $0.decision) }.joined(separator: ", ")
+            log.info("Imported \(unit.title, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB, \(decisions, privacy: .public)) in \(ContinuousClock.now - start, privacy: .public)")
+            let installed = await library.entries
+            show(results, of: url, installed: installed)
         } catch {
-            errorMessage = "“\(url.lastPathComponent)” could not be imported: \(error.localizedDescription)"
+            errorMessage = "\(Texts.files(unit.apks)) could not be imported: \(error.localizedDescription)"
         }
         progress[url] = nil
         entries = await library.entries

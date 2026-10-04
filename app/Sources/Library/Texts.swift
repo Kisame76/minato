@@ -15,7 +15,8 @@ enum Texts {
             let blocking = entry.report?.compatibility.issues.first(where: isBlocking)
             return .incompatible(blocking.map(issue) ?? "Unknown reason")
         case .invalid(let reason):
-            return .invalid(invalidReason(reason))
+            // A set that was not installed keeps its text to show; a file that is no APK, an error's description.
+            return entry.refusal.map(LibraryItem.Status.notInstalled) ?? .invalid(invalidReason(reason))
         }
     }
 
@@ -28,6 +29,7 @@ enum Texts {
         case .needsSplits: "Needs split APKs"
         case .incompatible(let reason): "Incompatible: \(reason)"
         case .invalid(let reason): "Not a valid APK: \(reason)"
+        case .notInstalled(let reason): "Not installed: \(reason)"
         }
     }
 
@@ -68,11 +70,13 @@ enum Texts {
         case .ready where entry.report?.runtime == .art:
             ("Can’t Open “\(entry.displayName)” Yet", "This app contains Java/Kotlin code and needs ART, which comes in milestone M4.")
         case .needsSplits:
-            ("Can’t Open “\(entry.displayName)”", "This app needs its split APKs. Importing split sets comes in milestone M5.")
+            ("Can’t Open “\(entry.displayName)”", "This app needs its split APKs. Pick all of its APKs with +, or their folder.")
         case .incompatible(let reason):
             ("Can’t Open “\(entry.displayName)”", reason + ".")
         case .invalid(let reason):
             ("Can’t Open “\(entry.displayName)”", "This is not a valid APK: \(reason).")
+        case .notInstalled(let reason):
+            ("Can’t Open “\(entry.displayName)”", "Not installed: " + (reason.hasSuffix(".") ? reason : reason + "."))
         case .ready, .new, .installing, .updating:
             // A ready app without a report; an entry's status is never one of the other three.
             ("Can’t Open “\(entry.displayName)”", "Import it again.")
@@ -110,8 +114,10 @@ enum Texts {
                 "\(versionName(report)) \(reason). Version \(versionName(installed.report)) stays installed.")
     }
 
-    /// The question before an older version or another signer replaces the installed app; both warnings together.
-    static func updateQuestion(installed: LibraryEntry, report: APKReport, warnings: Set<UpdateWarning>) -> (title: String, message: String) {
+    /// The question before an older version, another signer or APKs Minato cannot verify replace the installed app;
+    /// every warning together.
+    static func updateQuestion(installed: LibraryEntry, report: APKReport, warnings: Set<UpdateWarning>,
+                               uncheckedFiles: [String] = []) -> (title: String, message: String) {
         let name = installed.displayName
         var message: [String] = []
         if warnings.contains(.olderVersion) {
@@ -122,8 +128,60 @@ enum Texts {
             message.append("The new file is signed by someone else, for example as a modified version. Replacing it "
                 + "gives it the data of the installed app. To start without that data, delete the app first.")
         }
+        if warnings.contains(.uncheckedContent) {
+            message.append(uncheckedContent(uncheckedFiles))
+        }
         let title = warnings.contains(.olderVersion) ? "Replace “\(name)” with an Older Version?" : "Replace “\(name)”?"
         return (title, message.joined(separator: " "))
+    }
+
+    // MARK: - Units (ADR-0048 b7b)
+
+    /// The question about a unit's sets that ask (F7): one set as before, several in one alert, and "Install" where
+    /// none it lists is installed.
+    static func unitQuestion(_ question: UpdateQuestion) -> (title: String, message: String, confirm: String, decline: String) {
+        let (confirm, decline) = question.replacesAny ? ("Replace", "Keep Installed") : ("Install", "Don’t Install")
+        guard question.sets.count > 1 else {
+            let (title, message) = question.sets.first.map(setQuestion) ?? ("", "")
+            return (title, message, confirm, decline)
+        }
+        let title = "\(confirm) \(question.sets.count) Apps?"
+        let message = question.sets.map { "“\($0.name)”: \(setQuestion($0).message)" }
+        return (title, message.joined(separator: "\n\n"), confirm, decline)
+    }
+
+    /// One set's question: the update question over an installed app, else whether to install it.
+    private static func setQuestion(_ set: UpdateQuestion.Asking) -> (title: String, message: String) {
+        if let installed = set.installed {
+            return updateQuestion(installed: installed, report: set.report, warnings: set.warnings, uncheckedFiles: set.uncheckedFiles)
+        }
+        return ("Install “\(set.name)”?", uncheckedContent(set.uncheckedFiles))
+    }
+
+    /// APKs Minato cannot verify (ADR-0048, step b3), by the names the user picked them under.
+    static func uncheckedContent(_ files: [String]) -> String {
+        switch files.count {
+        case 0: "Minato cannot verify how some of its APKs are signed, so it cannot tell whether their content was changed."
+        case 1: "Minato cannot verify how \(files[0]) is signed, so it cannot tell whether its content was changed."
+        default: "Minato cannot verify how \(list(files)) are signed, so it cannot tell whether their content was changed."
+        }
+    }
+
+    /// The question's apps, for an error after the answer.
+    static func subject(of question: UpdateQuestion) -> String {
+        question.sets.count == 1 ? "“\(question.sets[0].name)”" : "The \(question.sets.count) apps"
+    }
+
+    /// A pick's or a unit's files, for messages: "“a.apk”", or "“a.apk” and 2 more".
+    static func files(_ names: [String]) -> String {
+        guard let first = names.first else { return "The pick" }
+        return names.count == 1 ? "“\(first)”" : "“\(first)” and \(names.count - 1) more"
+    }
+
+    /// "a, b and c".
+    private static func list(_ items: [String]) -> String {
+        guard let last = items.last, items.count > 1 else { return items.joined() }
+        return items.dropLast().joined(separator: ", ") + " and " + last
     }
 
     /// A version's name, or its code when the manifest names none.
@@ -143,7 +201,7 @@ enum Texts {
     static func issue(_ issue: Compatibility.Issue) -> String {
         switch issue {
         case .isSplitAPK(let name):
-            "Split APK “\(name)”, only usable together with its base APK (comes in M5)"
+            "Split APK “\(name)”, only usable together with its base APK. Pick all of the app’s APKs with +, or their folder"
         case .only32Bit(let abis):
             "Only 32-bit code (\(abis.joined(separator: ", "))), which iPhones cannot run since the A11"
         case .noARM64(let abis):

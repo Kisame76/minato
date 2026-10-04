@@ -198,8 +198,9 @@ public actor Library {
         try importFile(url, answering: { _ in replacing }, signing: signing, progress: progress)
     }
 
-    /// `importFile`, with "Replace" answered for the versions `answering` takes.
-    private func importFile(_ url: URL, answering: (AskingVersion) -> Bool, signing: ImportSigning?,
+    /// `importFile`, with "Replace" answered for the versions `answering` takes, and the file's SHA-256 where a unit has
+    /// read it already.
+    private func importFile(_ url: URL, answering: (AskingVersion) -> Bool, signing: ImportSigning?, sha256 known: String? = nil,
                             progress: @Sendable (Double) -> Void) throws -> ImportResult {
         var source = try Self.sourceFile(for: url)
         progress(0)
@@ -223,7 +224,7 @@ public actor Library {
         }
         progress(0.2)
 
-        let digest = try Self.sha256(of: url, size: source.size) { progress(0.2 + 0.6 * $0) }
+        let digest = try known ?? hash(url, size: source.size) { progress(0.2 + 0.6 * $0) }
         source.sha256 = digest
         let signer = report.signature.signer ?? SignerIdentity(current: [])
         let new = NewVersion(
@@ -261,7 +262,6 @@ public actor Library {
         let fileManager = FileManager.default
         var report = new.report
         let package = report.packageName
-        let replacing = answering(AskingVersion(package: package, versionCode: report.versionCode))
         var state: LibraryEntry.State = switch report.compatibility.status {
         case .ready: .ready
         case .needsSplits: .needsSplits
@@ -276,6 +276,12 @@ public actor Library {
         let installed = entries.first { $0.id == package }
         let installedVersion = installed.flatMap(version(of:))
         var decision = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
+        // "Replace" answers the question as it was shown (F7): one that asks otherwise now asks again.
+        let replacing = if case .ask(let warnings) = decision {
+            answering(AskingVersion(package: package, versionCode: report.versionCode, warnings: warnings))
+        } else {
+            false
+        }
         switch (decision, installed) {
         case (.unchanged, let installed?), (.reject, let installed?):
             return finish(ImportResult(entry: installed, decision: decision, report: report))
@@ -380,33 +386,54 @@ public actor Library {
     /// splits are chosen for the device, and it is analysed over the APKs Minato installs, then installed, updated or
     /// asked about as one APK is (ADR-0034); a set Android refuses becomes an `.invalid` entry. One APK, and a file
     /// that is no APK, go through `importFile`, as before. The unit stays while a set asks, so the question comes again
-    /// at the next scan. `replacing` answers "Replace" for the versions the question listed, and for no other, which
-    /// keeps asking (F7, the lead's reviewer). Returns a result for each set and each such file.
+    /// at the next scan. `replacing` answers "Replace" for the versions the question listed, as it listed them, and for
+    /// no other, which keeps asking (F7, the lead's reviewer); one that asks otherwise now asks again. The first half of
+    /// `progress` reads each APK once, by its size, and the second imports the sets and files, a share each. Returns a
+    /// result for each set and each such file.
     @discardableResult
     public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
         var isFolder: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
         let urls = isFolder.boolValue ? try Self.files(inUnit: unit).filter(Self.isAPK) : [unit]
-        var results: [ImportResult] = []
+        let sizes = try urls.map { try Self.sourceFile(for: $0).size }
+        let total = Double(max(sizes.reduce(0, +), 1))
+        var read: UInt64 = 0
+        var digests: [URL: String] = [:]
+        var unreadable: [URL] = []
         var members: [SetMember] = []
         var files: [String: (url: URL, archive: ZipArchive)] = [:]
-        for (index, url) in urls.enumerated() {
-            progress(0.5 * Double(index) / Double(urls.count))
-            let sha256 = try Self.sha256(of: url, size: Self.sourceFile(for: url).size) { _ in }
+        progress(0)
+        for (url, size) in zip(urls, sizes) {
+            let sha256 = try hash(url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
+            read += size
+            digests[url] = sha256
             guard let archive = try? ZipArchive(url: url),
                   let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256) else {
-                results.append(try importFile(url, answering: answered.contains, signing: signing, progress: { _ in }))
+                unreadable.append(url)
                 continue
             }
             members.append(member)
             files[member.fileName] = (url, archive)
         }
-        for group in SetGrouping.byPackageAndVersion(members) {
+        let groups = SetGrouping.byPackageAndVersion(members)
+        let parts = Double(max(unreadable.count + groups.count, 1))
+        var results: [ImportResult] = []
+        for url in unreadable {
+            let part = Double(results.count)
+            results.append(try importFile(url, answering: answered.contains, signing: signing, sha256: digests[url]) {
+                progress(0.5 + 0.5 * (part + $0) / parts)
+            })
+        }
+        for group in groups {
             if group.count == 1, group[0].isBase, let url = files[group[0].fileName]?.url {
-                results.append(try importFile(url, answering: answered.contains, signing: signing, progress: { _ in }))
+                let part = Double(results.count)
+                results.append(try importFile(url, answering: answered.contains, signing: signing, sha256: digests[url]) {
+                    progress(0.5 + 0.5 * (part + $0) / parts)
+                })
             } else {
                 results.append(try importSet(group, files: files, answering: answered.contains, signing: signing))
+                progress(0.5 + 0.5 * Double(results.count) / parts)
             }
         }
         // The unit goes once nothing in it waits for an answer; an OBB waits for ADR-0049.
@@ -544,9 +571,19 @@ public actor Library {
         }
     }
 
-    /// The answer "Keep Installed" to a question: the waiting file goes, the installed version stays.
+    /// The answer "Keep Installed" to a question: the waiting file goes, or a unit's APKs, while its OBBs wait for
+    /// ADR-0049 as at the end of `importUnit`; the installed version stays.
     public func keepInstalled(discarding url: URL) {
-        discardPickedCopy(url)
+        var isFolder: ObjCBool = false
+        guard Self.isDirectChild(url, of: paths.incoming),
+              FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue else {
+            discardPickedCopy(url)
+            return
+        }
+        for apk in (try? Self.files(inUnit: url))?.filter(Self.isAPK) ?? [] {
+            try? FileManager.default.removeItem(at: apk)
+        }
+        rmdir(url.path) // only once nothing else waits in it
     }
 
     /// The version an entry holds. A report from before the signature check (ADR-0034, step d), and so
@@ -584,6 +621,19 @@ public actor Library {
 
     func failWritingSignersFile(with fault: @escaping @Sendable () throws -> Void) {
         faultWritingSignersFile = fault
+    }
+
+    /// Runs before an import reads a picked file to hash it; a test counts the reads.
+    private var hashing: (@Sendable (URL) -> Void)?
+
+    func observeHashing(_ hook: @escaping @Sendable (URL) -> Void) {
+        hashing = hook
+    }
+
+    /// SHA-256 of a picked file, for an import.
+    private func hash(_ url: URL, size: UInt64, progress: (Double) -> Void) throws -> String {
+        hashing?(url)
+        return try Self.sha256(of: url, size: size, progress: progress)
     }
 
     /// Removes an app with its data. The file it was installed from is not touched.

@@ -127,20 +127,23 @@ public struct ImportResult: Sendable, Equatable {
     /// names (ADR-0048 b7a).
     public var uncheckedFiles: [String] = []
 
-    /// The version a question lists for this import; nil where it does not ask.
+    /// The version a question lists for this import, with what it warns about; nil where it does not ask.
     public var asking: AskingVersion? {
-        guard case .ask = decision, let report else { return nil }
-        return AskingVersion(package: report.packageName, versionCode: report.versionCode)
+        guard case .ask(let warnings) = decision, let report else { return nil }
+        return AskingVersion(package: report.packageName, versionCode: report.versionCode, warnings: warnings)
     }
 }
 
-/// A version that asks, as its question lists it: "Replace" answers it and no other (ADR-0048, F7).
+/// A version that asks, as its question lists it: "Replace" answers it and no other, and only while it asks the same,
+/// so an answer after the installed app changed meanwhile asks again (ADR-0048, F7).
 public struct AskingVersion: Sendable, Hashable {
     public var package: String
     public var versionCode: Int64
+    public var warnings: Set<UpdateWarning>
 
-    public init(package: String, versionCode: Int64) {
+    public init(package: String, versionCode: Int64, warnings: Set<UpdateWarning>) {
         self.package = package
         self.versionCode = versionCode
+        self.warnings = warnings
     }
 }
