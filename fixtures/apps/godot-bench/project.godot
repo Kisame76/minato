@@ -14,6 +14,9 @@ boot_splash/bg_color=Color(0, 0, 0, 1)
 
 [display]
 
+; Swappy, Godot's frame pacing on Android, is off: on the emulator its present fails from the first frame and the
+; Vulkan APK hangs (ADR-0042 test 1). Minato must handle Swappy later, in a test of its own.
+window/frame_pacing/android/enable_frame_pacing=false
 window/ios/allow_high_refresh_rate=true
 
 [rendering]

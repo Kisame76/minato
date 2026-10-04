@@ -214,6 +214,8 @@ The engine of test 2's app and the tool its export needs, in `build/godot/`, not
 | Godot's export templates (`Godot_v4.7.2-stable_export_templates.tpz`), of which only `android_release.apk` and `ios.zip` are unpacked | `4.7.2-stable`, SHA-512 pinned | MIT, as above |
 | Android SDK build-tools (`build-tools_r35.0.1_macosx.zip`) in `build/godot/sdk/`, for `apksigner`, which the export without Gradle needs | `35.0.1`, Google's SHA-1 and our SHA-256 pinned | Android Software Development Kit License |
 
+The two test APKs that `tools/build-godot.sh` exports at test time, never kept in the repo or the app, carry what Godot's Android template holds: AndroidX and Kotlin's standard library (Apache-2.0), and Swappy, the Android Game Development Kit's frame pacing (Apache-2.0), inside `libgodot_android.so`, also while `godot-bench` turns Swappy off.
+
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.

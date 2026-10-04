@@ -24,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,7 +131,14 @@ def check_script():
     if not os.access(script, os.X_OK):
         check(False, "tools/build-godot.sh exists")
         return
+    start = int(time.time())
     run = subprocess.run([script, "--run", conf], capture_output=True, text=True, timeout=300)
+    # Godot's user:// on macOS follows $HOME alone: the run's log must land in build/godot/home, not in the user's.
+    log = os.path.join("Library", "Application Support", "Godot", "app_userdata", "godot-bench", "logs", "godot.log")
+    inside = os.path.join(BUILD, "home", log)
+    outside = os.path.join(os.path.expanduser("~"), log)
+    check(os.path.isfile(inside) and os.path.getmtime(inside) >= start, "user:// lies in build/godot/home (the run's log)")
+    check(not os.path.isfile(outside) or os.path.getmtime(outside) < start, "the run writes nothing to ~/Library's user://")
     lines = run.stdout.splitlines()
     check(run.returncode == 0, f"the project ends with exit status 0 ({run.returncode})")
     check("godot-bench: start godot-script rate 60 load light seconds 3 meshes 512" in lines, "the start line names bench.conf's run")

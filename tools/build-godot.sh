@@ -21,6 +21,9 @@ GODOT="$ROOT/build/godot"
 EDITOR="$GODOT/editor/Godot.app/Contents/MacOS/Godot"
 PROJECT="$GODOT/project"
 KEYSTORE="$GODOT/keystore/debug.keystore"
+# On macOS Godot takes user:// (its logs and objectdb_snapshots/) from $HOME alone and reads no XDG variable, so each
+# of its runs gets this absolute HOME and keeps them in build/godot/home, not in ~/Library/Application Support.
+USER_HOME="$GODOT/home"
 export JAVA_HOME="$ROOT/build/tools/jdk-17/jdk-17.0.20.1+1/Contents/Home"
 export ANDROID_HOME="$GODOT/sdk"
 
@@ -63,14 +66,14 @@ done
 mkdir -p "$PROJECT"
 rsync -a --delete --exclude .godot --exclude icons --exclude twin "$ROOT/fixtures/apps/godot-bench/" "$PROJECT/"
 /usr/bin/python3 "$ROOT/tools/godot-icons.py" "$PROJECT/icons"
-"$EDITOR" --headless --path "$PROJECT" --import >"$GODOT/import.log" 2>&1 || {
+HOME="$USER_HOME" "$EDITOR" --headless --path "$PROJECT" --import >"$GODOT/import.log" 2>&1 || {
   tail -20 "$GODOT/import.log" >&2
   echo "build-godot: the import failed, see $GODOT/import.log" >&2
   exit 1
 }
 
 if [[ $# -eq 2 && "$1" == --run ]]; then
-  exec "$EDITOR" --headless --path "$PROJECT" -- "--bench-config=$2"
+  HOME="$USER_HOME" exec "$EDITOR" --headless --path "$PROJECT" -- "--bench-config=$2"
 elif [[ $# -ne 0 ]]; then
   echo "usage: tools/build-godot.sh [--run <bench.conf> | --twin]" >&2
   exit 2
@@ -92,7 +95,7 @@ for api in vulkan gles; do
   esac
   apk="$GODOT/godot-bench-$api.apk"
   rm -f "$apk"
-  if ! "$EDITOR" --headless --path "$PROJECT" --export-release "$preset" "$apk" >"$GODOT/export-$api.log" 2>&1 ||
+  if ! HOME="$USER_HOME" "$EDITOR" --headless --path "$PROJECT" --export-release "$preset" "$apk" >"$GODOT/export-$api.log" 2>&1 ||
      [[ ! -f "$apk" ]]; then
     tail -20 "$GODOT/export-$api.log" >&2
     echo "build-godot: the export of $preset failed, see $GODOT/export-$api.log" >&2

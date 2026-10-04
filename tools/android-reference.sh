@@ -267,8 +267,9 @@ present_timestamp_back() {
 # are compared, and the rest, which are only shown; the run's line and the app's own end, as for bench-gles.
 run_godot() {
   local apk="build/godot/$app.apk" package="io.github.kisame76.minato.godotbench.${app#godot-bench-}"
-  local activity finished=no crashes
-  activity="$package/com.godot.game.GodotApp"
+  local launcher="$package/com.godot.game.GodotAppLauncher" finished=no crashes tag='^[A-Z]/godot *: '
+  # Godot's template keeps its activity unexported and gives the launcher this alias. logcat -v tag pads the tag to 8
+  # characters.
   if [[ ! -f "$apk" ]]; then
     echo "No $apk: run tools/build-godot.sh first." >&2
     return 1
@@ -276,14 +277,22 @@ run_godot() {
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
   run logcat -c
-  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
-  # The emulator draws on the CPU: the engine's start, its shader compiles and 10 s of frames.
-  wait_for godot " failures" 180 || return 1
+  run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$launcher" >/dev/null
+  # The emulator draws on the CPU: the engine's start, its shader compiles and 10 s of frames. An app that hangs is
+  # shown and removed, so that it does not draw beside the next one.
+  if ! wait_for godot " failures" 180; then
+    app_lines godot | sed 's/^/    /'
+    device uninstall "$package" >/dev/null 2>&1 || true
+    echo "FAILED   $app (no run line)"
+    return 1
+  fi
   sleep 1
-  app_lines godot | grep -E '^[A-Z]/godot: godot-bench: ' >"$RESULTS/$app.logcat" || true
-  app_lines godot | grep -v -E '^[A-Z]/godot: godot-bench: ' >"$RESULTS/$app-device.logcat" || true
+  app_lines godot | grep -E "${tag}godot-bench: " >"$RESULTS/$app.logcat" || true
+  app_lines godot | grep -v -E "${tag}godot-bench: " >"$RESULTS/$app-device.logcat" || true
+  # Godot quits by ending its process ("Force quitting Godot instance"), and the window manager keeps the alias in its
+  # orientation history, so the process is the sign.
   for _ in $(seq 1 20); do
-    if [[ "$(run dumpsys activity activities)" != *"$activity"* ]]; then
+    if [[ -z "$(run pidof "$package" | tr -d '\r' || true)" ]]; then
       finished=yes
       break
     fi
@@ -293,7 +302,7 @@ run_godot() {
   device uninstall "$package" >/dev/null 2>&1 || true
   sed 's/^/    /' "$RESULTS/$app-device.logcat"
   if [[ "$finished" != yes || "$crashes" == *"$package"* ]] ||
-    ! grep -Eq '^[A-Z]/godot: run [^:]+: [1-9][0-9]* frames, 0 failures' "$RESULTS/$app-device.logcat"; then
+    ! grep -Eq "${tag}run [^:]+: [1-9][0-9]* frames, 0 failures" "$RESULTS/$app-device.logcat"; then
     echo "FAILED   $app (finished by itself: $finished)"
     return 1
   fi
