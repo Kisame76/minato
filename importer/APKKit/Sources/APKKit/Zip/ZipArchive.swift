@@ -10,6 +10,8 @@ public struct ZipEntry: Sendable, Hashable {
     }
 
     public let name: String
+    /// The name's bytes as the archive holds them, which Android compares and looks up (libziparchive).
+    public let nameBytes: Data
     public let method: Method
     public let flags: UInt16
     public let crc32: UInt32
@@ -33,7 +35,9 @@ public final class ZipArchive {
     /// Where the end of central directory record starts (the classic one, after any ZIP64 records).
     public let endOfCentralDirectoryOffset: UInt64
     public let source: ByteSource
-    private let indexByName: [String: Int]
+    /// Positions by the names' bytes: Android finds an entry by those, where Swift's String equality would make
+    /// canonically equivalent names one.
+    private let indexByName: [Data: Int]
 
     public static let defaultMaxEntrySize: UInt64 = 256 << 20
 
@@ -52,15 +56,17 @@ public final class ZipArchive {
         centralDirectorySize = end.centralDirectorySize
         endOfCentralDirectoryOffset = end.offset
         entries = try Self.readCentralDirectory(source, end: end)
-        var index: [String: Int] = [:]
-        for (position, entry) in entries.enumerated() where index[entry.name] == nil {
-            index[entry.name] = position
+        var index: [Data: Int] = [:]
+        // libziparchive refuses a name twice, byte for byte (zip_cd_entry_map.cc:57-62, from zip_archive.cc:636-645):
+        // two readers each taking another of them was the Master Key bug.
+        for (position, entry) in entries.enumerated() {
+            guard index.updateValue(position, forKey: entry.nameBytes) == nil else { throw APKError.duplicateEntry(entry.name) }
         }
         indexByName = index
     }
 
     public func entry(named name: String) -> ZipEntry? {
-        indexByName[name].map { entries[$0] }
+        indexByName[Data(name.utf8)].map { entries[$0] }
     }
 
     public func data(named name: String, maxSize: UInt64 = ZipArchive.defaultMaxEntrySize) throws -> Data {
@@ -73,13 +79,14 @@ public final class ZipArchive {
         guard entry.uncompressedSize <= maxSize else {
             throw APKError.entryTooLarge(entry.name, entry.uncompressedSize)
         }
-        let content = try read(entry, upTo: Int(entry.uncompressedSize))
+        let (content, header) = try read(entry, upTo: Int(entry.uncompressedSize))
         guard UInt64(content.count) == entry.uncompressedSize else {
             throw APKError.truncated("\(entry.name): got \(content.count) of \(entry.uncompressedSize) bytes")
         }
         guard CRC32.checksum(content) == entry.crc32 else {
             throw APKError.crcMismatch(entry.name)
         }
+        try checkDataDescriptor(of: entry, header)
         return content
     }
 
@@ -87,10 +94,8 @@ public final class ZipArchive {
     /// no entry is ever in memory whole (ADR-0034, step d).
     public func forEachChunk(of entry: ZipEntry, chunkSize: Int = 1 << 20, _ body: (Data) throws -> Void) throws {
         guard !entry.isEncrypted else { throw APKError.encryptedEntry(entry.name) }
-        let start = try dataOffset(of: entry)
-        guard entry.compressedSize <= source.size, start <= source.size - entry.compressedSize else {
-            throw APKError.truncated("\(entry.name): data beyond end of archive")
-        }
+        let header = try localHeader(of: entry)
+        let start = header.dataOffset
         var produced: UInt64 = 0
         // More than the entry's size is refused as it comes, so a deflate bomb costs no more than its size.
         func emit(_ piece: Data) throws {
@@ -116,37 +121,113 @@ public final class ZipArchive {
         guard produced == entry.uncompressedSize else {
             throw APKError.truncated("\(entry.name): got \(produced) of \(entry.uncompressedSize) bytes")
         }
+        try checkDataDescriptor(of: entry, header)
     }
 
     /// The first `count` bytes of an entry (fewer if the entry is shorter). Inflates only what is needed.
     public func prefix(of entry: ZipEntry, count: Int) throws -> Data {
-        try read(entry, upTo: Int(min(UInt64(max(count, 0)), entry.uncompressedSize)))
+        try read(entry, upTo: Int(min(UInt64(max(count, 0)), entry.uncompressedSize))).data
     }
 
     /// Absolute offset of the entry's (possibly compressed) data, after the local file header.
     public func dataOffset(of entry: ZipEntry) throws -> UInt64 {
+        try localHeader(of: entry).dataOffset
+    }
+
+    // MARK: - Local headers, as libziparchive checks them when it finds an entry
+
+    /// What an entry's checked local file header gives.
+    private struct LocalHeader {
+        var dataOffset: UInt64
+        var hasDataDescriptor: Bool
+    }
+
+    /// The local file header of `entry` (zip_archive.cc:866-1033): its name is the central directory's, it and its
+    /// extra field end before the central directory, its sizes and CRC-32 are the central directory's unless a data
+    /// descriptor follows (ZIP64 sizes both at once), and the data ends before the central directory.
+    private func localHeader(of entry: ZipEntry) throws -> LocalHeader {
+        let directory = centralDirectoryOffset
+        // :850-856: the header itself ends before the central directory, as a name follows it.
+        guard entry.localHeaderOffset + 30 < directory else {
+            throw APKError.inconsistentEntry(entry.name, "its local header runs into the central directory")
+        }
         var header = ByteReader(try source.read(at: entry.localHeaderOffset, count: 30), context: entry.name)
         guard try header.u32() == 0x0403_4b50 else {
             throw APKError.truncated("\(entry.name): missing local file header")
         }
-        let nameLength = try header.u16(at: 26)
-        let extraLength = try header.u16(at: 28)
-        return entry.localHeaderOffset + 30 + UInt64(nameLength) + UInt64(extraLength)
+        let flags = try header.u16(at: 6)
+        let crc = try header.u32(at: 14)
+        var compressed = UInt64(try header.u32(at: 18))
+        var uncompressed = UInt64(try header.u32(at: 22))
+        let nameLength = UInt64(try header.u16(at: 26))
+        let extraLength = UInt64(try header.u16(at: 28))
+
+        // :873-912.
+        let nameOffset = entry.localHeaderOffset + 30
+        guard nameLength == UInt64(entry.nameBytes.count) else {
+            throw APKError.inconsistentEntry(entry.name, "its local header names another file")
+        }
+        guard nameOffset + nameLength <= directory else {
+            throw APKError.inconsistentEntry(entry.name, "its local header runs into the central directory")
+        }
+        guard try source.read(at: nameOffset, count: Int(nameLength)) == entry.nameBytes else {
+            throw APKError.inconsistentEntry(entry.name, "its local header names another file")
+        }
+        // :913-919.
+        let extraOffset = nameOffset + nameLength
+        guard extraLength <= directory - extraOffset else {
+            throw APKError.inconsistentEntry(entry.name, "its local header runs into the central directory")
+        }
+        // :927-961.
+        if compressed == 0xFFFF_FFFF || uncompressed == 0xFFFF_FFFF {
+            guard compressed == 0xFFFF_FFFF, uncompressed == 0xFFFF_FFFF else {
+                throw APKError.inconsistentEntry(entry.name, "its local header gives one size in ZIP64")
+            }
+            var offset: UInt64 = 0
+            try Self.applyZip64Extra(try source.read(at: extraOffset, count: Int(extraLength)),
+                                     uncompressed: &uncompressed, compressed: &compressed, offset: &offset)
+        }
+        // :986-996; a mismatch of the descriptor bit alone is a warning there (:979-983).
+        let hasDataDescriptor = flags & 0x0008 != 0
+        if !hasDataDescriptor,
+           compressed != entry.compressedSize || uncompressed != entry.uncompressedSize || crc != entry.crc32 {
+            throw APKError.inconsistentEntry(entry.name, "its local header's sizes or CRC-32 differ")
+        }
+        // :1014-1033; the data's start lies before the central directory, as the extra field ends there.
+        let dataOffset = extraOffset + extraLength
+        guard entry.compressedSize <= directory - dataOffset,
+              entry.method != .stored || entry.uncompressedSize <= directory - dataOffset else {
+            throw APKError.inconsistentEntry(entry.name, "its data runs into the central directory")
+        }
+        return LocalHeader(dataOffset: dataOffset, hasDataDescriptor: hasDataDescriptor)
+    }
+
+    /// The data descriptor after an entry read whole repeats the central directory's CRC-32 and sizes, 64-bit where
+    /// the entry needs them, after an optional signature (zip_archive.cc:735-785, from :1618-1619).
+    private func checkDataDescriptor(of entry: ZipEntry, _ header: LocalHeader) throws {
+        guard header.hasDataDescriptor else { return }
+        let offset = header.dataOffset + (entry.method == .stored ? entry.uncompressedSize : entry.compressedSize)
+        var reader = ByteReader(try source.read(at: offset, count: 24), context: entry.name)
+        if try reader.u32(at: 0) == 0x0807_4b50 { try reader.skip(4) }
+        let crc = try reader.u32()
+        let wide = entry.compressedSize >= 0xFFFF_FFFF || entry.uncompressedSize >= 0xFFFF_FFFF
+        let compressed = wide ? try reader.u64() : UInt64(try reader.u32())
+        let uncompressed = wide ? try reader.u64() : UInt64(try reader.u32())
+        guard crc == entry.crc32, compressed == entry.compressedSize, uncompressed == entry.uncompressedSize else {
+            throw APKError.inconsistentEntry(entry.name, "its data descriptor differs")
+        }
     }
 
     // MARK: - Entry data
 
-    private func read(_ entry: ZipEntry, upTo target: Int) throws -> Data {
+    private func read(_ entry: ZipEntry, upTo target: Int) throws -> (data: Data, header: LocalHeader) {
         guard !entry.isEncrypted else { throw APKError.encryptedEntry(entry.name) }
-        let start = try dataOffset(of: entry)
-        guard entry.compressedSize <= source.size, start <= source.size - entry.compressedSize else {
-            throw APKError.truncated("\(entry.name): data beyond end of archive")
-        }
+        let header = try localHeader(of: entry)
         switch entry.method {
         case .stored:
-            return try source.read(at: start, count: Int(min(UInt64(target), entry.compressedSize)))
+            return (try source.read(at: header.dataOffset, count: Int(min(UInt64(target), entry.compressedSize))), header)
         case .deflated:
-            return try inflate(entry, from: start, upTo: target)
+            return (try inflate(entry, from: header.dataOffset, upTo: target), header)
         case .other(let method):
             throw APKError.unsupportedCompression(entry: entry.name, method: method)
         }
@@ -308,8 +389,15 @@ public final class ZipArchive {
         var entries: [ZipEntry] = []
         entries.reserveCapacity(Int(min(end.entryCount, 100_000)))
 
-        while reader.remaining >= 46 {
-            guard try reader.u32() == 0x0201_4b50 else { break }
+        // libziparchive walks exactly the records the end record counts (zip_archive.cc:558-573), each with its
+        // local header before the central directory (:610-614) and a name it can read (:616-620).
+        for index in 0..<end.entryCount {
+            guard reader.remaining >= 46 else {
+                throw APKError.truncated("central directory: \(entries.count) of \(end.entryCount) entries")
+            }
+            guard try reader.u32() == 0x0201_4b50 else {
+                throw APKError.truncated("central directory: entry \(index) has no signature")
+            }
             try reader.skip(4) // versions
             let flags = try reader.u16()
             let method = try reader.u16()
@@ -330,8 +418,14 @@ public final class ZipArchive {
                 try applyZip64Extra(extra, uncompressed: &uncompressedSize, compressed: &compressedSize, offset: &localHeaderOffset)
             }
 
+            let name = decodeName(nameBytes, flags: flags)
+            guard localHeaderOffset < end.centralDirectoryOffset else {
+                throw APKError.inconsistentEntry(name, "its local header lies at or past the central directory")
+            }
+            guard isValidEntryName(nameBytes) else { throw APKError.invalidEntryName(name) }
             entries.append(ZipEntry(
-                name: decodeName(nameBytes, flags: flags),
+                name: name,
+                nameBytes: nameBytes,
                 method: method == 0 ? .stored : method == 8 ? .deflated : .other(method),
                 flags: flags,
                 crc32: crc,
@@ -339,8 +433,26 @@ public final class ZipArchive {
                 uncompressedSize: uncompressedSize,
                 localHeaderOffset: localHeaderOffset))
         }
-        guard !entries.isEmpty || end.entryCount == 0 else { throw APKError.notAZipArchive }
         return entries
+    }
+
+    /// libziparchive's IsValidEntryName (entry_name_utils-inl.h:28-63): no NUL, and each sequence a lead byte other
+    /// than 0xFE and 0xFF with as many continuation bytes as its high bits ask; an overlong form passes.
+    static func isValidEntryName(_ name: Data) -> Bool {
+        let bytes = Array(name)
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0 || byte & 0xC0 == 0x80 || byte & 0xFE == 0xFE { return false }
+            var lead = (byte & 0x7F) << 1
+            while byte & 0x80 != 0, lead & 0x80 != 0 {
+                index += 1
+                guard index < bytes.count, bytes[index] & 0xC0 == 0x80 else { return false }
+                lead = (lead & 0x7F) << 1
+            }
+            index += 1
+        }
+        return true
     }
 
     private static func applyZip64Extra(_ extra: Data, uncompressed: inout UInt64, compressed: inout UInt64, offset: inout UInt64) throws {

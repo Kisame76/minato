@@ -237,8 +237,9 @@ struct NativeCodeTests {
         #expect(Self.names(in: sandbox.paths.libraryDirectory(for: result.entry)) == ["libactivity-test.so", "libactivity-test.so.dylib"])
     }
 
-    @Test func aLibraryInTheAPKTwiceMakesTheAppIncompatible() async throws {
-        // Android refuses an APK with two entries of the same name.
+    @Test func aLibraryInTheAPKTwiceMakesNoAPK() async throws {
+        // Android refuses an APK with two entries of the same name when it opens it (libziparchive), and so does
+        // ZipArchive since ADR-0048 b1; the conversion's own check is for one library in two APKs of a set.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -246,9 +247,7 @@ struct NativeCodeTests {
 
         let result = try await library.importFile(sandbox.file(apk, named: "activity-test.apk"), signing: Self.signing())
 
-        #expect(result.entry.state == .incompatible)
-        #expect(result.entry.report?.compatibility.issues.contains(
-            .conversionFailed(library: "libactivity-test.so", reason: "it is in the APK twice")) == true)
+        #expect(result.entry.state == .invalid(String(describing: APKError.duplicateEntry("lib/arm64-v8a/libactivity-test.so"))))
     }
 
     @Test func aJavaAppGetsNothingConverted() async throws {
@@ -335,6 +334,25 @@ struct NativeCodeTests {
         } else {
             #expect(issues.contains(.conversionFailed(library: "libhelper.so", reason: "its data in the APK is damaged")))
         }
+    }
+
+    @Test func aLibraryWhoseLocalHeaderNamesAnotherFileIsDamaged() async throws {
+        // ADR-0048 b1: a local header that disagrees with the central directory (libziparchive's zip_archive.cc:
+        // 873-912) is damage, which importing the file again repairs no more than a bad CRC.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        var apk = try APKLayout.build(manifest: Self.manifest(extractNativeLibs: false, versionCode: 1),
+                                      libraries: ["libactivity-test.so", "libhelper.so"].map { PackFile(name: $0, contents: Self.library($0)) },
+                                      assets: [])
+        let entry = try #require(try ZipArchive(data: apk).entry(named: "lib/arm64-v8a/libhelper.so"))
+        apk[Int(entry.localHeaderOffset) + 30 + entry.nameBytes.count - 1] ^= 0x20
+
+        let result = try await library.importFile(sandbox.file(apk, named: "activity-test.apk"), signing: Self.signing())
+
+        #expect(result.entry.state == .incompatible)
+        #expect(result.entry.report?.compatibility.issues.contains(
+            .conversionFailed(library: "libhelper.so", reason: "its data in the APK is damaged")) == true)
     }
 
     @Test func aRefusedUpdateOverAnAppThatCannotRunReplacesIt() async throws {

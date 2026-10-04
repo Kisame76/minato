@@ -528,10 +528,11 @@ struct SignatureVerifierTests {
     }
 
     @Test func v1ADuplicateEntry() throws {
-        // Even with the same content: Android's ZIP reader refuses both.
+        // Even with the same content: Android's ZIP reader refuses both, and ZipArchive does when it opens the file
+        // (ADR-0048 b1), before any signature is checked.
         for content in [Data("another".utf8), Self.zip().entries[1].content] {
             let apk = Self.v1Signed { $0.add("classes.dex", content) }
-            #expect(try Self.failure(apk)?.kind == .damaged)
+            #expect(throws: APKError.duplicateEntry("classes.dex")) { try Self.failure(apk) }
         }
     }
 

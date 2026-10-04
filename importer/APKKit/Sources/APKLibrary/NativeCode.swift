@@ -49,7 +49,7 @@ struct RefusedLibrary: Error {
     /// limit; nil for an error of reading the file, which may not happen again.
     init?(readError: any Error, library: String) {
         switch readError as? APKError {
-        case .truncated, .crcMismatch, .encryptedEntry, .unsupportedCompression:
+        case .truncated, .crcMismatch, .inconsistentEntry, .encryptedEntry, .unsupportedCompression:
             self.init(library: library, reason: "its data in the APK is damaged")
         case .entryTooLarge:
             self.init(library: library, reason: "it is larger than \(ZipArchive.defaultMaxEntrySize >> 20) MiB, which Minato cannot extract yet")

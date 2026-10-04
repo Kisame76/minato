@@ -22,6 +22,7 @@ enum JarVerifier {
             throw SignatureFailure(.signatureMismatch, "\(blocks.count) v1 signature blocks, more than \(maximumSigners)")
         }
         var entries: [ExactName: ZipEntry] = [:]
+        // ZipArchive refuses a name twice when it opens the file (ADR-0048 b1); this stays as defense in depth.
         for entry in archive.entries {
             guard entries.updateValue(entry, forKey: ExactName(entry.name)) == nil else {
                 throw SignatureFailure(.damaged, "\(entry.name) appears twice")
