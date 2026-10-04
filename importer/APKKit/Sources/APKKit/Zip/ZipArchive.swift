@@ -160,8 +160,10 @@ public final class ZipArchive {
     private func localHeader(of entry: ZipEntry) throws -> LocalHeader {
         if let problem = entry.readProblem { throw APKError.inconsistentEntry(entry.name, problem) }
         let directory = centralDirectoryOffset
-        // :850-856: the header itself ends before the central directory, as a name follows it.
-        guard entry.localHeaderOffset + 30 < directory else {
+        // :850-856: the header itself ends before the central directory, as a name follows it; an offset near the top
+        // overflows there.
+        let (headerEnd, overflow) = entry.localHeaderOffset.addingReportingOverflow(30)
+        guard !overflow, headerEnd < directory else {
             throw APKError.inconsistentEntry(entry.name, "its local header runs into the central directory")
         }
         var header = ByteReader(try source.read(at: entry.localHeaderOffset, count: 30), context: entry.name)
@@ -452,8 +454,10 @@ public final class ZipArchive {
                     readProblem = "its ZIP64 field does not hold its saturated values"
                 }
             }
-            // :610-614 checks the offset the open reads: the ZIP64 one only where the 32-bit one is saturated.
-            guard (offset32 == .max ? localHeaderOffset : UInt64(offset32)) < end.centralDirectoryOffset else {
+            // :610-614 checks the offset the open reads: the ZIP64 one only where the 32-bit one is saturated, as an
+            // off64_t, so one from 2^63 is negative and passes; reading the entry fails then.
+            let openOffset = offset32 == .max ? Int64(bitPattern: localHeaderOffset) : Int64(offset32)
+            guard openOffset < Int64(bitPattern: end.centralDirectoryOffset) else {
                 throw APKError.inconsistentEntry(name, "its local header lies at or past the central directory")
             }
             guard isValidEntryName(nameBytes) else { throw APKError.invalidEntryName(name) }
@@ -498,10 +502,12 @@ public final class ZipArchive {
         -> (uncompressed: UInt64?, compressed: UInt64?, offset: UInt64?)? {
         let reader = ByteReader(extra, context: "zip64 extra field")
         var position = 0
-        // Android also refuses a field too short or a size past the extra field, which fails a read here.
+        // A field of 4 bytes or fewer holds no header, which Android refuses too (:443-447).
         while position < reader.count - 4 {
             guard let id = try? reader.u16(at: position), var size = try? reader.u16(at: position + 2) else { return nil }
             position += 4
+            // :459-462: every header's data lies within the field, before its ID counts or 28 bytes become 24.
+            guard Int(size) <= reader.count - position else { return nil }
             guard id == 0x0001 else {
                 position += Int(size)
                 continue

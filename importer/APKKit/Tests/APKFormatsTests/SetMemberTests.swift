@@ -206,6 +206,25 @@ struct SetMemberTests {
         #expect(try Self.member(SplitAPK.make(split: "")).splitName == nil)
     }
 
+    @Test(arguments: ["AndroidManifest.xml", "lib/arm64-v8a/libbad.so", "META-INF/CERT.RSA", "assets/bad.bin"],
+          CraftedZIP.Offset.unreadable)
+    func anEntryAndroidOpensButCannotReadFailsOnlyWhereItIsRead(name: String, offset: CraftedZIP.Offset) throws {
+        // ADR-0048 b1.2: Android opens such an APK; its installer reads the manifest and the signatures, and a
+        // library only when it extracts it (step b6).
+        if name == "AndroidManifest.xml" {
+            var zip = ZipBuilder()
+            zip.add("assets/x", "x")
+            let unreadable = APKError.inconsistentEntry(name, "its local header runs into the central directory")
+            #expect(throws: SetMemberError(fileName: "x.apk", reason: "Not a valid APK: \(unreadable)")) {
+                try Self.member(CraftedZIP.adding(name, at: offset, to: zip.build().data))
+            }
+            return
+        }
+        let member = try Self.member(CraftedZIP.adding(name, at: offset, to: SplitAPK.make(signers: [])))
+        #expect(member.packageName == SplitAPK.package)
+        #expect(member.abis == (name.hasPrefix("lib/") ? ["arm64-v8a"] : []))
+    }
+
     @Test func groupsAUnitsAPKsByPackageAndVersion() throws {
         // ADR-0048 decision 2: each group is a set, in the order of its first APK.
         let a = try Self.member(SplitAPK.make(package: "org.example.a"), named: "a.apk")

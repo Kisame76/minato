@@ -551,13 +551,51 @@ struct ZipArchiveTests {
         }
     }
 
-    @Test func aCompleteZip64FieldsOffsetIsCheckedWhenTheEntryIsRead() throws {
-        // zip_archive.cc:610-614 checks the 32-bit offset the open reads, :850-856 the ZIP64 one when the entry is read.
-        let data = Self.zip64Archive(compressed: UInt32.max) { _ in Self.zip64Field([8, 8, 0x10000]) }
+    @Test(arguments: [0x10000, UInt64(Int64.max) - 10, UInt64(1) << 63, UInt64.max - 5])
+    func aCompleteZip64FieldsOffsetIsCheckedWhenTheEntryIsRead(offset: UInt64) throws {
+        // zip_archive.cc:610-614 checks the 32-bit offset the open reads, :850-856 the ZIP64 one when the entry is read,
+        // where an offset near the top overflows.
+        let data = Self.zip64Archive(compressed: UInt32.max) { _ in Self.zip64Field([8, 8, offset]) }
         let archive = try ZipArchive(data: data)
-        #expect(throws: APKError.inconsistentEntry("a.txt", "its local header runs into the central directory")) {
-            _ = try archive.data(named: "a.txt")
+        let entry = try #require(archive.entry(named: "a.txt"))
+        let refusal = APKError.inconsistentEntry("a.txt", "its local header runs into the central directory")
+        #expect(throws: refusal) { _ = try archive.data(for: entry) }
+        #expect(throws: refusal) { _ = try archive.prefix(of: entry, count: 4) }
+        #expect(throws: refusal) { try archive.forEachChunk(of: entry) { _ in } }
+        #expect(throws: refusal) { _ = try archive.dataOffset(of: entry) }
+    }
+
+    @Test func aZip64OffsetFrom2To63PassesTheOpenAndFailsWhenRead() throws {
+        // zip_archive.cc:596-611 holds the offset in an off64_t, where one from 2^63 is negative and passes the open;
+        // reading the entry fails (ReadAtOffset, :1784).
+        for offset in [UInt64(1) << 63, UInt64.max - 5] {
+            let archive = try ZipArchive(data: Self.zip64Archive(offset: UInt32.max) { _ in Self.zip64Field([offset]) })
+            let entry = try #require(archive.entry(named: "a.txt"))
+            #expect(entry.localHeaderOffset == offset)
+            let refusal = APKError.inconsistentEntry("a.txt", "its local header runs into the central directory")
+            #expect(throws: refusal) { _ = try archive.data(for: entry) }
+            #expect(throws: refusal) { _ = try archive.prefix(of: entry, count: 4) }
+            #expect(throws: refusal) { try archive.forEachChunk(of: entry) { _ in } }
+            #expect(throws: refusal) { _ = try archive.dataOffset(of: entry) }
         }
+        // Below it, the open refuses an offset past the central directory.
+        let below = Self.zip64Archive(offset: UInt32.max) { _ in Self.zip64Field([UInt64(Int64.max)]) }
+        #expect(throws: APKError.inconsistentEntry("a.txt", "its local header lies at or past the central directory")) {
+            try ZipArchive(data: below)
+        }
+    }
+
+    @Test func aZip64HeaderRunningPastTheExtraFieldIsRefused() throws {
+        // zip_archive.cc:459-462: every header's data lies within the extra field, checked before its ID counts and
+        // before 28 bytes become 24 (:483-487), so 24 value bytes declared as 28 are refused.
+        #expect(ZipArchive.zip64Values(Self.zip64Field([1, 2, 3], size: 28), uncompressed: .max, compressed: 0, offset: 0) == nil)
+        let other = Data([0x99, 0x99, 0x40, 0]) + Self.zip64Field([1])
+        #expect(ZipArchive.zip64Values(other, uncompressed: .max, compressed: 0, offset: 0) == nil)
+        let refusal = APKError.inconsistentEntry("a.txt", "its ZIP64 field does not hold its saturated values")
+        let offset = Self.zip64Archive(offset: UInt32.max) { Self.zip64Field([8, 8, UInt64($0)], size: 28) }
+        #expect(throws: refusal) { try ZipArchive(data: offset) }
+        let size = Self.zip64Archive(compressed: UInt32.max) { Self.zip64Field([8, 8, UInt64($0)], size: 28) }
+        #expect(throws: refusal) { _ = try ZipArchive(data: size).data(named: "a.txt") }
     }
 
     @Test func refusesBytesAroundTheArchive() throws {

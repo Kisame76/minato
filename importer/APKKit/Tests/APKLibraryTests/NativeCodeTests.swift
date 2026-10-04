@@ -250,6 +250,30 @@ struct NativeCodeTests {
         #expect(result.entry.state == .invalid(String(describing: APKError.duplicateEntry("lib/arm64-v8a/libactivity-test.so"))))
     }
 
+    @Test(arguments: ["AndroidManifest.xml", "lib/arm64-v8a/libbad.so", "META-INF/CERT.RSA", "resources.arsc", "assets/bad.bin"],
+          CraftedZIP.Offset.unreadable)
+    func anEntryAndroidOpensButCannotReadEndsTheImportCleanly(name: String, offset: CraftedZIP.Offset) async throws {
+        // ADR-0048 b1.2: Android opens such an APK and fails only where it reads the entry. The import reads the
+        // manifest, the libraries it extracts and the signature files, and refuses there; the rest it never reads.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        var zip = ZipBuilder()
+        if name != "AndroidManifest.xml" { zip.add("AndroidManifest.xml", try Self.manifest(extractNativeLibs: true)) }
+        zip.add("lib/arm64-v8a/libactivity-test.so", Self.library("libactivity-test.so"))
+        let apk = CraftedZIP.adding(name, at: offset, to: zip.build().data)
+
+        let result = try await library.importFile(sandbox.file(apk, named: "activity-test.apk"), signing: Self.signing())
+
+        let unreadable = APKError.inconsistentEntry(name, "its local header runs into the central directory")
+        let expected: LibraryEntry.State = switch name {
+        case "AndroidManifest.xml": .invalid(String(describing: unreadable))
+        case "lib/arm64-v8a/libbad.so", "META-INF/CERT.RSA": .incompatible
+        default: .ready
+        }
+        #expect(result.entry.state == expected)
+    }
+
     @Test func aJavaAppGetsNothingConverted() async throws {
         // Its conversion comes with M4.
         let sandbox = try Sandbox()
