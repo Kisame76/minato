@@ -26,7 +26,8 @@ fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments 
 APEX included; bionic's /system; a new /data per test; ART's release flavor, after lib64-debug in the debug flavor.
 Each test's stdout, stderr, status and measures (apk-run --measures) go to <outputs>/<test>/, as the app leaves them
 for tools/device-suite.sh.
-`check` compares such outputs with the references: for a Java fixture its expected stdout and the status 0, and for
+`check` compares such outputs with the references: for a Java fixture its expected stdout, the status 0, that ART's
+log names the heap window once, with 4 GiB or, with --upper-half, as without increased-memory-limit, 2 GiB, and for
 codec-test its offsets (art_run.py); for a run-test its stdout, its stderr without the logger's lines, and its exit
 status (art_run_tests.py). `selftest` stages the Java fixtures and CTest's sample of the run-tests, runs them and
 checks them, so the stage is right before the app reads it.
@@ -37,7 +38,7 @@ guest system's list of public libraries is missing.
 Usage: device_art.py stage <art> <fixtures-bin> <root> <out> [--sample]
        device_art.py run <out> <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <outputs>
                      [--debug] [<test>...]
-       device_art.py check <out> <outputs> <root> [<test>...]
+       device_art.py check <out> <outputs> <root> [--upper-half] [<test>...]
        device_art.py selftest <art> <fixtures-bin> <root> <bionic-lib> <bionic-system> <icu-data> <apk-convert>
                      <apk-run> <work> [--debug]
 <root> is the repository, with build/sources, build/tools/jdk-17 and fixtures.
@@ -224,8 +225,9 @@ def run(out, art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, wor
     return names
 
 
-def check(out, outputs, root, names=()):
-    """Compares the outputs of a run with the references; returns the failures, each a list of lines."""
+def check(out, outputs, root, names=(), upper_half=False):
+    """Compares the outputs of a run with the references; returns the failures, each a list of lines. With
+    `upper_half`, the Java fixtures' heap window must be its upper 2 GiB."""
     manifest = read_json(os.path.join(out, "tests.json"))
     tests_root = os.path.join(root, "build", "sources", "art", "test")
     failures = []
@@ -243,6 +245,8 @@ def check(out, outputs, root, names=()):
             wanted_out, should = art_run_tests.read(os.path.join(root, entry["expected"])), "0"
             if entry["offsets"] and art_run.offsets_failure(stderr):
                 problems.append(art_run.offsets_failure(stderr))
+            if art_run.window_failure(stderr, upper_half):
+                problems.append(art_run.window_failure(stderr, upper_half))
         else:
             if entry["reference"] == "android":
                 own = os.path.join(root, "fixtures", "expected", "art-run-tests", test)
@@ -307,7 +311,8 @@ def main():
     elif action == "run" and len(rest) >= 9:
         run(*rest[:9], debug=debug, names=rest[9:])
     elif action == "check" and len(rest) >= 3:
-        failures = check(rest[0], rest[1], rest[2], rest[3:])
+        failures = check(rest[0], rest[1], rest[2], [name for name in rest[3:] if name != "--upper-half"],
+                         "--upper-half" in rest[3:])
         for failure in failures:
             print("DIFFERS  " + failure[0])
             for line in failure[1:]:
