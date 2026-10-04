@@ -1,0 +1,21 @@
+I/asset-ndk-test: AAssetManager_fromJava: a manager; again: the same; through getResources(): the same
+I/asset-ndk-test: stored.ogg: length 3648, length64 3648; read 128, the first line "line 00 of the stored asset, which Android maps in place", 3520 remaining
+I/asset-ndk-test: stored.ogg: a seek to line 10 gives 570, then "line 10 of the stored asset, which Android maps in place"
+I/asset-ndk-test: stored.ogg: a seek on to line 12 gives 684, then "line 12 of the stored asset, which Android maps in place"
+I/asset-ndk-test: stored.ogg: a seek to the last line gives 3591, then "line 63 of the stored asset, which Android maps in place"
+I/asset-ndk-test: stored.ogg: at the end, read 0; a seek past the end gives -1
+I/asset-ndk-test: stored.ogg: the buffer starts with the first line
+I/asset-ndk-test: stored.ogg: a descriptor of 3648 bytes, which starts with the first line
+I/asset-ndk-test: deflated.txt: length 3840, length64 3840; read 128, the first line "line 00 of the deflated asset, which inflates as it is read", 3712 remaining
+I/asset-ndk-test: deflated.txt: a seek to line 10 gives 600, then "line 10 of the deflated asset, which inflates as it is read"
+I/asset-ndk-test: deflated.txt: a seek on to line 12 gives 720, then "line 12 of the deflated asset, which inflates as it is read"
+I/asset-ndk-test: deflated.txt: a seek to the last line gives 3780, then "line 63 of the deflated asset, which inflates as it is read"
+I/asset-ndk-test: deflated.txt: at the end, read 0; a seek past the end gives -1
+I/asset-ndk-test: deflated.txt: the buffer starts with the first line
+I/asset-ndk-test: deflated.txt: no descriptor
+I/asset-ndk-test: missing.txt: NULL
+I/asset-ndk-test: folder "": 2 files: deflated.txt stored.ogg; after a rewind deflated.txt
+I/asset-ndk-test: folder "folder": 2 files: a.txt b.txt; after a rewind a.txt
+I/asset-ndk-test: folder "missing": 0 files:; after a rewind nothing
+I/asset-ndk-test: its configuration: sdkVersion 35
+I/asset-ndk-test: done

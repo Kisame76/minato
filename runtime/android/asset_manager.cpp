@@ -18,11 +18,14 @@
 #include <android/log.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <jni.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <zlib.h>
 
@@ -620,3 +623,136 @@ void AConfiguration_fromAssetManager(AConfiguration *out, AAssetManager *am) {
 }
 
 }  // extern "C"
+
+// AAssetManager_fromJava (ADR-0041, decision 7): Android 15 gives the Java AssetManager's native object, the
+// AssetManager2 of all its APKs, the same pointer for the object's life (asset_manager.cpp:61-64,
+// android-15.0.0_r1). Here it is this file's manager on the app's base APK, one per Java object, kept for the
+// process; until split APKs (M5) the base is all it reads.
+namespace {
+
+// A manager AAssetManager_fromJava made, by the Java object's mObject, with the APK paths it had. A later object at
+// the same native address gets a manager of its own when its paths differ, and shares this one, which reads the same
+// APKs and is never freed, when they do not.
+struct JavaManager {
+    jlong object;
+    char *paths;  // getApkPaths(), each ended by '\n'
+    AAssetManager *manager;
+    JavaManager *next;
+};
+
+pthread_mutex_t java_managers_lock = PTHREAD_MUTEX_INITIALIZER;
+JavaManager *java_managers;
+
+// A pending exception means the framework lacks what AssetManager.java has at the tag: logged and cleared, as
+// Android's AAssetManager_fromJava throws nothing.
+bool failed(JNIEnv *env, const char *what) {
+    if (!env->ExceptionCheck()) return false;
+    env->ExceptionClear();
+    __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: %s failed", what);
+    return true;
+}
+
+// The paths of getApkPaths() (AssetManager.java:413-425), each ended by '\n', and how many there are; nullptr when
+// the call fails.
+char *apk_paths(JNIEnv *env, jobject assets, jmethodID get_apk_paths, jsize *count) {
+    auto paths = static_cast<jobjectArray>(env->CallObjectMethod(assets, get_apk_paths));
+    if (failed(env, "getApkPaths") || paths == nullptr) return nullptr;
+    *count = env->GetArrayLength(paths);
+    size_t size = 1;
+    char *joined = static_cast<char *>(calloc(1, size));
+    for (jsize i = 0; joined != nullptr && i < *count; ++i) {
+        auto path = static_cast<jstring>(env->GetObjectArrayElement(paths, i));
+        const char *chars = path != nullptr ? env->GetStringUTFChars(path, nullptr) : nullptr;
+        const size_t length = chars != nullptr ? strlen(chars) : 0;
+        char *grown = static_cast<char *>(realloc(joined, size + length + 1));
+        if (grown == nullptr) {
+            free(joined);
+            joined = nullptr;
+        } else {
+            joined = grown;
+            memcpy(joined + size - 1, chars != nullptr ? chars : "", length);
+            joined[size - 1 + length] = '\n';
+            joined[size + length] = '\0';
+            size += length + 1;
+        }
+        if (chars != nullptr) env->ReleaseStringUTFChars(path, chars);
+        env->DeleteLocalRef(path);
+    }
+    env->DeleteLocalRef(paths);
+    return joined;
+}
+
+// The `index`th line of `paths`, copied; nullptr past the last.
+char *path_at(const char *paths, jsize index) {
+    for (jsize i = 0; i < index; ++i) {
+        paths = strchr(paths, '\n');
+        if (paths == nullptr || *++paths == '\0') return nullptr;
+    }
+    const char *end = strchr(paths, '\n');
+    return end != nullptr && end != paths ? strndup(paths, static_cast<size_t>(end - paths)) : nullptr;
+}
+
+// The paths of `assets`, and in `system_count` how many of them are the system's, each lookup checked at once, since
+// a JNI call with an exception pending aborts under CheckJNI; nullptr when one fails.
+char *paths_of(JNIEnv *env, jobject assets, jclass type, jsize *system_count) {
+    const jmethodID get_apk_paths = env->GetMethodID(type, "getApkPaths", "()[Ljava/lang/String;");
+    if (failed(env, "AssetManager.getApkPaths")) return nullptr;
+    const jmethodID get_system = env->GetStaticMethodID(type, "getSystem", "()Landroid/content/res/AssetManager;");
+    if (failed(env, "AssetManager.getSystem")) return nullptr;
+    jobject system = env->CallStaticObjectMethod(type, get_system);
+    if (failed(env, "AssetManager.getSystem()") || system == nullptr) return nullptr;
+    char *const system_paths = apk_paths(env, system, get_apk_paths, system_count);
+    env->DeleteLocalRef(system);
+    if (system_paths == nullptr) return nullptr;
+    free(system_paths);
+    jsize count = 0;
+    return apk_paths(env, assets, get_apk_paths, &count);
+}
+
+}  // namespace
+
+extern "C" AAssetManager *AAssetManager_fromJava(JNIEnv *env, jobject assetManager) {
+    if (env == nullptr || assetManager == nullptr) return nullptr;
+    jclass type = env->GetObjectClass(assetManager);
+    const jfieldID object_field = env->GetFieldID(type, "mObject", "J");
+    // A closed AssetManager has no native object any more: Android hands out NULL then.
+    const jlong object = failed(env, "AssetManager.mObject") ? 0 : env->GetLongField(assetManager, object_field);
+    jsize system_count = 0;
+    char *const paths = object != 0 ? paths_of(env, assetManager, type, &system_count) : nullptr;
+    env->DeleteLocalRef(type);
+    if (paths == nullptr) return nullptr;
+
+    pthread_mutex_lock(&java_managers_lock);
+    for (JavaManager *known = java_managers; known != nullptr; known = known->next) {
+        if (known->object == object && strcmp(known->paths, paths) == 0) {
+            pthread_mutex_unlock(&java_managers_lock);
+            free(paths);
+            return known->manager;
+        }
+    }
+    // The app's base is the first APK after the system's (AssetManager.java:160-190).
+    char *const base = path_at(paths, system_count);
+    AAssetManager *manager = nullptr;
+    struct apkrt_configuration session = {};
+    // ENOENT: the host began no session (a check on the Mac), so the session's values stay unset, as ActivityThread
+    // keeps its defaults then.
+    const int error = syscall(APKRT_NR_SESSION_CONFIGURATION, &session) == 0 ? 0 : errno;
+    if (error == ENOENT) session = {};
+    if (base == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: no APK of the app's own");
+    } else if (error != 0 && error != ENOENT) {
+        __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: the session: %s", strerror(error));
+    } else {
+        manager = minato_AAssetManager_create(base, &session);
+    }
+    auto *known = manager != nullptr ? static_cast<JavaManager *>(calloc(1, sizeof(JavaManager))) : nullptr;
+    if (known != nullptr) {
+        *known = JavaManager{object, paths, manager, java_managers};
+        java_managers = known;
+    } else {
+        free(paths);
+    }
+    pthread_mutex_unlock(&java_managers_lock);
+    free(base);
+    return manager;
+}

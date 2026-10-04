@@ -41,8 +41,8 @@ LIBRARIES = {
         "implemented": [
             "ALooper_*",
             "AConfiguration_*",
-            # the asset manager (asset_manager.cpp); AAssetManager_fromJava stays a stub until Java (M4)
-            "AAsset_*", "AAssetDir_*", "AAssetManager_open", "AAssetManager_openDir",
+            # the asset manager (asset_manager.cpp), also for a Java AssetManager (ADR-0041, decision 7)
+            "AAsset_*", "AAssetDir_*", "AAssetManager_open", "AAssetManager_openDir", "AAssetManager_fromJava",
             # the requests (native_activity.cpp)
             "ANativeActivity_*",
             # the input queue on the input channel (input_queue.cpp) and its motion events (input.cpp, ADR-0036)

@@ -31,8 +31,9 @@
 # that AVD's `pm list features`, which must be fixtures/expected/system-features.txt (b3.5b1). context-test (ADR-0039
 # step c1) is one more on apk-runner-35, stopped after its first "done" and started again, so that its second start
 # reads what the first one wrote; looper-test (step c1), provider-test (step c2c1), app-calls-test (step c2d),
-# vsync-test and gles-java-test (ADR-0041 a)), compat-test and its twin for targetSdk 35, compat-test-35 (step c2e), are
-# ones too, and app-start-test (test 1), whose lines are System.out's that start with "app-start-test: ". A test
+# vsync-test and gles-java-test (ADR-0041 a)), asset-ndk-test (ADR-0041 decision 7), compat-test and its twin for
+# targetSdk 35, compat-test-35 (step c2e), are ones too, and app-start-test (test 1), whose lines are System.out's that
+# start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
@@ -352,7 +353,7 @@ run_app() {
     # SHA-256 is marked (b3.5b1).
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
-      | compat-test-35 | gles-java-test | input-service-test)
+      | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
