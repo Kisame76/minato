@@ -36,6 +36,10 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     public var folder: String? = nil
     /// The split APKs of a set that the choice left out, with why (ADR-0048, decision 4); nil for one APK.
     public var skippedSplits: [SkippedSplit]? = nil
+    /// Why the set this `.invalid` entry stands for is not installed, in words to show: Android's where Android refuses
+    /// it (ADR-0048, decisions 3 and 7). nil for any other entry, and for a file that is no APK, whose state holds an
+    /// error's description.
+    public var refusal: String? = nil
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

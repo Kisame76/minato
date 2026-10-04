@@ -123,4 +123,24 @@ public struct ImportResult: Sendable, Equatable {
     public var decision: UpdateDecision
     /// The imported file's report; nil for a file that is not a readable APK.
     public var report: APKReport?
+    /// The APKs of an asking set whose signature Minato cannot verify, which the question about `uncheckedContent`
+    /// names (ADR-0048 b7a).
+    public var uncheckedFiles: [String] = []
+
+    /// The version a question lists for this import; nil where it does not ask.
+    public var asking: AskingVersion? {
+        guard case .ask = decision, let report else { return nil }
+        return AskingVersion(package: report.packageName, versionCode: report.versionCode)
+    }
+}
+
+/// A version that asks, as its question lists it: "Replace" answers it and no other (ADR-0048, F7).
+public struct AskingVersion: Sendable, Hashable {
+    public var package: String
+    public var versionCode: Int64
+
+    public init(package: String, versionCode: Int64) {
+        self.package = package
+        self.versionCode = versionCode
+    }
 }

@@ -14,6 +14,18 @@ public enum LibraryError: Error, Equatable, Sendable {
     case nothingToImport
 }
 
+extension LibraryError: LocalizedError {
+    /// A reason for the app to show after "could not be added:" or "could not be imported:". An `.invalid` entry
+    /// keeps the error's description instead, which the app reads.
+    public var errorDescription: String? {
+        switch self {
+        case .unsafePackageName(let name): "“\(name)” is not a valid package name"
+        case .versionFolderInUse(let folder): "its version folder \(folder) is still in use"
+        case .nothingToImport: "it has no APK or OBB file"
+        }
+    }
+}
+
 /// The installed apps and the import pipeline: picked file → hidden copy → analysis → install directory → index.
 public actor Library {
     public nonisolated let paths: LibraryPaths
@@ -55,34 +67,46 @@ public actor Library {
             .map { findingFolder(of: $0, in: paths) }
     }
 
-    /// The APKs of picks that are not installed yet, each pick's in name order and the oldest pick first: normally
-    /// those `adopt` just took over, after an interrupted import also those left over from last time. A pick still
-    /// being taken over is none yet (ADR-0048, decision 1). What such an import left in apps/ goes first.
+    /// The picks that are not installed yet, one URL each and the oldest first, for `importUnit`: a unit's folder, or a
+    /// file lying flat in incoming/ (ADR-0048, decision 1). Normally those `adopt` just took over, after an interrupted
+    /// import also those left over from last time. A pick still being taken over is none yet, and one without an APK
+    /// waits, its OBBs for ADR-0049. What such an import left in apps/ goes first.
+    public func scanUnits() throws -> [URL] {
+        try waitingUnits().map(\.url)
+    }
+
+    /// The APKs of the picks `scanUnits` gives, each pick's in name order.
     public func scan() throws -> [URL] {
+        try waitingUnits().flatMap(\.apks)
+    }
+
+    private func waitingUnits() throws -> [(url: URL, apks: [URL])] {
         removeLeftovers()
         syncSignersFiles()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: paths.incoming, withIntermediateDirectories: true)
         // Resource values describe a link itself, so a link is neither a folder nor a regular file.
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .creationDateKey]
-        var units: [(created: Date, name: String, files: [URL])] = []
+        var units: [(created: Date, name: String, url: URL, apks: [URL])] = []
         for item in try fileManager.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: Array(keys),
                                                         options: [.skipsHiddenFiles]) {
             let values = try item.resourceValues(forKeys: keys)
+            let created = values.creationDate ?? .distantPast
             if values.isDirectory == true, item.pathExtension != "partial" {
                 let files = try Self.files(inUnit: item)
+                let apks = files.filter(Self.isAPK)
                 if files.isEmpty {
                     rmdir(item.path) // its last file went, the folder did not
-                } else {
-                    units.append((values.creationDate ?? .distantPast, item.lastPathComponent, files.filter(Self.isAPK)))
+                } else if !apks.isEmpty {
+                    units.append((created, item.lastPathComponent, item, apks))
                 }
             } else if values.isRegularFile == true, Self.isAPK(item) {
                 // Older builds took a file over flat, and tools/session-check.sh and tools/update-check.sh still drop
                 // one there: a unit of its own.
-                units.append((values.creationDate ?? .distantPast, item.lastPathComponent, [item]))
+                units.append((created, item.lastPathComponent, item, [item]))
             }
         }
-        return units.sorted { ($0.created, $0.name) < ($1.created, $1.name) }.flatMap(\.files)
+        return units.sorted { ($0.created, $0.name) < ($1.created, $1.name) }.map { ($0.url, $0.apks) }
     }
 
     /// Takes over one pick (ADR-0048, decision 1): files picked together with +, a folder, or a file opened with "Open
@@ -171,6 +195,12 @@ public actor Library {
     @discardableResult
     public func importFile(_ url: URL, replacing: Bool = false, signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> ImportResult {
+        try importFile(url, answering: { _ in replacing }, signing: signing, progress: progress)
+    }
+
+    /// `importFile`, with "Replace" answered for the versions `answering` takes.
+    private func importFile(_ url: URL, answering: (AskingVersion) -> Bool, signing: ImportSigning?,
+                            progress: @Sendable (Double) -> Void) throws -> ImportResult {
         var source = try Self.sourceFile(for: url)
         progress(0)
 
@@ -205,7 +235,7 @@ public actor Library {
                            signerProven: report.signature.check == .verified,
                            signatureFailed: report.signature.check?.isFailure == true)
             })
-        return try install(new, replacing: replacing, signing: signing, discarding: url, progress: progress)
+        return try install(new, answering: answering, signing: signing, discarding: url, progress: progress)
     }
 
     /// A version about to be installed: one APK, or a set's base and chosen splits (ADR-0048, decision 6).
@@ -226,11 +256,12 @@ public actor Library {
 
     /// Installs a version, updates the installed app of its package with it, or leaves that app as it is (ADR-0034).
     /// When the policy asks, nothing changes. `pickedCopy` goes once the version is installed or turned away.
-    private func install(_ new: NewVersion, replacing: Bool, signing: ImportSigning?, discarding pickedCopy: URL?,
-                         progress: @Sendable (Double) -> Void) throws -> ImportResult {
+    private func install(_ new: NewVersion, answering: (AskingVersion) -> Bool, signing: ImportSigning?,
+                         discarding pickedCopy: URL?, progress: @Sendable (Double) -> Void) throws -> ImportResult {
         let fileManager = FileManager.default
         var report = new.report
         let package = report.packageName
+        let replacing = answering(AskingVersion(package: package, versionCode: report.versionCode))
         var state: LibraryEntry.State = switch report.compatibility.status {
         case .ready: .ready
         case .needsSplits: .needsSplits
@@ -250,13 +281,15 @@ public actor Library {
             return finish(ImportResult(entry: installed, decision: decision, report: report))
         case (.ask, let installed?) where !replacing:
             progress(1)
-            return ImportResult(entry: installed, decision: decision, report: report)
+            return ImportResult(entry: installed, decision: decision, report: report,
+                                uncheckedFiles: new.version(state).uncheckedFiles)
         case (.ask, nil) where !replacing:
             // A fresh install that asks (ADR-0048, step b3): nothing is stored, and the entry is the one it would make.
             progress(1)
             let entry = LibraryEntry(id: package, displayName: report.label, state: state, report: report, base: nil,
                                      splits: [], obbs: [], source: new.source, iconFile: nil, importedAt: Date())
-            return ImportResult(entry: entry, decision: decision, report: report)
+            return ImportResult(entry: entry, decision: decision, report: report,
+                                uncheckedFiles: new.version(state).uncheckedFiles)
         case (.ask, _):
             decision = installed == nil ? .install : .update
         default:
@@ -347,9 +380,10 @@ public actor Library {
     /// splits are chosen for the device, and it is analysed over the APKs Minato installs, then installed, updated or
     /// asked about as one APK is (ADR-0034); a set Android refuses becomes an `.invalid` entry. One APK, and a file
     /// that is no APK, go through `importFile`, as before. The unit stays while a set asks, so the question comes again
-    /// at the next scan; `replacing` answers "Replace" for the unit. Returns a result for each set and each such file.
+    /// at the next scan. `replacing` answers "Replace" for the versions the question listed, and for no other, which
+    /// keeps asking (F7, the lead's reviewer). Returns a result for each set and each such file.
     @discardableResult
-    public func importUnit(_ unit: URL, replacing: Bool = false, signing: ImportSigning? = nil,
+    public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
         var isFolder: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
@@ -362,7 +396,7 @@ public actor Library {
             let sha256 = try Self.sha256(of: url, size: Self.sourceFile(for: url).size) { _ in }
             guard let archive = try? ZipArchive(url: url),
                   let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256) else {
-                results.append(try importFile(url, replacing: replacing, signing: signing))
+                results.append(try importFile(url, answering: answered.contains, signing: signing, progress: { _ in }))
                 continue
             }
             members.append(member)
@@ -370,9 +404,9 @@ public actor Library {
         }
         for group in SetGrouping.byPackageAndVersion(members) {
             if group.count == 1, group[0].isBase, let url = files[group[0].fileName]?.url {
-                results.append(try importFile(url, replacing: replacing, signing: signing))
+                results.append(try importFile(url, answering: answered.contains, signing: signing, progress: { _ in }))
             } else {
-                results.append(try importSet(group, files: files, replacing: replacing, signing: signing))
+                results.append(try importSet(group, files: files, answering: answered.contains, signing: signing))
             }
         }
         // The unit goes once nothing in it waits for an answer; an OBB waits for ADR-0049.
@@ -386,13 +420,16 @@ public actor Library {
 
     /// One set of a unit (ADR-0048, decisions 3 to 7): the base with its chosen splits, or splits without their base,
     /// which join the installed version.
-    private func importSet(_ group: [SetMember], files: [String: (url: URL, archive: ZipArchive)], replacing: Bool,
-                           signing: ImportSigning?) throws -> ImportResult {
-        func refuse(_ reason: String, file: SetMember) throws -> ImportResult {
-            let entry = LibraryEntry(
+    private func importSet(_ group: [SetMember], files: [String: (url: URL, archive: ZipArchive)],
+                           answering: (AskingVersion) -> Bool, signing: ImportSigning?) throws -> ImportResult {
+        /// An `.invalid` entry of `file` for a set that is not installed. The app shows `reason` as it is, as the entry's
+        /// `refusal`, unless it is an error's description.
+        func refuse(_ reason: String, file: SetMember, isDescription: Bool = false) throws -> ImportResult {
+            var entry = LibraryEntry(
                 id: "file:\(file.fileName)", displayName: file.fileName, state: .invalid(reason), report: nil, base: nil,
                 splits: [], obbs: [], source: try Self.sourceFile(for: files[file.fileName]!.url), iconFile: nil,
                 importedAt: Date())
+            if !isDescription { entry.refusal = reason }
             try store(entry)
             return ImportResult(entry: entry, decision: .install, report: nil)
         }
@@ -401,6 +438,8 @@ public actor Library {
         case .success(let checked): set = checked
         case .failure(let refusal): return try refuse(refusal.reason, file: group[0])
         }
+        // The unit's APKs Minato cannot verify, by the names the user picked them under.
+        let unchecked = group.filter { if case .unverified = $0.signature.check { true } else { false } }.map(\.fileName)
         // Each APK of the set by its split name, unique once checked: the unit's, then the installed version's.
         var apks = Dictionary(uniqueKeysWithValues: group.map { ($0.splitName, files[$0.fileName]!) })
         var installedSource: SourceFile?
@@ -439,7 +478,8 @@ public actor Library {
         }
         guard Self.isSafePackageName(base.packageName) else {
             // The unit's first file: after a join, the base is the installed one.
-            return try refuse(String(describing: LibraryError.unsafePackageName(base.packageName)), file: group[0])
+            return try refuse(String(describing: LibraryError.unsafePackageName(base.packageName)), file: group[0],
+                              isDescription: true)
         }
         let choice = SplitSelector.choose(set, for: device)
         var (report, icon) = try SetAnalysis.analyze(set, choice: choice, preferredLanguages: preferredLanguages) {
@@ -466,8 +506,14 @@ public actor Library {
             },
             icon: icon,
             archives: Dictionary(uniqueKeysWithValues: installing.map { ($0.splitName, apks[$0.splitName]!.archive) }),
-            version: { [set] state in AppVersion(set: set, state: state, sha256: digest) })
-        return try install(new, replacing: replacing, signing: signing, discarding: nil, progress: { _ in })
+            version: { [set] state in
+                // A join takes along installed APKs that were asked about at their import and whose bytes are checked
+                // again (installedAPKs), so the question names only the unit's own APKs Minato cannot check.
+                var version = AppVersion(set: set, state: state, sha256: digest)
+                if !version.uncheckedFiles.isEmpty { version.uncheckedFiles = unchecked }
+                return version
+            })
+        return try install(new, answering: answering, signing: signing, discarding: nil, progress: { _ in })
     }
 
     /// The APKs of an installed version as members of a set, under their names in its folder: none where it keeps no

@@ -1,8 +1,15 @@
 import Foundation
 
 /// A unit over the cap of ADR-0048 decision 1.
-public enum ImportUnitError: Error, Sendable, Equatable {
+public enum ImportUnitError: Error, Sendable, Equatable, LocalizedError {
     case tooManyFiles(Int)
+
+    /// A reason for the app to show after "could not be added:".
+    public var errorDescription: String? {
+        switch self {
+        case .tooManyFiles(let count): "it has \(count) files, and Minato takes at most \(ImportUnit.maxFiles) at a time"
+        }
+    }
 }
 
 /// One pick, several files or a folder, imported together (ADR-0048, decision 1).
