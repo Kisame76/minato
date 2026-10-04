@@ -2,6 +2,7 @@
 import APKRuntime
 import Darwin
 import Foundation
+import UIKit
 
 /// Runs one test of fixtures/tests.txt (M2 step 6) when the app is launched with -runFixture <test>:
 /// the program from the bundle's Fixtures folder (tools/embed-fixtures.sh), the way Android's shell
@@ -12,9 +13,14 @@ import Foundation
 /// stderr go to tmp/fixtures/<test>/output/, where tools/device-suite.sh fetches them, and so does
 /// its exit status: the program ends the process, and the runtime writes the status to output/status
 /// first (devicectl's exit code is not reliable for a process that ends this quickly). So nothing
-/// else may write to stdout or stderr, and the app never gets to its UI. output/traced says whether
+/// else may write to stdout or stderr: the app shows an empty scene. output/traced says whether
 /// a debugger was attached (1) or not (0): M2's criterion wants the suite to pass without one. After
 /// the status the runtime writes what the run measured to output/measures (ADR-0033 d1).
+///
+/// The program starts once the app's launch has finished, at its first didBecomeActive, on a thread
+/// of its own (apkrt_start_program): iOS's launch watchdog ends an app that has not finished
+/// launching after 20 s, which ended ART's longer run-tests on the iPhone (ADR-0033 d3).
+/// output/launch says the app's state as the program starts, "active" (tools/fixture-launch-check.sh).
 ///
 /// With -runART <test> [-flavor debug] it runs one of ART's tests instead (ADR-0033 d2), as
 /// runtime/tests/device_art.py stages them and runs them on the Mac: dalvikvm64 with the command
@@ -23,6 +29,8 @@ import Foundation
 enum FixtureRunner {
     /// Where the exit status goes, also when the runner itself fails.
     nonisolated(unsafe) private static var statusDescriptor: Int32 = -1
+    /// Whether the app has become active, which ends its launch, and the test started.
+    nonisolated(unsafe) private static var launched = false
 
     /// The environment apk-run gives a program, as an Android shell does.
     private static let shellEnvironment = [
@@ -32,17 +40,32 @@ enum FixtureRunner {
         "HOME=/",
     ]
 
-    static func runIfRequested() {
+    /// Whether the app was launched for a test: then its program starts at the app's first
+    /// didBecomeActive, and the app touches nothing else.
+    static func startAfterLaunchIfRequested() -> Bool {
         let arguments = ProcessInfo.processInfo.arguments
+        let start: @Sendable () -> Void
         if let flag = arguments.firstIndex(of: "-runART"), arguments.indices.contains(flag + 1) {
-            let flavor = arguments.firstIndex(of: "-flavor").map { arguments.dropFirst($0 + 1).first ?? "" }
-            runART(test: arguments[flag + 1], debug: flavor == "debug")
+            let test = arguments[flag + 1]
+            let debug = arguments.firstIndex(of: "-flavor").map { arguments.dropFirst($0 + 1).first ?? "" } == "debug"
+            start = { runART(test: test, debug: debug) }
+        } else if let flag = arguments.firstIndex(of: "-runFixture"), arguments.indices.contains(flag + 1) {
+            let test = arguments[flag + 1]
+            let signOnDevice = arguments.contains("-signOnDevice")
+            start = { run(test: test, signOnDevice: signOnDevice) }
+        } else {
+            return false
         }
-        guard let flag = arguments.firstIndex(of: "-runFixture"), arguments.indices.contains(flag + 1) else { return }
-        run(test: arguments[flag + 1], signOnDevice: arguments.contains("-signOnDevice"))
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { _ in
+            guard !launched else { return }
+            launched = true
+            start()
+        }
+        return true
     }
 
-    private static func run(test: String, signOnDevice: Bool) -> Never {
+    private static func run(test: String, signOnDevice: Bool) {
         let folder = prepare(test: test)
         let dataLocalTmp = folder.appending(path: "data-local-tmp", directoryHint: .isDirectory)
         do {
@@ -78,9 +101,8 @@ enum FixtureRunner {
             containers = convertAndSign([program] + libraries, of: test, from: fixtures, report: output.appending(path: "signing"))
         }
         let container = containers.appending(path: "\(program).dylib").path
-        apkrt_run_program(container, cStrings(["./\(program)"]), cStrings(environment), &error, error.count)
-        check(-1, error)
-        fail("unreachable")
+        check(apkrt_start_program(container, cStrings(["./\(program)"]), cStrings(environment), &error, error.count),
+              error)
     }
 
     /// How tools/device-suite.sh staged an ART test (runtime/tests/device_art.py; ADR-0033 d2's contract).
@@ -98,7 +120,7 @@ enum FixtureRunner {
         let libraries: String?
     }
 
-    private static func runART(test: String, debug: Bool) -> Never {
+    private static func runART(test: String, debug: Bool) {
         let folder = prepare(test: test)
         guard let resources = Bundle.main.resourceURL else { fail("no bundle resources") }
         let art = resources.appending(path: "Fixtures/art", directoryHint: .isDirectory)
@@ -172,9 +194,8 @@ enum FixtureRunner {
             }
         }
         let dalvikvm = art.appending(path: "bin/dalvikvm64.dylib").path
-        apkrt_run_program(dalvikvm, cStrings(command.arguments), cStrings(environment), &error, error.count)
-        check(-1, error)
-        fail("unreachable")
+        check(apkrt_start_program(dalvikvm, cStrings(command.arguments), cStrings(environment), &error, error.count),
+              error)
     }
 
     /// A new tmp/fixtures/<test>/ with its output folder, which gets the status, stdout, stderr, traced and the
@@ -195,6 +216,8 @@ enum FixtureRunner {
         redirect(STDOUT_FILENO, to: output.appending(path: "stdout"))
         redirect(STDERR_FILENO, to: output.appending(path: "stderr"))
         try? Data((isTraced() ? "1\n" : "0\n").utf8).write(to: output.appending(path: "traced"))
+        // The app's state as the program starts: "active" once its launch has finished.
+        try? Data((launched ? "active\n" : "launching\n").utf8).write(to: output.appending(path: "launch"))
         return folder
     }
 

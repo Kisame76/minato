@@ -23,6 +23,14 @@ struct MinatoApp: App {
             return
         }
         #endif
+        #if DEBUG
+        // A fixture or ART test (FixtureRunner) touches neither the launch request nor the library: its program
+        // starts once the launch has finished, in an empty scene.
+        if FixtureRunner.startAfterLaunchIfRequested() {
+            mode = .library(nil)
+            return
+        }
+        #endif
         mode = Self.chooseMode()
         // Before the first window, so that the library never turns.
         AppDelegate.orientations = UIInterfaceOrientationMask(mode.orientations)
@@ -43,7 +51,6 @@ struct MinatoApp: App {
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")
         #if DEBUG
         SpikeRunner.runIfRequested()
-        FixtureRunner.runIfRequested()
         CertificateHandover.runIfRequested()
         CertificateCheck.runIfRequested()
         #endif
