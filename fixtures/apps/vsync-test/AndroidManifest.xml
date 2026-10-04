@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0041 a)'s test of Java's Choreographer (vsync-test): frame callbacks, delayed and removed ones, FrameData's
+     timelines, a blocked main thread and another Looper's instance. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.vsync" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
+  <application android:label="Vsync Test"
+      android:name="io.github.kisame76.minato.test.vsync.VsyncApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

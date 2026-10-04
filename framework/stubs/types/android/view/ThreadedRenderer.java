@@ -11,6 +11,9 @@ import android.graphics.RenderNode;
  * step c2c2).
  */
 public class ThreadedRenderer extends HardwareRenderer {
+    /** Choreographer reads the divisor's property by it (ADR-0041 a)); javac inlines AOSP's value. */
+    public static final String DEBUG_FPS_DIVISOR = "debug.hwui.fps_divisor";
+
     public static Bitmap createHardwareBitmap(RenderNode node, int width, int height) {
         throw new RuntimeException("stub");
     }

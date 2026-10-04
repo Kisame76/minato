@@ -69,7 +69,7 @@ for path in "${taken[@]}"; do
   name=$(basename "$path")
   if [[ "$name" == *.aidl ]]; then
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
-      -o "$GEN/aidl" "$source"
+      -Iframework/aidl-imports -o "$GEN/aidl" "$source"
     continue
   fi
   if [[ -f "framework/java/${package//.//}/$name" ]]; then

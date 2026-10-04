@@ -1,5 +1,7 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 step c2c2), which tools/managergen joins with it:
 // View's drag shadow surface; RotationUtils turns a surface with a matrix.
+// (ADR-0041 a)) DisplayInfo and Display read a display's refresh-rate range, which the local display service
+// leaves out.
 class SurfaceControl {
     public static class Transaction {
         /** @hide */
@@ -21,6 +23,21 @@ class SurfaceControl {
 
         /** @hide */
         public Builder setCallsite(String callsite) {
+            throw new RuntimeException("stub");
+        }
+    }
+
+    /** @hide */
+    public static final class RefreshRateRange implements android.os.Parcelable {
+        public static final android.os.Parcelable.Creator<RefreshRateRange> CREATOR = null;
+
+        @Override
+        public int describeContents() {
+            throw new RuntimeException("stub");
+        }
+
+        @Override
+        public void writeToParcel(android.os.Parcel dest, int flags) {
             throw new RuntimeException("stub");
         }
     }

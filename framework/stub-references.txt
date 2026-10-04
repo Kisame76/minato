@@ -36,7 +36,6 @@ android.text.style.SuggestionSpan <- android.text.TextUtils  # stays: TextUtils.
 android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
 # System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
-android.os.ServiceManager <- android.app.compat.ChangeIdStateCache  # step c2c: ours, with a local platform compat service, since View and Activity ask CompatChanges.isChangeEnabled (ADR-0045)
 com.android.internal.compat.IPlatformCompat <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
 com.android.internal.compat.IPlatformCompat$Stub <- android.app.compat.ChangeIdStateCache  # step c2c: the local platform compat service
 com.android.internal.compat.IPlatformCompat <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
@@ -44,9 +43,7 @@ com.android.internal.compat.CompatibilityOverrideConfig <- android.app.compat.Co
 com.android.internal.compat.CompatibilityOverridesByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
 com.android.internal.compat.CompatibilityOverridesToRemoveByPackageConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
 com.android.internal.compat.CompatibilityOverridesToRemoveConfig <- android.app.compat.CompatChanges  # stays: CompatChanges' system APIs that change other packages' overrides
-android.os.ServiceManager <- android.os.Build  # gap: Build.getSerial, which throws SecurityException for apps on Android
 android.os.VintfObject <- android.os.Build  # stays: Build.isBuildConsistent, a hidden check of system_server
-android.os.ServiceManager <- android.os.SystemClock  # gap: SystemClock's network and GNSS clocks (API 33) and setCurrentTimeMillis
 android.app.IAlarmManager <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
 android.app.IAlarmManager$Stub <- android.os.SystemClock  # gap: SystemClock.setCurrentTimeMillis, which returns false for apps on Android
 android.app.time.UnixEpochTime <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
@@ -68,8 +65,34 @@ android.graphics.drawable.AdaptiveIconDrawable <- android.content.pm.PackageMana
 com.android.internal.util.AnnotationValidations <- android.content.pm.PackageManager  # gap: PackageManager.ComponentEnabledSetting (API 33)
 android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo  # stays: ActivityInfo's display sandboxing checks, which the window manager makes with its own config
 
+# The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
+# (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
+android.content.pm.ParceledListSlice <- android.hardware.display.DisplayManagerGlobal  # stays: the brightness statistics, system APIs whose signature permission the display service refuses first
+android.hardware.display.Curve <- android.hardware.display.DisplayManagerGlobal  # gap: DisplayManager.getMinimumBrightnessCurve, a system API that the display service does not answer
+android.hardware.display.DisplayManager$DisplayListener <- android.hardware.display.DisplayManagerGlobal  # stays: no display listener is registered: DisplayManager, through which apps register one, is a compile-only stub, and Display registers its HDR/SDR ratio listener only when the display has a ratio, which the display service gives none
+android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
+android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
+android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
+android.content.pm.ParceledListSlice <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.OverlayProperties <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.BrightnessConfiguration <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.BrightnessInfo <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.Curve <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.HdrConversionMode <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.VirtualDisplayConfig <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.display.WifiDisplayStatus <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.graphics.common.DisplayDecorationSupport <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.media.projection.IMediaProjection$Stub <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.os.PermissionEnforcer <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.view.Surface <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
+android.hardware.OverlayProperties <- android.view.Display  # stays: Display.getOverlaySupport makes the default only for a display that is neither internal nor external, and display 0 is internal
+android.hardware.display.DeviceProductInfo <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
+android.view.DisplayAddress <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
+android.view.SurfaceControl$RefreshRateRange <- android.view.DisplayInfo  # stays: DisplayInfo.readFromParcel, as the display service hands its DisplayInfo over directly
+android.view.Surface <- android.view.DisplayInfo  # gap: DisplayInfo.toString and so Display.toString, through the rotation's name, until Surface is taken
+com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
+
 # StrictMode (c1 took it): the penalties and checks that need system_server.
-android.os.ServiceManager <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call, and penaltyFlashScreen and the CE storage check
 android.os.INetworkManagementService <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
 android.os.INetworkManagementService$Stub <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
@@ -94,8 +117,6 @@ android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # sta
 android.view.MotionEvent <- android.content.res.CompatibilityInfo  # ADR-0041 a): taken with input
 android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
 android.view.Surface <- android.app.WindowConfiguration  # gap: every Configuration.toString, through WindowConfiguration's rotation; ADR-0041 a) takes Surface
-android.hardware.display.DisplayManagerGlobal <- android.app.ResourcesManager  # ADR-0041 a): the display (decision 6); until then the app's Resources take the session's metrics (c1)
-android.view.DisplayInfo <- android.app.ResourcesManager  # ADR-0041 a): the display (decision 6)
 android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
 android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: Theme.encode, for the view server's hierarchy dump
 android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
@@ -105,7 +126,6 @@ android.graphics.drawable.ColorStateListDrawable <- android.content.res.Resource
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (App: VirtualRefBasePtr's natives are libandroid_runtime's)
 com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
-android.view.Choreographer <- android.graphics.animation.FallbackLUTInterpolator, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): Choreographer
 android.animation.AnimationHandler <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
 android.animation.ValueAnimator <- android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # ADR-0041 a): android.animation's animators, on Choreographer
 android.animation.ValueAnimator$AnimatorUpdateListener <- android.animation.Animator  # ADR-0041 a): android.animation's animators, on Choreographer
@@ -160,7 +180,6 @@ android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFile
 android.os.PersistableBundle <- android.os.BaseBundle  # gap: Bundle.deepCopy, which asks each value whether it is a PersistableBundle
 android.util.SizeF <- android.os.Bundle  # gap: Bundle.getSizeF
 com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle  # stays: BaseBundle.dumpStats, for dumpsys
-android.util.TimeUtils <- android.os.Message  # gap: Message.toString
 android.util.Base64 <- com.android.internal.util.XmlUtils  # stays: XmlUtils' byte-array attributes, which SharedPreferences never write (c1)
 com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.internal.util.ArtBinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
@@ -216,7 +235,6 @@ android.app.IActivityManager <- android.app.Service, android.content.BroadcastRe
 android.app.ActivityManager <- android.content.BroadcastReceiver  # gap: broadcast receivers, with ADR-0045's local activity service
 android.content.ContentCaptureOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.content.ContentCaptureOptions$ContentProtectionOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.os.ServiceManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.WindowManager$LayoutParams <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
@@ -265,13 +283,9 @@ android.animation.PropertyValuesHolder <- android.animation.LayoutTransition  # 
 android.animation.StateListAnimator <- android.view.View  # ADR-0041 a): the animators; a view's android:stateListAnimator
 android.animation.ValueAnimator <- android.animation.LayoutTransition  # ADR-0041 a): the animators; a ViewGroup with android:animateLayoutChanges makes a LayoutTransition in its constructor
 android.app.AppGlobals <- android.view.ViewConfiguration  # ADR-0041 a): the input timeouts that touch and keys ask the core settings for
-android.hardware.display.DisplayManagerGlobal <- android.view.View  # ADR-0041 a): the display (decision 6)
 android.hardware.input.InputManagerGlobal <- android.view.ViewConfiguration  # ADR-0041 a): input devices
-android.view.Choreographer <- android.view.View  # ADR-0041 a): Choreographer, which an attached view posts to
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
-android.view.Display <- android.view.View  # ADR-0041 a): the display (decision 6), which an attached view's AttachInfo has
-android.view.Display$Mode <- android.util.DisplayUtils  # ADR-0041 a): the display's modes (decision 6)
 android.view.InputDevice <- android.view.InputEvent, android.view.ViewConfiguration  # ADR-0041 a): input devices
 android.view.KeyCharacterMap <- android.view.KeyEvent  # ADR-0041 a): key character maps, which KeyEvent's characters ask
 android.view.MotionEvent <- android.view.InputEvent, android.view.InputEventConsistencyVerifier, android.view.View, android.view.ViewGroup  # ADR-0041 a): MotionEvent

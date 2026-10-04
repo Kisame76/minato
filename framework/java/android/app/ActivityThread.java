@@ -147,6 +147,11 @@ public final class ActivityThread {
         return false;
     }
 
+    // IDisplayManager.Stub's @EnforcePermission constructor names it; no app process runs that constructor.
+    public ContextImpl getSystemContext() {
+        throw new UnsupportedOperationException("Minato has no system context (ADR-0045)");
+    }
+
     @SuppressWarnings("deprecation") // Looper.prepareMainLooper, deprecated for apps, which only this main calls.
     public static void main(String[] args) throws ErrnoException {
         // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1).

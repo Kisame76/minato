@@ -522,3 +522,19 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/ColorDrawable.j
 frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableContainer.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableInflater.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/GradientDrawable.java
+
+# ADR-0041 a), Grafik: Java's Choreographer and the display (decision 6), which androidx's profileinstaller asks for
+# while the providers install (test 2's gap 9). Choreographer with DisplayEventReceiver, whose natives are ours on
+# libandroid's AChoreographer, and TimeUtils, which its doFrame calls with c2c2's AnimationUtils; the frame interval
+# comes from DisplayManagerGlobal's DisplayInfo for display 0, over the local IDisplayManager of ServiceManager's
+# "display" (ADR-0045 decision 2), with Display, whose Mode gives DisplayInfo's refresh rate (its cache,
+# PropertyInvalidatedCache, is taken above).
+frameworks_base/core/java/android/view/Choreographer.java
+frameworks_base/core/java/android/view/DisplayEventReceiver.java
+frameworks_base/core/java/android/util/TimeUtils.java
+frameworks_base/core/java/android/hardware/display/DisplayManagerGlobal.java
+frameworks_base/core/java/android/hardware/display/IDisplayManager.aidl
+frameworks_base/core/java/android/hardware/display/IDisplayManagerCallback.aidl
+frameworks_base/core/java/android/hardware/display/IVirtualDisplayCallback.aidl
+frameworks_base/core/java/android/view/DisplayInfo.java
+frameworks_base/core/java/android/view/Display.java

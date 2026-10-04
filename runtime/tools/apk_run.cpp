@@ -15,19 +15,23 @@
 // --configuration begins a session before the program starts (ADR-0039, config-test), whose configuration the
 // guest reads through session_configuration: a screen of <width> x <height> pixels at <scale>, portrait when it is
 // at least as high as wide and landscape else, without night mode, at 120 Hz, in en-US unless a locale is given.
-// The program's end then ends the process with its status, as without a session; requests go nowhere.
+// The session's frame clock then posts a vsync tick every period of that rate (ADR-0041 a)), as the app's does
+// (ADR-0036). The program's end ends the process with its status, as without a session; requests go nowhere.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
 
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -73,6 +77,22 @@ bool parse_configuration(const std::string &value, apkrt_configuration &configur
     std::memcpy(configuration.language, language.c_str(), language.size() + 1);
     std::memcpy(configuration.country, country.c_str(), country.size() + 1);
     return true;
+}
+
+/// The session's frame clock, as the app's CADisplayLink (ADR-0036, decision 1): a tick on the uptime clock, the
+/// guest's CLOCK_MONOTONIC, every period of `rate`, each one's target the next; a clock that falls behind skips
+/// refreshes, as a display link does.
+[[noreturn]] void run_frame_clock(std::int32_t rate) {
+    const std::int64_t period = 1'000'000'000 / rate;
+    auto tick = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+    for (;;) {
+        apkrt_vsync_post(tick, tick + period);
+        const auto now = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+        tick += ((now - tick) / period + 1) * period;
+        const std::int64_t wait = tick - now;
+        const timespec delay{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
+        nanosleep(&delay, nullptr);
+    }
 }
 
 /// Splits <left>=<right> at the first equals sign, or at the last with `last`; false without one.
@@ -164,8 +184,15 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");
             return 2;
         }
+        std::thread(run_frame_clock, session.configuration.refresh_rate).detach();
     }
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);
+    if (configured) {
+        // The frame clock's thread still posts ticks: no static destructor may run under it, as the session's end
+        // handler also ends without them.
+        std::fflush(stderr);
+        ::_exit(127);
+    }
     return 127;
 }

@@ -1,0 +1,8 @@
+I/vsync-test: getInstance on the main thread: the same twice true
+I/vsync-test: 3 frame callbacks: frame times rising true, each at or before its callback true, less than 100 ms before it true
+I/vsync-test: postFrameCallbackDelayed(100): ran 100 ms or more after its post true
+I/vsync-test: removeFrameCallback: the removed callback ran false, the one beside it ran true
+I/vsync-test: postVsyncCallback: timelines true, the preferred among them true, each deadline before its presentation true, both rising true, the frame time at or before the preferred deadline true
+I/vsync-test: after the main thread was blocked 60 ms, the preferred deadline lies ahead true
+I/vsync-test: on a HandlerThread: another instance true, its callback on vsync-test-thread
+I/vsync-test: done
