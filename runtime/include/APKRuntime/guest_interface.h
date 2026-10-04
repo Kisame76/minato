@@ -83,6 +83,15 @@ struct apkrt_loader {
     /// separated by colons, serves the library, the libraries loaded for it and their dlopen by name, ahead of
     /// where a plain dlopen looks, as linker64 searches the namespace a library belongs to.
     void *(*dlopen_in)(const char *name, int flags, const void *caller, int *error_number, const char *search_path);
+    /// The loader's namespaces, as linker64 keeps them (ADR-0040 decision 4, ADR-0033 e2a): libdl_android's
+    /// android_create_namespace, android_link_namespaces(_all_libs) (`sonames` null for all, else separated by
+    /// colons), android_get_exported_namespace, and android_dlopen_ext in a namespace. A namespace is an opaque
+    /// handle of the runtime's. Null on an older runtime, where ld-android.so keeps its own minimal namespaces.
+    void *(*create_namespace)(const char *name, const char *ld_library_path, const char *default_library_path,
+                              uint64_t type, const char *permitted_path, void *parent, const void *caller);
+    int (*link_namespaces)(void *from, void *to, const char *sonames);
+    void *(*exported_namespace)(const char *name);
+    void *(*dlopen_namespace)(const char *name, int flags, const void *caller, int *error_number, void *space);
 };
 #define APKRT_LOADER "apkrt_loader"
 

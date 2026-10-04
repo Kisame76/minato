@@ -48,6 +48,11 @@ const char *apkrt_loader_dlerror(void);
 int apkrt_loader_dladdr(const void *address, void *info);
 void *apkrt_loader_dlopen_in(const char *name, int flags, const void *caller, int *error_number,
                              const char *search_path);
+void *apkrt_loader_create_namespace(const char *name, const char *ld_library_path, const char *default_library_path,
+                                    std::uint64_t type, const char *permitted_path, void *parent, const void *caller);
+int apkrt_loader_link_namespaces(void *from, void *to, const char *sonames);
+void *apkrt_loader_exported_namespace(const char *name);
+void *apkrt_loader_dlopen_namespace(const char *name, int flags, const void *caller, int *error_number, void *space);
 extern const std::uint32_t apkrt_loader_return[];
 /// Labels around the stubs (ADR-0025): from apkrt_loader_stubs up to apkrt_loader_back the thread
 /// is on its way into the loader, from there to apkrt_loader_end on its way back to the caller.

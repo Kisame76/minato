@@ -38,6 +38,10 @@ __attribute__((visibility("default"))) apkrt_loader apkrt_loader = {
     .dlerror = nullptr,
     .dladdr = nullptr,
     .dlopen_in = nullptr,
+    .create_namespace = nullptr,
+    .link_namespaces = nullptr,
+    .exported_namespace = nullptr,
+    .dlopen_namespace = nullptr,
 };
 
 namespace {
@@ -170,9 +174,20 @@ void* __loader_android_dlopen_ext(const char* filename, int flags, const android
   }
   if (extinfo != nullptr && (extinfo->flags & ANDROID_DLEXT_USE_NAMESPACE) != 0 &&
       extinfo->library_namespace != nullptr && filename != nullptr) {
+    {
+      // The runtime's namespace, whose handle this is (ADR-0033 e2a), as linker64 loads into a namespace.
+      Locked locked;
+      if (apkrt_loader.dlopen_namespace != nullptr) {
+        int error_number = 0;
+        void* handle = apkrt_loader.dlopen_namespace(filename, flags, caller, &error_number,
+                                                     extinfo->library_namespace);
+        if (error_number != 0) __get_thread()->errno_value = error_number;
+        return handle;
+      }
+    }
     const auto* space = reinterpret_cast<const Namespace*>(extinfo->library_namespace);
     {
-      // The runtime searches the namespace's folders for the library, for the libraries loaded for it and for
+      // An e0 runtime searches the namespace's folders for the library, for the libraries loaded for it and for
       // their dlopen by name, as linker64 searches the namespace a library belongs to (ADR-0033 e0).
       Locked locked;
       if (apkrt_loader.dlopen_in != nullptr) {
@@ -297,9 +312,15 @@ bool __loader_android_init_anonymous_namespace(const char*, const char*) {
 }
 
 android_namespace_t* __loader_android_create_namespace(const char* name, const char* ld_library_path,
-                                                       const char* default_library_path, uint64_t, const char*,
-                                                       android_namespace_t*, const void*) {
+                                                       const char* default_library_path, uint64_t type,
+                                                       const char* permitted_path, android_namespace_t* parent,
+                                                       const void* caller) {
   Locked locked;
+  // The runtime's namespaces, as linker64's (ADR-0033 e2a); the minimal ones below on an older runtime.
+  if (apkrt_loader.create_namespace != nullptr) {
+    return reinterpret_cast<android_namespace_t*>(apkrt_loader.create_namespace(
+        name, ld_library_path, default_library_path, type, permitted_path, parent, caller));
+  }
   if (created_count == sizeof created_namespaces / sizeof created_namespaces[0]) {
     pending_error = "android_create_namespace: no room for another namespace";
     return nullptr;
@@ -322,12 +343,17 @@ android_namespace_t* __loader_android_create_namespace(const char* name, const c
   return reinterpret_cast<android_namespace_t*>(&space);
 }
 
-bool __loader_android_link_namespaces(android_namespace_t*, android_namespace_t*, const char*) {
-  return true;
+bool __loader_android_link_namespaces(android_namespace_t* from, android_namespace_t* to, const char* sonames) {
+  Locked locked;
+  if (apkrt_loader.link_namespaces == nullptr) return true;
+  // linker64 refuses a link for no names; all of them is android_link_namespaces_all_libs.
+  if (sonames == nullptr) sonames = "";
+  return apkrt_loader.link_namespaces(from, to, sonames) == 0;
 }
 
-bool __loader_android_link_namespaces_all_libs(android_namespace_t*, android_namespace_t*) {
-  return true;
+bool __loader_android_link_namespaces_all_libs(android_namespace_t* from, android_namespace_t* to) {
+  Locked locked;
+  return apkrt_loader.link_namespaces == nullptr || apkrt_loader.link_namespaces(from, to, nullptr) == 0;
 }
 
 // "default" stands for the program's namespace, as for a program in /system/bin (ADR-0040 decision 2),
@@ -335,6 +361,12 @@ bool __loader_android_link_namespaces_all_libs(android_namespace_t*, android_nam
 // when the namespace of a boot jar's APEX is missing (FindApexNamespace, ADR-0046 a).
 android_namespace_t* __loader_android_get_exported_namespace(const char* name) {
   if (name == nullptr) return nullptr;
+  {
+    Locked locked;
+    if (apkrt_loader.exported_namespace != nullptr) {
+      return reinterpret_cast<android_namespace_t*>(apkrt_loader.exported_namespace(name));
+    }
+  }
   if (same(name, "default")) return reinterpret_cast<android_namespace_t*>(&default_namespace);
   if (same(name, "com_android_art")) return reinterpret_cast<android_namespace_t*>(&art_namespace);
   if (same(name, "com_android_conscrypt")) return reinterpret_cast<android_namespace_t*>(&conscrypt_namespace);

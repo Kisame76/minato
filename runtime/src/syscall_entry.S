@@ -176,6 +176,10 @@ _\name:
     LOADER_STUB apkrt_loader_dlerror, APKRT_NR_DLERROR
     LOADER_STUB apkrt_loader_dladdr, APKRT_NR_DLADDR
     LOADER_STUB apkrt_loader_dlopen_in, APKRT_NR_DLOPEN_IN
+    LOADER_STUB apkrt_loader_create_namespace, APKRT_NR_CREATE_NAMESPACE
+    LOADER_STUB apkrt_loader_link_namespaces, APKRT_NR_LINK_NAMESPACES
+    LOADER_STUB apkrt_loader_exported_namespace, APKRT_NR_EXPORTED_NAMESPACE
+    LOADER_STUB apkrt_loader_dlopen_namespace, APKRT_NR_DLOPEN_NAMESPACE
 
     .p2align 2
 Lloader_call:

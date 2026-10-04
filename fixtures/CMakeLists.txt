@@ -94,6 +94,10 @@ target_link_libraries(dl-lock-test PRIVATE dl)
 # library for the folders of ART and Conscrypt that needs libns-dep.so and opens libns-plugin.so, both beside it
 # only; runtime.system_links places them (runtime/tests/ns_run.py).
 add_library(ns-dep SHARED suite/libns-dep.c)
+# The same soname as an app ships it, another value (ADR-0040 test 1, ADR-0033 e2a).
+add_library(ns-dep-app SHARED suite/libns-dep-app.c)
+set_target_properties(ns-dep-app PROPERTIES NO_SONAME ON)
+target_link_options(ns-dep-app PRIVATE -Wl,-soname,libns-dep.so)
 add_library(ns-plugin SHARED suite/libns-plugin.c)
 add_library(ns-lib SHARED suite/libns-lib.c)
 target_link_libraries(ns-lib PRIVATE ns-dep dl)

@@ -826,6 +826,10 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case APKRT_NR_DLERROR:
         case APKRT_NR_DLADDR:
         case APKRT_NR_DLOPEN_IN:
+        case APKRT_NR_CREATE_NAMESPACE:
+        case APKRT_NR_LINK_NAMESPACES:
+        case APKRT_NR_EXPORTED_NAMESPACE:
+        case APKRT_NR_DLOPEN_NAMESPACE:
             return apkrt::dl::loader_syscall(frame);  // ld-android.so's calls into the loader (ADR-0025)
         case APKRT_NR_BIND_HOST_TABLE:
             return apkrt::host_calls::bind_host_table(x[0], x[1], x[2], x[3]);  // a front lib (ADR-0030)

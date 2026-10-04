@@ -9,3 +9,8 @@
 #define APKRT_NR_DLERROR 4099
 #define APKRT_NR_DLADDR 4100
 #define APKRT_NR_DLOPEN_IN 4122  // dlopen in a namespace's search path (ADR-0033 e0), after the others' numbers
+// The namespaces of ADR-0040 decision 4 (ADR-0033 e2a).
+#define APKRT_NR_CREATE_NAMESPACE 4123
+#define APKRT_NR_LINK_NAMESPACES 4124
+#define APKRT_NR_EXPORTED_NAMESPACE 4125
+#define APKRT_NR_DLOPEN_NAMESPACE 4126

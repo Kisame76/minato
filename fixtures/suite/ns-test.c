@@ -11,6 +11,7 @@
 // by its full path, as ART opens an app's JNI library (ADR-0033 e0).
 #include <android/dlext.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,15 +29,40 @@ static struct android_namespace_t *exported_namespace(const char *name) {
     return get != NULL ? get(name) : NULL;
 }
 
+// The public libraries of /system/etc/public.libraries.txt, separated by colons, as libnativeloader links a
+// class loader's namespace to the system's for them.
+static void public_libraries(char *list, size_t size) {
+    list[0] = '\0';
+    FILE *file = fopen("/system/etc/public.libraries.txt", "r");
+    if (file == NULL) return;
+    char line[256];
+    while (fgets(line, sizeof line, file) != NULL) {
+        line[strcspn(line, " \r\n")] = '\0';
+        if (line[0] == '\0' || line[0] == '#') continue;
+        if (list[0] != '\0') strncat(list, ":", size - strlen(list) - 1);
+        strncat(list, line, size - strlen(list) - 1);
+    }
+    fclose(file);
+}
+
 // A class loader's namespace on `folder`, as libnativeloader's CreateClassLoaderNamespace asks for one: no
-// LD_LIBRARY_PATH part, the folder as the default library path and as the permitted path, isolated.
+// LD_LIBRARY_PATH part, the folder as the default library path and as the permitted path, isolated, and linked
+// to the exported "default" namespace for the public libraries.
 static struct android_namespace_t *class_loader_namespace(const char *folder) {
     struct android_namespace_t *(*create)(const char *, const char *, const char *, uint64_t, const char *,
                                           struct android_namespace_t *) =
         (struct android_namespace_t *(*)(const char *, const char *, const char *, uint64_t, const char *,
                                          struct android_namespace_t *))dl_android_function("android_create_namespace");
-    return create != NULL ? create("clns-ns-test", NULL, folder, 1 /* ANDROID_NAMESPACE_TYPE_ISOLATED */, folder, NULL)
-                          : NULL;
+    bool (*link)(struct android_namespace_t *, struct android_namespace_t *, const char *) =
+        (bool (*)(struct android_namespace_t *, struct android_namespace_t *, const char *))dl_android_function(
+            "android_link_namespaces");
+    if (create == NULL || link == NULL) return NULL;
+    struct android_namespace_t *space =
+        create("clns-ns-test", NULL, folder, 1 /* ANDROID_NAMESPACE_TYPE_ISOLATED */, folder, NULL);
+    char libraries[2048];
+    public_libraries(libraries, sizeof libraries);
+    if (space == NULL || libraries[0] == '\0' || !link(space, exported_namespace("default"), libraries)) return NULL;
+    return space;
 }
 
 int main(int argc, char **argv) {

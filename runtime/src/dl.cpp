@@ -54,6 +54,13 @@ constexpr std::string_view linked_to_art[] = {"libdexfile.so", "libjdwp.so", "li
                                               // com_android_i18n's on Android
                                               "libandroidicu.so", "libicu.so", "libicui18n.so", "libicuuc.so"};
 
+// What com_android_art's libraries take from the default namespace: bionic's and libz.so, which Android's ART
+// APEX holds itself and Minato's guest system has in /system/lib64 (ADR-0040 decision 2; the departure for
+// libz.so). And what Conscrypt's libjavacrypto.so takes from it.
+constexpr std::string_view art_needs[] = {"libc.so", "libm.so", "libdl.so", "libdl_android.so", "liblog.so",
+                                          "libz.so"};
+constexpr std::string_view conscrypt_needs[] = {"libc.so", "libm.so", "libdl.so", "liblog.so"};
+
 // Android 15 keeps libc.so, libm.so and libdl.so in the runtime APEX and has symlinks to them in
 // /system/lib64; linker64 names a library by its real path.
 constexpr std::pair<std::string_view, std::string_view> system_links[] = {
@@ -62,6 +69,8 @@ constexpr std::pair<std::string_view, std::string_view> system_links[] = {
     {"/system/lib64/libdl.so", "/apex/com.android.runtime/lib64/bionic/libdl.so"},
 };
 
+struct Namespace;
+
 struct Library {
     Object object;
     std::filesystem::path container;  // tells one file from another, as linker64's inode does
@@ -69,10 +78,29 @@ struct Library {
     Library *group_root = nullptr;    // the program, or the library dlopen loaded it with
     bool global = false;              // RTLD_GLOBAL, or loaded with the program
     bool linked = false;              // relocated and listed
-    std::string apex_libraries;       // its APEX's lib64 when the APEX holds it: its namespace's folder
-    // The search path of the namespace android_dlopen_ext loaded it into, which the libraries loaded for it share,
-    // as a class loader's (ADR-0033 e0); empty for the others.
-    std::vector<std::string> search_paths;
+    Namespace *ns = nullptr;          // the namespace it was loaded into, its primary one (ADR-0040)
+};
+
+/// A link of a namespace to another, for some sonames or all (android_namespace_link_t).
+struct NamespaceLink {
+    Namespace *to;
+    std::set<std::string> sonames;
+    bool all = false;
+
+    bool accessible(std::string_view soname) const {
+        return all || sonames.contains(std::string(soname));
+    }
+};
+
+/// A linker namespace as linker64 keeps one (android_namespace_t, ADR-0040 decision 1): where it looks for a
+/// library by name, the libraries it holds, and its links. Permitted paths and the exempt list come with e2b.
+struct Namespace {
+    std::string name;
+    bool isolated = false;
+    std::vector<std::string> ld_library_paths;
+    std::vector<std::string> default_library_paths;
+    std::vector<Library *> libraries;  // its soinfo list, in load order
+    std::vector<NamespaceLink> links;
 };
 
 /// Library containers (<file name>.dylib) the guest finds as the files of a directory.
@@ -90,6 +118,9 @@ struct Found {
 struct State {
     std::recursive_mutex mutex;  // linker64's g_dl_mutex is recursive: constructors may dlopen
     std::deque<Library> libraries;  // load order, the program first; a deque keeps handles stable
+    // The namespaces, default, com_android_art and com_android_conscrypt first (ADR-0040 decision 2), then those
+    // that libnativeloader creates; a deque keeps the handles stable.
+    std::deque<Namespace> namespaces;
     std::vector<Directory> directories;
     std::vector<std::string> library_path;  // LD_LIBRARY_PATH as linker64 keeps it
     std::string program_name;               // argv[0], for linker64's messages
@@ -124,24 +155,65 @@ std::string_view base_name(std::string_view path) {
     return slash == std::string_view::npos ? path : path.substr(slash + 1);
 }
 
-/// The lib64 folder of the APEX whose bin or lib64 holds `path`, or nothing: the search path of the namespace
-/// that linkerconfig gives a program or a library of that APEX on Android 15.
-std::string apex_libraries_of(std::string_view path) {
-    if (!path.starts_with("/apex/")) return {};
-    const auto module_end = path.find('/', 6);
-    if (module_end == std::string_view::npos) return {};
-    const auto rest = path.substr(module_end);
-    if (!rest.starts_with("/bin/") && !rest.starts_with("/lib64/")) return {};
-    return std::string(path.substr(0, module_end)) + "/lib64";
+/// The namespaces at the start (ADR-0040 decision 2), as linkerconfig's [system] section has them for a program
+/// outside the APEXes on Android 15: default with LD_LIBRARY_PATH and the system's folders, linked to
+/// com_android_art for linked_to_art's sonames; com_android_art and com_android_conscrypt isolated, each with its
+/// APEX's lib64, linked to default for what their libraries need of the system's.
+void make_namespaces(State &state) {
+    state.namespaces.clear();
+    auto &system = state.namespaces.emplace_back(Namespace{.name = "default", .ld_library_paths = state.library_path});
+    for (const auto folder : default_library_paths) system.default_library_paths.emplace_back(folder);
+    auto &art = state.namespaces.emplace_back(Namespace{.name = "com_android_art", .isolated = true,
+                                                        .default_library_paths = {std::string(art_libraries)}});
+    auto &conscrypt = state.namespaces.emplace_back(Namespace{
+        .name = "com_android_conscrypt", .isolated = true, .default_library_paths = {"/apex/com.android.conscrypt/lib64"}});
+    system.links.push_back({.to = &art, .sonames = {std::begin(linked_to_art), std::end(linked_to_art)}});
+    art.links.push_back({.to = &system, .sonames = {std::begin(art_needs), std::end(art_needs)}});
+    conscrypt.links.push_back({.to = &system, .sonames = {std::begin(conscrypt_needs), std::end(conscrypt_needs)}});
 }
 
-/// A loaded library by the name it was asked for, its path or its soname, as linker64's
-/// find_loaded_library_by_soname finds one without opening a file.
-Library *find_loaded(State &state, std::string_view name) {
-    for (auto &library : state.libraries) {
-        const auto &object = library.object;
-        if (object.name == name || object.path == name || (!object.dynamic.soname.empty() && object.dynamic.soname == name)) {
-            return &library;
+/// The namespace a program starts in: an APEX's for a program in its bin, as linkerconfig gives a program of an APEX
+/// its APEX's namespace on Android 15, else default. Another APEX than ART's and Conscrypt's gets one on its lib64,
+/// named as libnativeloader names an APEX's, linked to default for every library.
+Namespace &namespace_of_program(State &state, std::string_view path) {
+    if (path.starts_with("/apex/com.android.art/bin/")) return state.namespaces[1];
+    if (path.starts_with("/apex/com.android.conscrypt/bin/")) return state.namespaces[2];
+    const auto module_end = path.starts_with("/apex/") ? path.find('/', 6) : std::string_view::npos;
+    if (module_end == std::string_view::npos || !path.substr(module_end).starts_with("/bin/")) {
+        return state.namespaces[0];
+    }
+    std::string name(path.substr(6, module_end - 6));
+    std::ranges::replace(name, '.', '_');
+    auto &space = state.namespaces.emplace_back(Namespace{
+        .name = name, .isolated = true, .default_library_paths = {std::string(path.substr(0, module_end)) + "/lib64"}});
+    space.links.push_back({.to = &state.namespaces[0], .all = true});
+    return space;
+}
+
+/// A namespace's name as linker64's messages show it: the default one as "(default)".
+std::string shown_name(const Namespace &space) {
+    return space.name == "default" ? "(default)" : space.name;
+}
+
+/// Whether `library` answers to `name`: the name it was asked for or its soname, as linker64 compares sonames.
+bool answers_to(const Library &library, std::string_view name) {
+    const auto &object = library.object;
+    return object.name == name || (!object.dynamic.soname.empty() && object.dynamic.soname == name);
+}
+
+/// A loaded library that `space` holds and that answers to `name`, as find_loaded_library_by_soname finds one
+/// without opening a file, and with `through_links` one that a linked namespace holds, through a link that gives
+/// the name. A name with a slash is a path, which a soname never is.
+Library *loaded_in(Namespace &space, std::string_view name, bool through_links) {
+    if (name.find('/') != std::string_view::npos) return nullptr;
+    for (auto *library : space.libraries) {
+        if (answers_to(*library, name)) return library;
+    }
+    if (!through_links) return nullptr;
+    for (const auto &link : space.links) {
+        if (!link.accessible(name)) continue;
+        for (auto *library : link.to->libraries) {
+            if (answers_to(*library, name)) return library;
         }
     }
     return nullptr;
@@ -172,51 +244,65 @@ std::optional<Found> library_at(const State &state, std::string path) {
     return std::nullopt;
 }
 
-/// Looks for a library file as linker64's open_library does: a name with a slash is a path, taken
-/// as it is (against the working directory when relative); a plain name is looked for in the search
-/// path of the namespace it is loaded into (`search_paths`, a class loader's, ADR-0033 e0), then in
-/// LD_LIBRARY_PATH, then, for a program or library of an APEX (`apex_libraries`, its folder), in the
-/// APEX's libraries, then in the default directories, and for the others through [system]'s links in
-/// ART's folder. Every place without the file is an open() that fails on Android and leaves ENOENT in
-/// errno; `missed` records that.
-std::optional<Found> find_library(const State &state, std::string_view name, std::string_view apex_libraries,
-                                  const std::vector<std::string> &search_paths, bool &missed) {
-    const auto look = [&](std::string path) {
-        auto found = library_at(state, std::move(path));
-        if (!found) missed = true;
-        return found;
-    };
-    if (name.find('/') != std::string_view::npos) return look(vfs::absolute(name, vfs::working_directory()));
-    for (const auto &directory : search_paths) {
-        if (auto found = look(std::format("{}/{}", directory, name))) return found;
-    }
-    for (const auto &directory : state.library_path) {
-        if (auto found = look(std::format("{}/{}", directory, name))) return found;
-    }
-    // linkerconfig gives a program or library of an APEX a namespace that searches the APEX's lib64 and is
-    // linked to the system's (/linkerconfig/com.android.art/ld.config.txt for a program of ART's, [system]'s
-    // com_android_art for its libraries, on Android 15). In the loader's one scope that is the APEX's folder
-    // first (ADR-0033 decision 7, step b).
-    if (!apex_libraries.empty()) {
-        if (auto found = look(std::format("{}/{}", apex_libraries, name))) return found;
-    }
-    for (const auto directory : default_library_paths) {
-        if (auto found = look(std::format("{}/{}", directory, name))) return found;
-    }
-    if (apex_libraries.empty() && std::ranges::find(linked_to_art, name) != std::end(linked_to_art)) {
-        if (auto found = look(std::format("{}/{}", art_libraries, name))) return found;
+/// A library file on `space`'s folders, LD_LIBRARY_PATH's part first, as linker64's open_library_on_paths looks.
+/// Every folder without the file is an open() that fails on Android and leaves ENOENT in errno; `missed` records it.
+std::optional<Found> found_on_paths(const State &state, const Namespace &space, std::string_view name, bool &missed) {
+    for (const auto *paths : {&space.ld_library_paths, &space.default_library_paths}) {
+        for (const auto &directory : *paths) {
+            if (auto found = library_at(state, std::format("{}/{}", directory, name))) return found;
+            missed = true;
+        }
     }
     return std::nullopt;
 }
 
-/// Loads the library file the search found for `name` and appends it to the list.
-Library &load_library(State &state, std::string_view name, Found found) {
+/// Where the search found a library: loaded already, or a file and the namespace to load it into.
+struct Located {
+    Library *loaded = nullptr;
+    std::optional<Found> found;
+    Namespace *space = nullptr;
+};
+
+/// Looks for a library as linker64's find_library_internal does in `space` (ADR-0040 decision 1). A name with a
+/// slash is a path, taken as it is (against the working directory when relative) and loaded into `space`. A plain
+/// name is a loaded library that `space` holds, or a linked namespace through a link that gives the name; else a
+/// file on `space`'s folders; else one on a linked namespace's folders, through such a link, which it loads into.
+Located locate(State &state, Namespace &space, std::string_view name, bool &missed) {
+    if (name.find('/') != std::string_view::npos) {
+        auto found = library_at(state, vfs::absolute(name, vfs::working_directory()));
+        if (!found) missed = true;
+        return {.found = std::move(found), .space = &space};
+    }
+    if (auto *loaded = loaded_in(space, name, true)) return {.loaded = loaded};
+    if (auto found = found_on_paths(state, space, name, missed)) return {.found = std::move(found), .space = &space};
+    for (const auto &link : space.links) {
+        if (!link.accessible(name)) continue;
+        if (auto found = found_on_paths(state, *link.to, name, missed)) {
+            return {.found = std::move(found), .space = link.to};
+        }
+    }
+    return {};
+}
+
+/// Puts `library` into `space`'s list, unless it is there: as linker64's add_soinfo, also for an instance of
+/// another namespace that `space` takes, since one file has one instance here (ADR-0040 decision 6).
+void add_to(Namespace &space, Library &library) {
+    if (std::ranges::find(space.libraries, &library) == space.libraries.end()) space.libraries.push_back(&library);
+}
+
+/// Loads the library file the search found for `name` into `space` and appends it to the list. One marked
+/// DF_1_GLOBAL joins every namespace, as linker64 links such a library to all of them.
+Library &load_library(State &state, std::string_view name, Found found, Namespace &space) {
     const auto image = loader::load(found.container.string());
     auto &library = state.libraries.emplace_back();
     library.object = Object{.name = std::string(base_name(name)), .image = image, .dynamic = linker::read_dynamic(image),
                             .path = std::move(found.path)};
     library.container = std::move(found.container);
-    library.apex_libraries = apex_libraries_of(library.object.path);
+    library.ns = &space;
+    add_to(space, library);
+    if (library.object.dynamic.global) {
+        for (auto &each : state.namespaces) add_to(each, library);
+    }
     return library;
 }
 
@@ -228,22 +314,23 @@ std::vector<Library *> load_needed(State &state, Library &root, bool program, bo
     for (std::size_t next = 0; next < added.size(); ++next) {
         Library &library = *added[next];
         for (const auto &name : library.object.dynamic.needed) {
-            Library *dependency = find_loaded(state, name);
+            // In the namespace of the library that needs it, as linker64 looks for and loads it.
+            auto located = locate(state, *library.ns, name, missed);
+            Library *dependency = located.loaded;
             if (dependency == nullptr) {
-                auto found = find_library(state, name, library.apex_libraries, library.search_paths, missed);
-                if (!found) {
+                if (!located.found) {
                     if (program && &library == &root) {
                         throw LoadError(std::format("library \"{}\" not found: needed by main executable", name));
                     }
-                    throw LoadError(std::format("library \"{}\" not found: needed by {} in namespace (default)", name,
-                                                library.object.shown_name()));
+                    throw LoadError(std::format("library \"{}\" not found: needed by {} in namespace {}", name,
+                                                library.object.shown_name(), shown_name(*library.ns)));
                 }
-                dependency = loaded_from(state, found->container);
+                dependency = loaded_from(state, located.found->container);
                 if (dependency == nullptr) {
-                    dependency = &load_library(state, name, std::move(*found));
-                    // Loaded into the namespace of the library that needs it, as linker64 loads it.
-                    dependency->search_paths = library.search_paths;
+                    dependency = &load_library(state, name, std::move(*located.found), *located.space);
                     added.push_back(dependency);
+                } else {
+                    add_to(*located.space, *dependency);
                 }
             }
             library.needed.push_back(dependency);
@@ -392,9 +479,47 @@ std::vector<std::string> split_search_path(std::string_view value) {
     return folders;
 }
 
-/// dlopen, or with `search_path` android_dlopen_ext in the namespace of that search path (ADR-0033 e0).
+/// Adds `parent`'s shared group to `space`, as linker64's create_namespace does for a namespace that is not
+/// shared (get_shared_group): for the default namespace its global group (the program and DF_1_GLOBAL libraries),
+/// for another one its RTLD_GLOBAL libraries.
+void add_shared_group(State &state, Namespace &space, const Namespace &parent) {
+    const bool is_default = &parent == &state.namespaces[0];
+    for (auto *library : parent.libraries) {
+        const bool global_group = library == &state.libraries.front() || library->object.dynamic.global;
+        if (is_default ? global_group : library->global) add_to(space, *library);
+    }
+}
+
+/// The namespace of a search path that an ld-android.so of ADR-0033 e0 hands over (dlopen_in): the path's folders,
+/// then everything a plain dlopen finds, as e0 had it. So a shared copy of the default namespace, with its
+/// libraries and its links to com_android_art, behind those folders.
+Namespace &search_path_namespace(State &state, std::string_view search_path) {
+    auto folders = split_search_path(search_path);
+    const std::string name = "(search path " + std::string(search_path) + ")";
+    for (auto &space : state.namespaces) {
+        if (space.name == name) return space;
+    }
+    const Namespace &system = state.namespaces[0];
+    auto &space = state.namespaces.emplace_back(Namespace{.name = name, .ld_library_paths = std::move(folders)});
+    space.ld_library_paths.insert(space.ld_library_paths.end(), system.ld_library_paths.begin(),
+                                  system.ld_library_paths.end());
+    space.default_library_paths = system.default_library_paths;
+    space.links = system.links;
+    for (auto *library : system.libraries) add_to(space, *library);
+    return space;
+}
+
+/// The namespace `handle` stands for, or null when it is none of the loader's.
+Namespace *as_namespace(State &state, const void *handle) {
+    for (auto &space : state.namespaces) {
+        if (&space == handle) return &space;
+    }
+    return nullptr;
+}
+
+/// dlopen, or android_dlopen_ext in the namespace `in`, or in the one of an e0 ld-android.so's `search_path`.
 void *guest_dlopen(const char *name, int flags, const void *caller, int *error_number,
-                   const char *search_path = nullptr) {
+                   const char *search_path = nullptr, Namespace *in = nullptr) {
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
     if (name == nullptr) return &state.libraries.front();
@@ -408,24 +533,23 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         }
     } report{.error_number = error_number};
 
-    // The namespace it opens in: the one android_dlopen_ext names, by its search path, else the caller's, as linker64
-    // takes the caller's (get_caller_namespace), with the folder of the caller's APEX.
+    // The namespace it opens in: the one android_dlopen_ext names, else the caller's, as linker64 takes the
+    // caller's (get_caller_namespace); a caller outside every library gets the default one until e2b's anonymous one.
     const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
-    const std::vector<std::string> search_paths =
-        search_path != nullptr ? split_search_path(search_path)
-                               : (calling != nullptr ? calling->search_paths : std::vector<std::string>{});
-    const std::string_view apex_libraries =
-        search_path == nullptr && calling != nullptr ? std::string_view(calling->apex_libraries) : "";
-    Library *loaded = find_loaded(state, wanted);
-    std::optional<Found> found;
-    if (loaded == nullptr || !loaded->linked) {
-        // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
-        found = find_library(state, wanted, apex_libraries, search_paths, report.missed);
-        if (!found) {
+    Namespace &space = in != nullptr                ? *in
+                       : search_path != nullptr     ? search_path_namespace(state, search_path)
+                       : calling != nullptr && calling->ns != nullptr ? *calling->ns
+                                                    : state.namespaces[0];
+    // Even RTLD_NOLOAD looks for the file: a library is loaded under another name or not at all.
+    auto located = locate(state, space, wanted, report.missed);
+    Library *loaded = located.loaded;
+    if (loaded == nullptr) {
+        if (!located.found) {
             set_error(std::format("dlopen failed: library \"{}\" not found", wanted));
             return nullptr;
         }
-        loaded = loaded_from(state, found->container);
+        loaded = loaded_from(state, located.found->container);
+        if (loaded != nullptr) add_to(*located.space, *loaded);
     }
     if (loaded != nullptr && loaded->linked) {
         if (flags & rtld_global) loaded->global = true;
@@ -437,8 +561,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
     }
     const auto before = state.libraries.size();
     try {
-        Library *root = &load_library(state, wanted, std::move(*found));
-        root->search_paths = search_paths;
+        Library *root = &load_library(state, wanted, std::move(*located.found), *located.space);
         auto added = load_needed(state, *root, false, report.missed);
         const auto scope = lookup_scope(state, *root, added);
         for (auto *library : added) linker::relocate(library->object, scope);
@@ -467,10 +590,107 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         return root;
     } catch (const std::exception &failure) {
         set_error(std::format("dlopen failed: {}", failure.what()));
-        // What dyld loaded stays mapped (ADR-0003); the guest never sees it.
+        // What dyld loaded stays mapped (ADR-0003); the guest never sees it, nor does any namespace.
+        std::set<const Library *> dropped;
+        for (auto index = before; index < state.libraries.size(); ++index) dropped.insert(&state.libraries[index]);
+        for (auto &each : state.namespaces) {
+            std::erase_if(each.libraries, [&](const Library *library) { return dropped.contains(library); });
+        }
         while (state.libraries.size() > before) state.libraries.pop_back();
         return nullptr;
     }
+}
+
+// android_create_namespace's types (linker.h at the tag).
+constexpr std::uint64_t namespace_isolated = 1;
+constexpr std::uint64_t namespace_shared = 2;
+
+/// android_create_namespace, as linker64's create_namespace does (ADR-0040 decision 4): the parent is the given
+/// one, else the caller's namespace; a shared namespace takes the parent's folders, libraries and links, another
+/// one the parent's shared group. Permitted paths, the exempt list and the anonymous namespace come with e2b.
+void *guest_create_namespace(const char *name, const char *ld_library_path, const char *default_library_path,
+                             std::uint64_t type, const char *permitted_path, void *parent_handle, const void *caller) {
+    static_cast<void>(permitted_path);
+    auto &state = ::apkrt::dl::state();
+    const std::lock_guard lock(state.mutex);
+    Namespace *parent = parent_handle != nullptr ? as_namespace(state, parent_handle) : nullptr;
+    if (parent_handle != nullptr && parent == nullptr) {
+        set_error("android_create_namespace failed: invalid parent namespace");
+        return nullptr;
+    }
+    if (parent == nullptr) {
+        const Library *calling = containing(state, reinterpret_cast<std::uint64_t>(caller));
+        parent = calling != nullptr && calling->ns != nullptr ? calling->ns : &state.namespaces[0];
+    }
+    auto &space = state.namespaces.emplace_back(Namespace{
+        .name = name != nullptr ? name : "", .isolated = (type & namespace_isolated) != 0,
+        .ld_library_paths = split_search_path(ld_library_path != nullptr ? ld_library_path : ""),
+        .default_library_paths = split_search_path(default_library_path != nullptr ? default_library_path : "")});
+    if ((type & namespace_shared) != 0) {
+        space.ld_library_paths.insert(space.ld_library_paths.end(), parent->ld_library_paths.begin(),
+                                      parent->ld_library_paths.end());
+        space.default_library_paths.insert(space.default_library_paths.end(), parent->default_library_paths.begin(),
+                                           parent->default_library_paths.end());
+        for (auto *library : parent->libraries) add_to(space, *library);
+        space.links = parent->links;
+    } else {
+        add_shared_group(state, space, *parent);
+    }
+    return &space;
+}
+
+/// android_link_namespaces and android_link_namespaces_all_libs (`sonames` null): links `from` to `to` for the
+/// sonames, separated by colons, or for all.
+int guest_link_namespaces(void *from_handle, void *to_handle, const char *sonames) {
+    auto &state = ::apkrt::dl::state();
+    const std::lock_guard lock(state.mutex);
+    Namespace *from = as_namespace(state, from_handle);
+    Namespace *to = as_namespace(state, to_handle);
+    if (from == nullptr || to == nullptr) {
+        set_error("android_link_namespaces failed: invalid namespace");
+        return -1;
+    }
+    NamespaceLink link{.to = to, .all = sonames == nullptr};
+    if (sonames != nullptr) {
+        if (*sonames == '\0') {
+            set_error("android_link_namespaces failed: the list of shared libraries is empty");
+            return -1;
+        }
+        for (std::string_view rest(sonames); !rest.empty();) {
+            const auto colon = rest.find(':');
+            if (const auto part = rest.substr(0, colon); !part.empty()) link.sonames.emplace(part);
+            rest = colon == std::string_view::npos ? std::string_view{} : rest.substr(colon + 1);
+        }
+    }
+    from->links.push_back(std::move(link));
+    return 0;
+}
+
+/// android_get_exported_namespace: "default" for the program's namespace, as for a program in /system/bin
+/// (ADR-0040 decision 2), com_android_art and com_android_conscrypt for the APEXes'; no "system".
+void *guest_exported_namespace(const char *name) {
+    auto &state = ::apkrt::dl::state();
+    const std::lock_guard lock(state.mutex);
+    if (name == nullptr || state.namespaces.size() < 3) return nullptr;
+    for (std::size_t index = 0; index < 3; ++index) {
+        if (state.namespaces[index].name == name) return &state.namespaces[index];
+    }
+    return nullptr;
+}
+
+/// android_dlopen_ext with ANDROID_DLEXT_USE_NAMESPACE.
+void *guest_dlopen_namespace(const char *name, int flags, const void *caller, int *error_number, void *handle) {
+    Namespace *space = nullptr;
+    {
+        auto &state = ::apkrt::dl::state();
+        const std::lock_guard lock(state.mutex);
+        space = as_namespace(state, handle);
+    }
+    if (space == nullptr) {
+        set_error("android_dlopen_ext failed: invalid namespace");
+        return nullptr;
+    }
+    return guest_dlopen(name, flags, caller, error_number, nullptr, space);
 }
 
 void *guest_dlsym(void *handle, const char *name, const char *version_text, const void *caller) {
@@ -580,8 +800,14 @@ void set_loader_functions(apkrt_loader &loader, std::size_t size) {
     loader.dlclose = apkrt_loader_dlclose;
     loader.dlerror = apkrt_loader_dlerror;
     loader.dladdr = apkrt_loader_dladdr;
-    // ADR-0033 e0's, which an older ld-android.so's table ends before.
+    // ADR-0033 e0's and e2a's, which an older ld-android.so's table ends before.
     if (size >= offsetof(apkrt_loader, dlopen_in) + sizeof loader.dlopen_in) loader.dlopen_in = apkrt_loader_dlopen_in;
+    if (size >= offsetof(apkrt_loader, dlopen_namespace) + sizeof loader.dlopen_namespace) {
+        loader.create_namespace = apkrt_loader_create_namespace;
+        loader.link_namespaces = apkrt_loader_link_namespaces;
+        loader.exported_namespace = apkrt_loader_exported_namespace;
+        loader.dlopen_namespace = apkrt_loader_dlopen_namespace;
+    }
 }
 
 long loader_syscall(const apkrt_syscall_frame &frame) {
@@ -601,6 +827,20 @@ long loader_syscall(const apkrt_syscall_frame &frame) {
             return reinterpret_cast<long>(guest_dlopen(reinterpret_cast<const char *>(x[0]), static_cast<int>(x[1]),
                                                        reinterpret_cast<const void *>(x[2]), reinterpret_cast<int *>(x[3]),
                                                        reinterpret_cast<const char *>(x[4])));
+        case APKRT_NR_CREATE_NAMESPACE:
+            return reinterpret_cast<long>(guest_create_namespace(
+                reinterpret_cast<const char *>(x[0]), reinterpret_cast<const char *>(x[1]),
+                reinterpret_cast<const char *>(x[2]), x[3], reinterpret_cast<const char *>(x[4]),
+                reinterpret_cast<void *>(x[5]), reinterpret_cast<const void *>(x[6])));
+        case APKRT_NR_LINK_NAMESPACES:
+            return guest_link_namespaces(reinterpret_cast<void *>(x[0]), reinterpret_cast<void *>(x[1]),
+                                         reinterpret_cast<const char *>(x[2]));
+        case APKRT_NR_EXPORTED_NAMESPACE:
+            return reinterpret_cast<long>(guest_exported_namespace(reinterpret_cast<const char *>(x[0])));
+        case APKRT_NR_DLOPEN_NAMESPACE:
+            return reinterpret_cast<long>(guest_dlopen_namespace(
+                reinterpret_cast<const char *>(x[0]), static_cast<int>(x[1]), reinterpret_cast<const void *>(x[2]),
+                reinterpret_cast<int *>(x[3]), reinterpret_cast<void *>(x[4])));
         default: return -38;  // ENOSYS: not one of the stubs' numbers
     }
 }
@@ -628,12 +868,15 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         const auto slash = path.rfind('/');
         state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
         state.library_path = library_path(state, envp);
+        make_namespaces(state);
 
         auto &program = state.libraries.emplace_back();
         program.object = Object{.name = container.stem().string(), .image = image,
                                 .dynamic = linker::read_dynamic(image), .path = path};
         program.container = container;
-        program.apex_libraries = apex_libraries_of(path);
+        // In its namespace, and in every other one, as linker64 adds somain to all of them.
+        program.ns = &namespace_of_program(state, path);
+        for (auto &space : state.namespaces) add_to(space, program);
         bool missed = false;  // libc.so's start sets errno to 0 anyway
         const auto added = load_needed(state, program, true, missed);
         for (auto *library : added) {
