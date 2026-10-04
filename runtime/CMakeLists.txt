@@ -217,6 +217,16 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets)
     set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # The same in only the window's upper 2 GiB, as without increased-memory-limit on iOS (a SideStore install with
+    # a free account, ADR-0033 d1): patch 0002's test switch makes the Mac reserve just those.
+    add_test(NAME runtime.art_codec_upper_half${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
+        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --upper-half)
+    set_tests_properties(runtime.art_codec_upper_half${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+      TIMEOUT 400)
     # Conscrypt (ADR-0046 c): conscrypt-test uses Conscrypt's provider, from conscrypt.jar and libjavacrypto.so in
     # Conscrypt's APEX folders, as on Android 15.
     add_test(NAME runtime.art_conscrypt${suffix}
@@ -244,6 +254,15 @@ if(APK_HOST_BUILD)
         "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
         $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${PROJECT_SOURCE_DIR}" --sample ${flag})
     set_tests_properties(runtime.art_run_tests${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
+    # ART's tests in the app (ADR-0033 d): the stage that tools/embed-fixtures.sh puts into fixture builds, with the
+    # Java fixtures and the run-tests' sample, run on the Mac as the app's ART mode runs it
+    # (runtime/tests/device_art.py).
+    add_test(NAME runtime.device_art${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/device_art.py" selftest "${APK_ART_DIR}"
+        "${APK_FIXTURES_DIR}" "${PROJECT_SOURCE_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" ${flag})
+    set_tests_properties(runtime.device_art${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 900)
   endforeach()
 
   # A program in /system/bin and ART's folder (ADR-0039 a, ADR-0040 decision 2): the fixture ns-test reaches a

@@ -2,30 +2,36 @@ The heap window: every low_4gb mapping lies in one window at a base aligned to 4
 
 ART keeps a reference to an object as its address in 32 bits and asks MemMap for its heap with low_4gb, which
 on arm64 scans [64 KiB, 4 GiB). iOS maps nothing below 4 GiB. At its first low_4gb request, MemMap now reserves a
-window of 4 GiB without access at a base aligned to 4 GiB, so that the low 32 bits of an address in it are its
-offset. Every low_4gb mapping takes a range of the window: at the address it asks for, where that lies in the
-window and is free, as mmap treats a hint, else at the top of the highest gap that holds it. So the window fills
-from the top, and every object has an offset above 2^31 from the start, where a reference sign-extended somewhere
-shows at once. The window's first page stays without access for good, so no object has the offset 0, which is
-null, and so does its last page, so no mapping ends at 2^32, whose 32 bits are 0 as well. What MemMap unmaps in the
-window goes back to the reservation. Where a mapping goes and which ranges are mapped is base/heap_window_ranges.h,
-a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Mac.
+window without access that ends 4 GiB above a base aligned to 4 GiB, so that the low 32 bits of an address in it
+are its offset: all 4 GiB where the system has room for 8 GiB, else only their upper 2 GiB, as without
+increased-memory-limit on iOS, where an app gets 7.84 GiB in 4 pieces, the largest 6.00 GiB (spike S2); the upper
+half fits into any piece of 6 GiB less a page and leaves 2 GiB more to the rest of the process. The log names the
+window once. APKRT_HEAP_WINDOW_UPPER_HALF in the environment, a test's switch, takes the upper half on the Mac too.
+Every low_4gb mapping takes a range of the window: at the address it asks for, where that lies in the window and is
+free, as mmap treats a hint, else at the top of the highest gap that holds it. So the window fills from the top,
+and every object has an offset above 2^31 from the start, where a reference sign-extended somewhere shows at once.
+The window's first page stays without access for good, so no object has the offset 0, which is null, and so does
+its last page, so no mapping ends at 2^32, whose 32 bits are 0 as well. What MemMap unmaps in the window goes back
+to the reservation. How the window is reserved, where a mapping goes and which ranges are mapped is
+base/heap_window_ranges.h, a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Mac.
 
 --- a/art/libartbase/base/mem_map.h
 +++ b/art/libartbase/base/mem_map.h
-@@ -356,6 +356,11 @@
+@@ -356,6 +356,13 @@
      return GetPageSizeSlow();
    }
  #endif
 +
-+  // Minato (ADR-0033 decision 3): the heap window of base/heap_window.h, where every low_4gb mapping lies.
-+  // Reserved at the first call or the first low_4gb mapping, and never given back.
++  // Minato (ADR-0033 decision 3): the heap window of base/heap_window.h, where every low_4gb mapping lies: the base
++  // of its offsets, aligned to 4 GiB, and how far they reach, 4 GiB. The window is all of that range, or its upper
++  // half where the system has no room for 8 GiB. Reserved at the first call or the first low_4gb mapping, and never
++  // given back.
 +  static uint8_t* HeapWindowBegin();
 +  static size_t HeapWindowSize();
  
   private:
    MemMap(const std::string& name,
-@@ -444,6 +449,11 @@
+@@ -444,6 +451,11 @@
    static void* TargetMMap(void* start, size_t len, int prot, int flags, int fd, off_t fd_off);
    static int TargetMUnmap(void* start, size_t len);
  
@@ -48,18 +54,17 @@ a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Ma
  #include "logging.h"  // For VLOG_IS_ON.
  #include "memory_tool.h"
  #include "mman.h"  // For the PROT_* and MAP_* constants.
-@@ -150,7 +152,98 @@
- 
+@@ -151,6 +153,108 @@
  uintptr_t MemMap::next_mem_pos_;
  #endif
-+
+ 
 +// Minato (ADR-0033 decision 3): the heap window (base/heap_window.h).
 +uintptr_t gHeapWindowBase = 0u;
 +size_t gHeapWindowSize = 0u;
 +uintptr_t gHeapWindowFirst = 0u;
 +
-+// 4 GiB, as far as 32-bit offsets reach.
-+static constexpr size_t kHeapWindowSize = 4 * GB;
++// Where the window's reservation begins: at the base, or 2 GiB above it where the system has no room for 8 GiB.
++static uintptr_t gHeapWindowBegin = 0u;
 +
 +// Guards the window's reservation and its ranges.
 +static std::mutex& HeapWindowLock() {
@@ -70,29 +75,39 @@ a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Ma
 +// Where mappings go in the window and which ranges they hold (base/heap_window_ranges.h), from the reservation on.
 +static HeapWindowRanges* gHeapWindowRanges = nullptr;
 +
-+// Reserves the window: twice its size without access, cut to the part aligned to 4 GiB.
-+static void ReserveHeapWindow() {
-+  const size_t length = kHeapWindowSize + 4 * GB;
-+  void* reservation = mmap(nullptr, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-+  if (reservation == MAP_FAILED) {
-+    PLOG(FATAL) << "Could not reserve the heap window of " << kHeapWindowSize << " bytes";
++// Reserves the window without access (base/heap_window_ranges.h): all 4 GiB at a base aligned to 4 GiB where the
++// system has room for 8 GiB, else only their upper 2 GiB, as without increased-memory-limit on iOS. A test's switch,
++// APKRT_HEAP_WINDOW_UPPER_HALF in the environment, acts as if the system had no room for 8 GiB, so that the Mac runs
++// the upper half too (runtime/CMakeLists.txt's runtime.art_codec_upper_half).
++static void ReserveWindow() {
++  const bool upper_half = getenv("APKRT_HEAP_WINDOW_UPPER_HALF") != nullptr;
++  const HeapWindowPlace place = ReserveHeapWindow(
++      [upper_half](size_t length) {
++        if (upper_half && length == 2 * kHeapWindowReach) {
++          return uintptr_t{0u};
++        }
++        void* piece = mmap(nullptr, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
++        return piece == MAP_FAILED ? uintptr_t{0u} : reinterpret_cast<uintptr_t>(piece);
++      },
++      [](uintptr_t begin, size_t length) { CHECK_EQ(munmap(reinterpret_cast<void*>(begin), length), 0); },
++      MemMap::GetPageSize());
++  if (place.base == 0u) {
++    LOG(FATAL) << "Could not reserve the heap window: no free piece holds the upper 2 GiB of 4 GiB aligned to 4 GiB";
 +  }
-+  const uintptr_t begin = reinterpret_cast<uintptr_t>(reservation);
-+  const uintptr_t base = RoundUp(begin, 4 * GB);
-+  if (base != begin) {
-+    CHECK_EQ(munmap(reservation, base - begin), 0);
-+  }
-+  CHECK_EQ(munmap(reinterpret_cast<void*>(base + kHeapWindowSize), begin + length - (base + kHeapWindowSize)), 0);
-+  gHeapWindowRanges = new HeapWindowRanges(base, kHeapWindowSize, MemMap::GetPageSize());
-+  gHeapWindowSize = kHeapWindowSize;
++  // Once, so that every run's log shows what it got.
++  LOG(INFO) << "The heap window holds " << (place.end - place.begin) / MB << " MiB from "
++            << reinterpret_cast<void*>(place.begin) << ", its base at " << reinterpret_cast<void*>(place.base);
++  gHeapWindowRanges = new HeapWindowRanges(place.begin, place.end - place.begin, MemMap::GetPageSize());
++  gHeapWindowSize = place.end - place.base;
 +  gHeapWindowFirst = gHeapWindowRanges->First();
-+  gHeapWindowBase = base;
++  gHeapWindowBegin = place.begin;
++  gHeapWindowBase = place.base;
 +}
 +
 +uint8_t* MemMap::HeapWindowBegin() {
 +  std::lock_guard<std::mutex> lock(HeapWindowLock());
 +  if (gHeapWindowBase == 0u) {
-+    ReserveHeapWindow();
++    ReserveWindow();
 +  }
 +  return reinterpret_cast<uint8_t*>(gHeapWindowBase);
 +}
@@ -129,10 +144,11 @@ a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Ma
 +  }
 +  return actual;
 +}
- 
++
 +bool MemMap::ReturnToHeapWindow(void* start, size_t length) {
 +  const uintptr_t begin = reinterpret_cast<uintptr_t>(start);
-+  if (gHeapWindowBase == 0u || begin < gHeapWindowBase || begin - gHeapWindowBase >= gHeapWindowSize) {
++  // Below the window's begin lie other mappings when the window has only its upper half.
++  if (gHeapWindowBase == 0u || begin < gHeapWindowBegin || begin - gHeapWindowBase >= gHeapWindowSize) {
 +    return false;
 +  }
 +  std::lock_guard<std::mutex> lock(HeapWindowLock());
@@ -147,7 +163,7 @@ a file of the overlay, which runtime/tests/heap_window_test.cpp checks on the Ma
  // Return true if the address range is contained in a single memory map by either reading
  // the gMaps variable or the /proc/self/map entry.
  bool MemMap::ContainedWithinExistingMap(uint8_t* ptr, size_t size, std::string* error_msg) {
-@@ -1174,6 +1267,11 @@
+@@ -1174,6 +1278,11 @@
                            off_t offset,
                            bool low_4gb) {
  #ifdef __LP64__

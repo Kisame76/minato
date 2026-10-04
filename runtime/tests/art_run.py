@@ -14,7 +14,9 @@ print exactly <expected> on stdout and exit with 0. What ART logs goes to stderr
 on Android 15.
 --offsets checks the last line of stderr, "<program> offsets: lowest 0x..., highest 0x...", which codec-test writes
 (ADR-0033 test 2): the window is filled from the top, so the lowest offset lies at or above 2^31 and the highest in
-the last MiB below the window's last page, which is never mapped.
+the last MiB below the window's last page, which is never mapped. It also checks that ART's log names the window
+once, with all 4 GiB. --upper-half sets APKRT_HEAP_WINDOW_UPPER_HALF, the test switch of patch 0002, so that ART
+reserves only the window's upper 2 GiB, as without increased-memory-limit on iOS, and the log must name those.
 --conscrypt adds Conscrypt's APEX as Android 15 has it (ADR-0046 c): conscrypt.jar (<art>/javalib) in
 /apex/com.android.conscrypt/javalib, after the boot jars, and libjavacrypto.so (<art>/lib) in its lib64, never in
 ART's. --okhttp and --bouncycastle add okhttp.jar and bouncycastle.jar from ART's javalib after core-libart, in
@@ -23,8 +25,10 @@ Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files or
 guest system lacks the public libraries' list that libnativeloader reads at start (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
-                  <expected> [--debug] [--library <lib.so>] [--offsets] [--conscrypt] [--okhttp] [--bouncycastle]
+                  <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
+                  [--bouncycastle]
 """
+import contextlib
 import fcntl
 import os
 import re
@@ -56,6 +60,16 @@ def convert_directory(apk_convert, source, target, leave_out=()):
             convert(apk_convert, os.path.join(source, name), os.path.join(target, name + ".dylib"))
 
 
+@contextlib.contextmanager
+def convert_lock(work):
+    """One conversion into `work` at a time, among all the runs that CTest starts side by side: they share the
+    containers, and apk-convert writes each one through <container>.tmp."""
+    os.makedirs(work, exist_ok=True)
+    with open(os.path.join(work, "convert.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
     """Converts ART's libraries, bionic's, dalvikvm and the JNI library `library`, if given, into containers in
     `work`; returns the folder of ART's. The containers stay from run to run, and the runs that CTest starts side by
@@ -63,9 +77,7 @@ def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
     ro.debuggable is 1, and the guest has no property area yet (ADR-0039 a). So the debug flavor's folder holds ART's
     debug flavor under that name. Conscrypt's library goes to a folder of its own, conscrypt-lib64."""
     art_lib64 = os.path.join(work, "art-lib64-debug" if debug else "art-lib64")
-    os.makedirs(work, exist_ok=True)
-    with open(os.path.join(work, "convert.lock"), "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with convert_lock(work):
         convert_directory(apk_convert, os.path.join(art, "lib"), art_lib64,
                           leave_out=(CONSCRYPT_LIBRARY,) + (("libart.so",) if debug else ()))
         if debug:
@@ -105,24 +117,43 @@ def make_run_folder(run, icu_data, bionic_system, conscrypt_jar=None):
 
 
 def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments, cwd="/", environment=(), jni=(),
-                    conscrypt=False):
+                    conscrypt=False, art_lib64_first=None, measures=None):
     """apk-run's command that runs dalvikvm64 with `arguments` in the files of the run folder `run`, the working
     directory `cwd` and the entries "<name>=<value>" of `environment` on top of init's; with `conscrypt`, Conscrypt's
-    lib64 holds its library."""
+    lib64 holds its library. `art_lib64_first`, if given, is a folder of containers that ART's lib64 looks in before
+    `art_lib64`; `measures`, if given, the file that gets what the run measured (apk-run --measures)."""
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
                "--mount", f"/apex={os.path.join(run, 'apex')}",
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
                "--mount", f"/system={bionic_system}",
-               "--libraries", f"/system/lib64={os.path.join(work, 'system-lib64')}",
-               "--libraries", f"{ART_ROOT}/lib64={art_lib64}"]
+               "--libraries", f"/system/lib64={os.path.join(work, 'system-lib64')}"]
+    if art_lib64_first is not None:
+        command += ["--libraries", f"{ART_ROOT}/lib64={art_lib64_first}"]
+    command += ["--libraries", f"{ART_ROOT}/lib64={art_lib64}"]
     if conscrypt:
         command += ["--libraries", f"{CONSCRYPT_ROOT}/lib64={os.path.join(work, 'conscrypt-lib64')}"]
-    command += list(jni) + ["--cwd", cwd]
+    command += list(jni) + ["--cwd", cwd] + (["--measures", measures] if measures is not None else [])
     for entry in environment:
         command += ["--env", entry]
     return command + ["--argv0", f"{ART_ROOT}/bin/dalvikvm64",
                       os.path.join(work, "bin", "dalvikvm64.dylib")] + list(arguments)
+
+
+def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False):
+    """dalvikvm's options of decision 11: the interpreter only, no boot image, the boot jars, with the jars of
+    `added_jars` after core-libart and Conscrypt's last with `conscrypt`; ART's JNI checks in the debug flavor, and
+    java.library.path for a program with a JNI library in /data/local/tmp."""
+    boot_jars = BOOT_JARS[:2] + list(added_jars) + BOOT_JARS[2:]
+    boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in boot_jars]
+                               + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
+    options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
+               f"-Xbootclasspath-locations:{boot_class_path}", "-XjdwpProvider:none"]
+    if debug:
+        options = ["-Xcheck:jni"] + options
+    if library:
+        options.append("-Djava.library.path=/data/local/tmp")
+    return options
 
 
 def offsets_failure(stderr):
@@ -139,14 +170,27 @@ def offsets_failure(stderr):
     return None
 
 
+def window_failure(stderr, upper_half=False):
+    """Why ART's log does not name the heap window once, with all 4 GiB or only their upper 2 GiB, or None."""
+    sizes = re.findall(r"The heap window holds (\d+) MiB from 0x[0-9a-f]+, its base at 0x[0-9a-f]+$", stderr,
+                       re.MULTILINE)
+    wanted = "2048" if upper_half else "4096"
+    if sizes != [wanted]:
+        return (f"the log names the heap window {len(sizes)} times ({', '.join(sizes) or 'none'}), "
+                f"not once with {wanted} MiB")
+    return None
+
+
 def main():
     arguments = sys.argv[1:]
     debug = "--debug" in arguments
     offsets = "--offsets" in arguments
+    upper_half = "--upper-half" in arguments
     conscrypt = "--conscrypt" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
-                 if argument not in ("--debug", "--offsets", "--conscrypt", "--okhttp", "--bouncycastle")]
+                 if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
+                                     "--bouncycastle")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -175,7 +219,8 @@ def main():
         return
 
     art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)
-    run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else ""))
+    run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else "")
+                       + ("-upper-half" if upper_half else ""))
     make_run_folder(run, icu_data, bionic_system, conscrypt_jar)
     # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
     # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
@@ -184,20 +229,12 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    boot_jars = BOOT_JARS[:2] + added_jars + BOOT_JARS[2:]
-    boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in boot_jars]
-                               + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
-    options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
-               f"-Xbootclasspath-locations:{boot_class_path}", "-XjdwpProvider:none"]
-    if debug:
-        options = ["-Xcheck:jni"] + options
-    jni = []
-    if library is not None:
-        options.append("-Djava.library.path=/data/local/tmp")
-        jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"]
+    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None)
+    jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"] if library is not None else []
     command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
                               options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,
-                              conscrypt=conscrypt)
+                              conscrypt=conscrypt,
+                              environment=["APKRT_HEAP_WINDOW_UPPER_HALF=1"] if upper_half else ())
     try:
         result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired as timeout:
@@ -206,8 +243,11 @@ def main():
     with open(expected) as handle:
         wanted = handle.read()
     failure = offsets_failure(result.stderr) if offsets else None
+    if failure is None and (offsets or upper_half):
+        failure = window_failure(result.stderr, upper_half)
     if result.returncode == 0 and result.stdout == wanted and failure is None:
         print(f"{os.path.basename(jar)} printed what Android 15 prints" + (" (debug flavor)" if debug else "") +
+              (" in the window's upper half" if upper_half else "") +
               (f"; {result.stderr.splitlines()[-1]}" if offsets else ""))
         return
     print(f"FAIL: exit status {result.returncode}" + (f"; {failure}" if failure else ""))

@@ -34,6 +34,7 @@
 #include <climits>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -576,6 +577,29 @@ void exit_group_once_inside(void *) {
     ::_exit(2);  // exit_group should have ended the process
 }
 
+/// The measures count from apkrt_start_program: the program in `container` waits for a byte on its standard
+/// input, which comes 50 ms after the start, and ends with it without a session; the status and the measures
+/// go to descriptor 3.
+[[noreturn]] void run_measures(const char *container) {
+    int input[2];
+    CHECK(::pipe(input) == 0);
+    CHECK(::dup2(input[0], STDIN_FILENO) == STDIN_FILENO);
+    ::close(input[0]);
+    apkrt_report_exit_status(3);
+    apkrt_report_exit_measures(3);
+    const char *const argv[] = {"./wait-program", nullptr};
+    const char *const envp[] = {nullptr};
+    char error[512] = "";
+    if (apkrt_start_program(container, argv, envp, error, sizeof error) != 0) {
+        std::fprintf(stderr, "apkrt_start_program: %s\n", error);
+        ::_exit(1);
+    }
+    std::this_thread::sleep_for(50ms);
+    CHECK(::write(input[1], "\x06", 1) == 1);
+    std::this_thread::sleep_for(10s);
+    ::_exit(2);  // exit_group should have ended the process
+}
+
 [[noreturn]] void run_case(std::string_view mode, const char *argument) {
     if (mode == "--start-returns") run_start_returns(argument);
     if (mode == "--exit-group") run_exit_group();
@@ -589,6 +613,7 @@ void exit_group_once_inside(void *) {
     if (mode == "--cannot-link") run_cannot_link(argument);
     if (mode == "--apex-program") run_apex_program(argument);
     if (mode == "--no-session") run_no_session();
+    if (mode == "--measures") run_measures(argument);
     std::fprintf(stderr, "unknown case %.*s\n", static_cast<int>(mode.size()), mode.data());
     ::_exit(2);
 }
@@ -900,6 +925,16 @@ TEST(without_a_session_the_end_ends_the_process) {
     const auto ended = run_child("--no-session", "", 9);
     CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 9);
     CHECK(ended.report == "9\n");
+}
+
+// apkrt_report_exit_measures: run-ms counts from apkrt_start_program to the program's end, 50 ms later.
+TEST(the_measures_count_from_the_program_s_start) {
+    const auto ended = run_child("--measures", wait_program(), 6);
+    CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 6);
+    constexpr std::string_view start = "6\nrun-ms ";
+    CHECK(ended.report.starts_with(start));
+    const double run = ended.report.starts_with(start) ? std::strtod(ended.report.c_str() + start.size(), nullptr) : 0;
+    CHECK(run >= 50 && run < 10'000);
 }
 
 }  // namespace

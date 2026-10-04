@@ -90,6 +90,19 @@ int apkrt_run_program(const char *container_path, const char *const argv[], cons
 /// cannot wait for its own process: whoever started it reads the status afterwards.
 void apkrt_report_exit_status(int descriptor);
 
+/// When a guest program ends the process, also by a signal, the runtime writes what the run measured to the file
+/// descriptor `descriptor`, after the exit status (apkrt_report_exit_status): a "<name> <value>\n" line each, in
+/// this order,
+///   run-ms              milliseconds from apkrt_start_program (or apkrt_run_program) to the end, one decimal
+///   process-ms          milliseconds from the process's start to the end, one decimal
+///   footprint-peak      the peak of the physical footprint, which iOS's memory limit counts, in bytes
+///   resident-peak       the peak resident size in bytes
+///   virtual             the virtual size at the end in bytes
+///   available-at-start  iOS only: the bytes os_proc_available_memory gave at the program's start
+/// and nothing when no program started. -1 turns this off. For the benchmarks: whoever started the process reads
+/// the measures afterwards, as the status.
+void apkrt_report_exit_measures(int descriptor);
+
 // MARK: - Session (ADR-0028)
 
 /// Called at the program's end (ADR-0028, decision 5), once, on the thread that ends it (exit_group, or

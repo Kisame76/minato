@@ -92,6 +92,71 @@ class HeapWindowRanges {
   std::map<uintptr_t, uintptr_t> ranges_;  // the mapped ranges, begin to end
 };
 
+// Where ReserveHeapWindow put the window: its base, aligned to 4 GiB, where the offset 0 lies, and the reserved range
+// [begin, end), which ends 4 GiB above the base. All 0 when nothing was reserved.
+struct HeapWindowPlace {
+  uintptr_t base;
+  uintptr_t begin;
+  uintptr_t end;
+};
+
+// How far 32-bit offsets reach from the base.
+static constexpr size_t kHeapWindowReach = size_t{4} << 30;
+
+// Reserves the window through `map(length)`, which maps `length` bytes without access wherever the system has room
+// and returns their address, 0 when it has none, and `unmap(begin, length)`:
+// - all 4 GiB at a base aligned to 4 GiB, cut out of a mapping of 8 GiB, where the system has room for that;
+// - else only their upper 2 GiB, the lowest in the largest piece it has, found to `granularity`, the page size.
+//   Without increased-memory-limit, iOS gives an app 7.84 GiB in 4 pieces, the largest 6.00 GiB (spike S2,
+//   ADR-0012). The upper half fits into any piece of 6 GiB less a page, its offsets all lie above 2^31, and it holds
+//   ART's spaces at heapsize 512m (1,600 MiB); all 4 GiB would leave 2 GiB less to the rest of the process.
+// Only the window stays mapped; HeapWindowPlace is all 0 when nothing fits.
+template <typename Map, typename Unmap>
+HeapWindowPlace ReserveHeapWindow(Map map, Unmap unmap, size_t granularity) {
+  constexpr size_t kHalf = kHeapWindowReach / 2;
+  const auto round_up = [](uintptr_t address) {
+    return (address + kHeapWindowReach - 1u) & ~uintptr_t{kHeapWindowReach - 1u};
+  };
+  // Keeps [begin, base + 4 GiB) of the mapping [piece, piece + length) and gives the rest back.
+  const auto keep = [&](uintptr_t piece, size_t length, uintptr_t base, uintptr_t begin) {
+    const uintptr_t end = base + kHeapWindowReach;
+    if (begin != piece) {
+      unmap(piece, begin - piece);
+    }
+    if (end != piece + length) {
+      unmap(end, piece + length - end);
+    }
+    return HeapWindowPlace{base, begin, end};
+  };
+  if (const uintptr_t piece = map(2 * kHeapWindowReach); piece != 0u) {
+    return keep(piece, 2 * kHeapWindowReach, round_up(piece), round_up(piece));
+  }
+  size_t largest = 0u;
+  for (size_t too_large = 2 * kHeapWindowReach; too_large - largest > granularity;) {
+    const size_t length = (largest + (too_large - largest) / 2) / granularity * granularity;
+    if (length <= largest) {
+      break;
+    }
+    if (const uintptr_t probe = map(length); probe != 0u) {
+      unmap(probe, length);
+      largest = length;
+    } else {
+      too_large = length;
+    }
+  }
+  const uintptr_t piece = largest >= kHalf ? map(largest) : 0u;
+  if (piece == 0u) {
+    return HeapWindowPlace{0u, 0u, 0u};
+  }
+  // The lowest aligned base above 0 whose upper half begins in the piece.
+  const uintptr_t base = piece > kHalf ? round_up(piece - kHalf) : kHeapWindowReach;
+  if (base + kHeapWindowReach <= piece + largest) {
+    return keep(piece, largest, base, base + kHalf);
+  }
+  unmap(piece, largest);
+  return HeapWindowPlace{0u, 0u, 0u};
+}
+
 }  // namespace art
 
 #endif  // ART_LIBARTBASE_BASE_HEAP_WINDOW_RANGES_H_

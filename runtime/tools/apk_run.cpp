@@ -2,7 +2,8 @@
 // The tests start it once per fixture; the exit status is the program's own.
 //   apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...
 //           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]
-//           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] <container.dylib> [argument...]
+//           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]
+//           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64.
 // --cwd sets the working directory the program starts in ("/" by default). The program starts with init's
@@ -13,10 +14,13 @@
 // guest reads through session_configuration: a screen of <width> x <height> pixels at <scale>, portrait when it is
 // at least as high as wide and landscape else, without night mode, at 120 Hz, in en-US unless a locale is given.
 // The program's end then ends the process with its status, as without a session; requests go nowhere.
+// --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
 
+#include <fcntl.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -31,7 +35,7 @@ int usage() {
                  "usage: apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...\n"
                  "               [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]\n"
                  "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
-                 "               <container.dylib> [argument...]\n");
+                 "               [--measures <file>] <container.dylib> [argument...]\n");
     return 2;
 }
 
@@ -122,6 +126,13 @@ int main(int argc, char **argv) {
         } else if (option == "--configuration") {
             if (!parse_configuration(value, session.configuration)) return usage();
             configured = true;
+        } else if (option == "--measures") {
+            const int measures = ::open(value.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+            if (measures < 0) {
+                std::fprintf(stderr, "apk-run: cannot open %s: %s\n", value.c_str(), std::strerror(errno));
+                return 2;
+            }
+            apkrt_report_exit_measures(measures);
         } else {
             return usage();
         }

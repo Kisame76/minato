@@ -163,6 +163,7 @@ extern "C" int apkrt_start_program(const char *container_path, const char *const
         }
         return -1;
     }
+    apkrt::process::program_starts();  // the measures' start (apkrt_report_exit_measures)
     try {
         launch(container_path, argv, envp);
         return 0;

@@ -1,7 +1,8 @@
 // Minato (ADR-0033 decision 3): the heap window. ART keeps a reference to an object as its address in 32 bits and
-// wants its heap below 4 GiB, where iOS maps nothing. So every low_4gb mapping of MemMap lies in one window of
-// gHeapWindowSize bytes (at most 4 GiB) at gHeapWindowBase, which is aligned to 4 GiB, and a reference is an object's
-// offset from that base. The low 32 bits of an address in the window are that offset already: encoding keeps them,
+// wants its heap below 4 GiB, where iOS maps nothing. So every low_4gb mapping of MemMap lies in one window that
+// ends gHeapWindowSize bytes (4 GiB) above gHeapWindowBase, which is aligned to 4 GiB, and a reference is an object's
+// offset from that base. The window is all 4 GiB, or their upper 2 GiB where the system has no room for all of them
+// (heap_window_ranges.h). The low 32 bits of an address in the window are that offset already: encoding keeps them,
 // decoding puts the base in front, and the offset 0 stays null, as the window's first page is never mapped.
 
 #ifndef ART_LIBARTBASE_BASE_HEAP_WINDOW_H_
