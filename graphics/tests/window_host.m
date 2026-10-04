@@ -4,10 +4,10 @@
    - With MINATO_WINDOW_SCRIPT=background:<n> too, a thread of its own waits until the window has <n>
      presents and then keeps the app's order at background (ADR-0028, decision 6): the background flag,
      "scheduled" with 1 s to go, the window's removal; 100 ms later the foreground. With background:<n>:<ms>, it
-     stays <ms> in the background between "scheduled" and the removal, which the count of guest commits covers. It prints each step to
-     stderr, how many command buffers other threads than the guest's committed during "scheduled" (one per
-     queue: graphics/host's), and how many guest threads committed between "scheduled" and the foreground,
-     which must be none (the Metal hook counts both, test_host.h).
+     stays <ms> in the background between "scheduled" and the removal, which the count of guest commits covers.
+     It prints each step to stderr, how many command buffers other threads than the guest's committed during
+     "scheduled" (one per queue: graphics/host's), and how many guest threads committed between "scheduled" and
+     the foreground, which must be none (the Metal hook counts both, test_host.h).
    - With MINATO_WINDOW_SCRIPT=glue instead (test 7 of ADR-0029), it begins a session before the program
      starts, whose end ends the process with the program's status, and a thread of its own plays the app for
      a program that plays activity-host: the events of a start with the window, until the window has 10
@@ -16,6 +16,8 @@
      window's removal, only then onPause, the window's destruction, the saved state and onStop, each answer
      within 500 ms of its event); the foreground and onDestroy. It prints each step to stderr, and the command
      buffers guest threads committed from "scheduled" to the foreground, which must be none.
+   - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
+     the layer's hidden to stderr (ADR-0043 b3, the hide rule).
    - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), graphics_run.c puts a fake in the place
      of graphics/host's buffers (minato_test_use_fake_buffers), one that
      prints to stderr what reaches it: lock takes RGBA_8888, RGBX_8888 and RGB_565 and refuses other formats with
@@ -25,6 +27,7 @@
      the first post waits at it. */
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -127,6 +130,19 @@ static void *background(void *unused) {
     fprintf(stderr, "host: in the foreground\n");
     apkrt_set_background(0);
     return NULL;
+}
+
+/* MINATO_WINDOW_WATCH=hidden: CALayer's setHidden:, which prints each change of the window layer's hidden on the
+   thread that makes it. Key-value observing never saw those changes [measured], probably as Core Animation makes
+   its setters when they are first used [inferred]. */
+static CALayer *watched;
+static IMP set_hidden;
+
+static void watched_set_hidden(id self, SEL selector, BOOL hidden) {
+    if (self == watched && ((CALayer *)self).hidden != hidden) {
+        fprintf(stderr, "window host: the layer is %s\n", hidden ? "hidden" : "shown");
+    }
+    ((void (*)(id, SEL, BOOL))set_hidden)(self, selector, hidden);
 }
 
 /* The fake buffers of MINATO_WINDOW_BUFFERS=fake, on the program's one thread. */
@@ -233,6 +249,14 @@ __attribute__((constructor)) static void add_window(void) {
         CAMetalLayer *layer = [CAMetalLayer layer];
         layer.contentsScale = 1;
         layer.bounds = CGRectMake(0, 0, width, height);
+        const char *opaque = getenv("MINATO_WINDOW_OPAQUE"), *watch = getenv("MINATO_WINDOW_WATCH");
+        layer.opaque = opaque != NULL && strcmp(opaque, "1") == 0;
+        if (watch != NULL && strcmp(watch, "hidden") == 0) {
+            watched = layer;
+            layer.hidden = NO;  // the setter, made
+            set_hidden = method_setImplementation(class_getInstanceMethod([layer class], @selector(setHidden:)),
+                                                  (IMP)watched_set_hidden);
+        }
         minato_test_window = apkrt_window_add((__bridge void *)layer, width, height);
     }
     if (minato_test_window == 0 || apkrt_window_set_gate(minato_test_window, 1) != 0) {

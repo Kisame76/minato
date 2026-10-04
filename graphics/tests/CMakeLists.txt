@@ -256,6 +256,18 @@ if(TARGET minato_graphics_host)
   add_guest_test(window_background window-background-test window_background_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_METAL_HOOK=set:count" "MINATO_WINDOW_SCRIPT=set:background:3:100")
+  # ADR-0043 b3: the hide rule on a layer that is not opaque and on an opaque one, with the window host watching the
+  # layer's hidden and the Metal hook reading back each drawable presented, whose lines are compared apart.
+  foreach(variant IN ITEMS hide hide_opaque)
+    set(opaque 0)
+    if(variant STREQUAL "hide_opaque")
+      set(opaque 1)
+    endif()
+    add_guest_test(window_${variant} window-hide-test window_${variant}_test
+      "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
+      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_OPAQUE=set:${opaque}" "MINATO_WINDOW_WATCH=set:hidden"
+      "MINATO_METAL_HOOK=set:present:6" HOST_LINES "^metal:")
+  endforeach()
   if(EXISTS "${moltenvk}")
     add_guest_test(vulkan_moltenvk vulkan-moltenvk-test vulkan_moltenvk_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:1"
@@ -329,8 +341,8 @@ if(TARGET minato_graphics_host)
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" ${presents})
     set_tests_properties(graphics.${app}_app PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
   endforeach()
-  # ADR-0043 test 3: window-test, which draws by the CPU on graphics/host's buffers (window.m), in the same lifecycle: its
-  # lines must be Android 15's, and its window must count its 18 posts.
+  # ADR-0043 test 3: window-test, which draws by the CPU on graphics/host's buffers (window.m), in the same
+  # lifecycle: its lines must be Android 15's, and its window must count its 18 posts.
   add_test(NAME graphics.window_app COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" window-test
     "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
     "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" 18)
@@ -410,7 +422,8 @@ if(TARGET minato_graphics_host)
     graphics.gles_gate graphics.gles_glue graphics.vulkan_queue graphics.vulkan_present graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
-    graphics.window_background graphics.window_app PROPERTIES RESOURCE_LOCK gpu)
+    graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
+    PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
   if(EXISTS "${moltenvk}" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
@@ -426,9 +439,9 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock window_buffers
-      window_background vulkan_moltenvk vulkan_queue vulkan_present probe gles_thunk gles_front gles_gate gles_glue
-      gles_app gles_translucent vulkan_app window_app gles_live vulkan_live present_gles present_vulkan bench recorder
-      recorder_class)
+      window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present probe gles_thunk
+      gles_front gles_gate gles_glue gles_app gles_translucent vulkan_app window_app gles_live vulkan_live present_gles
+      present_vulkan bench recorder recorder_class)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

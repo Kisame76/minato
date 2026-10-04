@@ -11,6 +11,10 @@
      alpha as 1, presents it and counts it (apkrt_window_presented). The layer's nextDrawable lets MinatoMetalLayer
      record it. Its command buffer commits only in the foreground and counts for "scheduled", as libvulkan's submits
      do (vulkan.m).
+   - The hide rule (decision 4, worded in b3): a posted RGBA_8888 buffer whose every pixel has alpha 0 hides the
+     window's layer, unless the layer is opaque, and its post presents nothing, so that Core Animation presents a
+     full-screen SurfaceView below directly. The first buffer with a visible pixel shows the layer again in the
+     Core Animation transaction that presents its drawable (presentsWithTransaction), so no older frame flashes.
    - A removed window's buffers go at once, but for a locked one, which its post gives back with -ENODEV; a lock for
      it answers -ENODEV.
    ARC. Their state lives under one mutex, which no Metal or Core Animation call holds. */
@@ -359,6 +363,29 @@ static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer 
     return 0;
 }
 
+/* Whether a pixel of the RGBA_8888 buffer has alpha above 0, visible as alpha is premultiplied: it reads each row
+   whole, which vectorizes, and stops after the first row with one. */
+static BOOL any_visible(const uint8_t *bits, size_t row, int32_t width, int32_t height) {
+    for (int32_t y = 0; y < height; y++) {
+        const uint32_t *pixels = (const uint32_t *)(const void *)(bits + (size_t)y * row);
+        uint32_t seen = 0;
+        for (int32_t x = 0; x < width; x++) {
+            seen |= pixels[x];
+        }
+        if ((seen & 0xff000000u) != 0) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static void set_hidden(CALayer *layer, BOOL hidden) {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.hidden = hidden;
+    [CATransaction commit];
+}
+
 /* The buffer's read ended: it may be locked again. */
 static void read_done(MinatoCPUBuffer *buffer) {
     pthread_mutex_lock(&state_lock);
@@ -368,11 +395,20 @@ static void read_done(MinatoCPUBuffer *buffer) {
 }
 
 /* Draws the buffer into the next drawable of the window's layer and presents it, in the foreground. YES once the
-   command buffer is committed, whose end ends the buffer's read; NO without a layer or drawable or in the
-   background. */
-static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format) {
+   command buffer is committed, whose end ends the buffer's read; NO without a layer or drawable, in the background,
+   or for a buffer without a visible pixel on a layer that is not opaque, which it hides. */
+static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format,
+                      BOOL visible) {
     CAMetalLayer *layer = (__bridge_transfer CAMetalLayer *)apkrt_window_layer(window_id);
     if (layer == nil) {
+        return NO;
+    }
+    if (!visible && !layer.opaque) {
+        // Hidden over nothing looks as transparent over nothing does; the post counts but presents nothing.
+        if (!layer.hidden) {
+            set_hidden(layer, YES);
+        }
+        apkrt_window_presented(window_id);
         return NO;
     }
     BOOL changed = NO;
@@ -420,12 +456,25 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     [encoder setFragmentBytes:&opaque length:sizeof opaque atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];
-    [commands presentDrawable:drawable];
     [commands addCompletedHandler:^(id<MTLCommandBuffer> done) {
         (void)done;
         read_done(buffer);
     }];
-    [commands commit];
+    if (layer.hidden) {
+        // Shown again with this drawable, in the transaction that presents it.
+        layer.presentsWithTransaction = YES;
+        [commands commit];
+        [commands waitUntilScheduled];
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        layer.hidden = NO;
+        [drawable present];
+        [CATransaction commit];
+        layer.presentsWithTransaction = NO;
+    } else {
+        [commands presentDrawable:drawable];
+        [commands commit];
+    }
     atomic_fetch_sub(&in_flight, 1);
     apkrt_window_presented(window_id);
     return YES;
@@ -458,12 +507,16 @@ static int posted(void *context, uint64_t window_id) {
     }
     const int32_t width = window->width, height = window->height, format = window->format;
     pthread_mutex_unlock(&state_lock);
+    // The hide rule's look, while the guest's lock still holds the buffer's memory: only RGBA_8888 has alpha.
+    const BOOL visible = format != format_rgba_8888 || any_visible(IOSurfaceGetBaseAddress(buffer->surface),
+                                                                   IOSurfaceGetBytesPerRow(buffer->surface), width,
+                                                                   height);
     IOSurfaceUnlock(buffer->surface, 0, NULL);
     if (gone) {
         return -linux_enodev;
     }
     @autoreleasepool {
-        if (!presented(window_id, buffer, width, height, format)) {
+        if (!presented(window_id, buffer, width, height, format, visible)) {
             read_done(buffer);
         }
     }

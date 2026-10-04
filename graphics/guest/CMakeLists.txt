@@ -106,8 +106,8 @@ target_include_directories(vulkan-window-test PRIVATE "${tests}")
 target_link_libraries(vulkan-window-test PRIVATE minato_bind)
 
 # ADR-0043 b1 and b2: window-lock-test, libnativewindow's lock and post against graphics-run's fake buffers, and
-# window-buffers-test and window-background-test against graphics/host's.
-foreach(test IN ITEMS window_lock_test window_buffers_test window_background_test)
+# window-buffers-test, window-background-test and window-hide-test (b3) against graphics/host's.
+foreach(test IN ITEMS window_lock_test window_buffers_test window_background_test window_hide_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_link_libraries(${program} PRIVATE nativewindow dl)
