@@ -4,7 +4,8 @@
 #   bin/activity-host.dylib   the program /system/bin/activity-host
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
-#                             libEGL, libGLESv2, libGLESv3 and libvulkan (ADR-0029, ADR-0030)
+#                             libEGL, libGLESv1_CM (ADR-0041 a1), libGLESv2, libGLESv3 and libvulkan (ADR-0029,
+#                             ADR-0030)
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
 #                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2)
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
@@ -21,7 +22,7 @@ OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Guest"
 CONVERT="$SRCROOT/build/native/macos/importer/converter/apk-convert"
 BIONIC="$SRCROOT/build/bionic"
 FRONT="$SRCROOT/build/graphics/guest/bin"
-FRONT_LIBS=(libEGL.so libGLESv2.so libGLESv3.so libvulkan.so)
+FRONT_LIBS=(libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libvulkan.so)
 # ART's build: build/art, or the build setting APK_ART_DIR, which tools/device-suite.sh --art-dir passes.
 ART="${APK_ART_DIR:-$SRCROOT/build/art}"
 ICU_DATA="$SRCROOT/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"

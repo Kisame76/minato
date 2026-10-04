@@ -1,7 +1,7 @@
-/* libGLESv2's and libGLESv3's own code (ADR-0029, decisions 14 and 16; ADR-0030, decision 4): the functions
-   written by hand, which reach ANGLE through the stubs minato_host_<name> of tools/frontgen's table. Guest
-   code, built by tools/build-front-libs.sh against the NDK's headers; the two libraries are one set of
-   objects with two export lists. */
+/* libGLESv1_CM's, libGLESv2's and libGLESv3's own code (ADR-0029, decisions 14 and 16; ADR-0030, decision 4;
+   ADR-0041 a1): the functions written by hand, which reach ANGLE through the stubs minato_host_<name> of
+   tools/frontgen's table. Guest code, built by tools/build-front-libs.sh against the NDK's headers; the three
+   libraries are one set of objects with three export lists. */
 #ifndef MINATO_LIBGLES_H
 #define MINATO_LIBGLES_H
 

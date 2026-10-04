@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The generator of ADR-0030, decision 7: for each front lib (libvulkan, libGLESv2 with libGLESv3, libEGL)
-its table of host functions, the kind of stub each name gets, its export lists and a report, from the
-Khronos XML, the NDK's stubs and the front lib's description in graphics/<lib>/frontgen.txt.
+"""The generator of ADR-0030, decision 7: for each front lib (libvulkan, libGLESv1_CM with libGLESv2 and
+libGLESv3, libEGL) its table of host functions, the kind of stub each name gets, its export lists and a
+report, from the Khronos XML, the NDK's stubs and the front lib's description in graphics/<lib>/frontgen.txt.
 
   tools/frontgen/frontgen.py --out build/graphics/gen [--lib vulkan|gles|egl ...]
                              [--vk-xml PATH] [--angle DIR] [--ndk DIR]
@@ -45,7 +45,7 @@ class Description:
     """graphics/<lib>/frontgen.txt: one keyword per line with its words; "#" starts a comment."""
 
     LISTS = ("hand", "own", "exclude", "exclude-prefix", "exclude-if-takes", "exclude-if-extends", "platform",
-             "chain", "private")
+             "chain", "private", "outside")
 
     def __init__(self, path):
         self.path, self.dialect, self.libraries, self.structures, self.answers = path, None, [], {}, {}
@@ -115,7 +115,14 @@ class FrontLib:
 
     def __init__(self, lib, description, registry, exports):
         self.lib, self.description, self.registry, self.exports = lib, description, registry, exports
-        self.exported = set().union(*map(set, exports.values()))
+        # The description's "outside" names: exports that no registry defines (Android's own, ADR-0041 a1),
+        # written by hand and kept out of the table.
+        self.outside = description.lists["outside"]
+        everything = set().union(*map(set, exports.values()))
+        wrong = sorted(name for name in self.outside if name not in everything or registry.command(name))
+        if wrong:
+            raise GeneratorError(f"{lib}: outside, but not exported or defined by the registry: {', '.join(wrong)}")
+        self.exported = everything - self.outside
         self.hand = description.lists["hand"]
         unknown = sorted(name for name in self.hand | self.exported if registry.command(name) is None)
         if unknown:
@@ -509,7 +516,7 @@ def write(front, out, inputs):
     report = {
         "lib": lib, "description": os.path.relpath(front.description.path, ROOT), "inputs": inputs,
         "hash": front.hash, "table": front.table, "abi": front.abi, "signatures": front.signatures,
-        "exports": front.exports,
+        "exports": front.exports, "outside": sorted(front.outside),
         "extensions": {"offered": front.offered, "left out": front.left_out}, "structures": front.structures,
         "counts": {"table": len(front.table), "kinds": kinds, "kinds of the exports": exported_kinds,
                    "abi of the exports": exported_abi, "offered": len(front.offered),

@@ -1,10 +1,10 @@
 /* Test 5 of ADR-0029 (graphics.gles_thunk): the GLES stubs that extend small arguments or repack stack
-   arguments, as the built front libs hand them out: through libGLESv2's and libGLESv3's exports, and through
-   eglGetProcAddress for those neither exports. Each is called twice by test 2's caller (thunk_call), with
-   garbage in the unused bits of its arguments and of their stack slots, once with the sign bit of every
-   small argument set and once clear. The runtime binds the tables to fake-angle (fake_angle.py), whose
-   functions record the argument registers and the stack area as they arrive behind the runtime's entry and
-   return the record in x0 and its results in x1 and v0-v3.
+   arguments, as the built front libs hand them out: through libGLESv2's, libGLESv3's and libGLESv1_CM's
+   (ADR-0041 a1) exports, and through eglGetProcAddress for those no library exports. Each is called twice by
+   test 2's caller (thunk_call), with garbage in the unused bits of its arguments and of their stack slots,
+   once with the sign bit of every small argument set and once clear. The runtime binds the tables to
+   fake-angle (fake_angle.py), whose functions record the argument registers and the stack area as they
+   arrive behind the runtime's entry and return the record in x0 and its results in x1 and v0-v3.
 
    Everything must arrive as Apple's ABI expects: arguments under 32 bits extended by their type, stack
    arguments at Apple's places, the rest bit for bit; the results must come back, the callee-saved registers
@@ -20,7 +20,7 @@
 
 struct gles_thunk {
     const char *name;
-    unsigned libraries; /* 1 libGLESv2, 2 libGLESv3 */
+    unsigned libraries; /* 1 libGLESv2, 2 libGLESv3, 4 libGLESv1_CM */
     unsigned repack;    /* 0: its stub extends small arguments */
     unsigned first, count;
 };
@@ -174,9 +174,10 @@ static void call(const struct gles_thunk *thunk, void (*function)(void), const c
 }
 
 int main(void) {
-    void *libraries[2] = {dlopen("libGLESv2.so", RTLD_NOW), dlopen("libGLESv3.so", RTLD_NOW)};
-    const char *const names[2] = {"libGLESv2", "libGLESv3"};
-    unsigned exported[2] = {0, 0}, handed_out = 0, repacks = 0;
+    void *libraries[3] = {dlopen("libGLESv2.so", RTLD_NOW), dlopen("libGLESv3.so", RTLD_NOW),
+                          dlopen("libGLESv1_CM.so", RTLD_NOW)};
+    const char *const names[3] = {"libGLESv2", "libGLESv3", "libGLESv1_CM"};
+    unsigned exported[3] = {0, 0, 0}, handed_out = 0, repacks = 0;
     /* The first call finds fake-angle's record. */
     call_once(&gles_thunks[0], (void (*)(void))eglGetProcAddress(gles_thunks[0].name), "a first call", 1);
     if (record == NULL) {
@@ -187,7 +188,7 @@ int main(void) {
     for (unsigned index = 0; index < gles_thunk_count; index++) {
         const struct gles_thunk *thunk = &gles_thunks[index];
         repacks += thunk->repack;
-        for (unsigned library = 0; library < 2; library++) {
+        for (unsigned library = 0; library < 3; library++) {
             if (thunk->libraries & (1u << library)) {
                 exported[library]++;
                 call(thunk, (void (*)(void))dlsym(libraries[library], thunk->name), names[library]);
@@ -200,10 +201,10 @@ int main(void) {
     }
     printf("%u thunks of GLES: %u extend small arguments, %u repack stack arguments\n", gles_thunk_count,
            gles_thunk_count - repacks, repacks);
-    for (unsigned library = 0; library < 2; library++) {
+    for (unsigned library = 0; library < 3; library++) {
         printf("%s: %u of them, called through its exports\n", names[library], exported[library]);
     }
-    printf("eglGetProcAddress: %u of them that neither exports\n", handed_out);
+    printf("eglGetProcAddress: %u of them that no library exports\n", handed_out);
     if (failures) {
         printf("%u differences in %u calls\n", failures, calls);
         return 1;

@@ -16,8 +16,11 @@
   extend the create infos whose pNext chains libvulkan copies, with their sType.
 - The GLES and EGL lists (ADR-0029, decision 14), against gl.xml and egl.xml with ANGLE's: eglGetProcAddress's
   names with the function each front lib hands out, and the extensions its strings withhold: exactly those
-  the description leaves out by name and those with a command outside the table. libGLESv2 and libGLESv3
-  export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names.
+  the description leaves out by name and those with a command outside the table. libGLESv1_CM, libGLESv2 and
+  libGLESv3 export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names.
+- The names outside every registry (ADR-0041 a1): exactly Android's 7 *Bounds functions of libGLESv1_CM, which
+  the NDK exports and declares in no header. They are written by hand, exported, and kept out of the table. A
+  description whose list "outside" names a command of the registry, or a name no library exports, is refused.
 
 Prints "skipped:" while vk.xml (tools/fetch-moltenvk.sh), ANGLE's registries (tools/build-angle.sh) or
 the NDK is missing, so CTest stays green for everyone else."""
@@ -39,13 +42,15 @@ import ndk_headers
 # The counts of ADR-0029, decision 14 (with ADR-0030's change) and of ADR-0030, test 1 and decision 10. B1
 # writes glGetBooleanv, glGetFloatv, glGetIntegerv and glGetInteger64v by hand too, whose GL_NUM_EXTENSIONS
 # must count the extensions glGetStringi lists. V5's guard writes vkCreateImageView by hand (ADR-0030).
+# ADR-0041 a1 adds libGLESv1_CM: 173 names beyond libGLESv2's and libGLESv3's, 169 the same in both ABIs and 4
+# with small arguments (glColor4ub, glDrawTexsOES, glSampleCoveragex, glSampleCoveragexOES), and the 7 outside.
 ABI_COUNTS = {
-    "gles": {"same": 420, "extend": 33, "repack": 8},
+    "gles": {"same": 589, "extend": 37, "repack": 8},
     "egl": {"same": 73},
     "vulkan": {"same": 233},
 }
 KIND_COUNTS = {
-    "gles": {"plain": 409, "extend": 33, "repack": 8, "by hand": 11},
+    "gles": {"plain": 578, "extend": 37, "repack": 8, "by hand": 11},
     "egl": {"plain": 58, "by hand": 15},
     "vulkan": {"plain": 149, "without allocator": 45, "by hand": 39},
 }
@@ -57,6 +62,11 @@ WITHHELD_BY_NAME = {
 }
 WITHHELD_PREFIX = {"egl": "EGL_ANGLE_platform_angle", "gles": None}
 PRIVATE = {"gles": {"minato_gles_proc"}}
+# ADR-0041 a1: the exports that no registry defines, Android's own (opengl/libs/GLES_CM/gl.cpp at the tag).
+OUTSIDE = {
+    "gles": {"glColorPointerBounds", "glNormalPointerBounds", "glTexCoordPointerBounds", "glVertexPointerBounds",
+             "glPointSizePointerOESBounds", "glMatrixIndexPointerOESBounds", "glWeightPointerOESBounds"},
+}
 API = {"gles": "gles2", "egl": "egl"}
 VULKAN_HEADER_COUNTS = {"same": 706, "extend": 3, "repack": 1}
 FUNCTION_POINTER_STRUCTURES = {
@@ -182,7 +192,8 @@ def signature(prototype):
 
 def check_lib(lib, report, headers, exports, registry):
     table = {entry["name"]: entry for entry in report["table"]}
-    exported = set().union(*exports.values())
+    outside = OUTSIDE.get(lib, set())
+    exported = set().union(*exports.values()) - outside
 
     # The sorting per name, against the headers' reading ("refused: <why>" compares as "refused").
     def word(verdict):
@@ -207,6 +218,13 @@ def check_lib(lib, report, headers, exports, registry):
               f"vulkan: the sorting of vulkan_core.h's and vulkan_android.h's {len(headers.prototypes)} commands is "
               f"{dict(counts)}, expected {VULKAN_HEADER_COUNTS}")
 
+    # The names outside every registry: neither defined nor declared, written by hand, out of the table.
+    defined = sorted(name for name in outside if xml_defines(registry, name) or name in headers.prototypes)
+    check(report.get("outside", []) == sorted(outside) and not defined and not outside & set(table)
+          and outside <= set().union(*exports.values()),
+          f"{lib}: the exports outside every registry are exactly {sorted(outside)}, written by hand and out of the "
+          f"table (the report's: {report.get('outside')}; defined somewhere: {defined})")
+
     # The stub kinds of the exports.
     missing = sorted(exported - set(table))
     check(not missing, f"{lib}: every exported name is in the table (missing: {missing[:8]})")
@@ -226,7 +244,7 @@ def check_lib(lib, report, headers, exports, registry):
     for library, names in exports.items():
         with open(os.path.join(report["out"], library.replace(".so", ".map"))) as file:
             nodes = map_nodes(file.read())
-        public = "".join(part.upper() for part in library.replace(".so", "").split("_")) if private else ""
+        public = library.replace(".so", "").upper() if private else ""
         expected = {public: (names, True)} | ({"APKRT_PRIVATE": (private, False)} if private else {})
         check(nodes == expected, f"{lib}: {library.replace('.so', '.map')} lists exactly the {len(names)} names of "
                                  f"the NDK's {library} and hides the rest"
@@ -256,6 +274,11 @@ def check_lib(lib, report, headers, exports, registry):
     check(f"0x{digest}ull" in header and f"{lib.upper()}_TABLE_LENGTH {len(names) + 1}u" in header,
           f"{lib}: {lib}_table.h carries the hash and the length with the entry's slot")
     check(names == sorted(names) and len(names) == len(set(names)), f"{lib}: the table is sorted, each name once")
+
+
+def xml_defines(root, name):
+    """Whether the registry's XML defines a command of that name."""
+    return any(proto.findtext("name") == name for proto in root.iter("proto"))
 
 
 def map_nodes(text):
@@ -539,6 +562,30 @@ def check_samples(options, work):
               f"a sample with a {what} is refused for it ({' | '.join(lines)[:200]})")
 
 
+def check_outside(options, work):
+    """ADR-0041 a1: the generator refuses a description whose list "outside" names a command the registry defines,
+    or a name that no library exports, besides the 7 names it takes."""
+    sys.path.insert(0, os.path.join(options.repo, "tools", "frontgen"))
+    import frontgen
+    registry = frontgen.Registry(
+        os.path.join(options.angle, "third_party", "OpenGL-Registry", "src", "xml", "gl.xml"), "gl",
+        os.path.join(options.angle, "scripts", "gl_angle_ext.xml"))
+    exports = frontgen.ndk_exports(options.ndk, [("libGLESv1_CM.so", 35)])
+    for what, name in (("a command of the registry", "glAlphaFunc"), ("a name no library exports",
+                                                                     "glNotExportedBounds")):
+        path = os.path.join(work, "outside.txt")
+        with open(path, "w") as file:
+            file.write(f"registry gl\nlibrary libGLESv1_CM.so 35\noutside {' '.join(sorted(OUTSIDE['gles']))}\n"
+                       f"outside {name}\n")
+        try:
+            frontgen.FrontLib("gles", frontgen.Description(path), registry, exports)
+            refused = ""
+        except frontgen.GeneratorError as why:
+            refused = str(why)
+        check("outside, but" in refused and name in refused,
+              f"gles: a description with {what} ({name}) outside is refused ({refused[:120] or 'taken'})")
+
+
 def check_answers(lib, report, prototypes):
     """Decision 3: graphics/host's list per slot (the table's name, the host function's name, the kind of
     result and the answer when the host library lacks the function) and the front lib's answers without a
@@ -644,6 +691,7 @@ def main():
         prototypes.update(ndk_headers.Headers(options.ndk, lib).prototypes)
         check_answers(lib, report, prototypes)
     check_samples(options, options.work)
+    check_outside(options, options.work)
     check_values(options.repo, registries)
     check_built(options.repo, first)
 

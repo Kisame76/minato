@@ -1,10 +1,17 @@
-# libGLESv2 and libGLESv3 for tools/frontgen (ADR-0029, decisions 13 and 14; ADR-0030, decision 7): one
-# source, one table, two export lists. The functions under "hand" are written in C in graphics/gles/;
-# every other name in the table gets a generated stub. At run time glGetString(GL_EXTENSIONS) and
-# glGetStringi list only extensions whose functions are all in the table (ADR-0029, decision 14).
+# libGLESv1_CM, libGLESv2 and libGLESv3 for tools/frontgen (ADR-0029, decisions 13 and 14; ADR-0030, decision 7;
+# ADR-0041 a1): one source, one table, three export lists. The functions under "hand" are written in C in
+# graphics/gles/; every other name in the table gets a generated stub. At run time glGetString(GL_EXTENSIONS)
+# and glGetStringi list only extensions whose functions are all in the table (ADR-0029, decision 14).
 registry gl
+library libGLESv1_CM.so 35
 library libGLESv2.so 35
 library libGLESv3.so 35
+
+# ADR-0041 a1: Android's own functions of libGLESv1_CM, which the NDK exports and no registry defines. Each hands
+# its pointer to its plain function and drops the count, as Android's opengl/libs/GLES_CM/gl.cpp does
+# (graphics/gles/bounds.c).
+outside glColorPointerBounds glNormalPointerBounds glTexCoordPointerBounds glVertexPointerBounds
+outside glPointSizePointerOESBounds glMatrixIndexPointerOESBounds glWeightPointerOESBounds
 
 # ADR-0029, decision 14: the extension filter, the debug callback (decision 16), and glClientWaitSync,
 # which waits in slices (ADR-0030, decision 4).

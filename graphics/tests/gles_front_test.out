@@ -17,7 +17,7 @@ strings:
   without a context, GL_NUM_EXTENSIONS leaves glGetIntegerv's and glGetFloatv's values: yes; in an ES 2.0 context it counts the names of its GL_EXTENSIONS: yes
 eglGetProcAddress:
   EGL: 174 names, 73 exported by libEGL and handed out as its exports, 101 inside it, 0 elsewhere, 0 other than the export
-  GLES: 993 names, 204 exported by libGLESv2 and handed out as its exports, 789 inside it, 0 elsewhere, 0 other than the export
+  GLES: 1166 names, 204 exported by libGLESv2 and handed out as its exports, 962 inside it, 0 elsewhere, 0 other than the export
   NULL for NULL, "", glNotAFunction, eglDebugMessageControlKHR, glBlobCacheCallbacksANGLE, eglSetBlobCacheFuncsANDROID and EGL_GetProcAddress: yes
 debug output:
   before any callback: function NULL, user data NULL

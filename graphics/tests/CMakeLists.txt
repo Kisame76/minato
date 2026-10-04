@@ -305,7 +305,7 @@ if(TARGET minato_graphics_host)
   set_target_properties(fake-angle PROPERTIES LINKER_LANGUAGE C)
   set(gles_system_libraries ${thunk_system_libraries} "${APK_BIONIC_DIR}/libnativewindow.so" "${APK_BIONIC_DIR}/libz.so"
     "${APK_BIONIC_DIR}/libandroid.so" "${APK_GRAPHICS_GUEST_DIR}/libEGL.so" "${APK_GRAPHICS_GUEST_DIR}/libGLESv2.so"
-    "${APK_GRAPHICS_GUEST_DIR}/libGLESv3.so")
+    "${APK_GRAPHICS_GUEST_DIR}/libGLESv3.so" "${APK_GRAPHICS_GUEST_DIR}/libGLESv1_CM.so")
   add_guest_test(gles_thunk gles-thunk-test gles_thunk_test "${gles_system_libraries}"
     "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=set:$<TARGET_FILE:fake-angle>")
   if(EXISTS "${angle}")
@@ -317,8 +317,10 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW_SCRIPT=set:glue")
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0041 a1: libGLESv1_CM on ANGLE's ES 1.x, as an app linked against the NDK's stub reaches it.
+    add_guest_test(gles1_front gles1-front-test gles1_front_test "${gles_system_libraries}" ${with_angle})
   else()
-    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop)
+    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -424,8 +426,8 @@ if(TARGET minato_graphics_host)
   # test's GPU work could stall a frame past their limits (graphics.vulkan_live once saw a frame interval of 108 ms
   # in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
-    graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.vulkan_queue graphics.vulkan_present
-    graphics.vulkan_drop graphics.gles_app
+    graphics.gles1_front graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.vulkan_queue
+    graphics.vulkan_present graphics.vulkan_drop graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
     graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
@@ -446,8 +448,8 @@ if(TARGET minato_graphics_host)
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock window_buffers
       window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop probe
-      gles_thunk gles_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app gles_live
-      vulkan_live present_gles present_vulkan bench recorder recorder_class)
+      gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
+      gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

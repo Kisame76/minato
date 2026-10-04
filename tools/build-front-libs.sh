@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the guest side of Minato's graphics (ADR-0029, ADR-0030) for arm64-v8a with the Android NDK:
 # tools/frontgen's tables, stubs and export lists into build/graphics/gen/, and libvulkan.so, libEGL.so,
-# libGLESv2.so and libGLESv3.so with the test programs of graphics/guest/ into build/graphics/guest/bin. Needs
-# vk.xml and MoltenVK's headers from tools/fetch-moltenvk.sh and ANGLE's registries from tools/build-angle.sh.
+# libGLESv1_CM.so, libGLESv2.so and libGLESv3.so with the test programs of graphics/guest/ into
+# build/graphics/guest/bin. Needs vk.xml and MoltenVK's headers from tools/fetch-moltenvk.sh and ANGLE's
+# registries from tools/build-angle.sh.
 # Usage: tools/build-front-libs.sh
 # Optional environment:
 #   ANDROID_NDK  NDK to build with, default: r30 in ~/Library/Android/sdk/ndk

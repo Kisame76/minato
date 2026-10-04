@@ -12,25 +12,27 @@ import subprocess
 
 # The headers of each front lib, below the sysroot's usr/include, in the order they are read.
 HEADERS = {
-    "gles": ["KHR/khrplatform.h", "GLES2/gl2.h", "GLES2/gl2ext.h", "GLES3/gl3.h", "GLES3/gl31.h", "GLES3/gl32.h"],
+    "gles": ["KHR/khrplatform.h", "GLES/gl.h", "GLES/glext.h", "GLES2/gl2.h", "GLES2/gl2ext.h", "GLES3/gl3.h",
+             "GLES3/gl31.h", "GLES3/gl32.h"],
     "egl": ["KHR/khrplatform.h", "EGL/eglplatform.h", "EGL/egl.h", "EGL/eglext.h"],
     "vulkan": ["vulkan/vulkan_core.h", "vulkan/vulkan_android.h"],
 }
 # For the names the NDK lacks (ANGLE's extensions, Vulkan's newer commands): the host library's own C
 # headers, below ANGLE's include/ or MoltenVK's include/.
 HOST_HEADERS = {
-    "gles": ["KHR/khrplatform.h", "GLES2/gl2.h", "GLES2/gl2ext.h", "GLES2/gl2ext_angle.h", "GLES3/gl3.h",
-             "GLES3/gl31.h", "GLES3/gl32.h"],
+    "gles": ["KHR/khrplatform.h", "GLES/gl.h", "GLES/glext.h", "GLES2/gl2.h", "GLES2/gl2ext.h",
+             "GLES2/gl2ext_angle.h", "GLES3/gl3.h", "GLES3/gl31.h", "GLES3/gl32.h"],
     "egl": ["KHR/khrplatform.h", "EGL/eglplatform.h", "EGL/egl.h", "EGL/eglext.h", "EGL/eglext_angle.h"],
     "vulkan": ["vulkan/vulkan_core.h", "vulkan/vulkan_android.h"],
 }
 PROTOTYPE = {
-    "gles": re.compile(r"GL_APICALL\s+([^;]*?)\s*GL_APIENTRY\s+(\w+)\s*\(([^;]*?)\)\s*;"),
+    "gles": re.compile(r"GL_API(?:CALL)?\s+([^;]*?)\s*GL_APIENTRY\s+(\w+)\s*\(([^;]*?)\)\s*;"),
     "egl": re.compile(r"EGLAPI\s+([^;]*?)\s*EGLAPIENTRY\s+(\w+)\s*\(([^;]*?)\)\s*;"),
     "vulkan": re.compile(r"VKAPI_ATTR\s+([^;]*?)\s+VKAPI_CALL\s+(\w+)\s*\(([^;]*?)\)\s*;"),
 }
 # The libraries of each front lib in the NDK's stubs.
-LIBRARIES = {"gles": ["libGLESv2.so", "libGLESv3.so"], "egl": ["libEGL.so"], "vulkan": ["libvulkan.so"]}
+LIBRARIES = {"gles": ["libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so"], "egl": ["libEGL.so"],
+             "vulkan": ["libvulkan.so"]}
 
 COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
 SIMPLE_TYPEDEF = re.compile(r"typedef\s+([^;{}()]*?)\s*\b(\w+)\s*;")

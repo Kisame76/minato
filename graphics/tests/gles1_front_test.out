@@ -1,0 +1,21 @@
+eglInitialize: EGL_TRUE
+a config for ES 1.x on a pbuffer: yes
+an ES 1.x context, current on the pbuffer: yes
+GL_VERSION begins with OpenGL ES-CM 1.1: yes
+draws:
+  clear (48, 48): 51 102 153 255
+  arrays through the *Bounds functions, inside (16, 16): 255 0 255 255
+  arrays through the *Bounds functions, outside (48, 48): 51 102 153 255
+  glColor4ub, inside (16, 16): 0 255 0 255
+  GL error: GL_NO_ERROR
+*Bounds functions after their plain functions:
+  glVertexPointerBounds: GL_NO_ERROR, as its plain function: yes; its pointer back: yes (GL_NO_ERROR)
+  glNormalPointerBounds: GL_NO_ERROR, as its plain function: yes; its pointer back: yes (GL_NO_ERROR)
+  glColorPointerBounds: GL_NO_ERROR, as its plain function: yes; its pointer back: yes (GL_NO_ERROR)
+  glTexCoordPointerBounds: GL_NO_ERROR, as its plain function: yes; its pointer back: yes (GL_NO_ERROR)
+  glPointSizePointerOESBounds: GL_NO_ERROR, as its plain function: yes; its pointer back: yes (GL_NO_ERROR)
+  glMatrixIndexPointerOESBounds: GL_INVALID_OPERATION, as its plain function: yes; its pointer back: no (GL_INVALID_ENUM)
+  glWeightPointerOESBounds: GL_INVALID_OPERATION, as its plain function: yes; its pointer back: no (GL_INVALID_ENUM)
+a name ANGLE lacks:
+  glAlphaFuncxOES twice: GL_NO_ERROR
+eglTerminate: EGL_TRUE

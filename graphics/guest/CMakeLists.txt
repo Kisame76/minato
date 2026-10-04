@@ -1,7 +1,8 @@
 # The guest side of Minato's graphics (ADR-0029, ADR-0030), built with the Android NDK for arm64-v8a by
 # tools/build-front-libs.sh: tools/frontgen's tables, stubs, constructors and export lists in
-# build/graphics/gen/, the binding the front libs share, libvulkan.so, libEGL.so, libGLESv2.so and
-# libGLESv3.so, and the guest programs of ADR-0030's tests 2, 4 and 6 and ADR-0029's tests 5 to 7.
+# build/graphics/gen/, the binding the front libs share, libvulkan.so, libEGL.so, libGLESv1_CM.so, libGLESv2.so
+# and libGLESv3.so, and the guest programs of ADR-0030's tests 2, 4 and 6, ADR-0029's tests 5 to 7 and ADR-0041
+# a1's.
 cmake_minimum_required(VERSION 4.0)
 project(MinatoGraphicsGuest LANGUAGES C ASM)
 
@@ -35,7 +36,7 @@ foreach(lib IN ITEMS vulkan gles egl)
     "${gen}/${lib}_names.inc" "${gen}/${lib}_report.json")
 endforeach()
 set(stubs "")
-foreach(library IN ITEMS libvulkan libGLESv2 libGLESv3 libEGL)
+foreach(library IN ITEMS libvulkan libGLESv1_CM libGLESv2 libGLESv3 libEGL)
   list(APPEND generated "${gen}/${library}.map")
   list(APPEND stubs "${ANDROID_TOOLCHAIN_ROOT}/sysroot/usr/lib/aarch64-linux-android/35/${library}.so")
 endforeach()
@@ -119,9 +120,10 @@ foreach(test IN ITEMS window_lock_test window_buffers_test window_background_tes
 endforeach()
 
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
-# with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv2
-# and libGLESv3 are one set of objects with two export lists; each exports exactly the NDK's names, and the
-# two GLES libs minato_gles_proc in version APKRT_PRIVATE, which libEGL's eglGetProcAddress finds.
+# with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM
+# (ADR-0041 a1), libGLESv2 and libGLESv3 are one set of objects with three export lists; each exports exactly the
+# NDK's names, and the GLES libs minato_gles_proc in version APKRT_PRIVATE, which libEGL's eglGetProcAddress
+# finds. libGLESv1_CM adds Android's 7 *Bounds functions (bounds.c).
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
 add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/procs.c" "${gen}/egl_stubs.S"
@@ -138,12 +140,14 @@ target_include_directories(gles_objects PRIVATE "${gles}" "${gen}" "${repo}/runt
 target_link_libraries(gles_objects PRIVATE minato_bind)
 set_target_properties(gles_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(gles_objects PRIVATE -Wall -Wextra)
-foreach(library IN ITEMS GLESv2 GLESv3)
+foreach(library IN ITEMS GLESv1_CM GLESv2 GLESv3)
   add_library(${library} SHARED $<TARGET_OBJECTS:gles_objects> $<TARGET_OBJECTS:minato_bind>)
   target_link_options(${library} PRIVATE "-Wl,--version-script=${gen}/lib${library}.map" -Wl,-Bsymbolic)
   set_target_properties(${library} PROPERTIES LINK_DEPENDS "${gen}/lib${library}.map"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endforeach()
+target_sources(GLESv1_CM PRIVATE "${gles}/bounds.c")
+target_compile_options(GLESv1_CM PRIVATE -Wall -Wextra)
 
 # ADR-0029, tests 5 to 7, run by graphics-run: gles-thunk-test calls the stubs that extend or repack through
 # the built libs, with test 2's caller and a list from the C headers; the others reach graphics-run's test
@@ -166,6 +170,10 @@ foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_te
   target_link_libraries(${program} PRIVATE EGL GLESv3 minato_bind nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# ADR-0041 a1: gles1-front-test, linked as an app links libGLESv1_CM.
+add_executable(gles1-front-test "${tests}/gles1_front_test.c")
+target_link_libraries(gles1-front-test PRIVATE EGL GLESv1_CM)
+target_compile_options(gles1-front-test PRIVATE -Wall -Wextra)
 target_sources(gles-glue-test PRIVATE "${glue}/android_native_app_glue.c")
 target_include_directories(gles-glue-test PRIVATE "${glue}")
 target_link_libraries(gles-glue-test PRIVATE android log)

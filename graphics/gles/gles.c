@@ -5,7 +5,10 @@
    - glClientWaitSync waits in slices of at most 10 ms, so a guest signal waits one slice at most; its flush
      is glFlush, which does not wait for Metal to schedule the command buffer.
    - The debug callback and glGetPointerv's answers about it pass on here: graphics/host's functions in
-     their slots put a host function of theirs in front of the app's (decision 16). */
+     their slots put a host function of theirs in front of the app's (decision 16).
+   - An ES 1.x context's GL_VERSION names the Common profile, "OpenGL ES-CM 1.1 ...", as the ES 1.1
+     specification (6.1.5) lays it out and Android's drivers answer; ANGLE says "OpenGL ES 1.1 ..." (ADR-0041
+     a1). */
 #include <float.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -144,9 +147,54 @@ static const struct filtered *current(void) {
     return angle != NULL ? filter((const char *)angle) : NULL;
 }
 
+/* ES 1.x's GL_VERSION with the Common profile's "OpenGL ES-CM 1." in place of ANGLE's "OpenGL ES 1.", or
+   ANGLE's string itself for any other version or without memory. One copy is kept per ANGLE string, for the
+   process's life, as the extension strings are. */
+#define ANGLE_ES1 "OpenGL ES 1."
+#define COMMON_PROFILE "OpenGL ES-CM 1."
+struct version {
+    struct version *next;
+    char *angle;
+    char text[];
+};
+static struct version *versions;
+
+static const GLubyte *common_profile(const GLubyte *string) {
+    const char *angle = (const char *)string;
+    if (strncmp(angle, ANGLE_ES1, strlen(ANGLE_ES1)) != 0) {
+        return string;
+    }
+    pthread_mutex_lock(&lock);
+    struct version *entry = versions;
+    while (entry != NULL && strcmp(entry->angle, angle) != 0) {
+        entry = entry->next;
+    }
+    if (entry == NULL) {
+        const char *rest = angle + strlen(ANGLE_ES1);
+        entry = malloc(sizeof *entry + strlen(COMMON_PROFILE) + strlen(rest) + 1);
+        if (entry != NULL && (entry->angle = strdup(angle)) != NULL) {
+            strcpy(entry->text, COMMON_PROFILE);
+            strcat(entry->text, rest);
+            entry->next = versions;
+            versions = entry;
+        } else {
+            free(entry);
+            entry = NULL;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return entry != NULL ? (const GLubyte *)entry->text : string;
+}
+
 const GLubyte *glGetString(GLenum name) {
     const GLubyte *string = minato_host_glGetString(name);
-    if (name != GL_EXTENSIONS || string == NULL) {
+    if (string == NULL) {
+        return string;
+    }
+    if (name == GL_VERSION) {
+        return common_profile(string);
+    }
+    if (name != GL_EXTENSIONS) {
         return string;
     }
     const struct filtered *kept = filter((const char *)string);
