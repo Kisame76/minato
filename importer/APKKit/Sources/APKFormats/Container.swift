@@ -36,9 +36,14 @@ public enum ContainerError: Error, Sendable, Equatable, LocalizedError {
     case unsafeName(String)
     /// The folder to extract into exists already.
     case destinationExists
+    /// bundletool's table of contents is missing, damaged or names what the container lacks.
+    case invalidTOC(String)
+    /// Nothing in the container fits this iPhone, as `extract-apks` would say.
+    case incompatible(String)
 
     public var errorDescription: String? {
         switch self {
+        case .invalidTOC(let reason), .incompatible(let reason): reason
         case .notAZip(let encryptedAPKM): encryptedAPKM ? "Encrypted APKM files aren’t supported" : "it is no ZIP archive"
         case .unreadable(let error): "it is damaged (\(error))"
         case .encrypted(let name): "“\(name)” in it is encrypted"

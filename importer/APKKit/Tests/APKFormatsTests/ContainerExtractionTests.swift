@@ -95,6 +95,16 @@ struct ContainerExtractionTests {
         #expect(try Data(contentsOf: files[0]) == content)
     }
 
+    @Test func theRunningChecksumSkipsAnEmptyChunk() {
+        // zlib's crc32 given no buffer answers its initial value, which would start the sum again (the lead's review
+        // of a1). Foundation gives an empty Data a pointer today, so the empty buffer here has none. "123456789" is
+        // CRC-32's check value.
+        var crc = Data("123".utf8).withUnsafeBytes { Container.checksum(0, adding: $0) }
+        crc = Container.checksum(crc, adding: UnsafeRawBufferPointer(start: nil, count: 0))
+        crc = Data("456789".utf8).withUnsafeBytes { Container.checksum(crc, adding: $0) }
+        #expect(crc == 0xCBF4_3926)
+    }
+
     @Test func aCRCMismatchFailsAndLeavesNothing() throws {
         // Both headers agree on a wrong CRC-32, so the reader passes it and only the content's checksum shows it.
         // Android checks none (zip_archive.cc:71, kCrcChecksEnabled = false); the container's check is Minato's.

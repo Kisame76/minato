@@ -82,19 +82,24 @@ extension Container {
         }
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
-        var crc = crc32(0, nil, 0)
+        var crc: UInt32 = 0
         do {
             try archive.forEachChunk(of: entry) { chunk in
-                chunk.withUnsafeBytes { raw in
-                    crc = crc32(crc, raw.bindMemory(to: Bytef.self).baseAddress, uInt(raw.count))
-                }
+                crc = chunk.withUnsafeBytes { Self.checksum(crc, adding: $0) }
                 try handle.write(contentsOf: chunk)
             }
         } catch let error as APKError {
             throw ContainerError.unreadable(error)
         }
-        guard UInt32(truncatingIfNeeded: crc) == entry.crc32 else { throw ContainerError.checksumMismatch(entry.name) }
+        guard crc == entry.crc32 else { throw ContainerError.checksumMismatch(entry.name) }
         try handle.synchronize()
+    }
+
+    /// The running CRC-32 `crc` with `bytes` added, through the system zlib. No bytes change nothing: zlib's crc32
+    /// given no buffer answers its initial value instead (the lead's review of a1).
+    public static func checksum(_ crc: UInt32, adding bytes: UnsafeRawBufferPointer) -> UInt32 {
+        guard bytes.count > 0 else { return crc }
+        return UInt32(truncatingIfNeeded: crc32(uLong(crc), bytes.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count)))
     }
 
     /// A name for a file in one folder: not empty, not hidden (".", ".." among them), without a slash or a NUL, and
