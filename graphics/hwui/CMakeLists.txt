@@ -1,4 +1,5 @@
-# hwui as guest code (ADR-0043 a1): hwui's host flavor with Skia, minikin, HarfBuzz, FreeType and the image codecs
+# hwui as guest code (ADR-0043 a1): hwui's host flavor with Skia, minikin, HarfBuzz, FreeType and the image codecs,
+# and the NDK's libjnigraphics over it (ADR-0041 a5)
 # (tools/fetch-sources.py --set graphics), built with the NDK's clang as Android arm64 platform code. Which sources and
 # flags come from the projects' own Android.bp files (tools/hwui-plan.py), with Minato's modules of
 # graphics/hwui/modules.bp, the files of graphics/hwui/overlay in place of AOSP's and the patches of
@@ -37,9 +38,9 @@ foreach(file IN ITEMS "${ndk_libcxx_include}/vector" "${ndk_libcxx_shared}" "${n
   endif()
 endforeach()
 
-# The guest system's libraries that hwui links: bionic's, and those of ART's build it shares (tools/hwui-plan.py's
-# GUEST_SYSTEM).
-foreach(library IN ITEMS libc libm libdl libdl_android ld-android liblog libz)
+# The guest system's libraries that hwui links: bionic's, with Minato's libandroid for libjnigraphics, and those of
+# ART's build it shares (tools/hwui-plan.py's GUEST_SYSTEM).
+foreach(library IN ITEMS libc libm libdl libdl_android ld-android liblog libz libandroid)
   if(NOT EXISTS "${APK_BIONIC_LIB}/${library}.so")
     message(FATAL_ERROR "${APK_BIONIC_LIB}/${library}.so is missing: run tools/build-bionic.sh first")
   endif()

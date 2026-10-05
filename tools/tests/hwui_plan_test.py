@@ -34,7 +34,12 @@ without them the test skips). It must plan without problems, and the plan must b
 - patch 0006's LayoutlibLoader.cpp, the host flavor's register_android_graphics_classes (a2): it registers every
   class of its map, in the order of the device's gRegJNI (jni_runtime.cpp), as Android registers its graphics at the
   start, and reads no system property for them, where layoutlib's registers only the classes of its
-  graphics_native_classes.
+  graphics_native_classes;
+- libjnigraphics, the NDK's AndroidBitmap_* and AImageDecoder_* (ADR-0041 a5), over libhwui with the device's side of
+  its module: bitmap.cpp and aassetstreamadaptor.cpp beside imagedecoder.cpp, the version script
+  libjnigraphics.map.txt and the guest system's libandroid; its AndroidBitmap_getHardwareBuffer answers
+  ANDROID_BITMAP_RESULT_BAD_PARAMETER after AOSP's checks without asking libhwui, which has no hardware buffers
+  (patch 0010), as Android answers for a bitmap without one.
 Usage: hwui_plan_test.py [--scratch <dir>]"""
 import argparse
 import importlib.util
@@ -229,6 +234,25 @@ def main():
         bitmap_text = open(bitmap).read() if os.path.exists(bitmap) else ""
         check("ABitmap_acquireBitmapFromJava" in bitmap_text and "ABitmap_getHardwareBuffer" not in bitmap_text,
               "the tree's android_bitmap.cpp defines the ABitmap C API without ABitmap_getHardwareBuffer (patch 0009)")
+        jnigraphics = unit(plan, "hwui_libjnigraphics_shared")
+        jnigraphics_library = library(plan, "libjnigraphics")
+        check("hwui_library(libjnigraphics\n" in plan, "the plan links libjnigraphics (ADR-0041 a5)")
+        for source in ("imagedecoder.cpp", "bitmap.cpp", "aassetstreamadaptor.cpp"):
+            check(f"/frameworks/base/native/graphics/jni/{source}" in jnigraphics,
+                  f"libjnigraphics compiles the device's {source}")
+        check((field(jnigraphics_library, "VERSION_SCRIPT") or [""])[0].endswith(
+            "/frameworks/base/native/graphics/jni/libjnigraphics.map.txt"),
+            "libjnigraphics links with its version script, libjnigraphics.map.txt")
+        for needed in ("libhwui", "liblog", "libandroid"):
+            check(needed in field(jnigraphics_library, "NEEDED"), f"libjnigraphics needs {needed}")
+        jni_bitmap = os.path.join(tree, "frameworks/base/native/graphics/jni/bitmap.cpp")
+        jni_text = open(jni_bitmap).read() if os.path.exists(jni_bitmap) else ""
+        hardware = jni_text[jni_text.find("int AndroidBitmap_getHardwareBuffer"):]
+        hardware = hardware[:hardware.find("\n}\n") + 3]
+        check("ANDROID_BITMAP_RESULT_BAD_PARAMETER" in hardware and "getHardwareBuffer()" not in hardware
+              and "bitmap.isValid()" in hardware,
+              "the tree's AndroidBitmap_getHardwareBuffer answers ANDROID_BITMAP_RESULT_BAD_PARAMETER after AOSP's "
+              "checks, without libhwui's getHardwareBuffer (patch 0010)")
     print(f"hwui-plan: {'all checks passed' if failures == 0 else f'{failures} failed'}")
     return 1 if failures else 0
 

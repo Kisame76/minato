@@ -4,8 +4,9 @@ tools/embed-guest-system.sh lays it out and game mode mounts it, beside what a N
 every container in Guest/ passes `codesign -v`.
 
   bin/              activity-host and app_process64, the programs /system/bin/activity-host and app_process64
-  lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so, hwui's set and ART's
-                    copies for it (graphics/tests/hwui_load_run.py's PLATFORM_COPIES)
+  lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so, hwui's set with
+                    libjnigraphics (ADR-0041 a5) and ART's copies for it (graphics/tests/hwui_load_run.py's
+                    PLATFORM_COPIES)
   system/           /system's files: framework.jar and the framework-res folder in framework/ (ADR-0039, decision 8),
                     platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts
   apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data
@@ -21,8 +22,8 @@ import subprocess
 import sys
 
 HWUI = ["libcutils.so", "libft2.so", "libharfbuzz_ng.so", "libharfbuzz_subset.so", "libhwui.so", "libimage_io.so",
-        "libjpeg.so", "libjpegdecoder.so", "libjpegencoder.so", "libminikin.so", "libpng.so", "libultrahdr.so",
-        "server_configurable_flags.so"]
+        "libjnigraphics.so", "libjpeg.so", "libjpegdecoder.so", "libjpegencoder.so", "libminikin.so", "libpng.so",
+        "libultrahdr.so", "server_configurable_flags.so"]
 ART_COPIES = ["libbase.so", "libziparchive.so", "libexpat.so", "libc++_shared.so"]
 FRONT_LIBS = ["libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so"]
 BIONIC = ["libc.so", "libdl.so", "libm.so", "liblog.so", "libandroid.so", "libnativewindow.so", "libz.so"]

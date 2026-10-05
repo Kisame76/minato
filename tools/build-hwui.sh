@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds hwui's host flavor as guest code (ADR-0043 a1): fetches the pinned sources of the list "graphics" and those of
 # the list "framework" that the plan reads (frameworks/base's androidfw and text flags, libpng, libcutils and libutils,
-# incremental_delivery, build/release's flag values) if needed, then builds libhwui and what it links with the NDK into
-# build/hwui/lib (graphics/hwui). hwui links the guest system's libraries of bionic and ART, so tools/build-bionic.sh
-# and tools/build-art.sh come first; they fetch the lists "sources" and "art", which the plan reads too.
+# incremental_delivery, build/release's flag values) if needed, then builds libhwui, what it links and libjnigraphics
+# (ADR-0041 a5) with the NDK into build/hwui/lib (graphics/hwui). hwui links the guest system's libraries of bionic
+# and ART, so tools/build-bionic.sh and tools/build-art.sh come first; they fetch the lists "sources" and "art",
+# which the plan reads too.
 # Usage: tools/build-hwui.sh [ninja arguments]
 # Optional environment:
 #   ANDROID_NDK  NDK to build with, default: r30 in ~/Library/Android/sdk/ndk

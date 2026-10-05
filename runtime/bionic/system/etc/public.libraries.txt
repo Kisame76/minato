@@ -2,7 +2,9 @@
 # Minato's guest system has, in Android's order and format. libnativeloader preloads each of them when the VM starts
 # and aborts the start if one fails, so a library comes in only with the step that brings it. The graphics front
 # libraries came with ADR-0041 a). Their preload costs app_process no measurable start time, as libandroid_runtime
-# links 4 of them anyway (libvulkan opens MoltenVK in about 2 ms on the Mac), and dalvikvm about 6 ms.
+# links 4 of them anyway (libvulkan opens MoltenVK in about 2 ms on the Mac), and dalvikvm about 6 ms. libjnigraphics
+# came with ADR-0041 a5, marked nopreload, which libnativeloader's format has: a preload would load hwui's set at
+# every VM start, dalvikvm's too, which Android's zygote does once; an app that needs it loads it at its own start.
 libandroid.so
 libaaudio.so
 libc.so
@@ -15,6 +17,7 @@ libGLESv3.so
 libicu.so
 libicui18n.so
 libicuuc.so
+libjnigraphics.so nopreload
 liblog.so
 libmediandk.so
 libm.so

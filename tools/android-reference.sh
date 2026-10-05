@@ -38,6 +38,7 @@
 # (test 1), whose lines are System.out's that start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
+# jnigraphics-test (ADR-0041 a5), whose JNI library links libjnigraphics, is one of those Java apps too.
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
@@ -377,7 +378,7 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test | settings-test)
+      | owner-rules-test | settings-test | jnigraphics-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

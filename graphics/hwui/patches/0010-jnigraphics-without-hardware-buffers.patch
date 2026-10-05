@@ -1,0 +1,23 @@
+libjnigraphics' AndroidBitmap_getHardwareBuffer without hwui's hardware buffers (ADR-0041 a5).
+
+The NDK's AndroidBitmap_getHardwareBuffer hands out a hardware bitmap's AHardwareBuffer through bitmap.h's inline
+graphics::Bitmap::getHardwareBuffer, which calls libhwui's ABitmap_getHardwareBuffer. Minato's libhwui has no hardware
+bitmaps and no such function (patch 0009), so no bitmap holds a buffer: after AOSP's checks, which still answer a NULL
+argument with ANDROID_BITMAP_RESULT_BAD_PARAMETER and an invalid bitmap with ANDROID_BITMAP_RESULT_JNI_EXCEPTION, the
+function answers ANDROID_BITMAP_RESULT_BAD_PARAMETER with a NULL buffer, as Android 15 does for every bitmap that is not
+a hardware one (jnigraphics-test).
+
+--- a/frameworks/base/native/graphics/jni/bitmap.cpp
++++ b/frameworks/base/native/graphics/jni/bitmap.cpp
+@@ -91,8 +91,9 @@
+         return ANDROID_BITMAP_RESULT_JNI_EXCEPTION;
+     }
+ 
+-    *outBuffer = bitmap.getHardwareBuffer();
+-    return *outBuffer == NULL ? ANDROID_BITMAP_RESULT_BAD_PARAMETER : ANDROID_BITMAP_RESULT_SUCCESS;
++    // Minato has no hardware bitmaps (hwui's patch 0009): Android's answer for a bitmap without a buffer.
++    *outBuffer = NULL;
++    return ANDROID_BITMAP_RESULT_BAD_PARAMETER;
+ }
+ 
+ int AndroidBitmap_compress(const AndroidBitmapInfo* info,

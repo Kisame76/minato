@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Turns the Android.bp files of the graphics set (hwui, Skia, minikin, HarfBuzz, FreeType, the image codecs and what
-they include) into a CMake plan for guest code (ADR-0043 a1), as Soong builds hwui's host flavor: HWUI_NULL_GPU,
-without the GPU, the render thread's device side or the services. graphics/hwui/CMakeLists.txt builds the plan with the
-NDK compiler.
+"""Turns the Android.bp files of the graphics set (hwui, Skia, minikin, HarfBuzz, FreeType, the image codecs, what
+they include and libjnigraphics over hwui) into a CMake plan for guest code (ADR-0043 a1, ADR-0041 a5), as Soong builds
+hwui's host flavor: HWUI_NULL_GPU, without the GPU, the render thread's device side or the services.
+graphics/hwui/CMakeLists.txt builds the plan with the NDK compiler.
 
 The modules are resolved for Soong's linux_bionic host on arm64: the host's branches, which hold the host flavor, with
 bionic's and arm64's. graphics/hwui/modules.bp, read in the same syntax, holds what Minato puts in place of modules of
@@ -31,6 +31,7 @@ TREE = {
     "frameworks/base/libs/hwui": "frameworks_base_hwui/libs/hwui",
     "frameworks/base/libs/hostgraphics": "frameworks_base_hwui/libs/hostgraphics",
     "frameworks/base/libs/androidfw": "frameworks_base/libs/androidfw",
+    "frameworks/base/native/graphics/jni": "frameworks_base_jnigraphics/native/graphics/jni",
     "external/skia": "skia",
     "frameworks/minikin": "minikin",
     "external/harfbuzz_ng": "harfbuzz_ng",
@@ -96,7 +97,11 @@ GENERATED = "minato/hwui/generated"
 #   (a2): the guest sees what Android 15's libhwui exports, and the libpng and libcutils members that the host
 #   flavor's static libandroidfw brings in stay local instead of preempting libpng.so's and libcutils.so's;
 # - the graphics APEX's sources take the device's apex/android_bitmap.cpp too, the ABitmap C API that GLUtils' natives
-#   and libjnigraphics use (ADR-0041 a3), without ABitmap_getHardwareBuffer (patch 0009).
+#   and libjnigraphics use (ADR-0041 a3), without ABitmap_getHardwareBuffer (patch 0009);
+# - libjnigraphics takes its module's device side (ADR-0041 a5), as target.android has it: bitmap.cpp, the NDK's
+#   AndroidBitmap functions, and aassetstreamadaptor.cpp, AImageDecoder_createFromAAsset's stream, beside
+#   imagedecoder.cpp, which both sides compile, with Minato's libandroid and its version script, so that the guest
+#   sees what Android 15's libjnigraphics exports.
 ADDITIONS = {
     "libskia": {"exclude_srcs": ["src/codec/SkRawCodec.cpp"]},
     "libminikin": {"cflags": ["-DMINATO_WITHOUT_RUST", "-DANDROID_LINK_SHARED_ICU4C"],
@@ -107,6 +112,8 @@ ADDITIONS = {
                          "include_dirs": [f"{GENERATED}/sysprop"], "cflags": ["-DANDROID_LINK_SHARED_ICU4C"]},
     "libhwui": {"version_script": "libhwui.map.txt"},
     "android_graphics_apex": {"srcs": ["apex/android_bitmap.cpp"]},
+    "libjnigraphics": {"srcs": ["aassetstreamadaptor.cpp", "bitmap.cpp"], "shared_libs": ["libandroid"],
+                       "version_script": "libjnigraphics.map.txt"},
 }
 
 # Soong's global includes at the tag (cc/config/global.go's commonGlobalIncludes), which it gives platform and host
@@ -125,13 +132,14 @@ HOST_SIDE = ["frameworks/base/libs", "system/core/libutils", "system/core/libcut
 TARGET_GROUPS = ["host", "linux", "bionic", "linux_bionic", "not_windows", "host_linux", "linux_arm64", "bionic_arm64",
                  "linux_bionic_arm64"]
 
-# The guest system's libraries, which the plan links as they are and builds none of: bionic's (tools/build-bionic.sh)
-# and those of ART's build that the set links (tools/build-art.sh).
-GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz", "libbase", "libexpat", "libicu",
-                "libicui18n", "libicuuc", "libnativehelper", "libziparchive"]
+# The guest system's libraries, which the plan links as they are and builds none of: bionic's (tools/build-bionic.sh),
+# with Minato's libandroid, which libjnigraphics links, and those of ART's build that the set links
+# (tools/build-art.sh).
+GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz", "libandroid", "libbase",
+                "libexpat", "libicu", "libicui18n", "libicuuc", "libnativehelper", "libziparchive"]
 
-# What the plan builds (ADR-0043 a1): libhwui, with what it links.
-LIBRARIES = ["libhwui"]
+# What the plan builds: libhwui, with what it links (ADR-0043 a1), and libjnigraphics over it (ADR-0041 a5).
+LIBRARIES = ["libhwui", "libjnigraphics"]
 
 # Dependencies left out: minikin's Rust hyphenator (its C++ one through patch 0001), the aconfig storage reader in
 # Rust, which hwui's flags as constants of the release's values do not need, Skia's RAW decoding (patch 0002), and the

@@ -714,6 +714,21 @@
       "digest": "45f365537ee44c5329b30c78a0acfe23bae3b30b4e6562a0f4fbc0c2714bac2a"
     },
     {
+      "name": "frameworks_base_jnigraphics",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "native/graphics/jni/Android.bp",
+        "native/graphics/jni/aassetstreamadaptor.cpp",
+        "native/graphics/jni/aassetstreamadaptor.h",
+        "native/graphics/jni/bitmap.cpp",
+        "native/graphics/jni/imagedecoder.cpp",
+        "native/graphics/jni/libjnigraphics.map.txt"
+      ],
+      "digest": "31cc3f819a04939423ed7a4879018ffd0cadd332e05dafce3fa7a5aec0f77788"
+    },
+    {
       "name": "skia",
       "project": "platform/external/skia",
       "commit": "0fe593a9a878f410a1d6a09a434b29a26d3eb853",

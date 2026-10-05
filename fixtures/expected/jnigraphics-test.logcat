@@ -1,0 +1,60 @@
+I/jnigraphics-test: argb: getInfo 0: 4 x 4, stride 16, format 1, flags 0x0
+I/jnigraphics-test: argb: data space 142671872
+I/jnigraphics-test: argb: getHardwareBuffer -1, NULL
+I/jnigraphics-test: argb: lockPixels 0, pixels
+I/jnigraphics-test: argb, row 0: ff0000ff 00ff00ff 0000ffff 808080ff
+I/jnigraphics-test: argb, row 1: 80000080 00800080 00008080 80808080
+I/jnigraphics-test: argb, row 2: 40000040 00400040 00004040 32190d40
+I/jnigraphics-test: argb, row 3: 00000000 00000000 091b2cc8 4e5a7bff
+I/jnigraphics-test: argb: unlockPixels 0
+I/jnigraphics-test: rgb565: getInfo 0: 3 x 2, stride 6, format 4, flags 0x1
+I/jnigraphics-test: rgb565: data space 142671872
+I/jnigraphics-test: rgb565: getHardwareBuffer -1, NULL
+I/jnigraphics-test: rgb565: lockPixels 0, pixels
+I/jnigraphics-test: rgb565, row 0: f800 07e0 001f
+I/jnigraphics-test: rgb565, row 1: ffff 8410 11aa
+I/jnigraphics-test: rgb565: unlockPixels 0
+I/jnigraphics-test: no bitmap: getInfo -1, lockPixels -1, unlockPixels -1
+I/jnigraphics-test: compress as PNG: 0, a PNG
+I/jnigraphics-test: the PNG: createFromBuffer ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: the PNG: decodeImage ANDROID_IMAGE_DECODER_SUCCESS, stride 16
+I/jnigraphics-test: the PNG, row 0: 112233ff 40000080 00000000 08102040
+I/jnigraphics-test: the PNG, row 1: 80000080 00800080 00008080 80808080
+I/jnigraphics-test: the PNG, row 2: 40000040 00400040 00004040 32190d40
+I/jnigraphics-test: the PNG, row 3: 00000000 00000000 091b2cc8 4e5a7bff
+I/jnigraphics-test: picture.png: opened, createFromAAsset ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png: 6 x 4, image/png, format 1, alpha flags 0, data space 142671872
+I/jnigraphics-test: picture.png: animated 0, repeat count 0
+I/jnigraphics-test: picture.png: decodeImage ANDROID_IMAGE_DECODER_SUCCESS, stride 24
+I/jnigraphics-test: picture.png, row 0: ff0000ff 00ff00ff 0000ffff ffffffff 000000ff 808080ff
+I/jnigraphics-test: picture.png, row 1: 80000080 00800080 00008080 80808080 00000080 64321980
+I/jnigraphics-test: picture.png, row 2: 40000040 00400040 00004040 40404040 03050840 3f3c3a40
+I/jnigraphics-test: picture.png, row 3: 00000000 00000000 00000000 00000000 091b2cc8 4e5a7bff
+I/jnigraphics-test: picture.png: setUnpremultipliedRequired ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png unpremultiplied: decodeImage ANDROID_IMAGE_DECODER_SUCCESS, stride 24
+I/jnigraphics-test: picture.png unpremultiplied, row 0: ff0000ff 00ff00ff 0000ffff ffffffff 000000ff 808080ff
+I/jnigraphics-test: picture.png unpremultiplied, row 1: ff000080 00ff0080 0000ff80 ffffff80 00000080 c8643280
+I/jnigraphics-test: picture.png unpremultiplied, row 2: ff000040 00ff0040 0000ff40 ffffff40 0a141e40 faf0e640
+I/jnigraphics-test: picture.png unpremultiplied, row 3: ff000000 00ff0000 0000ff00 ffffff00 0c2238c8 4e5a7bff
+I/jnigraphics-test: picture.png: setAndroidBitmapFormat RGB_565 ANDROID_IMAGE_DECODER_INVALID_CONVERSION, A_8 ANDROID_IMAGE_DECODER_INVALID_CONVERSION, RGBA_F16 ANDROID_IMAGE_DECODER_SUCCESS, RGBA_8888 ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png: computeSampledSize 2 ANDROID_IMAGE_DECODER_SUCCESS: 3 x 2
+I/jnigraphics-test: picture.png: setTargetSize 3 x 2 ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png at 3 x 2: decodeImage ANDROID_IMAGE_DECODER_SUCCESS, stride 12
+I/jnigraphics-test: picture.png at 3 x 2, row 0: 00800080 80808080 64321980
+I/jnigraphics-test: picture.png at 3 x 2, row 1: 00000000 00000000 4e5a7bff
+I/jnigraphics-test: picture.png: setTargetSize 0 x 0 ANDROID_IMAGE_DECODER_INVALID_SCALE, back to 6 x 4 ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png: setCrop (1, 1, 5, 3) ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png cropped: decodeImage ANDROID_IMAGE_DECODER_SUCCESS, stride 16
+I/jnigraphics-test: picture.png cropped, row 0: 00800080 00008080 80808080 00000080
+I/jnigraphics-test: picture.png cropped, row 1: 00400040 00004040 40404040 03050840
+I/jnigraphics-test: picture.png: setCrop (4, 2, 8, 6) ANDROID_IMAGE_DECODER_BAD_PARAMETER, none ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png: createFromFd ANDROID_IMAGE_DECODER_SUCCESS
+I/jnigraphics-test: picture.png through its descriptor: 6 x 4, image/png
+I/jnigraphics-test: note.txt: createFromAAsset ANDROID_IMAGE_DECODER_UNSUPPORTED_FORMAT, no decoder
+I/jnigraphics-test: createFromBuffer of 0 bytes: ANDROID_IMAGE_DECODER_BAD_PARAMETER
+I/jnigraphics-test: resultToString: 0 ANDROID_IMAGE_DECODER_SUCCESS -1 ANDROID_IMAGE_DECODER_INCOMPLETE -2 ANDROID_IMAGE_DECODER_ERROR -3 ANDROID_IMAGE_DECODER_INVALID_CONVERSION
+I/jnigraphics-test: resultToString: -4 ANDROID_IMAGE_DECODER_INVALID_SCALE -5 ANDROID_IMAGE_DECODER_BAD_PARAMETER -6 ANDROID_IMAGE_DECODER_INVALID_INPUT -7 ANDROID_IMAGE_DECODER_SEEK_ERROR
+I/jnigraphics-test: resultToString: -8 ANDROID_IMAGE_DECODER_INTERNAL_ERROR -9 ANDROID_IMAGE_DECODER_UNSUPPORTED_FORMAT -10 ANDROID_IMAGE_DECODER_FINISHED -11 ANDROID_IMAGE_DECODER_INVALID_STATE
+I/jnigraphics-test: resultToString of 1: NULL
+I/jnigraphics-test: argb: the first row as Java reads it after the native write: ff112233 80800000 00000000 40204080
+I/jnigraphics-test: done
