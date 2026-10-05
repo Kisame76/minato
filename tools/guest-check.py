@@ -13,7 +13,13 @@ every container in Guest/ passes `codesign -v`.
                     and the time zones
   apex-lib64/       the APEXes' lib64: libart.so in ART's, libjavacrypto.so in Conscrypt's
 
-A missing path, an empty file and a container that fails `codesign -v` are named; the run ends with 1 then.
+system/ and apex/ are what the guest's file system mounts (GuestStart.swift), and the runtime resolves every guest
+path below its mount's folder with O_RESOLVE_BENEATH: a link whose walk leaves it answers EACCES (ADR-0052), even one
+that comes back or names a file inside by an absolute text. So a link there must stay in its folder at every step; the
+folder itself may be a link, as apkrt_mount takes the host path's realpath.
+
+A missing path, an empty file, a container that fails `codesign -v` and a link that leaves its mounted folder are
+named; the run ends with 1 then.
 Runs on /usr/bin/python3 (3.9).
 Usage: tools/guest-check.py <Minato.app>
 """
@@ -41,6 +47,58 @@ REQUIRED = (
        "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
 )
 
+# The folders of Guest/ that the guest's file system mounts, as /system and /apex.
+MOUNTED = ["system", "apex"]
+LINK_LIMIT = 32  # Darwin's MAXSYMLINKS: a longer chain answers ELOOP
+
+
+class Leaves(Exception):
+    """A link's walk that leaves its mounted folder, or never ends; the text says why."""
+
+
+def walk(root, below, text, links):
+    """Where `text` leads from the folder `below` (its components under `root`), as Darwin's kernel walks a path
+    under a descriptor with O_RESOLVE_BENEATH: step by step, so an absolute text and a ".." above `root` leave it
+    even when the text would come back, and a link on the way is followed by its own text from its folder, whose ".."
+    is that folder's parent. Returns the components it ends at and the links followed, or raises Leaves."""
+    if text.startswith("/"):
+        raise Leaves("an absolute text leaves the folder")
+    below = list(below)
+    for name in text.split("/"):
+        if name in ("", "."):
+            continue
+        if name == "..":
+            if not below:
+                raise Leaves('a ".." leaves the folder')
+            below.pop()
+        elif os.path.islink(os.path.join(root, *below, name)):
+            if links == LINK_LIMIT:
+                raise Leaves(f"more than {LINK_LIMIT} links on the way")
+            below, links = walk(root, below, os.readlink(os.path.join(root, *below, name)), links + 1)
+        else:
+            below.append(name)
+    return below, links
+
+
+def link_problems(guest):
+    """The links in the mounted folders of `guest` whose walk leaves their folder or never ends, each named with its
+    text. The mounted folder itself may be a link: apkrt_mount takes its realpath."""
+    problems = []
+    for top in MOUNTED:
+        root = os.path.realpath(os.path.join(guest, top))
+        for folder, directories, names in os.walk(root):
+            below = [] if folder == root else os.path.relpath(folder, root).split(os.sep)
+            for name in sorted(directories + names):
+                path = os.path.join(folder, name)
+                if not os.path.islink(path):
+                    continue
+                try:
+                    walk(root, below, os.readlink(path), 1)
+                except Leaves as why:
+                    shown = os.path.join(top, *below, name)
+                    problems.append(f"link: Guest/{shown} -> {os.readlink(path)}: {why} (Guest/{top})")
+    return problems
+
 
 def main():
     if len(sys.argv) != 2:
@@ -60,13 +118,15 @@ def main():
                                 universal_newlines=True)
         if result.returncode != 0:
             problems.append(f"codesign -v fails for Guest/{os.path.relpath(container, guest)}: {result.stdout.strip()}")
+    problems += link_problems(guest)
     for problem in problems:
         print(problem)
     files = sum(len(names) for _, _, names in os.walk(guest))
     if problems:
         print(f"guest check: {len(problems)} problems in {files} files")
         sys.exit(1)
-    print(f"guest check: {len(REQUIRED)} paths of the starts there, {len(containers)} containers signed, {files} files")
+    print(f"guest check: {len(REQUIRED)} paths of the starts there, {len(containers)} containers signed, {files} files, "
+          f"no link that leaves {' or '.join(MOUNTED)}")
 
 
 if __name__ == "__main__":
