@@ -90,7 +90,7 @@ struct LifecycleTests {
         var lifecycle = Lifecycle(targetSdk: targetSdk)
         _ = Self.run([.start, .active], on: &lifecycle)
 
-        #expect(lifecycle.handle(.quit) == [.onWindowFocusChanged(false), .onPause, .onNativeWindowDestroyed])
+        #expect(lifecycle.handle(.quit) == [.onPause, .onWindowFocusChanged(false), .onNativeWindowDestroyed])
         #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onDestroy])
     }
 
@@ -202,10 +202,11 @@ struct LifecycleTests {
 
     @Test(arguments: [Event.quit, .finish])
     func endsWithoutSavingItsState(end: Event) {
-        // Quit in the menu, or ANativeActivity_finish.
+        // Quit in the menu, or ANativeActivity_finish (an Activity's finish()): onPause before the focus goes, as
+        // Android 15 shows it at an app's end (activity-test, java-test; the lead's OK, App's c6 host fixes).
         var lifecycle = Self.running()
 
-        #expect(lifecycle.handle(end) == [.onWindowFocusChanged(false), .onPause, .onNativeWindowDestroyed])
+        #expect(lifecycle.handle(end) == [.onPause, .onWindowFocusChanged(false), .onNativeWindowDestroyed])
         #expect(lifecycle.gate == .gone)
         #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onDestroy])
         #expect(lifecycle.awaits == .onDestroy)
@@ -256,6 +257,37 @@ struct LifecycleTests {
         #expect(lifecycle.gate == .closed)
         #expect(lifecycle.handle(.menuClosed) == [.onWindowFocusChanged(true)])
         #expect(lifecycle.gate == .open)
+    }
+
+    /// A Java app's frames run from its start to its end while the scene is in the foreground, whatever the gate
+    /// (ADR-0041 decision 2, changed by the lead's OK, App's c6 host fixes): its ViewRootImpl holds the main queue's
+    /// messages, the lifecycle's among them, behind a traversal that waits for a frame, and Android gives frames to an
+    /// unfocused or windowless app that asks.
+    @Test func aJavaAppsFramesRunWhileTheSceneIsInTheForeground() {
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
+        #expect(!lifecycle.framesRun(javaApp: true))
+
+        var steps: [Bool] = []
+        for event: Event in [.start, .active, .inactive, .menuOpened, .menuClosed, .active, .background,
+                             .answered(.onNativeWindowDestroyed), .foreground, .active, .finish,
+                             .answered(.onNativeWindowDestroyed)] {
+            _ = lifecycle.handle(event)
+            steps.append(lifecycle.framesRun(javaApp: true))
+        }
+        #expect(steps == [true, true, true, true, true, true, false, false, true, true, true, true])
+        _ = lifecycle.handle(.answered(.onDestroy))
+        #expect(!lifecycle.framesRun(javaApp: true))
+    }
+
+    /// A NativeActivity app's frames run while its gate is open, as before.
+    @Test func aNativeActivityAppsFramesRunWhileTheGateIsOpen() {
+        var lifecycle = Lifecycle(targetSdk: Self.targetSdk)
+        for event: Event in [.start, .active, .inactive, .active, .menuOpened, .menuClosed, .background,
+                             .answered(.onNativeWindowDestroyed), .foreground, .active, .finish,
+                             .answered(.onNativeWindowDestroyed), .answered(.onDestroy)] {
+            _ = lifecycle.handle(event)
+            #expect(lifecycle.framesRun(javaApp: false) == (lifecycle.gate == .open))
+        }
     }
 
     @Test func nothingQueuedRunsAfterOnDestroy() {

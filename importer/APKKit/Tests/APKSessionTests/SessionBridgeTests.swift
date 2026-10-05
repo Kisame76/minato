@@ -210,14 +210,17 @@ struct SessionBridgeTests {
         ] + Self.shown(2, first: false))
     }
 
-    @Test func quitRemovesTheWindowBeforeOnPauseAndWaitsForOnDestroy() {
+    /// An app that ends with the focus keeps its window and open gate through onPause, as on Android; the gate closes
+    /// after the focus's post, and the window goes before onNativeWindowDestroyed (the lead's OK, App's c6 host fixes).
+    @Test(arguments: [Lifecycle.Event.quit, .finish])
+    func anEndKeepsTheWindowUntilTheFocusIsGoneAndWaitsForOnDestroy(end: Lifecycle.Event) {
         let host = FakeHost()
         var bridge = Self.running(host)
 
-        let first = bridge.handle(.quit, host: host).wait
+        let first = bridge.handle(end, host: host).wait
         #expect(host.take() == [
-            .post(.windowFocusChanged(false)), .setGate(1, open: false), .removeWindow(1),
-            .post(.pause), .post(.nativeWindowDestroyed(window: 1)),
+            .post(.pause), .post(.windowFocusChanged(false)), .setGate(1, open: false), .removeWindow(1),
+            .post(.nativeWindowDestroyed(window: 1)),
         ])
         #expect(first?.callback == .onNativeWindowDestroyed)
 

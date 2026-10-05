@@ -176,8 +176,11 @@ public struct SessionBridge: Sendable {
     ///   LOST_FOCUS waits at the closed gate rather than coming after the window is gone; it opens after
     ///   the posts;
     /// - a new window is added before the callbacks that start its life (ADR-0028's foreground order);
-    /// - a window that goes is removed before every callback but the focus's, since `native_app_glue`'s
-    ///   onPause waits for an app thread that may wait at the closed gate (ADR-0029, decision 15).
+    /// - a window that goes is removed before the first callback, the focus's excepted, that comes once its gate is
+    ///   closed, since `native_app_glue`'s onPause waits for an app thread that may wait at the closed gate (ADR-0029,
+    ///   decision 15): at the background and the menu's Quit before onPause, and for an app that ends with the focus,
+    ///   whose onPause comes first with the gate still open as on Android, before onNativeWindowDestroyed (changed by
+    ///   the lead's OK, App's c6 host fixes).
     private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost) -> Handled {
         var handled = Handled()
         let givesUpWindow = callbacks.contains(.onNativeWindowDestroyed)
@@ -188,8 +191,7 @@ public struct SessionBridge: Sendable {
                callbacks[index...].contains(.onNativeWindowCreated) {
                 window = host.addWindow(width: windowSize.width, height: windowSize.height)
             }
-            if givesUpWindow, window != 0, !Self.isFocus(callback) {
-                closeGateIfDue(host)
+            if givesUpWindow, window != 0, !gateIsOpen, !Self.isFocus(callback) {
                 gone = window
                 window = 0
                 host.removeWindow(gone)

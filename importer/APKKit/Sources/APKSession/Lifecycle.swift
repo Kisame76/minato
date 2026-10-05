@@ -91,6 +91,16 @@ public struct Lifecycle: Sendable, Equatable {
         return hasFocus ? .open : .closed
     }
 
+    /// Whether the frame clock runs (ADR-0041, decision 2): for a NativeActivity app while its gate is open; for a Java
+    /// app from its start to its end while the scene is in the foreground, whatever the gate (changed by the lead's OK,
+    /// App's c6 host fixes). Android gives frames to an unfocused or windowless app that asks, and a Java app's
+    /// ViewRootImpl holds its main queue's messages, the lifecycle's events among them, behind a traversal that waits
+    /// for a frame; its presents still wait at a closed gate.
+    public func framesRun(javaApp: Bool) -> Bool {
+        guard javaApp else { return gate == .open }
+        return phase != .notStarted && phase != .ended && !isInBackground
+    }
+
     /// The app's targetSdk, which decides where onSaveInstanceState falls, as in AOSP's
     /// `ActivityThread.callActivityOnStop` and `performPauseActivity`: after onStop from P on, before
     /// onStop below P, and before onPause below Honeycomb. An app that ends saves no state.
@@ -200,21 +210,22 @@ public struct Lifecycle: Sendable, Equatable {
         return [.onCreate, .onStart, .onResume, .onNativeWindowCreated] + updateFocus()
     }
 
-    /// onPause and onNativeWindowDestroyed, after the focus is gone. The window goes at once, before
-    /// onPause (ADR-0028's order): a render thread held at the closed gate returns to its loop, where
+    /// onPause, the focus's loss if the app still has it, and onNativeWindowDestroyed. An app that ends (Quit,
+    /// finish) gets Android 15's order, onPause before the focus goes (activity-test, java-test; changed by the lead's
+    /// OK, App's c6 host fixes). The background keeps the focus's loss first, a named departure: iOS takes the focus at
+    /// willDeactivate, before it tells of the background. SessionBridge removes the window before the first callback
+    /// after its gate closed (ADR-0028's order): a render thread held at the closed gate returns to its loop, where
     /// native_app_glue's onPause waits for it.
     private mutating func giveUpWindow() -> [Callback] {
-        var callbacks: [Callback] = []
-        if hasFocus {
-            hasFocus = false
-            callbacks.append(.onWindowFocusChanged(false))
-        }
-        if !isEnding, targetSdk < Self.honeycomb {
-            callbacks.append(.onSaveInstanceState)
-        }
+        let focus: [Callback] = hasFocus ? [.onWindowFocusChanged(false)] : []
+        hasFocus = false
         phase = .stopped
         awaits = .onNativeWindowDestroyed
-        return callbacks + [.onPause, .onNativeWindowDestroyed]
+        if isEnding {
+            return [.onPause] + focus + [.onNativeWindowDestroyed]
+        }
+        let save: [Callback] = targetSdk < Self.honeycomb ? [.onSaveInstanceState] : []
+        return focus + save + [.onPause, .onNativeWindowDestroyed]
     }
 
     /// onWindowFocusChanged when the app gains or loses the focus: resumed, active and without the menu.

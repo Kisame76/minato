@@ -32,8 +32,9 @@
 # start, and "Hide FPS" turns it off. ACTIVITY=1 runs test 7 of ADR-0032 in the Simulator: activity-test
 # (build/fixtures/apks/activity-test.apk) on activity-host (ADR-0028 d), through its start, Home and back, and
 # the end that follows its ANativeActivity_finish; its log must be Android 15's
-# (fixtures/expected/activity-test.logcat) apart from the recorded departure: the focus goes at "inactive",
-# before onPause, where Android pauses first; its layer is opaque. TRANSLUCENT=1 runs activity-test's entry
+# (fixtures/expected/activity-test.logcat) apart from the recorded departure at Home: the focus goes at
+# "inactive", before onPause, where Android pauses first; its end has Android's order (App's c6 host fixes); its
+# layer is opaque. TRANSLUCENT=1 runs activity-test's entry
 # activity_test_translucent_onCreate, packed as an app of its own, which asks for RGBA_8888 in onCreate: the
 # session reports the window translucent before any other request, and the layer follows (ADR-0030 V5). LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
 # (build/fixtures/apks/gles-live.apk and, on the iPhone, vulkan-live.apk, which needs MoltenVK): each draws paced
@@ -65,6 +66,8 @@
 # Optional environment:
 #   SHOTS       a folder for screenshots of game mode, its menu and the fallback's alerts
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
+#   APP         in the Simulator, a built Minato.app (Debug) to install in place of tools/sim.sh's build, as
+#               tools/java-start-check.sh takes one, e.g. a scratch copy's
 #   BY_HAND     with --device: only the rounds by hand, in portrait, then in landscape
 #   ORIENTATION with BY_HAND: only the round in this orientation, "portrait" or "landscape"
 #   TOUCH       only the round of touches by hand
@@ -197,7 +200,9 @@ if [[ "$ON_DEVICE" == yes ]]; then
   fi
   CONTAINER="$WORK/container"
 else
-  if [[ -n "${SKIP_BUILD:-}" ]]; then
+  if [[ -n "${APP:-}" ]]; then
+    xcrun simctl install "$SIM_UDID" "$APP"
+  elif [[ -n "${SKIP_BUILD:-}" ]]; then
     xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
   else
     INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
@@ -401,6 +406,8 @@ check_window() {
 START="onCreate onStart onResume onNativeWindowCreated onWindowFocusChanged(true)"
 MENU="onWindowFocusChanged(false)"
 QUIT="onPause onNativeWindowDestroyed onStop onDestroy"
+# An app that ends itself with the focus: onPause before the focus goes, Android 15's order (App's c6 host fixes).
+FINISH="onPause onWindowFocusChanged(false) onNativeWindowDestroyed onStop onDestroy"
 
 # Game mode from its start to Quit, in process $2 for way $1; $3 is "shown" when the hint is due, $4 the
 # orientation it holds.
@@ -913,16 +920,17 @@ run_ends() {
     || fail "  no library after Quit"
 }
 
-# Android 15's log of test app $1 (fixtures/expected/$1.logcat) with test 7's departure: the focus goes before
-# onPause, where Android pauses first.
+# Android 15's log of test app $1 (fixtures/expected/$1.logcat) with test 7's departure at Home: the focus goes
+# before onPause, where Android pauses first. The last pair is the app's end, which has Android's order since App's
+# c6 host fixes.
 with_focus_departure() {
   python3 - "fixtures/expected/$1.logcat" "$1" <<'PY'
 import sys
 lines = open(sys.argv[1]).read().splitlines()
 pause, lost = f"I/{sys.argv[2]}: APP_CMD_PAUSE", f"I/{sys.argv[2]}: APP_CMD_LOST_FOCUS"
-for i in range(len(lines) - 1):
-    if lines[i] == pause and lines[i + 1] == lost:
-        lines[i], lines[i + 1] = lost, pause
+pairs = [i for i in range(len(lines) - 1) if lines[i] == pause and lines[i + 1] == lost]
+for i in pairs[:-1]:
+    lines[i], lines[i + 1] = lost, pause
 print("\n".join(lines))
 PY
 }
@@ -1016,13 +1024,13 @@ run_activity() {
     || fail "  activity-host did not end"
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
     "$(callbacks_of "$pid")"
   expect "  the requests" "keepScreenOn(true) finish" "$(requests_of "$pid")"
   # The layer starts opaque, as Android's window from NativeActivity's RGB_565, and stays so (ADR-0030 V5).
   expect "  the layer's opacity" "1" "$(opacity_of "$pid")"
 
-  # The app's lines against Android 15's, with test 7's departure: LOST_FOCUS before PAUSE.
+  # The app's lines against Android 15's, with test 7's departure at Home: LOST_FOCUS before PAUSE.
   has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
   grep '^I/activity-test: ' "$CHECK/guest-log" > "$WORK/activity-app.log" || true
   with_focus_departure activity-test > "$WORK/activity-expected.log"
@@ -1073,7 +1081,7 @@ run_rotation() {
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
   local turn="onConfigurationChanged onNativeWindowResized"
-  expect "  the callbacks" "$START $turn $turn onWindowFocusChanged(false) $QUIT" "$(callbacks_of "$pid")"
+  expect "  the callbacks" "$START $turn $turn $FINISH" "$(callbacks_of "$pid")"
   if head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "session" && $4 == "turn"' | grep -q .; then
     fail "  iOS refused a turn"
   else

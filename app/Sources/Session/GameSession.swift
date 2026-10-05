@@ -133,7 +133,7 @@ final class GameSession {
         let clock = DisplayLinkClock(sink: sink)
         frameClock = clock
         frameClockSlot.set(clock)
-        clock.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
+        clock.run(framesRun)
         #if DEBUG
         // Before the observer below, so each scene event is logged before the callbacks it causes.
         SessionCheck.observeScene()
@@ -513,6 +513,13 @@ final class GameSession {
         report(bridge.handle(event, host: host))
     }
 
+    /// Whether the frame clock runs: the lifecycle's rule for the app's kind (ADR-0041, decision 2), a Java app's
+    /// frames while the scene is in the foreground (App's c6 host fixes), and none once the channel broke.
+    private var framesRun: Bool {
+        let javaApp = if case .art = entry.report?.runtime { true } else { false }
+        return !bridge.isBroken && bridge.lifecycle.framesRun(javaApp: javaApp)
+    }
+
     /// Logs what the guest was sent, runs the wait for its answer, and returns to the library once the
     /// guest has ended or its channel broke.
     private func report(_ handled: SessionBridge.Handled) {
@@ -523,7 +530,7 @@ final class GameSession {
             #endif
         }
         if handled.callbacks.contains(.onCreate) { guestStarted() }
-        frameClock?.run(bridge.lifecycle.gate == .open && !bridge.isBroken)
+        frameClock?.run(framesRun)
         // A gesture that is open when the focus goes ends with a CANCEL (ADR-0036, decision 3).
         if handled.callbacks.contains(.onWindowFocusChanged(false)) {
             post(touches.focusLost(at: Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9))
