@@ -315,18 +315,13 @@ public final class ActivityThread {
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);
         sCurrentActivityThread = thread;
-        // As handleBindApplication's makeApplicationInner (step c1): the manifest's Application class, else
-        // android.app.Application, through the app's AppComponentFactory, which loads and initializes it, then its
-        // attachBaseContext with the app's ContextImpl. currentApplication() gives it out from then on.
+        // As handleBindApplication's makeApplicationInner (steps c1 and c1.1): the manifest's Application class, else
+        // android.app.Application, unless --application names one, through the app's AppComponentFactory, which loads
+        // and initializes it, then its attachBaseContext with the app's ContextImpl. currentApplication() gives it out
+        // from then on.
         LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
         thread.mLoadedApk = packageInfo;
-        Application app;
-        try {
-            app = packageInfo.makeApplication(application);
-        } catch (ReflectiveOperationException e) {
-            throw new RuntimeException("Unable to instantiate application " + application + " package " + packageName
-                    + ": " + e, e);
-        }
+        Application app = packageInfo.makeApplication(application);
         thread.mInitialApplication = app;
         // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
         // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).

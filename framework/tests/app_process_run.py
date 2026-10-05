@@ -33,8 +33,9 @@ The comparison takes the reference's lines without logcat's "I/System.out: " and
 differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100 for every app, decision 3), and
 zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Since step c2b the app process runs its
 main Looper and never ends by itself: the run ends 2 s after the MessageDigest line, the app's last, as
-tools/android-reference.sh stops the app on the AVD after that line. Prints "skipped: ..." while a part is not built.
-framework/tests/java_app_run.py starts its apps with this file's start().
+tools/android-reference.sh stops the app on the AVD after that line. app-start-test starts without --application, as
+the app starts on the iPhone: ActivityThread makes the class its manifest names (step c1.1). Prints "skipped: ..."
+while a part is not built. framework/tests/java_app_run.py starts its apps with this file's start().
 
 Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work>
                           <app_process64> <framework.jar> <framework-res folder> <app-start-test.apk> <expected>
@@ -65,7 +66,6 @@ APP_ABI = "lib/arm64-v8a/"
 # links the first 4 (ADR-0041 a)).
 FRONT_LIBS = ("libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so")
 PACKAGE = "io.github.kisame76.minato.test.appstart"
-APPLICATION = "io.github.kisame76.minato.test.appstart.StartApplication"
 APP_UID = 10100
 # app-start-test's last line, after which the reference stops it (tools/android-reference.sh).
 LAST = r"^app-start-test: MessageDigest "
@@ -254,17 +254,18 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
           lifecycle=None):
-    """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after
-    a timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. libandroid_runtime.so beside
-    app_process goes to /system/lib64 with hwui's set and ART's copies for it, `mounts` are more --mount entries
-    (guest path, host path), and `configuration` begins a session with apk-run's --configuration
-    (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts, whose host then plays
-    `lifecycle`, apk-run's --lifecycle steps (ADR-0043 step c1), "start" when it is None. `signers`, the APK's
+    """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
+    timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
+    ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
+    c1.1). libandroid_runtime.so beside app_process goes to /system/lib64 with hwui's set and ART's copies for it,
+    `mounts` are more --mount entries (guest path, host path), and `configuration` begins a session with apk-run's
+    --configuration (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts, whose host then
+    plays `lifecycle`, apk-run's --lifecycle steps (ADR-0043 step c1), "start" when it is None. `signers`, the APK's
     signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it in
     the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder is also
     /data/data/<package>, and its external data and OBB folders are mounted as GuestStart mounts them (decision 6).
-    `again` starts it once more over the run folder of the start before, as Android starts an app's process again
-    over its data (step c1); the folders are made only for a new run."""
+    `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
+    its data (step c1); the folders are made only for a new run."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -340,7 +341,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     command += ["--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",
-                "--library-path", f"{app}/lib/arm64", "--data-dir", data, "--application", application]
+                "--library-path", f"{app}/lib/arm64", "--data-dir", data]
+    if application is not None:
+        command += ["--application", application]
     if signers is not None:
         command += ["--signers", f"{app}/signers.json"]
     return run_app(command, last)
@@ -358,7 +361,7 @@ def main():
         print(skipped)
         return
     result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
-                   framework_jar, apk, PACKAGE, APPLICATION, mounts=[("/system/framework/framework-res", folder)],
+                   framework_jar, apk, PACKAGE, None, mounts=[("/system/framework/framework-res", folder)],
                    last=LAST)
     if result is None:
         print("FAIL: no end within 300 s")

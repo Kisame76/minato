@@ -117,18 +117,30 @@ public final class LoadedApk {
     }
 
     /**
-     * Makes the Application as makeApplicationInner does: the manifest's class, else android.app.Application,
-     * through the app's AppComponentFactory, attached to a new ContextImpl that then knows it as its outer context.
+     * Makes the Application as makeApplicationInner does: the manifest's class for the process, else
+     * android.app.Application, through the app's AppComponentFactory, attached to a new ContextImpl that then knows it
+     * as its outer context, and what fails thrown with Android's message. `className`, ActivityThread.main's
+     * --application, takes the manifest's place when it is not null (step c1.1).
      */
-    public Application makeApplication(String className) throws ReflectiveOperationException {
+    public Application makeApplication(String className) {
         if (mApplication != null) {
             return mApplication;
         }
-        ContextImpl appContext = ContextImpl.createAppContext(mActivityThread, this);
-        Application app = mAppComponentFactory.instantiateApplication(mClassLoader,
-                className != null ? className : Application.class.getName());
-        app.attach(appContext);
-        appContext.setOuterContext(app);
+        String appClass = className != null ? className
+                : mApplicationInfo.getCustomApplicationClassNameForProcess(mActivityThread.getProcessName());
+        if (appClass == null) {
+            appClass = "android.app.Application";
+        }
+        Application app;
+        try {
+            ContextImpl appContext = ContextImpl.createAppContext(mActivityThread, this);
+            app = mAppComponentFactory.instantiateApplication(mClassLoader, appClass);
+            app.attach(appContext);
+            appContext.setOuterContext(app);
+        } catch (Exception e) {
+            throw new RuntimeException("Unable to instantiate application " + appClass + " package " + mPackageName
+                    + ": " + e, e);
+        }
         mApplication = app;
         return app;
     }
