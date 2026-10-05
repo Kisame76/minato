@@ -1,0 +1,10 @@
+# ADR-0041 a) decision 6's fix: what vsync-lag-test (fixtures/java/vsync-lag-test) prints without its "vsync-lag-test: "
+# prefix under graphics-run without a session, its JNI library posting the frame clock's ticks 200 ms apart
+# (tools/vsync-lag-check.sh). Minato only; the values follow from Choreographer.doFrame at android-15.0.0_r1:
+# - a) a doFrame that starts 420 ms after its tick, more than a period, takes startNanos less jitterNanos modulo the
+#   frame interval as its frame time: the tick's time plus whole periods, before its start;
+# - b) a tick from before B's request is not B's, as DisplayEventDispatcher::scheduleVsync drops the events from
+#   before its request: B runs at the next tick, a period after A's frame time.
+a) frame A, 420 ms late: its frame time on the tick's grid, at or before its start true
+b) frame B after a tick at A's frame time: rising true, at the next grid point true, at or before its callback true
+done

@@ -4,7 +4,11 @@
 // thread that makes it, whose Looper has c1's ALooper (MessageQueue): Choreographer makes its receiver on its own
 // thread, so Java's and the NDK's frame callbacks on one thread share that thread's vsync channel and ticks.
 //   - nativeScheduleVsync asks for the next tick once until it comes: a second call before it posts nothing, as
-//     DisplayEventDispatcher::scheduleVsync.
+//     DisplayEventDispatcher::scheduleVsync. A tick whose time lies before the request is not its answer: the receiver
+//     asks again and takes the next one, as DisplayEventDispatcher::scheduleVsync drops the events from before its
+//     request and SurfaceFlinger stamps an event with its wake-up after it. A frame clock that posts its tick late,
+//     after a request (apk-run's under load), would otherwise give Choreographer the time it moved a late frame to
+//     once more (ADR-0041 a) decision 6's fix, vsync-lag-test).
 //   - At the tick, the receiver copies AChoreographerFrameCallbackData's timelines and preferred index, and the
 //     timelines' period as the frame interval, into its VsyncEventData, then calls dispatchVsync with the tick's time,
 //     display 0 and the tick's number, the frame clock's count of ticks.
@@ -147,6 +151,7 @@ public:
             std::lock_guard<std::mutex> hold(mLock);
             if (mScheduled) return;
             mScheduled = true;
+            mRequested = Now();
             ++mHolds;
         }
         libandroid().AChoreographer_postVsyncCallback(mChoreographer, OnVsync, this);
@@ -222,15 +227,22 @@ private:
         return tick;
     }
 
-    // On the receiver's thread, at the tick it asked for.
+    // On the receiver's thread, at the tick it asked for; a tick from before the request asks for the next one, with
+    // the posted callback's hold.
     static void OnVsync(const AChoreographerFrameCallbackData *data, void *self) {
         auto *receiver = static_cast<NativeDisplayEventReceiver *>(self);
         const VsyncData tick = Read(data);
+        bool early;
         {
             std::lock_guard<std::mutex> hold(receiver->mLock);
-            receiver->mScheduled = false;
+            early = tick.time < receiver->mRequested;
+            receiver->mScheduled = early;
             receiver->mLast = tick;
             receiver->mTicked = true;
+        }
+        if (early) {
+            libandroid().AChoreographer_postVsyncCallback(receiver->mChoreographer, OnVsync, receiver);
+            return;
         }
         JNIEnv *env = AndroidRuntime::getJNIEnv();
         // An exception an earlier callback of this tick left stays pending for nativePollOnce to throw (c1's
@@ -269,8 +281,9 @@ private:
     const jobject mVsyncEventDataWeak;  // and to its VsyncEventData
     AChoreographer *const mChoreographer;
     std::mutex mLock;
-    int mHolds = 1;  // the Java peer's and a posted callback's; under mLock, as the three below
+    int mHolds = 1;  // the Java peer's and a posted callback's; under mLock, as the four below
     bool mScheduled = false;
+    int64_t mRequested = 0;  // the time of the request a callback is posted for
     bool mTicked = false;
     VsyncData mLast;
 };

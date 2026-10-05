@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0041 a) decision 6's fix for a frame clock that posts late (vsync-lag-test): Java's Choreographer on ticks
+     that its JNI library posts through graphics-run's test control. Minato only: Android has no graphics-run. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.vsynclag" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35"/>
+  <application android:label="Vsync Lag Test"
+      android:name="io.github.kisame76.minato.test.vsynclag.VsyncLagApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
