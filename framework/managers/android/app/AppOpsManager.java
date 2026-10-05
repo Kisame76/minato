@@ -21,7 +21,13 @@ class AppOpsManager {
     /** @hide No app op, as for a permission without one. */
     public static final int OP_NONE = -1;
 
-    /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1); appopsgen checks them. */
+    /** @hide As AOSP's: the ops Settings' write checks ask by number (gap 13a); appopsgen checks them. */
+    public static final int OP_WRITE_SETTINGS = 23;
+
+    /** @hide */
+    public static final int OP_SYSTEM_ALERT_WINDOW = 24;
+
+    /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1). */
     public static final int OP_LEGACY_STORAGE = 87;
 
     /** @hide */
@@ -78,6 +84,11 @@ class AppOpsManager {
 
     /** @hide */
     public int noteOpNoThrow(int op, int uid, String packageName) {
+        return mode(op, uid);
+    }
+
+    /** @hide As AOSP's: with the attribution tag and message, which a note would record. */
+    public int noteOpNoThrow(int op, int uid, String packageName, String attributionTag, String message) {
         return mode(op, uid);
     }
 

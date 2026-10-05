@@ -25,6 +25,13 @@ public class Process {
     /** The system's uid, which holds every permission too. */
     public static final int SYSTEM_UID = 1000;
 
+    /**
+     * As AOSP's: no pid, which an AttributionSource without one carries (ADR-0045, gap 13a).
+     *
+     * @hide
+     */
+    public static final int INVALID_PID = -1;
+
     // The uid ranges and gids of the tag's Process, which AOSP's UserHandle reads (step c1).
 
     /** @hide */

@@ -6,10 +6,13 @@
  * service that looks up another while it is made takes the lock again. An unknown name gives null, as Android's
  * getService does for a service that does not exist, and is logged once per name. The table's first entry is
  * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e),
- * the third "input", InputManagerGlobal's (ADR-0045, the input service); App's services join it.
+ * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
+ * (ADR-0045, gap 13a); App's services join it.
  */
 package android.os;
 
+import android.content.ContentResolver;
+import android.content.ContentService;
 import android.content.Context;
 import android.hardware.display.DisplayService;
 import android.hardware.input.InputService;
@@ -36,6 +39,7 @@ public final class ServiceManager {
         sMakers.put(Context.DISPLAY_SERVICE, DisplayService::newBinder);
         sMakers.put(Context.PLATFORM_COMPAT_SERVICE, PlatformCompatService::newBinder);
         sMakers.put(Context.INPUT_SERVICE, InputService::newBinder);
+        sMakers.put(ContentResolver.CONTENT_SERVICE_NAME, ContentService::newBinder);
     }
 
     private ServiceManager() {

@@ -47,4 +47,7 @@ public interface IActivityManager {
 
     void addInstrumentationResults(android.app.IApplicationThread target, android.os.Bundle results)
             throws android.os.RemoteException;
+
+    void getMimeTypeFilterAsync(android.net.Uri uri, int userId, android.os.RemoteCallback resultCallback)
+            throws android.os.RemoteException;
 }

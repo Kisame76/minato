@@ -86,6 +86,11 @@ public class Binder implements IBinder {
         return binder;
     }
 
+    /** As allowBlocking: ContentProviderClient's provider binder, returned as it is (ADR-0045, gap 13a). */
+    public static IBinder defaultBlocking(IBinder binder) {
+        return binder;
+    }
+
     public void attachInterface(IInterface owner, String descriptor) {
         mOwner = owner;
         mDescriptor = descriptor;

@@ -24,6 +24,9 @@ a start that cannot reach the reference's end, such as one without a session (AD
 With --drawn, the run must have drawn its window: apk-run's headless buffers log the first post of each window
 (ADR-0043 step c3), which the process's log must hold.
 
+With --android-id, the app starts with ActivityThread's --android-id, the value its settings provider gives as
+android_id, as the host gives it (ADR-0045, gap 13a).
+
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
@@ -31,6 +34,7 @@ second time over the first start's folders, as tools/android-reference.sh starts
 starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
+                       [--android-id <16 hex digits>]
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -56,9 +60,12 @@ def main():
     lifecycle = None
     until = None
     drawn = False
-    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"]):
+    android_id = None
+    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
+        elif len(args) > 1 and args[0] == "--android-id":
+            android_id, args = args[1], args[2:]
         elif args[0] == "--drawn":
             drawn, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--lifecycle":
@@ -98,7 +105,8 @@ def main():
         result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
                        signers=signers, again=again,
-                       last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle)
+                       last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
+                       android_id=android_id)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

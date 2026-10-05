@@ -24,18 +24,22 @@
  * callbacks returned; they become Android's lifecycle transactions (CREATE the launch, START, RESUME, PAUSE, STOP and
  * DESTROY as AOSP's handlers, the instance state saved with the stop by the target SDK), and the window's events reach
  * its ViewRootImpl. The root activity's finish() asks the host, which answers with the quit. Without a session the
- * launch runs by itself as before.
+ * launch runs by itself as before. Since ADR-0045's gap 13a it gives ContentResolver the app's providers and the
+ * local settings provider (acquireProvider), whose android_id is the host's --android-id.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
  *                       [--signers <the version's signers.json>] [--application <class>]
+ *                       [--android-id <16 hex digits>]
  */
 package android.app;
 
 import android.app.compat.CompatChanges;
+import android.content.AttributionSource;
 import android.content.ContentProvider;
 import android.content.Context;
 import android.content.ComponentName;
+import android.content.IContentProvider;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.IPackageManager;
@@ -58,11 +62,14 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.MessageQueue;
 import android.permission.IPermissionManager;
+import android.provider.Settings;
+import android.provider.SettingsProvider;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.Slog;
 import android.util.SuperNotCalledException;
 import android.util.UtilConfig;
 import android.view.Display;
@@ -113,6 +120,11 @@ public final class ActivityThread {
 
     /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
     final ArrayMap<String, ContentProvider> mLocalProvidersByAuthority = new ArrayMap<>();
+
+    /** The host's android_id (--android-id), or null; the settings provider then makes one (ADR-0045, gap 13a). */
+    private String mAndroidId;
+    /** The local settings provider, made at its first acquire; under mLocalProvidersByAuthority's lock. */
+    private SettingsProvider mSettingsProvider;
 
     /**
      * The activities by their token, as AOSP's ActivityThread keeps them, which Application.getAutofillClient walks:
@@ -189,6 +201,13 @@ public final class ActivityThread {
         return thread != null ? thread.mInitialApplication : null;
     }
 
+    /** As AOSP's: the Application's attribution source, null while Minato's contexts give none (ADR-0045, 13a). */
+    public static AttributionSource currentAttributionSource() {
+        ActivityThread thread = sCurrentActivityThread;
+        return thread != null && thread.mInitialApplication != null
+                ? thread.mInitialApplication.getAttributionSource() : null;
+    }
+
     public Application getApplication() {
         return mInitialApplication;
     }
@@ -250,6 +269,7 @@ public final class ActivityThread {
         String application = null;
         String dataDir = null;
         String signers = null;
+        String androidId = null;
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--package": packageName = args[i + 1]; break;
@@ -259,14 +279,16 @@ public final class ActivityThread {
                 case "--application": application = args[i + 1]; break;
                 case "--data-dir": dataDir = args[i + 1]; break;
                 case "--signers": signers = args[i + 1]; break;
+                case "--android-id": androidId = args[i + 1]; break;
                 default: throw new IllegalArgumentException("ActivityThread.main: unknown argument " + args[i]);
             }
         }
-        if (packageName == null || apk == null || libraryPath == null || dataDir == null || args.length % 2 != 0) {
+        if (packageName == null || apk == null || libraryPath == null || dataDir == null || args.length % 2 != 0
+                || androidId != null && !androidId.matches("[0-9a-f]{16}")) {
             throw new IllegalArgumentException(
                     "usage: ActivityThread.main --package <package> [--process <name>] --apk <base.apk> "
                     + "--library-path <folder> --data-dir <folder> [--signers <signers.json>] "
-                    + "[--application <class>]");
+                    + "[--application <class>] [--android-id <16 hex digits>]");
         }
         // As AOSP's main: the main thread's Looper, and the Handler that framework classes post to it with.
         Looper.prepareMainLooper();
@@ -314,6 +336,7 @@ public final class ActivityThread {
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);
+        thread.mAndroidId = androidId;
         sCurrentActivityThread = thread;
         // As handleBindApplication's makeApplicationInner (steps c1 and c1.1): the manifest's Application class, else
         // android.app.Application, unless --application names one, through the app's AppComponentFactory, which loads
@@ -379,6 +402,37 @@ public final class ActivityThread {
                 mLocalProvidersByAuthority.put(authority, provider);
             }
         }
+    }
+
+    /**
+     * As AOSP's acquireProvider, which ContextImpl's ApplicationContentResolver calls (ADR-0045, gap 13a): the app's
+     * own providers by authority (step c2c1 installs them), and "settings", the local settings provider, which
+     * Android's system_server publishes; it is made at its first acquire, on the caller's application context. Android
+     * asks system_server for any other authority, which Minato has none of: null, logged as Android logs it. Each
+     * provider is local, for any user and both kinds of reference.
+     */
+    public final IContentProvider acquireProvider(Context c, String auth, int userId, boolean stable) {
+        ContentProvider provider;
+        synchronized (mLocalProvidersByAuthority) {
+            provider = mLocalProvidersByAuthority.get(auth);
+            if (provider == null && Settings.AUTHORITY.equals(auth)) {
+                if (mSettingsProvider == null) {
+                    Context application = c.getApplicationContext();
+                    mSettingsProvider = SettingsProvider.create(application != null ? application : c, mAndroidId);
+                }
+                provider = mSettingsProvider;
+            }
+        }
+        if (provider == null) {
+            Slog.e(TAG, "Failed to find provider info for " + auth);
+            return null;
+        }
+        return provider.getIContentProvider();
+    }
+
+    /** As AOSP's: a local provider stays until the process ends; false for none. */
+    public final boolean releaseProvider(IContentProvider provider, boolean stable) {
+        return provider != null;
     }
 
     private static volatile boolean sCrashing;

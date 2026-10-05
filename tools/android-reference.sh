@@ -38,6 +38,8 @@
 # (test 1), whose lines are System.out's that start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
+# settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
+# its reference is taken on apk-runner-35 wiped first.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
 # pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
 # views-test (ADR-0043 test 1, step c3) runs on java-test's AVD, drawn in software with the system bars shown: a second
@@ -375,7 +377,7 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test)
+      | owner-rules-test | settings-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

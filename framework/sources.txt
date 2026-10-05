@@ -834,3 +834,42 @@ frameworks_base/core/java/android/util/SizeF.java
 # ADR-0045, the storage and app ops Godot's start asks for (stops 4 and 6 of the Godot b) rerun past 7a):
 # StorageVolume, the one emulated volume that our StorageManager (managergen's, framework/managers) lists.
 frameworks_base/core/java/android/os/storage/StorageVolume.java
+
+# ADR-0045, the settings Godot's start reads (gap 13a, stop 10): ContentResolver, which ContextImpl's
+# ApplicationContentResolver extends, with its client (ContentProviderClient) and its event log tags, Settings over the
+# local settings provider (android.provider.SettingsProvider), MemoryIntArray, which Settings' generation trackers
+# name, ContentObserver with its AIDL, IContentService's AIDL for the local content service, with SyncStatusInfo,
+# which it names, the cursors a provider answers with and ContentResolver wraps: MatrixCursor over AbstractCursor and
+# its observables, CursorWrapper with CrossProcessCursorWrapper, and DatabaseUtils for a cursor's types, with
+# SQLException; BaseColumns, which Settings' tables implement, RemoteCallback, through which ContentResolver asks a
+# provider for a type, AttributionSource, which a provider's transport casts at every call, over our
+# AttributionSourceState (framework/java), as aidl writes it from frameworks/native's AIDL, which the fetch lacks, and
+# ICancellationSignal, whose stub CancellationSignal's transport extends, which a provider's query asks about.
+frameworks_base/core/java/android/content/ContentResolver.java
+frameworks_base/core/java/android/content/ContentProviderClient.java
+frameworks_base/core/java/android/content/AttributionSource.java
+frameworks_base/core/java/android/content/EventLogTags.logtags
+frameworks_base/core/java/android/provider/Settings.java
+frameworks_base/core/java/android/util/MemoryIntArray.java
+frameworks_base/core/java/android/database/ContentObserver.java
+frameworks_base/core/java/android/database/IContentObserver.aidl
+frameworks_base/core/java/android/content/IContentService.aidl
+frameworks_base/core/java/android/content/ISyncStatusObserver.aidl
+frameworks_base/core/java/android/content/SyncStatusInfo.java
+frameworks_base/core/java/android/database/AbstractCursor.java
+frameworks_base/core/java/android/database/CharArrayBuffer.java
+frameworks_base/core/java/android/database/ContentObservable.java
+frameworks_base/core/java/android/database/CrossProcessCursor.java
+frameworks_base/core/java/android/database/CrossProcessCursorWrapper.java
+frameworks_base/core/java/android/database/CursorIndexOutOfBoundsException.java
+frameworks_base/core/java/android/database/CursorWrapper.java
+frameworks_base/core/java/android/database/DataSetObservable.java
+frameworks_base/core/java/android/database/DataSetObserver.java
+frameworks_base/core/java/android/database/DatabaseUtils.java
+frameworks_base/core/java/android/database/MatrixCursor.java
+frameworks_base/core/java/android/database/Observable.java
+frameworks_base/core/java/android/database/SQLException.java
+frameworks_base/core/java/android/provider/BaseColumns.java
+frameworks_base/core/java/android/os/RemoteCallback.java
+frameworks_base/core/java/android/os/IRemoteCallback.aidl
+frameworks_base/core/java/android/os/ICancellationSignal.aidl

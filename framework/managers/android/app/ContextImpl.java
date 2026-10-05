@@ -7,8 +7,12 @@
 // external folders through Environment's one emulated volume (framework/patches). Step c2c2 adds the theme and the
 // LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made. Step c2c3
 // adds an activity's context, with its token and its own Resources, the window manager and the display: an
-// activity's context is a UI context associated with display 0, the application's is not, as on Android.
+// activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045's
+// gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider.
+import android.content.ContentProvider;
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.IContentProvider;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
@@ -61,6 +65,7 @@ class ContextImpl {
     /** @hide */
     final LoadedApk mPackageInfo;
     private final String mOpPackageName;
+    private final ApplicationContentResolver mContentResolver;
     private final Object mSync = new Object();
     private Context mOuterContext = (Context) (Object) this;
     private PackageManager mPackageManager;
@@ -92,6 +97,7 @@ class ContextImpl {
         mMainThread = mainThread;
         mPackageInfo = packageInfo;
         mOpPackageName = packageInfo.getPackageName();
+        mContentResolver = new ApplicationContentResolver((Context) (Object) this, mainThread);
     }
 
     /**
@@ -337,6 +343,10 @@ class ContextImpl {
             }
             return mPackageManager;
         }
+    }
+
+    public ContentResolver getContentResolver() {
+        return mContentResolver;
     }
 
     /** The Application, once LoadedApk made it: null while its attachBaseContext runs, as on Android. */
@@ -928,5 +938,49 @@ class ContextImpl {
             return file;
         }
         throw new IllegalArgumentException("File " + name + " contains a path separator");
+    }
+
+    /**
+     * The tag's ApplicationContentResolver: providers through ActivityThread.acquireProvider, by their authority
+     * without a user, for the user it names or the context's. They are the process's own, so a stable and an
+     * unstable reference are the same, and none dies apart from the process.
+     */
+    private static final class ApplicationContentResolver extends ContentResolver {
+        private final ActivityThread mMainThread;
+
+        ApplicationContentResolver(Context context, ActivityThread mainThread) {
+            super(context);
+            mMainThread = mainThread;
+        }
+
+        @Override
+        protected IContentProvider acquireProvider(Context context, String auth) {
+            return mMainThread.acquireProvider(context, ContentProvider.getAuthorityWithoutUserId(auth),
+                    resolveUserIdFromAuthority(auth), true);
+        }
+
+        @Override
+        public boolean releaseProvider(IContentProvider provider) {
+            return mMainThread.releaseProvider(provider, true);
+        }
+
+        @Override
+        protected IContentProvider acquireUnstableProvider(Context context, String auth) {
+            return mMainThread.acquireProvider(context, ContentProvider.getAuthorityWithoutUserId(auth),
+                    resolveUserIdFromAuthority(auth), false);
+        }
+
+        @Override
+        public boolean releaseUnstableProvider(IContentProvider provider) {
+            return mMainThread.releaseProvider(provider, false);
+        }
+
+        @Override
+        public void unstableProviderDied(IContentProvider provider) {
+        }
+
+        private int resolveUserIdFromAuthority(String auth) {
+            return ContentProvider.getUserIdFromAuthority(auth, getUserId());
+        }
     }
 }

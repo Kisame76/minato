@@ -1,0 +1,18 @@
+I/settings-test: content resolver: android.app.ContextImpl$ApplicationContentResolver
+I/settings-test: long press: secure 400, ViewConfiguration 400
+I/settings-test: multi press: secure 300, ViewConfiguration 300
+I/settings-test: key repeat timeout: secure java.lang.SecurityException: Settings key: <key_repeat_timeout> is not readable. From S+, settings keys annotated with @hide are restricted to system_server and system apps only, unless they are annotated with @Readable., ViewConfiguration 400
+I/settings-test: key repeat delay: secure java.lang.SecurityException: Settings key: <key_repeat_delay> is not readable. From S+, settings keys annotated with @hide are restricted to system_server and system apps only, unless they are annotated with @Readable., ViewConfiguration 50
+I/settings-test: system: screen off timeout 2147483647, auto-rotate 1
+I/settings-test: global: airplane mode 0
+I/settings-test: secure: android_id 16 hex digits true, the same again true
+I/settings-test: a key no table has: android.provider.Settings$SettingNotFoundException: minato_no_such_setting, as a string null
+I/settings-test: bluetooth address: java.lang.SecurityException: Settings key: <bluetooth_address> is only readable to apps with targetSdkVersion lower than or equal to: 31
+I/settings-test: airplane mode through System: 0
+I/settings-test: system write: java.lang.SecurityException
+I/settings-test: secure write: java.lang.SecurityException
+I/settings-test: global write: java.lang.SecurityException
+I/settings-test: query: 1 row, columns [_id, name, value, is_preserved_in_restore], screen off timeout 2147483647
+I/settings-test: query of a hidden key: java.lang.SecurityException: Settings key: <key_repeat_timeout> is not readable. From S+, settings keys annotated with @hide are restricted to system_server and system apps only, unless they are annotated with @Readable.
+I/settings-test: content observer: registered and unregistered
+I/settings-test: done

@@ -253,7 +253,7 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
-          lifecycle=None):
+          lifecycle=None, android_id=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -266,6 +266,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     /data/user/0/<package>, is a mount of its own, also as /data/data/<package> after it, and its external data and
     OBB folders are mounted as GuestStart mounts them (decision 6): a rename or link between them and the rest of
     /data answers EXDEV, as on Android 15 (ADR-0039 decision 3).
+    `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
+    host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
     its data (step c1); the folders are made only for a new run."""
     os.makedirs(work, exist_ok=True)
@@ -352,6 +354,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--application", application]
     if signers is not None:
         command += ["--signers", f"{app}/signers.json"]
+    if android_id is not None:
+        command += ["--android-id", android_id]
     return run_app(command, last)
 
 
