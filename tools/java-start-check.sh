@@ -19,10 +19,13 @@
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
-#              build; on the iPhone it goes over the installed Minato, whose data stays
+#              build; on the iPhone it goes over the installed Minato, whose data stays, and the script prints how long
+#              that took and what the certificate hand-over says
 #   LOGS       a folder that keeps each start's guest log and stdout, <app>-<start>.log and .out, and a screenshot
 #              <app>-<start>.png of a start that failed, which shows an alert's text
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
+#   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
+#              alone; java-test among them runs in the Simulator too
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -50,8 +53,26 @@ fi
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
       "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib")
 JAVA_TEST=${JAVA_TEST:-}
+ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
+[[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
+# Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
+wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
+if [[ -n "${ONLY// /}" ]]; then
+  names=" ${APPS[*]%% *} "
+  for name in $ONLY; do
+    if [[ "$names" != *" $name "* ]]; then
+      echo "Not an app of this check: $name" >&2
+      exit 1
+    fi
+  done
+  chosen=()
+  for app in "${APPS[@]}"; do
+    if wanted "${app%% *}"; then chosen+=("$app"); fi
+  done
+  APPS=("${chosen[@]}")
+fi
 last_line() {
   case "$1" in
     app-start-test) echo "guest-out ^app-start-test: MessageDigest " ;; # app_process_run.LAST
@@ -61,15 +82,19 @@ last_line() {
 for app in "${APPS[@]}"; do
   tools/build-java-test-app.sh "${app%% *}" >/dev/null
 done
+now() { python3 -c 'import time; print(time.time())'; }
+seconds() { python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$1" "$2"; }
 
 WORK=$(mktemp -d)
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${APP:-}" ]]; then
     # Over the installed Minato: never with --remove-existing-content, which would empty its container.
+    started=$(now)
     xcrun devicectl device install app --device "$DEVICE_ID" -q "$APP" >/dev/null
+    echo "note  installed over Minato in $(seconds "$started" "$(now)") s"
     # As tools/deploy.sh does after an install; only when the app does not have the certificate yet.
-    tools/hand-over-certificate.sh "$DEVICE_ID" >/dev/null 2>&1 \
-      || echo "note  the signing certificate was not handed over" >&2
+    tools/hand-over-certificate.sh "$DEVICE_ID" 2>&1 | sed 's/^/note  /' \
+      || echo "note  the signing certificate was not handed over"
   else
     INSTALL_ONLY=1 tools/deploy.sh "$DEVICE_ID" >/dev/null
   fi
@@ -254,23 +279,26 @@ field() {
   python3 -c 'import json,sys; e={e["id"]:e for e in json.load(open(sys.argv[1]))["entries"]}.get(sys.argv[2]); print(None if e is None else e.get(sys.argv[3]))' \
     "$SUPPORT/library.json" "$2" "$1" 2>/dev/null || echo None
 }
-now() { python3 -c 'import time; print(time.time())'; }
-seconds() { python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$1" "$2"; }
 
 # Waits up to $3 seconds for a line of the start's file $1, guest-log or guest-out, that matches the extended regex
 # $2, fetched on the iPhone, and sets SEEN to the time it was first seen. Fails at once when the start failed or the
-# program ended.
+# program ended without it. The events come first: a program that ends right after its last line, as java-test after
+# "done", has that line in the file fetched after them.
 SEEN=""
 await_line() {
-  local file=$1 pattern=$2 end=$((SECONDS + $3))
+  local file=$1 pattern=$2 end=$((SECONDS + $3)) ended
   while (( SECONDS < end )); do
+    fetch_events
+    ended=no
+    if tail -n +$((seen + 1)) "$EVENTS" | grep -E '^[0-9.]+ [0-9]+ (could not start|program ended) ' >/dev/null; then
+      ended=yes
+    fi
     fetch "$CHECK_REL/$file" || true
     if grep -q -E "$pattern" "$CHECK/$file" 2>/dev/null; then
       SEEN=$(now)
       return 0
     fi
-    fetch_events
-    if tail -n +$((seen + 1)) "$EVENTS" | grep -q -E '^[0-9.]+ [0-9]+ (could not start|program ended) '; then return 1; fi
+    [[ "$ended" == no ]] || return 1
     sleep 0.2
   done
   return 1
@@ -403,9 +431,10 @@ for app in "${APPS[@]}"; do
   if [[ "$state" == "{'ready': {}}" ]]; then ok "$package is ready"; else fail "$package is not ready: $state"; fi
 done
 
-run_start app-start-test io.github.kisame76.minato.test.appstart 1
-python3 - "$WORK/app-start-test-1.out" "$WORK/app-start-test-1.log" fixtures/expected/app-start-test.logcat <<'EOF' \
-  || failures=$((failures + 1))
+if wanted app-start-test; then
+  run_start app-start-test io.github.kisame76.minato.test.appstart 1
+  python3 - "$WORK/app-start-test-1.out" "$WORK/app-start-test-1.log" fixtures/expected/app-start-test.logcat <<'EOF' \
+    || failures=$((failures + 1))
 import sys
 sys.path.insert(0, "framework/tests")
 from app_process_run import expected_lines, our_lines
@@ -427,11 +456,13 @@ for line in open(log, encoding="utf-8", errors="replace").read().splitlines()[-4
     print(f"      | {line}")
 sys.exit(1)
 EOF
+fi
 
-run_start context-test io.github.kisame76.minato.test.context 1
-run_start context-test io.github.kisame76.minato.test.context 2
-python3 - "$WORK/context-test-1.log" "$WORK/context-test-2.log" fixtures/expected/context-test.logcat <<'EOF' \
-  || failures=$((failures + 1))
+if wanted context-test; then
+  run_start context-test io.github.kisame76.minato.test.context 1
+  run_start context-test io.github.kisame76.minato.test.context 2
+  python3 - "$WORK/context-test-1.log" "$WORK/context-test-2.log" fixtures/expected/context-test.logcat <<'EOF' \
+    || failures=$((failures + 1))
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
@@ -442,10 +473,12 @@ first, second, expected = sys.argv[1:]
 log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
 compare_log("context-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
 EOF
+fi
 
 # Their Applications load their JNI libraries; jni-lib-test also looks at its own in nativeLibraryDir, the code path's
 # lib/arm64, where the library puts clones of the version's originals.
 run_one() {
+  wanted "$1" || return 0
   run_start "$1" "$2" 1
   python3 - "$1" "$WORK/$1-1.log" "fixtures/expected/$1.logcat" <<'EOF' || failures=$((failures + 1))
 import subprocess
@@ -461,19 +494,36 @@ EOF
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 
-if [[ -n "$JAVA_TEST" ]]; then
+if [[ -n "$JAVA_TEST" ]] && wanted java-test; then
   run_lifecycle 1
   run_lifecycle 2
-  python3 - "$WORK/java-test-1.log" "$WORK/java-test-2.log" fixtures/expected/java-test.logcat <<'EOF' \
+  python3 - "$WORK/java-test-1.log" "$WORK/java-test-2.log" fixtures/expected/java-test.logcat "$WORK" <<'EOF' \
     || failures=$((failures + 1))
+import os
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
 from java_app_run import compare_log
 
-first, second, expected = sys.argv[1:]
+first, second, expected, work = sys.argv[1:]
 log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
-compare_log("java-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
+# At Home the focus goes before onPause, ADR-0032 decision 7's named departure (App's c6 host fixes): iOS takes the
+# focus at willDeactivate, before it tells of the background. Android's other lines and their order stay.
+wanted = open(expected, encoding="utf-8").read().splitlines()
+for i in range(len(wanted) - 1):
+    if wanted[i:i + 2] == ["I/java-test: onPause, finishing false", "I/java-test: focus false"]:
+        wanted[i:i + 2] = wanted[i + 1], wanted[i]
+ours = os.path.join(work, "java-test.logcat")
+with open(ours, "w", encoding="utf-8") as handle:
+    handle.write("\n".join(wanted) + "\n")
+print("note    at Home focus false comes before onPause, ADR-0032 decision 7's named departure")
+# compare_log names missing and extra lines; the same lines in another order it only fails.
+got = [line for line in log.splitlines() if line.startswith("I/java-test: ")]
+first_difference = next((i for i, (a, b) in enumerate(zip(got, wanted)) if a != b), None)
+if first_difference is not None and sorted(got) == sorted(wanted):
+    print(f"      | the order differs at line {first_difference + 1}: ours {got[first_difference]!r}, "
+          f"expected {wanted[first_difference]!r}")
+compare_log("java-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
 fi
 
