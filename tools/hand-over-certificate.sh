@@ -12,11 +12,14 @@
 # The private key never goes into the app bundle, and nothing secret stays on disk.
 # Usage: tools/hand-over-certificate.sh [--force] [device name or identifier]
 #   --force  hands the certificate over even when the app already has it
+# Optional environment:
+#   APP  the installed device build, whose identity goes over, when it is not tools/deploy.sh's, as with
+#        tools/java-start-check.sh --device and its APP
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
-APP="build/DerivedData/Build/Products/Debug-iphoneos/Minato.app"
+APP="${APP:-build/DerivedData/Build/Products/Debug-iphoneos/Minato.app}"
 APK_CONVERT="build/native/macos/importer/converter/apk-convert"
 FORCE=0
 if [[ "${1:-}" == "--force" ]]; then
