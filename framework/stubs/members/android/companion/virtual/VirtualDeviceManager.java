@@ -17,4 +17,10 @@ class VirtualDeviceManager {
     public int getDevicePolicy(int deviceId, int policyType) {
         throw new RuntimeException("stub");
     }
+
+    // TextToSpeech's, for a virtual device's audio session (ADR-0045, gap 13b).
+    /** @hide */
+    public int getAudioPlaybackSessionId(int deviceId) {
+        throw new RuntimeException("stub");
+    }
 }

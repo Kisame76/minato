@@ -15,4 +15,9 @@ I/settings-test: global write: java.lang.SecurityException
 I/settings-test: query: 1 row, columns [_id, name, value, is_preserved_in_restore], screen off timeout 2147483647
 I/settings-test: query of a hidden key: java.lang.SecurityException: Settings key: <key_repeat_timeout> is not readable. From S+, settings keys annotated with @hide are restricted to system_server and system apps only, unless they are annotated with @Readable.
 I/settings-test: content observer: registered and unregistered
+I/settings-test: tts: onInit -1 when the constructor returned
+I/settings-test: tts: engines 0, default engine null
+I/settings-test: tts: listener 0, rate 0, pitch 0
+I/settings-test: tts: speak -1, speaking false, stop -1, voices null
+I/settings-test: tts: shut down
 I/settings-test: done

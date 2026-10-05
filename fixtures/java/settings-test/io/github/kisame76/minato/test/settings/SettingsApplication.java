@@ -7,6 +7,8 @@ import android.database.Cursor;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.ViewConfiguration;
 
@@ -25,7 +27,9 @@ import java.util.Arrays;
  *       System to Global;
  *   <li>a write to each table, which the app may not make;
  *   <li>queries of the provider: a key by its URI, with the columns it answers, and a hidden key by name;
- *   <li>a content observer on a setting.
+ *   <li>a content observer on a setting;
+ *   <li>text to speech without an engine (13b), with the calls Godot's speech class makes: the AVD has none, so
+ *       onInit answers ERROR, already in the constructor, and what needs an engine answers its error.
  * </ul>
  * apk-runner-35 is wiped first, so its values are its image's. An exception's message that names the app's uid is
  * left out.
@@ -50,6 +54,7 @@ public class SettingsApplication extends Application {
         guarded("writes", () -> writes(resolver));
         guarded("queries", () -> queries(resolver));
         guarded("content observer", () -> observer(resolver));
+        guarded("text to speech", this::textToSpeech);
         Log.i(TAG, "done");
     }
 
@@ -145,6 +150,36 @@ public class SettingsApplication extends Application {
                 observer);
         resolver.unregisterContentObserver(observer);
         Log.i(TAG, "content observer: registered and unregistered");
+    }
+
+    private void textToSpeech() {
+        int[] init = {Integer.MIN_VALUE};
+        TextToSpeech tts = new TextToSpeech(this, status -> init[0] = status);
+        Log.i(TAG, "tts: onInit " + (init[0] == Integer.MIN_VALUE ? "not called" : init[0])
+                + " when the constructor returned");
+        Log.i(TAG, "tts: engines " + tts.getEngines().size() + ", default engine " + tts.getDefaultEngine());
+        int listener = tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            @Override
+            public void onStart(String utteranceId) {
+                Log.i(TAG, "tts: started " + utteranceId);
+            }
+
+            @Override
+            public void onDone(String utteranceId) {
+                Log.i(TAG, "tts: done " + utteranceId);
+            }
+
+            @Override
+            public void onError(String utteranceId) {
+                Log.i(TAG, "tts: error " + utteranceId);
+            }
+        });
+        Log.i(TAG, "tts: listener " + listener + ", rate " + tts.setSpeechRate(1.5f) + ", pitch "
+                + tts.setPitch(0.8f));
+        Log.i(TAG, "tts: speak " + tts.speak("Minato", TextToSpeech.QUEUE_FLUSH, null, "settings-test")
+                + ", speaking " + tts.isSpeaking() + ", stop " + tts.stop() + ", voices " + tts.getVoices());
+        tts.shutdown();
+        Log.i(TAG, "tts: shut down");
     }
 
     /** Runs a section; what it throws is logged with its name. */

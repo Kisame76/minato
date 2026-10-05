@@ -873,3 +873,18 @@ frameworks_base/core/java/android/provider/BaseColumns.java
 frameworks_base/core/java/android/os/RemoteCallback.java
 frameworks_base/core/java/android/os/IRemoteCallback.aidl
 frameworks_base/core/java/android/os/ICancellationSignal.aidl
+
+# ADR-0045's text to speech (gap 13b, Godot's gap 11): TextToSpeech with TtsEngines, which finds the engines through
+# Settings and the package manager, Voice, the AIDL of an engine's service and of the system's TTS manager, which a
+# bound engine speaks through, and ServiceConnection, which the connection to an engine implements. Minato has no
+# engine, so the constructor answers onInit(ERROR) as Android does on a phone without one, and the calls that need an
+# engine answer their errors.
+frameworks_base/core/java/android/content/ServiceConnection.java
+frameworks_base/core/java/android/speech/tts/TextToSpeech.java
+frameworks_base/core/java/android/speech/tts/TtsEngines.java
+frameworks_base/core/java/android/speech/tts/Voice.java
+frameworks_base/core/java/android/speech/tts/ITextToSpeechCallback.aidl
+frameworks_base/core/java/android/speech/tts/ITextToSpeechManager.aidl
+frameworks_base/core/java/android/speech/tts/ITextToSpeechService.aidl
+frameworks_base/core/java/android/speech/tts/ITextToSpeechSession.aidl
+frameworks_base/core/java/android/speech/tts/ITextToSpeechSessionCallback.aidl

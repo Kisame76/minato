@@ -5,8 +5,8 @@
 # then starts settings-test through app_process and compares its log with Android 15's on apk-runner-35, wiped
 # (fixtures/expected/settings-test.logcat, from tools/android-reference.sh --app settings-test): the app's
 # ContentResolver, ViewConfiguration's four settings, values apps read, refused reads and writes, the provider's
-# queries and a content observer. The app starts with ActivityThread's --android-id, as the host gives it, and its
-# device line must show that value.
+# queries, a content observer and text to speech without an engine (gap 13b). The app starts with ActivityThread's
+# --android-id, as the host gives it, and its device line must show that value.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/settings-check.sh
 set -euo pipefail
