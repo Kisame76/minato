@@ -12,7 +12,9 @@ import android.view.ViewTreeObserver;
  * each lifecycle callback with what it sees, the window's focus and the decor view's size at its first layout, and
  * counts its starts in SharedPreferences, written with apply(), which the stop waits for (QueuedWork), so that a second
  * start shows the first one's write. Each start finishes itself a second after its second focus, past a background
- * and a return. The end's onDestroy logs the last line, "done".
+ * and a return. The end's onDestroy logs the last line, "done". Under java-test-device, which is only shown, it logs
+ * the wall clock in milliseconds at each onResume, from which ADR-0039 c6 measures the iPhone's tap to onResume on the
+ * iPhone's own clock.
  */
 public class JavaActivity extends Activity {
     private static final String TAG = "java-test";
@@ -54,6 +56,7 @@ public class JavaActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Log.i(TAG, "onResume");
+        Log.i(TAG + "-device", "onResume at " + System.currentTimeMillis());
     }
 
     @Override
