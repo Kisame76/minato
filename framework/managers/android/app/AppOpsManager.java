@@ -147,8 +147,8 @@ class AppOpsManager {
         return mode;
     }
 
-    /** As AOSP's: the longs of a bitmask over all app ops, of which Android 15 has 149 (_NUM_OP). */
-    private static final int BITMASK_LEN = ((149 - 1) / Long.SIZE) + 1;
+    /** As AOSP's: the longs of a bitmask over all app ops (_NUM_OP, the length of the table appopsgen writes). */
+    private static final int BITMASK_LEN = ((AppOpsTable.NAMES.length - 1) / Long.SIZE) + 1;
 
     /**
      * @hide Parcel.writeException's and writeNoException's header for the app ops noted in a binder transaction,

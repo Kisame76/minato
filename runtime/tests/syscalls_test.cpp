@@ -1411,6 +1411,7 @@ bool in_child(Body body) {
     std::fflush(nullptr);
     const pid_t child = ::fork();
     if (child == 0) {
+        apk::testing::failures = 0;  // the child's checks alone, not the parent's failures from before the fork
         std::thread(body).join();
         std::fflush(nullptr);
         ::_exit(apk::testing::failures == 0 ? 0 : 1);
