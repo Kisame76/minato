@@ -1,0 +1,5 @@
+I/jni-lib-test: findLibrary: in nativeLibraryDir
+I/jni-lib-test: nativeLibraryDir: libjni-lib-test.so
+I/jni-lib-test: libjni-lib-test.so: 5800 bytes, readable true, writable false, begins 7f454c46
+I/jni-lib-test: loadLibrary: the library answers
+I/jni-lib-test: done

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks ADR-0039 c5 in the Simulator: a Java app starts in game mode from the library, as a NativeActivity app
-# does. app-start-test (ADR-0039's test 1), context-test (step c1's, started twice over the same data) and
-# asset-ndk-test (ADR-0041 decision 7's, whose JNI library System.loadLibrary loads) are imported and tapped in the
-# library, and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
+# does. app-start-test (ADR-0039's test 1), context-test (step c1's, started twice over the same data),
+# asset-ndk-test (ADR-0041 decision 7's, whose JNI library System.loadLibrary loads) and jni-lib-test (step c5.1's,
+# which looks at its JNI library in nativeLibraryDir) are imported and tapped in the library, and each one's lines
+# must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
 # sends to tmp/session-check/guest-out, and the lines of the others' own tags in their guest logs, of both of
 # context-test's starts (framework/tests/java_app_run.py). An app process never ends by itself (step c2b): 2 s after
@@ -27,11 +28,11 @@ fi
 
 # The test apps, "<app> <package>", and where each one's last line appears.
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
-      "asset-ndk-test io.github.kisame76.minato.test.assetndk")
+      "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib")
 last_line() {
   case "$1" in
     app-start-test) echo "guest-out ^app-start-test: MessageDigest " ;; # app_process_run.LAST
-    context-test | asset-ndk-test) echo "guest-log ^I/$1: done$" ;;     # java_app_run's "<app>: done"
+    *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
 for app in "${APPS[@]}"; do
@@ -251,18 +252,23 @@ log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in 
 compare_log("context-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
 EOF
 
-# Its Application loads its JNI library, which ART's class loader finds in the code path's lib/arm64.
-run_start asset-ndk-test io.github.kisame76.minato.test.assetndk 1
-python3 - "$WORK/asset-ndk-test-1.log" fixtures/expected/asset-ndk-test.logcat <<'EOF' || failures=$((failures + 1))
+# Their Applications load their JNI libraries; jni-lib-test also looks at its own in nativeLibraryDir, the code path's
+# lib/arm64, where the library puts clones of the version's originals.
+run_one() {
+  run_start "$1" "$2" 1
+  python3 - "$1" "$WORK/$1-1.log" "fixtures/expected/$1.logcat" <<'EOF' || failures=$((failures + 1))
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
 from java_app_run import compare_log
 
-log, expected = sys.argv[1:]
-compare_log("asset-ndk-test", subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()),
-            expected, {})
+app, log, expected = sys.argv[1:]
+compare_log(app, subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected,
+            {})
 EOF
+}
+run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
+run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 
 echo "java start check: $failures failed"
 exit $((failures > 0))
