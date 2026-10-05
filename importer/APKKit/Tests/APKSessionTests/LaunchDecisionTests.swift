@@ -41,14 +41,23 @@ struct LaunchDecisionTests {
     }
 
     @Test func explainsWithoutWaitingForTheFirstLook() throws {
-        #expect(LaunchDecision(entry: try Entry.entry(nativeActivity: false), isUpdating: false, signer: .pending) == .explain(.needsART))
         #expect(LaunchDecision(entry: try Entry.entry(), isUpdating: true, signer: .pending) == .explain(.updating))
         #expect(LaunchDecision(entry: try Entry.entry(state: .incompatible), isUpdating: false, signer: .pending) == .explain(.incompatible))
     }
 
+    /// ADR-0039 c5: a ready app with Java code starts on ART as a NativeActivity app starts, once the current signer
+    /// signed its JNI libraries, also when it has none.
+    @Test func aReadyAppWithJavaCodeStartsAsANativeActivityAppStarts() throws {
+        let java = { (signedWith: String?) in try Entry.entry(nativeActivity: false, signedWith: signedWith) }
+        #expect(LaunchDecision(entry: try java("aa"), isUpdating: false, signer: .certificate(sha256: "aa")) == .start)
+        #expect(LaunchDecision(entry: try java(nil), isUpdating: false, signer: .certificate(sha256: "aa")) == .signFirst)
+        #expect(LaunchDecision(entry: try java(nil), isUpdating: false, signer: .adHoc) == .signFirst)
+        #expect(LaunchDecision(entry: try java("aa"), isUpdating: false, signer: .pending) == .waitForSigner)
+        #expect(LaunchDecision(entry: try java("aa"), isUpdating: false, signer: .none) == .openSigning)
+        #expect(LaunchDecision(entry: try java("aa"), isUpdating: true, signer: .certificate(sha256: "aa")) == .explain(.updating))
+    }
+
     @Test func explainsWhyOtherAppsDoNotStart() throws {
-        #expect(LaunchDecision(entry: try Entry.entry(nativeActivity: false), isUpdating: false, signer: .certificate(sha256: "aa"))
-            == .explain(.needsART))
         #expect(LaunchDecision(entry: try Entry.entry(), isUpdating: true, signer: .certificate(sha256: "aa")) == .explain(.updating))
         #expect(LaunchDecision(entry: try Entry.entry(state: .needsSplits), isUpdating: false, signer: .certificate(sha256: "aa"))
             == .explain(.needsSplits))
@@ -60,8 +69,8 @@ struct LaunchDecisionTests {
 
     @Test func explainsBeforeAskingForACertificate() throws {
         // An app that cannot start anyway needs no certificate.
-        #expect(LaunchDecision(entry: try Entry.entry(nativeActivity: false), isUpdating: false, signer: .none) == .explain(.needsART))
         #expect(LaunchDecision(entry: try Entry.entry(state: .incompatible), isUpdating: false, signer: .none) == .explain(.incompatible))
+        #expect(LaunchDecision(entry: try Entry.entry(state: .needsSplits), isUpdating: false, signer: .none) == .explain(.needsSplits))
     }
 
     @Test func namesTheAdHocSigner() {

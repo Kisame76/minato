@@ -34,11 +34,11 @@ extension Library {
     /// Converts every library of the entry again from its ELF original, which also signs it with
     /// the converter's certificate, then records `fingerprint` as the one that signed it. A failure
     /// leaves the old record, so the entry is tried again next time; a library the converter refuses
-    /// makes the app incompatible, as at import (ADR-0032). Returns how many were converted.
+    /// makes the app incompatible, as at import (ADR-0032). Returns how many were converted. An app without native
+    /// code counts as signed by it too, as at import, so that its next tap starts it (ADR-0039 c5).
     @discardableResult
     public func resign(id: String, fingerprint: String, with converter: some ContainerConverting) throws -> Int {
         let files = libraryFiles(of: id)
-        guard !files.isEmpty else { return 0 }
         for elf in files {
             do {
                 try converter.convert(elf, to: elf.appendingPathExtension("dylib"))

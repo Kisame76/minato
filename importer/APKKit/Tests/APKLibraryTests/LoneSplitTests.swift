@@ -43,7 +43,7 @@ struct LoneSplitTests {
                                        ("config.de", Sets.sha256(Self.de))])
         #expect(entry.folder == String(digest.prefix(16)))
         let stored = try Sets.versionFiles(entry, sandbox.paths)
-        #expect(stored == ["base.apk", "signers.json", "split_config.arm64_v8a.apk", "split_config.de.apk"])
+        #expect(stored == ["base.apk", "lib", "signers.json", "split_config.arm64_v8a.apk", "split_config.de.apk"])
         #expect(entry.importedAt == old.importedAt && entry.source == old.source)
         // ADR-0034's switch: the old folder goes once the index names the new one.
         let folders = try FileManager.default.contentsOfDirectory(atPath: sandbox.paths.installDirectory(for: SplitAPK.package).path)
@@ -280,7 +280,9 @@ struct LoneSplitTests {
         let library = try Library(paths: sandbox.paths)
         let installed = try await Self.install(library, sandbox.paths)
         let split = sandbox.paths.versionDirectory(for: installed).appendingPathComponent("split_config.arm64_v8a.apk")
-        try SplitAPK.make(split: "config.arm64_v8a", abis: ["arm64-v8a"], files: ["assets/other": Data("x".utf8)]).write(to: split)
+        // In place of the read-only file, as a rename puts it there.
+        try SplitAPK.make(split: "config.arm64_v8a", abis: ["arm64-v8a"], files: ["assets/other": Data("x".utf8)])
+            .write(to: split, options: .atomic)
 
         let results = try await library.importUnit(Sets.unit(["de.apk": Self.de], in: sandbox.paths))
 
@@ -295,7 +297,8 @@ struct LoneSplitTests {
         defer { sandbox.remove() }
         let installed = try await Self.install(try Library(paths: sandbox.paths), sandbox.paths)
         let other = SplitAPK.make(split: "config.arm64_v8a", abis: ["arm64-v8a"], signers: [.rsa])
-        try other.write(to: sandbox.paths.versionDirectory(for: installed).appendingPathComponent("split_config.arm64_v8a.apk"))
+        try other.write(to: sandbox.paths.versionDirectory(for: installed).appendingPathComponent("split_config.arm64_v8a.apk"),
+                        options: .atomic)
         var index = try JSONSerialization.jsonObject(with: Data(contentsOf: sandbox.paths.indexFile)) as! [String: Any]
         var entries = index["entries"] as! [[String: Any]]
         var splits = entries[0]["splits"] as! [[String: Any]]

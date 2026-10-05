@@ -28,7 +28,8 @@ import UIKit
 ///   fps      a rate, or "hide": without a guest, every window presents that many frames a second, and game
 ///            mode turns the FPS label on through its menu; "hide" turns it off there.
 ///   no-guest game mode runs without a guest, as before ADR-0028 d): every post and wait is answered at once.
-///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log.
+///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log, and its
+///            stdout to tmp/session-check/guest-out: a Java app's System.out, which Android sends to the log.
 ///   extra-session  once the guest starts, game mode builds a second GameSession for the same app and keeps
 ///            it, as SwiftUI may build a view's state more than once; it must change nothing.
 ///   turn-library  the library asks its scene to turn to landscape, as a turned device would, logs whether iOS
@@ -65,14 +66,15 @@ enum SessionCheck {
     static var showsStatusBar: Bool { requested("status-bar") }
 
     /// The guest is about to start: its stderr, which the runtime hands it as descriptor 2, goes to the
-    /// file the script reads.
+    /// file the script reads, and its stdout, descriptor 1, to guest-out (ADR-0039 c5).
     static func guestStarts() {
         guard requested("guest-log") else { return }
-        let path = folder.appending(path: "guest-log").path
-        let file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
-        guard file >= 0 else { return event("guest log failed") }
-        dup2(file, 2)
-        close(file)
+        for (name, descriptor) in [("guest-log", Int32(2)), ("guest-out", Int32(1))] {
+            let file = open(folder.appending(path: name).path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+            guard file >= 0 else { return event("\(name) failed") }
+            dup2(file, descriptor)
+            close(file)
+        }
         event("guest log on")
     }
 

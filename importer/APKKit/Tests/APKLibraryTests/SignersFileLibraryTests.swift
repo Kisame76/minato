@@ -107,6 +107,8 @@ struct SignersFileLibraryTests {
         _ = try await Library(paths: sandbox.paths).scan()
 
         #expect(try Data(contentsOf: Self.signersFile(sandbox, entry)) == (try Self.expected(apk)))
+        // Read-only, as the import writes it (ADR-0039 c5).
+        #expect(try LibraryTests.permissions(Self.signersFile(sandbox, entry)) == 0o444)
     }
 
     @Test func aScanRewritesAFileThatIsNotTheProof() async throws {
@@ -116,11 +118,13 @@ struct SignersFileLibraryTests {
         let apk = SampleAPK.make()
         let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(apk, named: "game.apk")).entry
         for wrong in [Data("kept".utf8), try Self.expected(SampleAPK.make(signers: [.rotated]))] {
-            try wrong.write(to: Self.signersFile(sandbox, entry))
+            // In place of the read-only file, as a rename puts it there.
+            try wrong.write(to: Self.signersFile(sandbox, entry), options: .atomic)
 
             _ = try await Library(paths: sandbox.paths).scan()
 
             #expect(try Data(contentsOf: Self.signersFile(sandbox, entry)) == (try Self.expected(apk)))
+            #expect(try LibraryTests.permissions(Self.signersFile(sandbox, entry)) == 0o444)
         }
     }
 
@@ -161,7 +165,7 @@ struct SignersFileLibraryTests {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
-        try Self.expected(SampleAPK.make(signers: [.rotated])).write(to: Self.signersFile(sandbox, entry))
+        try Self.expected(SampleAPK.make(signers: [.rotated])).write(to: Self.signersFile(sandbox, entry), options: .atomic)
         let library = try Library(paths: sandbox.paths)
         await library.failWritingSignersFile { throw Failed() }
 
@@ -202,7 +206,7 @@ struct SignersFileLibraryTests {
         #expect(kept.report?.signature.proof == SignerProof(scheme: .v2, certificates: [TestKey.ec.certificate]))
         // Once: the next scan takes the kept proof, without reading base.apk.
         let base = sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")
-        try Data("gone".utf8).write(to: base)
+        try Data("gone".utf8).write(to: base, options: .atomic)
         try FileManager.default.removeItem(at: Self.signersFile(sandbox, entry))
         _ = try await Library(paths: sandbox.paths).scan()
         #expect(try Data(contentsOf: Self.signersFile(sandbox, entry)) == (try Self.expected(apk)))

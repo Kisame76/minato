@@ -19,9 +19,14 @@ struct ResigningTests {
         }
     }
 
+    /// An app with Java code and no native code of its own, whose import leaves an empty lib/ (ADR-0039 c5).
+    static func plainApp(package: String = "org.example.game") -> Data {
+        SampleAPK.make(package: package, abis: [])
+    }
+
     /// An installed app with the ELF files `names` in its lib/ folder, as the import in M3 leaves them.
     static func installedApp(in sandbox: LibraryTests.Sandbox, library: Library, libraries names: [String]) async throws -> LibraryEntry {
-        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let entry = try await library.importFile(sandbox.file(Self.plainApp(), named: "game.apk")).entry
         let lib = sandbox.paths.libraryDirectory(for: entry)
         try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
         for name in names { try Data(name.utf8).write(to: lib.appendingPathComponent(name)) }
@@ -69,10 +74,10 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let old = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.old"), named: "old.apk")).entry
-        let unrecorded = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.new"), named: "new.apk")).entry
-        let current = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.current"), named: "current.apk")).entry
-        _ = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.plain"), named: "plain.apk"))
+        let old = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.old"), named: "old.apk")).entry
+        let unrecorded = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.new"), named: "new.apk")).entry
+        let current = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.current"), named: "current.apk")).entry
+        _ = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.plain"), named: "plain.apk"))
         for (entry, names) in [(old, ["liba.so", "libb.so"]), (unrecorded, ["libc.so"]), (current, ["libd.so"])] {
             let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
@@ -97,8 +102,8 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let broken = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.broken"), named: "broken.apk")).entry
-        let fine = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.fine"), named: "fine.apk")).entry
+        let broken = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.broken"), named: "broken.apk")).entry
+        let fine = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.fine"), named: "fine.apk")).entry
         for (entry, name) in [(broken, "libbroken.so"), (fine, "libfine.so")] {
             let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
@@ -120,8 +125,8 @@ struct ResigningTests {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let first = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.a"), named: "a.apk")).entry
-        let second = try await library.importFile(sandbox.file(SampleAPK.make(package: "org.example.b"), named: "b.apk")).entry
+        let first = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.a"), named: "a.apk")).entry
+        let second = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.b"), named: "b.apk")).entry
         for (entry, names) in [(first, ["liba.so", "libb.so"]), (second, ["libc.so"])] {
             let lib = sandbox.paths.libraryDirectory(for: entry)
             try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
@@ -166,14 +171,16 @@ struct ResigningTests {
         var values: [String] { lock.withLock { collected } }
     }
 
+    /// The signer counts as having signed it, as at the import, so that the next tap starts the app without signing
+    /// first (ADR-0039 c5).
     @Test func anAppWithoutConvertedCodeHasNothingToResign() async throws {
         let sandbox = try LibraryTests.Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let entry = try await library.importFile(sandbox.file(Self.plainApp(), named: "game.apk")).entry
 
         #expect(await library.resignCandidates() == [ResignCandidate(id: entry.id, signedWith: nil, containerCount: 0)])
         #expect(try await library.resign(id: entry.id, fingerprint: "aa", with: RecordingConverter(fingerprint: "aa")) == 0)
-        #expect(await library.entries.first?.signedWith == nil)
+        #expect(await library.entries.first?.signedWith == "aa")
     }
 }

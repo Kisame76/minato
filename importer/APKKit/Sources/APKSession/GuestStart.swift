@@ -1,8 +1,8 @@
 import Foundation
 
 /// What game mode sets up before activity-host runs (ADR-0028, decision 14; the header of
-/// runtime/activity-host/activity_host.cpp): the guest paths of the app and the system, the library
-/// folders, and the program with its arguments and environment.
+/// runtime/activity-host/activity_host.cpp), or app_process64 for a Java app (ADR-0039 c5): the guest paths of the
+/// app and the system, the library folders, and the program with its arguments and environment.
 public struct GuestStart: Sendable, Equatable {
     /// A guest path and the host path it stands for.
     public struct Path: Sendable, Equatable {
@@ -22,7 +22,7 @@ public struct GuestStart: Sendable, Equatable {
     public let mounts: [Path]
     /// For `apkrt_add_library_directory`: the system's containers, then the app's.
     public let libraryDirectories: [Path]
-    /// activity-host's container.
+    /// The program's container: activity-host's, or app_process64's for a Java app.
     public let program: String
     public let arguments: [String]
     public let environment: [String]
@@ -41,16 +41,9 @@ public struct GuestStart: Sendable, Equatable {
                  environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
-        mounts = [
-            Path(guest: "\(app)/base.apk", host: apk),
-            Path(guest: "/data/user/0/\(package)", host: data),
-            Path(guest: "/data/data/\(package)", host: data),
-            Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
-            Path(guest: "/sdcard/Android/data/\(package)", host: external),
-            Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
-            Path(guest: "/sdcard/Android/obb/\(package)", host: obb),
-            Path(guest: "/system", host: "\(guestSystem)/system"),
-        ]
+        mounts = [Path(guest: "\(app)/base.apk", host: apk)]
+            + Self.dataMounts(package: package, data: data, external: external, obb: obb)
+            + [Path(guest: "/system", host: "\(guestSystem)/system")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
             Path(guest: "\(app)/lib/arm64", host: appLibraries),
@@ -59,6 +52,46 @@ public struct GuestStart: Sendable, Equatable {
         arguments = ["/system/bin/activity-host", "--package", package, "--apk", "\(app)/base.apk",
                      "--library", library, "--function", function ?? Self.defaultFunction]
         environment = ["LD_LIBRARY_PATH=\(app)/lib/arm64"] + extra
+    }
+
+    /// A Java app's start (ADR-0039 c5): app_process64 with the arguments of framework/tests/app_process_run.py's
+    /// start(), whose ActivityThread takes the Application class from the manifest. `signers` is the version's
+    /// signers.json, nil for an unsigned APK. `guestData` stands for /data: the app's folder in Caches, where ART
+    /// finds /data and its dalvik-cache (the lead's decision for c5); the app's paths lie over it, and ART's APEXes are
+    /// /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra entries.
+    public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
+                 data: String, external: String, obb: String, guestData: String, guestSystem: String,
+                 environment extra: [String] = []) {
+        guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
+        codePath = app
+        mounts = [Path(guest: "/data", host: guestData), Path(guest: "\(app)/base.apk", host: apk)]
+            + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
+            + Self.dataMounts(package: package, data: data, external: external, obb: obb)
+            + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]
+        libraryDirectories = [
+            Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
+            Path(guest: "/apex/com.android.art/lib64", host: "\(guestSystem)/apex-lib64/com.android.art"),
+            Path(guest: "/apex/com.android.conscrypt/lib64", host: "\(guestSystem)/apex-lib64/com.android.conscrypt"),
+            Path(guest: "\(app)/lib/arm64", host: appLibraries),
+        ]
+        program = "\(guestSystem)/bin/app_process64.dylib"
+        arguments = ["/system/bin/app_process64", "--nice-name=\(package)", "--package", package,
+                     "--apk", "\(app)/base.apk", "--library-path", "\(app)/lib/arm64",
+                     "--data-dir", "/data/user/0/\(package)"]
+            + (signers == nil ? [] : ["--signers", "\(app)/signers.json"])
+        environment = extra
+    }
+
+    /// The app's data, external data and OBB folders, each under both of Android's names (decision 14).
+    private static func dataMounts(package: String, data: String, external: String, obb: String) -> [Path] {
+        [
+            Path(guest: "/data/user/0/\(package)", host: data),
+            Path(guest: "/data/data/\(package)", host: data),
+            Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
+            Path(guest: "/sdcard/Android/data/\(package)", host: external),
+            Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
+            Path(guest: "/sdcard/Android/obb/\(package)", host: obb),
+        ]
     }
 
     /// Android 15's form, from PackageManagerServiceUtils.getNextCodePath: "~~" and 16 bytes, then the package,

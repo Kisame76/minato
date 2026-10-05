@@ -1,3 +1,4 @@
+import APKKit
 import APKLibrary
 import APKSession
 import Foundation
@@ -215,14 +216,17 @@ final class GameSession {
     }
 
     /// The window is there; the guest starts with it, or with the foreground (Lifecycle): the paths and the
-    /// session first, then activity-host off the main thread, then its first events.
+    /// session first, then the program off the main thread, activity-host or a Java app's app_process64, then its
+    /// first events.
     private func start() {
         guard !started else { return }
         started = true
         guard let runtime else { return deliver(.start) }
         guard let (start, configuration) = guestStart(scale: runtime.layer?.contentsScale ?? 1) else {
-            guard case .nativeActivity = entry.report?.runtime else { return couldNotStart("it is not a NativeActivity app") }
             return couldNotStart("its base.apk has no valid SHA-256, which names its code path")
+        }
+        if case .art = entry.report?.runtime, let failure = prepareJavaStart(start) {
+            return couldNotStart(failure)
         }
         #if DEBUG
         SessionCheck.guestStarts()
@@ -241,11 +245,11 @@ final class GameSession {
         }
     }
 
-    /// What activity-host needs for this app (ADR-0028, decisions 3 and 14), with the window's size as the
-    /// screen's in the session's orientation. Nil for an app without a NativeActivity or without base.apk's
-    /// digest, which names its code path (ADR-0039, decision 6).
+    /// What the program needs for this app, activity-host for a NativeActivity app (ADR-0028, decisions 3 and 14)
+    /// or app_process64 for a Java app (ADR-0039 c5), with the window's size as the screen's in the session's
+    /// orientation. Nil for an app without base.apk's digest, which names its code path (ADR-0039, decision 6).
     private func guestStart(scale: CGFloat) -> (GuestStart, GuestConfiguration)? {
-        guard case .nativeActivity(let library) = entry.report?.runtime, let paths = try? LibraryPaths.standard(),
+        guard let kind = entry.report?.runtime, let paths = try? LibraryPaths.standard(),
               let bundle = Bundle.main.resourceURL, let digest = entry.base?.sha256
         else { return nil }
         // An app imported before decision 6 gets installd's cache and code_cache now.
@@ -262,14 +266,29 @@ final class GameSession {
         #else
         let environment: [String] = []
         #endif
-        guard let start = GuestStart(
-            package: entry.id, library: library, function: entry.report?.nativeFunction,
-            apk: paths.versionDirectory(for: entry).appending(path: "base.apk").path, apkSHA256: digest,
-            appLibraries: paths.libraryDirectory(for: entry).path,
-            data: data.appending(path: "data").path, external: data.appending(path: "external").path,
-            obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path,
-            environment: environment)
-        else { return nil }
+        let version = paths.versionDirectory(for: entry)
+        let start: GuestStart?
+        switch kind {
+        case .nativeActivity(let library):
+            start = GuestStart(
+                package: entry.id, library: library, function: entry.report?.nativeFunction,
+                apk: version.appending(path: "base.apk").path, apkSHA256: digest,
+                appLibraries: paths.libraryDirectory(for: entry).path,
+                data: data.appending(path: "data").path, external: data.appending(path: "external").path,
+                obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path,
+                environment: environment)
+        case .art:
+            // An unsigned APK has no signers.json.
+            let signers = version.appending(path: SignersFile.fileName)
+            start = GuestStart(
+                javaApp: entry.id, apk: version.appending(path: "base.apk").path, apkSHA256: digest,
+                signers: FileManager.default.fileExists(atPath: signers.path) ? signers.path : nil,
+                appLibraries: paths.libraryDirectory(for: entry).path,
+                data: data.appending(path: "data").path, external: data.appending(path: "external").path,
+                obb: data.appending(path: "obb").path, guestData: paths.guestDataDirectory(for: entry.id).path,
+                guestSystem: bundle.appending(path: "Guest").path, environment: environment)
+        }
+        guard let start else { return nil }
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(
@@ -279,6 +298,17 @@ final class GameSession {
             languageCode: language.language.languageCode?.identifier,
             regionCode: language.region?.identifier ?? Locale.current.region?.identifier)
         return (start, configuration)
+    }
+
+    /// A Java app's /data in Caches and its read-only files, at every start, since iOS may empty Caches (ADR-0039
+    /// c5): nil once they are there, else why the app cannot start.
+    private func prepareJavaStart(_ start: GuestStart) -> String? {
+        do {
+            _ = try LibraryPaths.standard().prepareJavaStart(for: entry, codePath: start.codePath)
+            return nil
+        } catch {
+            return "its folders could not be made: \(error.localizedDescription)"
+        }
     }
 
     #if DEBUG

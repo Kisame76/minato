@@ -25,7 +25,6 @@ public enum CurrentSigner: Equatable, Sendable {
 public enum LaunchDecision: Equatable, Sendable {
     /// Why the app does not start.
     public enum Reason: Equatable, Sendable {
-        case needsART
         case updating
         case needsSplits
         case incompatible
@@ -40,8 +39,8 @@ public enum LaunchDecision: Equatable, Sendable {
     case waitForSigner
     case explain(Reason)
 
-    /// An app that cannot start says why before anything else, so it needs no certificate; a ready
-    /// NativeActivity app starts once the current signer signed its code.
+    /// An app that cannot start says why before anything else, so it needs no certificate; a ready app, a
+    /// NativeActivity app or one with Java code (ADR-0039 c5), starts once the current signer signed its native code.
     public init(entry: LibraryEntry, isUpdating: Bool, signer: CurrentSigner) {
         switch entry.state {
         case .invalid:
@@ -51,10 +50,6 @@ public enum LaunchDecision: Equatable, Sendable {
         case .needsSplits:
             self = .explain(.needsSplits)
         case .ready:
-            guard case .nativeActivity = entry.report?.runtime else {
-                self = .explain(.needsART)
-                return
-            }
             if isUpdating {
                 self = .explain(.updating)
             } else if let fingerprint = signer.fingerprint {

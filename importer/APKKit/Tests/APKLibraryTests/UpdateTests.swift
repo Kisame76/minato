@@ -82,13 +82,14 @@ struct UpdateTests {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let first = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 1), named: "v1.apk")).entry
+        // Apps without native code of their own, so that only the library written here counts.
+        let first = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 1, abis: []), named: "v1.apk")).entry
         let lib = sandbox.paths.libraryDirectory(for: first)
         try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
         try Data("elf".utf8).write(to: lib.appendingPathComponent("libmain.so"))
         try await library.resign(id: first.id, fingerprint: "aa", with: ResigningTests.RecordingConverter(fingerprint: "aa"))
 
-        let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2), named: "v2.apk"))
+        let result = try await library.importFile(sandbox.file(SampleAPK.make(versionCode: 2, abis: []), named: "v2.apk"))
 
         // The old version's code went with its folder; the new version's is not converted or signed yet.
         #expect(result.entry.signedWith == nil)
@@ -666,8 +667,10 @@ struct UpdateTests {
     @Test func anEntryFromBeforeVersionFoldersUpdatesIntoAFolder() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
-        // The layout before ADR-0034: base.apk, the icon and lib/ right in apps/<package>/.
-        let imported = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(versionCode: 1), named: "v1.apk")).entry
+        // The layout before ADR-0034: base.apk, the icon and lib/ right in apps/<package>/. An app without native code
+        // of its own, so that lib/ holds only the library written here.
+        let imported = try await Library(paths: sandbox.paths)
+            .importFile(sandbox.file(SampleAPK.make(versionCode: 1, abis: []), named: "v1.apk")).entry
         let app = sandbox.paths.installDirectory(for: imported.id)
         let version = sandbox.paths.versionDirectory(for: imported)
         for name in try FileManager.default.contentsOfDirectory(atPath: version.path) {

@@ -276,7 +276,7 @@ struct SetNativeCodeTests {
             Sets.unit(["base.apk": Self.base(["libhelper.so"]), "arm64.apk": Self.arm64], in: sandbox.paths)).first?.entry)
         try FileManager.default.removeItem(at: sandbox.paths.libraryDirectory(for: entry))
         let split = sandbox.paths.versionDirectory(for: entry).appendingPathComponent(try #require(entry.splits.first).fileName)
-        try SplitAPK.make(split: "config.arm64_v8a").write(to: split)
+        try SplitAPK.make(split: "config.arm64_v8a").write(to: split, options: .atomic) // in place of the read-only file
 
         for _ in 1...2 {
             await #expect(throws: (any Error).self) { try await library.prepareNativeCode(id: entry.id) }

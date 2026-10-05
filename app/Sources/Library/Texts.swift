@@ -67,8 +67,6 @@ enum Texts {
     /// Why an app cannot start, by its state.
     static func launchProblem(of entry: LibraryEntry) -> (title: String, message: String) {
         switch Texts.status(of: entry) {
-        case .ready where entry.report?.runtime == .art:
-            ("Can’t Open “\(entry.displayName)” Yet", "This app contains Java/Kotlin code and needs ART, which comes in milestone M4.")
         case .needsSplits:
             ("Can’t Open “\(entry.displayName)”", "This app needs its split APKs. Pick all of its APKs with +, or their folder.")
         case .incompatible(let reason):
@@ -243,7 +241,7 @@ enum Texts {
         case .splitChoice(let reason):
             "Its split APKs do not fit this iPhone: \(reason)"
         case .needsART:
-            "Contains Java/Kotlin code and needs ART (milestone M4)"
+            "Contains Java/Kotlin code, which runs interpreted for now and may be slower"
         case .requiresGLES(let version):
             "Requires OpenGL ES \(glesVersion(version)); ANGLE on Metal provides at most 3.0"
         case .pageAligned4K(let libraries):
@@ -300,7 +298,7 @@ enum Texts {
     static func runtime(_ runtime: APKReport.Runtime) -> String {
         switch runtime {
         case .nativeActivity(let library): "NativeActivity (lib\(library).so), no Java"
-        case .art: "Java/Kotlin, needs ART"
+        case .art: "Java/Kotlin"
         }
     }
 

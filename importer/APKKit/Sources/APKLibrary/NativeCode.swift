@@ -144,15 +144,15 @@ extension Library {
             && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "+,-.=_".contains($0)) }
     }
 
-    /// Makes sure the originals of a ready NativeActivity app's native code are in its version's lib/,
-    /// extracting them from its base.apk and split APKs for an entry imported before the import did, or whose
-    /// lib/ is gone; the first tap signs them (ADR-0032, decision 3). Returns how many there are. A library that
-    /// cannot run makes the app incompatible, as at import.
+    /// Makes sure the originals of a ready app's native code are in its version's lib/, a NativeActivity app's or a
+    /// Java app's JNI libraries (ADR-0039 c5), extracting them from its base.apk and split APKs for an entry imported
+    /// before the import did, or whose lib/ is gone; the first tap signs them (ADR-0032, decision 3). Returns how many
+    /// there are. A library that cannot run makes the app incompatible, as at import.
     @discardableResult
     public func prepareNativeCode(id: String) throws -> Int {
         guard let entry = entries.first(where: { $0.id == id }), let report = entry.report else { return 0 }
         let originals = libraryFiles(of: id)
-        guard originals.isEmpty, entry.state == .ready, case .nativeActivity = report.runtime else { return originals.count }
+        guard originals.isEmpty, entry.state == .ready else { return originals.count }
         let version = paths.versionDirectory(for: entry)
         do {
             var archives: [String?: ZipArchive] = [:]

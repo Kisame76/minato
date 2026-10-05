@@ -274,8 +274,8 @@ struct NativeCodeTests {
         #expect(result.entry.state == expected)
     }
 
-    @Test func aJavaAppGetsNothingConverted() async throws {
-        // Its conversion comes with M4.
+    @Test func aJavaAppsJNILibrariesAreConvertedAndSigned() async throws {
+        // As a NativeActivity app's, for System.loadLibrary (ADR-0039 c5, as ADR-0042 b1 on the Mac).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -283,8 +283,8 @@ struct NativeCodeTests {
         let result = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk"), signing: Self.signing())
 
         #expect(result.entry.report?.runtime == .art)
-        #expect(result.entry.signedWith == nil)
-        #expect(!sandbox.exists(sandbox.paths.libraryDirectory(for: result.entry)))
+        #expect(result.entry.signedWith == "aa")
+        #expect(Self.names(in: sandbox.paths.libraryDirectory(for: result.entry)) == ["libgame.so", "libgame.so.dylib"])
     }
 
     // MARK: - Refused
@@ -495,7 +495,7 @@ struct NativeCodeTests {
         let archive = try ZipArchive(data: apk)
         let helper = try #require(archive.entry(named: "lib/arm64-v8a/libhelper.so"))
         apk[try Int(archive.dataOffset(of: helper) + helper.compressedSize) - 1] ^= 0xFF
-        try apk.write(to: base)
+        try apk.write(to: base, options: .atomic) // in place of the read-only file
 
         await #expect(throws: ConversionRefused(reason: "its data in the APK is damaged")) {
             try await library.prepareNativeCode(id: entry.id)
@@ -527,18 +527,31 @@ struct NativeCodeTests {
         #expect(await library.entries.first?.signedWith == "aa")
     }
 
-    @Test(arguments: [false, true])
-    func extractsNothingForAnAppThatDoesNotStart(needsSplits: Bool) async throws {
-        // A Java app gets its code with M4; one that needs its splits cannot start before M5.
+    @Test func extractsNothingForAnAppThatNeedsItsSplits() async throws {
+        // It cannot start until its splits are there.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
-        let apk = needsSplits ? SampleAPK.make(splitRequired: true, nativeActivity: true) : SampleAPK.make()
+        let apk = SampleAPK.make(splitRequired: true, nativeActivity: true)
         let entry = try await library.importFile(sandbox.file(apk, named: "game.apk")).entry
 
         #expect(try await library.prepareNativeCode(id: entry.id) == 0)
 
         #expect(!sandbox.exists(sandbox.paths.libraryDirectory(for: entry)))
+    }
+
+    @Test func extractsTheJNILibrariesOfAJavaAppImportedWithoutThem() async throws {
+        // A Java app imported before ADR-0039 c5 kept only its base.apk; its first tap needs the originals.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let lib = sandbox.paths.libraryDirectory(for: entry)
+        try FileManager.default.removeItem(at: lib)
+
+        #expect(try await library.prepareNativeCode(id: entry.id) == 1)
+
+        #expect(Self.names(in: lib) == ["libgame.so"])
     }
 
     @Test func readsTheEntriesBeforeTheLibraryOpens() async throws {
@@ -561,10 +574,15 @@ struct NativeCodeTests {
         let library = try Library(paths: sandbox.paths)
         let entry = try await library.importFile(
             sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk"), signing: Self.signing()).entry
+        // A Java app's start left its guest /data in Caches (ADR-0039 c5).
+        let guest = sandbox.paths.guestDataDirectory(for: entry.id).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: guest.appendingPathComponent("data/dalvik-cache/arm64"),
+                                                withIntermediateDirectories: true)
 
         try await library.remove(id: entry.id)
 
         #expect(!sandbox.exists(sandbox.paths.installDirectory(for: entry.id)))
         #expect(!sandbox.exists(sandbox.paths.dataDirectory(for: entry.id)))
+        #expect(!sandbox.exists(guest))
     }
 }

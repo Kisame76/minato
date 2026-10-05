@@ -107,9 +107,10 @@ struct LaunchRequestTests {
         #expect(LaunchMode(request: LaunchRequest(package: entry.id, time: Date()), entries: [entry]) == .library(.appNotReady(entry)))
     }
 
-    @Test func aRequestForAnAppWithJavaCodeStartsTheLibraryWithAMessage() throws {
+    /// ADR-0039 c5: a ready app with Java code starts on ART, as a NativeActivity app starts.
+    @Test func aRequestForAReadyAppWithJavaCodeStartsGameMode() throws {
         let entry = try Self.entry(nativeActivity: false)
 
-        #expect(LaunchMode(request: LaunchRequest(package: entry.id, time: Date()), entries: [entry]) == .library(.appNotReady(entry)))
+        #expect(LaunchMode(request: LaunchRequest(package: entry.id, time: Date()), entries: [entry]) == .gameMode(entry))
     }
 }

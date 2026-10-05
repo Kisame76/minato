@@ -61,8 +61,8 @@ public enum LaunchMode: Equatable, Sendable {
     case library(Problem?)
     case gameMode(LibraryEntry)
 
-    /// Game mode for a request that names a ready NativeActivity app; the library otherwise, with the
-    /// reason when there was a request.
+    /// Game mode for a request that names a ready app, a NativeActivity app or one with Java code (ADR-0039 c5);
+    /// the library otherwise, with the reason when there was a request.
     public init(request: LaunchRequest?, entries: [LibraryEntry]) {
         guard let request else {
             self = .library(nil)
@@ -72,7 +72,7 @@ public enum LaunchMode: Equatable, Sendable {
             self = .library(.appNotFound(request.package))
             return
         }
-        guard entry.state == .ready, case .nativeActivity = entry.report?.runtime else {
+        guard entry.state == .ready, entry.report != nil else {
             self = .library(.appNotReady(entry))
             return
         }

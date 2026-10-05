@@ -177,6 +177,133 @@ struct LibraryTests {
         #expect(try Data(contentsOf: save) == Data("kept".utf8))
     }
 
+    static func permissions(_ url: URL) throws -> Int {
+        try #require(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int)
+    }
+
+    /// The version's APKs and signers.json are read-only, as Android's installer leaves an app's APKs to it: the guest
+    /// cannot write them (LibraryPaths.makeReadOnly, ADR-0039 c5).
+    @Test func theVersionsAPKAndSignersAreReadOnly() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+
+        let version = sandbox.paths.versionDirectory(for: entry)
+        #expect(try Self.permissions(version.appendingPathComponent("base.apk")) == 0o444)
+        #expect(try Self.permissions(version.appendingPathComponent("signers.json")) == 0o444)
+    }
+
+    /// A Java app's guest /data lies in Caches (the lead's decision for ADR-0039 c5).
+    @Test func theGuestsDataIsInCaches() throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+
+        #expect(sandbox.paths.caches.path == sandbox.root.appendingPathComponent("Library/Caches").path)
+        #expect(sandbox.paths.guestDataDirectory(for: "org.example.game").path
+            == sandbox.root.appendingPathComponent("Library/Caches/guest/org.example.game/data").path)
+    }
+
+    /// At every start of a Java app, since iOS may empty Caches: the guest's /data with ART's dalvik-cache, user/0 and
+    /// the code path's lib/arm64, as framework/tests/app_process_run.py makes them; and the version's files read-only,
+    /// which an app imported before ADR-0039 c5 gets then.
+    @Test func preparingAJavaStartMakesTheGuestsDataAndTheFilesReadOnly() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let version = sandbox.paths.versionDirectory(for: entry)
+        for name in ["base.apk", "signers.json"] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: version.appendingPathComponent(name).path)
+        }
+
+        for _ in 0..<2 {
+            let data = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+            #expect(data.path == sandbox.paths.guestDataDirectory(for: entry.id).path)
+            #expect(sandbox.exists(data.appendingPathComponent("dalvik-cache/arm64")))
+            #expect(sandbox.exists(data.appendingPathComponent("user/0")))
+            #expect(sandbox.exists(data.appendingPathComponent("app/~~AAAA/org.example.game-BBBB==/lib/arm64")))
+            for name in ["base.apk", "signers.json"] {
+                #expect(try Self.permissions(version.appendingPathComponent(name)) == 0o444)
+            }
+            try FileManager.default.removeItem(at: sandbox.paths.caches)
+        }
+    }
+
+    /// An unsigned APK has no signers.json, which the start does without.
+    @Test func preparingAJavaStartWithoutSignersWorks() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths)
+            .importFile(sandbox.file(SampleAPK.make(signers: []), named: "game.apk")).entry
+
+        _ = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+        #expect(try Self.permissions(sandbox.paths.versionDirectory(for: entry).appendingPathComponent("base.apk")) == 0o444)
+    }
+
+    /// ART's class loader opens <code path>/lib/arm64/<name> before it loads a JNI library (DexPathList's
+    /// findNativeLibrary), and the loader then takes the version's container: the guest's lib/arm64 holds read-only
+    /// clones of the version's ELF originals, made again at every start, and no guest write reaches an original that
+    /// resign converts and signs (ADR-0039 c5).
+    @Test func preparingAJavaStartClonesTheLibrariesWhereARTLooksForThem() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let original = sandbox.paths.libraryDirectory(for: entry).appendingPathComponent("libgame.so")
+        let bytes = try Data(contentsOf: original)
+
+        let data = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+        let clone = data.appendingPathComponent("app/~~AAAA/org.example.game-BBBB==/lib/arm64/libgame.so")
+        #expect(try Data(contentsOf: clone) == bytes)
+        #expect(try Self.permissions(clone) == 0o444)
+        #expect(try FileManager.default.attributesOfItem(atPath: clone.path)[.type] as? FileAttributeType == .typeRegular)
+        // A guest that makes the clone writable and writes it, as the runtime lets it (chmod and open pass through).
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: clone.path)
+        try Data("written by the guest".utf8).write(to: clone)
+        #expect(try Data(contentsOf: original) == bytes)
+
+        _ = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+        #expect(try Data(contentsOf: clone) == bytes)
+        #expect(try Self.permissions(clone) == 0o444)
+    }
+
+    /// A library that the version's lib/ no longer holds goes from the guest's lib/arm64, and another code path, an
+    /// older version's, goes with its clones, so that Caches keeps no old libraries.
+    @Test func preparingAJavaStartKeepsOnlyTheVersionsLibraries() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths).importFile(sandbox.file(SampleAPK.make(), named: "game.apk")).entry
+        let apps = sandbox.paths.guestDataDirectory(for: entry.id).appendingPathComponent("app")
+        let lib = apps.appendingPathComponent("~~AAAA/org.example.game-BBBB==/lib/arm64")
+        for folder in [lib, apps.appendingPathComponent("~~AAAA/org.example.game-CCCC==/lib/arm64"),
+                       apps.appendingPathComponent("~~DDDD/org.example.game-EEEE==/lib/arm64")] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("old".utf8).write(to: folder.appendingPathComponent("libold.so"))
+        }
+
+        _ = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: lib.path) == ["libgame.so"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: apps.path) == ["~~AAAA"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: apps.appendingPathComponent("~~AAAA").path)
+            == ["org.example.game-BBBB=="])
+    }
+
+    /// A Java app without JNI libraries gets an empty lib/arm64, as on Android.
+    @Test func preparingAJavaStartWithoutLibrariesLeavesLibEmpty() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await Library(paths: sandbox.paths)
+            .importFile(sandbox.file(SampleAPK.make(abis: []), named: "game.apk")).entry
+
+        let data = try sandbox.paths.prepareJavaStart(for: entry, codePath: "/data/app/~~AAAA/org.example.game-BBBB==")
+
+        #expect(try FileManager.default.contentsOfDirectory(
+            atPath: data.appendingPathComponent("app/~~AAAA/org.example.game-BBBB==/lib/arm64").path) == [])
+    }
+
     @Test func importOfIncompatibleAPKKeepsReportButNoCopy() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

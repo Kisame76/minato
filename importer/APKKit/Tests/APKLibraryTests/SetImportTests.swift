@@ -56,7 +56,7 @@ struct SetImportTests {
         #expect(entry.skippedSplits?.map(\.splitName) == ["config.xxxhdpi"])
         #expect(entry.source.sha256 == Self.sha256(Self.base))
         let stored = try Self.versionFiles(entry, sandbox.paths)
-        #expect(stored == ["base.apk", "signers.json", "split_config.arm64_v8a.apk", "split_config.xxhdpi.apk"])
+        #expect(stored == ["base.apk", "lib", "signers.json", "split_config.arm64_v8a.apk", "split_config.xxhdpi.apk"])
         #expect(try Data(contentsOf: sandbox.paths.versionDirectory(for: entry).appendingPathComponent("split_config.xxhdpi.apk"))
             == Self.xxhdpi)
         #expect(!sandbox.exists(unit))
@@ -94,7 +94,7 @@ struct SetImportTests {
 
         #expect(await relaunched.entries.first?.folder == installed.folder)
         let stored = try Self.versionFiles(installed, sandbox.paths)
-        #expect(stored == ["base.apk", "signers.json", "split_config.arm64_v8a.apk"])
+        #expect(stored == ["base.apk", "lib", "signers.json", "split_config.arm64_v8a.apk"])
     }
 
     @Test func anInterruptedSetImportLeavesTheOldVersion() async throws {

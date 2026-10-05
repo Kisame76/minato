@@ -312,10 +312,10 @@ public actor Library {
         try? fileManager.removeItem(at: versionDirectory) // left over from an interrupted import of this file
         try fileManager.createDirectory(at: versionDirectory, withIntermediateDirectories: true)
 
-        // A ready NativeActivity app's native code goes into the version's lib/, converted and signed when a
-        // certificate is at hand (ADR-0032, decision 4). Apps with Java code get theirs with M4.
+        // A ready app's native code goes into the version's lib/, converted and signed when a certificate is at hand
+        // (ADR-0032, decision 4): a NativeActivity app's, and a Java app's JNI libraries (ADR-0039 c5).
         var signedWith: String?
-        if state == .ready, case .nativeActivity = report.runtime {
+        if state == .ready {
             do {
                 signedWith = try installNativeCode(of: report, from: new.archives, into: versionDirectory, signing: signing)
             } catch let refusal as RefusedLibrary {
@@ -336,16 +336,20 @@ public actor Library {
         var splits: [PackageFile] = []
         if state != .incompatible {
             for (url, file) in new.files {
-                // On APFS the copy is a clone and takes no extra space.
-                try fileManager.copyItem(at: url, to: versionDirectory.appendingPathComponent(file.fileName))
+                // On APFS the copy is a clone and takes no extra space. Read-only, so that the guest cannot write it
+                // (LibraryPaths.makeReadOnly).
+                let copy = versionDirectory.appendingPathComponent(file.fileName)
+                try fileManager.copyItem(at: url, to: copy)
+                try LibraryPaths.makeReadOnly(copy)
             }
             base = new.files.first?.file
             splits = new.files.dropFirst().map(\.file)
             // Who signed it, for the guest's PackageManager (ADR-0034 decision 2): what the check proved, so an
             // unsigned or unverified APK has none.
             if report.signature.check == .verified, let proof = report.signature.proof {
-                try SignersFile.content(of: proof)
-                    .write(to: versionDirectory.appendingPathComponent(SignersFile.fileName), options: .atomic)
+                let signers = versionDirectory.appendingPathComponent(SignersFile.fileName)
+                try SignersFile.content(of: proof).write(to: signers, options: .atomic)
+                try LibraryPaths.makeReadOnly(signers)
             }
             try paths.prepareData(for: package)
         }
@@ -636,12 +640,14 @@ public actor Library {
         return try Self.sha256(of: url, size: size, progress: progress)
     }
 
-    /// Removes an app with its data. The file it was installed from is not touched.
+    /// Removes an app with its data and a Java app's guest /data in Caches (ADR-0039 c5). The file it was installed
+    /// from is not touched.
     public func remove(id: String) throws {
         guard entries.contains(where: { $0.id == id }) else { return }
         if !id.hasPrefix("file:"), Self.isSafePackageName(id) {
             try? FileManager.default.removeItem(at: paths.installDirectory(for: id))
             try? FileManager.default.removeItem(at: paths.dataDirectory(for: id))
+            try? FileManager.default.removeItem(at: paths.guestDataDirectory(for: id).deletingLastPathComponent())
         }
         try save(entries.filter { $0.id != id })
         entries.removeAll { $0.id == id }
@@ -718,6 +724,7 @@ public actor Library {
                 do {
                     try faultWritingSignersFile?()
                     try expected.write(to: target, options: .atomic)
+                    try LibraryPaths.makeReadOnly(target)
                 } catch {
                     // Nothing is left in its place once the removal worked: the guest sees the version unsigned until
                     // a scan writes it.
