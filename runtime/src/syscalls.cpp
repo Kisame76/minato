@@ -54,6 +54,7 @@ long to_linux_errno(int error) {
         case ENOSYS: return linux_errno::enosys;
         case ENOTEMPTY: return linux_errno::enotempty;
         case ELOOP: return linux_errno::eloop;
+        case ENOTCAPABLE: return linux_errno::eacces;  // a link or ".." out of its mount (ADR-0052)
         case ENOMSG: return linux_errno::enomsg;
         case EIDRM: return linux_errno::eidrm;
         case ENODATA: return linux_errno::enodata;

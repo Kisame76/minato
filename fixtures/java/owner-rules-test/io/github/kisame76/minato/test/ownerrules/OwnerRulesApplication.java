@@ -124,6 +124,12 @@ public class OwnerRulesApplication extends Application {
         showOwner("the external files folder", external);
         showSetting("/proc/sys/fs/protected_hardlinks");
         showSetting("/proc/sys/fs/protected_symlinks");
+        // /data's own folders and those between them and the app's (ADR-0052 with decision 3).
+        for (String folder : new String[] {"/data", "/data/user", "/data/user/0", "/data/data", "/data/app",
+                "/data/dalvik-cache", "/data/dalvik-cache/arm64", "/data/local/tmp"}) {
+            showOwner(folder, folder);
+        }
+        showOwner("the ~~ folder", new File(code).getParent());
 
         // The code, system's: its APK and its folder.
         log("code chmod base.apk", () -> Os.chmod(apk, 0644));

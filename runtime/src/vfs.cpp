@@ -1,17 +1,48 @@
 #include "vfs.h"
 
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
 
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace apkrt::vfs {
 namespace {
 
 struct Mount {
+    Mount(std::string guest_path, std::string host_path) : guest(std::move(guest_path)), host(std::move(host_path)) {}
+
     std::string guest;  // absolute, normal
     std::string host;
+    int folder = -1;    // the host folder, or a mounted file's folder, once opened (ADR-0052)
+    std::string name;   // a mounted file's name in `folder`; empty for a mounted folder
 };
+
+/// Opens a mount's host folder, or a mounted file's folder, once it is there.
+void open_folder(Mount &mount) {
+    if (mount.folder >= 0) return;
+    const int folder = ::open(mount.host.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (folder >= 0) {
+        mount.folder = folder;
+        return;
+    }
+    if (errno != ENOTDIR) return;  // not there yet
+    const auto slash = mount.host.rfind('/');
+    if (slash == std::string::npos) return;
+    const std::string parent = slash == 0 ? "/" : mount.host.substr(0, slash);
+    mount.folder = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    mount.name = mount.host.substr(slash + 1);
+}
+
+void close_folder(Mount &mount) {
+    if (mount.folder >= 0) ::close(mount.folder);
+    mount.folder = -1;
+    mount.name.clear();
+}
 
 /// The devices every Linux system has. /dev/random never blocks, like on Linux 5.6 and later;
 /// bionic's arc4random checks access("/dev/urandom") early and otherwise lives on the 16 bytes of
@@ -79,6 +110,7 @@ void mount(std::string_view guest, std::string_view host) {
     const auto normal = normalize(guest);
     for (auto &existing : mounts) {
         if (existing.guest == normal) {
+            close_folder(existing);
             existing.host = host;
             return;
         }
@@ -88,6 +120,7 @@ void mount(std::string_view guest, std::string_view host) {
 
 void reset() {
     const std::lock_guard lock(mutex);
+    for (auto &mount : mounts) close_folder(mount);
     mounts = devices();
     cwd = "/";
 }
@@ -115,6 +148,28 @@ std::optional<std::string> guest_path(std::string_view host) {
     }
     if (best == nullptr) return std::nullopt;
     return rebase(host, best->host, best->guest);
+}
+
+std::optional<Location> locate(std::string_view guest) {
+    const std::lock_guard lock(mutex);
+    Mount *best = nullptr;
+    for (auto &candidate : mounts) {
+        if (covers(candidate.guest, guest) && (best == nullptr || candidate.guest.size() > best->guest.size())) {
+            best = &candidate;
+        }
+    }
+    if (best == nullptr) return std::nullopt;
+    open_folder(*best);
+    if (best->folder < 0) return std::nullopt;
+    std::string_view rest = best->guest == "/" ? guest : guest.substr(best->guest.size());
+    while (rest.starts_with('/')) rest.remove_prefix(1);
+    std::string path = best->name;
+    if (!rest.empty()) {
+        if (!path.empty()) path += '/';  // below a mounted file: the host answers ENOTDIR
+        path += rest;
+    }
+    if (path.empty()) path = ".";
+    return Location{best->folder, std::move(path)};
 }
 
 std::optional<std::string> mount_point(std::string_view guest) {

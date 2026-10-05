@@ -1023,6 +1023,102 @@ TEST(the_apps_code_is_systems_in_any_case) {
     CHECK(::stat((code + "/base.apk").c_str(), &host) == 0 && (host.st_mode & 07777) == 0644);
 }
 
+// ADR-0052: a guest's symlinks stay inside the guest's file system. Every host call starts at its mount's host folder
+// with Darwin's RESOLVE_BENEATH, so a link or ".." that would leave the mount answers EACCES, whatever the host has
+// there; a link inside its mount still works.
+TEST(a_link_out_of_its_mount_leads_nowhere) {
+    Install install;
+    const auto &data = install.data;
+    // A relative text, which the host would follow from the data folder's host folder into the code's.
+    CHECK(call(nr_symlinkat, {at("../code"), at_fdcwd, at(data + "/escape")}) == 0);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(data + "/escape/base.apk"), 0666}) == -eacces);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/escape/base.apk"), 0}) == -eacces);
+    CHECK(open_guest(at_fdcwd, (data + "/escape/base.apk").c_str(), o_rdonly) == -eacces);
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, at(data + "/escape/base.apk"), address(&status), 0}) == -eacces);
+    CHECK(call(nr_faccessat, {at_fdcwd, at(data + "/escape/base.apk"), 0}) == -eacces);
+    // An absolute text, which the host would read as a host path.
+    CHECK(call(nr_symlinkat, {at("/etc"), at_fdcwd, at(data + "/host-etc")}) == 0);
+    CHECK(open_guest(at_fdcwd, (data + "/host-etc/hosts").c_str(), o_rdonly) == -eacces);
+    // A directory descriptor leads no further: ".." out of the mount is a guest path no mount covers.
+    const auto folder = open_guest(at_fdcwd, data.c_str(), o_rdonly | o_directory);
+    CHECK(folder >= 0);
+    CHECK(open_guest(unsigned_of(folder), "../code/base.apk", o_rdonly) == -enoent);
+    CHECK(open_guest(unsigned_of(folder), "escape/base.apk", o_rdonly) == -eacces);
+    call(nr_close, {unsigned_of(folder)});
+    // A rename, the times and a new folder through it: refused as well.
+    const auto own = open_guest(at_fdcwd, (data + "/own.txt").c_str(), o_creat | o_wronly, 0600);
+    CHECK(own >= 0);
+    call(nr_close, {unsigned_of(own)});
+    CHECK(call(nr_renameat2, {at_fdcwd, at(data + "/own.txt"), at_fdcwd, at(data + "/escape/planted"), 0}) == -eacces);
+    CHECK(call(nr_utimensat, {at_fdcwd, at(data + "/escape/base.apk"), 0, 0}) == -eacces);
+    // Into another of the app's own mounts, where Linux would follow the link (ADR-0052's part 2): EACCES all the same.
+    CHECK(call(nr_symlinkat, {at("../external"), at_fdcwd, at(data + "/to-external")}) == 0);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(data + "/to-external/folder"), 0700}) == -eacces);
+    CHECK(!install.has("code/planted") && !install.has("external/folder"));
+    // The links themselves: their text, lstat, and unlink.
+    char text[64] = {};
+    CHECK(call(nr_readlinkat, {at_fdcwd, at(data + "/escape"), address(text), sizeof text}) == 7);
+    CHECK(call(nr_newfstatat, {at_fdcwd, at(data + "/escape"), address(&status), at_symlink_nofollow}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/escape"), 0}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/host-etc"), 0}) == 0);
+    // A link inside its mount.
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(data + "/folder"), 0700}) == 0);
+    const auto file = open_guest(at_fdcwd, (data + "/folder/file").c_str(), o_creat | o_wronly, 0600);
+    CHECK(file >= 0 && write_text(file, "inside") == 6);
+    call(nr_close, {unsigned_of(file)});
+    CHECK(call(nr_symlinkat, {at("folder/file"), at_fdcwd, at(data + "/inside")}) == 0);
+    const auto again = open_guest(at_fdcwd, (data + "/inside").c_str(), o_rdonly);
+    CHECK(again >= 0 && read_text(again, 16) == "inside");
+    call(nr_close, {unsigned_of(again)});
+    struct stat host{};
+    CHECK(::stat((install.host + "/code/base.apk").c_str(), &host) == 0 && (host.st_mode & 07777) == 0644);
+}
+
+/// /data as one mount, as GuestStart's guest /data and apk-run's harness have it: the code folder with a JNI library,
+/// /data/local/tmp, ART's dalvik-cache, and the app's data folder, which is a mount of its own.
+struct WholeData : Scratch {
+    const std::string code = "/data/app/~~AAAA/io.example-BBBB", data = "/data/user/0/io.example";
+
+    WholeData() {
+        CHECK(std::system(("cd '" + host + "' && mkdir -p data/app/~~AAAA/io.example-BBBB/lib/arm64 data/local/tmp "
+                           "data/dalvik-cache/arm64 data/user/0/io.example && touch data/app/~~AAAA/io.example-BBBB/base.apk "
+                           "data/app/~~AAAA/io.example-BBBB/lib/arm64/libfoo.so")
+                              .c_str()) == 0);
+        apkrt::vfs::reset();
+        apkrt::vfs::mount("/data", host + "/data");
+        apkrt::vfs::mount(data, host + "/data/user/0/io.example");
+    }
+};
+
+// The lead's reviewer: inside one mount, a link planted where the app may write and pointing into the code folder
+// must not let the app change the code. /data's own folders are system's, as on Android 15, so nothing is planted
+// there, and the owner checks look at the folder or file the host call will touch, not at the path as written.
+TEST(a_link_inside_one_mount_does_not_open_the_code) {
+    WholeData whole;
+    const auto &code = whole.code;
+    // /data's own folders: system's, so no entry is made, renamed or removed there.
+    CHECK(call(nr_symlinkat, {at("app/~~AAAA/io.example-BBBB/lib/arm64"), at_fdcwd, at("/data/evil")}) == -eacces);
+    CHECK(call(nr_renameat2, {at_fdcwd, at("/data/app"), at_fdcwd, at("/data/appx"), 0}) == -eacces);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/data/user/0/other"), 0700}) == -eacces);
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, at("/data"), address(&status), 0}) == 0 && status.uid == 1000);
+    // A link in a folder the app may write, into the code folder.
+    const std::string evil = "/data/local/tmp/evil";
+    CHECK(call(nr_symlinkat, {at("../../app/~~AAAA/io.example-BBBB/lib/arm64"), at_fdcwd, at(evil)}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(evil + "/libfoo.so"), 0}) == -eacces);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(evil + "/libfoo.so"), at_fdcwd, at("/data/local/tmp/moved.so"), 0}) ==
+          -eacces);
+    CHECK(open_guest(at_fdcwd, (evil + "/new.so").c_str(), o_creat | o_wronly, 0600) == -eacces);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(evil + "/folder"), 0700}) == -eacces);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(evil + "/libfoo.so"), 0666}) == -eacces);
+    CHECK(open_guest(at_fdcwd, (evil + "/libfoo.so").c_str(), o_wronly) == -eacces);
+    // The link itself is the app's to remove.
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(evil), 0}) == 0);
+    struct stat host{};
+    CHECK(::stat((whole.host + "/data" + code.substr(5) + "/lib/arm64/libfoo.so").c_str(), &host) == 0);
+}
+
 TEST(relative_paths_start_at_the_working_directory_or_a_directory_fd) {
     Scratch scratch;
     const auto fd = open_guest(at_fdcwd, "b.txt", o_creat | o_rdwr, 0600);

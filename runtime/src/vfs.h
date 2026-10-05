@@ -27,6 +27,17 @@ void reset();
 /// The host path of a guest path in normal form, or nullopt when no mount covers it.
 std::optional<std::string> host_path(std::string_view guest);
 
+/// Where a guest path lies for a host call (ADR-0052): below `folder`, a descriptor of its mount's host folder, or of
+/// a mounted file's folder, which the mount table keeps open; `path` is relative to it, "." for the folder itself.
+/// Host calls start at `folder` with Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount.
+struct Location {
+    int folder = -1;
+    std::string path;
+};
+
+/// The Location of a guest path in normal form; nullopt when no mount covers it or its host folder is not there.
+std::optional<Location> locate(std::string_view guest);
+
 /// The guest path of a host path below a mount, the reverse of host_path, or nullopt.
 std::optional<std::string> guest_path(std::string_view host);
 
