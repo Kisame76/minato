@@ -35,6 +35,7 @@
 // interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays no more steps.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
+#include "frame_clock.h"
 
 #include <fcntl.h>
 #include <time.h>
@@ -100,19 +101,18 @@ bool parse_configuration(const std::string &value, apkrt_configuration &configur
 }
 
 /// The session's frame clock, as the app's CADisplayLink (ADR-0036, decision 1): a tick on the uptime clock, the
-/// guest's CLOCK_MONOTONIC, every period of `rate`, each one's target the next; a clock that falls behind skips
-/// refreshes, as a display link does.
-[[noreturn]] void run_frame_clock(std::int32_t rate) {
-    const std::int64_t period = 1'000'000'000 / rate;
-    auto tick = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-    for (;;) {
-        apkrt_vsync_post(tick, tick + period);
-        const auto now = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-        tick += ((now - tick) / period + 1) * period;
-        const std::int64_t wait = tick - now;
-        const timespec delay{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
-        nanosleep(&delay, nullptr);
-    }
+/// guest's CLOCK_MONOTONIC, every period of `rate` (frame_clock.h), for good.
+void run_frame_clock(std::int32_t rate) {
+    frame_clock::run(
+        1'000'000'000 / rate, [] { return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); },
+        [](std::int64_t wait) {
+            const timespec delay{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
+            nanosleep(&delay, nullptr);
+        },
+        [](std::int64_t tick, std::int64_t target) {
+            apkrt_vsync_post(tick, target);
+            return true;
+        });
 }
 
 /// --lifecycle's steps: start first, then background and foreground in turn; false for any other list.

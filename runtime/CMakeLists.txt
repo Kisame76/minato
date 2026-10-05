@@ -84,6 +84,12 @@ if(APK_HOST_BUILD)
   add_executable(apk-run tools/apk_run.cpp)
   target_link_libraries(apk-run PRIVATE apkrt apk_defaults)
 
+  # apk-run's frame clock (tools/frame_clock.h) on the test's own clock.
+  add_executable(frame_clock_test tests/frame_clock_test.cpp)
+  target_include_directories(frame_clock_test PRIVATE tools)
+  target_link_libraries(frame_clock_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.frame_clock COMMAND frame_clock_test)
+
   add_executable(threads_test tests/threads_test.cpp tests/threads_probe.S)
   target_include_directories(threads_test PRIVATE src)
   target_link_libraries(threads_test PRIVATE apkrt apk_defaults apk_testing)
