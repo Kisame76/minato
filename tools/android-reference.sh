@@ -33,8 +33,8 @@
 # reads what the first one wrote (java-test, ADR-0043 step c1, starts twice in the same way on activity-start-test's
 # AVD, each start sent HOME and started again before the app finishes itself); looper-test (step c1), provider-test
 # (step c2c1), app-calls-test (step c2d), vsync-test and gles-java-test (ADR-0041 a)), asset-ndk-test (ADR-0041
-# decision 7), compat-test and its twin for targetSdk 35, compat-test-35 (step c2e), and jni-lib-test (ADR-0039 step
-# c5.1) are ones too, and app-start-test
+# decision 7), compat-test and its twin for targetSdk 35, compat-test-35 (step c2e), jni-lib-test (ADR-0039 step
+# c5.1) and owner-rules-test (ADR-0039 decision 3, the owner rules for changes) are ones too, and app-start-test
 # (test 1), whose lines are System.out's that start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
@@ -368,7 +368,8 @@ run_app() {
     # SHA-256 is marked (b3.5b1).
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
-      | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test)
+      | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
+      | owner-rules-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

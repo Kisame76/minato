@@ -80,6 +80,20 @@ TEST(host_paths_map_back_to_guest_paths) {
     CHECK(!guest_path("/Users"));
 }
 
+TEST(a_paths_mount_point_is_the_deepest_mounted_folder_over_it) {
+    apkrt::vfs::reset();
+    apkrt::vfs::mount("/data", "/host/data");
+    apkrt::vfs::mount("/data/user/0/io.example", "/host/app-data");
+    apkrt::vfs::mount("/data/app/~~a/io.example-b/base.apk", "/dev/null");  // a mounted file, a device here
+    CHECK(apkrt::vfs::mount_point("/data/user/0/io.example/files/a") == "/data/user/0/io.example");
+    CHECK(apkrt::vfs::mount_point("/data/user/0/io.example") == "/data/user/0/io.example");
+    CHECK(apkrt::vfs::mount_point("/data/user/0") == "/data");
+    // A mounted file lies in the mount of its folder, as a file in a mounted folder does on Linux.
+    CHECK(apkrt::vfs::mount_point("/data/app/~~a/io.example-b/base.apk") == "/data");
+    CHECK(!apkrt::vfs::mount_point("/system/lib64"));
+    CHECK(!apkrt::vfs::mount_point("/dev/null"));  // only the device itself is mounted there
+}
+
 TEST(the_working_directory_starts_at_the_root) {
     apkrt::vfs::reset();
     CHECK(apkrt::vfs::working_directory() == "/");

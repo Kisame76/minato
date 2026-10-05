@@ -30,6 +30,11 @@ std::optional<std::string> host_path(std::string_view guest);
 /// The guest path of a host path below a mount, the reverse of host_path, or nullopt.
 std::optional<std::string> guest_path(std::string_view host);
 
+/// The mount a guest path in normal form lies in, as Linux compares mounts for rename and link (EXDEV): the guest path
+/// of the deepest mounted folder over it, where a mounted file or device lies in its folder's mount; nullopt when no
+/// mounted folder covers it. A mount whose host path is not there counts as a folder.
+std::optional<std::string> mount_point(std::string_view guest);
+
 /// The guest's working directory, an absolute guest path in normal form; "/" at first.
 std::string working_directory();
 void set_working_directory(std::string_view guest);

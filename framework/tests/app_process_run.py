@@ -262,8 +262,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     --configuration (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts, whose host then
     plays `lifecycle`, apk-run's --lifecycle steps (ADR-0043 step c1), "start" when it is None. `signers`, the APK's
     signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it in
-    the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder is also
-    /data/data/<package>, and its external data and OBB folders are mounted as GuestStart mounts them (decision 6).
+    the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder,
+    /data/user/0/<package>, is a mount of its own, also as /data/data/<package> after it, and its external data and
+    OBB folders are mounted as GuestStart mounts them (decision 6): a rename or link between them and the rest of
+    /data answers EXDEV, as on Android 15 (ADR-0039 decision 3).
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
     its data (step c1); the folders are made only for a new run."""
     os.makedirs(work, exist_ok=True)
@@ -326,6 +328,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
                "--mount", f"/system={bionic_system}",
                "--mount", f"/system/framework={os.path.join(run, 'framework')}",
+               # The data folder a mount of its own, as GuestStart mounts /data/user/0/<package> and Android 15 its
+               # app's data folder, so that a rename or link from the rest of /data answers EXDEV (ADR-0039 decision 3);
+               # first, as in GuestStart, so that a descriptor's guest path names /data/user/0 (vfs::guest_path).
+               "--mount", f"{data}={os.path.join(run, data.lstrip('/'))}",
                "--mount", f"/data/data/{package}={os.path.join(run, data.lstrip('/'))}"]
     for guest, host in external.items():
         command += ["--mount", f"{guest}={os.path.join(run, host)}"]

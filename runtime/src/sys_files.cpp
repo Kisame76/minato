@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <strings.h>
 #include <sys/event.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
@@ -25,8 +26,10 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace apkrt::sys {
@@ -165,10 +168,13 @@ constexpr std::uint32_t ext_data_rw_gid = 1078;  // AID_EXT_DATA_RW
 
 /// The owner Android 15 gives the file at the guest path `path` (ADR-0039 decision 3) [verified: the emulator,
 /// 2026-10-01]: an app's code folder under /data/app belongs to system, the rest of /data to the app, external
-/// storage to the app with the group ext_data_rw, /proc's files to the process, and everything else to root.
+/// storage to the app with the group ext_data_rw, /proc's files to the process, and everything else to root. The
+/// folders match without regard to ASCII case: on a host that ignores case (the Mac's file system, so the
+/// Simulator's), /data/APP/... is the same file as /data/app/....
 Owner android_owner(std::string_view path) {
     const auto below = [path](std::string_view folder) {
-        return path.starts_with(folder) && (path.size() == folder.size() || path[folder.size()] == '/');
+        return path.size() >= folder.size() && ::strncasecmp(path.data(), folder.data(), folder.size()) == 0 &&
+               (path.size() == folder.size() || path[folder.size()] == '/');
     };
     if (below("/data/app")) return {system_uid, system_uid};
     if (below("/data") || below("/proc")) return {app_uid, app_uid};
@@ -308,14 +314,20 @@ int host_at_flags(int linux_flags) {
     return (linux_flags & linux_at_symlink_nofollow) ? AT_SYMLINK_NOFOLLOW : 0;
 }
 
-/// The owner stat reports for a path argument: by its guest path as given, or, relative to a directory
-/// descriptor, below that directory's.
-Owner owner_at(int directory, std::uint64_t address, const HostPath &host) {
+/// The guest path of a path argument: as given, or, relative to a directory descriptor, below that directory's;
+/// nullopt outside the guest's paths.
+std::optional<std::string> guest_at(int directory, std::uint64_t address, const HostPath &host) {
     auto guest = guest_absolute(directory, address);
     if (!guest && host.directory != AT_FDCWD) {
         char base[MAXPATHLEN];
         if (::fcntl(host.directory, F_GETPATH, base) == 0) guest = vfs::guest_path(std::string(base) + "/" + host.path);
     }
+    return guest;
+}
+
+/// The owner stat reports for a path argument, by its guest path.
+Owner owner_at(int directory, std::uint64_t address, const HostPath &host) {
+    const auto guest = guest_at(directory, address, host);
     return guest ? android_owner(*guest) : Owner{};
 }
 
@@ -325,6 +337,66 @@ int granted(mode_t mode, Owner owner) {
     if (owner.uid == app_uid) return (mode >> 6) & 07;
     if (owner.gid == app_uid) return (mode >> 3) & 07;
     return mode & 07;
+}
+
+// --- Who may change a file or a folder's entries (ADR-0039 decision 3) -------------------------------------------
+// The host's files and folders all belong to the app's process, so the host would let every change through. Before
+// the host's call, the guest gets Linux's checks with the owners stat reports, in Linux's order after its lookups, and
+// the answers Android 15 gives an app: its code under /data/app is system's and refuses every change, its own
+// folders take them (owner-rules-test against the emulator, 2026-10-05).
+
+/// The file or folder a path argument names, following a final symlink or not; nullopt when it is not there, which
+/// the host's call then answers.
+std::optional<struct stat> entry_at(const HostPath &host, bool follow) {
+    struct stat status;
+    if (::fstatat(host.directory, host.path.c_str(), &status, follow ? 0 : AT_SYMLINK_NOFOLLOW) != 0) return std::nullopt;
+    return status;
+}
+
+/// The folder that holds the entry a path argument names: the owner stat reports for the folder's guest path, and the
+/// host folder's mode; nullopt when the folder is not there.
+std::optional<std::pair<Owner, mode_t>> folder_at(int directory, std::uint64_t address, const HostPath &host) {
+    std::string path = host.path;
+    while (path.size() > 1 && path.ends_with('/')) path.pop_back();
+    const auto slash = path.rfind('/');
+    const std::string folder = slash == std::string::npos ? "." : slash == 0 ? "/" : path.substr(0, slash);
+    struct stat status;
+    if (::fstatat(host.directory, folder.c_str(), &status, 0) != 0) return std::nullopt;
+    const auto guest = guest_at(directory, address, host);
+    if (!guest) return std::pair{Owner{}, status.st_mode};
+    const auto end = guest->rfind('/');
+    return std::pair{android_owner(end == 0 || end == std::string::npos ? "/" : guest->substr(0, end)), status.st_mode};
+}
+
+/// may_create's and may_delete's check (fs/namei.c): write and search permission on the entry's folder, EACCES
+/// without, as Android 15 answers in the app's code folder (symlink, mkdir, create, rename and unlink there).
+long may_change_entries(int directory, std::uint64_t address, const HostPath &host) {
+    const auto folder = folder_at(directory, address, host);
+    if (!folder) return 0;
+    return (granted(folder->second, folder->first) & 03) == 03 ? 0 : -linux_errno::eacces;
+}
+
+/// may_open's check for writing (fs/namei.c): write permission on the file, EACCES without, as Android 15 answers
+/// for the app's base.apk (opening for writing, O_TRUNC). A folder is the host's to refuse with EISDIR.
+long may_write(int directory, std::uint64_t address, const HostPath &host, const struct stat &status) {
+    if (S_ISDIR(status.st_mode)) return 0;
+    return (granted(status.st_mode, owner_at(directory, address, host)) & 02) != 0 ? 0 : -linux_errno::eacces;
+}
+
+/// setattr's check (chmod, chown, times): the app owns the file. For one it does not, Android 15 answers EACCES, as
+/// its SELinux policy refuses the setattr before Linux's EPERM (chmod and chown of base.apk, chmod of the code folder).
+long may_set_attributes(const Owner &owner) {
+    return owner.uid == app_uid ? 0 : -linux_errno::eacces;
+}
+
+/// Whether two path arguments lie in different mounts, where Linux's rename and link answer EXDEV before their
+/// permission checks: Android 15 mounts an app's data and external folders on their own (code to files: EXDEV).
+bool in_different_mounts(int directory, std::uint64_t address, const HostPath &host, int other_directory,
+                         std::uint64_t other_address, const HostPath &other) {
+    const auto guest = guest_at(directory, address, host), other_guest = guest_at(other_directory, other_address, other);
+    if (!guest || !other_guest) return false;
+    const auto mount = vfs::mount_point(*guest), other_mount = vfs::mount_point(*other_guest);
+    return mount && other_mount && *mount != *other_mount;
 }
 
 // --- Directory streams ---------------------------------------------------------------------------------
@@ -416,6 +488,17 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
+    // A file that is there needs write permission to be written or truncated (O_PATH only names it); one that is not
+    // needs its folder to be created in (may_o_create).
+    if (const auto status = entry_at(host, true)) {
+        const bool writes = (flags & linux_open::access_mode) != O_RDONLY || (flags & linux_open::truncate) != 0;
+        const bool exclusive = (flags & linux_open::create) != 0 && (flags & linux_open::exclusive) != 0;
+        if (writes && !exclusive && !(flags & linux_open::path)) {
+            if (const long refused = may_write(directory, path, host, *status)) return refused;
+        }
+    } else if ((flags & linux_open::create) != 0 && errno == ENOENT) {
+        if (const long refused = may_change_entries(directory, path, host)) return refused;
+    }
     int host_flags = flags & linux_open::access_mode;
     if (flags & linux_open::path) host_flags = O_RDONLY;  // an O_PATH descriptor only names the file
     if (flags & linux_open::create) host_flags |= O_CREAT;
@@ -469,6 +552,9 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
 long sys_mkdirat(int directory, std::uint64_t path, int mode) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
+    if (!entry_at(host, false)) {  // EEXIST first, the host's
+        if (const long refused = may_change_entries(directory, path, host)) return refused;
+    }
     return result_or_error(::mkdirat(host.directory, host.path.c_str(), static_cast<mode_t>(mode & 07777)));
 }
 
@@ -476,6 +562,9 @@ long sys_unlinkat(int directory, std::uint64_t path, int flags) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     const bool remove_directory = (flags & linux_at_removedir) != 0;
+    if (entry_at(host, false)) {  // ENOENT first, the host's
+        if (const long refused = may_change_entries(directory, path, host)) return refused;
+    }
     if (::unlinkat(host.directory, host.path.c_str(), remove_directory ? AT_REMOVEDIR : 0) == 0) return 0;
     const int error = errno;
     // unlink() of a directory: EISDIR on Linux, EPERM (as POSIX allows) on Darwin.
@@ -497,25 +586,39 @@ long sys_renameat2(int old_directory, std::uint64_t old_path, int new_directory,
     if (from.error != 0) return from.error;
     const auto to = resolve(new_directory, new_path);
     if (to.error != 0) return to.error;
+    if (in_different_mounts(old_directory, old_path, from, new_directory, new_path, to)) return -linux_errno::exdev;
+    if (entry_at(from, false)) {  // ENOENT first, the host's
+        if (const long refused = may_change_entries(old_directory, old_path, from)) return refused;
+        if (const long refused = may_change_entries(new_directory, new_path, to)) return refused;
+    }
     const unsigned host_flags = (flags & rename_noreplace) ? RENAME_EXCL : (flags & rename_exchange) ? RENAME_SWAP : 0;
     return result_or_error(
         ::renameatx_np(from.directory, from.path.c_str(), to.directory, to.path.c_str(), host_flags));
 }
 
+/// Android 15 refuses an app's hard links with EACCES, its own files' too (data, cache and external storage on the
+/// emulator), after Linux's lookups (do_linkat): the old path must be there, the new one not but its folder, and both
+/// in one mount (EXDEV). So no link reaches the host.
 long sys_linkat(int old_directory, std::uint64_t old_path, int new_directory, std::uint64_t new_path, int flags) {
     constexpr int linux_at_symlink_follow = 0x400;
     const auto from = resolve(old_directory, old_path);
     if (from.error != 0) return from.error;
     const auto to = resolve(new_directory, new_path);
     if (to.error != 0) return to.error;
-    const int host_flags = (flags & linux_at_symlink_follow) ? AT_SYMLINK_FOLLOW : 0;
-    return result_or_error(::linkat(from.directory, from.path.c_str(), to.directory, to.path.c_str(), host_flags));
+    if (!entry_at(from, (flags & linux_at_symlink_follow) != 0)) return -to_linux_errno(errno);
+    if (entry_at(to, false)) return -linux_errno::eexist;
+    if (!folder_at(new_directory, new_path, to)) return -linux_errno::enoent;
+    if (in_different_mounts(old_directory, old_path, from, new_directory, new_path, to)) return -linux_errno::exdev;
+    return -linux_errno::eacces;
 }
 
 long sys_symlinkat(std::uint64_t target, int directory, std::uint64_t path) {
     if (target == 0) return -linux_errno::efault;
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
+    if (!entry_at(host, false)) {  // EEXIST first, the host's
+        if (const long refused = may_change_entries(directory, path, host)) return refused;
+    }
     // The link keeps the guest's text; readlink gives it back unchanged.
     return result_or_error(::symlinkat(as_pointer<const char>(target), host.directory, host.path.c_str()));
 }
@@ -536,18 +639,41 @@ long sys_readlinkat(int directory, std::uint64_t path, std::uint64_t buffer, std
 long sys_fchmodat(int directory, std::uint64_t path, int mode) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
+    if (entry_at(host, true)) {  // ENOENT first, the host's
+        if (const long refused = may_set_attributes(owner_at(directory, path, host))) return refused;
+    }
     return result_or_error(::fchmodat(host.directory, host.path.c_str(), static_cast<mode_t>(mode & 07777), 0));
 }
+
+namespace {
+
+/// chown's answer for the app, which has no capabilities (chown_ok and chgrp_ok in fs/attr.c): on a file of its own
+/// it may set the owner the file has and the group it has or the app's, which changes nothing on the host, where the
+/// app's process owns every file anyway; another owner or group is EPERM. Android 15 lets the app set its own ids on
+/// its own file (files chown on the emulator).
+long chown_answer(const Owner &file, std::uint32_t owner, std::uint32_t group) {
+    if (const long refused = may_set_attributes(file)) return refused;
+    constexpr std::uint32_t unchanged = ~std::uint32_t{0};
+    if (owner != unchanged && owner != file.uid) return -linux_errno::eperm;
+    if (group != unchanged && group != file.gid && group != app_uid) return -linux_errno::eperm;
+    return 0;
+}
+
+}  // namespace
 
 long sys_fchownat(int directory, std::uint64_t path, std::uint32_t owner, std::uint32_t group, int flags) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    return result_or_error(::fchownat(host.directory, host.path.c_str(), owner, group, host_at_flags(flags)));
+    if (!entry_at(host, (flags & linux_at_symlink_nofollow) == 0)) return -to_linux_errno(errno);
+    return chown_answer(owner_at(directory, path, host), owner, group);
 }
 
 long sys_truncate(std::uint64_t path, std::int64_t length) {
     const auto host = resolve(linux_at_fdcwd, path);
     if (host.error != 0) return host.error;
+    if (const auto status = entry_at(host, true)) {  // ENOENT first, the host's
+        if (const long refused = may_write(linux_at_fdcwd, path, host, *status)) return refused;
+    }
     return result_or_error(::truncate(host.path.c_str(), length));
 }
 
@@ -564,11 +690,29 @@ long sys_utimensat(int directory, std::uint64_t path, std::uint64_t times, int f
         }
         pointer = host_times;
     }
+    // Linux's checks (may_setattr, setattr_prepare): times the guest gives need the file's owner; the current time, as
+    // NULL or UTIME_NOW twice, the owner or write permission; UTIME_OMIT twice changes nothing and needs neither.
+    const bool omitted = pointer != nullptr && host_times[0].tv_nsec == UTIME_OMIT && host_times[1].tv_nsec == UTIME_OMIT;
+    const bool now = pointer == nullptr || (host_times[0].tv_nsec == UTIME_NOW && host_times[1].tv_nsec == UTIME_NOW);
+    const auto refused = [&](const Owner &owner, const struct stat &status) {
+        if (omitted || owner.uid == app_uid) return 0L;
+        if (now && (granted(status.st_mode, owner) & 02) != 0) return 0L;
+        return may_set_attributes(owner);
+    };
     if (path == 0) {  // Linux allows a NULL path: the descriptor's own file
-        return with_host(directory, [&](int host) { return result_or_error(::futimens(host, pointer)); });
+        const auto description = descriptors::get(directory);
+        if (!description) return -linux_errno::ebadf;
+        struct stat status;
+        if (::fstat(description->host(), &status) == 0) {
+            if (const long answer = refused(owner_of(*description), status)) return answer;
+        }
+        return result_or_error(::futimens(description->host(), pointer));
     }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
+    if (const auto status = entry_at(host, (flags & linux_at_symlink_nofollow) == 0)) {  // ENOENT first, the host's
+        if (const long answer = refused(owner_at(directory, path, host), *status)) return answer;
+    }
     return result_or_error(::utimensat(host.directory, host.path.c_str(), pointer, host_at_flags(flags)));
 }
 
@@ -867,11 +1011,16 @@ long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) 
 }
 
 long sys_fchmod(int fd, int mode) {
-    return with_host(fd, [&](int host) { return result_or_error(::fchmod(host, static_cast<mode_t>(mode & 07777))); });
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (const long refused = may_set_attributes(owner_of(*description))) return refused;
+    return result_or_error(::fchmod(description->host(), static_cast<mode_t>(mode & 07777)));
 }
 
 long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group) {
-    return with_host(fd, [&](int host) { return result_or_error(::fchown(host, owner, group)); });
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    return chown_answer(owner_of(*description), owner, group);
 }
 
 long sys_ftruncate(int fd, std::int64_t length) {

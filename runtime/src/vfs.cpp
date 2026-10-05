@@ -1,5 +1,7 @@
 #include "vfs.h"
 
+#include <sys/stat.h>
+
 #include <mutex>
 #include <vector>
 
@@ -113,6 +115,21 @@ std::optional<std::string> guest_path(std::string_view host) {
     }
     if (best == nullptr) return std::nullopt;
     return rebase(host, best->host, best->guest);
+}
+
+std::optional<std::string> mount_point(std::string_view guest) {
+    const std::lock_guard lock(mutex);
+    const Mount *best = nullptr;
+    for (const auto &candidate : mounts) {
+        if (!covers(candidate.guest, guest) || (best != nullptr && candidate.guest.size() <= best->guest.size())) {
+            continue;
+        }
+        struct stat status;
+        if (::stat(candidate.host.c_str(), &status) == 0 && !S_ISDIR(status.st_mode)) continue;  // a mounted file
+        best = &candidate;
+    }
+    if (best == nullptr) return std::nullopt;
+    return best->guest;
 }
 
 std::string working_directory() {

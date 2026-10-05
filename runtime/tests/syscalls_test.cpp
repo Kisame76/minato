@@ -876,6 +876,153 @@ TEST(access_checks_the_mode_bits_of_the_owner_stat_reports) {
     call(nr_close, {unsigned_of(code)});
 }
 
+// ADR-0039 decision 3, the calls that change a file or a folder's entries: the host's files all belong to the app's
+// process, so the owners stat reports decide before the host, with Android 15's answers to an app (owner-rules-test
+// on the emulator, 2026-10-05). The app's code, system's, refuses every change with EACCES; a hard link is EACCES, and
+// EXDEV between mounts, as a rename is; the app's own folders take every other change.
+constexpr std::uint64_t nr_linkat = 37, nr_truncate = 45, nr_fchmod = 52, nr_fchmodat = 53, nr_fchownat = 54,
+                        nr_fchown = 55;
+constexpr std::int64_t exdev = 18;
+constexpr std::uint64_t unchanged_id = 0xffff'ffff;
+
+/// The app's code with base.apk 0644 in a 0755 folder, as on Android 15, its data folder and its external files folder
+/// in a scratch folder, each mounted on its own, as GuestStart mounts them. The host's own checks would let the app's
+/// process write base.apk: only the owner rules refuse it (c5's 0444 aside).
+struct Install : Scratch {
+    const std::string code = "/data/app/~~AAAA/io.example-BBBB", apk = code + "/base.apk",
+                      data = "/data/user/0/io.example", external = "/storage/emulated/0/Android/data/io.example";
+
+    Install() {
+        for (const char *folder : {"code", "data", "external"}) {
+            CHECK(::mkdir((host + "/" + folder).c_str(), 0755) == 0);
+        }
+        CHECK(::close(::open((host + "/code/base.apk").c_str(), O_CREAT | O_WRONLY, 0644)) == 0);
+        apkrt::vfs::mount(code, host + "/code");
+        apkrt::vfs::mount(data, host + "/data");
+        apkrt::vfs::mount(external, host + "/external");
+    }
+
+    /// Whether the scratch folder holds `name`, a path below it.
+    bool has(const std::string &name) const {
+        struct stat status;
+        return ::lstat((host + "/" + name).c_str(), &status) == 0;
+    }
+};
+
+std::uint64_t at(const std::string &path) {
+    return address(path.c_str());
+}
+
+TEST(the_apps_code_refuses_every_change_as_on_android_15) {
+    Install install;
+    const auto &code = install.code, &apk = install.apk;
+    const struct {
+        std::int64_t seconds, nanoseconds;
+    } times[2] = {{1'000'000'000, 0}, {1'000'000'000, 0}};
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(apk), 0644}) == -eacces);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(code), 0775}) == -eacces);
+    CHECK(call(nr_fchownat, {at_fdcwd, at(apk), 10100, 10100, 0}) == -eacces);
+    CHECK(call(nr_utimensat, {at_fdcwd, at(apk), address(times), 0}) == -eacces);
+    CHECK(call(nr_utimensat, {at_fdcwd, at(apk), 0, 0}) == -eacces);  // the current time: no write permission either
+    CHECK(open_guest(at_fdcwd, apk.c_str(), o_wronly) == -eacces);
+    CHECK(open_guest(at_fdcwd, apk.c_str(), o_rdonly | o_trunc) == -eacces);
+    CHECK(call(nr_truncate, {at(apk), 0}) == -eacces);
+    CHECK(open_guest(at_fdcwd, (code + "/new").c_str(), o_creat | o_wronly, 0600) == -eacces);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(code + "/folder"), 0700}) == -eacces);
+    CHECK(call(nr_symlinkat, {at(apk), at_fdcwd, at(code + "/symlink")}) == -eacces);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(apk), at_fdcwd, at(code + "/moved.apk"), 0}) == -eacces);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(apk), 0}) == -eacces);
+    CHECK(call(nr_linkat, {at_fdcwd, at(apk), at_fdcwd, at(code + "/linked.apk"), 0}) == -eacces);
+    // Out of the code's mount, EXDEV comes before any permission.
+    CHECK(call(nr_renameat2, {at_fdcwd, at(apk), at_fdcwd, at(install.data + "/moved.apk"), 0}) == -exdev);
+    CHECK(call(nr_linkat, {at_fdcwd, at(apk), at_fdcwd, at(install.data + "/linked.apk"), 0}) == -exdev);
+    // Through a descriptor as well.
+    const auto fd = open_guest(at_fdcwd, apk.c_str(), o_rdonly);
+    CHECK(fd >= 0);
+    CHECK(call(nr_fchmod, {unsigned_of(fd), 0644}) == -eacces);
+    CHECK(call(nr_fchown, {unsigned_of(fd), 10100, 10100}) == -eacces);
+    CHECK(call(nr_utimensat, {unsigned_of(fd), 0, 0, 0}) == -eacces);
+    call(nr_close, {unsigned_of(fd)});
+    // Linux's lookups answer first: ENOENT for a missing file, EEXIST for a present one.
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(code + "/missing"), 0}) == -enoent);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(code + "/missing"), 0644}) == -enoent);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(apk), 0700}) == -eexist);
+    CHECK(call(nr_linkat, {at_fdcwd, at(code + "/missing"), at_fdcwd, at(code + "/x"), 0}) == -enoent);
+    CHECK(call(nr_linkat, {at_fdcwd, at(apk), at_fdcwd, at(apk), 0}) == -eexist);
+    // The host's file is as it was, and nothing came into the code folder or went out of it.
+    struct stat status;
+    CHECK(::stat((install.host + "/code/base.apk").c_str(), &status) == 0 && (status.st_mode & 07777) == 0644);
+    for (const char *name : {"code/new", "code/folder", "code/symlink", "code/moved.apk", "code/linked.apk",
+                             "data/moved.apk", "data/linked.apk"}) {
+        CHECK(!install.has(name));
+    }
+}
+
+TEST(the_apps_own_folders_take_every_change_but_a_hard_link) {
+    Install install;
+    const auto &data = install.data, &external = install.external;
+    const auto own = data + "/own.txt";
+    const struct {
+        std::int64_t seconds, nanoseconds;
+    } times[2] = {{1'000'000'000, 0}, {1'000'000'000, 0}};
+    const auto fd = open_guest(at_fdcwd, own.c_str(), o_creat | o_rdwr, 0600);
+    CHECK(fd >= 0);
+    CHECK(call(nr_fchmod, {unsigned_of(fd), 0600}) == 0);
+    call(nr_close, {unsigned_of(fd)});
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(own), 0640}) == 0);
+    struct stat status;
+    CHECK(::stat((install.host + "/data/own.txt").c_str(), &status) == 0 && (status.st_mode & 07777) == 0640);
+    // chown: its own ids, which change nothing; another owner or group needs a capability the app lacks.
+    CHECK(call(nr_fchownat, {at_fdcwd, at(own), 10100, 10100, 0}) == 0);
+    CHECK(call(nr_fchownat, {at_fdcwd, at(own), unchanged_id, unchanged_id, 0}) == 0);
+    CHECK(call(nr_fchownat, {at_fdcwd, at(own), 0, unchanged_id, 0}) == -eperm);
+    CHECK(call(nr_fchownat, {at_fdcwd, at(own), unchanged_id, 1078, 0}) == -eperm);
+    CHECK(call(nr_utimensat, {at_fdcwd, at(own), address(times), 0}) == 0);
+    CHECK(::stat((install.host + "/data/own.txt").c_str(), &status) == 0 && status.st_mtime == 1'000'000'000);
+    const auto again = open_guest(at_fdcwd, own.c_str(), o_wronly | o_trunc);
+    CHECK(again >= 0);
+    call(nr_close, {unsigned_of(again)});
+    CHECK(call(nr_truncate, {at(own), 0}) == 0);
+    CHECK(call(nr_symlinkat, {at(own), at_fdcwd, at(data + "/symlink")}) == 0);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(data + "/folder"), 0700}) == 0);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(own), at_fdcwd, at(data + "/moved.txt"), 0}) == 0);
+    // A hard link: EACCES within the folder, EXDEV to another mount, as for a rename.
+    CHECK(call(nr_linkat, {at_fdcwd, at(data + "/moved.txt"), at_fdcwd, at(data + "/linked.txt"), 0}) == -eacces);
+    CHECK(call(nr_linkat, {at_fdcwd, at(data + "/moved.txt"), at_fdcwd, at(external + "/linked.txt"), 0}) == -exdev);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(data + "/moved.txt"), at_fdcwd, at(external + "/moved.txt"), 0}) == -exdev);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/moved.txt"), 0}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/symlink"), 0}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(data + "/folder"), at_removedir}) == 0);
+    CHECK(!install.has("data/linked.txt") && !install.has("external/linked.txt") && !install.has("data/moved.txt"));
+    // The external files folder, the app's with the group ext_data_rw.
+    const auto outside = external + "/own.txt";
+    const auto created = open_guest(at_fdcwd, outside.c_str(), o_creat | o_wronly, 0660);
+    CHECK(created >= 0);
+    call(nr_close, {unsigned_of(created)});
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(outside), 0600}) == 0);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(outside), at_fdcwd, at(external + "/moved.txt"), 0}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(external + "/moved.txt"), 0}) == 0);
+}
+
+// On a host whose file system ignores case (the Mac's, so the Simulator's), /data/APP/... below a mount of /data is
+// the same file as /data/app/...: the owners go by the folders without regard to case, so it is system's as well.
+TEST(the_apps_code_is_systems_in_any_case) {
+    Scratch scratch;
+    const auto code = scratch.host + "/data/app/~~AAAA/io.example-BBBB";
+    CHECK(std::system(("mkdir -p '" + code + "'").c_str()) == 0);
+    CHECK(::close(::open((code + "/base.apk").c_str(), O_CREAT | O_WRONLY, 0644)) == 0);
+    apkrt::vfs::mount("/data", scratch.host + "/data");  // as apk-run's harness mounts /data
+    const bool ignores_case = ::pathconf(scratch.host.c_str(), _PC_CASE_SENSITIVE) == 0;
+    const auto other_case = std::string("/data/APP/~~AAAA/io.example-BBBB/base.apk");
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(other_case), 0666}) == (ignores_case ? -eacces : -enoent));
+    LinuxStat status{};
+    if (ignores_case) {
+        CHECK(call(nr_newfstatat, {at_fdcwd, at(other_case), address(&status), 0}) == 0 && status.uid == 1000);
+    }
+    struct stat host{};
+    CHECK(::stat((code + "/base.apk").c_str(), &host) == 0 && (host.st_mode & 07777) == 0644);
+}
+
 TEST(relative_paths_start_at_the_working_directory_or_a_directory_fd) {
     Scratch scratch;
     const auto fd = open_guest(at_fdcwd, "b.txt", o_creat | o_rdwr, 0600);

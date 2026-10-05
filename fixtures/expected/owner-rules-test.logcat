@@ -1,0 +1,40 @@
+I/owner-rules-test: code chmod base.apk: EACCES
+I/owner-rules-test: code chown base.apk: EACCES
+I/owner-rules-test: code times of base.apk: IllegalStateException
+I/owner-rules-test: code open base.apk for writing: EACCES
+I/owner-rules-test: code link base.apk into files: EXDEV
+I/owner-rules-test: code symlink in the code folder: EACCES
+I/owner-rules-test: code mkdir in the code folder: EACCES
+I/owner-rules-test: code create in the code folder: EACCES
+I/owner-rules-test: code chmod the code folder: EACCES
+I/owner-rules-test: code rename base.apk in the code folder: EACCES
+I/owner-rules-test: code rename base.apk into files: EXDEV
+I/owner-rules-test: code unlink base.apk: EACCES
+I/owner-rules-test: code truncate base.apk: EACCES
+I/owner-rules-test: data chmod the data folder: ok
+I/owner-rules-test: files create: ok
+I/owner-rules-test: files chmod: ok
+I/owner-rules-test: files chown: ok
+I/owner-rules-test: files times: ok
+I/owner-rules-test: files open for writing: ok
+I/owner-rules-test: files truncate: ok
+I/owner-rules-test: files link: EACCES
+I/owner-rules-test: files symlink: ok
+I/owner-rules-test: files mkdir: ok
+I/owner-rules-test: files rename: ok
+I/owner-rules-test: files unlink: ok
+I/owner-rules-test: files rmdir: ok
+I/owner-rules-test: cache create: ok
+I/owner-rules-test: cache chmod: ok
+I/owner-rules-test: cache link: EACCES
+I/owner-rules-test: cache rename: ok
+I/owner-rules-test: cache unlink: ok
+I/owner-rules-test: external create: ok
+I/owner-rules-test: external chmod: ok
+I/owner-rules-test: external open for writing: ok
+I/owner-rules-test: external link: EACCES
+I/owner-rules-test: external mkdir: ok
+I/owner-rules-test: external rename: ok
+I/owner-rules-test: external unlink: ok
+I/owner-rules-test: external rmdir: ok
+I/owner-rules-test: done
