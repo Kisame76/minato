@@ -677,6 +677,7 @@ public final class ActivityThread {
     private static final int EVENT_NATIVE_WINDOW_DESTROYED = 12;
     private static final int EVENT_LOW_MEMORY = 17;
     private static final int REQUEST_FINISH = 1;
+    private static final int REQUEST_WINDOW_FORMAT = 6;
 
     /** The session's event pipe; null without a session. */
     private FileDescriptor mSessionEvents;
@@ -816,6 +817,21 @@ public final class ActivityThread {
             return false;
         }
         return true;
+    }
+
+    /**
+     * @hide ViewRootImpl's (ADR-0043 c3): the window's format, a PixelFormat, to the session's host, as
+     * ANativeActivity_setWindowFormat sends it; the runtime reports its opacity. Nothing without a session.
+     */
+    public static void requestWindowFormat(int format) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return;
+        }
+        int error = nativeSessionRequest(REQUEST_WINDOW_FORMAT, format & 0xffffffffL, 0);
+        if (error != 0) {
+            Log.e(TAG, "The session refused WINDOW_FORMAT: " + error);
+        }
     }
 
     /** As AOSP's performRestartActivity for a stopped activity: onRestart, then onStart. */

@@ -6,7 +6,8 @@
 # 2796 px at scale 3 in en-US, whose host plays a start, a background and a return (apk-run --lifecycle) and quits after
 # the app's finish. Its log is compared with Android 15's on that display (fixtures/expected/java-test.logcat, from
 # tools/android-reference.sh --app java-test, which sends HOME, starts the app again, lets it finish, then
-# force-stops and starts it once more). Then java-test starts without a configuration, so without a session, where
+# force-stops and starts it once more). The runs must draw the window, into apk-run's headless buffers (ADR-0043 step
+# c3, java_app_run.py --drawn). Then java-test starts without a configuration, so without a session, where
 # the launcher activity starts by itself as before ADR-0043 step c1, up to its onResume, against the reference's
 # lines up to there (java_app_run.py --until).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
@@ -27,7 +28,7 @@ tools/build-framework.sh >/dev/null
 
 failed=0
 tools/build-java-test-app.sh java-test >/dev/null
-python3 framework/tests/java_app_run.py --restart --lifecycle start,background,foreground java-test \
+python3 framework/tests/java_app_run.py --restart --lifecycle start,background,foreground --drawn java-test \
   io.github.kisame76.minato.test.javatest android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/java-test-check build/framework-native/app_process64 build/framework/framework.jar \

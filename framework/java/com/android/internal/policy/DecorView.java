@@ -2,13 +2,15 @@
  * Our DecorView, under AOSP's name (ADR-0041 decision 2, ADR-0039 step c2c3): the root of an activity's window, a
  * FrameLayout that holds the window's layout (screen_simple's LinearLayout with the content FrameLayout) and hands
  * the window's events to its callback, the activity, as AOSP's DecorView does: key, touch and generic events, the
- * attach and detach, and the window's focus. AOSP's (2,670 lines) also draws the system bars' backgrounds, the
- * caption and the action modes, and resizes with the window; those come with ADR-0041 a)'s insets and ADR-0038's
+ * attach and detach, and the window's focus. Its background decides the window's default format, as AOSP's
+ * drawableChanged does (ADR-0043 c3). AOSP's (2,670 lines) also draws the system bars' backgrounds, the caption, the
+ * window's frame and the action modes, and resizes with the window; those come with ADR-0041 a)'s insets and ADR-0038's
  * status bar, and without action modes a view's startActionMode gets none.
  */
 package com.android.internal.policy;
 
 import android.content.Context;
+import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -44,10 +46,58 @@ public class DecorView extends FrameLayout {
         mContentRoot = (ViewGroup) root;
     }
 
-    /** The window's background, which the decor draws behind everything (M4 step 10). */
-    @SuppressWarnings("deprecation") // View.setBackgroundDrawable, as AOSP's setWindowBackground calls it.
-    void setWindowBackground(Drawable drawable) {
-        setBackgroundDrawable(drawable);
+    /**
+     * As AOSP's: the window's background, which the decor draws behind everything, and with a new one the window's
+     * default format (drawableChanged).
+     */
+    @SuppressWarnings("deprecation") // View.setBackgroundDrawable, as AOSP's updateBackgroundDrawable calls it.
+    public void setWindowBackground(Drawable drawable) {
+        if (getBackground() != drawable) {
+            super.setBackgroundDrawable(drawable);
+            if (mWindow != null) {
+                drawableChanged();
+            }
+        }
+    }
+
+    /** As AOSP's: a background set on the decor is the window's. */
+    @Override
+    @SuppressWarnings("deprecation") // View.setBackgroundDrawable, which AOSP's DecorView overrides too.
+    public void setBackgroundDrawable(Drawable background) {
+        setWindowBackground(background);
+    }
+
+    /**
+     * As AOSP's drawableChanged for a window without a frame or a shadow, which ours never have: the window's default
+     * format, OPAQUE without a background, else the background's opacity, or with a foreground the two together. AOSP's
+     * also pads the decor by the frame's and the background's padding; View's setBackgroundDrawable takes the latter.
+     */
+    @SuppressWarnings("deprecation") // Drawable.getOpacity, as AOSP's drawableChanged calls it.
+    private void drawableChanged() {
+        int opacity = PixelFormat.OPAQUE;
+        final Drawable bg = getBackground();
+        final Drawable fg = getForeground();
+        if (bg != null) {
+            if (fg == null) {
+                opacity = bg.getOpacity();
+            } else {
+                // Without a frame the frame's padding is zero, so either one opaque makes the window opaque.
+                final int fop = fg.getOpacity();
+                final int bop = bg.getOpacity();
+                if (fop == PixelFormat.OPAQUE || bop == PixelFormat.OPAQUE) {
+                    opacity = PixelFormat.OPAQUE;
+                } else if (fop == PixelFormat.UNKNOWN) {
+                    opacity = bop;
+                } else if (bop == PixelFormat.UNKNOWN) {
+                    opacity = fop;
+                } else {
+                    opacity = Drawable.resolveOpacity(fop, bop);
+                }
+            }
+        }
+        if (mFeatureId < 0) {
+            mWindow.setDefaultWindowFormat(opacity);
+        }
     }
 
     void clearContentView() {

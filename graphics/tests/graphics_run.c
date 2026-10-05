@@ -10,6 +10,12 @@
 #include "minato_graphics.h"
 #include "test_host.h"
 
+/* So that apk-run's --lifecycle windows take the buffers set below, not apk-run's headless ones (ADR-0043 c3). */
+int apk_run_sets_window_buffers(void);
+int apk_run_sets_window_buffers(void) {
+    return 1;
+}
+
 __attribute__((constructor)) static void set_providers(void) {
     if (minato_graphics_set_providers(getenv("MINATO_MOLTENVK"), getenv("MINATO_ANGLE")) != 0) {
         fprintf(stderr, "graphics-run: the runtime refused graphics/host's providers\n");

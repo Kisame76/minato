@@ -368,6 +368,12 @@ public class PhoneWindow extends Window {
         mTitleColor = textColor;
     }
 
+    /** As AOSP's: here, so that DecorView, in this package, sets the window's default format (ADR-0043 c3). */
+    @Override
+    protected void setDefaultWindowFormat(int format) {
+        super.setDefaultWindowFormat(format);
+    }
+
     @Override
     public void setBackgroundDrawable(Drawable drawable) {
         if (drawable != mBackgroundDrawable || mBackgroundResource != 0) {

@@ -22,13 +22,18 @@
 // ADR-0032; activity-host's header lists the events), for a guest that reads the session (ADR-0043 step c1). Its
 // steps follow one another, each once the one before is answered and a second has passed, as Android's reference
 // scripts wait before HOME and before the return:
-//   start       a window of the configuration's size (no layer; graphics-run's buffers under graphics-run), CREATE,
-//               START, RESUME, INPUT_QUEUE_CREATED without a channel, the window created, resized with its size, the
-//               content's rectangle (the whole window), redraw needed and the focus; then the window's gate opens;
+//   start       a window of the configuration's size (no layer), CREATE, START, RESUME, INPUT_QUEUE_CREATED without
+//               a channel, the window created, resized with its size, the content's rectangle (the whole window),
+//               redraw needed and the focus; the window's gate opens once these are posted, before their answers, as
+//               the App's SessionBridge opens it with the focus: a Java app draws on the thread that answers them;
 //   background  the background, "scheduled", the window removed, PAUSE, the focus lost, the window destroyed, STOP
 //               and SAVE_INSTANCE_STATE;
 //   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
-//               rectangle; then the gate opens.
+//               rectangle, the gate opening as at the start.
+// The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
+// alone (ADR-0043 c3), as a host without a screen has: a lock gives a buffer kept for the window's geometry, cleared
+// when that is new, and the post drops what was drawn, saying so once per window on stderr ("apk-run: the first post
+// of window <id>"), which java_app_run.py --drawn looks for.
 // The guest's FINISH request then gets the quit: the window removed, PAUSE, the focus lost, the window destroyed,
 // STOP and DESTROY, or only DESTROY after a last background, as Android destroys a stopped activity. The first step is
 // start, and background and foreground alternate. A step waits 120 s for its answer, as an app process on the
@@ -41,6 +46,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
@@ -54,6 +61,10 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+
+/// Whether the build sets the windows' buffers itself: graphics-run does, graphics/host's or its window host's fake
+/// ones, and defines this to say so (graphics/tests/graphics_run.c); apk-run alone has none.
+extern "C" __attribute__((weak)) int apk_run_sets_window_buffers(void) { return 0; }
 
 namespace {
 
@@ -140,6 +151,62 @@ void on_request(void *, int type, std::uint64_t, const char *) {
     finishing.asked.notify_all();
 }
 
+/// --lifecycle's headless buffers, one buffer locked at a time: the buffer, its geometry, and whether a lock holds it.
+struct {
+    std::vector<std::uint8_t> pixels;
+    std::uint64_t id = 0, posted = 0;
+    std::int32_t width = 0, height = 0, format = 0;
+    std::atomic<bool> locked{false};
+} headless;
+
+/// A lock of the headless buffers: RGBA_8888, RGBX_8888 and RGB_565, else -EINVAL; a buffer of the window's size, with
+/// its width as its stride. The dirty rectangle is the whole buffer for another window or geometry, else the guest's
+/// cut to the buffer, and 0 0 0 0 when that leaves nothing, as graphics/host's buffers answer. While a lock holds the
+/// buffer, another lock answers -EBUSY with a line on stderr rather than take the buffer from under its writer.
+int headless_lock(void *, std::uint64_t id, apkrt_window_buffer *buffer) {
+    const int bytes = buffer->format == 1 || buffer->format == 2 ? 4 : buffer->format == 4 ? 2 : 0;
+    if (bytes == 0 || buffer->width <= 0 || buffer->height <= 0) return -EINVAL;
+    if (headless.locked.exchange(true)) {
+        std::fprintf(stderr, "apk-run: window %llu's lock while another one holds the headless buffer\n",
+                     static_cast<unsigned long long>(id));
+        return -EBUSY;
+    }
+    std::int32_t *const dirty = buffer->dirty;
+    if (id != headless.id || buffer->width != headless.width || buffer->height != headless.height ||
+        buffer->format != headless.format) {
+        headless.pixels.assign(static_cast<std::size_t>(buffer->width) * static_cast<std::size_t>(buffer->height) *
+                                   static_cast<std::size_t>(bytes),
+                               0);
+        headless.id = id;
+        headless.width = buffer->width;
+        headless.height = buffer->height;
+        headless.format = buffer->format;
+        dirty[0] = dirty[1] = 0;
+        dirty[2] = buffer->width;
+        dirty[3] = buffer->height;
+    } else {
+        dirty[0] = std::max(dirty[0], 0);
+        dirty[1] = std::max(dirty[1], 0);
+        dirty[2] = std::min(dirty[2], buffer->width);
+        dirty[3] = std::min(dirty[3], buffer->height);
+        if (dirty[0] >= dirty[2] || dirty[1] >= dirty[3]) dirty[0] = dirty[1] = dirty[2] = dirty[3] = 0;
+    }
+    buffer->stride = buffer->width;
+    buffer->bits = headless.pixels.data();
+    return 0;
+}
+
+int headless_post(void *, std::uint64_t id) {
+    if (id != headless.posted) {
+        headless.posted = id;
+        std::fprintf(stderr, "apk-run: the first post of window %llu\n", static_cast<unsigned long long>(id));
+    }
+    headless.locked.store(false);
+    return 0;
+}
+
+void headless_removed(void *, std::uint64_t) {}
+
 /// Posts one event; its serial number, 0 when the post failed, which apk-run reports.
 std::uint32_t post(std::uint32_t type, std::uint64_t a0 = 0, std::uint64_t a1 = 0, std::uint64_t a2 = 0) {
     const std::uint32_t serial = apkrt_session_post(type, a0, a1, a2);
@@ -183,8 +250,9 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
             post(APKRT_EVENT_INPUT_QUEUE_CREATED, 0);
-            if (!answered(show(true), "the start")) return;
+            const std::uint32_t shown = show(true);
             apkrt_window_set_gate(window, 1);
+            if (!answered(shown, "the start")) return;
         } else if (steps[index] == "background") {
             apkrt_set_background(1);
             if (apkrt_wait_scheduled(1.0) != 1) std::fprintf(stderr, "apk-run: \"scheduled\" did not answer yes\n");
@@ -200,8 +268,9 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             window = apkrt_window_add(nullptr, width, height);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
-            if (!answered(show(false), "the return")) return;
+            const std::uint32_t shown = show(false);
             apkrt_window_set_gate(window, 1);
+            if (!answered(shown, "the return")) return;
             stopped = false;
         }
     }
@@ -312,6 +381,11 @@ int main(int argc, char **argv) {
             return 2;
         }
         std::thread(run_frame_clock, session.configuration.refresh_rate).detach();
+        if (!lifecycle.empty() && apk_run_sets_window_buffers() == 0) {
+            static const apkrt_window_buffers headless_buffers = {headless_lock, headless_post, headless_removed,
+                                                                  nullptr};
+            apkrt_set_window_buffers(&headless_buffers);
+        }
         // Events wait in the pipe until the guest reads them, so the start may be posted before the program runs.
         if (!lifecycle.empty()) {
             std::thread(run_lifecycle, lifecycle, session.configuration.width, session.configuration.height).detach();

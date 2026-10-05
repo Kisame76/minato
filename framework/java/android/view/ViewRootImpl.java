@@ -7,9 +7,12 @@
  *   - a traversal runs as AOSP's on Choreographer's CALLBACK_TRAVERSAL behind a sync barrier. The first attaches the
  *     view tree, dispatches the window's insets and measures the tree at the display's size, which the window
  *     covers whole (ADR-0038), or at the host's window's size once the session gave it; each traversal lays out
- *     what requested it, dispatches the global layout and the pre-draw, and draws nothing until M4 step 10. The
- *     host's session gives the window its focus (ADR-0043 step c1); without a session the window gains focus after
- *     the first traversal, as a new activity's window does once system_server shows it;
+ *     what requested it, dispatches the global layout and the pre-draw, and then draws as AOSP's software path does
+ *     (ADR-0043 c3): the dirty rectangle the invalidations collected, or the whole window after a new surface or
+ *     size, on the canvas of the surface the session's host window gives (WindowSurface), whose format follows the
+ *     window's attributes as BLASTBufferQueue's. The host's session gives the window its focus (ADR-0043 step c1);
+ *     without a session the window has no surface and draws nothing, and gains focus after the first traversal, as a
+ *     new activity's window does once system_server shows it;
  *   - the insets are none until ADR-0041 decision 8, so a window that fits the system windows keeps its whole size,
  *     as an edge-to-edge window does on Android 15. The window's InsetsController, ours, keeps what the app asks of it,
  *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
@@ -22,9 +25,13 @@ package android.view;
 
 import android.animation.LayoutTransition;
 import android.content.Context;
+import android.app.ActivityThread;
 import android.content.res.Configuration;
+import android.graphics.Canvas;
 import android.graphics.Matrix;
+import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.graphics.RenderNode;
@@ -33,6 +40,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
+import android.util.TimeUtils;
 import android.view.View.AttachInfo;
 import android.view.Window.OnContentApplyWindowInsetsListener;
 import android.view.accessibility.AccessibilityEvent;
@@ -79,9 +87,24 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public boolean mIsAnimating;
     /** The input frame's statistics, which View reads only while it handles a pointer event (ADR-0041 a)'s input). */
     protected final ViewFrameInfo mViewFrameInfo = null;
-    /** The window's surface: invalid until ADR-0041 a)'s surfaces give it M3's layer. */
+    /** The window's surface, on the session's host window from NATIVE_WINDOW_CREATED to its DESTROYED (c3). */
     public final Surface mSurface = new Surface();
     int mCurScrollY;
+    /** As AOSP's: what the next draw redraws, in the window's pixels; invalidateRectOnScreen unions into it. */
+    final Rect mDirty = new Rect();
+    /** As AOSP's: a traversal runs, which draws what is invalidated meanwhile without another one. */
+    boolean mWillDrawSoon;
+    /** As AOSP's: the next draw takes the whole window, after a new surface or size and at the host's REDRAW_NEEDED. */
+    boolean mFullRedrawNeeded;
+    /** As AOSP's: the attributes changed, so the next traversal decides the window's format again. */
+    boolean mWindowAttributesChanged;
+    /** The software canvas's densities, as AOSP's: the display's. */
+    private final int mDensity;
+    private final int mNoncompatDensity;
+    /** The window's format as the last traversal decided it (a PixelFormat), 0 before the first. */
+    private int mWindowFormat;
+    /** The format the session's host was told last (WINDOW_FORMAT), none before the first. */
+    private int mReportedFormat = Integer.MIN_VALUE;
 
     final AttachInfo mAttachInfo;
     final ViewRootHandler mHandler = new ViewRootHandler();
@@ -124,6 +147,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         mDisplay = display;
         mThread = Thread.currentThread();
         mAttachInfo = new AttachInfo(null, mWindow, display, this, mHandler, this, context);
+        mDensity = context.getResources().getDisplayMetrics().densityDpi;
+        mNoncompatDensity = context.getResources().getDisplayMetrics().noncompatDensityDpi;
         mChoreographer = Choreographer.getInstance();
         mOnBackInvokedDispatcher = new WindowOnBackInvokedDispatcher(context, Looper.myLooper());
     }
@@ -173,6 +198,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mApplicationScale = 1.0f;
             mAttachInfo.mInTouchMode = true;
             mAdded = true;
+            mWindowAttributesChanged = true;
             requestLayout();
             // As AOSP's: what the app asked of the decor view's pending controller goes to the window's.
             if (view instanceof DecorView) {
@@ -191,6 +217,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         synchronized (this) {
             mWindowAttributes.copyFrom(attrs);
             mLayoutRequested = true;
+            mWindowAttributesChanged = true;
             scheduleTraversals();
         }
     }
@@ -224,6 +251,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (host == null || !mAdded) {
             return;
         }
+        mWillDrawSoon = true;
         final boolean first = mFirst;
         final int viewVisibility = host.getVisibility();
         Point size = new Point();
@@ -232,6 +260,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             size.set(mHostWidth, mHostHeight);
         }
         if (first) {
+            mFullRedrawNeeded = true;
             mAttachInfo.mUse32BitDrawingCache = true;
             mAttachInfo.mWindowVisibility = viewVisibility;
             mAttachInfo.mRecomputeGlobalAttributes = false;
@@ -248,11 +277,26 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mWindowVisibility = viewVisibility;
             host.dispatchWindowVisibilityChanged(viewVisibility);
         }
+        // As AOSP's: changed attributes decide the window's format, translucent once the tree asks for a transparent
+        // region, which relayoutWindow then gives the window's surface.
+        if (mWindowAttributesChanged) {
+            mWindowAttributesChanged = false;
+            final WindowManager.LayoutParams params = mWindowAttributes;
+            if ((host.mPrivateFlags & View.PFLAG_REQUEST_TRANSPARENT_REGIONS) != 0
+                    && !PixelFormat.formatHasAlpha(params.format)) {
+                params.format = PixelFormat.TRANSLUCENT;
+            }
+            setWindowFormat(params.format);
+        }
         boolean triggerGlobalLayoutListener = false;
         if (mLayoutRequested) {
             mLayoutRequested = false;
             final WindowManager.LayoutParams lp = mWindowAttributes;
             host.measure(getRootMeasureSpec(size.x, lp.width), getRootMeasureSpec(size.y, lp.height));
+            if (host.getMeasuredWidth() != mWidth || host.getMeasuredHeight() != mHeight) {
+                // As AOSP's for a new frame size: the whole window again.
+                mFullRedrawNeeded = true;
+            }
             mWidth = host.getMeasuredWidth();
             mHeight = host.getMeasuredHeight();
             mInLayout = true;
@@ -273,10 +317,16 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             }
         }
         mFirst = false;
-        boolean cancelDraw = mAttachInfo.mTreeObserver.dispatchOnPreDraw() || viewVisibility != View.VISIBLE;
-        if (cancelDraw && viewVisibility == View.VISIBLE) {
-            // As AOSP's: a pre-draw listener that cancels the draw gets another traversal at the next frame.
-            scheduleTraversals();
+        mWillDrawSoon = false;
+        // As AOSP's: a window that is not visible draws nothing, and a pre-draw listener that cancels the draw gets
+        // another traversal at the next frame.
+        boolean cancelDraw = mAttachInfo.mTreeObserver.dispatchOnPreDraw();
+        if (viewVisibility == View.VISIBLE) {
+            if (cancelDraw) {
+                scheduleTraversals();
+            } else {
+                performDraw();
+            }
         }
         if (first && !sHostWindows) {
             windowFocusChanged(true);
@@ -290,11 +340,26 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     /**
      * @hide ActivityThread's, at the session's NATIVE_WINDOW_CREATED and RESIZED: the host's window and its size in
-     * pixels, at which the next traversal lays the tree out; at NATIVE_WINDOW_DESTROYED, ID 0, and the size stays. The
-     * window's surface on that ID comes with ADR-0043 step c2.
+     * pixels, at which the next traversal lays the tree out; at NATIVE_WINDOW_DESTROYED, ID 0, and the size stays. A
+     * new window gives the window's surface, as relayoutWindow's new surface does, in the window's format, and the
+     * next draw takes the whole window (ADR-0043 c3); ID 0 releases it.
      */
     public void setHostWindow(long id, int width, int height) {
-        mHostWindow = id;
+        if (id != mHostWindow) {
+            mHostWindow = id;
+            if (id != 0) {
+                try {
+                    mSurface.transferFrom(WindowSurface.create(id, width, height));
+                    setBuffersFormat();
+                } catch (Surface.OutOfResourcesException e) {
+                    Log.e(TAG, "No surface on the host's window " + id, e);
+                }
+                mFullRedrawNeeded = true;
+                scheduleTraversals();
+            } else {
+                mSurface.release();
+            }
+        }
         if (id != 0 && (width != mHostWidth || height != mHostHeight)) {
             mHostWidth = width;
             mHostHeight = height;
@@ -302,11 +367,127 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
     }
 
-    /** @hide ActivityThread's, at the session's NATIVE_WINDOW_REDRAW_NEEDED: the whole window again. */
+    /**
+     * @hide ActivityThread's, at the session's NATIVE_WINDOW_REDRAW_NEEDED: the whole window again at the next
+     * traversal, as a draw the window manager syncs is a full one.
+     */
     public void redrawNeeded() {
-        if (mView != null) {
-            mView.invalidate();
+        mFullRedrawNeeded = true;
+        scheduleTraversals();
+    }
+
+    /**
+     * The window's format, as relayoutWindow hands it to the window manager (ADR-0043 c3): its surface's buffers take
+     * it, and the session's host learns it, as ANativeActivity_setWindowFormat tells it, whose opacity the runtime
+     * reports.
+     */
+    private void setWindowFormat(int format) {
+        mWindowFormat = format;
+        setBuffersFormat();
+        if (sHostWindows && format != mReportedFormat) {
+            mReportedFormat = format;
+            ActivityThread.requestWindowFormat(format);
         }
+    }
+
+    /**
+     * The surface's buffers in the window's format, as BLASTBufferQueue's convertBufferFormat gives it: OPAQUE as
+     * RGBX_8888, TRANSLUCENT and TRANSPARENT as RGBA_8888, any other as it is. The host's buffers take RGBA_8888,
+     * RGBX_8888 and RGB_565; another format fails at the lock.
+     */
+    private void setBuffersFormat() {
+        if (!mSurface.isValid() || mWindowFormat == 0) {
+            return;
+        }
+        int format = mWindowFormat;
+        if (format == PixelFormat.TRANSPARENT || format == PixelFormat.TRANSLUCENT) {
+            format = PixelFormat.RGBA_8888;
+        } else if (format == PixelFormat.OPAQUE) {
+            format = PixelFormat.RGBX_8888;
+        }
+        WindowSurface.setBuffersGeometry(mSurface, 0, 0, format);
+    }
+
+    /** As AOSP's, without a hardware renderer, a sync or the screen's state: the draw, once per traversal. */
+    private boolean performDraw() {
+        if (mAttachInfo.mDisplayState == Display.STATE_OFF || mView == null) {
+            return false;
+        }
+        final boolean fullRedrawNeeded = mFullRedrawNeeded;
+        mFullRedrawNeeded = false;
+        return draw(fullRedrawNeeded);
+    }
+
+    /**
+     * As AOSP's for software: the dirty rectangle, or the whole window, drawn on the surface's canvas, after the tree
+     * observer's onDraw, with the drawing time from Choreographer's frame. Without a scroller or surface insets the
+     * canvas is not offset, and without accessibility no focus is drawn.
+     */
+    private boolean draw(boolean fullRedrawNeeded) {
+        final Surface surface = mSurface;
+        if (!surface.isValid()) {
+            return false;
+        }
+        if (mAttachInfo.mViewScrollChanged) {
+            mAttachInfo.mViewScrollChanged = false;
+            mAttachInfo.mTreeObserver.dispatchOnScrollChanged();
+        }
+        final float appScale = mAttachInfo.mApplicationScale;
+        final boolean scalingRequired = mAttachInfo.mScalingRequired;
+        final Rect dirty = mDirty;
+        if (fullRedrawNeeded) {
+            dirty.set(0, 0, (int) (mWidth * appScale + 0.5f), (int) (mHeight * appScale + 0.5f));
+        }
+        mAttachInfo.mTreeObserver.dispatchOnDraw();
+        mAttachInfo.mDrawingTime = mChoreographer.getFrameTimeNanos() / TimeUtils.NANOS_PER_MS;
+        if (!dirty.isEmpty() || mIsAnimating) {
+            return drawSoftware(surface, 0, mCurScrollY, scalingRequired, dirty);
+        }
+        return false;
+    }
+
+    /**
+     * As AOSP's: the canvas locked on the dirty rectangle at the display's density, cleared when its buffers have
+     * alpha, the tree drawn and posted. A surface that fails asks for a layout, as AOSP's asks the window manager for a
+     * new one; ours logs it, as no window manager has memory to free.
+     */
+    @SuppressWarnings("finally") // the post's failure returns from the finally block, as AOSP's does.
+    private boolean drawSoftware(Surface surface, int xoff, int yoff, boolean scalingRequired, Rect dirty) {
+        final Canvas canvas;
+        try {
+            canvas = mSurface.lockCanvas(dirty);
+            canvas.setDensity(mDensity);
+        } catch (Surface.OutOfResourcesException e) {
+            Log.e(TAG, "OutOfResourcesException locking the surface", e);
+            mLayoutRequested = true;
+            return false;
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Could not lock surface", e);
+            mLayoutRequested = true;
+            return false;
+        }
+        try {
+            // As AOSP's: a canvas with alpha starts clear within the dirty rectangle, so the tree composes over
+            // transparency; an offset canvas, so that nothing old shows in its blank part.
+            if (!canvas.isOpaque() || yoff != 0 || xoff != 0) {
+                canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            }
+            dirty.setEmpty();
+            mIsAnimating = false;
+            mView.mPrivateFlags |= View.PFLAG_DRAWN;
+            canvas.translate(-xoff, -yoff);
+            canvas.setScreenDensity(scalingRequired ? mNoncompatDensity : 0);
+            mView.draw(canvas);
+        } finally {
+            try {
+                surface.unlockCanvasAndPost(canvas);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Could not unlock surface", e);
+                mLayoutRequested = true;
+                return false;
+            }
+        }
+        return true;
     }
 
     private static int getRootMeasureSpec(int windowSize, int rootDimension) {
@@ -388,6 +569,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 mView = null;
                 mAttachInfo.mRootView = null;
             }
+            mSurface.release();
             mAdded = false;
             unscheduleTraversals();
         }
@@ -426,12 +608,18 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return mLayoutRequested;
     }
 
+    /** As AOSP's: the window turns translucent at the next traversal (the format's part of ADR-0043 c3). */
     @Override
     public void requestTransparentRegion(View child) {
         checkThread();
-        if (mView == child) {
-            requestLayout();
+        if (mView != child) {
+            return;
         }
+        if ((mView.mPrivateFlags & View.PFLAG_REQUEST_TRANSPARENT_REGIONS) == 0) {
+            mView.mPrivateFlags |= View.PFLAG_REQUEST_TRANSPARENT_REGIONS;
+            mWindowAttributesChanged = true;
+        }
+        requestLayout();
     }
 
     @Override
@@ -439,14 +627,46 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         invalidateChildInParent(null, dirty);
     }
 
-    /** As AOSP's: an invalidation asks for a traversal, which draws once M4 step 10 does. */
+    /** As AOSP's: the whole window at the next traversal. */
+    void invalidate() {
+        mDirty.set(0, 0, mWidth, mHeight);
+        if (!mWillDrawSoon) {
+            scheduleTraversals();
+        }
+    }
+
+    /** As AOSP's, without a compatibility translator: the child's rectangle on the window, below its scroll. */
     @Override
     public ViewParent invalidateChildInParent(int[] location, Rect dirty) {
         checkThread();
-        if (dirty == null || !dirty.isEmpty() || mIsAnimating) {
+        if (dirty == null) {
+            invalidate();
+            return null;
+        } else if (dirty.isEmpty() && !mIsAnimating) {
+            return null;
+        }
+        if (mCurScrollY != 0) {
+            mTempRect.set(dirty);
+            dirty = mTempRect;
+            dirty.offset(0, -mCurScrollY);
+        }
+        invalidateRectOnScreen(dirty);
+        return null;
+    }
+
+    /** As AOSP's: the rectangle joins the dirty one, cut to the window, and a traversal comes unless one runs. */
+    private void invalidateRectOnScreen(Rect dirty) {
+        final Rect localDirty = mDirty;
+        localDirty.union(dirty.left, dirty.top, dirty.right, dirty.bottom);
+        final float appScale = mAttachInfo.mApplicationScale;
+        final boolean intersected = localDirty.intersect(0, 0,
+                (int) (mWidth * appScale + 0.5f), (int) (mHeight * appScale + 0.5f));
+        if (!intersected) {
+            localDirty.setEmpty();
+        }
+        if (!mWillDrawSoon && (intersected || mIsAnimating)) {
             scheduleTraversals();
         }
-        return null;
     }
 
     /** The parent of a window's root: none. */
@@ -725,7 +945,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
     }
 
-    /** The window's opacity, which only the GPU's canvas uses (M4 step 10). */
+    /** The window's opacity for the hardware path's canvas; the software path takes its buffers' format. */
     void changeCanvasOpacity(boolean opaque) {
     }
 
@@ -824,7 +1044,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     void transformMatrixToLocal(Matrix m) {
     }
 
-    // The members that come with ADR-0041 a)'s rest: drawing (M4 step 10), input, IME and accessibility.
+    // The members that come with ADR-0041 a)'s rest: the hardware renderer, input, IME and accessibility.
 
     public InsetsController getInsetsController() {
         return mInsetsController;

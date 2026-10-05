@@ -21,16 +21,19 @@ on the AVD after that line (app_process_run.run_app). With --until <text>, the r
 "<app>: <text>" instead, and only the reference's lines up to its first such line are compared, with ours up to ours:
 a start that cannot reach the reference's end, such as one without a session (ADR-0043 step c1).
 
+With --drawn, the run must have drawn its window: apk-run's headless buffers log the first post of each window
+(ADR-0043 step c3), which the process's log must hold.
+
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
 second time over the first start's folders, as tools/android-reference.sh starts it again on the AVD, and the two
 starts' lines count as one log (step c1's context-test).
 
-Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] <app> <package>
-                       <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert>
-                       <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk> <expected>
-                       [<configuration>]
+Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
+                       <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
+                       <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
+                       <expected> [<configuration>]
 """
 import os
 import re
@@ -41,6 +44,8 @@ import certificate_mask
 from app_process_run import missing, start
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# apk-run's line at the first post of a window into its headless buffers (runtime/tools/apk_run.cpp).
+FIRST_POST = "apk-run: the first post of window "
 PERMISSIONS = os.path.join(ROOT, "build", "sources", "frameworks_base_etc", "data", "etc")
 
 
@@ -50,9 +55,12 @@ def main():
     restart = False
     lifecycle = None
     until = None
-    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"]):
+    drawn = False
+    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
+        elif args[0] == "--drawn":
+            drawn, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--lifecycle":
             lifecycle, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--until":
@@ -98,6 +106,9 @@ def main():
     # One log of the starts: the first start's failure counts.
     result = subprocess.CompletedProcess(results[0].args, next((r.returncode for r in results if r.returncode), 0),
                                          "".join(r.stdout for r in results), "".join(r.stderr for r in results))
+    if drawn and not any(line.startswith(FIRST_POST) for line in result.stderr.splitlines()):
+        print("FAIL: no post of the session's window into apk-run's headless buffers (ADR-0043 step c3)")
+        sys.exit(1)
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
         compare_log(app, result, expected, marks, until)

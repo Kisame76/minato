@@ -40,6 +40,10 @@
 # <app>-device differ by device and are only shown.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
 # pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
+# views-test (ADR-0043 test 1, step c3) runs on java-test's AVD, drawn in software with the system bars shown: a second
+# after its "done", screencap takes the screen, whose rows between the bars' insets that the app logs under
+# views-test-device must be fixtures/expected/views-test.rgba.gz, with the screen's size and the insets in
+# fixtures/expected/views-test.rows (framework/tests/views_compare.py --crop): SystemUI draws over the rest.
 # The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
 # no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
@@ -143,9 +147,11 @@ if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-te
 fi
 # activity-start-test's AVD (ADR-0039 step c2c3) has that display without navigation keys, as an iPhone has none, and
 # gesture navigation, as our window manager answers that a navigation bar exists (step c2c2). start-stops-test
-# (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, and java-test (ADR-0043 step
-# c1), whose lifecycle the host drives as Minato's does.
-if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ]]; then
+# (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, java-test (ADR-0043 step c1),
+# whose lifecycle the host drives as Minato's does, and views-test (step c3), whose screen nothing but the bars covers
+# there.
+if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
+  "$app" == views-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -388,6 +394,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.javatest.JavaActivity
       ;;
+    # views-test (ADR-0043 step c3): its activity draws in software, changes its label's text once it has the focus,
+    # and logs "done" after that draw; its screen follows its log.
+    views-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.views.ViewsActivity
+      ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="app-start-test: MessageDigest"
@@ -550,6 +562,12 @@ run_app() {
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
     device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"
   fi
+  if [[ "$app" == views-test ]]; then
+    # The screen a second after "done", while the app shows it, between the bars.
+    device exec-out screencap >"$RESULTS/$app.screencap"
+    python3 framework/tests/views_compare.py --crop "$RESULTS/$app.screencap" "$RESULTS/$app-device.logcat" \
+      "$RESULTS/$app.rgba.gz" "$RESULTS/$app.rows"
+  fi
   if [[ -n "$mask" ]]; then
     # make-apk signs with a per-machine debug key (ADR-0031): each certificate SHA-256 the APK's check proved becomes
     # the mark of its role that framework/tests/java_app_run.py puts in our log, so the expected file holds no
@@ -583,8 +601,13 @@ run_app() {
     return 1
   fi
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == canvas-test ]] && ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
+  if [[ "$app" == canvas-test || "$app" == views-test ]] &&
+    ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
     echo "DIFFERS  $app's pixels: $RESULTS/$app.rgba.gz"
+    return 1
+  fi
+  if [[ "$app" == views-test ]] && ! cmp -s "fixtures/expected/$app.rows" "$RESULTS/$app.rows"; then
+    echo "DIFFERS  $app's rows: $RESULTS/$app.rows"
     return 1
   fi
   if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then

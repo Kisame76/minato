@@ -1,0 +1,10 @@
+I/views-test: onCreate
+I/views-test: onStart
+I/views-test: onResume
+I/views-test: label bounds 195 1122 1095 1290
+I/views-test: block bounds 195 1362 1095 1506
+I/views-test: bitmap bounds 597 1578 693 1674
+I/views-test: text advance 483.0
+I/views-test: focus true
+I/views-test: text changed
+I/views-test: done
