@@ -95,7 +95,7 @@ target_compile_options(vulkan PRIVATE -Wall -Wextra)
 # ADR-0030, test 6: vulkan-fake-test and vulkan-window-test against graphics/tests/fake_vulkan.c in
 # MoltenVK's place, the others against MoltenVK itself.
 foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vulkan_window_test vulkan_present_test
-    vulkan_drop_test)
+    vulkan_drop_test vulkan_destroy_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")
@@ -103,8 +103,8 @@ foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vu
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
 # vulkan-window-test sets the refresh grid for VK_GOOGLE_display_timing through graphics-run's test control, and
-# vulkan-drop-test (ADR-0041 decision 11 c)) also the present not to show.
-foreach(program IN ITEMS vulkan-window-test vulkan-drop-test)
+# vulkan-drop-test (ADR-0041 decision 11 c)) also the present not to show; vulkan-destroy-test takes its window there.
+foreach(program IN ITEMS vulkan-window-test vulkan-drop-test vulkan-destroy-test)
   target_sources(${program} PRIVATE "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}")
   target_link_libraries(${program} PRIVATE minato_bind)

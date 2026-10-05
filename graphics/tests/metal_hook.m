@@ -14,7 +14,10 @@
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
    With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
    first 16 drawables presented after test_control.m's watch were presented: with presentAtTime: (ANGLE's patch 0005)
-   and its time, or with present. */
+   and its time, or with present.
+   With MINATO_METAL_HOOK=late-scheduled:<ms> it only makes every command buffer's scheduled handlers run <ms> later,
+   as Metal runs them late on a loaded machine: MoltenVK presents its drawables in one, after the app may have
+   destroyed their swapchain (graphics.vulkan_destroy). */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -34,7 +37,9 @@
 /* The value graphics/tests/vulkan_queue_test.c waits at. */
 #define SCHEDULED_VALUE 1000
 
-static IMP commit, made, made_unretained, made_with_descriptor, signaled, waited, presented, presented_at_time;
+static IMP commit, made, made_unretained, made_with_descriptor, signaled, waited, presented, presented_at_time,
+    scheduled_added;
+static useconds_t late_scheduled;  /* late-scheduled's delay */
 static int noting, scheduled_mode;
 static atomic_int drawables;          /* presented so far */
 static int drawables_read = 4;        /* how many of them present reads back */
@@ -156,6 +161,15 @@ static void mark(id<MTLCommandBuffer> buffer, atomic_int *order) {
     }];
 }
 
+/* late-scheduled: the handler, run that much later on Metal's thread. */
+static void hooked_add_scheduled(id self, SEL selector, MTLCommandBufferHandler handler) {
+    MTLCommandBufferHandler late = ^(id<MTLCommandBuffer> buffer) {
+        usleep(late_scheduled);
+        handler(buffer);
+    };
+    ((void (*)(id, SEL, MTLCommandBufferHandler))scheduled_added)(self, selector, late);
+}
+
 static void hooked_commit(id self, SEL selector) {
     note("a commit");
     if (atomic_load(&minato_test_counting) && apkrt_is_guest_thread()) {
@@ -222,14 +236,21 @@ __attribute__((constructor)) static void hook_metal(void) {
         return;
     }
     scheduled_mode = strcmp(mode, "scheduled") == 0;
+    int late_ms = 0;
     const int present_mode = strcmp(mode, "present") == 0 || sscanf(mode, "present:%d", &drawables_read) == 1,
-              count_mode = strcmp(mode, "count") == 0;
-    noting = !present_mode && !count_mode;
+              count_mode = strcmp(mode, "count") == 0,
+              late_mode = sscanf(mode, "late-scheduled:%d", &late_ms) == 1 && late_ms > 0;
+    noting = !present_mode && !count_mode && !late_mode;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
         Class queues = [queue class], buffers = [buffer class];
+        if (late_mode) {
+            late_scheduled = (useconds_t)late_ms * 1000;
+            scheduled_added = hook(buffers, @selector(addScheduledHandler:), (IMP)hooked_add_scheduled);
+            return;
+        }
         if (present_mode || count_mode) {
             CAMetalLayer *layer = [CAMetalLayer layer];
             layer.device = device;

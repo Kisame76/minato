@@ -282,8 +282,13 @@ if(TARGET minato_graphics_host)
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(vulkan_drop vulkan-drop-test vulkan_drop_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:count" "MINATO_WINDOW=set:64x48")
+    # A swapchain destroyed right after its present, while MoltenVK's scheduled handler, which the Metal hook runs
+    # 100 ms late, is still to present its drawable: graphics/host's destroy waits for it (vulkan.m).
+    add_guest_test(vulkan_destroy vulkan-destroy-test vulkan_destroy_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:late-scheduled:100"
+      "MINATO_WINDOW=set:64x48")
   else()
-    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop)
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

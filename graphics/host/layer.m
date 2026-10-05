@@ -346,6 +346,25 @@ void minato_present_forget(void *layer) {
     os_unfair_lock_unlock(&paced->_pace.lock);
 }
 
+// Polls, as the layer's lock is one for short holds; a drawable's present takes the oldest record (pace_hands_over).
+// Without the subclass no drawable takes one, and nothing is waited for.
+int minato_present_wait(void *layer, uint64_t swapchain, int64_t deadline) {
+    MinatoMetalLayer *paced = paced_layer(layer);
+    if (paced == nil || paced_class == Nil) return 1;
+    struct pace *pace = &paced->_pace;
+    for (;;) {
+        BOOL left = NO;
+        os_unfair_lock_lock(&pace->lock);
+        for (unsigned index = 0; !left && index < pace->count; index++) {
+            left = pace->records[(pace->first + index) % RECORDS].swapchain == swapchain;
+        }
+        os_unfair_lock_unlock(&pace->lock);
+        if (!left) return 1;
+        if (now_ns() >= deadline) return 0;
+        usleep(1000);
+    }
+}
+
 void minato_present_unpaced(void *drawable) {
     id object = (__bridge id)drawable;
     if (object != nil && paced_class != Nil && object_getClass(object) == paced_class) {

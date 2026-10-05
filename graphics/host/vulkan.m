@@ -444,9 +444,17 @@ static VkResult swapchain_created(VkDevice device, const VkSwapchainCreateInfoKH
     return result;
 }
 
-/* The layer forgets the swapchain's records before the swapchain goes; drawables still on their way go as they come. */
+/* MoltenVK presents a drawable from its present's scheduled handler, which first counts the present on the swapchain
+   without checking that it is still there [verified: MVKImage.mm at v1.4.2], and vkDeviceWaitIdle does not wait for
+   that handler [measured]: a handler that Metal runs late, after the app destroyed the swapchain, would crash. So the
+   swapchain goes once its presents' drawables reached their present (their records, present_pace.h), or after 1 s.
+   The layer then forgets the swapchain's records; drawables still on their way go as they come. */
 static void swapchain_destroyed(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *allocator) {
     CAMetalLayer *layer = chain_forget(swapchain);
+    const int64_t deadline = (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 1000000000;
+    if (layer != nil && !minato_present_wait(layer, (uint64_t)swapchain, deadline)) {
+        fprintf(stderr, "minato graphics: a swapchain destroyed while drawables of its presents were on their way\n");
+    }
     minato_present_forget(layer);
     destroy_swapchain(device, swapchain, allocator);
     asked_forget(swapchain);

@@ -36,6 +36,13 @@ void minato_present_take_back(void *layer, uint64_t ticket);
    Animation as they come. */
 void minato_present_forget(void *layer);
 
+/* Waits until `layer` holds no record of `swapchain`, as when the drawables of its presents reached their present or
+   their presents were taken back, or until `deadline` in nanoseconds of the uptime clock: 1 once none is left, 0 at
+   the deadline. MoltenVK presents from its present's scheduled handler, which first counts the present on the
+   swapchain without checking that it is still there [verified: MVKImage.mm at v1.4.2], and Metal may run that handler
+   after the app destroyed it: vulkan.m's destroy waits here before MoltenVK's. */
+int minato_present_wait(void *layer, uint64_t swapchain, int64_t deadline);
+
 /* For a drawable of graphics/host's own (window.m): it goes to Core Animation as it comes, without a record. */
 void minato_present_unpaced(void *drawable);
 
