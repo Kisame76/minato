@@ -9,9 +9,16 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <mutex>
 
 namespace apkrt::sys {
 namespace {
+
+/// Linux's mmap_lock, taken as a writer every time (ADR-0021): mmap, munmap, mremap, mprotect, madvise's DONTNEED and
+/// FREE and a thread's deferred unmap change the VM map one at a time, so that mremap's look at the map and its change
+/// are one step for the others. Not recursive: none of them calls another. No guest signal handler runs on a thread
+/// that holds it, as guest signals wait for the syscall's exit (signals.h).
+std::mutex memory_lock;
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -68,6 +75,7 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     }
     const int host_fd = description ? description->host() : -1;
 
+    const std::lock_guard lock(memory_lock);
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));
     if (result == MAP_FAILED) return -to_linux_errno(errno);
@@ -81,6 +89,7 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
 }
 
 long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::uint64_t length) {
+    const std::lock_guard lock(memory_lock);
     // bionic's detached threads unmap their own stack and exit right after (_exit_with_stack_teardown).
     // The syscall layer runs on that stack, from here up to the guest's stack pointer at the svc.
     const auto low = reinterpret_cast<std::uint64_t>(__builtin_frame_address(0));
@@ -93,8 +102,20 @@ long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     return result_or_error(::munmap(as_pointer<void>(address), length));
 }
 
+namespace memory {
+
+void (*test_pause)() = nullptr;
+
+void unmap_deferred(std::uint64_t start, std::uint64_t length) {
+    const std::lock_guard lock(memory_lock);
+    ::munmap(as_pointer<void>(start), length);
+}
+
+}  // namespace memory
+
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection) {
     if (auto error = check_protection(protection)) return *error;
+    const std::lock_guard lock(memory_lock);
     return result_or_error(::mprotect(reinterpret_cast<void *>(static_cast<std::uintptr_t>(address)), length, protection));
 }
 
@@ -219,6 +240,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     old_length = page_align(old_length, page);
     new_length = page_align(new_length, page);
     if (new_length == 0) return -linux_errno::einval;
+    const std::lock_guard lock(memory_lock);
     if (address > ~std::uint64_t{0} - page || !inspect(address, address + page).mapped) {
         return -linux_errno::efault;  // vma_lookup finds no mapping
     }
@@ -232,6 +254,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     const auto high = reinterpret_cast<std::uint64_t>(&frame + 1) + 16;
     const Span old = inspect(address, old_end);
     if (old.executable || overlaps(address, old_end, low, high)) return -linux_errno::eperm;
+    if (memory::test_pause != nullptr) memory::test_pause();
 
     if (flags & linux_mremap::fixed) {
         // mremap_to: the target is aligned, inside the address space and apart from the old range.
@@ -325,14 +348,18 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
         case linux_madv::willneed:
             return result_or_error(::madvise(start, length, advice));
 
-        case linux_madv::dontneed:
+        case linux_madv::dontneed: {
             // Linux: private anonymous pages read back as zero afterwards, and allocators (Scudo)
             // rely on that. Darwin's MADV_DONTNEED keeps the contents; MADV_ZERO clears them.
+            const std::lock_guard lock(memory_lock);
             return result_or_error(::madvise(start, length, MADV_ZERO));
+        }
 
-        case linux_madv::free:
+        case linux_madv::free: {
             // Contents undefined until written again, on both systems.
+            const std::lock_guard lock(memory_lock);
             return result_or_error(::madvise(start, length, MADV_FREE));
+        }
 
         case linux_madv::dontfork:
         case linux_madv::dofork:

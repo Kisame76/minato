@@ -5,6 +5,7 @@
 #include "hwcap.h"
 #include "proc.h"
 #include "syscall_frame.h"
+#include "syscalls.h"
 #include "vfs.h"
 
 #include "check.h"
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -64,7 +66,7 @@ constexpr std::uint64_t nr_pipe2 = 59;
 constexpr std::uint64_t prot_read = 1, prot_write = 2, prot_exec = 4;
 constexpr std::uint64_t map_private = 0x02, map_fixed = 0x10, map_anonymous = 0x20, map_stack = 0x20000;
 constexpr std::uint64_t map_fixed_noreplace = 0x10'0000, map_hugetlb = 0x40000;
-constexpr std::uint64_t madv_dontneed = 4, madv_wipeonfork = 18, madv_hwpoison = 100;
+constexpr std::uint64_t madv_dontneed = 4, madv_free = 8, madv_wipeonfork = 18, madv_hwpoison = 100;
 constexpr std::uint64_t mremap_maymove = 1, mremap_fixed = 2, mremap_dontunmap = 4;
 constexpr std::int64_t eperm = 1, ebadf = 9, enomem = 12, eacces = 13, efault = 14, eexist = 17, einval = 22,
                          esrch = 3, enoent = 2, eagain = 11, etimedout = 110;
@@ -424,6 +426,60 @@ TEST(mremap_answers_linux_errors) {
     CHECK(call(nr_mremap, {address, page, page, mremap_maymove | mremap_dontunmap, 0}) == -einval);
     CHECK(call(nr_munmap, {address, page}) == 0);
     CHECK(call(nr_mremap, {address, page, 2 * page, mremap_maymove, 0}) == -efault);  // nothing mapped there
+}
+
+/// Linux's mmap_lock: while sys_mremap has looked at the VM map and not yet changed it (memory::test_pause), another
+/// thread's memory call waits. `other` is that call; the pause holds the look for up to 200 ms and records whether
+/// the call finished meanwhile.
+namespace memory_lock_test {
+std::uint64_t old_range = 0;
+void (*other)() = nullptr;
+std::atomic<bool> finished{false};
+std::thread thread;
+bool waited = false;
+
+void run_the_other_call() {
+    apkrt::sys::memory::test_pause = nullptr;  // once
+    finished = false;
+    thread = std::thread([] {
+        other();
+        finished = true;
+    });
+    for (int i = 0; i < 200 && !finished.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    waited = !finished.load();
+}
+
+/// An mremap that grows the first page of a two-page mapping to two pages, which moves it, while `call_from_other`
+/// changes the second page on another thread.
+void check_waits(const char *what, void (*call_from_other)()) {
+    old_range = map_anonymous_pages(2);
+    other = call_from_other;
+    waited = false;
+    apkrt::sys::memory::test_pause = run_the_other_call;
+    const auto moved = call(nr_mremap, {old_range, page, 2 * page, mremap_maymove, 0});
+    apkrt::sys::memory::test_pause = nullptr;
+    const bool paused = thread.joinable();
+    if (paused) thread.join();
+    if (!waited) std::fprintf(stderr, "%s did not wait for mremap\n", what);
+    CHECK(paused && waited);
+    CHECK(moved > 0);
+    CHECK(call(nr_munmap, {static_cast<std::uint64_t>(moved), 2 * page}) == 0);
+    call(nr_munmap, {old_range, 2 * page});
+}
+
+}  // namespace memory_lock_test
+
+TEST(memory_calls_wait_while_mremap_looks_and_moves) {
+    using namespace memory_lock_test;
+    // The calls that open a hole in the range mremap is about to grow into, or change what lies there.
+    check_waits("munmap", [] { call(nr_munmap, {old_range + page, page}); });
+    check_waits("mmap", [] {
+        call(nr_mmap, {old_range + page, page, prot_read, map_private | map_anonymous | map_fixed, ~0ull, 0});
+    });
+    check_waits("mprotect", [] { call(nr_mprotect, {old_range + page, page, prot_read}); });
+    check_waits("madvise DONTNEED", [] { call(nr_madvise, {old_range + page, page, madv_dontneed}); });
+    check_waits("madvise FREE", [] { call(nr_madvise, {old_range + page, page, madv_free}); });
+    // A thread's exit, which unmaps the stack it deferred: threads_test.cpp.
 }
 
 TEST(rt_sigprocmask_keeps_real_time_signals_in_the_guest_mask) {

@@ -4,6 +4,7 @@
 // stack right before exit, as bionic's detached threads do. Everything goes through the syscall
 // entry exactly as converted guest code calls it (threads_probe.S).
 #include "APKRuntime/apkrt.h"
+#include "syscalls.h"
 #include "threads.h"
 
 #include "check.h"
@@ -48,7 +49,9 @@ constexpr std::uint64_t linux_sigchld = 17;
 /// What bionic's pthread_create passes.
 constexpr std::uint64_t pthread_flags = clone_vm | clone_fs | clone_files | clone_sighand | clone_thread |
                                         clone_sysvsem | clone_settls | clone_parent_settid | clone_child_cleartid;
-constexpr std::uint64_t nr_exit = 93, nr_futex = 98, nr_set_tid_address = 96, nr_gettid = 178, nr_munmap = 215;
+constexpr std::uint64_t nr_exit = 93, nr_futex = 98, nr_set_tid_address = 96, nr_gettid = 178, nr_munmap = 215,
+                        nr_mremap = 216;
+constexpr std::uint64_t mremap_maymove = 1;
 constexpr std::uint64_t futex_wait = 0, futex_wake = 1;
 constexpr long enosys = 38, eagain = 11;
 
@@ -177,6 +180,57 @@ TEST(a_thread_may_unmap_its_own_stack_right_before_exit) {
     CHECK(teardown.unmapped == 1);
     CHECK(!mapped(teardown.stack));  // gone once the thread is off it
     CHECK(tid_word != 0);            // set_tid_address(NULL): nobody clears it
+}
+
+/// Linux's mmap_lock (ADR-0021): the unmap a thread deferred to its exit waits while an mremap has looked at the VM
+/// map and not yet changed it (sys::memory::test_pause holds the mremap between the two).
+namespace paused_mremap {
+Teardown teardown;
+std::atomic<bool> go{false};
+
+void unmap_own_stack_then_wait(void *) {
+    probe_syscall(nr_set_tid_address, 0, 0, 0);
+    teardown.unmapped = static_cast<int>(
+        probe_syscall(nr_munmap, reinterpret_cast<std::uint64_t>(teardown.stack), stack_size, 0) == 0);
+    while (!go.load()) std::this_thread::yield();
+}
+
+bool waited = false;
+
+/// Lets the thread exit and gives its unmap up to 200 ms.
+void let_the_thread_exit() {
+    apkrt::sys::memory::test_pause = nullptr;  // once
+    go = true;
+    for (int i = 0; i < 200 && mapped(teardown.stack); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    waited = mapped(teardown.stack);
+}
+
+}  // namespace paused_mremap
+
+TEST(a_threads_exit_unmaps_its_stack_only_after_an_mremap_that_has_looked) {
+    using namespace paused_mremap;
+    teardown.stack = map_stack();
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(teardown.stack), &tid_word, nullptr, &tid_word, unmap_own_stack_then_wait,
+                      nullptr) > 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (teardown.unmapped == 0 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    CHECK(teardown.unmapped == 1 && mapped(teardown.stack));  // deferred
+    // An mremap that grows the first page of two, which moves it.
+    const auto page = static_cast<std::uint64_t>(::getpagesize());
+    void *const range = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    apkrt::sys::memory::test_pause = let_the_thread_exit;
+    const long moved = probe_syscall(nr_mremap, reinterpret_cast<std::uint64_t>(range), page, 2 * page, mremap_maymove);
+    apkrt::sys::memory::test_pause = nullptr;
+    go = true;
+    CHECK(waited);
+    while (mapped(teardown.stack) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(!mapped(teardown.stack));  // once the mremap is done
+    CHECK(moved > 0);
+    ::munmap(reinterpret_cast<void *>(moved), 2 * page);
+    ::munmap(range, 2 * page);
 }
 
 TEST(fork_and_vfork_are_refused) {

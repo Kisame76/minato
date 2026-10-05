@@ -50,7 +50,7 @@ void finish(GuestThread &thread) {
         thread.host_signal_stack = nullptr;
     }
     if (thread.deferred_unmap_length != 0) {
-        ::munmap(reinterpret_cast<void *>(thread.deferred_unmap_start), thread.deferred_unmap_length);
+        sys::memory::unmap_deferred(thread.deferred_unmap_start, thread.deferred_unmap_length);
     }
     if (thread.clear_child_tid != 0) {
         // CLONE_CHILD_CLEARTID: pthread_join waits for this word to become 0, as a shared futex.

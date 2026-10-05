@@ -242,6 +242,14 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
                 std::uint64_t new_length, int flags, std::uint64_t new_address);
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection);
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice);
+
+namespace memory {
+/// The munmap that sys_munmap deferred for a guest thread's own stack, once the thread is off it (threads.cpp).
+void unmap_deferred(std::uint64_t start, std::uint64_t length);
+/// Tests only: sys_mremap calls it between its look at the VM map and its change.
+extern void (*test_pause)();
+}  // namespace memory
+
 /// process_vm_readv on the process's own memory: libunwindstack reads through it so that an unwinder never faults
 /// on a bad address (ADR-0033 test 3). Mach's vm_read_overwrite refuses what cannot be read or written instead of
 /// faulting. A transfer ends at the first remote element that cannot be read whole; the guest can name only its
