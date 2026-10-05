@@ -678,6 +678,43 @@ struct ZipArchiveTests {
         #expect(try ZipArchive(data: out).data(named: "a.txt") == Self.evil)
     }
 
+    @Test func refusesMoreEntriesThanItsCapBeforeReadingThem() throws {
+        // ADR-0049 a1: the end record's count is checked before the central directory is read, so an archive that
+        // counts more entries than the cap is refused by its count alone, not by the walk that would find them missing.
+        let data = Self.rawArchive([(Array("a.txt".utf8), Data("a".utf8)), (Array("b.txt".utf8), Data("b".utf8))])
+        #expect(try ZipArchive(data: data, maxEntries: 2).entries.count == 2)
+        #expect(throws: APKError.invalidArchive("it holds 2 entries, more than the 1 Minato reads")) {
+            try ZipArchive(data: data, maxEntries: 1)
+        }
+        var more = data
+        Self.patch(UInt16(60_000), at: data.count - 22 + 8, in: &more)
+        Self.patch(UInt16(60_000), at: data.count - 22 + 10, in: &more)
+        #expect(throws: APKError.invalidArchive("it holds 60000 entries, more than the 4096 Minato reads")) {
+            try ZipArchive(data: more, maxEntries: 4096)
+        }
+    }
+
+    @Test func theDefaultCapRefusesAZip64CountOfMillions() throws {
+        // libziparchive has no cap but ZIP64's (zip_archive.cc:554-573); ours bounds the entries' memory.
+        let name = Array("a.txt".utf8)
+        var out = Self.localHeader(name, Self.good)
+        let record = Self.directoryRecord(name, crc: CRC32.checksum(Self.good), compressed: 8, uncompressed: 8, offset: 0)
+        let directoryOffset = out.count
+        out += record
+        var zip64 = ByteWriter()
+        let recordOffset = out.count
+        let count = ZipArchive.defaultMaxEntries + 1
+        zip64.u32(0x0606_4b50); zip64.u64(44); zip64.u16(45); zip64.u16(45); zip64.u32(0); zip64.u32(0)
+        zip64.u64(count); zip64.u64(count); zip64.u64(UInt64(record.count)); zip64.u64(UInt64(directoryOffset))
+        zip64.u32(0x0706_4b50); zip64.u32(0); zip64.u64(UInt64(recordOffset)); zip64.u32(1)
+        out += zip64.data + Self.endRecord(count: .max, size: record.count, offset: directoryOffset)
+
+        #expect(ZipArchive.defaultMaxEntries == 1 << 20)
+        #expect(throws: APKError.invalidArchive("it holds \(count) entries, more than the \(count - 1) Minato reads")) {
+            try ZipArchive(data: out)
+        }
+    }
+
     @Test func anEmptyArchiveIsRefused() throws {
         // zip_archive.cc:409-414: kEmptyArchive.
         #expect(throws: APKError.invalidArchive("it holds no entries")) { try ZipArchive(data: Self.rawArchive([])) }

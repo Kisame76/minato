@@ -42,16 +42,21 @@ public final class ZipArchive {
     private let indexByName: [Data: Int]
 
     public static let defaultMaxEntrySize: UInt64 = 256 << 20
+    /// [guess] The entries an archive may count, checked in its end record before its central directory is read, so
+    /// that one counting millions of tiny entries costs no more than its end record (ADR-0049 a1). Far above a real
+    /// APK, framework-res's about 8,000 entries included. libziparchive has no cap but ZIP64's: a departure.
+    /// Containers take a lower one (ADR-0049 decision 7).
+    public static let defaultMaxEntries: UInt64 = 1 << 20
 
-    public convenience init(data: Data) throws {
-        try self.init(source: DataSource(data))
+    public convenience init(data: Data, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
+        try self.init(source: DataSource(data), maxEntries: maxEntries)
     }
 
-    public convenience init(url: URL) throws {
-        try self.init(source: FileSource(url: url))
+    public convenience init(url: URL, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
+        try self.init(source: FileSource(url: url), maxEntries: maxEntries)
     }
 
-    public init(source: ByteSource) throws {
+    public init(source: ByteSource, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
         self.source = source
         let end = try Self.readEndOfCentralDirectory(source)
         centralDirectoryOffset = end.centralDirectoryOffset
@@ -59,6 +64,9 @@ public final class ZipArchive {
         endOfCentralDirectoryOffset = end.offset
         // zip_archive.cc:409-414.
         guard end.entryCount > 0 else { throw APKError.invalidArchive("it holds no entries") }
+        guard end.entryCount <= maxEntries else {
+            throw APKError.invalidArchive("it holds \(end.entryCount) entries, more than the \(maxEntries) Minato reads")
+        }
         entries = try Self.readCentralDirectory(source, end: end)
         // :649-663: the file starts with a local header, so nothing is prepended to it.
         guard try ByteReader(try source.read(at: 0, count: 4), context: "start").u32(at: 0) == 0x0403_4b50 else {
