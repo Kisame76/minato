@@ -1,16 +1,27 @@
-// The hand file of our AppOpsManager (ADR-0039 step c2c1, ADR-0045 decision 3): tools/managergen writes the class
-// from the public API, whose methods log once and return their default, and the members here are the hidden ones
-// that taken AOSP files call. ContentProvider.attachInfo casts the app ops service to this class, which no Context
-// gives yet (ADR-0045's local services): so the class must exist, and no permission has an app op on Minato.
+// The hand file of our AppOpsManager (ADR-0039 step c2c1, ADR-0045 decisions 3 and 6): tools/managergen writes the
+// class from the public API, whose methods log once and return their default, and the members here are the hidden
+// ones that taken AOSP files call, and the checks and notes (the storage and app ops step, Godot's stop 6), which
+// answer as Android 15 does under decision 6 [verified: services-test on apk-runner-35-bare]:
+//   - a runtime permission's op answers MODE_ALLOWED when decision 6 grants the permission and MODE_IGNORED when it
+//     does not, whether the app requests the permission or not (CAMERA requested and RECORD_AUDIO not, both
+//     MODE_IGNORED on the AVD);
+//   - every other op answers its default mode, from AOSP's table, which tools/appopsgen.py writes (AppOpsTable).
+// An op answers through its switch op, as AppOpsService does. Notes are not kept: nothing in the process reads them.
+// ContextImpl gives one per context. No permission has an op code for ContentProvider (permissionToOpCode), which so
+// notes none (step c2c1).
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Parcel;
+import android.os.Process;
 
-import com.android.minato.services.Unwritten;
+import java.util.HashMap;
+import java.util.Map;
 
 class AppOpsManager {
     /** @hide No app op, as for a permission without one. */
     public static final int OP_NONE = -1;
 
-    /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1). */
+    /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1); appopsgen checks them. */
     public static final int OP_LEGACY_STORAGE = 87;
 
     /** @hide */
@@ -19,27 +30,121 @@ class AppOpsManager {
     /** @hide */
     public static final int OP_NO_ISOLATED_STORAGE = 99;
 
+    /** The ops by name, as AOSP's sOpStrToOp. */
+    private static final Map<String, Integer> sOpStrToOp = new HashMap<>();
+
+    /** Whether an op is a runtime permission's. */
+    private static final boolean[] sRuntimePermissionOp = new boolean[AppOpsTable.NAMES.length];
+
+    static {
+        for (int op = 0; op < AppOpsTable.NAMES.length; op++) {
+            sOpStrToOp.put(AppOpsTable.NAMES[op], op);
+        }
+        for (int op : AppOpsTable.RUNTIME_PERMISSION_OPS) {
+            sRuntimePermissionOp[op] = true;
+        }
+    }
+
+    private final Context mContext;
+
+    /** @hide ContextImpl's, for its context. */
+    public AppOpsManager(Context context) {
+        mContext = context;
+    }
+
     /** @hide No permission has an app op on Minato, so ContentProvider notes none. */
     public static int permissionToOpCode(String permission) {
         return OP_NONE;
     }
 
-    /** @hide */
+    /** @hide As AOSP's: the op's name. */
     public static String opToPublicName(int op) {
-        Unwritten.log("android.app.AppOpsManager.opToPublicName(int)", "null");
-        return null;
+        return AppOpsTable.NAMES[op];
     }
 
-    /** @hide */
-    public int noteOpNoThrow(int op, int uid, String packageName) {
-        Unwritten.log("android.app.AppOpsManager.noteOpNoThrow(int,int,String)", "0");
-        return 0;
+    /** @hide As AOSP's: the op of a name. */
+    public static int strOpToOp(String op) {
+        Integer value = sOpStrToOp.get(op);
+        if (value == null) {
+            throw new IllegalArgumentException("Unknown operation string: " + op);
+        }
+        return value;
     }
 
     /** @hide */
     public int checkOpNoThrow(int op, int uid, String packageName) {
-        Unwritten.log("android.app.AppOpsManager.checkOpNoThrow(int,int,String)", "0");
-        return 0;
+        return mode(op, uid);
+    }
+
+    /** @hide */
+    public int noteOpNoThrow(int op, int uid, String packageName) {
+        return mode(op, uid);
+    }
+
+    /** @hide As AOSP's: an errored op throws. */
+    public int checkOp(int op, int uid, String packageName) {
+        return unlessErrored(op, uid, packageName, mode(op, uid));
+    }
+
+    /** @hide */
+    public int noteOp(int op, int uid, String packageName) {
+        return unlessErrored(op, uid, packageName, mode(op, uid));
+    }
+
+    public int unsafeCheckOp(String op, int uid, String packageName) {
+        return checkOp(strOpToOp(op), uid, packageName);
+    }
+
+    public int unsafeCheckOpNoThrow(String op, int uid, String packageName) {
+        return checkOpNoThrow(strOpToOp(op), uid, packageName);
+    }
+
+    @Deprecated
+    public int checkOp(String op, int uid, String packageName) {
+        return checkOp(strOpToOp(op), uid, packageName);
+    }
+
+    @Deprecated
+    public int checkOpNoThrow(String op, int uid, String packageName) {
+        return checkOpNoThrow(strOpToOp(op), uid, packageName);
+    }
+
+    @Deprecated
+    public int noteOp(String op, int uid, String packageName) {
+        return noteOp(strOpToOp(op), uid, packageName);
+    }
+
+    public int noteOp(String op, int uid, String packageName, String attributionTag, String message) {
+        return noteOp(strOpToOp(op), uid, packageName);
+    }
+
+    @Deprecated
+    public int noteOpNoThrow(String op, int uid, String packageName) {
+        return noteOpNoThrow(strOpToOp(op), uid, packageName);
+    }
+
+    public int noteOpNoThrow(String op, int uid, String packageName, String attributionTag, String message) {
+        return noteOpNoThrow(strOpToOp(op), uid, packageName);
+    }
+
+    /** The op's mode for the uid, as the file's head says. */
+    private int mode(int op, int uid) {
+        int switchOp = AppOpsTable.SWITCH_OPS[op];
+        String permission = AppOpsTable.PERMISSIONS[switchOp];
+        if (permission != null && sRuntimePermissionOp[switchOp]) {
+            return mContext.checkPermission(permission, Process.myPid(), uid) == PackageManager.PERMISSION_GRANTED
+                    ? MODE_ALLOWED : MODE_IGNORED;
+        }
+        return AppOpsTable.DEFAULT_MODES[switchOp];
+    }
+
+    /** As AOSP's checkOp and noteOp: SecurityException with buildSecurityExceptionMsg's message for MODE_ERRORED. */
+    private static int unlessErrored(int op, int uid, String packageName, int mode) {
+        if (mode == MODE_ERRORED) {
+            throw new SecurityException(packageName + " from uid " + uid + " not allowed to perform "
+                    + AppOpsTable.SIMPLE_NAMES[op]);
+        }
+        return mode;
     }
 
     /** As AOSP's: the longs of a bitmask over all app ops, of which Android 15 has 149 (_NUM_OP). */

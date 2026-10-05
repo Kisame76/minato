@@ -1,5 +1,6 @@
 package io.github.kisame76.minato.test.services;
 
+import android.app.AppOpsManager;
 import android.app.Application;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -8,6 +9,10 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.net.wifi.WifiManager;
+import android.os.Environment;
+import android.os.Process;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 
@@ -25,7 +30,12 @@ import java.util.List;
  *   <li>the Wi-Fi feature, and the Wi-Fi service's multicast lock: held and released by its reference count,
  *       under-locked, without a reference count, and refused past 50 locks; a Wi-Fi lock without WAKE_LOCK, refused
  *       at its acquire and at its release;
- *   <li>whether Wi-Fi is on, which the service refuses without ACCESS_WIFI_STATE, as the app does not request it.
+ *   <li>whether Wi-Fi is on, which the service refuses without ACCESS_WIFI_STATE, as the app does not request it;
+ *   <li>the storage service (stop 4): its one volume, the primary emulated one on both, found again from the app's
+ *       external files, and whether the app has legacy storage or manages all files;
+ *   <li>the app ops service (stop 6): the modes of a runtime permission's op that the app requests and is denied
+ *       (CAMERA), of one it does not request (RECORD_AUDIO), of all-files access, picture in picture and no isolated
+ *       storage; a note; a check that throws for an errored op; an unknown op.
  * </ul>
  * apk-runner-35-bare has no sensors, as Minato has none, so every line is the same on both; an exception's message,
  * which names the app's uid, is left out.
@@ -43,6 +53,8 @@ public class ServicesApplication extends Application {
         guarded("UtteranceProgressListener", this::speechListener);
         guarded("sensor service", this::sensors);
         guarded("wifi service", this::wifiLocks);
+        guarded("storage service", this::storage);
+        guarded("app ops service", this::appOps);
         Log.i(TAG, "done");
     }
 
@@ -151,6 +163,48 @@ public class ServicesApplication extends Application {
         } catch (SecurityException e) {
             Log.i(TAG, "Wi-Fi lock release without WAKE_LOCK: " + e.getClass().getName());
         }
+    }
+
+    private void storage() {
+        StorageManager storage = (StorageManager) getSystemService(Context.STORAGE_SERVICE);
+        Log.i(TAG, "storage service: " + storage.getClass().getName());
+        List<StorageVolume> volumes = storage.getStorageVolumes();
+        Log.i(TAG, "storage volumes: " + volumes.size());
+        StorageVolume volume = volumes.get(0);
+        Log.i(TAG, "volume: " + volume.getDescription(this) + ", directory " + volume.getDirectory() + ", primary "
+                + volume.isPrimary() + ", removable " + volume.isRemovable() + ", emulated " + volume.isEmulated()
+                + ", state " + volume.getState());
+        Log.i(TAG, "volume: uuid " + volume.getUuid() + ", storage uuid " + volume.getStorageUuid()
+                + ", media store volume " + volume.getMediaStoreVolumeName());
+        Log.i(TAG, "the app's external files on it: "
+                + volume.equals(storage.getStorageVolume(getExternalFilesDir(null))) + ", the primary volume "
+                + volume.equals(storage.getPrimaryStorageVolume()));
+        Log.i(TAG, "legacy external storage: " + Environment.isExternalStorageLegacy()
+                + ", external storage manager: " + Environment.isExternalStorageManager());
+    }
+
+    private void appOps() {
+        AppOpsManager appOps = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+        Log.i(TAG, "app ops service: " + appOps.getClass().getName());
+        int uid = Process.myUid();
+        String name = getPackageName();
+        StringBuilder modes = new StringBuilder("app op modes:");
+        // Written out where the op's name is not public API.
+        for (String op : new String[] {AppOpsManager.OPSTR_CAMERA, AppOpsManager.OPSTR_RECORD_AUDIO,
+                "android:manage_external_storage", AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
+                "android:no_isolated_storage"}) {
+            modes.append(' ').append(op).append(' ').append(appOps.unsafeCheckOpNoThrow(op, uid, name));
+        }
+        Log.i(TAG, modes.toString());
+        Log.i(TAG, "camera noted: " + appOps.noteOpNoThrow(AppOpsManager.OPSTR_CAMERA, uid, name, null, null));
+        try {
+            Log.i(TAG, "no isolated storage checked: "
+                    + appOps.unsafeCheckOp("android:no_isolated_storage", uid, name));
+        } catch (SecurityException e) {
+            Log.i(TAG, "no isolated storage checked: " + e.getClass().getName());
+        }
+        guarded("an unknown op", () -> Log.i(TAG, "an unknown op: "
+                + appOps.unsafeCheckOpNoThrow("android:no_such_op", uid, name)));
     }
 
     /** Runs a section; what it throws is logged with its name. */

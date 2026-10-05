@@ -12,4 +12,15 @@ I/services-test: without a reference count, acquired twice and released once: he
 I/services-test: multicast lock 51: java.lang.UnsupportedOperationException: Exceeded maximum number of wifi locks
 I/services-test: Wi-Fi lock without WAKE_LOCK: java.lang.SecurityException, held false
 I/services-test: Wi-Fi lock release without WAKE_LOCK: java.lang.SecurityException
+I/services-test: storage service: android.os.storage.StorageManager
+I/services-test: storage volumes: 1
+I/services-test: volume: Internal shared storage, directory /storage/emulated/0, primary true, removable false, emulated true, state mounted
+I/services-test: volume: uuid null, storage uuid 41217664-9172-527a-b3d5-edabb50a7d69, media store volume external_primary
+I/services-test: the app's external files on it: true, the primary volume true
+I/services-test: legacy external storage: false, external storage manager: false
+I/services-test: app ops service: android.app.AppOpsManager
+I/services-test: app op modes: android:camera 1 android:record_audio 1 android:manage_external_storage 3 android:picture_in_picture 0 android:no_isolated_storage 2
+I/services-test: camera noted: 1
+I/services-test: no isolated storage checked: java.lang.SecurityException
+I/services-test: an unknown op: java.lang.IllegalArgumentException: Unknown operation string: android:no_such_op
 I/services-test: done

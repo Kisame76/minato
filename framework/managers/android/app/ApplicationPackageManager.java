@@ -17,6 +17,7 @@ import android.util.ArrayMap;
 import android.util.Log;
 import com.android.minato.pm.SystemFeatures;
 import java.util.Map;
+import java.util.Objects;
 
 class ApplicationPackageManager {
     private final ActivityThread mThread;
@@ -65,6 +66,17 @@ class ApplicationPackageManager {
     public ApplicationInfo getApplicationInfo(String packageName, ApplicationInfoFlags flags)
             throws NameNotFoundException {
         return own(packageName).applicationInfo(flags.getValue());
+    }
+
+    /**
+     * As AOSP's for a property that is not defined, in any package (ADR-0045's storage and app ops step:
+     * Environment's isExternalStorageLegacy asks PROPERTY_NO_APP_DATA_STORAGE): the package reader keeps no property
+     * elements yet, a listed gap, so every one is undefined.
+     */
+    public Property getProperty(String propertyName, String packageName) throws NameNotFoundException {
+        Objects.requireNonNull(packageName);
+        Objects.requireNonNull(propertyName);
+        throw new NameNotFoundException();
     }
 
     public ActivityInfo getActivityInfo(ComponentName className, int flags) throws NameNotFoundException {

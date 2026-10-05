@@ -9,6 +9,8 @@
 #   - tools/tests/stub_references_test.py checks its guard of run-time references to stubs (step c2a);
 #   - tools/tests/compatgen_test.py checks the compat changes' table, which tools/build-framework.sh generates
 #     (step c2e);
+#   - tools/tests/appopsgen_test.py checks the app op table, which tools/build-framework.sh generates too (ADR-0045's
+#     storage and app ops step);
 #   - framework/tests/certificate_mask_test.py checks the harnesses' marks for the certificates a test APK's check
 #     proved (b3.5b1);
 #   - framework/tests/app_process_run_test.py checks that the harness converts a container again unless it was made
@@ -51,6 +53,8 @@ python3 tools/tests/stub_supertypes_test.py
 python3 tools/tests/stub_references_test.py
 # The compat changes' table and what its generator refuses (step c2e).
 python3 tools/tests/compatgen_test.py
+# The app op table and what its generator refuses (ADR-0045's storage and app ops step).
+python3 tools/tests/appopsgen_test.py
 # The harnesses' marks for the certificates a test APK's check proved (b3.5b1).
 python3 framework/tests/certificate_mask_test.py
 # The harness's containers, made again unless made from the very file (step c1).

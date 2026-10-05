@@ -4,7 +4,8 @@
 # (incremental), framework.jar (about 10 s) and services-test (seconds) every time, so it never tests an old binary;
 # then starts services-test through app_process and compares its log with Android 15's on apk-runner-35-bare
 # (fixtures/expected/services-test.logcat, from tools/android-reference.sh --app services-test): the speech
-# listener's defaults, the sensor service without sensors, and the Wi-Fi service's multicast and Wi-Fi locks.
+# listener's defaults, the sensor service without sensors, the Wi-Fi service's multicast and Wi-Fi locks, the storage
+# service's volume and app ops' modes.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/services-check.sh
 set -euo pipefail

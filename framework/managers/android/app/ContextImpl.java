@@ -28,6 +28,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
 import android.os.UserHandle;
+import android.os.storage.StorageManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -80,6 +81,8 @@ class ContextImpl {
     private SensorManager mSensorManager;
     private WifiManager mWifiManager;
     private InputManager mInputManager;
+    private StorageManager mStorageManager;
+    private AppOpsManager mAppOpsManager;
     /** An activity context's token and its own Resources; the application's has neither. */
     private IBinder mToken;
     private boolean mIsActivityContext;
@@ -188,9 +191,10 @@ class ContextImpl {
     }
 
     /**
-     * The LayoutInflater and the sensor, Wi-Fi and input managers on the outer context and the window manager on this
-     * one, each made once per context as SystemServiceRegistry's CachedServiceFetcher keeps them; every other service
-     * is still unwritten, logged once per name, so that the log says which one an app asked for.
+     * The LayoutInflater and the sensor, Wi-Fi and input managers on the outer context, and the storage and app ops
+     * managers and the window manager on this one, each made once per context as SystemServiceRegistry's
+     * CachedServiceFetcher keeps them; every other service is still unwritten, logged once per name, so that the log
+     * says which one an app asked for.
      */
     public Object getSystemService(String name) {
         if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {
@@ -231,6 +235,22 @@ class ContextImpl {
                     mInputManager = new InputManager(getOuterContext());
                 }
                 return mInputManager;
+            }
+        }
+        if (Context.STORAGE_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mStorageManager == null) {
+                    mStorageManager = new StorageManager((Context) (Object) this, Looper.getMainLooper());
+                }
+                return mStorageManager;
+            }
+        }
+        if (Context.APP_OPS_SERVICE.equals(name)) {
+            synchronized (mSync) {
+                if (mAppOpsManager == null) {
+                    mAppOpsManager = new AppOpsManager((Context) (Object) this);
+                }
+                return mAppOpsManager;
             }
         }
         Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
@@ -298,6 +318,12 @@ class ContextImpl {
         }
         if (serviceClass == InputManager.class) {
             return Context.INPUT_SERVICE;
+        }
+        if (serviceClass == StorageManager.class) {
+            return Context.STORAGE_SERVICE;
+        }
+        if (serviceClass == AppOpsManager.class) {
+            return Context.APP_OPS_SERVICE;
         }
         Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
                 + (serviceClass == null ? "null" : serviceClass.getName()), "null");

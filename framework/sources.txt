@@ -830,3 +830,7 @@ frameworks_base/core/java/android/os/ServiceSpecificException.java
 frameworks_base/core/java/android/os/NetworkOnMainThreadException.java
 frameworks_base/core/java/android/os/PersistableBundle.java
 frameworks_base/core/java/android/util/SizeF.java
+
+# ADR-0045, the storage and app ops Godot's start asks for (stops 4 and 6 of the Godot b) rerun past 7a):
+# StorageVolume, the one emulated volume that our StorageManager (managergen's, framework/managers) lists.
+frameworks_base/core/java/android/os/storage/StorageVolume.java

@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ADR-0045's test of the local services Godot's start asks (services-test): the speech listener, the sensor
-     service without sensors and the Wi-Fi service's locks, on apk-runner-35-bare, which has no sensors either. It
-     requests CHANGE_WIFI_MULTICAST_STATE, a normal permission, for the multicast lock, and not WAKE_LOCK, so that the
-     Wi-Fi lock is refused. The launcher activity is the framework's own android.app.Activity, so that `am start`
+     service without sensors, the Wi-Fi service's locks, the storage volume and app ops, on apk-runner-35-bare, which
+     has no sensors either. It requests CHANGE_WIFI_MULTICAST_STATE, a normal permission, for the multicast lock, and
+     not WAKE_LOCK, so that the Wi-Fi lock is refused. It requests CAMERA, which neither grants (decision 6, and an
+     install without -g), so that the camera's app op follows a denied permission. The launcher activity is the framework's own android.app.Activity, so that `am start`
      starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.services" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
   <application android:label="Services Test"
       android:name="io.github.kisame76.minato.test.services.ServicesApplication">
     <activity android:name="android.app.Activity" android:exported="true">

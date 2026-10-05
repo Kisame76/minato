@@ -6,10 +6,13 @@ import android.os.ParcelFileDescriptor;
 /**
  * Compile-only stub (ADR-0039 step c1), never in framework.jar: MediaProvider's module API, which Context's javadoc
  * links and FileUtils.convertToModernFd asks for the original media format, and whose capture actions and file scan
- * Intent names (step c2c1); Minato has no MediaProvider. javac inlines the constants, so they carry AOSP's values.
+ * Intent names (step c2c1), and whose primary external volume StorageVolume names (ADR-0045's storage and app ops
+ * step); Minato has no MediaProvider. javac inlines the constants, so they carry AOSP's values.
  */
 public final class MediaStore {
     public static final String AUTHORITY = "media";
+
+    public static final String VOLUME_EXTERNAL_PRIMARY = "external_primary";
 
     public static ParcelFileDescriptor getOriginalMediaFormatFileDescriptor(Context context,
             ParcelFileDescriptor fileDescriptor) {

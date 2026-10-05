@@ -7,7 +7,8 @@
 #     (tools/aconfig-flags.py java), android.R, com.android.internal.R and android.Manifest from framework-res's link
 #     (tools/build-framework-res.sh), aidl's Java for the .aidl files framework/sources.txt names,
 #     ApplicationPackageManager from tools/managergen --implement with framework/managers' hand file (b3.5a), our
-#     AppOpsManager from managergen's API mode, the public API with the hand file's hidden members (step c2c1),
+#     AppOpsManager and StorageManager from managergen's API mode, the public API with the hand files' members (step
+#     c2c1, ADR-0045's storage and app ops step), AppOpsTable, AOSP's app op table (tools/appopsgen.py, that step),
 #     ManifestFeatureFlags, the feature flags' values framework-res was built with, for ManifestPackage's
 #     AconfigFlags.skipCurrentElement (b3.5b1), CompatTable, the compat changes of framework.jar's and the boot jars'
 #     sources with the target SDK from which each is enabled (tools/compatgen.py, step c2e), and the EventLogTags
@@ -136,10 +137,11 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
-# Our managers from the public API (steps c2c1, c2c2, c2c3), logged once where framework/managers' hand files do
-# not answer.
+# Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step), logged once
+# where framework/managers' hand files do not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
+  --class android.os.storage.StorageManager \
   --class android.view.accessibility.AccessibilityManager \
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
@@ -150,6 +152,10 @@ python3 tools/compatgen.py --sources "$SOURCES" --list framework/sources.txt --j
   --boot-jars build/art/boot_jars.json --build "$SOURCES/frameworks_base/core/java/android/os/Build.java" \
   --version-codes "$SOURCES/libcore/dalvik/src/main/java/dalvik/annotation/compat/VersionCodes.java" \
   --out "$GEN/compat" >/dev/null
+# The app op table (ADR-0045's storage and app ops step): AOSP's ops by number with their permissions and default
+# modes, from which our AppOpsManager answers its checks and notes.
+python3 tools/appopsgen.py --source "$SOURCES/frameworks_base/core/java/android/app/AppOpsManager.java" \
+  --hand framework/managers/android/app/AppOpsManager.java --out "$GEN/appops" >/dev/null
 
 # The stubs: the public API with our hidden members, then the annotations, then our hidden types, each replacing the
 # one before.

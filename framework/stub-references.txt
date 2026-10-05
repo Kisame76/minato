@@ -11,7 +11,6 @@
 android.os.Messenger <- android.os.Message  # stays: Message's parcel methods
 android.os.MemoryFile <- android.os.ParcelFileDescriptor  # stays: ParcelFileDescriptor.fromData, a hidden way to send bytes through Binder
 android.os.SharedMemory <- android.graphics.Bitmap, android.graphics.Typeface  # stays: ashmem between processes: the hidden Bitmap.getSharedMemory and the font map system_server sends, which ours loads from /system/etc (ActivityThread.main)
-android.os.storage.StorageManager <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's parcel constructor
 android.content.pm.Attribution <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
 android.content.pm.FeatureGroupInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
 android.content.pm.InstrumentationInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
@@ -139,7 +138,6 @@ android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils
 android.text.style.ReplacementSpan <- android.text.TextUtils  # M4 step 10: TextUtils.getOffsetBefore and getOffsetAfter, for text editing
 
 # Files, bundles and the rest.
-android.os.storage.StorageManager <- android.os.Environment  # stays: Environment's hidden per-user data folders, for system code
 android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
@@ -185,7 +183,6 @@ android.content.LoggingContentInterface <- android.content.ContentProvider  # st
 android.content.AttributionSource <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.ContentResolver <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.os.storage.StorageManager <- android.content.Intent  # step b3.5b2: Intent.prepareToLeaveProcess, as an activity starts another
 android.content.ClipData <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.ClipData$Item <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.ContentResolver <- android.content.Intent  # step c2d: Intent.resolveType of a content URI, with c2d's ContentResolver
@@ -466,3 +463,8 @@ android.widget.ImageView$ScaleType <- android.transition.ChangeImageTransform, a
 android.widget.ListAdapter <- android.transition.Transition  # gap: running a transition, whose capture asks each view's parent whether it is a ListView (Transition.addViewValues), a widget framework.jar lacks
 android.widget.ListView <- android.transition.Transition  # gap: running a transition, as for ListAdapter
 android.widget.TextView <- android.transition.ChangeText, android.transition.Recolor  # ADR-0043 d): ChangeText and Recolor, which ask each view whether it is a TextView
+
+# ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
+# and the dump's writer.
+android.provider.DocumentsContract <- android.os.storage.StorageVolume  # stays: StorageVolume's intents for the documents UI (createOpenDocumentTreeIntent), which Minato has none of
+com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolume  # stays: StorageVolume's dump, for dumpsys
