@@ -2,6 +2,8 @@
 // from the public API, whose methods log once and return their default, and the members here are the hidden ones
 // that taken AOSP files call. ContentProvider.attachInfo casts the app ops service to this class, which no Context
 // gives yet (ADR-0045's local services): so the class must exist, and no permission has an app op on Minato.
+import android.os.Parcel;
+
 import com.android.minato.services.Unwritten;
 
 class AppOpsManager {
@@ -38,5 +40,30 @@ class AppOpsManager {
     public int checkOpNoThrow(int op, int uid, String packageName) {
         Unwritten.log("android.app.AppOpsManager.checkOpNoThrow(int,int,String)", "0");
         return 0;
+    }
+
+    /** As AOSP's: the longs of a bitmask over all app ops, of which Android 15 has 149 (_NUM_OP). */
+    private static final int BITMASK_LEN = ((149 - 1) / Long.SIZE) + 1;
+
+    /**
+     * @hide Parcel.writeException's and writeNoException's header for the app ops noted in a binder transaction,
+     * which AOSP writes only when there are some (ADR-0043 d2): without transactions from other processes there are
+     * none to report.
+     */
+    public static void prefixParcelWithAppOpsIfNeeded(Parcel p) {
+    }
+
+    /**
+     * @hide Parcel.readExceptionCode's reader of that header: AOSP's reads, so that the parcel's position goes past
+     * it, and the ops go to no callback, as no other process noted them.
+     */
+    public static void readAndLogNotedAppops(Parcel p) {
+        int numAttributionsWithNotedAppOps = p.readInt();
+        for (int i = 0; i < numAttributionsWithNotedAppOps; i++) {
+            p.readString();
+            for (int j = 0; j < BITMASK_LEN; j++) {
+                p.readLong();
+            }
+        }
     }
 }

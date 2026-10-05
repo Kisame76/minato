@@ -367,7 +367,7 @@ run_app() {
     # SHA-256 is marked (b3.5b1).
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
-      | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test)
+      | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

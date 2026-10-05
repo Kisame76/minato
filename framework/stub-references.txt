@@ -8,10 +8,6 @@
 # <stub> <- <class>, <class>...  # <why>
 
 # Binder and parcels (decision 10): no parcel is written or read in an app process.
-android.os.Parcel <- *  # stays: only writeToParcel, CREATOR and AIDL stub code, which runs on a parcel, calls it
-android.os.Parcel$SquashReadHelper <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's CREATOR
-android.os.BadParcelableException <- android.os.BaseBundle  # stays: catches around a Bundle's values from a parcel
-android.os.BadTypeParcelableException <- android.os.BaseBundle, android.os.Bundle  # stays: catches around a Bundle's lazy values from a parcel
 android.os.Messenger <- android.os.Message  # stays: Message's parcel methods
 android.os.MemoryFile <- android.os.ParcelFileDescriptor  # stays: ParcelFileDescriptor.fromData, a hidden way to send bytes through Binder
 android.os.SharedMemory <- android.graphics.Bitmap, android.graphics.Typeface  # stays: ashmem between processes: the hidden Bitmap.getSharedMemory and the font map system_server sends, which ours loads from /system/etc (ActivityThread.main)
@@ -91,7 +87,6 @@ android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
-android.os.NetworkOnMainThreadException <- android.os.StrictMode  # gap: death on network on the main thread, which Android's handleBindApplication sets for every app
 android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
 
 # The app model, activities and views.
@@ -149,8 +144,6 @@ android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertT
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
 android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFileName, for the hidden buildUniqueFile of documents providers
-android.os.PersistableBundle <- android.os.BaseBundle  # gap: Bundle.deepCopy, which asks each value whether it is a PersistableBundle
-android.util.SizeF <- android.os.Bundle  # gap: Bundle.getSizeF
 com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle  # stays: BaseBundle.dumpStats, for dumpsys
 android.util.Base64 <- com.android.internal.util.XmlUtils  # stays: XmlUtils' byte-array attributes, which SharedPreferences never write (c1)
 com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
@@ -369,10 +362,8 @@ android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # 
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
 android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityManager  # gap: a task description's icon (TaskDescription with a Bitmap or a resource icon), as Icon is compile-only
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
-android.os.BadParcelableException <- android.app.Activity  # stays: catches around an intent's extras from a parcel (Activity.getReferrer)
 android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
-android.os.PersistableBundle <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
 android.os.ResultReceiver <- android.window.ImeOnBackInvokedDispatcher  # stays: the input method's back dispatcher, which only InputMethodManager makes for an input method's window, and Minato has no input method yet
 android.os.TestLooperManager <- android.app.Instrumentation  # stays: an instrumentation test's looper control, and no test instrumentation runs on Minato
 android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
@@ -448,7 +439,6 @@ android.hardware.lights.Light <- android.hardware.input.InputManagerGlobal  # ga
 android.hardware.lights.LightState <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.hardware.lights.LightState <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
 android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
-android.os.BadParcelableException <- android.hardware.input.IInputDeviceBatteryState, android.hardware.input.IKeyboardBacklightState  # stays: the AIDL parcelables' readFromParcel, which only a parcel runs
 android.os.CombinedVibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vibrator (InputDevice.getVibrator), which a device without one, as Minato's are, gets as NullVibrator; it comes with haptic feedback's Vibrator
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs

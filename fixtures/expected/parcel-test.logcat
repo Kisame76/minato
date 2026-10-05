@@ -1,0 +1,71 @@
+I/parcel-test: primitives: size 36, position 36, capacity 128, bytes 04030201 08070605 04030201 0000c03f 00000000 000002c0 7f000000 01000000 ffffffff
+I/parcel-test: primitives read back: 16909060 72623859790382856 1.5 -2.25 127 true -1, position 36, available 0
+I/parcel-test: strings: size 52, position 52, capacity 128, bytes ffffffff 00000000 00000000 03000000 61006200 63000000 04000000 e900226f 3dd800de 00000000 03000000 61000000 62000000
+I/parcel-test: strings read back: null "" "abc" "\u00e9\u6f22\ud83d\ude00" "a\u0000b"
+I/parcel-test: arrays: size 72, position 72, capacity 128, bytes ffffffff 00000000 05000000 01020304 05000000 03000000 02030400 02000000 07000000 f9ffffff 02000000 01000000 78000000 ffffffff 03000000 01000000 00000000 01000000
+I/parcel-test: arrays read back: null [] [1, 2, 3, 4, 5] [2, 3, 4] [7, -7] [x, null] [true, false, true]
+I/parcel-test: readByteArray into 5 bytes: [1, 2, 3, 4, 5]
+I/parcel-test: readByteArray into 4 bytes: java.lang.RuntimeException: bad array lengths
+I/parcel-test: writeByteArray past the array: java.lang.ArrayIndexOutOfBoundsException: length=5; regionStart=3; regionLength=3
+I/parcel-test: blobs: size 20, position 20, capacity 128, bytes 05000000 00000000 09080706 05000000 ffffffff
+I/parcel-test: blobs read back: [9, 8, 7, 6, 5] null
+I/parcel-test: a blob of 20000 bytes reads back the same: true
+I/parcel-test: interface token: size 72, position 72, capacity 128, bytes 00000080 ffffffff 54535953 18000000 61006e00 64007200 6f006900 64002e00 74006500 73007400 2e004900 50006100 72006300 65006c00 54006500 73007400 00000000 2a000000
+I/parcel-test: enforceInterface takes its own, then 42
+I/parcel-test: enforceInterface refuses another: Binder invocation to an incorrect interface
+I/parcel-test: exceptions: size 36, position 36, capacity 128, bytes fbffffff 09000000 62006100 64002000 73007400 61007400 65000000 00000000 00000000
+I/parcel-test: readException threw java.lang.IllegalStateException: bad state
+I/parcel-test: and no exception after it, position 36
+I/parcel-test: bundle: size 404, position 404, capacity 474, bytes 8c010000 424e444c 09000000 06000000 62007500 6e006400 6c006500 00000000 03000000 28000000 424e444c 01000000 05000000 69006e00 6e006500 72000000 00000000 05000000 76006100 6c007500 65000000 06000000 64006f00 75006200 6c006500 00000000 08000000 00000000 0000e03f 06000000 73007400 72006900 6e006700 00000000 00000000 04000000 74006500 78007400 00000000 03000000 69006e00 74000000 01000000 07000000 04000000 69006e00 74007300 00000000 12000000 02000000 01000000 02000000 04000000 6c006900 73007400 00000000 0b000000 1c000000 02000000 00000000 01000000 61000000 00000000 01000000 62000000 04000000 6c006f00 6e006700 00000000 06000000 fdffffff ffffffff 04000000 72006500 63007400 00000000 04000000 40000000 15000000 61006e00 64007200 6f006900 64002e00 67007200 61007000 68006900 63007300 2e005200 65006300 74000000 01000000 02000000 03000000 04000000 07000000 62006f00 6f006c00 65006100 6e000000 09000000 01000000
+I/parcel-test: bundle read back: 9 keys, int 7, long -3, string text, boolean true, double 0.5, ints [1, 2], list [a, b], rect Rect(1, 2 - 3, 4), inner value
+I/parcel-test: spanned text: size 172, position 172, capacity 204, bytes 00000000 0c000000 48656c6c 6f207061 7263656c 00000000 07000000 01000000 ffffff7f 00000000 05000000 21000000 02000000 0000ffff 06000000 0c000000 12000000 06000000 00000000 0c000000 00000000 0b000000 14000000 68007400 74007000 73003a00 2f002f00 65007800 61006d00 70006c00 65002e00 63006f00 6d002f00 00000000 06000000 0c000000 21000000 00000000 01000000 08000000 706c6169 6e20c3a9 00000000
+I/parcel-test: spanned text read back: "Hello parcel" with StyleSpan 0-5 flags 33 style 1, ForegroundColorSpan 6-12 flags 18 color ffff0000, UnderlineSpan 0-12 flags 0, URLSpan 6-12 flags 33 url https://example.com/; "plain \u00e9" with no spans
+I/parcel-test: appendFrom: size 12, position 12, capacity 128, bytes 09000000 02000000 03000000
+I/parcel-test: appendFrom itself: size 20, position 20, capacity 128, bytes 01000000 02000000 03000000 01000000 02000000
+I/parcel-test: appendFrom of nothing: size 12
+I/parcel-test: appendFrom past the source's end: java.lang.IllegalArgumentException
+I/parcel-test: past the end: 5, then 0 at position 4, a long 0, a string null, bytes [], position 4
+I/parcel-test: an int at 2 of 4 bytes: 0, position 2
+I/parcel-test: a position beyond the data: size 12, available 0
+I/parcel-test: written there: size 16, position 16
+I/parcel-test: cut to 2 bytes: size 2, position 2, capacity 128
+I/parcel-test: capacity 400: 400, size 2
+I/parcel-test: setDataSize(-1): java.lang.IllegalArgumentException
+I/parcel-test: setDataCapacity(-1): java.lang.IllegalArgumentException
+I/parcel-test: a string longer than the data: null, size 8, position 4
+I/parcel-test: a string of length 0x7fffffff: null, size 8, position 4
+I/parcel-test: a string of length -2: null, size 8, position 4
+I/parcel-test: a string without its terminator: null, size 12, position 12
+I/parcel-test: bytes longer than the data: null, size 8, position 4
+I/parcel-test: five bytes: 1 9, size 8, position 8
+I/parcel-test: a binder in unmarshalled bytes: null, size 28, position 24
+I/parcel-test: a null binder: null, size 28, position 28
+I/parcel-test: a null binder with a stability: null, size 28, position 28
+I/parcel-test: a binder object cut short: null, size 20, position 0
+I/parcel-test: a descriptor object: null, size 24, position 24
+I/parcel-test: a null binder: size 28, position 28, capacity 128, bytes 852a6273 13000000 00000000 00000000 00000000 00000000 00000000
+I/parcel-test: a null binder reads back null, position 28
+I/parcel-test: a binder: size 36, file descriptors false
+I/parcel-test: marshall with a binder: java.lang.RuntimeException: Tried to marshall a Parcel that contains objects (binders or FDs).
+I/parcel-test: a binder read back: 7, the same binder true, 8
+I/parcel-test: an int read over the binder: 0, position 8
+I/parcel-test: a string read over the binder: null, position 12
+I/parcel-test: the binder's stability: 12
+I/parcel-test: appended, then the first recycled: the same binder true
+I/parcel-test: cut to 16 bytes: null, position 4
+I/parcel-test: appended at 64: size 92, position 92
+I/parcel-test: an object past the data's size: null, position 64, size 64, file descriptors false
+I/parcel-test: a binder written before another, read at once: the same false, position 24, then 12
+I/parcel-test: read again: the same true up to 28, then 7, the same true up to 60, then 15
+I/parcel-test: an int read inside the object at 32: 0, position 40
+I/parcel-test: cut before its binder: size 4, bytes 01000000
+I/parcel-test: a descriptor: size 28, file descriptors true, in the first 4 bytes false, in the next 24 true
+I/parcel-test: marshall with a descriptor: java.lang.RuntimeException: Tried to marshall a Parcel that contains objects (binders or FDs).
+I/parcel-test: a descriptor read back: parcel, the parcel's own open true
+I/parcel-test: after recycle the parcel's own is closed: true
+I/parcel-test: cut before its descriptor: size 4, file descriptors false, the parcel's own closed true
+I/parcel-test: a descriptor appended, its source recycled: parcel, file descriptors true
+I/parcel-test: a descriptor object in unmarshalled bytes: null, file descriptors false
+I/parcel-test: after recycle its file is open true
+I/parcel-test: and its owner closes it
+I/parcel-test: done

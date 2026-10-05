@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0043 d2's second test of android.os.Parcel (parcel-forge-test): the Application class runs the cases where
+     Android's libbinder crashes or reaches past its buffer, against Minato's answers. The launcher activity is the
+     framework's own android.app.Activity, as in app-start-test; the driver loads only the Application class. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.parcelforge" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Parcel Forge Test"
+      android:name="io.github.kisame76.minato.test.parcelforge.ParcelForgeApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

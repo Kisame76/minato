@@ -43,6 +43,11 @@ public class Binder implements IBinder {
         return getCallingUid();
     }
 
+    /** @hide No call comes in from another process, so no thread handles a binder transaction (ADR-0043 d2). */
+    public static final boolean isDirectlyHandlingTransaction() {
+        return false;
+    }
+
     public static final UserHandle getCallingUserHandle() {
         return UserHandle.of(UserHandle.getUserId(getCallingUid()));
     }

@@ -817,3 +817,16 @@ frameworks_base/core/java/android/transition/TransitionValuesMaps.java
 frameworks_base/core/java/android/transition/TranslationAnimationCreator.java
 frameworks_base/core/java/android/transition/Visibility.java
 frameworks_base/core/java/android/transition/VisibilityPropagation.java
+
+# ADR-0043 d2: android.os.Parcel over Minato's natives in libbinder's wire format (android_os_Parcel.cpp), for
+# SurroundingText's copy of a text, Bundles through bytes and apps' saved states (Godot's gap 23), with the
+# exceptions it throws, ParcelFormatException among them, which its natives throw for NOT_ENOUGH_DATA;
+# PersistableBundle, which it reads from a parcel, and SizeF, which writeValue asks every value about.
+frameworks_base/core/java/android/os/Parcel.java
+frameworks_base/core/java/android/os/ParcelFormatException.java
+frameworks_base/core/java/android/os/BadParcelableException.java
+frameworks_base/core/java/android/os/BadTypeParcelableException.java
+frameworks_base/core/java/android/os/ServiceSpecificException.java
+frameworks_base/core/java/android/os/NetworkOnMainThreadException.java
+frameworks_base/core/java/android/os/PersistableBundle.java
+frameworks_base/core/java/android/util/SizeF.java

@@ -185,7 +185,8 @@ set_target_properties(hwui PROPERTIES IMPORTED_LOCATION "${HWUI_LIB}/libhwui.so"
 # --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
 # files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
 # for AndroidRuntime's statics, Trace without Perfetto, the one function of android_util_Binder.cpp they call, and
-# MessageQueue on M3's ALooper (step c1).
+# MessageQueue on M3's ALooper (step c1), and Parcel's natives (ADR-0043 d2) over minato_parcel, libbinder's
+# Parcel for the parcels of one process in its wire format.
 # libandroidfw and the libraries under it are linked in statically with --exclude-libs,ALL: ART's APEX has its own
 # libbase.so and libziparchive.so, which our copies must not interpose (Android keeps the two in separate
 # namespaces). Their state is ours too: our libbase's LOG goes straight to the guest's liblog. Flags: the
@@ -226,7 +227,8 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} na
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
-            native/android_runtime/android_view_KeyEvent.cpp native/android_runtime/minato_gles.cpp)
+            native/android_runtime/android_view_KeyEvent.cpp native/android_runtime/minato_gles.cpp
+            native/android_runtime/android_os_Parcel.cpp native/android_runtime/minato_parcel.cpp)
 target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"
                            PRIVATE "${jni}" "${jni}/android/opengl" native/include "${NATIVEHELPER}/include"
                            "${NATIVEHELPER}/include_platform" "${NATIVEHELPER}/header_only_include" ../runtime/include)

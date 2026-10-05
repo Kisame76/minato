@@ -1,0 +1,23 @@
+# ADR-0043 d2: what parcel-forge-test (fixtures/java/parcel-forge-test) prints without its "parcel-forge-test: "
+# prefix. Android's libbinder crashes or reaches past its buffer in these cases, or CheckJNI stops it, or an app
+# reaches them only through hidden API (pushAllowFds, with Android's exception), so the answers are those of Minato's
+# natives (framework/native/android_runtime/minato_parcel.h): an object counts only as its entry in the object list
+# says, a read or a copy stays inside the buffer, and growth follows libbinder's, (size + len) * 3 / 2 and at least
+# 128 bytes, from the larger of the data's size and the position.
+bytes written over a binder: null, position 24, objects kept, marshall refused
+bytes written over a descriptor: null, position 24
+after recycle the parcel's own is closed true, the forged number open true
+appended to itself from capacity 128: size 256, capacity 384, the copy 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+an append at 200 of capacity 128: size 208, position 208, capacity 312
+a write at 300 of capacity 128: 7, size 304, capacity 456
+compareData at position 1000: equal 0, unequal -1
+marshall at position 200 of capacity 128: 200 bytes, 04030201, zero after them true
+marshall at position 8 of no data: 8 bytes, zero true
+unmarshall past the array: length=4; regionStart=2; regionLength=8, size 0
+unmarshall over a binder: size 4, marshall 4 bytes
+a descriptor where none is allowed: Not allowed to write file descriptors here, size 0, the dup closed true
+appended binder bytes whose cookie was written over: marshall 28 bytes
+appended binder bytes whose type was written over: marshall 28 bytes
+strings8: size 48, bytes ffffffff0000000000000000030000006162630009000000c3a9e6bca2f09f98800000000400000061c0806200000000
+strings8 read back: null "" "abc" "\u00e9\u6f22\ud83d\ude00" "a\u0000b"
+done
