@@ -103,6 +103,7 @@ struct buffer {
 
 struct bench_vulkan {
     int meshes, check;
+    int cold;  // 1 once the check frame was drawn before the first frame
     float aspect;
     VkInstance instance;
     VkSurfaceKHR surface;
@@ -442,11 +443,15 @@ enum kind { kFullScreen, kMesh, kParticles };
 static VkPipeline pipeline(const struct bench_vulkan *scene, const uint32_t *vertex, size_t vertex_size,
                            const uint32_t *fragment, size_t fragment_size, VkRenderPass pass, enum kind kind) {
     const VkShaderModule modules[2] = {shader(scene, vertex, vertex_size), shader(scene, fragment, fragment_size)};
+    // mesh.frag's constant 0: the window's height, for the meshes' texture level.
+    const float height = (float)scene->extent.height;
+    const VkSpecializationMapEntry entry = {0, 0, sizeof height};
+    const VkSpecializationInfo specialization = {1, &entry, sizeof height, &height};
     const VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT,
          .module = modules[0], .pName = "main"},
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-         .module = modules[1], .pName = "main"}};
+         .module = modules[1], .pName = "main", .pSpecializationInfo = kind == kMesh ? &specialization : NULL}};
     const VkVertexInputBindingDescription binding = {0, sizeof(struct bench_vertex), VK_VERTEX_INPUT_RATE_VERTEX};
     const VkVertexInputAttributeDescription attributes[3] = {
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(struct bench_vertex, position)},
@@ -750,8 +755,9 @@ static void record_readback(const struct bench_vulkan *scene, VkCommandBuffer co
                          NULL);
 }
 
-/* The CRC of the image read back, its bytes in RGBA order whatever the format, so both builds' are alike. */
-static void log_crc(const struct bench_vulkan *scene, int frame) {
+/* The CRC of the image read back, its bytes in RGBA order whatever the format, so both builds' are alike; `cold`
+   for the check frame drawn before the first frame. */
+static void log_crc(const struct bench_vulkan *scene, int frame, int cold) {
     const size_t row = 4 * (size_t)scene->extent.width;
     uint8_t *line = malloc(row);
     if (line == NULL) return;
@@ -769,10 +775,10 @@ static void log_crc(const struct bench_vulkan *scene, int frame) {
         crc = bench_crc32(crc, line, row);
     }
     free(line);
-    bench_log("crc frame %d: %08x", frame, crc);
+    bench_log("crc frame %d%s: %08x", frame, cold ? " cold" : "", crc);
 }
 
-VkResult bench_vulkan_frame(struct bench_vulkan *scene, int frame) {
+static VkResult draw(struct bench_vulkan *scene, int frame, int cold) {
     const uint32_t slot = (uint32_t)frame % FRAMES;
     VkResult result = vkWaitForFences(scene->device, 1, &scene->fences[slot], VK_TRUE, UINT64_MAX);
     if (result != VK_SUCCESS) return result;
@@ -802,9 +808,20 @@ VkResult bench_vulkan_frame(struct bench_vulkan *scene, int frame) {
                                       .pSwapchains = &scene->swapchain, .pImageIndices = &image};
     result = vkQueuePresentKHR(scene->queue, &present);
     if (check && vkWaitForFences(scene->device, 1, &scene->fences[slot], VK_TRUE, UINT64_MAX) == VK_SUCCESS) {
-        log_crc(scene, frame);
+        log_crc(scene, frame, cold);
     }
     return result;
+}
+
+VkResult bench_vulkan_frame(struct bench_vulkan *scene, int frame) {
+    // The check frame once before the first frame too, while the GPU is cold: its CRC must not depend on what the
+    // GPU drew before (graphics.bench).
+    if (scene->check >= 0 && !scene->cold) {
+        scene->cold = 1;
+        const VkResult result = draw(scene, scene->check, 1);
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) return result;
+    }
+    return draw(scene, frame, 0);
 }
 
 void bench_vulkan_stop(struct bench_vulkan *scene) {

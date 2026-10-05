@@ -18,6 +18,7 @@ struct bench_gles {
     EGLint width, height;
     float aspect;
     int meshes, check;
+    int cold;  // 1 once the check frame was drawn before the first frame
     GLuint background, mesh, particles, post;
     GLint background_time, mvp, normal, color, particles_time, particles_aspect;
     GLuint sphere, buffers[2], texture, target, depth, framebuffer;
@@ -47,6 +48,7 @@ static const char background_fragment[] =
     "    color = vec4(mix(vec3(0.02, 0.03, 0.06), top, v_uv.y) + band, 1.0);\n"
     "}\n";
 
+/* The meshes: their texture at one level per mesh, the formula of Vulkan's mesh.frag, which says why. */
 static const char mesh_vertex[] =
     "#version 300 es\n"
     "layout(location = 0) in vec3 a_position;\n"
@@ -66,7 +68,9 @@ static const char mesh_fragment[] =
     "#version 300 es\n"
     "precision highp float;\n"
     "uniform sampler2D u_texture;\n"
+    "uniform mat4 u_mvp;\n"
     "uniform vec4 u_color;\n"
+    "uniform float u_height;\n"
     "in vec3 v_normal;\n"
     "in vec2 v_uv;\n"
     "out vec4 color;\n"
@@ -75,7 +79,10 @@ static const char mesh_fragment[] =
     "    vec3 light = normalize(vec3(0.4, 0.7, 0.6));\n"
     "    float diffuse = max(dot(normal, light), 0.0);\n"
     "    float specular = pow(max(dot(normal, normalize(light + vec3(0.0, 0.0, 1.0))), 0.0), 32.0);\n"
-    "    vec3 albedo = texture(u_texture, v_uv * vec2(4.0, 2.0)).rgb * u_color.rgb;\n"
+    "    float scale = length(vec3(u_mvp[0][3], u_mvp[1][3], u_mvp[2][3]));\n"
+    "    float radius = 1.7320508 * scale / u_mvp[3][3] * 0.5 * u_height;\n"
+    "    float level = clamp(log2(512.0 / 3.14159265 / radius), 0.0, 8.0);\n"
+    "    vec3 albedo = textureLod(u_texture, v_uv * vec2(4.0, 2.0), level).rgb * u_color.rgb;\n"
     "    color = vec4(albedo * (0.2 + 0.8 * diffuse) + vec3(0.35 * specular), 1.0);\n"
     "}\n";
 
@@ -185,6 +192,7 @@ static int make_programs(struct bench_gles *scene) {
     scene->particles_aspect = glGetUniformLocation(scene->particles, "u_aspect");
     glUseProgram(scene->mesh);
     glUniform1i(glGetUniformLocation(scene->mesh, "u_texture"), 0);
+    glUniform1f(glGetUniformLocation(scene->mesh, "u_height"), (float)scene->height);
     glUseProgram(scene->post);
     glUniform1i(glGetUniformLocation(scene->post, "u_scene"), 0);
     return 0;
@@ -301,17 +309,18 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
 
 /* ---- A frame */
 
-static void log_crc(const struct bench_gles *scene, int frame) {
+/* The CRC of the window's pixels; `cold` for the check frame drawn before the first frame. */
+static void log_crc(const struct bench_gles *scene, int frame, int cold) {
     const size_t size = 4 * (size_t)scene->width * (size_t)scene->height;
     uint8_t *pixels = malloc(size);
     if (pixels == NULL) return;
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
     glReadPixels(0, 0, scene->width, scene->height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    bench_log("crc frame %d: %08x", frame, bench_crc32(0, pixels, size));
+    bench_log("crc frame %d%s: %08x", frame, cold ? " cold" : "", bench_crc32(0, pixels, size));
     free(pixels);
 }
 
-EGLint bench_gles_frame(struct bench_gles *scene, int frame) {
+static EGLint draw(struct bench_gles *scene, int frame, int cold) {
     const float time = bench_time(frame);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->framebuffer);
     glViewport(0, 0, scene->width, scene->height);
@@ -359,8 +368,19 @@ EGLint bench_gles_frame(struct bench_gles *scene, int frame) {
     glUseProgram(scene->post);
     glBindTexture(GL_TEXTURE_2D, scene->target);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    if (frame == scene->check) log_crc(scene, frame);
+    if (frame == scene->check) log_crc(scene, frame, cold);
     return eglSwapBuffers(scene->display, scene->surface) ? EGL_SUCCESS : eglGetError();
+}
+
+EGLint bench_gles_frame(struct bench_gles *scene, int frame) {
+    // The check frame once before the first frame too, while the GPU is cold: its CRC must not depend on what the
+    // GPU drew before (graphics.bench).
+    if (scene->check >= 0 && !scene->cold) {
+        scene->cold = 1;
+        const EGLint result = draw(scene, scene->check, 1);
+        if (result != EGL_SUCCESS) return result;
+    }
+    return draw(scene, frame, 0);
 }
 
 void bench_gles_stop(struct bench_gles *scene) {

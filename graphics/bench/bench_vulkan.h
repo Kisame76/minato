@@ -19,8 +19,8 @@ struct bench_vulkan_platform {
 struct bench_vulkan;
 
 /* The instance, the window's surface, a device, a swapchain of the surface's first format at its size, and the
-   scene's objects with `meshes` meshes; `check` is the frame whose CRC it logs, -1 for none. NULL when a step fails,
-   which it logs. */
+   scene's objects with `meshes` meshes; `check` is the frame whose CRC it logs, at its place and drawn once before
+   the first frame, -1 for none. NULL when a step fails, which it logs. */
 struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *platform, int meshes, int check);
 
 /* Draws frame `frame` and presents it: VK_SUCCESS, VK_SUBOPTIMAL_KHR, or the error of the call that failed. */

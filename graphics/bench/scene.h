@@ -3,7 +3,9 @@
    sphere and the texture, the frames' records for scene.csv and the CRC of a frame. What the renderers of gles.c and
    vulkan.c draw into an offscreen target at the window's size:
    - a full-screen background, a gradient that moves with the frame;
-   - N lit, textured spheres of 768 triangles, one draw each with its own uniforms;
+   - N lit, textured spheres of 768 triangles, one draw each with its own uniforms, the texture at one level per
+     sphere from its size on the window (the shaders' formula), not by derivatives, which vary at triangle edges
+     with the GPU's state;
    - N alpha-blended particles in one instanced draw;
    then a full-screen post pass from the target into the window. Every value a pixel depends on comes from + - * /,
    floor and sqrt, without contraction into fused multiply-adds (-ffp-contract=off), so that both builds, with
@@ -18,7 +20,8 @@ enum bench_api { BENCH_GLES, BENCH_VULKAN };
 enum bench_load { BENCH_LIGHT, BENCH_HEAVY };
 
 /* bench.conf (ADR-0037): ASCII key=value lines. run is the run's ID, rate 60 or 120 Hz, load light or heavy,
-   seconds the time to draw from the first frame; check, for tests only, the frame whose CRC the scene logs. */
+   seconds the time to draw from the first frame; check, for tests only, the frame whose CRC the scene logs, at its
+   place and drawn once before the first frame, while the GPU is cold. */
 struct bench_conf {
     char run[64];
     int rate;

@@ -10,8 +10,8 @@
 struct bench_gles;
 
 /* Initializes `display`, makes a window surface of `window` with `surface_attributes` and a context of ES 3.0
-   current, and the scene's objects with `meshes` meshes; `check` is the frame whose CRC it logs, -1 for none. NULL
-   when a step fails, which it logs. */
+   current, and the scene's objects with `meshes` meshes; `check` is the frame whose CRC it logs, at its place and
+   drawn once before the first frame, -1 for none. NULL when a step fails, which it logs. */
 struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType window, const EGLint *surface_attributes,
                                     int meshes, int check);
 

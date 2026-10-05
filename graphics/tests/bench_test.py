@@ -3,8 +3,9 @@
 (graphics-bench-host) and as its APK through activity-host (graphics-app-test's bench mode) draw a run of 9 s at
 120 Hz with ticks scripted in lockstep; the APK's ticks after its first frame come 0.5 or 1 ms late, so a scene
 that moved with the ticks rather than the frame index would draw other frames. It passes when both runs pass,
-both logged the same CRC of frame 1000 and a CRC per load differs from the other load's, and each run's scene.csv
-has a row per frame: the indices 0 to 1079 in order, the ticks rising, the CPU times above 0. It prints
+both logged the same CRC of frame 1000 and a CRC per load differs from the other load's, each run drew frame 1000
+with the same CRC once more before its first frame, while the GPU was cold, and each run's scene.csv has a row
+per frame: the indices 0 to 1079 in order, the ticks rising, the CPU times above 0. It prints
 "skipped:" when a program says so. Then the host build's Vulkan run of the light load again with
 -benchmarkQueuePath libvulkan, which gives MoltenVK libvulkan's queue path (ADR-0030 V5): it must draw the same frame
 1000, log a timeline at the count of its submits, at least one per frame, and a slice or more for each fence wait and
@@ -30,6 +31,7 @@ import sys
 
 FRAMES = 1080
 CRC = re.compile(r"crc frame 1000: ([0-9a-f]{8})\b")
+COLD = re.compile(r"crc frame 1000 cold: ([0-9a-f]{8})\b")
 QUEUE_PATH = re.compile(r"queue path libvulkan: ([0-9]+) submits, the timeline at ([0-9]+); ([0-9]+) waits in "
                         r"([0-9]+) slices$", re.MULTILINE)
 
@@ -60,6 +62,11 @@ def crc(output, what):
     if len(found) != 1:
         fail(f"{what}: {len(found)} CRC lines of frame 1000, not 1")
         return None
+    cold = COLD.findall(output)
+    if len(cold) != 1:
+        fail(f"{what}: {len(cold)} CRC lines of frame 1000 drawn before the first frame, not 1")
+    elif cold[0] != found[0]:
+        fail(f"{what}: frame 1000's CRC {cold[0]} when drawn before the first frame, {found[0]} at its place")
     return found[0]
 
 

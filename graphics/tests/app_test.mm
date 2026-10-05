@@ -40,12 +40,12 @@
 //   with each time asked for its interval of periods after the frame time. Timing is judged on the iPhone only.
 // - bench-gles and bench-vulkan (<mode> bench:<load>), ADR-0037 a): the parity benchmark's APKs from
 //   tools/build-bench.sh (<fixtures build>), their manifests in graphics/bench/android (<expected>). bench.conf asks
-//   for 120 Hz, the load, 9 s and the CRC of frame 1000. Ticks in lockstep with the presents: the first once the
-//   scene asked for its rate, tick k then k periods of 120 Hz after it and 0.5 or 1 ms late (odd or even k), each
-//   once frame k-1 is presented, until the app's own ANativeActivity_finish; then the App's quit. It passes when the
-//   window counted 1080 presents, the requests were KEEP_SCREEN_ON 1, FRAME_RATE 120 and FINISH,
-//   onNativeWindowDestroyed and onDestroy were answered within 500 ms, and activity-host ended with status 0;
-//   bench_test.py checks the rest.
+//   for 120 Hz, the load, 9 s and the CRC of frame 1000, which the scene also draws and presents once before its
+//   first frame. Ticks in lockstep with the presents: the first once the scene asked for its rate, tick k then k
+//   periods of 120 Hz after it and 0.5 or 1 ms late (odd or even k), each once frame k-1 is presented, until the
+//   app's own ANativeActivity_finish; then the App's quit. It passes when the window counted 1081 presents, the
+//   requests were KEEP_SCREEN_ON 1, FRAME_RATE 120 and FINISH, onNativeWindowDestroyed and onDestroy were
+//   answered within 500 ms, and activity-host ended with status 0; bench_test.py checks the rest.
 // - The same with <mode> record:<load> (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the window's
 //   layer records, and a nextDrawable of the test's own before and after the recording. It passes as above with 120
 //   presents, and when the recording holds every drawable once and in order (recording_check.h).
@@ -717,6 +717,8 @@ bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseco
 /// With `record`, the layer records the run.
 void play_bench(const std::string &app, Capture &capture, bool record) {
     const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
+    // Without the recording, bench.conf's check: frame 1000 drawn and presented once before the first frame too.
+    const std::uint64_t extra = record ? 0 : 1;
     constexpr double period = 1e9 / 120;
     const std::uint64_t window = add_window();
     MinatoMetalLayer *layer = last_layer;
@@ -743,7 +745,7 @@ void play_bench(const std::string &app, Capture &capture, bool record) {
         first = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         if (posts.empty()) posts.push_back(first);
         apkrt_vsync_post(first, first + std::llround(period));
-        presented(window, 1, 10000ms);
+        presented(window, 1 + extra, 10000ms);
     }
     std::uint64_t ticks = 1;
     if (apkrt_window_presents(window) == 0) {
@@ -754,7 +756,7 @@ void play_bench(const std::string &app, Capture &capture, bool record) {
             const std::int64_t tick = first + std::llround(static_cast<double>(ticks) * period) + late;
             posts.push_back(static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)));
             apkrt_vsync_post(tick, tick + std::llround(period));
-            if (!presented(window, ticks + 1, 5000ms)) break;
+            if (!presented(window, ticks + 1 + extra, 5000ms)) break;
         }
     }
     if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end(); },
@@ -782,8 +784,8 @@ void play_bench(const std::string &app, Capture &capture, bool record) {
     ::dprintf(report, "host: %llu ticks after the first, %llu presents counted\n",
               static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(counted));
     ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
-    if (counted != frames) {
-        fail("the window counted " + std::to_string(counted) + " presents, not " + std::to_string(frames));
+    if (counted != frames + extra) {
+        fail("the window counted " + std::to_string(counted) + " presents, not " + std::to_string(frames + extra));
     }
     check_answer(destroyed, "onNativeWindowDestroyed");
     check_answer(destroy, "onDestroy");
