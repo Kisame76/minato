@@ -62,10 +62,12 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.MessageQueue;
 import android.permission.IPermissionManager;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.SettingsProvider;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.text.TextFlags;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -78,6 +80,7 @@ import android.view.ViewManager;
 import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.WidgetFlags;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
@@ -112,6 +115,8 @@ public final class ActivityThread {
     private final ManifestPackage mPackage;
     private LoadedApk mLoadedApk;
     private Application mInitialApplication;
+    /** The core settings, as the bind hands them (coreSettings). */
+    private final Bundle mCoreSettings = coreSettings();
     /** AOSP's Instrumentation, made at the bind as handleBindApplication makes it (step c2c3). */
     Instrumentation mInstrumentation;
     /** The task's root activity and its top resumed one, which LocalActivityClientController answers for. */
@@ -227,17 +232,67 @@ public final class ActivityThread {
     }
 
     /**
-     * A core setting, which Android's activity manager sends each app process (CoreSettingsObserver), for AppGlobals.
-     * Minato has none, so every key answers its caller's default: for ViewConfiguration's input timeouts, a long
+     * A core setting, which Android's activity manager sends each app process (CoreSettingsObserver), for AppGlobals:
+     * the core settings below (ADR-0043 step d)), or `defaultValue` where the process has none, as AOSP's. Settings'
+     * entries are not among them and answer their callers' defaults: for ViewConfiguration's input timeouts, a long
      * press after 400 ms, a multi-press within 300 ms, and key repeat after 400 ms every 50 ms.
      */
     public int getIntCoreSetting(String key, int defaultValue) {
-        return defaultValue;
+        return mCoreSettings.getInt(key, defaultValue);
     }
 
-    /** As getIntCoreSetting: the caller's default. */
+    /** As getIntCoreSetting. */
     public float getFloatCoreSetting(String key, float defaultValue) {
-        return defaultValue;
+        return mCoreSettings.getFloat(key, defaultValue);
+    }
+
+    /**
+     * The core settings that Android's activity manager hands the process at the bind (handleBindApplication's
+     * mCoreSettings): CoreSettingsObserver's DeviceConfig entries, Editor's cursor and magnifier flags in the
+     * "widget" namespace and TextView's flags in the "text" namespace, each from DeviceConfig with its default, where
+     * a text flag's default is the build's aconfig value (CoreSettingsObserver.java at android-15.0.0_r1). So
+     * TextView measures a line by its glyphs' bounds, as use_bounds_for_width is on. Its Settings entries (long
+     * press, key repeat, TIME_12_24, the graphics driver's) are not in it, though Settings came with ADR-0045's gap
+     * 13a: they need the settings provider, which comes with the application's context after the bundle, so their
+     * readers take their defaults.
+     */
+    private static Bundle coreSettings() {
+        Bundle settings = new Bundle();
+        String widget = DeviceConfig.NAMESPACE_WIDGET;
+        putFlag(settings, widget, WidgetFlags.ENABLE_CURSOR_DRAG_FROM_ANYWHERE,
+                WidgetFlags.KEY_ENABLE_CURSOR_DRAG_FROM_ANYWHERE, WidgetFlags.ENABLE_CURSOR_DRAG_FROM_ANYWHERE_DEFAULT);
+        settings.putInt(WidgetFlags.KEY_CURSOR_DRAG_MIN_ANGLE_FROM_VERTICAL,
+                DeviceConfig.getInt(widget, WidgetFlags.CURSOR_DRAG_MIN_ANGLE_FROM_VERTICAL,
+                        WidgetFlags.CURSOR_DRAG_MIN_ANGLE_FROM_VERTICAL_DEFAULT));
+        settings.putInt(WidgetFlags.KEY_FINGER_TO_CURSOR_DISTANCE, DeviceConfig.getInt(widget,
+                WidgetFlags.FINGER_TO_CURSOR_DISTANCE, WidgetFlags.FINGER_TO_CURSOR_DISTANCE_DEFAULT));
+        putFlag(settings, widget, WidgetFlags.ENABLE_INSERTION_HANDLE_GESTURES,
+                WidgetFlags.KEY_ENABLE_INSERTION_HANDLE_GESTURES, WidgetFlags.ENABLE_INSERTION_HANDLE_GESTURES_DEFAULT);
+        settings.putInt(WidgetFlags.KEY_INSERTION_HANDLE_DELTA_HEIGHT, DeviceConfig.getInt(widget,
+                WidgetFlags.INSERTION_HANDLE_DELTA_HEIGHT, WidgetFlags.INSERTION_HANDLE_DELTA_HEIGHT_DEFAULT));
+        settings.putInt(WidgetFlags.KEY_INSERTION_HANDLE_OPACITY, DeviceConfig.getInt(widget,
+                WidgetFlags.INSERTION_HANDLE_OPACITY, WidgetFlags.INSERTION_HANDLE_OPACITY_DEFAULT));
+        settings.putFloat(WidgetFlags.KEY_LINE_SLOP_RATIO, DeviceConfig.getFloat(widget,
+                WidgetFlags.LINE_SLOP_RATIO, WidgetFlags.LINE_SLOP_RATIO_DEFAULT));
+        putFlag(settings, widget, WidgetFlags.ENABLE_NEW_MAGNIFIER, WidgetFlags.KEY_ENABLE_NEW_MAGNIFIER,
+                WidgetFlags.ENABLE_NEW_MAGNIFIER_DEFAULT);
+        settings.putFloat(WidgetFlags.KEY_MAGNIFIER_ZOOM_FACTOR, DeviceConfig.getFloat(widget,
+                WidgetFlags.MAGNIFIER_ZOOM_FACTOR, WidgetFlags.MAGNIFIER_ZOOM_FACTOR_DEFAULT));
+        settings.putFloat(WidgetFlags.KEY_MAGNIFIER_ASPECT_RATIO, DeviceConfig.getFloat(widget,
+                WidgetFlags.MAGNIFIER_ASPECT_RATIO, WidgetFlags.MAGNIFIER_ASPECT_RATIO_DEFAULT));
+        putFlag(settings, TextFlags.NAMESPACE, TextFlags.ENABLE_NEW_CONTEXT_MENU, TextFlags.KEY_ENABLE_NEW_CONTEXT_MENU,
+                TextFlags.ENABLE_NEW_CONTEXT_MENU_DEFAULT);
+        for (int i = 0; i < TextFlags.TEXT_ACONFIGS_FLAGS.length; i++) {
+            String flag = TextFlags.TEXT_ACONFIGS_FLAGS[i];
+            putFlag(settings, TextFlags.NAMESPACE, flag, TextFlags.getKeyForFlag(flag),
+                    TextFlags.TEXT_ACONFIG_DEFAULT_VALUE[i]);
+        }
+        return settings;
+    }
+
+    /** A boolean entry, which CoreSettingsObserver writes as 1 or 0. */
+    private static void putFlag(Bundle settings, String namespace, String flag, String key, boolean defaultValue) {
+        settings.putInt(key, DeviceConfig.getBoolean(namespace, flag, defaultValue) ? 1 : 0);
     }
 
     /** The broadcast the main thread is receiving, which StrictMode names in a violation: none, Minato has none yet. */

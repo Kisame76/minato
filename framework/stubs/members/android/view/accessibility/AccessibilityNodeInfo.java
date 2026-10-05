@@ -45,6 +45,16 @@ class AccessibilityNodeInfo {
         public void setLayoutSize(int width, int height) {
             throw new RuntimeException("stub");
         }
+
+        /** @hide TextView's (ADR-0043 step d)). */
+        public void setTextSizeInPx(float textSizeInPx) {
+            throw new RuntimeException("stub");
+        }
+
+        /** @hide TextView's (ADR-0043 step d)). */
+        public void setTextSizeUnit(int textSizeUnit) {
+            throw new RuntimeException("stub");
+        }
     }
 
     /** @hide */

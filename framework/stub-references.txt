@@ -19,15 +19,9 @@ android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, 
 android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityURLSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.AlignmentSpan$Standard <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.EasyEditSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.LineBackgroundSpan$Standard <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.LocaleSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.QuoteSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.ScaleXSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.SpellCheckSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.SuggestionRangeSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.SuggestionSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
 # System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
@@ -122,19 +116,9 @@ com.android.internal.util.AnnotationValidations <- android.content.om.Overlayabl
 android.annotation.NonNull <- android.content.om.OverlayableInfo  # stays: OverlayableInfo comes from the overlay manager, which Minato does not have
 
 # Text layout: TextView's step (M4 step 10).
-android.text.TextPaint <- android.content.res.StringBlock  # M4 step 10: StringBlock's line-height span measures with it during text layout
-android.text.TextPaint <- android.text.TextUtils  # M4 step 10: TextUtils.ellipsize, listEllipsize and makeSafeForPresentation
-android.text.TextPaint <- android.text.style.AbsoluteSizeSpan, android.text.style.BackgroundColorSpan, android.text.style.ClickableSpan, android.text.style.ForegroundColorSpan, android.text.style.RelativeSizeSpan, android.text.style.StrikethroughSpan, android.text.style.SubscriptSpan, android.text.style.SuperscriptSpan, android.text.style.TextAppearanceSpan, android.text.style.UnderlineSpan  # M4 step 10: the spans' updateDrawState and updateMeasureState, which text layout calls
-android.text.Layout <- android.text.style.BulletSpan  # M4 step 10: BulletSpan.drawLeadingMargin, which text layout calls
-android.text.MeasuredParagraph <- android.graphics.BaseCanvas, android.graphics.BaseRecordingCanvas, android.text.TextUtils  # M4 step 10: Canvas.drawTextRun of a CharSequence, and TextUtils.ellipsize
-android.text.PrecomputedText <- android.graphics.BaseCanvas, android.graphics.BaseRecordingCanvas  # M4 step 10: Canvas.drawTextRun of a CharSequence asks instanceof PrecomputedText
-android.text.SpannableStringBuilder <- android.text.TextUtils  # M4 step 10: TextUtils.concat, expandTemplate and the ellipsizers on styled text
-android.text.AutoGrowArray$FloatArray <- android.text.TextUtils  # M4 step 10: TextUtils.commaEllipsize
 android.text.BidiFormatter <- android.text.TextUtils  # M4 step 10: TextUtils.listEllipsize
-android.text.TextDirectionHeuristics <- android.text.TextUtils  # M4 step 10: TextUtils.ellipsize and commaEllipsize
 android.text.Html <- android.text.TextUtils  # M4 step 10: TextUtils.makeSafeForPresentation
 android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils.getReverse, on AndroidCharacter's natives
-android.text.style.ReplacementSpan <- android.text.TextUtils  # M4 step 10: TextUtils.getOffsetBefore and getOffsetAfter, for text editing
 
 # Files, bundles and the rest.
 android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
@@ -193,7 +177,6 @@ com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.co
 # window; the display, input, Choreographer and the animators until ADR-0041 a); drawing until M4 step 10. XML
 # drawables whose classes framework.jar lacks stay gaps.
 android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
-android.view.FocusFinder <- android.view.View, android.view.ViewGroup, android.view.ViewRootImpl  # ADR-0041 a): focus moves among the views of a window by keys and the D-pad, which come with input; touch mode moves none
 android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
 android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
 android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
@@ -228,10 +211,6 @@ android.view.animation.RotateAnimation <- android.view.animation.AnimationUtils 
 android.view.animation.ScaleAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
-android.view.AccessibilityIterators$CharacterTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.AccessibilityIterators$ParagraphTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.AccessibilityIterators$TextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.AccessibilityIterators$WordTextSegmentIterator <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.HapticScrollFeedbackProvider <- android.view.View  # stays: the haptics of rotary scrolling, and an iPhone has no rotary input
 android.view.RoundScrollbarRenderer <- android.view.View  # stays: scroll bars on a round screen (View.layout asks Configuration.isScreenRound), and an iPhone's is not
 android.view.ScrollCaptureTarget <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
@@ -263,29 +242,25 @@ android.content.IntentSender <- android.view.View  # gap: drag and drop's check 
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
-android.graphics.drawable.AdaptiveIconDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.AnimatedRotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.AnimatedStateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.AnimationDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.ClipDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.InsetDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.LayerDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.LevelListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.RippleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.RotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.ScaleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.StateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
-android.graphics.drawable.TransitionDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (selector, animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list, inset)
+android.graphics.drawable.AdaptiveIconDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.AnimatedRotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.AnimatedStateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.AnimationDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.ClipDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.LayerDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.LevelListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.RippleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.RotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.ScaleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
+android.graphics.drawable.TransitionDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
 android.os.OutcomeReceiver <- android.view.View  # gap: Credential Manager requests
 android.os.Vibrator <- android.view.View  # gap: haptic feedback
 android.view.ContentInfo$Builder <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
 android.view.DragAndDropPermissions <- android.view.View  # gap: drag and drop
 android.view.DragEvent <- android.view.View, android.view.ViewGroup  # gap: drag and drop
-android.view.OnReceiveContentListener <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
 android.view.ViewCredentialHandler <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 android.view.displayhash.DisplayHashResultCallback <- android.view.View  # gap: display hashes
-android.view.inputmethod.InputMethodManager <- android.view.View  # gap: the soft keyboard (ADR-0042 b0's gap 5)
 com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, which need a popup window
 com.android.internal.view.menu.MenuBuilder <- android.view.View  # gap: context menus
 
@@ -337,9 +312,6 @@ android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an inst
 android.os.ResultReceiver <- android.window.ImeOnBackInvokedDispatcher  # stays: the input method's back dispatcher, which only InputMethodManager makes for an input method's window, and Minato has no input method yet
 android.os.TestLooperManager <- android.app.Instrumentation  # stays: an instrumentation test's looper control, and no test instrumentation runs on Minato
 android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
-android.text.Selection <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
-android.text.SpannableStringBuilder <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
-android.text.method.TextKeyListener <- android.app.Activity  # gap: Activity.setDefaultKeyMode's typed keys, which need the text widgets (TextView's step)
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
 android.view.DragAndDropPermissions <- android.app.Activity  # gap: drag and drop (Activity.requestDragAndDropPermissions), not in ADR-0041
@@ -429,12 +401,10 @@ android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidd
 android.view.ViewGroupOverlay <- android.transition.ChangeBounds, android.transition.TransitionUtils, android.transition.Visibility  # M4 step 10: a transition's overlay for a view that leaves its parent, which drawing shows
 android.view.ViewOverlay <- android.transition.Crossfade  # M4 step 10: Crossfade's overlay, which drawing shows
 android.view.WindowInsetsAnimationControlListener <- android.view.InsetsController  # ADR-0041 a): insets animation control, which the window's insets controller cancels until decision 8's insets
-android.widget.EditText <- android.transition.ChangeText  # ADR-0043 d): ChangeText, which asks each view whether it is a TextView or an EditText
 android.widget.ImageView <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: ChangeImageTransform, which asks each view whether it is an ImageView, and the image copy of a view that leaves its parent
 android.widget.ImageView$ScaleType <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: the same image transitions
 android.widget.ListAdapter <- android.transition.Transition  # gap: running a transition, whose capture asks each view's parent whether it is a ListView (Transition.addViewValues), a widget framework.jar lacks
 android.widget.ListView <- android.transition.Transition  # gap: running a transition, as for ListAdapter
-android.widget.TextView <- android.transition.ChangeText, android.transition.Recolor  # ADR-0043 d): ChangeText and Recolor, which ask each view whether it is a TextView
 
 # ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.
@@ -442,8 +412,7 @@ android.provider.DocumentsContract <- android.os.storage.StorageVolume  # stays:
 com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolume  # stays: StorageVolume's dump, for dumpsys
 
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
-# name syncs, URI grants, MIME type icons, SQLite and the device config, which an app's settings and queries never
-# meet.
+# name syncs, URI grants, MIME type icons and SQLite, which an app's settings and queries never meet.
 android.accounts.Account <- android.content.ContentResolver  # gap: syncs (requestSync, startSync and the sync extras' check), which need accounts; Minato has no AccountManager yet
 android.accounts.Account <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
@@ -476,11 +445,74 @@ android.location.ILocationManager <- android.provider.Settings  # gap: Settings.
 android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager
 android.os.PermissionEnforcer <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.permission.PermissionManager <- android.content.AttributionSource  # stays: AttributionSource.isTrusted for a source with a token, which only another process's source carries
-android.provider.DeviceConfig$BadConfigException <- android.provider.Settings  # stays: Settings.Config, the device config's calls, which only system code makes
-android.provider.DeviceConfig$MonitorCallback <- android.provider.Settings  # stays: Settings.Config, as for BadConfigException
 com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # gap: a MIME type's icon, as for Icon
 
 # ADR-0045's text to speech (Planung, gap 13b): what only an engine or a virtual device reaches, which Minato has
 # none of.
 android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeech  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 android.content.pm.ResolveInfo <- android.speech.tts.TtsEngines  # gap: an engine's service, which the package manager's queryIntentServices would find; it is unwritten and answers null, as for no engine
+
+# ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
+# spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
+android.app.Dialog <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
+android.app.PendingIntent <- android.text.style.EasyEditSpan, android.widget.Editor, android.widget.TextView  # stays: the pending intents of an input method's easy-edit spans and of text classification's actions, both absent until their steps
+android.app.PendingIntent$CanceledException <- android.widget.Editor, android.widget.TextView  # stays: the pending intents of an input method's easy-edit spans and of text classification's actions, both absent until their steps
+android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
+android.content.ClipData <- android.view.inputmethod.BaseInputConnection, android.widget.Editor, android.widget.TextView, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
+android.content.ClipData$Item <- android.view.inputmethod.BaseInputConnection, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
+android.content.ClipDescription <- android.view.inputmethod.InputContentInfo, android.widget.TextView, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
+android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
+android.content.pm.ResolveInfo <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.graphics.drawable.Icon <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.graphics.drawable.ShapeDrawable <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
+android.graphics.drawable.shapes.Shape <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
+android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
+android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
+android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
+android.util.Range <- android.widget.SpellChecker  # stays: a spell checker session's suggestions, and text services are absent (ADR-0043 step d), decision 3)
+android.view.ContentInfo <- android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
+android.view.ContentInfo$Builder <- android.view.inputmethod.BaseInputConnection, android.widget.Editor, android.widget.TextView  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
+android.view.DragAndDropPermissions <- android.widget.Editor  # gap: drag and drop
+android.view.DragEvent <- android.widget.Editor, android.widget.TextView  # gap: drag and drop
+android.view.KeyCharacterMap <- android.text.method.MetaKeyKeyListener, android.text.method.TextKeyListener, android.view.inputmethod.BaseInputConnection  # gap: typed hardware keys and their meta state, gap 7's step (Planung)
+android.view.KeyCharacterMap$KeyData <- android.text.method.DialerKeyListener  # gap: typed hardware keys and their meta state, gap 7's step (Planung)
+android.view.PointerIcon <- android.widget.Button, android.widget.TextView  # gap: a mouse's pointer icon over text and buttons, with ADR-0041 a)'s input
+android.view.SubMenu <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.view.ViewHierarchyEncoder <- android.widget.TextView  # stays: the view hierarchy's debug encoding, which only the hierarchy viewer runs
+android.view.ViewStructure <- android.widget.TextView  # stays: the assist and autofill structure, which only those services ask for
+android.view.accessibility.AccessibilityNodeInfo <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
+android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
+android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
+android.view.autofill.AutofillId <- android.view.inputmethod.EditorInfo  # stays: an EditorInfo read from a parcel, which only an input method's side does
+android.view.autofill.AutofillValue <- android.widget.TextView  # stays: autofill, off (step c2c3), which alone asks a TextView for its value
+android.view.contentcapture.ContentCaptureSession <- android.widget.TextView  # stays: content capture, off (step c2c3), which alone hears of a laid-out TextView's changed text
+android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.SelectionEvent <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextClassification <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextClassification$Request$Builder <- android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextClassificationContext$Builder <- android.widget.TextView  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextClassifier <- android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextClassifierEvent$LanguageDetectionEvent$Builder <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextLinks$TextLinkSpan <- android.text.method.LinkMovementMethod  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextSelection <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textclassifier.TextSelection$Request$Builder <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
+android.view.textservice.SpellCheckerSubtype <- android.widget.TextView  # stays: a spell checker's subtype, and text services are absent (ADR-0043 step d), decision 3)
+android.view.translation.TranslationRequestValue <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
+android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
+android.view.translation.ViewTranslationRequest$Builder <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
+android.view.translation.ViewTranslationResponse <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
+android.widget.BaseAdapter <- android.text.method.CharacterPickerDialog, android.widget.Editor  # gap: the suggestion popup's and the character picker's lists, other windows on a tap or a hardware key
+android.widget.GridView <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
+android.widget.ListView <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.widget.Magnifier <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.widget.Magnifier$Builder <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.widget.PopupWindow <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.widget.PopupWindow$OnDismissListener <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+android.widget.Scroller <- android.widget.TextView  # gap: TextView.setScroller's smooth scrolling, whose Scroller only an app makes
+android.widget.Toast <- android.widget.TextView  # gap: the toast after a process-text activity's result, a second window (ADR-0041 decision 2)
+com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
+com.android.internal.inputmethod.IInputContentUriToken <- android.view.inputmethod.InputContentInfo  # stays: the URI permission of content an input method commits, and Minato has no input method until the keyboard step
+com.android.internal.inputmethod.IInputContentUriToken$Stub <- android.view.inputmethod.InputContentInfo  # stays: the URI permission of content an input method commits, and Minato has no input method until the keyboard step
+com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
+com.android.internal.util.IndentingPrintWriter <- android.view.textclassifier.TextClassificationConstants  # stays: TextClassificationConstants.dump, which only dumpsys runs
+com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows

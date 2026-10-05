@@ -42,6 +42,7 @@ import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
+import android.view.inputmethod.InputMethodManager;
 import com.android.internal.policy.PhoneLayoutInflater;
 import com.android.minato.services.Unwritten;
 import dalvik.system.BlockGuard;
@@ -259,6 +260,10 @@ class ContextImpl {
                 return mAppOpsManager;
             }
         }
+        if (Context.INPUT_METHOD_SERVICE.equals(name)) {
+            // The process's manager, without an input method (ADR-0043 step d)), as SystemServiceRegistry's forContext.
+            return InputMethodManager.forContext(getOuterContext());
+        }
         Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
         return null;
     }
@@ -315,6 +320,9 @@ class ContextImpl {
         }
         if (serviceClass == WindowManager.class) {
             return Context.WINDOW_SERVICE;
+        }
+        if (serviceClass == InputMethodManager.class) {
+            return Context.INPUT_METHOD_SERVICE;
         }
         if (serviceClass == SensorManager.class) {
             return Context.SENSOR_SERVICE;

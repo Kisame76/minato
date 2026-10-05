@@ -16,12 +16,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 /**
- * ADR-0043's test 1 (views-test), as step c3 cuts it: views drawn in software (android:hardwareAccelerated="false") in
- * colors of the test's own, in a column in the middle of a window that is edge to edge with the system bars shown. A
- * label view draws its text with Canvas.drawText, a plain view is a block of color, and a third view draws a Bitmap of
- * density 160, which the window canvas's density scales; TextView and Button come with step d). The app logs its
+ * ADR-0043's test 1 (views-test): views drawn in software (android:hardwareAccelerated="false") in colors of the
+ * test's own, in a column in the middle of a window that is edge to edge with the system bars shown. A label view
+ * draws its text with Canvas.drawText, a plain view is a block of color, a third view draws a Bitmap of density 160,
+ * which the window canvas's density scales (step c3), and below them a TextView in a color of the test's own (step
+ * d)); a Button joins with the XML drawables' step, as its theme's background is a ripple. The app logs its
  * lifecycle, the views' bounds in the window and the text's advance once laid out, and the window's insets under
  * views-test-device. When the window gains the focus, which Android gives after the window's first draw, the label's
  * text changes, which redraws the label alone, and the app logs the last line, "done", after that draw.
@@ -54,6 +56,14 @@ public class ViewsActivity extends Activity {
         params = new LinearLayout.LayoutParams(dp(32), dp(32));
         params.topMargin = dp(24);
         mColumn.addView(new BitmapView(this), params);
+        TextView text = new TextView(this);
+        text.setText("Minato text view");
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        text.setTextColor(0xFF1A2B3C);
+        params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(24);
+        mColumn.addView(text, params);
         setContentView(mColumn);
         mColumn.getViewTreeObserver().addOnGlobalLayoutListener(this::laidOut);
         mColumn.getViewTreeObserver().addOnDrawListener(this::drawing);
@@ -91,6 +101,7 @@ public class ViewsActivity extends Activity {
         Log.i(TAG, "label bounds " + bounds(mLabel));
         Log.i(TAG, "block bounds " + bounds(mColumn.getChildAt(1)));
         Log.i(TAG, "bitmap bounds " + bounds(mColumn.getChildAt(2)));
+        Log.i(TAG, "textview bounds " + bounds(mColumn.getChildAt(3)));
         Log.i(TAG, "text advance " + mLabel.advance());
         Insets bars = getWindow().getDecorView().getRootWindowInsets().getInsets(WindowInsets.Type.systemBars());
         Log.i(DEVICE_TAG, "insets top " + bars.top + " bottom " + bars.bottom);

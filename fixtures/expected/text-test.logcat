@@ -1,0 +1,45 @@
+I/text-test: edit: input type 0x20001, ime options 0x10000006, key listener android.text.method.TextKeyListener, movement android.text.method.ArrowKeyMovementMethod, focusable true, in touch mode true, filters 0, text size 54.0, max lines 2147483647, gravity 0x800013, editable true, bounds for width true, color 0xfff1f0f7
+I/text-test: text: input type 0x0, ime options 0x0, key listener null, movement null, focusable false, in touch mode false, filters 0, text size 60.0, max lines 2147483647, gravity 0x800033, editable false, bounds for width true
+I/text-test: before "" 0 0 5
+I/text-test: on "12345" 0 0 5
+I/text-test: after "12345"
+I/text-test: before "12345" 5 0 3
+I/text-test: on "12345678" 5 0 3
+I/text-test: after "12345678"
+I/text-test: set up: "12345678", length 8, selection 2 4
+I/text-test: digits: input type 0x2, key listener android.text.method.DigitsKeyListener, "12345678"
+I/text-test: signed decimal: input type 0x3002, key listener android.text.method.DigitsKeyListener, "12345678"
+I/text-test: before "12345678" 0 8 8
+I/text-test: on "12345678" 0 8 8
+I/text-test: after "12345678"
+I/text-test: text input: input type 0x1, key listener android.text.method.TextKeyListener, "12345678"
+I/text-test: layout: edit 0 0 1290 144, lines 1, baseline 93, first line's width 240.0; text 493 1357 797 1438, lines 1, baseline 64, first line's width 303.41406
+I/text-test: before "12345678" 0 8 0
+I/text-test: on "" 0 8 0
+I/text-test: after ""
+I/text-test: focus: requested true, has true
+I/text-test: editor info: input type 0x1, ime options 0x10000006, selection 0 0, field 0, package null, connection com.android.internal.inputmethod.EditableInputConnection
+I/text-test: before "" 0 0 2
+I/text-test: on "ab" 0 0 2
+I/text-test: after "ab"
+I/text-test: composing: "ab", span 0 2
+I/text-test: finished: "ab", span -1 -1
+I/text-test: before "ab" 2 0 6
+I/text-test: on "abcdefgh" 2 0 6
+I/text-test: after "abcdefgh"
+I/text-test: committed: "abcdefgh", selection 8 8
+I/text-test: before "abcdefgh" 6 2 0
+I/text-test: on "abcdef" 6 2 0
+I/text-test: after "abcdef"
+I/text-test: deleted: "abcdef", before the cursor "def"
+I/text-test: editor action 6, event null
+I/text-test: editor action sent: true
+I/text-test: manager android.view.inputmethod.InputMethodManager: show true, active true, edit active true, accepting true, fullscreen false, hide true, methods 0
+I/text-test: before "abcdef" 6 0 2
+I/text-test: on "abcdefkl" 6 0 2
+I/text-test: after "abcdefkl"
+I/text-test: composing again: "abcdefkl", span 6 8
+I/text-test: other focus: requested true, edit has false, span 6 8
+I/text-test: manager android.view.inputmethod.InputMethodManager: show false, active true, edit active false, accepting false, fullscreen false, hide true, methods 0
+I/text-test: checked: "abcdefkl", span -1 -1
+I/text-test: done

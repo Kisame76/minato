@@ -15,3 +15,13 @@ android.hardware.SystemSensorManager$3 -> android.companion.virtual.VirtualDevic
 android.opengl.GLSurfaceView -> android.view.SurfaceView  # gap: GLSurfaceView, until App's SurfaceView (ADR-0043 c))
 android.opengl.GLSurfaceView -> android.view.SurfaceHolder$Callback2  # gap: GLSurfaceView, until App's SurfaceView (ADR-0043 c))
 android.hardware.input.InputManagerGlobal$LocalBatteryState -> android.hardware.BatteryState  # gap: an input device's battery (InputDevice.getBatteryState, API 31), which a device without one, as Minato's are, gets as a LocalBatteryState
+android.text.method.CharacterPickerDialog -> android.app.Dialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
+android.text.method.CharacterPickerDialog -> android.widget.AdapterView$OnItemClickListener  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
+android.text.method.CharacterPickerDialog$OptionsAdapter -> android.widget.BaseAdapter  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
+android.widget.Editor$ErrorPopup -> android.widget.PopupWindow  # gap: TextView.setError's popup, another window
+android.widget.Editor$SuggestionsPopupWindow -> android.widget.AdapterView$OnItemClickListener  # gap: the suggestions popup on a tap, another window
+android.widget.Editor$SuggestionsPopupWindow$CustomPopupWindow -> android.widget.PopupWindow  # gap: the suggestions popup on a tap, another window
+android.widget.Editor$SuggestionsPopupWindow$SuggestionAdapter -> android.widget.BaseAdapter  # gap: the suggestions popup on a tap, another window
+android.widget.SmartSelectSprite$RectangleList -> android.graphics.drawable.shapes.Shape  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
+android.widget.SmartSelectSprite$RoundedRectangleShape -> android.graphics.drawable.shapes.Shape  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
+android.widget.TextViewTranslationCallback -> android.view.translation.ViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)

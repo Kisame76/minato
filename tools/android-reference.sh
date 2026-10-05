@@ -21,9 +21,10 @@
 # android.app.Activity, on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at density 480: the AVD
 # apk-runner-35-iphone, the same image with that display, which the script creates and starts for it and
 # view-tree-test (step c2c2) and animator-test (ADR-0041 a)) alone (the window manager forces at most three times
-# apk-runner-35's 320 x 480 px on a side). styled-text-test (ADR-0039
-# b3.4b), package-manager-test (b3.5a) and package-manager-legacy-test (b3.5b1) are Java apps of the same kind on
-# apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
+# apk-runner-35's 320 x 480 px on a side). text-test (ADR-0043 step d)) runs on activity-start-test's AVD with the
+# emulator's input methods disabled, as Minato has none yet, and every exit enables them again. styled-text-test
+# (ADR-0039 b3.4b), package-manager-test (b3.5a) and package-manager-legacy-test (b3.5b1) are Java apps of the same
+# kind on apk-runner-35's display, on which their styled strings and PackageManager's answers do not depend. The package
 # manager's two run on apk-runner-35-bare (ADR-0045 test 1), the same image without sensors, GPS, modem and cameras,
 # whose hardware is closer to Minato's; its image still declares apk-runner-35's system features. services-test
 # (ADR-0045, the start's local services), whose sensor service has no sensor on either, and input-service-test
@@ -151,10 +152,10 @@ fi
 # activity-start-test's AVD (ADR-0039 step c2c3) has that display without navigation keys, as an iPhone has none, and
 # gesture navigation, as our window manager answers that a navigation bar exists (step c2c2). start-stops-test
 # (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, java-test (ADR-0043 step c1),
-# whose lifecycle the host drives as Minato's does, and views-test (step c3), whose screen nothing but the bars covers
-# there.
+# whose lifecycle the host drives as Minato's does, views-test (step c3), whose screen nothing but the bars covers
+# there, and text-test (step d)), which also waits for its window's focus.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
-  "$app" == views-test ]]; then
+  "$app" == views-test || "$app" == text-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -217,6 +218,10 @@ if [[ -n "$serial" ]]; then
     exit 1
   fi
 fi
+emulator_stop() {
+  "$ADB" -s "$serial" shell sync >/dev/null 2>&1
+  "$ADB" -s "$serial" emu kill >/dev/null 2>&1 || kill "$started" 2>/dev/null || true
+}
 if [[ -z "$serial" ]]; then
   [[ -f "$AVD_HOME/$AVD.ini" ]] || create_avd
   serial=emulator-5554
@@ -224,7 +229,7 @@ if [[ -z "$serial" ]]; then
   ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK" ANDROID_AVD_HOME="$AVD_HOME" "$EMULATOR" -avd "$AVD" -port 5554 -no-window ${audio:+"$audio"} \
     -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RESULTS/emulator.log" 2>&1 &
   started=$!
-  trap '"$ADB" -s "$serial" shell sync >/dev/null 2>&1; "$ADB" -s "$serial" emu kill >/dev/null 2>&1 || kill "$started" 2>/dev/null || true' EXIT
+  trap emulator_stop EXIT
   for _ in $(seq 1 180); do
     if ! kill -0 "$started" 2>/dev/null; then
       echo "The emulator stopped; see $RESULTS/emulator.log." >&2
@@ -308,6 +313,43 @@ present_timestamp_back() {
     device unroot >/dev/null || true
     wait_for_adbd shell || true
   fi
+}
+
+# text-test runs on Android 15 without an input method, as Minato has none until the keyboard step (ADR-0043 step d),
+# decision 5). Disabling the input methods is not enough, as the input method service enables a default one again
+# when none is left, so the packages that hold them are disabled for the run. Both are settings, which outlive the
+# emulator: every exit enables the packages and the input methods again and sets the default one back, before an
+# emulator this script started stops.
+input_methods="" input_method_packages="" default_input_method=""
+input_methods_off() {
+  input_methods=$(run ime list -s | tr -d '\r')
+  default_input_method=$(run settings get secure default_input_method | tr -d '\r')
+  input_method_packages=$(run ime list -a -s | tr -d '\r' | cut -d/ -f1 | sort -u)
+  echo "Input methods off for $app: $input_methods (default $default_input_method), packages" $input_method_packages
+  for package in $input_method_packages; do
+    run pm disable-user --user 0 "$package" >/dev/null
+  done
+  # The service drops a disabled package's input methods when the package change reaches it.
+  for _ in $(seq 1 20); do
+    [[ -n "$(run ime list -a -s | tr -d '\r')" ]] || return 0
+    sleep 0.5
+  done
+  echo "An input method stays." >&2
+  return 1
+}
+input_methods_back() {
+  for package in $input_method_packages; do
+    run pm default-state --user 0 "$package" >/dev/null 2>&1 || true
+  done
+  for method in $input_methods; do
+    run ime enable "$method" >/dev/null 2>&1 || true
+  done
+  if [[ -n "$default_input_method" && "$default_input_method" != null ]]; then
+    run ime set "$default_input_method" >/dev/null 2>&1 || true
+  fi
+  echo "Input methods back: $(run ime list -s | tr -d '\r' | tr '\n' ' ')(default" \
+    "$(run settings get secure default_input_method | tr -d '\r')); disabled packages:" \
+    "$(run pm list packages -d | tr -d '\r' | sed 's/^package://' | tr '\n' ' ')"
 }
 
 # Test 2's Godot APKs (ADR-0042 a): their lines under Godot's tag, split into bench.gd's "godot-bench:" lines, which
@@ -402,6 +444,10 @@ run_app() {
     views-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
+      ;;
+    # text-test (ADR-0043 step d)): its own launcher activity, which ends with "done" at its window's first focus.
+    text-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TextActivity
       ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)
@@ -639,6 +685,10 @@ if [[ -n "$app" ]]; then
     # An emulator this script started stops at the end, and boots with both as they were.
     [[ -n "$started" ]] || trap present_timestamp_back EXIT
     present_timestamp_on
+  fi
+  if [[ "$app" == text-test ]]; then
+    trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
+    input_methods_off
   fi
   run_app
   exit $?

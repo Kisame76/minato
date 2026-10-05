@@ -10,6 +10,9 @@ import java.util.List;
 public class UiTranslationController implements android.util.Dumpable {
     public static final String DUMPABLE_NAME = "UiTranslationController";
 
+    /** TextView's (ADR-0043 step d)): its translation callback logs only with it. */
+    public static final boolean DEBUG = false;
+
     public UiTranslationController(Activity activity, Context context) {
         throw new RuntimeException("stub");
     }

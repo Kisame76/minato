@@ -65,6 +65,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private static final int MSG_DIE = 2;
     private static final int MSG_INVALIDATE = 3;
     private static final int MSG_INVALIDATE_RECT = 4;
+    private static final int MSG_CHECK_FOCUS = 5;
 
     /** Called with the activity's configuration; AOSP's ActivityThread gives it every window of an activity. */
     public interface ActivityConfigCallback {
@@ -113,7 +114,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private final W mWindow = new W();
     private final WindowOnBackInvokedDispatcher mOnBackInvokedDispatcher;
     private final Rect mTempRect = new Rect();
-    private final ImeFocusController mImeFocusController = new ImeFocusController();
+    private final ImeFocusController mImeFocusController;
     private final HandwritingInitiator mHandwritingInitiator = new HandwritingInitiator();
     private final Runnable mTraversalRunnable = this::doTraversal;
     private View mView;
@@ -145,6 +146,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public ViewRootImpl(Context context, Display display) {
         mContext = context;
         mDisplay = display;
+        mImeFocusController = new ImeFocusController(this, context);
         mThread = Thread.currentThread();
         mAttachInfo = new AttachInfo(null, mWindow, display, this, mHandler, this, context);
         mDensity = context.getResources().getDisplayMetrics().densityDpi;
@@ -178,6 +180,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                     final AttachInfo.InvalidateInfo info = (AttachInfo.InvalidateInfo) msg.obj;
                     info.target.invalidate(info.left, info.top, info.right, info.bottom);
                     info.recycle();
+                    break;
+                case MSG_CHECK_FOCUS:
+                    mImeFocusController.onScheduledCheckFocus();
                     break;
                 default:
                     break;
@@ -308,6 +313,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mRecomputeGlobalAttributes = false;
             mAttachInfo.mTreeObserver.dispatchOnGlobalLayout();
         }
+        mImeFocusController.onTraversal(mAttachInfo.mHasWindowFocus && viewVisibility == View.VISIBLE,
+                mWindowAttributes);
         if (first) {
             // As AOSP's first traversal in touch mode: a focused group that wants its children first gives way.
             View focused = host.findFocus();
@@ -534,9 +541,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
         if (mAdded && mView != null) {
             mAttachInfo.mHasWindowFocus = hasWindowFocus;
+            // As AOSP's: the input method manager hears of the focus around the views' callbacks.
+            mImeFocusController.onPreWindowFocus(hasWindowFocus, mWindowAttributes);
             mAttachInfo.mKeyDispatchState.reset();
             mView.dispatchWindowFocusChanged(hasWindowFocus);
             mAttachInfo.mTreeObserver.dispatchOnWindowFocusChange(hasWindowFocus);
+            mImeFocusController.onPostWindowFocus(mView.findFocus(), hasWindowFocus, mWindowAttributes);
             if (hasWindowFocus) {
                 mWindowAttributes.softInputMode &= ~WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION;
                 ((WindowManager.LayoutParams) mView.getLayoutParams()).softInputMode &=
@@ -565,6 +575,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             if (mAdded && mView != null) {
                 mAttachInfo.mTreeObserver.dispatchOnWindowAttachedChange(false);
                 mView.dispatchDetachedFromWindow();
+                mImeFocusController.onWindowDismissed();
                 mView.assignParent(null);
                 mView = null;
                 mAttachInfo.mRootView = null;
@@ -988,6 +999,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void dispatchKeyFromAutofill(KeyEvent event) {
     }
 
+    /** A key an input method sends, which reaches the window as input does: not yet (ADR-0041 a)). */
+    public void dispatchKeyFromIme(KeyEvent event) {
+        dispatchInputEvent(event);
+    }
+
     public void touchModeChanged(boolean inTouchMode) {
         mAttachInfo.mInTouchMode = inTouchMode;
     }
@@ -1050,7 +1066,36 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return mInsetsController;
     }
 
-    /** The window's IME focus, which reaches no input method yet (ImeFocusController). */
+    /**
+     * As AOSP's: what hears of the process's configuration changes, a text iterator's locale among them
+     * (AccessibilityIterators, ADR-0043 step d)). Our windows take no configuration change yet, so none is told.
+     */
+    public interface ConfigChangedCallback {
+        void onConfigurationChanged(Configuration globalConfig);
+    }
+
+    private static final ArrayList<ConfigChangedCallback> sConfigCallbacks = new ArrayList<>();
+
+    public static void addConfigCallback(ConfigChangedCallback callback) {
+        synchronized (sConfigCallbacks) {
+            sConfigCallbacks.add(callback);
+        }
+    }
+
+    public static void removeConfigCallback(ConfigChangedCallback callback) {
+        synchronized (sConfigCallbacks) {
+            sConfigCallbacks.remove(callback);
+        }
+    }
+
+    /** As AOSP's: the input method manager checks the focused view at the next message. */
+    public void dispatchCheckFocus() {
+        if (!mHandler.hasMessages(MSG_CHECK_FOCUS)) {
+            mHandler.sendEmptyMessage(MSG_CHECK_FOCUS);
+        }
+    }
+
+    /** The window's IME focus, which our InputMethodManager serves without an input method (ImeFocusController). */
     public ImeFocusController getImeFocusController() {
         return mImeFocusController;
     }

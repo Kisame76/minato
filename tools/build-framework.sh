@@ -144,6 +144,8 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.os.storage.StorageManager \
   --class android.view.accessibility.AccessibilityManager \
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
+  --class android.view.inputmethod.InputMethodManager --class android.view.textservice.TextServicesManager \
+  --class android.view.textclassifier.TextClassificationManager \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
