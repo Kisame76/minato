@@ -75,6 +75,48 @@ struct ContainerTests {
                                ("base.apk", Self.apk)], name: "a.zip") == .looseSet)
     }
 
+    @Test(arguments: [#"{"name": "My App", "start_url": "/"}"#, "{", #"["xapk_version"]"#, "{}"])
+    func anAPKWithARootManifestJsonOfItsOwnIsAnAPK(_ text: String) throws {
+        // A departure from InstallerX's order (ADR-0049 c1): beside AndroidManifest.xml, a manifest.json with neither
+        // of XAPK's keys, xapk_version and package_name, is the APK's own file, as a web app's.
+        let entries = [("AndroidManifest.xml", Self.apk), ("manifest.json", Self.json(text)), ("classes.dex", Self.apk)]
+        #expect(try Self.kind(entries, name: "app.apk") == .apk)
+        // Without AndroidManifest.xml it is still an XAPK, whose files then count by themselves.
+        #expect(try Self.kind([("manifest.json", Self.json(text)), ("base.apk", Self.apk)], name: "a.xapk") == .xapk)
+    }
+
+    @Test(arguments: [#"{"xapk_version": 2}"#, #"{"package_name": "org.example"}"#, #"{"xapk_version": null}"#])
+    func eitherOfXAPKsKeysMakesAnXAPKBesideAnAndroidManifest(_ text: String) throws {
+        let entries = [("AndroidManifest.xml", Self.apk), ("manifest.json", Self.json(text)), ("org.example.apk", Self.apk)]
+        #expect(try Self.kind(entries, name: "a.apk") == .xapk)
+    }
+
+    @Test func aManifestJsonBesideAnAndroidManifestIsReadOnlyWithinItsCapAndNeverEncrypted() throws {
+        // Over 1 MiB or encrypted, it is not read and so is no XAPK's: Android never reads it either.
+        let big = Data(#"{"xapk_version": 2, "name": ""#.utf8) + Data(repeating: 0x61, count: Int(Container.maxJSONSize))
+            + Data(#""}"#.utf8)
+        let over = try File(Self.zip([("AndroidManifest.xml", Self.apk), ("manifest.json", big)], method: .deflated), name: "a.apk")
+        #expect(try Container.open(over.url).kind == .apk)
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", Self.apk, method: .stored)
+        zip.add("manifest.json", Self.json(#"{"xapk_version": 2}"#), method: .stored)
+        let encrypted = try ContainerExtractionTests.patching("manifest.json", in: zip.build()) { data, local, central in
+            data[local + 6] |= 0x01
+            data[central + 8] |= 0x01
+        }
+        let file = try File(encrypted, name: "a.apk")
+        #expect(try Container.open(file.url).kind == .apk)
+        // Without AndroidManifest.xml, an encrypted manifest.json refuses the container, as any encrypted entry does.
+        var alone = ZipBuilder()
+        alone.add("manifest.json", Self.json(#"{"xapk_version": 2}"#), method: .stored)
+        alone.add("base.apk", Self.apk, method: .stored)
+        let refused = try File(try ContainerExtractionTests.patching("manifest.json", in: alone.build()) { data, local, central in
+            data[local + 6] |= 0x01
+            data[central + 8] |= 0x01
+        }, name: "a.xapk")
+        #expect(throws: ContainerError.encrypted("manifest.json")) { try Container.open(refused.url) }
+    }
+
     @Test(arguments: ["{", #"["apkm_version"]"#, #"{"versioncode": "5"}"#, #"{"info_version": 1}"#])
     func anInfoJsonWithoutAPKMsKeysIsNoAPKM(_ text: String) throws {
         // Unreadable JSON, another shape or neither key: not an APKM, so the APKs make a loose set.

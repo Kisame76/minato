@@ -95,6 +95,53 @@ struct ContainerExtractionTests {
         #expect(try Data(contentsOf: files[0]) == content)
     }
 
+    // MARK: - Zeros stay holes (ADR-0049 c1)
+
+    @Test(arguments: [false, true])
+    func anEntryOfZerosBecomesAHoleOfItsSize(deflated: Bool) throws {
+        // A chunk of zeros is skipped, not written, so it takes no disk, and the file still ends at its declared size.
+        let size = (3 << 20) + 5
+        let unit = try Unit()
+        let container = try Self.open(unit, [("base.apk", Data(count: size))], method: deflated ? .deflated : .stored)
+        let files = try container.extract(container.looseSetItems(), into: unit.destination)
+
+        #expect(try Data(contentsOf: files[0]) == Data(count: size))
+        #expect(try SparseZIP.allocated(files[0]) < 64 << 10)
+    }
+
+    @Test func aLastChunkOfZerosStillEndsTheFileAtItsDeclaredSize() throws {
+        // The length is set at the end, as a hole at the end writes nothing (the lead's condition). Over 16 MiB, as
+        // APFS fills a smaller file's hole after data with zeros [verified: macOS 27, a probe of 2026-10-06].
+        var random = SplitMix64(seed: 11)
+        let head = Data((0..<(1 << 20)).map { _ in UInt8(truncatingIfNeeded: random.next()) })
+        let zeros = (24 << 20) + 3
+        let unit = try Unit()
+        let zip = unit.url.appendingPathComponent("game.apks")
+        try SparseZIP.write([("base.apk", [.bytes(head), .zeros(UInt64(zeros))])], to: zip)
+        let container = try Container.open(zip)
+        let files = try container.extract(container.looseSetItems(), into: unit.destination)
+
+        #expect(try Data(contentsOf: files[0]) == head + Data(count: zeros))
+        #expect(try SparseZIP.allocated(files[0]) < (1 << 20) + (64 << 10))
+    }
+
+    @Test func zerosUnderAnotherChecksumAreRefused() throws {
+        // The checksum runs over the zeros, though they are never written (the lead's condition).
+        var zip = ZipBuilder()
+        zip.add("base.apk", Data(count: 2 << 20), method: .deflated)
+        let data = try Self.patching("base.apk", in: zip.build()) { data, local, central in
+            Self.put(0x1234_5678, at: local + 14, in: &data)
+            Self.put(0x1234_5678, at: central + 16, in: &data)
+        }
+        let unit = try Unit()
+        let container = try Container.open(unit.file(data))
+
+        #expect(throws: ContainerError.checksumMismatch("base.apk")) {
+            try container.extract(container.looseSetItems(), into: unit.destination)
+        }
+        #expect(try unit.listing() == ["game.apks"])
+    }
+
     @Test func theRunningChecksumSkipsAnEmptyChunk() {
         // zlib's crc32 given no buffer answers its initial value, which would start the sum again (the lead's review
         // of a1). Foundation gives an empty Data a pointer today, so the empty buffer here has none. "123456789" is
@@ -186,7 +233,31 @@ struct ContainerExtractionTests {
         #expect(!FileManager.default.fileExists(atPath: unit.url.deletingLastPathComponent().appendingPathComponent("evil.apk").path))
     }
 
-    @Test(arguments: ["", ".hidden.apk", "a/b.apk", "..", ".", "x\u{0}.apk", "1.apk", String(repeating: "a", count: 252) + ".apk"])
+    @Test func namesTheVolumeTakesForOneAreRefused() throws {
+        // The lead's reviewer: APFS on the Mac, and so in the Simulator, folds case, so two names of ours can be one
+        // file; each file is made new or not at all, and a collision fails closed. Names Swift takes as equal, as one
+        // in two Unicode normalizations, never get that far.
+        let unit = try Unit()
+        let probe = unit.url.appendingPathComponent("Probe")
+        try Data().write(to: probe)
+        let foldsCase = FileManager.default.fileExists(atPath: unit.url.appendingPathComponent("probe").path)
+        try FileManager.default.removeItem(at: probe)
+        let container = try Self.open(unit, Self.set)
+        let entries = try container.looseSetItems().map(\.entry)
+        let items = [Container.Item(entry: entries[0], fileName: "main.1.com.Foo.obb"),
+                     Container.Item(entry: entries[1], fileName: "main.1.com.foo.obb")]
+        if foldsCase {
+            #expect(throws: ContainerError.unsafeName("main.1.com.foo.obb")) { try container.extract(items, into: unit.destination) }
+            #expect(try unit.listing() == ["game.apks"])
+        } else {
+            let files = try container.extract(items, into: unit.destination)
+            #expect(try files.map { try Data(contentsOf: $0) } == [Self.set[0].1, Self.set[1].1])
+        }
+    }
+
+    @Test(arguments: ["", ".hidden.apk", "a/b.apk", "..", ".", "x\u{0}.apk", "1.apk", String(repeating: "a", count: 252) + ".apk",
+                      // The lead's reviewer: a combining mark hides a slash or a leading dot from a check of Characters.
+                      "a/\u{301}b.apk", ".\u{301}x.apk"])
     func aNameThatIsNoPlainFileNameOrTakenIsRefused(_ name: String) throws {
         let unit = try Unit()
         let container = try Self.open(unit, Self.set)

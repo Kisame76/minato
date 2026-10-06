@@ -5,7 +5,8 @@ import Foundation
 public enum ContainerKind: Sendable, Equatable {
     /// `AndroidManifest.xml` at the root: one APK, which the import takes as it is.
     case apk
-    /// `manifest.json` at the root: an XAPK (ADR-0049 step c).
+    /// `manifest.json` at the root: an XAPK (ADR-0049 step c), but beside `AndroidManifest.xml` only with one of
+    /// XAPK's keys.
     case xapk
     /// `info.json` at the root with `apkm_version` or `pname`: a plain APKM (step e).
     case apkm
@@ -111,7 +112,9 @@ public struct Container {
 
     /// Opens `url` and tells its kind by its content, in InstallerX's order (`FileTypeDetector.kt:192-279`): no ZIP
     /// is refused, then the root's `manifest.json`, `info.json` with APKM's keys, `AndroidManifest.xml` and a toc
-    /// decide, and anything else is a loose set. A container with an encrypted entry or over its entries is refused.
+    /// decide, and anything else is a loose set. *Departure* (ADR-0049 c1): beside `AndroidManifest.xml`, a
+    /// `manifest.json` without XAPK's keys is the APK's own, as a web app has one. A container with an encrypted entry
+    /// or over its entries is refused.
     public static func open(_ url: URL) throws -> Container {
         let source = try FileSource(url: url)
         let head = source.size >= 4 ? try source.read(at: 0, count: 4) : Data()
@@ -136,7 +139,10 @@ public struct Container {
     }
 
     static func kind(of archive: ZipArchive) throws -> ContainerKind {
-        if archive.entry(named: "manifest.json") != nil { return .xapk }
+        if let manifest = archive.entry(named: "manifest.json"),
+           archive.entry(named: "AndroidManifest.xml") == nil || hasXAPKKeys(manifest, in: archive) {
+            return .xapk
+        }
         if let info = archive.entry(named: "info.json"), try isAPKMInfo(info, in: archive) { return .apkm }
         if archive.entry(named: "AndroidManifest.xml") != nil { return .apk }
         if archive.entry(named: "toc.pb") != nil || archive.entry(named: "toc.json") != nil { return .bundletool }
@@ -146,10 +152,24 @@ public struct Container {
     /// Whether `info.json` is a JSON object with `apkm_version` or `pname`, APKMirror's keys. App Manager's own
     /// `info.json` has neither, and unreadable JSON decides nothing.
     static func isAPKMInfo(_ entry: ZipEntry, in archive: ZipArchive) throws -> Bool {
+        guard let object = try jsonObject(entry, in: archive) else { return false }
+        return object["apkm_version"] != nil || object["pname"] != nil
+    }
+
+    /// Whether `manifest.json` is a JSON object with `xapk_version` or `package_name`, XAPK's keys. Read only beside
+    /// `AndroidManifest.xml`, where one encrypted, over its cap or unreadable has neither: it is the APK's file, which
+    /// Android never reads.
+    static func hasXAPKKeys(_ entry: ZipEntry, in archive: ZipArchive) -> Bool {
+        guard let object = try? jsonObject(entry, in: archive) else { return false }
+        return object["xapk_version"] != nil || object["package_name"] != nil
+    }
+
+    /// `entry` as a JSON object, read within decision 7's cap; nil for JSON of another shape or none.
+    static func jsonObject(_ entry: ZipEntry, in archive: ZipArchive) throws -> [String: Any]? {
         guard !entry.isEncrypted else { throw ContainerError.encrypted(entry.name) }
         guard entry.uncompressedSize <= maxJSONSize else {
             throw ContainerError.overCap(
-                "its info.json has \(entry.uncompressedSize) bytes, more than the \(maxJSONSize) Minato reads")
+                "its \(entry.name) has \(entry.uncompressedSize) bytes, more than the \(maxJSONSize) Minato reads")
         }
         let data: Data
         do {
@@ -157,8 +177,7 @@ public struct Container {
         } catch let error as APKError {
             throw ContainerError.unreadable(error)
         }
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
-        return object["apkm_version"] != nil || object["pname"] != nil
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     /// A loose set's APKs (decision 3), in the archive's order: every `.apk` entry in any folder, its extension in
@@ -181,7 +200,12 @@ public struct Container {
 
     static func isLooseAPK(_ entry: ZipEntry) -> Bool {
         guard !entry.name.hasPrefix("__MACOSX/") else { return false }
-        let name = entry.name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? entry.name
+        let name = fileName(of: entry)
         return !name.hasPrefix(".") && name.lowercased().hasSuffix(".apk")
+    }
+
+    /// An entry's last path component, empty for a folder's.
+    static func fileName(of entry: ZipEntry) -> String {
+        entry.name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? entry.name
     }
 }
