@@ -239,6 +239,14 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets ${namespaces})
     set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # The same under CMS, the collector app_process gives an app (ADR-0033 decision 5): --gc checks ART's start line.
+    add_test(NAME runtime.art_codec_cms${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
+        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --gc CMS)
+    set_tests_properties(runtime.art_codec_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # The same in only the window's upper 2 GiB, as without increased-memory-limit on iOS (a SideStore install with
     # a free account, ADR-0033 d1): patch 0002's test switch makes the Mac reserve just those.
     add_test(NAME runtime.art_codec_upper_half${suffix}
@@ -277,6 +285,14 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress)
     set_tests_properties(runtime.art_stress${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # The same under CMS, the collector app_process gives an app (ADR-0033 decision 5).
+    add_test(NAME runtime.art_stress_cms${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
+        --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
+    set_tests_properties(runtime.art_stress_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
     # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
     # --sample). The first run builds the sample's jars, about 0.5 s each.

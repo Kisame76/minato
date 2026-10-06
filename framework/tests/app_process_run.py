@@ -34,8 +34,9 @@ differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100
 zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Since step c2b the app process runs its
 main Looper and never ends by itself: the run ends 2 s after the MessageDigest line, the app's last, as
 tools/android-reference.sh stops the app on the AVD after that line. app-start-test starts without --application, as
-the app starts on the iPhone: ActivityThread makes the class its manifest names (step c1.1). Prints "skipped: ..."
-while a part is not built. framework/tests/java_app_run.py starts its apps with this file's start().
+the app starts on the iPhone: ActivityThread makes the class its manifest names (step c1.1). ART's start line must
+name CMS, the collector app_process gives an app (ADR-0033 decision 5). Prints "skipped: ..." while a part is not
+built. framework/tests/java_app_run.py starts its apps with this file's start().
 
 Usage: app_process_run.py <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert> <apk-run> <work>
                           <app_process64> <framework.jar> <framework-res folder> <app-start-test.apk> <expected>
@@ -69,6 +70,15 @@ PACKAGE = "io.github.kisame76.minato.test.appstart"
 APP_UID = 10100
 # app-start-test's last line, after which the reference stops it (tools/android-reference.sh).
 LAST = r"^app-start-test: MessageDigest "
+# The collector an app runs, app_process's -Xgc: (ADR-0033 decision 5), as ART's heap names it in the line it logs
+# at every start, on Android 15 too: "Using CollectorTypeCMS GC.".
+COLLECTOR = "CMS"
+
+
+def collector_type(stderr):
+    """The collector type that ART's start line names, or None."""
+    match = re.search(r"Using CollectorType(\w+) GC\.", stderr)
+    return match.group(1) if match else None
 
 
 def convert(apk_convert, elf, container):
@@ -379,10 +389,13 @@ def main():
         print("FAIL: no end within 300 s")
         sys.exit(1)
     wanted, got = expected_lines(expected), our_lines(result.stdout)
-    if result.returncode == 0 and got == wanted:
-        print(f"app-start-test printed what Android 15's app process shows, {len(got)} lines")
+    collector = collector_type(result.stderr)
+    if result.returncode == 0 and got == wanted and collector == COLLECTOR:
+        print(f"app-start-test printed what Android 15's app process shows, {len(got)} lines; ART runs {collector}")
         return
     print(f"FAIL: exit status {result.returncode}")
+    if collector != COLLECTOR:
+        print(f"  ART runs {collector or 'a collector its log does not name'}, not {COLLECTOR} (ADR-0033 decision 5)")
     for line in wanted:
         if line not in got:
             print(f"  only Android's: {line}")

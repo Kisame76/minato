@@ -15,6 +15,8 @@
 //     (parsed_options.cc), and which the runtime sets as init does (decision 2), our framework.jar in it;
 //   - the heap from the dalvik.vm.* properties as AndroidRuntime reads them, with the values of AOSP's
 //     phone-xhdpi-6144-dalvik-heap.mk, its largest phone, where a property is missing (decision 4);
+//   - the collector from dalvik.vm.gctype as AndroidRuntime reads it (-Xgc:), CMS where it is missing: short pauses
+//     for an app (ADR-0033 decision 5, changed 2026-10-06). ART's own default stays SS, which the tests keep;
 //   - ADR-0033 decision 11's options: the interpreter only, no boot image, no JDWP. No boot image is
 //     -Xforcejitzygote, the option AndroidRuntime adds for the JIT zygote image. Checked at the tag:
 //       - it sets -Ximage to GetJitZygoteBootImageLocation(), "/nonx/boot.art!…", which file_utils.cc calls
@@ -104,6 +106,8 @@ int main(int argc, char **argv) {
         property_option("dalvik.vm.heapminfree", "-XX:HeapMinFree=", "8m"),
         property_option("dalvik.vm.heapmaxfree", "-XX:HeapMaxFree=", "32m"),
         property_option("dalvik.vm.heaptargetutilization", "-XX:HeapTargetUtilization=", "0.5"),
+        // ADR-0033 decision 5: CMS for an app, where the property area has no value.
+        property_option("dalvik.vm.gctype", "-Xgc:", "CMS"),
         "-Xint",
         "-Xusejit:false",
         "-Xnoimage-dex2oat",

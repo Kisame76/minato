@@ -29,13 +29,15 @@ tools/android-reference.sh --art writes (ADR-0040 test 4).
 --stress checks the line "stress-test stats: ..." that stress-test writes to stderr (ADR-0033 test 4): at least one
 of its signals must have been handled while the main thread collected, so that the run covered a signal handler
 during ART's stop-the-world.
+--gc <collector> checks that ART's start line, "Using CollectorType<collector> GC.", names that collector, as
+app_process runs an app with CMS (ADR-0033 decision 5); the run gets a folder of its own.
 Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files, the added jars or the front libs are
 missing, or the guest system lacks the public libraries' list that libnativeloader reads at start
 (tools/build-bionic.sh).
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
-                  [--bouncycastle] [--nativeloader <reference>] [--stress]
+                  [--bouncycastle] [--nativeloader <reference>] [--stress] [--gc <collector>]
 """
 import contextlib
 import fcntl
@@ -174,10 +176,10 @@ def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments
                       os.path.join(work, "bin", "dalvikvm64.dylib")] + list(arguments)
 
 
-def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False):
+def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False, collector=None):
     """dalvikvm's options of decision 11: the interpreter only, no boot image, the boot jars, with the jars of
-    `added_jars` after core-libart and Conscrypt's last with `conscrypt`; ART's JNI checks in the debug flavor, and
-    java.library.path for a program with a JNI library in /data/local/tmp."""
+    `added_jars` after core-libart and Conscrypt's last with `conscrypt`; ART's JNI checks in the debug flavor,
+    java.library.path for a program with a JNI library in /data/local/tmp, and -Xgc: with a `collector`."""
     boot_jars = BOOT_JARS[:2] + list(added_jars) + BOOT_JARS[2:]
     boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in boot_jars]
                                + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
@@ -187,6 +189,8 @@ def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False)
         options = ["-Xcheck:jni"] + options
     if library:
         options.append("-Djava.library.path=/data/local/tmp")
+    if collector:
+        options.append(f"-Xgc:{collector}")
     return options
 
 
@@ -217,6 +221,14 @@ def stress_failure(stderr):
         return "stderr has no line \"stress-test stats: ...\" with the signals inside a collection"
     if int(match.group(1)) == 0:
         return "no signal was handled while the main thread collected"
+    return None
+
+
+def collector_failure(stderr, collector):
+    """Why ART's start line does not name the collector type `collector`, or None when it does."""
+    named = re.findall(r"Using CollectorType(\w+) GC\.$", stderr, re.MULTILINE)
+    if not named or any(name != collector for name in named):
+        return f"ART's log names the collector types [{', '.join(named)}], not {collector}"
     return None
 
 
@@ -263,8 +275,13 @@ def main():
         at = arguments.index("--nativeloader")
         nativeloader = arguments[at + 1] if at + 1 < len(arguments) else None
         del arguments[at:at + 2]
+    collector = None
+    if "--gc" in arguments:
+        at = arguments.index("--gc")
+        collector = arguments[at + 1] if at + 1 < len(arguments) else None
+        del arguments[at:at + 2]
     if len(arguments) != 10 or ("--library" in sys.argv and library is None) or (
-            "--nativeloader" in sys.argv and nativeloader is None):
+            "--nativeloader" in sys.argv and nativeloader is None) or ("--gc" in sys.argv and collector is None):
         raise SystemExit(__doc__)
     art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar, main_class, expected = arguments
     dalvikvm = os.path.join(art, "bin", "dalvikvm")
@@ -292,7 +309,7 @@ def main():
 
     art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)
     run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else "")
-                       + ("-upper-half" if upper_half else ""))
+                       + ("-upper-half" if upper_half else "") + (f"-{collector.lower()}" if collector else ""))
     make_run_folder(run, icu_data, bionic_system, conscrypt_jar)
     # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
     # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
@@ -301,7 +318,7 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None)
+    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector)
     jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"] if library is not None else []
     command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
                               options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,
@@ -321,12 +338,15 @@ def main():
         failure = nativeloader_failure(result.stderr, nativeloader)
     if failure is None and stress:
         failure = stress_failure(result.stderr)
+    if failure is None and collector:
+        failure = collector_failure(result.stderr, collector)
     if result.returncode == 0 and result.stdout == wanted and failure is None:
         print(f"{os.path.basename(jar)} printed what Android 15 prints" + (" (debug flavor)" if debug else "") +
               (" in the window's upper half" if upper_half else "") +
               ("; libnativeloader names Android 15's namespaces" if nativeloader else "") +
               (f"; {result.stderr.splitlines()[-1]}" if offsets else "") +
-              (f"; {stress_line(result.stderr)}" if stress else ""))
+              (f"; {stress_line(result.stderr)}" if stress else "") +
+              (f"; ART runs {collector}" if collector else ""))
         return
     print(f"FAIL: exit status {result.returncode}" + (f"; {failure}" if failure else ""))
     print(f"stdout: [{result.stdout}]")
