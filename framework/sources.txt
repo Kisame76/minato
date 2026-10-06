@@ -1056,6 +1056,11 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/RotateDrawable.
 frameworks_base_graphics/graphics/java/android/graphics/drawable/ScaleDrawable.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/TransitionDrawable.java
 
+# ADR-0042 b, the gate of test 2 (App): PointerIcon, whose type constants name our android.os.PointerIconType, and
+# WindowInsetsAnimation with its Bounds and Callback, the last classes Godot's views reach on the Java path.
+frameworks_base/core/java/android/view/PointerIcon.java
+frameworks_base/core/java/android/view/WindowInsetsAnimation.java
+
 # ADR-0045 step 7b1, touch time: VelocityTracker, whose natives, AOSP's core/jni file, run libinput's tracker, as
 # MotionEvent's run libinput's MotionEvent (framework/CMakeLists.txt).
 frameworks_base/core/java/android/view/VelocityTracker.java

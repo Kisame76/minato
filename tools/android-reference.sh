@@ -42,6 +42,7 @@
 # jnigraphics-test (ADR-0041 a5), whose JNI library links libjnigraphics, is one of those Java apps too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
+# pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
 # up, so that its lines do not depend on the device; since step 7b2 it has its own activity, on the display below.
@@ -146,11 +147,11 @@ else
 fi
 
 # config-test's AVD has the M4 plan's display, and view-tree-test's, animator-test's, drawables-test's and
-# checkbox-test's, whose sizes in dp they turn into px at that density; every other test keeps apk-runner-35's,
-# which its reference has.
+# checkbox-test's and pointer-insets-test's, whose sizes in dp they turn into px at that density; every other test
+# keeps apk-runner-35's, which its reference has.
 avd_display=""
 if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-test ||
-  "$app" == drawables-test || "$app" == checkbox-test ]]; then
+  "$app" == drawables-test || "$app" == checkbox-test || "$app" == pointer-insets-test ]]; then
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
@@ -326,12 +327,19 @@ present_timestamp_back() {
 # decision 5). Disabling the input methods is not enough, as the input method service enables a default one again
 # when none is left, so the packages that hold them are disabled for the run. Both are settings, which outlive the
 # emulator: every exit enables the packages and the input methods again and sets the default one back, before an
-# emulator this script started stops.
+# emulator this script started stops. A run killed between the two leaves them off, and the next one would find none
+# to give back: then it gives back the image's own, LatinIME, the AOSP image's only input method.
 input_methods="" input_method_packages="" default_input_method=""
+STOCK_INPUT_METHOD=com.android.inputmethod.latin/.LatinIME
 input_methods_off() {
   input_methods=$(run ime list -s | tr -d '\r')
   default_input_method=$(run settings get secure default_input_method | tr -d '\r')
   input_method_packages=$(run ime list -a -s | tr -d '\r' | cut -d/ -f1 | sort -u)
+  if [[ -z "$input_methods" ]]; then
+    echo "No input method on for $app: an earlier run left them off, and $STOCK_INPUT_METHOD comes back afterwards"
+    input_methods=$STOCK_INPUT_METHOD default_input_method=$STOCK_INPUT_METHOD
+    input_method_packages=${input_method_packages:-${STOCK_INPUT_METHOD%%/*}}
+  fi
   echo "Input methods off for $app: $input_methods (default $default_input_method), packages" $input_method_packages
   for package in $input_method_packages; do
     run pm disable-user --user 0 "$package" >/dev/null
@@ -427,7 +435,7 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test)
+      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

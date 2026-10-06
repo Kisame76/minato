@@ -1,0 +1,29 @@
+I/pointer-insets-test: system: PointerIcon{type=NULL, hotspotX=0.0, hotspotY=0.0}, PointerIcon{type=NOT_SPECIFIED, hotspotX=0.0, hotspotY=0.0}, PointerIcon{type=2, hotspotX=0.0, hotspotY=0.0}, PointerIcon{type=999, hotspotX=0.0, hotspotY=0.0}
+I/pointer-insets-test: system: 1000 ARROW, 1001 CONTEXT_MENU, 1002 HAND, 1003 HELP, 1004 WAIT, 1005 1005
+I/pointer-insets-test: system: 1006 CELL, 1007 CROSSHAIR, 1008 TEXT, 1009 VERTICAL_TEXT, 1010 ALIAS, 1011 COPY
+I/pointer-insets-test: system: 1012 NO_DROP, 1013 ALL_SCROLL, 1014 HORIZONTAL_DOUBLE_ARROW, 1015 VERTICAL_DOUBLE_ARROW, 1016 TOP_RIGHT_DIAGONAL_DOUBLE_ARROW, 1017 TOP_LEFT_DIAGONAL_DOUBLE_ARROW
+I/pointer-insets-test: system: 1018 ZOOM_IN, 1019 ZOOM_OUT, 1020 GRAB, 1021 GRABBING, 1022 HANDWRITING, 1023 1023
+I/pointer-insets-test: system: 1999 1999, 2000 SPOT_HOVER, 2001 SPOT_TOUCH, 2002 SPOT_ANCHOR, 2003 2003
+I/pointer-insets-test: system: -1 throws cannot get system icon for TYPE_CUSTOM
+I/pointer-insets-test: system: the same hand twice true
+I/pointer-insets-test: system: a null context throws context must not be null
+I/pointer-insets-test: custom: PointerIcon{type=CUSTOM, hotspotX=4.0, hotspotY=6.0}, equal to one of the same bitmap and hotspot true, to one of another hotspot false
+I/pointer-insets-test: custom: 16.0, 0.0 throws x hotspot lies outside of the bitmap area
+I/pointer-insets-test: custom: 15.5, 0.0 gives PointerIcon{type=CUSTOM, hotspotX=15.5, hotspotY=0.0}
+I/pointer-insets-test: custom: 0.0, -1.0 throws y hotspot lies outside of the bitmap area
+I/pointer-insets-test: custom: 0.0, 16.0 throws y hotspot lies outside of the bitmap area
+I/pointer-insets-test: custom: no bitmap throws bitmap must not be null
+I/pointer-insets-test: loaded: PointerIcon{type=CUSTOM, hotspotX=6.0, hotspotY=9.0}
+I/pointer-insets-test: loaded: <other> throws Exception parsing pointer icon resource. (Unexpected start tag: found other, expected pointer-icon)
+I/pointer-insets-test: loaded: no resources throws resources must not be null
+I/pointer-insets-test: parcel: PointerIcon{type=TEXT, hotspotX=0.0, hotspotY=0.0} in 4 bytes, read back as the same icon true
+I/pointer-insets-test: view: at first null
+I/pointer-insets-test: view: set to PointerIcon{type=HAND, hotspotX=0.0, hotspotY=0.0}, the same true
+I/pointer-insets-test: animation: type mask 8 (ime 8), duration 300, fraction 0.0, interpolated 0.0, alpha 0.0, interpolator android.view.animation.DecelerateInterpolator
+I/pointer-insets-test: animation: fraction 0.5, interpolated 0.75, alpha 0.25
+I/pointer-insets-test: animation: status bars' type mask 1, interpolator null, fraction 0.3, interpolated 0.3
+I/pointer-insets-test: bounds: lower Insets{left=0, top=0, right=0, bottom=100}, upper Insets{left=0, top=0, right=0, bottom=800}
+I/pointer-insets-test: bounds: Bounds{lower=Insets{left=0, top=0, right=0, bottom=100} upper=Insets{left=0, top=0, right=0, bottom=800}}, inset by 10, 20, 30, 50 Bounds{lower=Insets{left=0, top=0, right=0, bottom=50} upper=Insets{left=0, top=0, right=0, bottom=750}}
+I/pointer-insets-test: callback: dispatch mode 0, onStart gives its bounds true
+I/pointer-insets-test: callback: set on a View
+I/pointer-insets-test: done

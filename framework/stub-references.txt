@@ -175,14 +175,12 @@ com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.co
 android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
 android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
-android.view.WindowInsetsAnimation$Callback <- android.view.View, android.view.ViewGroup  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
 android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
 android.view.WindowMetrics <- android.view.View  # ADR-0041 a): the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses (the window metrics come with the insets, decision 8)
 com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.KeyCharacterMap <- android.view.KeyEvent  # ADR-0041 a): key character maps, which KeyEvent's characters ask
-android.view.PointerIcon <- android.view.View  # ADR-0041 a): pointer icons; View's constructor loads a layout's android:pointerIcon
 android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
@@ -369,7 +367,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 android.view.KeyCharacterMap <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.KeyCharacterMap <- android.hardware.input.InputManagerGlobal  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.view.KeyCharacterMap <- android.view.InputDevice  # stays: InputDevice's parcel constructor and writeToParcel, which only a parcel runs
-android.view.PointerIcon <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.VerifiedInputEvent <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
@@ -456,7 +453,6 @@ android.view.DragAndDropPermissions <- android.widget.Editor  # gap: drag and dr
 android.view.DragEvent <- android.widget.Editor, android.widget.TextView  # gap: drag and drop
 android.view.KeyCharacterMap <- android.text.method.MetaKeyKeyListener, android.text.method.TextKeyListener, android.view.inputmethod.BaseInputConnection  # gap: typed hardware keys and their meta state, gap 7's step (Planung)
 android.view.KeyCharacterMap$KeyData <- android.text.method.DialerKeyListener  # gap: typed hardware keys and their meta state, gap 7's step (Planung)
-android.view.PointerIcon <- android.widget.Button, android.widget.TextView  # gap: a mouse's pointer icon over text and buttons, with ADR-0041 a)'s input
 android.view.SubMenu <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.view.ViewHierarchyEncoder <- android.widget.TextView  # stays: the view hierarchy's debug encoding, which only the hierarchy viewer runs
 android.view.ViewStructure <- android.widget.TextView  # stays: the assist and autofill structure, which only those services ask for
