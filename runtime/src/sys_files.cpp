@@ -329,7 +329,8 @@ constexpr int tmpfile = 020000000;
 
 /// Where a guest path lies on the host (ADR-0052): `path` below `directory`, the host folder of the path's mount,
 /// which the mount table keeps open (vfs::locate), and the guest path in normal form; or an error. Every host call
-/// starts at `directory` with Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount.
+/// starts at `directory` with Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount; a mounted
+/// file is `directory` AT_FDCWD and its host path from the table, which host calls take as it is (beneath).
 struct HostPath {
     long error = 0;
     int directory = -1;
@@ -362,6 +363,7 @@ HostPath resolve(int directory, std::uint64_t address) {
     auto guest = vfs::absolute(text, base);
     auto location = vfs::locate(guest);
     if (!location) return {.error = -linux_errno::enoent};
+    if (location->below_a_file) return {.error = -linux_errno::enotdir};
     // "file/" is not "file": Linux answers ENOTDIR for it, and so does Darwin with the slash kept.
     if (text.ends_with('/') && location->path != "." && !location->path.ends_with('/')) location->path += '/';
     return {.directory = location->folder, .path = std::move(location->path), .guest = std::move(guest)};
@@ -379,6 +381,12 @@ std::optional<std::string> guest_absolute(int directory, std::uint64_t address) 
 /// Darwin's *at() flag for AT_SYMLINK_NOFOLLOW.
 int host_at_flags(int linux_flags) {
     return (linux_flags & linux_at_symlink_nofollow) ? AT_SYMLINK_NOFOLLOW : 0;
+}
+
+/// Darwin's RESOLVE_BENEATH `flag` for a host call at `host`; none for a mounted file, whose host path is the mount
+/// table's alone.
+int beneath(const HostPath &host, int flag) {
+    return host.directory == AT_FDCWD ? 0 : flag;
 }
 
 /// The owner stat reports for a path argument, by its guest path as written.
@@ -409,7 +417,7 @@ int granted(mode_t mode, Owner owner) {
 /// below its mount, which the host's call then answers.
 std::optional<struct stat> entry_at(const HostPath &host, bool follow) {
     struct stat status;
-    const int flags = (follow ? 0 : AT_SYMLINK_NOFOLLOW) | AT_RESOLVE_BENEATH;
+    const int flags = (follow ? 0 : AT_SYMLINK_NOFOLLOW) | beneath(host, AT_RESOLVE_BENEATH);
     if (::fstatat(host.directory, host.path.c_str(), &status, flags) != 0) return std::nullopt;
     return status;
 }
@@ -427,7 +435,7 @@ std::pair<Owner, struct stat> owned(int descriptor) {
 /// What a host call at `host` touches: the file, or with `follow` false a final link itself, opened below its mount
 /// without being read (O_EVTONLY), with its owner and status; nullopt when it is not there or not below its mount.
 std::optional<std::pair<Owner, struct stat>> touched(const HostPath &host, bool follow) {
-    const int flags = O_EVTONLY | O_CLOEXEC | O_RESOLVE_BENEATH | (follow ? 0 : O_SYMLINK);
+    const int flags = O_EVTONLY | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH) | (follow ? 0 : O_SYMLINK);
     const int descriptor = ::openat(host.directory, host.path.c_str(), flags);
     if (descriptor < 0) return std::nullopt;
     const auto result = owned(descriptor);
@@ -437,10 +445,15 @@ std::optional<std::pair<Owner, struct stat>> touched(const HostPath &host, bool 
 
 /// The folder of a path argument's last component, opened below its mount, and that component's name: where an
 /// entry is made or removed, and the host calls that take no flags (mkdirat, symlinkat, readlinkat) start there, so
-/// that their path leads nowhere else either.
+/// that their path leads nowhere else either. A mounted file opens none: AT_FDCWD and its host path.
 class LastFolder {
 public:
     explicit LastFolder(const HostPath &host) {
+        if (host.directory == AT_FDCWD) {
+            descriptor_ = AT_FDCWD;
+            name_ = host.path;
+            return;
+        }
         std::string path = host.path;
         while (path.size() > 1 && path.ends_with('/')) path.pop_back();
         const auto slash = path.rfind('/');
@@ -471,6 +484,7 @@ private:
 long may_change_entries(const HostPath &host) {
     const LastFolder folder(host);
     if (folder.error() != 0) return 0;
+    if (folder.descriptor() == AT_FDCWD) return -linux_errno::eacces;  // a mounted file's: /dev, the code folder
     const auto [owner, status] = owned(folder.descriptor());
     return (granted(status.st_mode, owner) & 03) == 03 ? 0 : -linux_errno::eacces;
 }
@@ -614,7 +628,8 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     else if (flags & linux_open::dsync) host_flags |= O_DSYNC;
     // O_LARGEFILE, O_NOATIME and O_DIRECT change nothing a program can observe here. O_CLOEXEC is the
     // guest number's (descriptors.h); on the host every descriptor of the guest has it.
-    const int fd = ::openat(host.directory, host.path.c_str(), host_flags | O_CLOEXEC | O_RESOLVE_BENEATH, mode & 07777);
+    const int fd = ::openat(host.directory, host.path.c_str(),
+                            host_flags | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH), mode & 07777);
     if (fd < 0) return -to_linux_errno(errno);
     return descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0);
 }
@@ -626,7 +641,7 @@ long sys_close(int fd) {
 long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    int host_flags = host_at_flags(flags) | AT_RESOLVE_BENEATH;
+    int host_flags = host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH);
     if (flags & linux_at_eaccess) host_flags |= AT_EACCESS;
     if (::faccessat(host.directory, host.path.c_str(), mode & 07, host_flags) != 0) return -to_linux_errno(errno);
     if ((mode & 07) == 0) return 0;  // F_OK: the file is there
@@ -634,7 +649,8 @@ long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     // owner and group stat reports; AT_EACCESS answers the same, since the effective ids are the real ones. Writing a
     // file, folder or link on a read-only partition is EROFS first (sb_permission).
     struct stat status;
-    if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags) | AT_RESOLVE_BENEATH) != 0) {
+    if (::fstatat(host.directory, host.path.c_str(), &status,
+                  host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH)) != 0) {
         return -to_linux_errno(errno);
     }
     if ((mode & 02) != 0 && read_only(host.guest) &&
@@ -651,7 +667,8 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     struct stat status;
-    if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags) | AT_RESOLVE_BENEATH) != 0) {
+    if (::fstatat(host.directory, host.path.c_str(), &status,
+                  host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH)) != 0) {
         return -to_linux_errno(errno);
     }
     *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, owner_at(host));
@@ -679,14 +696,16 @@ long sys_unlinkat(int directory, std::uint64_t path, int flags) {
     if (entry_at(host, false)) {  // ENOENT first, the host's
         if (const long refused = may_change_entries(host)) return refused;
     }
-    if (::unlinkat(host.directory, host.path.c_str(), (remove_directory ? AT_REMOVEDIR : 0) | AT_RESOLVE_BENEATH) == 0) {
+    if (::unlinkat(host.directory, host.path.c_str(),
+                   (remove_directory ? AT_REMOVEDIR : 0) | beneath(host, AT_RESOLVE_BENEATH)) == 0) {
         return 0;
     }
     const int error = errno;
     // unlink() of a directory: EISDIR on Linux, EPERM (as POSIX allows) on Darwin.
     struct stat status;
     if (!remove_directory && error == EPERM &&
-        ::fstatat(host.directory, host.path.c_str(), &status, AT_SYMLINK_NOFOLLOW | AT_RESOLVE_BENEATH) == 0 &&
+        ::fstatat(host.directory, host.path.c_str(), &status,
+                  AT_SYMLINK_NOFOLLOW | beneath(host, AT_RESOLVE_BENEATH)) == 0 &&
         S_ISDIR(status.st_mode)) {
         return -linux_errno::eisdir;
     }
@@ -772,8 +791,8 @@ long sys_fchmodat(int directory, std::uint64_t path, int mode) {
         if (read_only(host.guest)) return -linux_errno::erofs;
         if (const long refused = may_set_attributes(object->first)) return refused;
     }
-    return result_or_error(
-        ::fchmodat(host.directory, host.path.c_str(), static_cast<mode_t>(mode & 07777), AT_RESOLVE_BENEATH));
+    return result_or_error(::fchmodat(host.directory, host.path.c_str(), static_cast<mode_t>(mode & 07777),
+                                      beneath(host, AT_RESOLVE_BENEATH)));
 }
 
 namespace {
@@ -812,7 +831,8 @@ long sys_truncate(std::uint64_t path, std::int64_t length) {
                                          : -linux_errno::erofs;
     }
     if (const long refused = may_write(host)) return refused;
-    const int descriptor = ::openat(host.directory, host.path.c_str(), O_WRONLY | O_CLOEXEC | O_RESOLVE_BENEATH);
+    const int descriptor =
+        ::openat(host.directory, host.path.c_str(), O_WRONLY | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH));
     if (descriptor < 0) return -to_linux_errno(errno);
     const long result = result_or_error(::ftruncate(descriptor, length));
     ::close(descriptor);
@@ -857,8 +877,8 @@ long sys_utimensat(int directory, std::uint64_t path, std::uint64_t times, int f
         if (!omitted && read_only(host.guest)) return -linux_errno::erofs;
         if (const long answer = refused(object->first, object->second)) return answer;
     }
-    return result_or_error(
-        ::utimensat(host.directory, host.path.c_str(), pointer, host_at_flags(flags) | AT_RESOLVE_BENEATH));
+    return result_or_error(::utimensat(host.directory, host.path.c_str(), pointer,
+                                       host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH)));
 }
 
 long sys_getcwd(std::uint64_t buffer, std::uint64_t size) {
@@ -885,7 +905,9 @@ long sys_chdir(std::uint64_t path) {
     const auto host = resolve(linux_at_fdcwd, path);
     if (host.error != 0) return host.error;
     struct stat status;
-    if (::fstatat(host.directory, host.path.c_str(), &status, AT_RESOLVE_BENEATH) != 0) return -to_linux_errno(errno);
+    if (::fstatat(host.directory, host.path.c_str(), &status, beneath(host, AT_RESOLVE_BENEATH)) != 0) {
+        return -to_linux_errno(errno);
+    }
     if (!S_ISDIR(status.st_mode)) return -linux_errno::enotdir;
     vfs::set_working_directory(host.guest);
     return 0;
@@ -1297,7 +1319,8 @@ LinuxStatfs to_linux_statfs(const struct statfs &host, bool partition_read_only)
 long sys_statfs(std::uint64_t path, std::uint64_t buffer) {
     const auto host = resolve(linux_at_fdcwd, path);
     if (host.error != 0) return host.error;
-    const int descriptor = ::openat(host.directory, host.path.c_str(), O_EVTONLY | O_CLOEXEC | O_RESOLVE_BENEATH);
+    const int descriptor =
+        ::openat(host.directory, host.path.c_str(), O_EVTONLY | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH));
     if (descriptor < 0) return -to_linux_errno(errno);
     struct statfs status;
     const int answer = ::fstatfs(descriptor, &status);

@@ -4,8 +4,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <cerrno>
-
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -18,30 +16,22 @@ struct Mount {
 
     std::string guest;  // absolute, normal
     std::string host;
-    int folder = -1;    // the host folder, or a mounted file's folder, once opened (ADR-0052)
-    std::string name;   // a mounted file's name in `folder`; empty for a mounted folder
+    int folder = -1;    // the host folder once opened (ADR-0052); AT_FDCWD for a mounted file, which needs none
 };
 
-/// Opens a mount's host folder, or a mounted file's folder, once it is there.
+/// Opens a mount's host folder once it is there. A mounted file is reached by its host path instead, without its
+/// folder: iOS's sandbox lets an app open /dev/urandom but not read /dev (the iPhone's device suite, 2026-10-06).
+/// A folder the app may not read stays closed, and nothing below it is there.
 void open_folder(Mount &mount) {
-    if (mount.folder >= 0) return;
-    const int folder = ::open(mount.host.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (folder >= 0) {
-        mount.folder = folder;
-        return;
-    }
-    if (errno != ENOTDIR) return;  // not there yet
-    const auto slash = mount.host.rfind('/');
-    if (slash == std::string::npos) return;
-    const std::string parent = slash == 0 ? "/" : mount.host.substr(0, slash);
-    mount.folder = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    mount.name = mount.host.substr(slash + 1);
+    if (mount.folder != -1) return;
+    struct stat status;
+    if (::stat(mount.host.c_str(), &status) != 0) return;  // not there yet
+    mount.folder = S_ISDIR(status.st_mode) ? ::open(mount.host.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC) : AT_FDCWD;
 }
 
 void close_folder(Mount &mount) {
     if (mount.folder >= 0) ::close(mount.folder);
     mount.folder = -1;
-    mount.name.clear();
 }
 
 /// The devices every Linux system has. /dev/random never blocks, like on Linux 5.6 and later;
@@ -160,16 +150,14 @@ std::optional<Location> locate(std::string_view guest) {
     }
     if (best == nullptr) return std::nullopt;
     open_folder(*best);
-    if (best->folder < 0) return std::nullopt;
     std::string_view rest = best->guest == "/" ? guest : guest.substr(best->guest.size());
     while (rest.starts_with('/')) rest.remove_prefix(1);
-    std::string path = best->name;
-    if (!rest.empty()) {
-        if (!path.empty()) path += '/';  // below a mounted file: the host answers ENOTDIR
-        path += rest;
+    if (best->folder == AT_FDCWD) {  // a mounted file: its host path alone, with no guest text after it
+        if (!rest.empty()) return Location{.below_a_file = true};
+        return Location{AT_FDCWD, best->host};
     }
-    if (path.empty()) path = ".";
-    return Location{best->folder, std::move(path)};
+    if (best->folder < 0) return std::nullopt;
+    return Location{best->folder, rest.empty() ? std::string(".") : std::string(rest)};
 }
 
 std::optional<std::string> mount_point(std::string_view guest) {

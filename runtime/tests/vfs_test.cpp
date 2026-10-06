@@ -100,8 +100,9 @@ TEST(a_paths_mount_point_is_the_deepest_mounted_folder_over_it) {
     CHECK(!apkrt::vfs::mount_point("/dev/null"));  // only the device itself is mounted there
 }
 
-// ADR-0052: a host call starts at its mount's host folder, which the table holds open: a mounted folder's, or a
-// mounted file's folder with the file's name; a mount whose host folder is not there locates nothing.
+// ADR-0052: a host call starts at its mounted folder, which the table holds open; a mounted file is its host path from
+// the table, with nothing below it, as iOS's sandbox lets an app open /dev/urandom but not read /dev; a mount whose
+// host folder is not there locates nothing.
 TEST(a_path_is_located_below_its_mounts_host_folder) {
     apkrt::vfs::reset();
     char pattern[] = "/tmp/apkrt-vfs-XXXXXX";
@@ -118,7 +119,9 @@ TEST(a_path_is_located_below_its_mounts_host_folder) {
     const auto root = apkrt::vfs::locate("/data");
     CHECK(root && root->path == "." && root->folder == inside->folder);
     const auto file = apkrt::vfs::locate("/data/app/~~a/io.example-b/base.apk");
-    CHECK(file && file->path == "base.apk" && file->folder != inside->folder);
+    CHECK(file && file->folder == AT_FDCWD && file->path == host + "/base.apk" && !file->below_a_file);
+    const auto below = apkrt::vfs::locate("/data/app/~~a/io.example-b/base.apk/classes.dex");
+    CHECK(below && below->below_a_file);
     CHECK(!apkrt::vfs::locate("/missing/x"));
     CHECK(!apkrt::vfs::locate("/system"));
     apkrt::vfs::reset();

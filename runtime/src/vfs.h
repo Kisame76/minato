@@ -27,12 +27,15 @@ void reset();
 /// The host path of a guest path in normal form, or nullopt when no mount covers it.
 std::optional<std::string> host_path(std::string_view guest);
 
-/// Where a guest path lies for a host call (ADR-0052): below `folder`, a descriptor of its mount's host folder, or of
-/// a mounted file's folder, which the mount table keeps open; `path` is relative to it, "." for the folder itself.
-/// Host calls start at `folder` with Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount.
+/// Where a guest path lies for a host call (ADR-0052): below `folder`, a descriptor of its mounted folder, which the
+/// mount table keeps open; `path` is relative to it, "." for the folder itself. Host calls start at `folder` with
+/// Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount. A mounted file, such as a device, has
+/// no folder: `folder` is AT_FDCWD and `path` its host path from the table, which host calls take as it is, since
+/// iOS's sandbox lets an app open /dev/urandom but not read /dev. Nothing lies below a file: `below_a_file` then.
 struct Location {
     int folder = -1;
     std::string path;
+    bool below_a_file = false;
 };
 
 /// The Location of a guest path in normal form; nullopt when no mount covers it or its host folder is not there.

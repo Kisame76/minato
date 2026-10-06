@@ -1119,6 +1119,45 @@ TEST(a_link_inside_one_mount_does_not_open_the_code) {
     CHECK(::stat((whole.host + "/data" + code.substr(5) + "/lib/arm64/libfoo.so").c_str(), &host) == 0);
 }
 
+// ADR-0052's change: iOS's sandbox lets an app open /dev/urandom but not read /dev (the iPhone's device suite,
+// 2026-10-06), so a mounted file, a device or base.apk, is reached by its host path from the mount table, with no
+// folder held open and no guest text after it: nothing lies below a file (ENOTDIR), and its folder is not the app's
+// to change. A folder of mode 0100, which the app may search but not read, stands for /dev; mounted itself, it stays
+// shut, as a mounted folder needs its descriptor for RESOLVE_BENEATH.
+TEST(a_mounted_file_needs_no_folder_the_app_may_read) {
+    Scratch scratch;
+    const std::string sealed = scratch.host + "/sealed";
+    CHECK(::mkdir(sealed.c_str(), 0700) == 0);
+    const int device = ::open((sealed + "/device").c_str(), O_CREAT | O_WRONLY, 0644);
+    CHECK(device >= 0 && ::write(device, "random", 6) == 6 && ::close(device) == 0);
+    CHECK(::chmod(sealed.c_str(), 0100) == 0);
+    apkrt::vfs::mount("/dev/sealed", sealed + "/device");
+    apkrt::vfs::mount("/sealed", sealed);
+    // What bionic's arc4random and an app do with a device.
+    CHECK(call(nr_faccessat, {at_fdcwd, at("/dev/sealed"), 4 /* R_OK */}) == 0);
+    const auto fd = open_guest(at_fdcwd, "/dev/sealed", o_rdonly);
+    CHECK(fd >= 0 && read_text(fd, 16) == "random");
+    call(nr_close, {unsigned_of(fd)});
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, at("/dev/sealed"), address(&status), 0}) == 0 && status.size == 6);
+    std::int64_t file_system[15] = {};  // Linux's struct statfs
+    CHECK(call(nr_statfs, {at("/dev/sealed"), address(file_system)}) == 0);
+    // Nothing lies below it, and neither it nor its folder is the app's to change.
+    CHECK(open_guest(at_fdcwd, "/dev/sealed/x", o_rdonly) == -enotdir);
+    CHECK(call(nr_faccessat, {at_fdcwd, at("/dev/sealed/"), 0}) == -enotdir);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/dev/sealed/x"), 0700}) == -enotdir);
+    CHECK(call(nr_chdir, {at("/dev/sealed")}) == -enotdir);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/dev/sealed"), 0700}) == -eexist);
+    char text[16] = {};
+    CHECK(call(nr_readlinkat, {at_fdcwd, at("/dev/sealed"), address(text), sizeof text}) == -einval);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at("/dev/sealed"), 0666}) == -eacces);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at("/dev/sealed"), 0}) == -eacces);
+    CHECK(call(nr_renameat2, {at_fdcwd, at("/data/local/tmp/missing"), at_fdcwd, at("/dev/sealed"), 0}) == -enoent);
+    // The folder mount stays shut.
+    CHECK(call(nr_faccessat, {at_fdcwd, at("/sealed/device"), 0}) == -enoent);
+    CHECK(::chmod(sealed.c_str(), 0700) == 0);
+}
+
 // ADR-0052's later step: Android 15 mounts the system's partitions read-only, so every change there answers EROFS, in
 // Linux's order: after EEXIST for a name that is there, after EXDEV across mounts and after EISDIR for a folder opened
 // for writing; before ENOENT where Linux checks the mount before the last name (unlink, rmdir, rename); before any
