@@ -9,7 +9,8 @@ public struct OBBName: Sendable, Hashable {
     }
 
     public var kind: Kind
-    /// The expansion version, the versionCode of the APK the file first came with, in ASCII digits as written.
+    /// The expansion version, the versionCode of the APK the file first came with, in ASCII digits as Android writes
+    /// that int: without a leading zero, and at most `Int32.max` (the lead's reviewer).
     public var version: String
     public var package: String
 
@@ -19,13 +20,14 @@ public struct OBBName: Sendable, Hashable {
         self.package = package
     }
 
-    /// `name` read as such a name: a plain file name, its version ASCII digits, its package one Android takes
-    /// (`FrameworkParsingPackageUtils.validateName` with a separator, as a file name). nil for any other.
+    /// `name` read as such a name: a plain file name, its version an int as Android writes one, its package one
+    /// Android takes (`FrameworkParsingPackageUtils.validateName` with a separator, as a file name). nil for any other.
     public init?(_ name: String) {
         guard Container.isPlainFileName(name), name.hasSuffix(".obb") else { return nil }
         let parts = name.dropLast(4).split(separator: ".", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3, let kind = Kind(rawValue: String(parts[0])), !parts[1].isEmpty,
               parts[1].unicodeScalars.allSatisfy({ ("0"..."9").contains($0) }),
+              parts[1] == "0" || !parts[1].hasPrefix("0"), Int32(parts[1]) != nil,
               InstallerReading.validateName(String(parts[2]), requireSeparator: true, requireFilename: true) == nil
         else { return nil }
         self.init(kind: kind, version: String(parts[1]), package: String(parts[2]))

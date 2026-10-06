@@ -73,6 +73,9 @@ public enum UpdateWarning: Sendable, Hashable {
     /// APKs of the set are signed in a way Minato cannot check, so it cannot check their content; the question names
     /// them. Asked also where nothing is installed (ADR-0048 b3, the lead's decision).
     case uncheckedContent
+    /// The container brings an OBB under an installed OBB's name with other bytes, which would change the app's
+    /// content; the question names them (`ImportResult.otherOBBs`, ADR-0049 c2, the lead's rule).
+    case otherOBB
 }
 
 /// What importing a file does to the installed app of the same package (ADR-0034, decision 1).
@@ -126,6 +129,11 @@ public struct ImportResult: Sendable, Equatable {
     /// The APKs of an asking set whose signature Minato cannot verify, which the question about `uncheckedContent`
     /// names (ADR-0048 b7a).
     public var uncheckedFiles: [String] = []
+    /// The OBBs this import moved into the app's OBB folder (ADR-0049 c2), also where the version stayed `.unchanged`.
+    public var installedOBBs: [PackageFile] = []
+    /// The installed OBBs an asking import would replace with other bytes, by name, which the question about
+    /// `otherOBB` names (ADR-0049 c2).
+    public var otherOBBs: [String] = []
 
     /// The version a question lists for this import, with what it warns about; nil where it does not ask.
     public var asking: AskingVersion? {

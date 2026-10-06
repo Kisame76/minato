@@ -72,6 +72,8 @@ struct UpdateQuestion: Identifiable {
         let report: APKReport
         /// Its APKs Minato cannot verify, by the names the user picked.
         let uncheckedFiles: [String]
+        /// The installed OBBs it would replace with other contents, by name (ADR-0049 c2).
+        let otherOBBs: [String]
         /// What "Replace" answers: this version, as the question shows it.
         let version: AskingVersion
 
@@ -85,6 +87,7 @@ struct UpdateQuestion: Identifiable {
             name = result.entry.displayName
             self.report = report
             uncheckedFiles = result.uncheckedFiles
+            otherOBBs = result.otherOBBs
             self.version = version
         }
     }

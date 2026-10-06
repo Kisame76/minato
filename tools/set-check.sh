@@ -6,8 +6,11 @@
 # set says what it does to each. Each unit goes into the library's incoming/ folder as a folder of APKs, as "+" leaves a
 # pick there, and a launch imports it. Then containers (ADR-0049 a3): a set in SAI's .apks, in bundletool's .apks with a
 # toc.json, which skips the set's x86_64 split, and in a plain .zip each install or update its app, and a .apks without
-# an APK and an XAPK say why on their tiles; the app's Info.plist offers it for .apks in "Open with". The Debug build
-# answers through app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
+# an APK says why on its tile. An XAPK (c2) installs its set with its OBB in the app's OBB folder, which backups leave
+# out, and names on the entry what it leaves out, an OBB of another app among it; its update's OBB replaces the first,
+# and other bytes under that OBB's name ask first: "Keep Installed" keeps the file, "Replace" puts them in. The app's
+# Info.plist offers it for .apks and .xapk in "Open with". The Debug build answers through
+# app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
 # Usage: tools/set-check.sh [simulator name or UDID]
 # Optional environment:
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
@@ -116,7 +119,7 @@ apk ar/a-split_config.x86_64.apk A 4 ' split="config.x86_64"'
 cp "$WORK/units/ag/g-base.apk" "$WORK/units/ag/g-split_config.de.apk" "$WORK/units/ar/"
 
 # Containers (ADR-0049 a3): K 1.0 to 3.0, each a set whose x86_64 split the choice skips, packed as SAI, bundletool and
-# a zipped folder do; then a .apks without an APK and an XAPK.
+# a zipped folder do; then a .apks without an APK.
 for code in 1 2 3; do
   set_of "k$code-files" K "$code"
   apk "k$code-files/split_config.x86_64.apk" K "$code" ' split="config.x86_64"'
@@ -163,7 +166,36 @@ container k2/k.apks toc.json="$WORK/toc.json" splits/base-master.apk="$K2/base.a
 container k3/k.zip "K/base.apk=$K3/base.apk" "K/arm64.apk=$K3/split_config.arm64_v8a.apk" \
   "K/x86_64.apk=$K3/split_config.x86_64.apk" "__MACOSX/K/._base.apk="
 container x1/empty.apks readme.txt=
-container x2/game.xapk manifest.json= "${PREFIX}k.apk=$K1/base.apk"
+# XAPKs (ADR-0049 c2), packed as APKPure packs them: X 1.0's set with its main OBB, a file in its OBB folder that is no
+# OBB and an OBB of an app it holds no APK of; then X 2.0 with main 2, which replaces main 1, and X 2.0 again with other
+# bytes under main 2's name.
+X=${PREFIX}x
+for code in 1 2; do
+  set_of "x$code-files" X "$code"
+  printf 'main %s' "$code" > "$WORK/main.$code.obb"
+  python3 - "$WORK/x$code-manifest.json" "$X" "$code" <<'EOF'
+import json
+import sys
+
+path, package, code = sys.argv[1:]
+obb = f"Android/obb/{package}/main.{code}.{package}.obb"
+json.dump({"xapk_version": 2, "package_name": package, "name": "Set Check X", "version_code": code,
+           "version_name": f"{code}.0",
+           "split_apks": [{"file": f"{package}.apk", "id": "base"},
+                          {"file": "config.arm64_v8a.apk", "id": "config.arm64_v8a"}],
+           "expansions": [{"file": obb, "install_location": "EXTERNAL_STORAGE", "install_path": obb}]},
+          open(path, "w"))
+EOF
+done
+X1=$WORK/units/x1-files X2=$WORK/units/x2-files
+container x2/game.xapk manifest.json="$WORK/x1-manifest.json" "$X.apk=$X1/base.apk" \
+  config.arm64_v8a.apk="$X1/split_config.arm64_v8a.apk" "Android/obb/$X/main.1.$X.obb=$WORK/main.1.obb" \
+  "Android/obb/$X/readme.txt=" "Android/obb/com.example.other/main.1.com.example.other.obb=$WORK/main.1.obb" icon.png=
+container x3/game.xapk manifest.json="$WORK/x2-manifest.json" "$X.apk=$X2/base.apk" \
+  config.arm64_v8a.apk="$X2/split_config.arm64_v8a.apk" "Android/obb/$X/main.2.$X.obb=$WORK/main.2.obb"
+printf 'main 2, rebuilt' > "$WORK/main.2.rebuilt.obb"
+container x4/game.xapk manifest.json="$WORK/x2-manifest.json" "$X.apk=$X2/base.apk" \
+  config.arm64_v8a.apk="$X2/split_config.arm64_v8a.apk" "Android/obb/$X/main.2.$X.obb=$WORK/main.2.rebuilt.obb"
 
 if [[ -n "${APP:-}" ]]; then
   xcrun simctl install "$SIM_UDID" "$APP"
@@ -284,18 +316,39 @@ remove() {
   for _ in $(seq 1 50); do [[ -d "$CHECK" ]] || break; sleep 0.2; done
   mkdir -p "$CHECK"
 }
-APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE" "${PREFIX}k" "file:empty.apks"
-      "file:game.xapk")
-# Whether the installed app claims .apks for "Open with": its document type and the type it imports (project.yml).
-open_with_apks() {
+APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE" "${PREFIX}k" "file:empty.apks" "$X")
+# Whether the installed app claims type $1 with extension $2 for "Open with": its document type and the type it
+# imports (project.yml).
+open_with() {
   local app
   app=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" app)
-  if plutil -extract CFBundleDocumentTypes json -o - "$app/Info.plist" | grep -q '"io.github.kisame76.minato.apks"' \
-      && plutil -extract UTImportedTypeDeclarations json -o - "$app/Info.plist" | grep -q '"apks"'; then
+  if plutil -extract CFBundleDocumentTypes json -o - "$app/Info.plist" | grep -q "\"$1\"" \
+      && plutil -extract UTImportedTypeDeclarations json -o - "$app/Info.plist" | grep -q "\"$2\""; then
     echo yes
   else
     echo no
   fi
+}
+# The files in app $1's OBB folder with what they hold, "<name>: <content>" one after the other, or "none".
+obbs() {
+  local folder="$SUPPORT/data/$1/obb" out="" file
+  for file in "$folder"/*; do
+    [[ -f "$file" ]] && out+="${out:+ | }$(basename "$file"): $(cat "$file")"
+  done
+  echo "${out:-none}"
+}
+# Whether backups leave out folder $1: the attribute URLResourceValues.isExcludedFromBackup sets.
+excluded() { xattr "$1" 2>/dev/null | grep -q com_apple_backup_excludeItem && echo yes || echo no; }
+# What app $1's entry names as left out, "<path>: <reason>" one after the other, or "-".
+ignored() {
+  python3 - "$SUPPORT/library.json" "$1" <<'EOF'
+import json
+import sys
+
+entries = json.load(open(sys.argv[1], encoding="utf-8"))["entries"]
+entry = next((e for e in entries if e["id"] == sys.argv[2]), {})
+print(" | ".join(f"{f['path']}: {f['reason']}" for f in entry.get("ignoredFiles") or []) or "-")
+EOF
 }
 
 # Test apps and units left from an earlier run go first.
@@ -417,10 +470,38 @@ expect "  its splits" "3.0 splits config.arm64_v8a skipped config.x86_64" "$(ent
 offer x1
 expect "a .apks without an APK" "tile empty.apks | Not installed: It holds no APK" "$(event "tile empty.apks")"
 shot container-refusal-tile
+expect "  the unit is gone" "no" "$(waiting x1)"
 offer x2
-expect "an XAPK before its step" "tile game.xapk | Not installed: XAPK files aren’t supported yet" "$(event "tile game.xapk")"
-expect "  the units are gone" "no no" "$(waiting x1) $(waiting x2)"
-expect "\"Open with\" offers Minato for .apks" "yes" "$(open_with_apks)"
+expect "an XAPK" "tile Set Check X | Ready" "$(event "tile Set Check X")"
+expect "  its set" "1.0 splits config.arm64_v8a skipped -" "$(entry "$X")"
+expect "  its OBB in the app's OBB folder" "main.1.$X.obb: main 1" "$(obbs "$X")"
+expect "  which backups leave out" "yes" "$(excluded "$SUPPORT/data/$X/obb")"
+LEFT_OUT="Android/obb/$X/readme.txt: its name is not main.<version>.<package>.obb or patch.<version>.<package>.obb"
+LEFT_OUT+=" | Android/obb/com.example.other/main.1.com.example.other.obb: it is for com.example.other, which has no APK here"
+expect "  what it leaves out, named on the entry" "$LEFT_OUT" "$(ignored "$X")"
+expect "  the unit is gone" "no" "$(waiting x2)"
+offer x3
+expect "an XAPK's update" "note Updated “Set Check X” to 2.0." "$(event "note ")"
+expect "  its OBB replaces the first" "main.2.$X.obb: main 2" "$(obbs "$X")"
+expect "  and it leaves nothing out" "-" "$(ignored "$X")"
+expect "  the unit is gone" "no" "$(waiting x3)"
+OTHER_OBB="The expansion file “main.2.$X.obb” has different contents from the installed one, for example from another"
+OTHER_OBB+=" source. Replacing it changes the app’s content."
+offer x4 keep
+expect "other bytes under an installed OBB's name ask first" \
+  "alert Replace “Set Check X”? | $OTHER_OBB | Replace / Keep Installed" "$(event "alert ")"
+shot other-obb-question
+expect "  Keep Installed" "answered keep" "$(event "answered ")"
+sleep 1
+expect "  keeps the installed file" "main.2.$X.obb: main 2" "$(obbs "$X")"
+expect "  the unit is discarded" "no" "$(waiting x4)"
+offer x4 replace
+expect "  Replace" "answered replace" "$(event "answered ")"
+sleep 1
+expect "  puts the new bytes in" "main.2.$X.obb: main 2, rebuilt" "$(obbs "$X")"
+expect "  the unit is gone" "no" "$(waiting x4)"
+expect "\"Open with\" offers Minato for .apks" "yes" "$(open_with io.github.kisame76.minato.apks apks)"
+expect "\"Open with\" offers Minato for .xapk" "yes" "$(open_with io.github.kisame76.minato.xapk xapk)"
 
 for app in "${APPS[@]}"; do remove "$app"; done
 rm -rf "$CHECK"

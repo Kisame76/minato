@@ -119,6 +119,11 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - io.github.kisame76.minato.apks
+          # An app's APKs with its OBBs in one ZIP, APKPure's .xapk (ADR-0049 c2).
+          - CFBundleTypeName: XAPK Package
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - io.github.kisame76.minato.xapk
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.android.package-archive
             UTTypeDescription: Android Package
@@ -137,6 +142,14 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - apks
+          # Imported, not exported: .xapk is APKPure's format, which Minato does not define.
+          - UTTypeIdentifier: io.github.kisame76.minato.xapk
+            UTTypeDescription: XAPK Package
+            UTTypeConformsTo:
+              - public.zip-archive
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - xapk
     # Every build carries increased-memory-limit: about 6 GiB instead of 3.3 GiB
     # and a 64 GiB address range on iOS 27 (ADR-0012, spike S2).
     entitlements:

@@ -62,13 +62,32 @@ public struct LibraryPaths: Sendable {
 
     /// Makes the app's data, external and OBB folders, with the two that installd's createAppData makes at an
     /// install in /data/user/0/<package>: cache and code_cache (ADR-0039, decision 6). What is there stays; the
-    /// app's files, shared_prefs and the rest come when Context first asks for them, as on Android.
+    /// app's files, shared_prefs and the rest come when Context first asks for them, as on Android. The OBB folder is
+    /// excluded from backups each time, also an app's from before, as a store gives its files again (the M5 plan's
+    /// decision 9, ADR-0049 c2).
+    ///
+    /// The OBB folder is the root of the guest's OBB mounts, so no guest can put anything in its place. Should a link
+    /// stand there all the same, it goes as a link, never followed, and anything else that is no folder stops the
+    /// import and stays as it is (the lead's reviewer). It is read with lstat, never through a URL, which keeps the
+    /// resource values it read once.
     public func prepareData(for package: String) throws {
         let data = dataDirectory(for: package)
+        var obb = data.appendingPathComponent("obb", isDirectory: true)
+        var status = stat()
+        if lstat(obb.path, &status) == 0 {
+            switch status.st_mode & S_IFMT {
+            case S_IFDIR: break
+            case S_IFLNK: try FileManager.default.removeItem(at: obb)
+            default: throw LibraryError.obbFolderIsNoFolder(package)
+            }
+        }
         for folder in ["data/cache", "data/code_cache", "external", "obb"] {
             try FileManager.default.createDirectory(at: data.appendingPathComponent(folder, isDirectory: true),
                                                     withIntermediateDirectories: true)
         }
+        var excluded = URLResourceValues()
+        excluded.isExcludedFromBackup = true
+        try obb.setResourceValues(excluded)
     }
 
     /// A Java app's guest /data (ADR-0039 c5): Caches/guest/<package>/data, with ART's dalvik-cache (the lead's

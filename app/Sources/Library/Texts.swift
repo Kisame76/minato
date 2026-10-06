@@ -112,10 +112,10 @@ enum Texts {
                 "\(versionName(report)) \(reason). Version \(versionName(installed.report)) stays installed.")
     }
 
-    /// The question before an older version, another signer or APKs Minato cannot verify replace the installed app;
-    /// every warning together.
+    /// The question before an older version, another signer, APKs Minato cannot verify or OBBs with other contents
+    /// replace the installed app or its OBBs; every warning together.
     static func updateQuestion(installed: LibraryEntry, report: APKReport, warnings: Set<UpdateWarning>,
-                               uncheckedFiles: [String] = []) -> (title: String, message: String) {
+                               uncheckedFiles: [String] = [], otherOBBs: [String] = []) -> (title: String, message: String) {
         let name = installed.displayName
         var message: [String] = []
         if warnings.contains(.olderVersion) {
@@ -128,6 +128,9 @@ enum Texts {
         }
         if warnings.contains(.uncheckedContent) {
             message.append(uncheckedContent(uncheckedFiles))
+        }
+        if warnings.contains(.otherOBB) {
+            message.append(otherExpansionFiles(otherOBBs))
         }
         let title = warnings.contains(.olderVersion) ? "Replace “\(name)” with an Older Version?" : "Replace “\(name)”?"
         return (title, message.joined(separator: " "))
@@ -175,7 +178,8 @@ enum Texts {
     /// One set's question: the update question over an installed app, else whether to install it.
     private static func setQuestion(_ set: UpdateQuestion.Asking) -> (title: String, message: String) {
         if let installed = set.installed {
-            return updateQuestion(installed: installed, report: set.report, warnings: set.warnings, uncheckedFiles: set.uncheckedFiles)
+            return updateQuestion(installed: installed, report: set.report, warnings: set.warnings,
+                                  uncheckedFiles: set.uncheckedFiles, otherOBBs: set.otherOBBs)
         }
         return ("Install “\(set.name)”?", uncheckedContent(set.uncheckedFiles))
     }
@@ -186,6 +190,19 @@ enum Texts {
         case 0: "Minato cannot verify how some of its APKs are signed, so it cannot tell whether their content was changed."
         case 1: "Minato cannot verify how \(files[0]) is signed, so it cannot tell whether its content was changed."
         default: "Minato cannot verify how \(list(files)) are signed, so it cannot tell whether their content was changed."
+        }
+    }
+
+    /// Installed OBBs an import would replace with other contents (ADR-0049 c2), by name, in App's words.
+    static func otherExpansionFiles(_ names: [String]) -> String {
+        let quoted = names.map { "“\($0)”" }
+        return switch quoted.count {
+        case 0: "Its expansion files have different contents from the installed ones, for example from another source. "
+            + "Replacing them changes the app’s content."
+        case 1: "The expansion file \(quoted[0]) has different contents from the installed one, for example from another "
+            + "source. Replacing it changes the app’s content."
+        default: "The expansion files \(list(quoted)) have different contents from the installed ones, for example from "
+            + "another source. Replacing them changes the app’s content."
         }
     }
 

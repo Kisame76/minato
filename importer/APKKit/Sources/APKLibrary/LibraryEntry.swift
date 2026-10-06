@@ -1,3 +1,4 @@
+import APKFormats
 import APKKit
 import Foundation
 
@@ -40,6 +41,10 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// it (ADR-0048, decisions 3 and 7). nil for any other entry, and for a file that is no APK, whose state holds an
     /// error's description.
     public var refusal: String? = nil
+    /// What the import of this version left out of its container, with why (ADR-0049 c2): files an XAPK holds besides
+    /// its APKs and OBBs, and OBBs Minato does not install. nil where nothing was left out, so an import without a
+    /// container clears it.
+    public var ignoredFiles: [IgnoredFile]? = nil
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

@@ -70,7 +70,7 @@ struct ContainerImportTests {
     }
 
     @Test(arguments: [
-        ("game.xapk", "manifest", "XAPK files aren’t supported yet"),
+        ("game.xapk", "manifest", "It holds no APK"),
         ("game.apkm", "info", "APKM files aren’t supported yet"),
         ("game.apkm", "encrypted", "Encrypted APKM files aren’t supported"),
         ("game.apks", "no APK", "It holds no APK"),
@@ -82,7 +82,9 @@ struct ContainerImportTests {
         let library = try Library(paths: sandbox.paths)
         let data: Data
         switch kind {
-        case "manifest": data = Self.zip([("manifest.json", Data("{}".utf8)), ("org.example.sets.apk", Sets.base)])
+        case "manifest":
+            data = Self.zip([("manifest.json", Data("{}".utf8)),
+                             ("Android/obb/org.example.sets/main.1.org.example.sets.obb", Data("obb".utf8))])
         case "info": data = Self.zip([("info.json", Data(#"{"apkm_version": 5}"#.utf8)), ("base.apk", Sets.base)])
         case "no APK": data = Self.zip([("readme.txt", Data("x".utf8))])
         default: data = Data([0x00, 0x08, 0x00, 0x00]) + Data(repeating: 0x5A, count: 64)
@@ -163,6 +165,22 @@ struct ContainerImportTests {
 
         #expect(results.first?.entry.report?.versionCode == 2)
         #expect(!sandbox.exists(unit))
+    }
+
+    @Test func keepInstalledLetsAContainerGoWithWhatItTookOut() async throws {
+        // c2's set-check: "Keep Installed" took a unit's APKs only, so a container and its hidden folders stayed and the
+        // question came again at every launch. Here an older version asks.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        _ = try await library.importUnit(Sets.unit(["base.apk": SplitAPK.make(versionCode: 2)], in: sandbox.paths))
+        let unit = try Sets.unit(["game.apks": Self.container("SAI")], in: sandbox.paths)
+        #expect(try await library.importUnit(unit).map(\.decision) == [.ask([.olderVersion])])
+
+        await library.keepInstalled(discarding: unit)
+
+        #expect(!sandbox.exists(unit))
+        #expect(await library.entries.first?.report?.versionCode == 2)
     }
 
     @Test func aUnitWaitsForItsContainersButNotForHiddenFilesOrOBBs() async throws {

@@ -12,6 +12,9 @@ public enum LibraryError: Error, Equatable, Sendable {
     case versionFolderInUse(String)
     /// A pick with nothing to take over: a folder without `.apk` or `.obb` files, or only links (ADR-0048, decision 1).
     case nothingToImport
+    /// Something that is neither a folder nor a link stands where the app's OBB folder belongs, and stays there
+    /// (ADR-0049 c2, the lead's reviewer).
+    case obbFolderIsNoFolder(String)
 }
 
 extension LibraryError: LocalizedError {
@@ -22,6 +25,7 @@ extension LibraryError: LocalizedError {
         case .unsafePackageName(let name): "“\(name)” is not a valid package name"
         case .versionFolderInUse(let folder): "its version folder \(folder) is still in use"
         case .nothingToImport: "it has no APK or OBB file"
+        case .obbFolderIsNoFolder(let package): "the OBB folder of \(package) is not a folder"
         }
     }
 }
@@ -33,9 +37,9 @@ public actor Library {
     private let preferredLanguages: [String]
     /// What a set's splits are chosen for (ADR-0048, decision 4).
     private let device: DeviceProfile
-    /// During one `importUnit`, each APK taken out of a container with the name it shows, "<container>/<file>", and
-    /// the container as the file the user picked (ADR-0049 a3).
-    private var fromContainers: [URL: (name: String, source: SourceFile)] = [:]
+    /// During one `importUnit`, each APK taken out of a container with the name it shows, "<container>/<file>", the
+    /// container as the file the user picked (ADR-0049 a3), and the container itself, whose OBBs go with its sets (c2).
+    private var fromContainers: [URL: (name: String, source: SourceFile, container: URL)] = [:]
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
@@ -202,10 +206,10 @@ public actor Library {
         try importFile(url, answering: { _ in replacing }, signing: signing, progress: progress)
     }
 
-    /// `importFile`, with "Replace" answered for the versions `answering` takes, and the file's SHA-256 where a unit has
-    /// read it already.
+    /// `importFile`, with "Replace" answered for the versions `answering` takes, the file's SHA-256 where a unit has
+    /// read it already, and what its container adds (ADR-0049 c2).
     private func importFile(_ url: URL, answering: (AskingVersion) -> Bool, signing: ImportSigning?, sha256 known: String? = nil,
-                            progress: @Sendable (Double) -> Void) throws -> ImportResult {
+                            extras: Extras = Extras(), progress: @Sendable (Double) -> Void) throws -> ImportResult {
         var source = try sourceFile(for: url)
         progress(0)
 
@@ -239,8 +243,30 @@ public actor Library {
                 AppVersion(state: state, versionCode: report.versionCode, sha256: digest, signer: signer,
                            signerProven: report.signature.check == .verified,
                            signatureFailed: report.signature.check?.isFailure == true)
-            })
+            },
+            extras: extras)
         return try install(new, answering: answering, signing: signing, discarding: url, progress: progress)
+    }
+
+    /// What a container adds to the version of its APKs (ADR-0049 c2): an XAPK's OBBs of its package, each taken out
+    /// to `url` with its digest, its checked name and its path in the container, and what it leaves out.
+    private struct Extras {
+        var obbs: [(url: URL, file: PackageFile, name: OBBName, path: String)] = []
+        var leftOut = LeftOut()
+    }
+
+    /// What an import leaves out of a container, which the entries it makes name (ADR-0049 c2): the container's own
+    /// list as its reader names it, already capped, and then the import's, capped the same way, so each last name
+    /// counts the rest of its own list (the lead's reviewer).
+    private struct LeftOut {
+        var byContainer: [IgnoredFile] = []
+        var byImport: [IgnoredFile] = []
+
+        /// Both lists, for the entry; nil when nothing is left out.
+        var named: [IgnoredFile]? {
+            let named = byContainer + IgnoredFile.capped(byImport)
+            return named.isEmpty ? nil : named
+        }
     }
 
     /// A version about to be installed: one APK, or a set's base and chosen splits (ADR-0048, decision 6).
@@ -257,6 +283,7 @@ public actor Library {
         var archives: [String?: ZipArchive]
         /// What the update policy compares, for a state.
         var version: (LibraryEntry.State) -> AppVersion
+        var extras = Extras()
     }
 
     /// Installs a version, updates the installed app of its package with it, or leaves that app as it is (ADR-0034).
@@ -279,29 +306,65 @@ public actor Library {
         let digest = new.digest
         let installed = entries.first { $0.id == package }
         let installedVersion = installed.flatMap(version(of:))
-        var decision = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
+        let first = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
+        var decision = first
+        // A container's OBB under an installed one's name with other bytes would change the app's content, so the import
+        // asks first, and the default keeps the installed file and version (ADR-0049 c2, the lead's rule). A fresh
+        // install has none to keep.
+        let keepingVersion = installed?.report?.versionCode == report.versionCode
+        var plan = planOBBs(new.extras, package: package, recorded: installed?.obbs ?? [], keepingVersion: keepingVersion,
+                            replacing: installed == nil)
+        let installsOBBs = switch first {
+        case .reject: false
+        case .unchanged: installed?.state != .incompatible
+        default: state != .incompatible
+        }
+        if installsOBBs, !plan.conflicts.isEmpty {
+            decision = if case .ask(let warnings) = first { .ask(warnings.union([.otherOBB])) } else { .ask([.otherOBB]) }
+        }
         // "Replace" answers the question as it was shown (F7): one that asks otherwise now asks again.
         let replacing = if case .ask(let warnings) = decision {
             answering(AskingVersion(package: package, versionCode: report.versionCode, warnings: warnings))
         } else {
             false
         }
+        if case .ask = decision {
+            guard replacing else {
+                progress(1)
+                guard let installed else {
+                    // A fresh install that asks (ADR-0048, step b3): nothing is stored, and the entry is the one it
+                    // would make.
+                    let entry = LibraryEntry(id: package, displayName: report.label, state: state, report: report, base: nil,
+                                             splits: [], obbs: [], source: new.source, iconFile: nil, importedAt: Date())
+                    return ImportResult(entry: entry, decision: decision, report: report,
+                                        uncheckedFiles: new.version(state).uncheckedFiles)
+                }
+                return ImportResult(entry: installed, decision: decision, report: report,
+                                    uncheckedFiles: new.version(state).uncheckedFiles, otherOBBs: plan.conflicts)
+            }
+            if !plan.conflicts.isEmpty {
+                plan = planOBBs(new.extras, package: package, recorded: installed?.obbs ?? [],
+                                keepingVersion: keepingVersion, replacing: true)
+            }
+            // The answer goes on as the first decision would have, and one that asked for itself installs or updates.
+            decision = if case .ask = first { installed == nil ? .install : .update } else { first }
+        }
         switch (decision, installed) {
+        case (.unchanged, let installed?)
+            where installed.state != .incompatible && (!new.extras.obbs.isEmpty || new.extras.leftOut.named != nil):
+            // The same version from a container: its OBBs go in through the installed version's folder (ADR-0049 c2),
+            // unless it cannot run, as an incompatible version installs none. The OBB folder is checked first, so a
+            // refusal changes nothing.
+            var entry = installed
+            try paths.prepareData(for: package)
+            let staging = try stageOBBs(plan, from: new.extras, in: paths.versionDirectory(for: installed))
+            entry.obbs = plan.obbs
+            entry.ignoredFiles = plan.leftOut.named
+            try store(entry)
+            try moveOBBs(plan, of: package, from: staging)
+            return finish(ImportResult(entry: entry, decision: decision, report: report, installedOBBs: plan.moves))
         case (.unchanged, let installed?), (.reject, let installed?):
             return finish(ImportResult(entry: installed, decision: decision, report: report))
-        case (.ask, let installed?) where !replacing:
-            progress(1)
-            return ImportResult(entry: installed, decision: decision, report: report,
-                                uncheckedFiles: new.version(state).uncheckedFiles)
-        case (.ask, nil) where !replacing:
-            // A fresh install that asks (ADR-0048, step b3): nothing is stored, and the entry is the one it would make.
-            progress(1)
-            let entry = LibraryEntry(id: package, displayName: report.label, state: state, report: report, base: nil,
-                                     splits: [], obbs: [], source: new.source, iconFile: nil, importedAt: Date())
-            return ImportResult(entry: entry, decision: decision, report: report,
-                                uncheckedFiles: new.version(state).uncheckedFiles)
-        case (.ask, _):
-            decision = installed == nil ? .install : .update
         default:
             break
         }
@@ -338,7 +401,12 @@ public actor Library {
         }
         var base: PackageFile?
         var splits: [PackageFile] = []
+        // A container's OBBs are staged with the version and move in after the switch (ADR-0049 c2); an incompatible
+        // version installs none.
+        if state == .incompatible { plan = OBBPlan(leftOut: new.extras.leftOut, obbs: installed?.obbs ?? []) }
+        var staging: URL?
         if state != .incompatible {
+            staging = try stageOBBs(plan, from: new.extras, in: versionDirectory)
             for (url, file) in new.files {
                 // On APFS the copy is a clone and takes no extra space. Read-only, so that the guest cannot write it
                 // (LibraryPaths.makeReadOnly).
@@ -369,7 +437,9 @@ public actor Library {
 
         // The switch: one atomic write of the index names the new folder; then the old version goes. An
         // update changes what belongs to the version and keeps the rest of the entry: the ID, the place,
-        // importedAt, the OBBs and the data (ADR-0034, decisions 4 and 6).
+        // importedAt, the OBBs and the data (ADR-0034, decisions 4 and 6). The entry records the OBBs as they are once
+        // they moved in, so a crash before that leaves recorded OBBs missing, which the unit's next import, the same
+        // version, moves in.
         var entry = installed ?? LibraryEntry(
             id: package, displayName: report.label, state: state, report: report, base: base,
             splits: [], obbs: [], source: new.source, iconFile: iconFile, importedAt: Date())
@@ -384,9 +454,150 @@ public actor Library {
         entry.folder = folder
         entry.signedWith = signedWith
         entry.updatedAt = installed == nil ? nil : Date()
+        entry.obbs = plan.obbs
+        entry.ignoredFiles = plan.leftOut.named
         try store(entry)
         removeEverything(in: appDirectory, except: folder)
-        return finish(ImportResult(entry: entry, decision: decision, report: report))
+        if let staging { try moveOBBs(plan, of: package, from: staging) }
+        return finish(ImportResult(entry: entry, decision: decision, report: report, installedOBBs: plan.moves))
+    }
+
+    /// What becomes of a container's OBBs in the app's OBB folder (ADR-0049 c2).
+    private struct OBBPlan {
+        /// The OBBs to move in, each over a file or link of its name.
+        var moves: [PackageFile] = []
+        /// The installed files of their kinds that go once the new ones are in.
+        var removals: [String] = []
+        /// The installed OBBs the import would replace with other bytes, by name: it asks first (the lead's rule).
+        var conflicts: [String] = []
+        /// What the import leaves out: the container's own list, then the OBBs that stay out.
+        var leftOut = LeftOut()
+        /// What the entry records afterwards.
+        var obbs: [PackageFile] = []
+    }
+
+    /// Plans `extras`' OBBs against those `recorded` for the entry and the files in its OBB folder, read without following
+    /// a link (decisions 4 and 5, the lead's rule). Where the versionCode stays (`keepingVersion`), an OBB of a kind the
+    /// app has none of moves in, and an installed one never goes: another of its kind stays out. Where it changes, an
+    /// OBB replaces an older one of its kind, and a newer one stays installed. Either way an OBB under an installed
+    /// one's name with other bytes replaces it only `replacing`, as the user answered, and is a conflict otherwise; one
+    /// whose bytes are there moves nothing, and one recorded but missing, as a crash after the switch leaves it, moves in.
+    /// A name the folder holds a folder or anything else but a file or a link under stays the app's, so that OBB stays
+    /// out and nothing of its kind goes (the lead's reviewer).
+    private func planOBBs(_ extras: Extras, package: String, recorded: [PackageFile], keepingVersion: Bool,
+                          replacing: Bool) -> OBBPlan {
+        let folder = paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true)
+        let present = Self.entries(in: folder)
+        let files = Set(present.filter { $0.value == .typeRegular }.keys)
+        var plan = OBBPlan(leftOut: extras.leftOut, obbs: recorded)
+        for obb in extras.obbs {
+            let name = obb.name, fileName = obb.file.fileName
+            switch present[fileName] {
+            case nil, .typeSymbolicLink?:
+                break
+            case .typeRegular?:
+                if recorded.contains(obb.file) { continue }
+                if holds(folder.appendingPathComponent(fileName), obb.file) {
+                    plan.obbs = plan.obbs.filter { $0.fileName != fileName } + [obb.file]
+                    continue
+                }
+                guard replacing else {
+                    plan.conflicts.append(fileName)
+                    continue
+                }
+            default:
+                plan.leftOut.byImport.append(IgnoredFile(path: obb.path, reason: "the app’s OBB folder holds something else under its name"))
+                continue
+            }
+            let others = files.union(recorded.map(\.fileName)).compactMap { OBBName($0) }
+                .filter { $0.kind == name.kind && $0.package == package && $0 != name }
+            if let newest = others.max(by: { Self.isNewer($1.version, than: $0.version) }) {
+                if keepingVersion {
+                    plan.leftOut.byImport.append(IgnoredFile(path: obb.path, reason: "the same version keeps the installed \(newest.fileName)"))
+                    continue
+                }
+                if Self.isNewer(newest.version, than: name.version) {
+                    plan.leftOut.byImport.append(IgnoredFile(path: obb.path, reason: "it is older than the installed \(newest.fileName)"))
+                    continue
+                }
+            }
+            let replaced = Set(others.map(\.fileName) + [fileName])
+            plan.moves.append(obb.file)
+            plan.removals += others.map(\.fileName).filter(files.contains)
+            plan.obbs = plan.obbs.filter { !replaced.contains($0.fileName) } + [obb.file]
+        }
+        return plan
+    }
+
+    /// The names in `folder` with what each is, a link as itself; none where no folder stands there, as where a link
+    /// stands in its place, which `prepareData` removes. Read with lstat, as `prepareData` reads it.
+    private static func entries(in folder: URL) -> [String: FileAttributeType] {
+        var status = stat()
+        guard lstat(folder.path, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [:] }
+        var entries: [String: FileAttributeType] = [:]
+        for name in names {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent(name).path)
+            entries[name] = attributes?[.type] as? FileAttributeType ?? FileAttributeType.typeUnknown
+        }
+        return entries
+    }
+
+    /// Whether the file at `url` holds `file`'s bytes: its size, then its SHA-256.
+    private func holds(_ url: URL, _ file: PackageFile) -> Bool {
+        guard let size = try? Self.sourceFile(for: url).size, size == file.size else { return false }
+        return (try? hash(url, size: size) { _ in }) == file.sha256
+    }
+
+    /// Stages the OBBs `plan` moves in as APFS clones in `version`'s obb/, after whatever a crash left there (App's
+    /// review), excluded from backups as the OBB folder is (the lead's reviewer). Returns the staging folder.
+    private func stageOBBs(_ plan: OBBPlan, from extras: Extras, in version: URL) throws -> URL {
+        var staging = version.appendingPathComponent("obb", isDirectory: true)
+        try? FileManager.default.removeItem(at: staging)
+        if !plan.moves.isEmpty {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            var excluded = URLResourceValues()
+            excluded.isExcludedFromBackup = true
+            try staging.setResourceValues(excluded)
+        }
+        for obb in extras.obbs where plan.moves.contains(obb.file) {
+            try FileManager.default.copyItem(at: obb.url, to: staging.appendingPathComponent(obb.file.fileName))
+        }
+        return staging
+    }
+
+    /// Carries out `plan` in `package`'s OBB folder, never through a link (the lead's reviewer): the folder and the
+    /// staging folder are opened as themselves, the staged OBBs move in first, each by rename over the file or link of
+    /// its name, and only then do the replaced files of their kinds go, so an interruption leaves both, never neither.
+    /// Then the staging folder goes.
+    private func moveOBBs(_ plan: OBBPlan, of package: String, from staging: URL) throws {
+        try paths.prepareData(for: package)
+        let target = try Self.openFolder(paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true))
+        defer { close(target) }
+        if !plan.moves.isEmpty {
+            let source = try Self.openFolder(staging)
+            defer { close(source) }
+            for file in plan.moves {
+                guard renameatx_np(source, file.fileName, target, file.fileName, 0) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+        }
+        try faultBetweenTheOBBMoves?()
+        for name in plan.removals { _ = unlinkat(target, name, 0) }
+        try? FileManager.default.removeItem(at: staging)
+    }
+
+    /// `folder` opened as itself: a link in its place fails (ELOOP).
+    private static func openFolder(_ folder: URL) throws -> Int32 {
+        let descriptor = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return descriptor
+    }
+
+    /// Whether OBB version `a` is newer than `b`, each an int as Android writes one (`OBBName`).
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        (Int(a) ?? -1) > (Int(b) ?? -1)
     }
 
     /// Imports a unit (ADR-0048, decisions 1 to 7): its APKs grouped into sets by package and version, where splits
@@ -403,12 +614,17 @@ public actor Library {
     /// ".<file>.contents/", and join the unit's own under names "<file>/<n>.apk", with the container as the file the
     /// user picked; a container Minato refuses becomes an entry with its reason. A file named .apk that opens as no
     /// ZIP stays an APK, so a damaged APK keeps its entry. The containers and their folders go with the unit.
+    ///
+    /// An XAPK's OBBs are read with the APKs, and each goes with the set of its package from the same XAPK (ADR-0049
+    /// c2); one without such a set is named on the XAPK's entries, beside what the XAPK itself left out.
     @discardableResult
     public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
         var isFolder: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
         var urls: [URL] = []
+        var obbs: [(url: URL, name: OBBName, path: String, container: URL)] = []
+        var leftOut: [URL: LeftOut] = [:]
         var refused: [(file: URL, error: ContainerError)] = []
         var taken: [URL] = []
         fromContainers = [:]
@@ -418,15 +634,17 @@ public actor Library {
                 switch try expand(file, in: unit) {
                 case .apk:
                     urls.append(file)
-                case .container(let apks, let folder):
+                case .container(let apks, let containerOBBs, let named, let folders):
                     let source = try Self.sourceFile(for: file)
                     for (url, name) in apks {
                         urls.append(url)
-                        fromContainers[url] = ("\(file.lastPathComponent)/\(name)", source)
+                        fromContainers[url] = ("\(file.lastPathComponent)/\(name)", source, file)
                     }
-                    // The folder goes before its container (App's review): a crash between the two leaves a container
+                    obbs += containerOBBs.map { ($0.url, $0.name, $0.path, file) }
+                    leftOut[file] = named
+                    // The folders go before their container (App's review): a crash between them leaves a container
                     // to take out again, never a hidden folder no unit lists.
-                    taken += [folder, file]
+                    taken += folders + [file]
                 case .refused(let error):
                     refused.append((file, error))
                     taken.append(file)
@@ -436,7 +654,8 @@ public actor Library {
             urls = [unit]
         }
         let sizes = try urls.map { try Self.sourceFile(for: $0).size }
-        let total = Double(max(sizes.reduce(0, +), 1))
+        let obbSizes = try obbs.map { try Self.sourceFile(for: $0.url).size }
+        let total = Double(max(sizes.reduce(0, +) + obbSizes.reduce(0, +), 1))
         var read: UInt64 = 0
         var digests: [URL: String] = [:]
         var unreadable: [URL] = []
@@ -455,7 +674,41 @@ public actor Library {
             members.append(member)
             files[member.fileName] = (url, archive)
         }
+        // An entry records each OBB with its SHA-256 (ADR-0049 c2).
+        var obbFiles: [(url: URL, file: PackageFile, name: OBBName, path: String, container: URL)] = []
+        for (obb, size) in zip(obbs, obbSizes) {
+            let sha256 = try hash(obb.url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
+            read += size
+            obbFiles.append((obb.url, PackageFile(fileName: obb.name.fileName, splitName: nil, size: size, sha256: sha256),
+                             obb.name, obb.path, obb.container))
+        }
         let groups = SetGrouping.byPackageAndVersion(members)
+        // Each OBB goes with the set of its package from its own container; one without is named there.
+        var extras = [Extras](repeating: Extras(), count: groups.count)
+        var containers: [URL?] = []
+        for group in groups {
+            var container: URL?
+            for member in group where container == nil {
+                if let url = files[member.fileName]?.url { container = fromContainers[url]?.container }
+            }
+            containers.append(container)
+        }
+        for obb in obbFiles {
+            let package = obb.name.package
+            if let index = groups.indices.first(where: { containers[$0] == obb.container && groups[$0][0].packageName == package }) {
+                extras[index].obbs.append((obb.url, obb.file, obb.name, obb.path))
+            } else {
+                leftOut[obb.container, default: LeftOut()].byImport.append(IgnoredFile(path: obb.path, reason: Self.noAPK(for: package)))
+            }
+        }
+        // What a container leaves out goes on the first of its entries only, never copied onto each (the lead's
+        // reviewer); each set's own names go on its own.
+        var named = Set<URL>()
+        for index in groups.indices {
+            if let container = containers[index], named.insert(container).inserted {
+                extras[index].leftOut = leftOut[container] ?? LeftOut()
+            }
+        }
         let parts = Double(max(unreadable.count + groups.count, 1))
         var results = try refused.map { try refuse($0.file, $0.error) }
         for url in unreadable {
@@ -464,14 +717,16 @@ public actor Library {
                 progress(0.5 + 0.5 * (part + $0) / parts)
             })
         }
-        for group in groups {
+        for (index, group) in groups.enumerated() {
             if group.count == 1, group[0].isBase, let url = files[group[0].fileName]?.url {
                 let part = Double(results.count)
-                results.append(try importFile(url, answering: answered.contains, signing: signing, sha256: digests[url]) {
+                results.append(try importFile(url, answering: answered.contains, signing: signing, sha256: digests[url],
+                                              extras: extras[index]) {
                     progress(0.5 + 0.5 * (part + $0) / parts)
                 })
             } else {
-                results.append(try importSet(group, files: files, answering: answered.contains, signing: signing))
+                results.append(try importSet(group, files: files, answering: answered.contains, signing: signing,
+                                             extras: extras[index]))
                 progress(0.5 + 0.5 * Double(results.count) / parts)
             }
         }
@@ -485,18 +740,23 @@ public actor Library {
         return results
     }
 
-    /// What a unit's file gives (ADR-0049 a3).
+    /// What a unit's file gives (ADR-0049 a3 and c2).
     private enum Expanded {
         case apk
-        /// The APKs taken out, each with its name in `folder`.
-        case container(apks: [(url: URL, name: String)], folder: URL)
+        /// The APKs taken out, each with its name, an XAPK's OBBs taken out, each with its checked name and its path in
+        /// the container, what the container leaves out, and the folders they went into.
+        case container(apks: [(url: URL, name: String)], obbs: [(url: URL, name: OBBName, path: String)], leftOut: LeftOut,
+                       folders: [URL])
         case refused(ContainerError)
     }
 
     /// A unit's file as an APK, as a container's APKs taken out into ".<file>.contents/" by ADR-0049's extraction, or
-    /// as the reason Minato refuses it. A folder an earlier import took out whole, while a question waited, is taken as
-    /// it is; a ".partial" one goes. Errors that are no container's, such as a full disk, stop the import, and the
+    /// as the reason Minato refuses it. Errors that are no container's, such as a full disk, stop the import, and the
     /// unit waits.
+    ///
+    /// An XAPK's OBBs are taken out after its APKs, into ".<file>.obbs/", and only those of a package one of its APKs
+    /// names (the lead's reviewer): an XAPK never brings an OBB for another app, and the others are named before
+    /// anything of theirs is written (ADR-0049 c2).
     private func expand(_ file: URL, in unit: URL) throws -> Expanded {
         let container: Container
         do {
@@ -504,25 +764,66 @@ public actor Library {
         } catch let error as ContainerError {
             return Self.isAPK(file) ? .apk : .refused(error)
         }
+        let (folder, obbFolder) = Self.takenOutFolders(of: file)
         do {
             let items: [Container.Item]
+            var contents: XAPKContents?
             switch container.kind {
             case .apk: return .apk
-            case .xapk, .apkm: return .refused(.notYetSupported(container.kind))
+            case .apkm: return .refused(.notYetSupported(container.kind))
+            case .xapk:
+                contents = try container.xapkContents()
+                items = contents?.apks ?? []
             case .bundletool: items = try container.bundletoolItems(for: BundletoolDevice(device)).items
             case .looseSet: items = try container.looseSetItems()
             }
-            // Hidden, so the unit's files never list it and no picked file shares its name.
-            let folder = unit.appendingPathComponent(".\(file.lastPathComponent).contents", isDirectory: true)
-            let apks = items.map { (folder.appendingPathComponent($0.fileName), $0.fileName) }
-            if !apks.allSatisfy({ FileManager.default.fileExists(atPath: $0.0.path) }) {
-                try? FileManager.default.removeItem(at: folder)
-                try container.extract(items, into: folder)
+            let apks = try takeOut(items, of: container, into: folder)
+            guard let contents else { return .container(apks: apks, obbs: [], leftOut: LeftOut(), folders: [folder]) }
+            let packages = Set(apks.compactMap { Self.packageName(of: $0.url) })
+            let kept = contents.obbs.filter { packages.contains($0.name.package) }
+            var leftOut = LeftOut(byContainer: contents.ignored)
+            for obb in contents.obbs where !packages.contains(obb.name.package) {
+                leftOut.byImport.append(IgnoredFile(path: obb.item.entry.name, reason: Self.noAPK(for: obb.name.package)))
             }
-            return .container(apks: apks, folder: folder)
+            let obbs = try takeOut(kept.map(\.item), of: container, into: obbFolder)
+            return .container(apks: apks, obbs: zip(obbs, kept).map { ($0.url, $1.name, $1.item.entry.name) },
+                              leftOut: leftOut, folders: [folder, obbFolder])
         } catch let error as ContainerError {
+            // A container refused after its APKs were taken out, as for a damaged OBB, keeps none of them.
+            try? FileManager.default.removeItem(at: folder)
             return .refused(error)
         }
+    }
+
+    /// The folders next to a unit's container that its APKs and its OBBs are taken out into (ADR-0049 a3 and c2): hidden,
+    /// so the unit's files never list them and no picked file shares their names.
+    private static func takenOutFolders(of container: URL) -> (contents: URL, obbs: URL) {
+        let unit = container.deletingLastPathComponent(), name = container.lastPathComponent
+        return (unit.appendingPathComponent(".\(name).contents", isDirectory: true),
+                unit.appendingPathComponent(".\(name).obbs", isDirectory: true))
+    }
+
+    /// `items` taken out of `container` into `folder` by ADR-0049's extraction, each with its name. A folder an earlier
+    /// import took out whole, while a question waited, is taken as it is; a ".partial" one goes. No items need no folder.
+    private func takeOut(_ items: [Container.Item], of container: Container, into folder: URL) throws -> [(url: URL, name: String)] {
+        let files = items.map { (url: folder.appendingPathComponent($0.fileName), name: $0.fileName) }
+        if !files.allSatisfy({ FileManager.default.fileExists(atPath: $0.url.path) }) {
+            try? FileManager.default.removeItem(at: folder)
+            try container.extract(items, into: folder)
+        }
+        return files
+    }
+
+    /// The package an APK names, read as `SetMember.read` reads it; nil for one Minato cannot read.
+    private static func packageName(of apk: URL) -> String? {
+        guard let archive = try? ZipArchive(url: apk),
+              let xml = try? archive.data(named: "AndroidManifest.xml", maxSize: 16 << 20) else { return nil }
+        return try? AndroidManifest(xml: BinaryXML.parse(xml)).packageName
+    }
+
+    /// Why an OBB stays out that no set of its package from its own container takes.
+    private static func noAPK(for package: String) -> String {
+        "it is for \(package), which has no APK here"
     }
 
     /// An `.invalid` entry of a container Minato refuses; the app shows its reason as it is (ADR-0049 a3).
@@ -549,7 +850,7 @@ public actor Library {
     /// One set of a unit (ADR-0048, decisions 3 to 7): the base with its chosen splits, or splits without their base,
     /// which join the installed version.
     private func importSet(_ group: [SetMember], files: [String: (url: URL, archive: ZipArchive)],
-                           answering: (AskingVersion) -> Bool, signing: ImportSigning?) throws -> ImportResult {
+                           answering: (AskingVersion) -> Bool, signing: ImportSigning?, extras: Extras) throws -> ImportResult {
         /// An `.invalid` entry of `file` for a set that is not installed. The app shows `reason` as it is, as the entry's
         /// `refusal`, unless it is an error's description.
         func refuse(_ reason: String, file: SetMember, isDescription: Bool = false) throws -> ImportResult {
@@ -640,7 +941,8 @@ public actor Library {
                 var version = AppVersion(set: set, state: state, sha256: digest)
                 if !version.uncheckedFiles.isEmpty { version.uncheckedFiles = unchecked }
                 return version
-            })
+            },
+            extras: extras)
         return try install(new, answering: answering, signing: signing, discarding: nil, progress: { _ in })
     }
 
@@ -672,8 +974,10 @@ public actor Library {
         }
     }
 
-    /// The answer "Keep Installed" to a question: the waiting file goes, or a unit's APKs, while its OBBs wait for
-    /// ADR-0049 as at the end of `importUnit`; the installed version stays.
+    /// The answer "Keep Installed" to a question: the waiting file goes, or a unit's APKs and containers, each container's
+    /// folders before it, as at the end of `importUnit` (ADR-0049 a3 and c2, found by c2's set-check), while its OBBs
+    /// wait for ADR-0049's step d; the installed version stays. Everything goes from inside the unit's own folder, a
+    /// link as a link.
     public func keepInstalled(discarding url: URL) {
         var isFolder: ObjCBool = false
         guard Self.isDirectChild(url, of: paths.incoming),
@@ -681,8 +985,11 @@ public actor Library {
             discardPickedCopy(url)
             return
         }
-        for apk in (try? Self.files(inUnit: url))?.filter(Self.isAPK) ?? [] {
-            try? FileManager.default.removeItem(at: apk)
+        for file in (try? Self.files(inUnit: url)) ?? [] where !Self.isOBB(file) {
+            let folders = Self.takenOutFolders(of: file)
+            try? FileManager.default.removeItem(at: folders.contents)
+            try? FileManager.default.removeItem(at: folders.obbs)
+            try? FileManager.default.removeItem(at: file)
         }
         rmdir(url.path) // only once nothing else waits in it
     }
@@ -708,6 +1015,13 @@ public actor Library {
 
     func interruptBeforeTheSwitch(with fault: @escaping @Sendable () throws -> Void) {
         faultBeforeTheSwitch = fault
+    }
+
+    /// Runs between an import's OBB moves and its removals; a test throws from it to stand for an interruption.
+    private var faultBetweenTheOBBMoves: (@Sendable () throws -> Void)?
+
+    func interruptBetweenTheOBBMoves(with fault: @escaping @Sendable () throws -> Void) {
+        faultBetweenTheOBBMoves = fault
     }
 
     /// Runs after each file `adopt` clones for a pick; a test scans from it, or throws to stand for an interruption.

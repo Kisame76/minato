@@ -7,6 +7,8 @@ extension UTType {
     static let apk = UTType(importedAs: "com.android.package-archive")
     /// project.yml's imported type for bundletool's, SAI's and App Manager's .apks (ADR-0049 a3).
     static let apkSet = UTType(importedAs: "io.github.kisame76.minato.apks")
+    /// project.yml's imported type for APKPure's .xapk (ADR-0049 c2).
+    static let xapk = UTType(importedAs: "io.github.kisame76.minato.xapk")
 }
 
 /// The library, laid out like a folder in the Files app: icon grid, search, a "…" menu with Select
@@ -34,8 +36,8 @@ struct LibraryView: View {
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
                 .toolbar { toolbar }
                 // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
-                // (ADR-0049 a3).
-                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .zip, .folder],
+                // (ADR-0049 a3), or in an .xapk with its OBBs (c2).
+                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .xapk, .zip, .folder],
                               allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }

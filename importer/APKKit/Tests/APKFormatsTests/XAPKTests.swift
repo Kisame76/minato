@@ -403,7 +403,8 @@ struct XAPKTests {
         #expect(main.package == "com.example.game")
         #expect(main.fileName == "main.314159.com.example.game.obb")
         #expect(OBBName("patch.0.a.b.obb") == OBBName(kind: .patch, version: "0", package: "a.b"))
-        #expect(OBBName("main.007.Com.Ex_1.obb")?.version == "007")
+        #expect(OBBName("main.7.Com.Ex_1.obb")?.version == "7")
+        #expect(OBBName("main.2147483647.a.b.obb")?.version == "2147483647")
         let long = "main.1." + String(repeating: "a", count: 221) + ".b.obb"
         #expect(OBBName(long)?.package.count == 223)
         // The package takes everything after the version.
@@ -412,6 +413,9 @@ struct XAPKTests {
                      "main.1.ab.obb", "main.1.a.1b.obb", "main.1.a.b", "main.1.a b.c.obb", "main.\u{0661}.a.b.obb",
                      "patch.1..obb", "obb.1.a.b.obb", "main.1." + String(repeating: "a", count: 222) + ".b.obb",
                      ".main.1.a.b.obb", "main.1.a/b.c.obb",
+                     // The lead's reviewer: Android writes the version from an int, so never with a leading zero or
+                     // past Int32.max.
+                     "main.007.a.b.obb", "main.00.a.b.obb", "main.2147483648.a.b.obb",
                      // Over a file name's 255 bytes by its version alone.
                      "main." + String(repeating: "1", count: 250) + ".a.b.obb"] {
             #expect(OBBName(name) == nil, "\(name)")
