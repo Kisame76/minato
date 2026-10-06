@@ -23,14 +23,16 @@ inline std::uint64_t pair(std::int32_t low, std::int32_t high) {
     return static_cast<std::uint32_t>(low) | static_cast<std::uint64_t>(static_cast<std::uint32_t>(high)) << 32;
 }
 
-/// What the host does with the runtime's windows and session: in apk-run apkrt_window_add without a layer,
-/// apkrt_window_set_gate with 1, apkrt_window_set_size, apkrt_window_remove and apkrt_session_post.
+/// What the host does with the runtime's windows and session: in apk-run apkrt_window_add of the request's buffer
+/// size, on graphics-run's layer for it or none, apkrt_window_set_gate with 1, apkrt_window_set_size,
+/// apkrt_window_remove, apkrt_session_post, and graphics-run's move of the layer for each place.
 struct Calls {
-    std::function<std::uint64_t(std::int32_t, std::int32_t)> add;
+    std::function<std::uint64_t(const apkrt_surface_request &)> add;
     std::function<void(std::uint64_t)> open;
     std::function<void(std::uint64_t, std::int32_t, std::int32_t)> size;
     std::function<void(std::uint64_t)> remove;
     std::function<void(std::uint32_t, std::uint64_t, std::uint64_t, std::uint64_t)> post;
+    std::function<void(std::uint64_t, const apkrt_surface_request &)> place;
 };
 
 /// The surfaces (apkrt.h's surface handler), from the guest's threads, and the lifecycle's steps, from its thread.
@@ -39,16 +41,16 @@ public:
     explicit Surfaces(Calls calls) : calls_(std::move(calls)) {}
 
     /// A request the runtime checked: a make gets a window and SURFACE_CREATED, then its gate opens unless the
-    /// session is in the background; a place with another size gets the window's new size, then SURFACE_RESIZED, and
-    /// one that only moves nothing; a remove takes the window away without an event. A place or remove of a surface
-    /// the host took away does nothing, but the remove forgets it.
+    /// session is in the background; a place goes to the window's layer, and one with another size then gets the
+    /// window's new size and SURFACE_RESIZED; a remove takes the window away without an event. A place or remove of
+    /// a surface the host took away does nothing, but the remove forgets it.
     void request(const apkrt_surface_request &request) {
         const std::lock_guard<std::mutex> hold(lock_);
         const auto found = find(request.token);
         switch (request.op) {
             case APKRT_SURFACE_MAKE: {
                 if (found != surfaces_.end()) return;  // the runtime refuses it first
-                const std::uint64_t window = calls_.add(request.width, request.height);
+                const std::uint64_t window = calls_.add(request);
                 surfaces_.push_back({request.token, window, request.width, request.height});
                 calls_.post(APKRT_EVENT_SURFACE_CREATED, request.token, window, pair(request.width, request.height));
                 if (!background_) calls_.open(window);
@@ -56,6 +58,7 @@ public:
             }
             case APKRT_SURFACE_PLACE:
                 if (found == surfaces_.end() || found->taken) return;
+                calls_.place(found->window, request);
                 if (found->width == request.width && found->height == request.height) return;
                 found->width = request.width;
                 found->height = request.height;

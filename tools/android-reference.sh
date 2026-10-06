@@ -455,7 +455,7 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TextActivity
       ;;
     # surface-test (ADR-0043 step c4): its own launcher activity, whose GLSurfaceView draws its fixed frames after the
-    # window's first focus and which ends with "done".
+    # window's first focus, then a Button over it, which ends with "done" at its first draw.
     surface-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SurfaceActivity
       ;;

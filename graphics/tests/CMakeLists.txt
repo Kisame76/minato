@@ -170,6 +170,8 @@ if(TARGET minato_graphics_host)
   # MINATO_METAL_HOOK and MINATO_WINDOW are set.
   add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m
     window_host.m test_control.m)
+  # apk_run_layers.h, the hooks of apk-run's --lifecycle that window_host.m defines (ADR-0043 c4 (c)).
+  target_include_directories(graphics-run PRIVATE "${PROJECT_SOURCE_DIR}/runtime/tools")
   target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   add_library(fake-driver MODULE fake_driver.c)

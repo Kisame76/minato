@@ -14,17 +14,18 @@ namespace {
 
 // --- Surfaces ------------------------------------------------------------------------------------
 
-/// What the host did, in order: "add 1290x726 -> 2", "gate 2 open", "size 2 640x480", "remove 2", and the posts as
-/// "post <type> <a0> <a1> <a2>".
+/// What the host did, in order: "add 1290x726 at 0,300 z -2 -> 2", "gate 2 open", "size 2 640x480", "remove 2",
+/// the posts as "post <type> <a0> <a1> <a2>", and the places that reach the layer as "place 2 at 0,300 z -2".
 struct Record {
     std::vector<std::string> calls;
     std::uint64_t next_window = 2;  // 1 is the main window's
 
     headless::Calls calls_of() {
         return {
-            [this](std::int32_t width, std::int32_t height) {
-                calls.push_back("add " + std::to_string(width) + "x" + std::to_string(height) + " -> " +
-                                std::to_string(next_window));
+            [this](const apkrt_surface_request &request) {
+                calls.push_back("add " + std::to_string(request.width) + "x" + std::to_string(request.height) +
+                                " at " + std::to_string(request.left) + "," + std::to_string(request.top) + " z " +
+                                std::to_string(request.z) + " -> " + std::to_string(next_window));
                 return next_window++;
             },
             [this](std::uint64_t window) { calls.push_back("gate " + std::to_string(window) + " open"); },
@@ -36,6 +37,10 @@ struct Record {
             [this](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
                 calls.push_back("post " + name(type) + " " + std::to_string(a0) + " " + std::to_string(a1) + " " +
                                 std::to_string(a2));
+            },
+            [this](std::uint64_t window, const apkrt_surface_request &request) {
+                calls.push_back("place " + std::to_string(window) + " at " + std::to_string(request.left) + "," +
+                                std::to_string(request.top) + " z " + std::to_string(request.z));
             },
         };
     }
@@ -82,25 +87,30 @@ TEST(a_make_gets_a_window_of_its_own_then_its_event_then_an_open_gate) {
     Record record;
     headless::Surfaces surfaces(record.calls_of());
     surfaces.request(request(APKRT_SURFACE_MAKE, 7));
-    const std::vector<std::string> expected{"add 1290x726 -> 2", "post created 7 2 " + size(1290, 726), "gate 2 open"};
+    const std::vector<std::string> expected{"add 1290x726 at 0,300 z -2 -> 2", "post created 7 2 " + size(1290, 726),
+                                            "gate 2 open"};
     CHECK(record.take() == expected);
 }
 
-TEST(a_place_answers_only_a_new_size_after_the_window_takes_it) {
+TEST(a_place_reaches_the_layer_and_only_a_new_size_resizes_the_window_with_an_event) {
     Record record;
     headless::Surfaces surfaces(record.calls_of());
     surfaces.request(request(APKRT_SURFACE_MAKE, 7));
     record.take();
+    // A move only, above the window now: the layer follows, without an event.
     auto moved = request(APKRT_SURFACE_PLACE, 7);
     moved.top = 0;
     moved.z = 1;
     surfaces.request(moved);
-    CHECK(record.take().empty());
+    const std::vector<std::string> move{"place 2 at 0,0 z 1"};
+    CHECK(record.take() == move);
     surfaces.request(request(APKRT_SURFACE_PLACE, 7, 640, 480));
-    const std::vector<std::string> expected{"size 2 640x480", "post resized 7 2 " + size(640, 480)};
+    const std::vector<std::string> expected{"place 2 at 0,300 z -2", "size 2 640x480",
+                                            "post resized 7 2 " + size(640, 480)};
     CHECK(record.take() == expected);
     surfaces.request(request(APKRT_SURFACE_PLACE, 7, 640, 480));
-    CHECK(record.take().empty());
+    const std::vector<std::string> same{"place 2 at 0,300 z -2"};
+    CHECK(record.take() == same);
 }
 
 TEST(a_remove_takes_the_window_away_without_an_event) {
@@ -136,7 +146,8 @@ TEST(at_the_background_the_windows_go_first_and_the_events_come_later_in_the_ord
     CHECK(record.take() == destroyed);
     surfaces.post_destroyed();
     CHECK(record.take().empty());
-    // The guest's place and remove of a surface the host took away do nothing; the remove forgets it.
+    // The guest's place and remove of a surface the host took away do nothing, its layer gone with its window;
+    // the remove forgets it.
     surfaces.request(request(APKRT_SURFACE_PLACE, 7, 640, 480));
     surfaces.request(request(APKRT_SURFACE_REMOVE, 7));
     surfaces.request(request(APKRT_SURFACE_REMOVE, 8));
@@ -150,7 +161,7 @@ TEST(a_surface_made_in_the_background_opens_its_gate_at_the_return) {
     headless::Surfaces surfaces(record.calls_of());
     surfaces.set_background(true);
     surfaces.request(request(APKRT_SURFACE_MAKE, 7));
-    const std::vector<std::string> made{"add 1290x726 -> 2", "post created 7 2 " + size(1290, 726)};
+    const std::vector<std::string> made{"add 1290x726 at 0,300 z -2 -> 2", "post created 7 2 " + size(1290, 726)};
     CHECK(record.take() == made);
     surfaces.set_background(false);
     const std::vector<std::string> opened{"gate 2 open"};
@@ -161,7 +172,8 @@ TEST(a_surface_made_in_the_background_opens_its_gate_at_the_return) {
     surfaces.request(request(APKRT_SURFACE_REMOVE, 7));
     record.take();
     surfaces.request(request(APKRT_SURFACE_MAKE, 7));
-    const std::vector<std::string> again{"add 1290x726 -> 3", "post created 7 3 " + size(1290, 726), "gate 3 open"};
+    const std::vector<std::string> again{"add 1290x726 at 0,300 z -2 -> 3", "post created 7 3 " + size(1290, 726),
+                                         "gate 3 open"};
     CHECK(record.take() == again);
 }
 

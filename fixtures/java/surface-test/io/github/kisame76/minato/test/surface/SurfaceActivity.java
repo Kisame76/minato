@@ -1,6 +1,7 @@
 package io.github.kisame76.minato.test.surface;
 
 import android.app.Activity;
+import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.opengl.GLES20;
 import android.opengl.GLES30;
@@ -8,7 +9,12 @@ import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Choreographer;
+import android.view.Gravity;
 import android.view.SurfaceHolder;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
+import android.widget.Button;
+import android.widget.FrameLayout;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -28,7 +34,9 @@ import javax.microedition.khronos.opengles.GL10;
  * frames asked one after another, the view's bounds, and the renderer's callbacks and pixels, which come on the GL
  * thread and are logged in their own order at the end, so that the log does not depend on how the threads interleave.
  * A frame the GL thread draws again, as a redraw the system asks for, is logged once; the number of draws goes to the
- * tag surface-test-device, which the check shows and does not compare, as does the GL driver's name.
+ * tag surface-test-device, which the check shows and does not compare, as does the GL driver's name. Then a Button
+ * comes over the GLSurfaceView, centered (ADR-0043 test 4: the window's layer, hidden over the hole, shows again):
+ * its place is logged once it is laid out, and the end at its first draw.
  */
 public class SurfaceActivity extends Activity {
     private static final String TAG = "surface-test";
@@ -142,7 +150,37 @@ public class SurfaceActivity extends Activity {
             Log.i(TAG, "renderer: " + line);
         }
         Log.i(DEVICE_TAG, "draws " + mRenderer.draws() + ", " + mRenderer.driver());
-        Log.i(TAG, "done");
+        addButton();
+    }
+
+    /** A Button over the GLSurfaceView, centered: its place after its layout, and the end at its first draw. */
+    private void addButton() {
+        Button button = new Button(this) {
+            private boolean mDrawn;
+
+            @Override
+            protected void onDraw(Canvas canvas) {
+                super.onDraw(canvas);
+                if (!mDrawn) {
+                    mDrawn = true;
+                    Log.i(TAG, "done");
+                }
+            }
+        };
+        button.setText("OK");
+        addContentView(button, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        button.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                button.getViewTreeObserver().removeOnPreDrawListener(this);
+                int[] location = new int[2];
+                button.getLocationInWindow(location);
+                Log.i(TAG, "button: added at " + location[0] + ", " + location[1] + ", " + button.getWidth() + " x "
+                        + button.getHeight());
+                return true;
+            }
+        });
     }
 
     /** Draws the frame it was asked for: frame 0 a clear, frame 1 a clear and a scissored one, frame 2 a triangle. */

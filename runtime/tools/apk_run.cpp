@@ -32,7 +32,8 @@
 //               rectangle, the gate opening as at the start.
 // The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
-// window away.
+// window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
+// which follow the places and the window's opacity, as the App's do (ADR-0043 c4 (c)).
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
@@ -44,6 +45,7 @@
 // interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays no more steps.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
+#include "apk_run_layers.h"
 #include "frame_clock.h"
 #include "headless_host.h"
 
@@ -69,6 +71,9 @@
 /// Whether the build sets the windows' buffers itself: graphics-run does, graphics/host's or its window host's fake
 /// ones, and defines this to say so (graphics/tests/graphics_run.c); apk-run alone has none.
 extern "C" __attribute__((weak)) int apk_run_sets_window_buffers(void) { return 0; }
+
+/// The window host's layers, which graphics-run defines (graphics/tests/window_host.m); apk-run alone has none.
+extern "C" __attribute__((weak)) const apk_run_layer_hooks *apk_run_layers(void) { return nullptr; }
 
 namespace {
 
@@ -148,7 +153,11 @@ struct {
     bool finish = false;
 } finishing;
 
-void on_request(void *, int type, std::uint64_t, const char *) {
+void on_request(void *, int type, std::uint64_t argument, const char *) {
+    if (type == APKRT_REQUEST_WINDOW_OPAQUE) {
+        if (const auto *layers = apk_run_layers()) layers->window_opaque(argument != 0);
+        return;
+    }
     if (type != APKRT_REQUEST_FINISH) return;
     std::lock_guard<std::mutex> hold(finishing.lock);
     finishing.finish = true;
@@ -186,16 +195,28 @@ std::uint32_t post(std::uint32_t type, std::uint64_t a0 = 0, std::uint64_t a1 = 
     return serial;
 }
 
-/// --lifecycle's surfaces (headless_host.h): windows without a layer, opened, sized and removed in the registry, and
-/// the events posted, from the surface handler on the guest's threads and from the lifecycle's thread.
+/// --lifecycle's surfaces (headless_host.h): windows on graphics-run's layers or none, opened, sized and removed in
+/// the registry, and the events posted, from the surface handler on the guest's threads and from the lifecycle's
+/// thread. A removed window's layer goes to the window host after the removal.
 headless::Surfaces surfaces({
-    [](std::int32_t width, std::int32_t height) { return apkrt_window_add(nullptr, width, height); },
+    [](const apkrt_surface_request &request) {
+        const auto *layers = apk_run_layers();
+        return apkrt_window_add(layers != nullptr ? layers->surface_layer(&request) : nullptr, request.width,
+                                request.height);
+    },
     [](std::uint64_t window) { apkrt_window_set_gate(window, 1); },
     [](std::uint64_t window, std::int32_t width, std::int32_t height) {
         apkrt_window_set_size(window, width, height);
     },
-    [](std::uint64_t window) { apkrt_window_remove(window); },
+    [](std::uint64_t window) {
+        void *const layer = apkrt_window_layer(window);
+        apkrt_window_remove(window);
+        if (const auto *layers = apk_run_layers()) layers->surface_removed(layer);
+    },
     [](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) { post(type, a0, a1, a2); },
+    [](std::uint64_t, const apkrt_surface_request &request) {
+        if (const auto *layers = apk_run_layers()) layers->surface_placed(&request);
+    },
 });
 
 void on_surface(void *, const apkrt_surface_request *request) {
@@ -214,6 +235,11 @@ bool answered(std::uint32_t serial, const char *what) {
 /// guest thread.
 void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int32_t height) {
     std::uint64_t window = 0;
+    // graphics-run's layer for the window, the same at every start and return, or none.
+    const auto *layers = apk_run_layers();
+    const auto add_window = [&] {
+        return apkrt_window_add(layers != nullptr ? layers->window_layer(width, height) : nullptr, width, height);
+    };
     // The window's events as Android 15 calls a NativeActivity's: created, resized with the same size, the content's
     // rectangle at the start, then redraw needed and the focus.
     const auto show = [&](bool first) {
@@ -239,7 +265,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     for (std::size_t index = 0; index < steps.size(); ++index) {
         if (index > 0) std::this_thread::sleep_for(std::chrono::seconds(1));
         if (steps[index] == "start") {
-            window = apkrt_window_add(nullptr, width, height);
+            window = add_window();
             post(APKRT_EVENT_CREATE);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
@@ -257,7 +283,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         } else {
             apkrt_set_background(0);
             surfaces.set_background(false);
-            window = apkrt_window_add(nullptr, width, height);
+            window = add_window();
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
             const std::uint32_t shown = show(false);

@@ -24,6 +24,9 @@ a start that cannot reach the reference's end, such as one without a session (AD
 With --drawn, the run must have drawn its window: apk-run's headless buffers log the first post of each window
 (ADR-0043 step c3), which the process's log must hold.
 
+With --in-order <text>, once or more, lines of the process's log must start with these texts in this order, among
+its other lines: a host's lines among the app's, such as graphics-run's window host's (ADR-0043 c4 (c)).
+
 With --android-id, the app starts with ActivityThread's --android-id, the value its settings provider gives as
 android_id, as the host gives it (ADR-0045, gap 13a).
 
@@ -34,7 +37,7 @@ second time over the first start's folders, as tools/android-reference.sh starts
 starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
-                       [--android-id <16 hex digits>]
+                       [--android-id <16 hex digits>] [--in-order <text>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -61,13 +64,17 @@ def main():
     until = None
     drawn = False
     android_id = None
-    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"]):
+    in_order = []
+    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
+                       ["--in-order"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
             android_id, args = args[1], args[2:]
         elif args[0] == "--drawn":
             drawn, args = True, args[1:]
+        elif len(args) > 1 and args[0] == "--in-order":
+            in_order, args = in_order + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--lifecycle":
             lifecycle, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--until":
@@ -117,6 +124,14 @@ def main():
     if drawn and not any(line.startswith(FIRST_POST) for line in result.stderr.splitlines()):
         print("FAIL: no post of the session's window into apk-run's headless buffers (ADR-0043 step c3)")
         sys.exit(1)
+    found = in_order_found(result.stderr.splitlines(), in_order)
+    if found < len(in_order):
+        print("FAIL: the process's log lacks these lines in this order:")
+        for index, text in enumerate(in_order):
+            print(f"  {'found' if index < found else 'missing'}: {text}")
+        print("stderr, last 40 lines:")
+        print("\n".join(result.stderr.splitlines()[-40:]))
+        sys.exit(1)
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
         compare_log(app, result, expected, marks, until)
@@ -145,6 +160,15 @@ def main():
     print("stderr, last 40 lines:")
     print("\n".join(log[-40:]))
     sys.exit(1)
+
+
+def in_order_found(log, texts):
+    """How many of `texts`, from the first, start lines of `log` in their order."""
+    found = 0
+    for line in log:
+        if found < len(texts) and line.startswith(texts[found]):
+            found += 1
+    return found
 
 
 def until_line(lines, app, until):

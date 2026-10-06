@@ -7,7 +7,10 @@
 # compares its log with Android 15's on that display (fixtures/expected/surface-test.logcat, from
 # tools/android-reference.sh --app surface-test): a full-screen GLSurfaceView with ES 3.0 through the front libs on the
 # Mac's ANGLE (MINATO_ANGLE), its holder's callbacks with their format and size, Choreographer's frames, its bounds,
-# and the renderer's callbacks with three fixed frames read back with glReadPixels.
+# and the renderer's callbacks with three fixed frames read back with glReadPixels, then a Button over it. The window
+# and the surface have graphics-run's layers, as the App's (MINATO_SESSION_LAYERS=1, ADR-0043 c4 (c)), and test 4
+# watches the window's layer (MINATO_WINDOW_WATCH=hidden): the surface's layer comes below the window's, the window's
+# layer is hidden over the hole and shown again once the Button draws, in this order among the app's lines.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-framework-res.sh,
 # tools/build-front-libs.sh and tools/build-angle.sh first.
 # Usage: tools/surface-check.sh
@@ -27,7 +30,10 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh surface-test >/dev/null
 
-MINATO_ANGLE="$ANGLE" python3 framework/tests/java_app_run.py surface-test io.github.kisame76.minato.test.surface \
+MINATO_ANGLE="$ANGLE" MINATO_SESSION_LAYERS=1 MINATO_WINDOW_WATCH=hidden python3 framework/tests/java_app_run.py \
+  --in-order "window host: a surface below the window at 0, 0, 1290 x 2796" \
+  --in-order "window host: the layer is hidden" --in-order "I/surface-test: button: added at" \
+  --in-order "window host: the layer is shown" surface-test io.github.kisame76.minato.test.surface \
   android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/graphics/tests/graphics-run" build/surface-check build/framework-native/app_process64 \

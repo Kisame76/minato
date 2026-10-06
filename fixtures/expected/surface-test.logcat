@@ -12,4 +12,5 @@ I/surface-test: renderer: surface changed: 1290 x 2796
 I/surface-test: renderer: frame 0: center 4080c0ff, left 4080c0ff, right 4080c0ff, error 0x0
 I/surface-test: renderer: frame 1: center ff0000ff, left 00ff00ff, right ff0000ff, error 0x0
 I/surface-test: renderer: frame 2: center ff4000ff, left 000000ff, right 000000ff, error 0x0
+I/surface-test: button: added at 513, 1326, 264 x 144
 I/surface-test: done
