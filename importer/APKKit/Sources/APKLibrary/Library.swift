@@ -33,6 +33,9 @@ public actor Library {
     private let preferredLanguages: [String]
     /// What a set's splits are chosen for (ADR-0048, decision 4).
     private let device: DeviceProfile
+    /// During one `importUnit`, each APK taken out of a container with the name it shows, "<container>/<file>", and
+    /// the container as the file the user picked (ADR-0049 a3).
+    private var fromContainers: [URL: (name: String, source: SourceFile)] = [:]
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
@@ -69,8 +72,9 @@ public actor Library {
 
     /// The picks that are not installed yet, one URL each and the oldest first, for `importUnit`: a unit's folder, or a
     /// file lying flat in incoming/ (ADR-0048, decision 1). Normally those `adopt` just took over, after an interrupted
-    /// import also those left over from last time. A pick still being taken over is none yet, and one without an APK
-    /// waits, its OBBs for ADR-0049. What such an import left in apps/ goes first.
+    /// import also those left over from last time. A pick still being taken over is none yet, and one with nothing but
+    /// OBBs waits for ADR-0049's step d; any other file may be a container, whatever its extension (ADR-0049 a3). What
+    /// such an import left in apps/ goes first.
     public func scanUnits() throws -> [URL] {
         try waitingUnits().map(\.url)
     }
@@ -97,7 +101,7 @@ public actor Library {
                 let apks = files.filter(Self.isAPK)
                 if files.isEmpty {
                     rmdir(item.path) // its last file went, the folder did not
-                } else if !apks.isEmpty {
+                } else if !files.allSatisfy(Self.isOBB) {
                     units.append((created, item.lastPathComponent, item, apks))
                 }
             } else if values.isRegularFile == true, Self.isAPK(item) {
@@ -202,7 +206,7 @@ public actor Library {
     /// read it already.
     private func importFile(_ url: URL, answering: (AskingVersion) -> Bool, signing: ImportSigning?, sha256 known: String? = nil,
                             progress: @Sendable (Double) -> Void) throws -> ImportResult {
-        var source = try Self.sourceFile(for: url)
+        var source = try sourceFile(for: url)
         progress(0)
 
         let archive: ZipArchive
@@ -215,7 +219,7 @@ public actor Library {
             icon = try? APKAnalyzer.iconData(for: report, in: archive)
         } catch {
             let entry = LibraryEntry(
-                id: "file:\(url.lastPathComponent)", displayName: url.lastPathComponent, state: .invalid(String(describing: error)),
+                id: "file:\(displayName(of: url))", displayName: displayName(of: url), state: .invalid(String(describing: error)),
                 report: nil, base: nil, splits: [], obbs: [], source: source, iconFile: nil, importedAt: Date())
             try store(entry)
             discardPickedCopy(url)
@@ -394,12 +398,43 @@ public actor Library {
     /// no other, which keeps asking (F7, the lead's reviewer); one that asks otherwise now asks again. The first half of
     /// `progress` reads each APK once, by its size, and the second imports the sets and files, a share each. Returns a
     /// result for each set and each such file.
+    ///
+    /// A unit's file that is no APK by its content is a container (ADR-0049 a3): its APKs are taken out next to it, into
+    /// ".<file>.contents/", and join the unit's own under names "<file>/<n>.apk", with the container as the file the
+    /// user picked; a container Minato refuses becomes an entry with its reason. A file named .apk that opens as no
+    /// ZIP stays an APK, so a damaged APK keeps its entry. The containers and their folders go with the unit.
     @discardableResult
     public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], signing: ImportSigning? = nil,
                            progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
         var isFolder: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
-        let urls = isFolder.boolValue ? try Self.files(inUnit: unit).filter(Self.isAPK) : [unit]
+        var urls: [URL] = []
+        var refused: [(file: URL, error: ContainerError)] = []
+        var taken: [URL] = []
+        fromContainers = [:]
+        defer { fromContainers = [:] }
+        if isFolder.boolValue {
+            for file in try Self.files(inUnit: unit) where !Self.isOBB(file) {
+                switch try expand(file, in: unit) {
+                case .apk:
+                    urls.append(file)
+                case .container(let apks, let folder):
+                    let source = try Self.sourceFile(for: file)
+                    for (url, name) in apks {
+                        urls.append(url)
+                        fromContainers[url] = ("\(file.lastPathComponent)/\(name)", source)
+                    }
+                    // The folder goes before its container (App's review): a crash between the two leaves a container
+                    // to take out again, never a hidden folder no unit lists.
+                    taken += [folder, file]
+                case .refused(let error):
+                    refused.append((file, error))
+                    taken.append(file)
+                }
+            }
+        } else {
+            urls = [unit]
+        }
         let sizes = try urls.map { try Self.sourceFile(for: $0).size }
         let total = Double(max(sizes.reduce(0, +), 1))
         var read: UInt64 = 0
@@ -413,7 +448,7 @@ public actor Library {
             read += size
             digests[url] = sha256
             guard let archive = try? ZipArchive(url: url),
-                  let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256) else {
+                  let member = try? SetMember.read(archive, fileName: displayName(of: url), sha256: sha256) else {
                 unreadable.append(url)
                 continue
             }
@@ -422,7 +457,7 @@ public actor Library {
         }
         let groups = SetGrouping.byPackageAndVersion(members)
         let parts = Double(max(unreadable.count + groups.count, 1))
-        var results: [ImportResult] = []
+        var results = try refused.map { try refuse($0.file, $0.error) }
         for url in unreadable {
             let part = Double(results.count)
             results.append(try importFile(url, answering: answered.contains, signing: signing, sha256: digests[url]) {
@@ -440,13 +475,75 @@ public actor Library {
                 progress(0.5 + 0.5 * Double(results.count) / parts)
             }
         }
-        // The unit goes once nothing in it waits for an answer; an OBB waits for ADR-0049.
+        // The unit goes once nothing in it waits for an answer, its containers and their folders with it; an OBB waits
+        // for ADR-0049's step d.
         if !results.contains(where: { if case .ask = $0.decision { true } else { false } }) {
-            for url in urls { try? FileManager.default.removeItem(at: url) }
+            for url in urls + taken { try? FileManager.default.removeItem(at: url) }
             rmdir(unit.path)
         }
         progress(1)
         return results
+    }
+
+    /// What a unit's file gives (ADR-0049 a3).
+    private enum Expanded {
+        case apk
+        /// The APKs taken out, each with its name in `folder`.
+        case container(apks: [(url: URL, name: String)], folder: URL)
+        case refused(ContainerError)
+    }
+
+    /// A unit's file as an APK, as a container's APKs taken out into ".<file>.contents/" by ADR-0049's extraction, or
+    /// as the reason Minato refuses it. A folder an earlier import took out whole, while a question waited, is taken as
+    /// it is; a ".partial" one goes. Errors that are no container's, such as a full disk, stop the import, and the
+    /// unit waits.
+    private func expand(_ file: URL, in unit: URL) throws -> Expanded {
+        let container: Container
+        do {
+            container = try Container.open(file)
+        } catch let error as ContainerError {
+            return Self.isAPK(file) ? .apk : .refused(error)
+        }
+        do {
+            let items: [Container.Item]
+            switch container.kind {
+            case .apk: return .apk
+            case .xapk, .apkm: return .refused(.notYetSupported(container.kind))
+            case .bundletool: items = try container.bundletoolItems(for: BundletoolDevice(device)).items
+            case .looseSet: items = try container.looseSetItems()
+            }
+            // Hidden, so the unit's files never list it and no picked file shares its name.
+            let folder = unit.appendingPathComponent(".\(file.lastPathComponent).contents", isDirectory: true)
+            let apks = items.map { (folder.appendingPathComponent($0.fileName), $0.fileName) }
+            if !apks.allSatisfy({ FileManager.default.fileExists(atPath: $0.0.path) }) {
+                try? FileManager.default.removeItem(at: folder)
+                try container.extract(items, into: folder)
+            }
+            return .container(apks: apks, folder: folder)
+        } catch let error as ContainerError {
+            return .refused(error)
+        }
+    }
+
+    /// An `.invalid` entry of a container Minato refuses; the app shows its reason as it is (ADR-0049 a3).
+    private func refuse(_ file: URL, _ error: ContainerError) throws -> ImportResult {
+        var entry = LibraryEntry(
+            id: "file:\(file.lastPathComponent)", displayName: file.lastPathComponent, state: .invalid(error.refusal),
+            report: nil, base: nil, splits: [], obbs: [], source: try Self.sourceFile(for: file), iconFile: nil,
+            importedAt: Date())
+        entry.refusal = error.refusal
+        try store(entry)
+        return ImportResult(entry: entry, decision: .install, report: nil)
+    }
+
+    /// The name an APK shows: "<container>/<file>" for one taken out of a container, else its own.
+    private func displayName(of url: URL) -> String {
+        fromContainers[url]?.name ?? url.lastPathComponent
+    }
+
+    /// The file the user picked for an APK: its container for one taken out of a container, else the APK.
+    private func sourceFile(for url: URL) throws -> SourceFile {
+        try fromContainers[url]?.source ?? Self.sourceFile(for: url)
     }
 
     /// One set of a unit (ADR-0048, decisions 3 to 7): the base with its chosen splits, or splits without their base,
@@ -458,7 +555,7 @@ public actor Library {
         func refuse(_ reason: String, file: SetMember, isDescription: Bool = false) throws -> ImportResult {
             var entry = LibraryEntry(
                 id: "file:\(file.fileName)", displayName: file.fileName, state: .invalid(reason), report: nil, base: nil,
-                splits: [], obbs: [], source: try Self.sourceFile(for: files[file.fileName]!.url), iconFile: nil,
+                splits: [], obbs: [], source: try sourceFile(for: files[file.fileName]!.url), iconFile: nil,
                 importedAt: Date())
             if !isDescription { entry.refusal = reason }
             try store(entry)
@@ -522,7 +619,7 @@ public actor Library {
         }
         let installing = [base] + choice.chosen
         let digest = choice.chosen.isEmpty ? base.sha256 : try SetDigest.of(installing.map { ($0.splitName, $0.sha256) })
-        var source = try installedSource ?? Self.sourceFile(for: apks[nil]!.url)
+        var source = try installedSource ?? sourceFile(for: apks[nil]!.url)
         source.sha256 = base.sha256
         let new = NewVersion(
             report: report, digest: digest, source: source,
@@ -834,6 +931,10 @@ public actor Library {
 
     static func isAPK(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == "apk"
+    }
+
+    static func isOBB(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "obb"
     }
 
     /// Android package names: dot-separated segments of letters, digits and underscores.

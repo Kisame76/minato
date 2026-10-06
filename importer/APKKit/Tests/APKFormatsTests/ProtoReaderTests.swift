@@ -70,6 +70,25 @@ struct ProtoReaderTests {
         #expect(throws: ProtoError.invalid("a message nested more than 32 levels")) { try depth(of: nested(33)) }
     }
 
+    @Test func aNestedMessageSharesItsParentsBytes() throws {
+        // Each level reading a copy would cost a 16 MiB toc.pb its depth times 16 MiB (the lead's review of a2):
+        // field 1 holds field 2, which holds 200 bytes, and both point into the outer buffer.
+        let payload = Data(repeating: 0x2A, count: 200)
+        let middle = Data([0x12, 0xC8, 0x01]) + payload
+        let outer = Data([0x0A, 0xCB, 0x01]) + middle
+        var reader = try ProtoReader(outer)
+        let first = try #require(try reader.next())
+        guard case .bytes(let middleBytes) = first.value else { Issue.record("field 1 is no message"); return }
+        var inner = try reader.message(middleBytes)
+        let second = try #require(try inner.next())
+        guard case .bytes(let payloadBytes) = second.value else { Issue.record("field 2 holds no bytes"); return }
+        #expect(payloadBytes == payload)
+        outer.withUnsafeBytes { outerBuffer in
+            middleBytes.withUnsafeBytes { #expect($0.baseAddress == outerBuffer.baseAddress! + 3) }
+            payloadBytes.withUnsafeBytes { #expect($0.baseAddress == outerBuffer.baseAddress! + 6) }
+        }
+    }
+
     @Test func readsTheValuesTheTocHolds() throws {
         #expect(try ProtoReader.Value.varint(1).bool() == true)
         #expect(try ProtoReader.Value.varint(0).bool() == false)

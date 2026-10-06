@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 
 extension UTType {
     static let apk = UTType(importedAs: "com.android.package-archive")
+    /// project.yml's imported type for bundletool's, SAI's and App Manager's .apks (ADR-0049 a3).
+    static let apkSet = UTType(importedAs: "io.github.kisame76.minato.apks")
 }
 
 /// The library, laid out like a folder in the Files app: icon grid, search, a "…" menu with Select
@@ -31,8 +33,10 @@ struct LibraryView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
                 .toolbar { toolbar }
-                // An app's APKs, or their folder, as one pick (ADR-0048, decision 1).
-                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .folder], allowsMultipleSelection: true) { result in
+                // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
+                // (ADR-0049 a3).
+                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .zip, .folder],
+                              allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }
                 }

@@ -40,13 +40,15 @@ public enum ContainerError: Error, Sendable, Equatable, LocalizedError {
     case invalidTOC(String)
     /// Nothing in the container fits this iPhone, as `extract-apks` would say.
     case incompatible(String)
+    /// A kind whose step has not come yet: an XAPK (ADR-0049 step c) or an APKM (step e).
+    case notYetSupported(ContainerKind)
 
     public var errorDescription: String? {
         switch self {
         case .invalidTOC(let reason), .incompatible(let reason): reason
         case .notAZip(let encryptedAPKM): encryptedAPKM ? "Encrypted APKM files aren’t supported" : "it is no ZIP archive"
-        case .unreadable(let error): "it is damaged (\(error))"
-        case .encrypted(let name): "“\(name)” in it is encrypted"
+        case .unreadable(let error): "it is damaged: \(Self.reason(error))"
+        case .encrypted(let name): "“\(name)” in it is encrypted, and Minato never decrypts"
         case .overCap(let reason): reason
         case .noAPK: "it holds no APK"
         case .checksumMismatch(let name): "“\(name)” in it is damaged: its checksum does not match"
@@ -54,6 +56,36 @@ public enum ContainerError: Error, Sendable, Equatable, LocalizedError {
             "it needs \(Self.bytes(needed)) of free space, and \(Self.bytes(available)) are free"
         case .unsafeName(let name): "“\(name)” is no name for a file Minato takes out of it"
         case .destinationExists: "the folder for its files exists already"
+        case .notYetSupported(let kind): "\(kind == .apkm ? "APKM" : "XAPK") files aren’t supported yet"
+        }
+    }
+
+    /// A sentence for the library to show as an entry's refusal, after "Not installed:" (ADR-0049 a3).
+    public var refusal: String {
+        switch self {
+        case .notAZip(encryptedAPKM: false): return "It is neither an APK nor a container of APKs"
+        default:
+            let description = errorDescription ?? "\(self)"
+            return description.prefix(1).uppercased() + description.dropFirst()
+        }
+    }
+
+    /// The ZIP reader's reason in words, where its own description would show the enum.
+    static func reason(_ error: APKError) -> String {
+        switch error {
+        case .notAZipArchive: "it is no ZIP archive"
+        case .truncated(let reason), .invalidArchive(let reason): reason
+        case .unsupportedCompression(let entry, let method): "\(entry) uses the compression method \(method)"
+        case .encryptedEntry(let entry): "\(entry) is encrypted"
+        case .entryNotFound(let entry): "\(entry) is missing"
+        case .entryTooLarge(let entry, let size): "\(entry) is larger than \(size) bytes"
+        case .crcMismatch(let entry): "\(entry) does not match its checksum"
+        case .duplicateEntry(let entry): "\(entry) is in it twice"
+        case .invalidEntryName(let entry): "an entry's name is not valid: \(entry)"
+        case .inconsistentEntry(let entry, let reason): "\(entry): \(reason)"
+        case .invalidBinaryXML(let reason), .invalidManifest(let reason), .invalidResourceTable(let reason),
+             .invalidSigningBlock(let reason), .invalidCertificate(let reason), .invalidELF(let reason):
+            reason
         }
     }
 

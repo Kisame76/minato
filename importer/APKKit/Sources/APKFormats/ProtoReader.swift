@@ -36,18 +36,22 @@ public struct ProtoReader {
 
     /// The level of this message below the outermost one, which is 0.
     public let depth: Int
-    private let bytes: [UInt8]
-    private var position = 0
+    /// The message's bytes, which a field's bytes are a slice of, never a copy: a nested message shares its parent's
+    /// storage, so a toc costs its size once, whatever its depth (the lead's review of a2).
+    private let bytes: Data
+    /// An index into `bytes`, which a slice keeps from its parent.
+    private var position: Int
 
     public init(_ data: Data, depth: Int = 0) throws {
         guard depth <= Self.maxDepth else { throw ProtoError.invalid("a message nested more than \(Self.maxDepth) levels") }
-        bytes = [UInt8](data)
+        bytes = data
+        position = data.startIndex
         self.depth = depth
     }
 
     /// The next field, or nil at the message's end.
     public mutating func next() throws -> Field? {
-        guard position < bytes.count else { return nil }
+        guard position < bytes.endIndex else { return nil }
         let key = try varint()
         let number = key >> 3
         guard number != 0, number <= Self.maxFieldNumber else { throw ProtoError.invalid("field number \(number)") }
@@ -57,8 +61,8 @@ public struct ProtoReader {
         case 1: return Field(number: field, value: .fixed64(try littleEndian(8, of: field)))
         case 2:
             let length = try varint()
-            guard length <= UInt64(bytes.count - position) else { throw ProtoError.truncated("field \(field)'s \(length) bytes") }
-            return Field(number: field, value: .bytes(Data(try take(Int(length), of: field))))
+            guard length <= UInt64(bytes.endIndex - position) else { throw ProtoError.truncated("field \(field)'s \(length) bytes") }
+            return Field(number: field, value: .bytes(try take(Int(length), of: field)))
         case 5: return Field(number: field, value: .fixed32(UInt32(try littleEndian(4, of: field))))
         case let type: throw ProtoError.invalid("wire type \(type) of field \(field)")
         }
@@ -72,7 +76,7 @@ public struct ProtoReader {
     private mutating func varint() throws -> UInt64 {
         var result: UInt64 = 0
         for index in 0..<10 {
-            guard position < bytes.count else { throw ProtoError.truncated("a varint") }
+            guard position < bytes.endIndex else { throw ProtoError.truncated("a varint") }
             let byte = bytes[position]
             position += 1
             if index == 9, byte > 1 {
@@ -88,8 +92,9 @@ public struct ProtoReader {
         try take(count, of: field).reversed().reduce(0) { $0 << 8 | UInt64($1) }
     }
 
-    private mutating func take(_ count: Int, of field: Int) throws -> ArraySlice<UInt8> {
-        guard count <= bytes.count - position else { throw ProtoError.truncated("field \(field)'s \(count) bytes") }
+    /// The next `count` bytes as a slice of the message's.
+    private mutating func take(_ count: Int, of field: Int) throws -> Data {
+        guard count <= bytes.endIndex - position else { throw ProtoError.truncated("field \(field)'s \(count) bytes") }
         defer { position += count }
         return bytes[position..<position + count]
     }

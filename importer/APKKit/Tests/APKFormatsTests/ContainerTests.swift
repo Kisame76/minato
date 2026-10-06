@@ -199,4 +199,29 @@ struct ContainerTests {
         let file = try File(Self.zip([("readme.txt", Self.apk), ("__MACOSX/._base.apk", Self.apk)]), name: "a.zip")
         #expect(throws: ContainerError.noAPK) { try Container.open(file.url).looseSetAPKs() }
     }
+
+    // MARK: - What the library shows (ADR-0049 a3)
+
+    @Test(arguments: [
+        (ContainerError.notAZip(encryptedAPKM: true), "Encrypted APKM files aren’t supported"),
+        (.notAZip(encryptedAPKM: false), "It is neither an APK nor a container of APKs"),
+        (.unreadable(.invalidArchive("it holds no entries")), "It is damaged: it holds no entries"),
+        (.unreadable(.truncated("base.apk: got 3 of 9 bytes")), "It is damaged: base.apk: got 3 of 9 bytes"),
+        (.unreadable(.notAZipArchive), "It is damaged: it is no ZIP archive"),
+        (.unreadable(.crcMismatch("base.apk")), "It is damaged: base.apk does not match its checksum"),
+        (.encrypted("base.apk"), "“base.apk” in it is encrypted, and Minato never decrypts"),
+        (.overCap("it holds 513 APKs, more than the 512 Minato takes from a container"),
+         "It holds 513 APKs, more than the 512 Minato takes from a container"),
+        (.noAPK, "It holds no APK"),
+        (.checksumMismatch("base.apk"), "“base.apk” in it is damaged: its checksum does not match"),
+        (.notEnoughSpace(needed: 3_000_000, available: 1_000_000), "It needs 3 MB of free space, and 1 MB are free"),
+        (.invalidTOC("its toc.pb is cut short in a varint"), "Its toc.pb is cut short in a varint"),
+        (.incompatible("No arm64-v8a APK"), "No arm64-v8a APK"),
+        (.notYetSupported(.xapk), "XAPK files aren’t supported yet"),
+        (.notYetSupported(.apkm), "APKM files aren’t supported yet"),
+    ] as [(ContainerError, String)])
+    func eachRefusalIsASentenceForTheLibrary(_ error: ContainerError, _ refusal: String) {
+        // The library shows an entry's refusal as it is, after "Not installed:".
+        #expect(error.refusal == refusal)
+    }
 }

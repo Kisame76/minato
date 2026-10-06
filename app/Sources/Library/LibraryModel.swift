@@ -33,7 +33,8 @@ struct LibraryItem: Identifiable {
 /// A pick that waits in incoming/ (ADR-0048, decision 1): a unit's folder, or a file an older build left there.
 struct WaitingUnit {
     let url: URL
-    /// Its APKs' names in the order the library reads them (`Library.scan`), so the title stays the same.
+    /// Its APKs' and containers' names in the order the library reads them (`Library.importUnit`), so the title stays
+    /// the same.
     let apks: [String]
     /// Their size together, for the log.
     let size: Int
@@ -43,14 +44,15 @@ struct WaitingUnit {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys),
                                                                   options: [.skipsHiddenFiles])) ?? [url]
+        // Its APKs and containers (ADR-0049 a3), not the OBBs, which wait for their step.
         let apks = files
-            .filter { $0.pathExtension.lowercased() == "apk" && (try? $0.resourceValues(forKeys: keys))?.isRegularFile == true }
+            .filter { $0.pathExtension.lowercased() != "obb" && (try? $0.resourceValues(forKeys: keys))?.isRegularFile == true }
             .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
         self.apks = apks.map(\.lastPathComponent)
         size = apks.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: keys))?.fileSize ?? 0) }
     }
 
-    /// Its tile's title: the first APK, and how many more the unit holds.
+    /// Its tile's title: the first APK or container, and how many more the unit holds.
     var title: String {
         guard let first = apks.first else { return url.lastPathComponent }
         let name = url.appendingPathComponent(first).deletingPathExtension().lastPathComponent

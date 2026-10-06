@@ -4,11 +4,14 @@
 # asking sets asks once, and "Replace" answers both; a set with a split Minato cannot verify asks, as a fresh install
 # and over the installed version; one unit's rejections share one alert; and a question over an installed and a fresh
 # set says what it does to each. Each unit goes into the library's incoming/ folder as a folder of APKs, as "+" leaves a
-# pick there, and a launch imports it. The Debug build answers through app/Sources/Library/UpdateCheck.swift. The test
-# apps are removed afterwards.
+# pick there, and a launch imports it. Then containers (ADR-0049 a3): a set in SAI's .apks, in bundletool's .apks with a
+# toc.json, which skips the set's x86_64 split, and in a plain .zip each install or update its app, and a .apks without
+# an APK and an XAPK say why on their tiles; the app's Info.plist offers it for .apks in "Open with". The Debug build
+# answers through app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
 # Usage: tools/set-check.sh [simulator name or UDID]
 # Optional environment:
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
+#   APP         a built Minato.app (Debug) to install in place of tools/sim.sh's build
 #   SHOTS       a folder for screenshots of each question, alert, note and tile
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -112,7 +115,59 @@ apk ar/a-base.apk A 4 ' android:isSplitRequired="true"'
 apk ar/a-split_config.x86_64.apk A 4 ' split="config.x86_64"'
 cp "$WORK/units/ag/g-base.apk" "$WORK/units/ag/g-split_config.de.apk" "$WORK/units/ar/"
 
-if [[ -n "${SKIP_BUILD:-}" ]]; then
+# Containers (ADR-0049 a3): K 1.0 to 3.0, each a set whose x86_64 split the choice skips, packed as SAI, bundletool and
+# a zipped folder do; then a .apks without an APK and an XAPK.
+for code in 1 2 3; do
+  set_of "k$code-files" K "$code"
+  apk "k$code-files/split_config.x86_64.apk" K "$code" ' split="config.x86_64"'
+done
+# container <unit>/<name> <entry>=<file> ...: a ZIP whose entries are stored, as bundletool and SAI store them; an
+# entry without a file holds its name.
+container() {
+  mkdir -p "$WORK/units/$(dirname "$1")"
+  python3 - "$WORK/units/$1" "${@:2}" <<'EOF'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_STORED) as out:
+    for pair in sys.argv[2:]:
+        name, _, path = pair.partition("=")
+        if path:
+            out.write(path, name)
+        else:
+            out.writestr(name, name)
+EOF
+}
+K1=$WORK/units/k1-files K2=$WORK/units/k2-files K3=$WORK/units/k3-files
+container k1/k.apks base.apk="$K1/base.apk" split_config.arm64_v8a.apk="$K1/split_config.arm64_v8a.apk" \
+  split_config.x86_64.apk="$K1/split_config.x86_64.apk" meta.sai_v2.json=
+python3 - "$WORK/toc.json" "${PREFIX}k" <<'EOF'
+import json
+import sys
+
+def abi(alias, other):
+    return {"value": [{"alias": alias}], "alternatives": [{"alias": other}]}
+
+toc = {"packageName": sys.argv[2], "bundletool": {"version": "1.18.3"}, "variant": [{
+    "targeting": {"sdkVersionTargeting": {"value": [{"min": 21}]}},
+    "apkSet": [{"moduleMetadata": {"name": "base", "deliveryType": "INSTALL_TIME"}, "apkDescription": [
+        {"path": "splits/base-master.apk", "splitApkMetadata": {"isMasterSplit": True}},
+        {"path": "splits/base-arm64_v8a.apk", "splitApkMetadata": {"splitId": "config.arm64_v8a"},
+         "targeting": {"abiTargeting": abi("ARM64_V8A", "X86_64")}},
+        {"path": "splits/base-x86_64.apk", "splitApkMetadata": {"splitId": "config.x86_64"},
+         "targeting": {"abiTargeting": abi("X86_64", "ARM64_V8A")}}]}]}]}
+json.dump(toc, open(sys.argv[1], "w"))
+EOF
+container k2/k.apks toc.json="$WORK/toc.json" splits/base-master.apk="$K2/base.apk" \
+  splits/base-arm64_v8a.apk="$K2/split_config.arm64_v8a.apk" splits/base-x86_64.apk="$K2/split_config.x86_64.apk"
+container k3/k.zip "K/base.apk=$K3/base.apk" "K/arm64.apk=$K3/split_config.arm64_v8a.apk" \
+  "K/x86_64.apk=$K3/split_config.x86_64.apk" "__MACOSX/K/._base.apk="
+container x1/empty.apks readme.txt=
+container x2/game.xapk manifest.json= "${PREFIX}k.apk=$K1/base.apk"
+
+if [[ -n "${APP:-}" ]]; then
+  xcrun simctl install "$SIM_UDID" "$APP"
+elif [[ -n "${SKIP_BUILD:-}" ]]; then
   xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
 else
   INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
@@ -229,7 +284,19 @@ remove() {
   for _ in $(seq 1 50); do [[ -d "$CHECK" ]] || break; sleep 0.2; done
   mkdir -p "$CHECK"
 }
-APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE")
+APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE" "${PREFIX}k" "file:empty.apks"
+      "file:game.xapk")
+# Whether the installed app claims .apks for "Open with": its document type and the type it imports (project.yml).
+open_with_apks() {
+  local app
+  app=$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" app)
+  if plutil -extract CFBundleDocumentTypes json -o - "$app/Info.plist" | grep -q '"io.github.kisame76.minato.apks"' \
+      && plutil -extract UTImportedTypeDeclarations json -o - "$app/Info.plist" | grep -q '"apks"'; then
+    echo yes
+  else
+    echo no
+  fi
+}
 
 # Test apps and units left from an earlier run go first.
 for unit in "$WORK"/units/*; do rm -rf "$INCOMING/$(basename "$unit")"; done
@@ -336,6 +403,24 @@ sleep 1
 expect "  alerts the rejection once" "1" "$(count "rejection ")"
 expect "  A stays 1.0" "1.0" "$(entry "${PREFIX}a" | cut -d ' ' -f 1)"
 expect "  the unit is gone" "no" "$(waiting ar)"
+
+offer k1
+expect "a set in SAI's .apks" "tile Set Check K | Ready" "$(event "tile Set Check K")"
+expect "  takes the splits it takes as loose files" "1.0 splits config.arm64_v8a skipped config.x86_64" "$(entry "${PREFIX}k")"
+expect "  the unit is gone" "no" "$(waiting k1)"
+offer k2
+expect "a set in bundletool's .apks" "note Updated “Set Check K” to 2.0." "$(event "note ")"
+expect "  with the toc's choice" "2.0 splits config.arm64_v8a skipped -" "$(entry "${PREFIX}k")"
+offer k3
+expect "a set in a plain .zip" "note Updated “Set Check K” to 3.0." "$(event "note ")"
+expect "  its splits" "3.0 splits config.arm64_v8a skipped config.x86_64" "$(entry "${PREFIX}k")"
+offer x1
+expect "a .apks without an APK" "tile empty.apks | Not installed: It holds no APK" "$(event "tile empty.apks")"
+shot container-refusal-tile
+offer x2
+expect "an XAPK before its step" "tile game.xapk | Not installed: XAPK files aren’t supported yet" "$(event "tile game.xapk")"
+expect "  the units are gone" "no no" "$(waiting x1) $(waiting x2)"
+expect "\"Open with\" offers Minato for .apks" "yes" "$(open_with_apks)"
 
 for app in "${APPS[@]}"; do remove "$app"; done
 rm -rf "$CHECK"
