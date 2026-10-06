@@ -9,9 +9,11 @@
 // AAssetManager_fromJava and ANativeWindow_fromSurface call into libandroid_runtime), and ours will too in step c.
 // A function libandroid lacks throws UnsatisfiedLinkError with its name.
 // Since ADR-0043 step c1 the others connect the driver to the host's session as activity-host connects (ADR-0028):
-// the event pipe's descriptor, one record read at a time, each event answered, the FINISH request, and the end.
+// the event pipe's descriptor, one record read at a time, each event answered, the FINISH request, and the end; since
+// ADR-0043 step c4 also SurfaceView's surface request, whose struct the native fills.
 #include <android/configuration.h>
 #include <dlfcn.h>
+#include <stddef.h>
 #include <errno.h>
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
@@ -160,6 +162,31 @@ jint SessionRequest(JNIEnv *, jclass, jint type, jlong a0, jlong a1) {
     return syscall(APKRT_NR_SESSION_REQUEST, type, a0, a1) < 0 ? -errno : 0;
 }
 
+// The request's layout as the runtime reads it (guest_interface.h).
+static_assert(sizeof(apkrt_surface_request) == 48 && offsetof(apkrt_surface_request, token) == 8 &&
+                      offsetof(apkrt_surface_request, left) == 16 && offsetof(apkrt_surface_request, opaque) == 44,
+              "struct apkrt_surface_request");
+
+// APKRT_REQUEST_SURFACE (ADR-0043 step c4): SurfaceView's make, place or remove, its struct by address, which the
+// runtime checks and hands the host; 0, or the negative errno.
+jint SessionRequestSurface(JNIEnv *, jclass, jint op, jint z, jlong token, jint left, jint top, jint right,
+                           jint bottom, jint width, jint height, jint format) {
+    apkrt_surface_request request = {};
+    request.op = static_cast<uint32_t>(op);
+    request.z = z;
+    request.token = static_cast<uint64_t>(token);
+    request.left = left;
+    request.top = top;
+    request.right = right;
+    request.bottom = bottom;
+    request.width = width;
+    request.height = height;
+    request.format = format;
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_SURFACE, reinterpret_cast<uintptr_t>(&request), 0) < 0
+                   ? -errno
+                   : 0;
+}
+
 [[noreturn]] void Exit(JNIEnv *, jclass, jint status) {
     _exit(status);
 }
@@ -172,6 +199,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRead", "(Ljava/io/FileDescriptor;[J)Z", reinterpret_cast<void *>(SessionRead)},
         {"nativeSessionAnswer", "(I)V", reinterpret_cast<void *>(SessionAnswer)},
         {"nativeSessionRequest", "(IJJ)I", reinterpret_cast<void *>(SessionRequest)},
+        {"nativeSessionRequestSurface", "(IIJIIIIIII)I", reinterpret_cast<void *>(SessionRequestSurface)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},
 };
 

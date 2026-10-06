@@ -153,9 +153,10 @@ fi
 # gesture navigation, as our window manager answers that a navigation bar exists (step c2c2). start-stops-test
 # (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, java-test (ADR-0043 step c1),
 # whose lifecycle the host drives as Minato's does, views-test (step c3), whose screen nothing but the bars covers
-# there, and text-test (step d)), which also waits for its window's focus.
+# there, text-test (step d)), which also waits for its window's focus, and surface-test (step c4), whose GLSurfaceView
+# fills the window between the bars.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
-  "$app" == views-test || "$app" == text-test ]]; then
+  "$app" == views-test || "$app" == text-test || "$app" == surface-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -448,6 +449,11 @@ run_app() {
     # text-test (ADR-0043 step d)): its own launcher activity, which ends with "done" at its window's first focus.
     text-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TextActivity
+      ;;
+    # surface-test (ADR-0043 step c4): its own launcher activity, whose GLSurfaceView draws its fixed frames after the
+    # window's first focus and which ends with "done".
+    surface-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SurfaceActivity
       ;;
     # app-start-test (ADR-0039 test 1) prints its lines to System.out from its Application class.
     app-start-test)

@@ -75,6 +75,7 @@ import android.util.Slog;
 import android.util.SuperNotCalledException;
 import android.util.UtilConfig;
 import android.view.Display;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewManager;
 import android.view.ViewRootImpl;
@@ -785,8 +786,16 @@ public final class ActivityThread {
     private static final int EVENT_NATIVE_WINDOW_REDRAW_NEEDED = 11;
     private static final int EVENT_NATIVE_WINDOW_DESTROYED = 12;
     private static final int EVENT_LOW_MEMORY = 17;
+    private static final int EVENT_SURFACE_CREATED = 18;
+    private static final int EVENT_SURFACE_RESIZED = 19;
+    private static final int EVENT_SURFACE_DESTROYED = 20;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
+    private static final int SURFACE_MAKE = 1;
+    private static final int SURFACE_PLACE = 2;
+    private static final int SURFACE_REMOVE = 3;
+    /** Linux's EOPNOTSUPP: without a session, a host gives no surfaces. */
+    private static final int EOPNOTSUPP = 95;
 
     /** The session's event pipe; null without a session. */
     private FileDescriptor mSessionEvents;
@@ -896,6 +905,15 @@ public final class ActivityThread {
                     root.setHostWindow(0, 0, 0);
                 }
                 break;
+            case EVENT_SURFACE_CREATED:
+                SurfaceView.dispatchSurfaceCreated(event[2], event[3], (int) event[4], (int) (event[4] >>> 32));
+                break;
+            case EVENT_SURFACE_RESIZED:
+                SurfaceView.dispatchSurfaceResized(event[2], (int) event[4], (int) (event[4] >>> 32));
+                break;
+            case EVENT_SURFACE_DESTROYED:
+                SurfaceView.dispatchSurfaceDestroyed(event[2]);
+                break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
                 break;
@@ -932,6 +950,36 @@ public final class ActivityThread {
      * @hide ViewRootImpl's (ADR-0043 c3): the window's format, a PixelFormat, to the session's host, as
      * ANativeActivity_setWindowFormat sends it; the runtime reports its opacity. Nothing without a session.
      */
+    /**
+     * @hide SurfaceView's (ADR-0043 c4): a surface of the host's at a frame in the window's pixels, below the window
+     * (z < 0) or above it, with its buffer's size, 0 x 0 for the frame's, and format. The session answers with
+     * SURFACE_CREATED; a negative answer is an errno, -EOPNOTSUPP without a session.
+     */
+    public static int makeSurface(long token, int z, int left, int top, int right, int bottom, int width, int height,
+            int format) {
+        return requestSurface(SURFACE_MAKE, z, token, left, top, right, bottom, width, height, format);
+    }
+
+    /** @hide SurfaceView's: a new frame, order or size; a new size is answered with SURFACE_RESIZED. */
+    public static int placeSurface(long token, int z, int left, int top, int right, int bottom, int width,
+            int height) {
+        return requestSurface(SURFACE_PLACE, z, token, left, top, right, bottom, width, height, 0);
+    }
+
+    /** @hide SurfaceView's: the surface goes, after its surfaceDestroyed; no answer. */
+    public static int removeSurface(long token) {
+        return requestSurface(SURFACE_REMOVE, 0, token, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    private static int requestSurface(int op, int z, long token, int left, int top, int right, int bottom, int width,
+            int height, int format) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestSurface(op, z, token, left, top, right, bottom, width, height, format);
+    }
+
     public static void requestWindowFormat(int format) {
         final ActivityThread thread = sCurrentActivityThread;
         if (thread == null || thread.mSessionEvents == null) {
@@ -1083,6 +1131,10 @@ public final class ActivityThread {
 
     /** session_request: 0, or the negative errno. */
     private static native int nativeSessionRequest(int type, long a0, long a1);
+
+    /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
+    private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,
+            int bottom, int width, int height, int format);
 
     /** Ends the process at once, as activity-host's _exit does: Android kills the app's process later anyway. */
     private static native void nativeExit(int status);

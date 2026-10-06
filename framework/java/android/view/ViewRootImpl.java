@@ -131,12 +131,18 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mApplyInsetsRequested;
     private boolean mUpcomingWindowFocus;
     private boolean mWindowFocusChanged;
+    /** The host's focus, held until the window drew with its SurfaceViews' surfaces (releaseHeldFocus). */
+    private boolean mFocusHeld;
+    /** Whether the window drew since its host window came. */
+    private boolean mDrawnSinceHostWindow;
     private int mWidth = -1;
     private int mHeight = -1;
     /** Whether the host's session gives the windows, their sizes and their focus (ADR-0043 step c1). */
     private static boolean sHostWindows;
     /** The host's window, from its session's events: its ID, 0 without one, and its size, 0 before the first. */
     private long mHostWindow;
+    /** Our SurfaceViews, which hear of the window's surface and stop (ADR-0043 c4). */
+    private final ArrayList<WindowSurfaceCallback> mWindowSurfaceCallbacks = new ArrayList<>();
     private int mHostWidth;
     private int mHostHeight;
     private WindowInsets mLastWindowInsets;
@@ -331,8 +337,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (viewVisibility == View.VISIBLE) {
             if (cancelDraw) {
                 scheduleTraversals();
-            } else {
-                performDraw();
+            } else if (performDraw()) {
+                mDrawnSinceHostWindow = true;
+                releaseHeldFocus();
             }
         }
         if (first && !sHostWindows) {
@@ -346,6 +353,41 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
+     * @hide What our SurfaceView hears of its window (ADR-0043 c4), as AOSP's SurfaceChangedCallback tells it and as
+     * AOSP's stop reaches it: the window's own surface made or gone, and the window stopped or started.
+     */
+    public interface WindowSurfaceCallback {
+        void windowSurfaceCreated();
+
+        void windowSurfaceDestroyed();
+
+        void windowStopped(boolean stopped);
+
+        /** Whether its surface was asked for and has not come yet. */
+        boolean surfacePending();
+    }
+
+    /** @hide SurfaceView's, at its attach. */
+    public void addWindowSurfaceCallback(WindowSurfaceCallback callback) {
+        mWindowSurfaceCallbacks.add(callback);
+    }
+
+    /** @hide SurfaceView's, at its detach. */
+    public void removeWindowSurfaceCallback(WindowSurfaceCallback callback) {
+        mWindowSurfaceCallbacks.remove(callback);
+    }
+
+    /** @hide Whether the window has the host's window, and so its own surface. */
+    boolean hasHostWindow() {
+        return mHostWindow != 0;
+    }
+
+    /** @hide Whether the window is stopped (setWindowStopped). */
+    boolean isWindowStopped() {
+        return mStopped;
+    }
+
+    /**
      * @hide ActivityThread's, at the session's NATIVE_WINDOW_CREATED and RESIZED: the host's window and its size in
      * pixels, at which the next traversal lays the tree out; at NATIVE_WINDOW_DESTROYED, ID 0, and the size stays. A
      * new window gives the window's surface, as relayoutWindow's new surface does, in the window's format, and the
@@ -354,6 +396,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void setHostWindow(long id, int width, int height) {
         if (id != mHostWindow) {
             mHostWindow = id;
+            mDrawnSinceHostWindow = false;
             if (id != 0) {
                 try {
                     mSurface.transferFrom(WindowSurface.create(id, width, height));
@@ -363,7 +406,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 }
                 mFullRedrawNeeded = true;
                 scheduleTraversals();
+                for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks.toArray(new WindowSurfaceCallback[0])) {
+                    callback.windowSurfaceCreated();
+                }
             } else {
+                // As AOSP's notifySurfaceDestroyed: the SurfaceViews' surfaces go before the window's own.
+                for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks.toArray(new WindowSurfaceCallback[0])) {
+                    callback.windowSurfaceDestroyed();
+                }
                 mSurface.release();
             }
         }
@@ -539,6 +589,20 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mWindowFocusChanged = false;
             hasWindowFocus = mUpcomingWindowFocus;
         }
+        // As Android's window manager gives a window focus only once it drew, its SurfaceViews' surfaces with it
+        // (ADR-0043 c4): the host's comes at once, so it waits for the window's first draw on its host window and for
+        // every surface asked for; a loss while it waits is no change for the views.
+        if (hasWindowFocus && !readyForFocus()) {
+            mFocusHeld = true;
+            return;
+        }
+        if (!hasWindowFocus && mFocusHeld) {
+            mFocusHeld = false;
+            if (!mAttachInfo.mHasWindowFocus) {
+                return;
+            }
+        }
+        mFocusHeld = false;
         if (mAdded && mView != null) {
             mAttachInfo.mHasWindowFocus = hasWindowFocus;
             // As AOSP's: the input method manager hears of the focus around the views' callbacks.
@@ -552,6 +616,30 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 ((WindowManager.LayoutParams) mView.getLayoutParams()).softInputMode &=
                         ~WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION;
             }
+        }
+    }
+
+    /** Whether the host's focus may reach the views: no host window, or one drawn on with every surface there. */
+    private boolean readyForFocus() {
+        if (mHostWindow == 0) {
+            return true;
+        }
+        if (!mDrawnSinceHostWindow) {
+            return false;
+        }
+        for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks) {
+            if (callback.surfacePending()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @hide The window's draw and SurfaceView's surface (ADR-0043 c4): a held focus goes once nothing waits. */
+    void releaseHeldFocus() {
+        if (mFocusHeld && readyForFocus()) {
+            mFocusHeld = false;
+            windowFocusChanged(true);
         }
     }
 
@@ -952,6 +1040,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mStopped = stopped;
             if (!stopped) {
                 scheduleTraversals();
+            }
+            for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks.toArray(new WindowSurfaceCallback[0])) {
+                callback.windowStopped(stopped);
             }
         }
     }

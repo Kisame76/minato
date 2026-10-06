@@ -1025,3 +1025,7 @@ frameworks_base/core/java/android/widget/AccessibilityIterators.java
 frameworks_base/core/java/android/widget/TextViewOnReceiveContentListener.java
 frameworks_base/core/java/android/widget/TextViewTranslationCallback.java
 frameworks_base/core/java/com/android/internal/inputmethod/EditableInputConnection.java
+
+# ADR-0043 step c4: SurfaceHolder, AOSP's interface, which our SurfaceView (framework/java) implements and through which
+# GLSurfaceView and EGL take a window surface.
+frameworks_base/core/java/android/view/SurfaceHolder.java
