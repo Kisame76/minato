@@ -26,28 +26,32 @@
 //               a channel, the window created, resized with its size, the content's rectangle (the whole window),
 //               redraw needed and the focus; the window's gate opens once these are posted, before their answers, as
 //               the App's SessionBridge opens it with the focus: a Java app draws on the thread that answers them;
-//   background  the background, "scheduled", the window removed, PAUSE, the focus lost, the window destroyed, STOP
-//               and SAVE_INSTANCE_STATE;
+//   background  the background, "scheduled", the window and the surfaces removed, PAUSE, the focus lost, each
+//               surface destroyed, the window destroyed, STOP and SAVE_INSTANCE_STATE;
 //   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
 //               rectangle, the gate opening as at the start.
+// The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
+// make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
+// window away.
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
-// alone (ADR-0043 c3), as a host without a screen has: a lock gives a buffer kept for the window's geometry, cleared
-// when that is new, and the post drops what was drawn, saying so once per window on stderr ("apk-run: the first post
-// of window <id>"), which java_app_run.py --drawn looks for.
-// The guest's FINISH request then gets the quit: the window removed, PAUSE, the focus lost, the window destroyed,
-// STOP and DESTROY, or only DESTROY after a last background, as Android destroys a stopped activity. The first step is
+// alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
+// geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
+// ("apk-run: the first post of window <id>"), which java_app_run.py --drawn looks for.
+// The guest's FINISH request then gets the quit: the window and the surfaces removed, PAUSE, the focus lost, each
+// surface destroyed, the window destroyed, STOP and DESTROY, or only DESTROY after a last background, as Android
+// destroys a stopped activity. The first step is
 // start, and background and foreground alternate. A step waits 120 s for its answer, as an app process on the
 // interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays no more steps.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
 #include "frame_clock.h"
+#include "headless_host.h"
 
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
@@ -151,61 +155,29 @@ void on_request(void *, int type, std::uint64_t, const char *) {
     finishing.asked.notify_all();
 }
 
-/// --lifecycle's headless buffers, one buffer locked at a time: the buffer, its geometry, and whether a lock holds it.
-struct {
-    std::vector<std::uint8_t> pixels;
-    std::uint64_t id = 0, posted = 0;
-    std::int32_t width = 0, height = 0, format = 0;
-    std::atomic<bool> locked{false};
-} headless;
+/// --lifecycle's headless buffers, one per window (headless_host.h). A second lock of a window's buffer answers -EBUSY
+/// with a line on stderr, and each window's first post a line, which java_app_run.py's --drawn looks for.
+headless::Buffers buffers;
 
-/// A lock of the headless buffers: RGBA_8888, RGBX_8888 and RGB_565, else -EINVAL; a buffer of the window's size, with
-/// its width as its stride. The dirty rectangle is the whole buffer for another window or geometry, else the guest's
-/// cut to the buffer, and 0 0 0 0 when that leaves nothing, as graphics/host's buffers answer. While a lock holds the
-/// buffer, another lock answers -EBUSY with a line on stderr rather than take the buffer from under its writer.
 int headless_lock(void *, std::uint64_t id, apkrt_window_buffer *buffer) {
-    const int bytes = buffer->format == 1 || buffer->format == 2 ? 4 : buffer->format == 4 ? 2 : 0;
-    if (bytes == 0 || buffer->width <= 0 || buffer->height <= 0) return -EINVAL;
-    if (headless.locked.exchange(true)) {
-        std::fprintf(stderr, "apk-run: window %llu's lock while another one holds the headless buffer\n",
+    const int answer = buffers.lock(id, *buffer);
+    if (answer == -EBUSY) {
+        std::fprintf(stderr, "apk-run: window %llu's lock while another one holds its buffer\n",
                      static_cast<unsigned long long>(id));
-        return -EBUSY;
     }
-    std::int32_t *const dirty = buffer->dirty;
-    if (id != headless.id || buffer->width != headless.width || buffer->height != headless.height ||
-        buffer->format != headless.format) {
-        headless.pixels.assign(static_cast<std::size_t>(buffer->width) * static_cast<std::size_t>(buffer->height) *
-                                   static_cast<std::size_t>(bytes),
-                               0);
-        headless.id = id;
-        headless.width = buffer->width;
-        headless.height = buffer->height;
-        headless.format = buffer->format;
-        dirty[0] = dirty[1] = 0;
-        dirty[2] = buffer->width;
-        dirty[3] = buffer->height;
-    } else {
-        dirty[0] = std::max(dirty[0], 0);
-        dirty[1] = std::max(dirty[1], 0);
-        dirty[2] = std::min(dirty[2], buffer->width);
-        dirty[3] = std::min(dirty[3], buffer->height);
-        if (dirty[0] >= dirty[2] || dirty[1] >= dirty[3]) dirty[0] = dirty[1] = dirty[2] = dirty[3] = 0;
-    }
-    buffer->stride = buffer->width;
-    buffer->bits = headless.pixels.data();
-    return 0;
+    return answer;
 }
 
 int headless_post(void *, std::uint64_t id) {
-    if (id != headless.posted) {
-        headless.posted = id;
-        std::fprintf(stderr, "apk-run: the first post of window %llu\n", static_cast<unsigned long long>(id));
-    }
-    headless.locked.store(false);
-    return 0;
+    bool first = false;
+    const int answer = buffers.post(id, first);
+    if (first) std::fprintf(stderr, "apk-run: the first post of window %llu\n", static_cast<unsigned long long>(id));
+    return answer;
 }
 
-void headless_removed(void *, std::uint64_t) {}
+void headless_removed(void *, std::uint64_t id) {
+    buffers.removed(id);
+}
 
 /// Posts one event; its serial number, 0 when the post failed, which apk-run reports.
 std::uint32_t post(std::uint32_t type, std::uint64_t a0 = 0, std::uint64_t a1 = 0, std::uint64_t a2 = 0) {
@@ -214,17 +186,28 @@ std::uint32_t post(std::uint32_t type, std::uint64_t a0 = 0, std::uint64_t a1 = 
     return serial;
 }
 
+/// --lifecycle's surfaces (headless_host.h): windows without a layer, opened, sized and removed in the registry, and
+/// the events posted, from the surface handler on the guest's threads and from the lifecycle's thread.
+headless::Surfaces surfaces({
+    [](std::int32_t width, std::int32_t height) { return apkrt_window_add(nullptr, width, height); },
+    [](std::uint64_t window) { apkrt_window_set_gate(window, 1); },
+    [](std::uint64_t window, std::int32_t width, std::int32_t height) {
+        apkrt_window_set_size(window, width, height);
+    },
+    [](std::uint64_t window) { apkrt_window_remove(window); },
+    [](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) { post(type, a0, a1, a2); },
+});
+
+void on_surface(void *, const apkrt_surface_request *request) {
+    surfaces.request(*request);
+}
+
 /// Waits up to 120 s for the answer to `serial`, which answers the events before it too; false, after a line on
 /// stderr, when it did not come.
 bool answered(std::uint32_t serial, const char *what) {
     if (serial != 0 && apkrt_session_wait(serial, 120) == 1) return true;
     std::fprintf(stderr, "apk-run: no answer for %s; no more lifecycle steps\n", what);
     return false;
-}
-
-/// Two 32-bit values in one argument, `low` in the low half.
-std::uint64_t pair(std::int32_t low, std::int32_t high) {
-    return static_cast<std::uint32_t>(low) | static_cast<std::uint64_t>(static_cast<std::uint32_t>(high)) << 32;
 }
 
 /// --lifecycle's steps, then the quit after FINISH, on a thread of its own: the waits for answers may run on no
@@ -237,9 +220,20 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         const auto pixels_wide = static_cast<std::uint64_t>(width), pixels_high = static_cast<std::uint64_t>(height);
         post(APKRT_EVENT_NATIVE_WINDOW_CREATED, window, pixels_wide, pixels_high);
         post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, pixels_wide, pixels_high);
-        if (first) post(APKRT_EVENT_CONTENT_RECT_CHANGED, pair(0, 0), pair(width, height));
+        if (first) post(APKRT_EVENT_CONTENT_RECT_CHANGED, headless::pair(0, 0), headless::pair(width, height));
         post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window);
         return post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 1);
+    };
+    // The window and the surfaces go before PAUSE; the surfaces' events come after the focus, before the window's and
+    // STOP, as Android 15 calls surfaceDestroyed from the stopped window before onStop (apkrt.h's surface handler).
+    const auto hide = [&] {
+        apkrt_window_remove(window);
+        surfaces.take_away();
+        post(APKRT_EVENT_PAUSE);
+        post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
+        surfaces.post_destroyed();
+        post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
+        post(APKRT_EVENT_STOP);
     };
     bool stopped = false;
     for (std::size_t index = 0; index < steps.size(); ++index) {
@@ -255,16 +249,14 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             if (!answered(shown, "the start")) return;
         } else if (steps[index] == "background") {
             apkrt_set_background(1);
+            surfaces.set_background(true);
             if (apkrt_wait_scheduled(1.0) != 1) std::fprintf(stderr, "apk-run: \"scheduled\" did not answer yes\n");
-            apkrt_window_remove(window);
-            post(APKRT_EVENT_PAUSE);
-            post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
-            post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
-            post(APKRT_EVENT_STOP);
+            hide();
             if (!answered(post(APKRT_EVENT_SAVE_INSTANCE_STATE), "the background")) return;
             stopped = true;
         } else {
             apkrt_set_background(0);
+            surfaces.set_background(false);
             window = apkrt_window_add(nullptr, width, height);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
@@ -278,11 +270,9 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     finishing.asked.wait(hold, [] { return finishing.finish; });
     hold.unlock();
     if (!stopped) {
-        apkrt_window_remove(window);
-        post(APKRT_EVENT_PAUSE);
-        post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
-        post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
-        post(APKRT_EVENT_STOP);
+        hide();
+    } else {
+        surfaces.take_away();  // a surface made in the background
     }
     answered(post(APKRT_EVENT_DESTROY), "onDestroy");
 }
@@ -375,7 +365,10 @@ int main(int argc, char **argv) {
     if (configured) {
         // The end handler runs on the guest's thread instead of the process's end: it ends the process as that would.
         session.end = [](void *, int status) { ::_exit(status); };
-        if (!lifecycle.empty()) session.request = on_request;
+        if (!lifecycle.empty()) {
+            session.request = on_request;
+            session.surface = on_surface;
+        }
         if (apkrt_session_begin(&session) != 0) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");
             return 2;

@@ -138,6 +138,13 @@ enum apkrt_event_type {
     APKRT_EVENT_CONTENT_RECT_CHANGED,     // a0: left | top << 32; a1: right | bottom << 32 (32 bits each)
     APKRT_EVENT_CONFIGURATION_CHANGED,
     APKRT_EVENT_LOW_MEMORY,
+    // A SurfaceView's surface (ADR-0043 c4), which the guest asks for with APKRT_REQUEST_SURFACE:
+    APKRT_EVENT_SURFACE_CREATED,          // the answer to a make: a0 the surface's token; a1 its window's ID
+                                          // (apkrt_window_add); a2 width | height << 32 in pixels (32 bits each)
+    APKRT_EVENT_SURFACE_RESIZED,          // as SURFACE_CREATED: the answer to a place with another size, once the
+                                          // window has it (apkrt_window_set_size); a place that only moves gets none
+    APKRT_EVENT_SURFACE_DESTROYED,        // a0: the token; a1: the window's ID. The host took the surface away on its
+                                          // own, at the background or the end; the guest still removes the token
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -174,6 +181,31 @@ enum apkrt_request_type {
     APKRT_REQUEST_WINDOW_FORMAT,   // guest only: a0 the window's format, a PixelFormat value in its low 32 bits
                                    // (ANativeActivity_setWindowFormat)
     APKRT_REQUEST_WINDOW_OPAQUE,   // host only: the argument is 1 or 0, reported when the window's opacity changes
+    APKRT_REQUEST_SURFACE,         // guest only: a0 the address of a struct apkrt_surface_request (ADR-0043 c4)
+};
+
+/// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.
+enum apkrt_surface_op {
+    APKRT_SURFACE_MAKE = 1,  // a surface for a token that has none
+    APKRT_SURFACE_PLACE,     // the surface's new frame, z order or buffer size; its format stays the make's
+    APKRT_SURFACE_REMOVE,    // the guest is done with the surface, after surfaceDestroyed; frees the token
+};
+
+/// A surface request, 48 bytes. A format change is a remove and a make, as Android 15's SurfaceView makes a new
+/// surface for one. For a remove only the op and the token count.
+struct apkrt_surface_request {
+    uint32_t op;       // enum apkrt_surface_op
+    int32_t z;         // SurfaceView's sublayer: -2 media (its default), -1 media overlay, 1 on top, 2 a sub-panel's;
+                       // below the window's layer when negative, above it when positive
+    uint64_t token;    // the guest's name of the surface, not 0, one per live surface of the session
+    int32_t left;      // the frame in the window's pixels, not empty
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    int32_t width;     // the buffer's size in pixels; both 0 for the frame's size (setSizeFromLayout)
+    int32_t height;
+    int32_t format;    // a PixelFormat value, RGB_565 (4) by default
+    int32_t opaque;    // the runtime's, for the host: 1 unless the format has alpha (PixelFormat.formatHasAlpha)
 };
 
 /// The kinds of the window's gate.
@@ -204,6 +236,12 @@ enum apkrt_gate_kind {
 /// Android 15's PixelFormat.formatHasAlpha. So the session starts opaque, without a report. It keeps each
 /// window's frame rate as well and reports APKRT_REQUEST_FRAME_RATE when it changes, only for a window the host
 /// has not removed.
+/// APKRT_REQUEST_SURFACE (ADR-0043 c4) answers -EOPNOTSUPP without the host's surface handler; -EFAULT when the
+/// request cannot be read whole; -EINVAL for an unknown op, token 0, and for a make or place: an empty frame or one
+/// with a side above 2^20, z not -2, -1, 1 or 2, only one of width and height 0, or a buffer side, the frame's for 0
+/// and 0, outside 1 to 8192. The runtime keeps the live tokens, at most 16: a make answers -EEXIST for a live token and
+/// -ENOSPC beyond 16, a place or remove -ENOENT for a token that is not live, and the remove frees it. A token stays
+/// live until its remove, also after SURFACE_DESTROYED. The host gets a copy with the buffer's size and the opacity.
 #define APKRT_NR_SESSION_REQUEST 4104
 /// window_gate, the front libs': x0 the window's ID, x1 an enum apkrt_gate_kind. Returns 0 to go on and
 /// 1 when the window is gone, or waits:

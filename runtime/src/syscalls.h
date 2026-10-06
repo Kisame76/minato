@@ -36,6 +36,7 @@ constexpr long enotdir = 20;
 constexpr long eisdir = 21;
 constexpr long einval = 22;
 constexpr long enotty = 25;
+constexpr long enospc = 28;
 constexpr long espipe = 29;
 constexpr long erofs = 30;
 constexpr long epipe = 32;
@@ -248,6 +249,9 @@ namespace memory {
 void unmap_deferred(std::uint64_t start, std::uint64_t length);
 /// Tests only: sys_mremap calls it between its look at the VM map and its change.
 extern void (*test_pause)();
+/// Copies `length` bytes of the process's memory from `source` to `target` as the kernel copies between user
+/// addresses: false instead of a fault when either cannot be read or written (Mach's vm_read_overwrite).
+bool copy_checked(std::uint64_t target, std::uint64_t source, std::uint64_t length);
 }  // namespace memory
 
 /// process_vm_readv on the process's own memory: libunwindstack reads through it so that an unwinder never faults

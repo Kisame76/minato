@@ -385,10 +385,8 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
     }
 }
 
-namespace {
+namespace memory {
 
-/// Copies `length` bytes of the process's memory from `source` to `target` as the kernel copies between user
-/// addresses: false instead of a fault when either cannot be read or written.
 bool copy_checked(std::uint64_t target, std::uint64_t source, std::uint64_t length) {
     if (length == 0) return true;
     vm_size_t copied = 0;
@@ -396,7 +394,7 @@ bool copy_checked(std::uint64_t target, std::uint64_t source, std::uint64_t leng
                                static_cast<vm_address_t>(target), &copied) == KERN_SUCCESS && copied == length;
 }
 
-}  // namespace
+}  // namespace memory
 
 long sys_process_vm_readv(int pid, std::uint64_t local_address, std::uint64_t local_count,
                           std::uint64_t remote_address, std::uint64_t remote_count, std::uint64_t flags) {
@@ -408,7 +406,8 @@ long sys_process_vm_readv(int pid, std::uint64_t local_address, std::uint64_t lo
         std::uint64_t base = 0, length = 0;
     } local, remote;
     const auto read_element = [](Iovec &element, std::uint64_t vector, std::uint64_t index) {
-        return copy_checked(reinterpret_cast<std::uint64_t>(&element), vector + index * sizeof element, sizeof element);
+        return memory::copy_checked(reinterpret_cast<std::uint64_t>(&element), vector + index * sizeof element,
+                                    sizeof element);
     };
     std::uint64_t local_index = 0, used = 0, total = 0;
     const auto failed = [&] { return total > 0 ? static_cast<long>(total) : -linux_errno::efault; };
@@ -423,7 +422,7 @@ long sys_process_vm_readv(int pid, std::uint64_t local_address, std::uint64_t lo
                 continue;
             }
             const std::uint64_t chunk = std::min(remote.length - done, local.length - used);
-            if (!copy_checked(local.base + used, remote.base + done, chunk)) return failed();  // never split
+            if (!memory::copy_checked(local.base + used, remote.base + done, chunk)) return failed();  // never split
             done += chunk;
             used += chunk;
         }

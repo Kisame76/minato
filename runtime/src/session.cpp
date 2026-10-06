@@ -17,6 +17,7 @@
 #include <cstring>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 namespace apkrt::session {
 namespace {
@@ -66,16 +67,94 @@ bool has_alpha(std::int32_t format) {
     }
 }
 
-/// Calls the host's request handler, with the runtime signal blocked: the handler is host code, whose
-/// calls must not end with EINTR.
-void report(int type, std::uint64_t argument, const char *text) {
-    if (described.request == nullptr) return;
+/// Calls one of the host's handlers with the runtime signal blocked: the handler is host code, whose calls must not
+/// end with EINTR.
+template <typename Call>
+void as_host(Call call) {
     sigset_t runtime, before;
     sigemptyset(&runtime);
     sigaddset(&runtime, runtime_signal);
     ::pthread_sigmask(SIG_BLOCK, &runtime, &before);
-    described.request(described.context, type, argument, text);
+    call();
     ::pthread_sigmask(SIG_SETMASK, &before, nullptr);
+}
+
+/// Calls the host's request handler.
+void report(int type, std::uint64_t argument, const char *text) {
+    if (described.request == nullptr) return;
+    as_host([&] { described.request(described.context, type, argument, text); });
+}
+
+// The surfaces' live tokens (ADR-0043 c4), each with its make's format. A request's check, its change of the tokens
+// and the host's call happen under one lock, so the host gets the requests in the order the runtime took them.
+static_assert(sizeof(apkrt_surface_request) == 48);
+constexpr std::size_t surface_limit = 16;
+constexpr std::int64_t buffer_side_limit = 8192;
+constexpr std::int64_t frame_side_limit = std::int64_t{1} << 20;
+
+struct LiveSurface {
+    std::uint64_t token;
+    std::int32_t format;
+};
+
+std::mutex surfaces_lock;
+std::vector<LiveSurface> live_surfaces;
+
+/// APKRT_REQUEST_SURFACE: the request at `address` checked, its buffer's size and opacity set, and handed to the
+/// host's surface handler. 0, or the negative errno (guest_interface.h).
+long surface(std::uint64_t address) {
+    if (described.surface == nullptr) return -linux_errno::eopnotsupp;
+    apkrt_surface_request request;
+    if (address == 0 ||
+        !sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&request), address, sizeof request)) {
+        return -linux_errno::efault;
+    }
+    if (request.op != APKRT_SURFACE_MAKE && request.op != APKRT_SURFACE_PLACE && request.op != APKRT_SURFACE_REMOVE) {
+        return -linux_errno::einval;
+    }
+    if (request.token == 0) return -linux_errno::einval;
+    apkrt_surface_request host{};
+    host.op = request.op;
+    host.token = request.token;
+    if (request.op != APKRT_SURFACE_REMOVE) {
+        const std::int64_t frame_width = std::int64_t{request.right} - request.left;
+        const std::int64_t frame_height = std::int64_t{request.bottom} - request.top;
+        if (frame_width <= 0 || frame_height <= 0 || frame_width > frame_side_limit ||
+            frame_height > frame_side_limit) {
+            return -linux_errno::einval;
+        }
+        if (request.z == 0 || request.z < -2 || request.z > 2) return -linux_errno::einval;
+        if ((request.width == 0) != (request.height == 0)) return -linux_errno::einval;
+        const std::int64_t width = request.width == 0 ? frame_width : request.width;
+        const std::int64_t height = request.height == 0 ? frame_height : request.height;
+        if (width < 1 || height < 1 || width > buffer_side_limit || height > buffer_side_limit) {
+            return -linux_errno::einval;
+        }
+        host = request;
+        host.width = static_cast<std::int32_t>(width);
+        host.height = static_cast<std::int32_t>(height);
+    }
+    const std::lock_guard<std::mutex> hold(surfaces_lock);
+    const auto found = std::find_if(live_surfaces.begin(), live_surfaces.end(),
+                                    [&](const LiveSurface &live) { return live.token == request.token; });
+    switch (request.op) {
+        case APKRT_SURFACE_MAKE:
+            if (found != live_surfaces.end()) return -linux_errno::eexist;
+            if (live_surfaces.size() == surface_limit) return -linux_errno::enospc;
+            live_surfaces.push_back({request.token, request.format});
+            break;
+        case APKRT_SURFACE_PLACE:
+            if (found == live_surfaces.end()) return -linux_errno::enoent;
+            host.format = found->format;
+            break;
+        default:  // remove
+            if (found == live_surfaces.end()) return -linux_errno::enoent;
+            live_surfaces.erase(found);
+            break;
+    }
+    if (request.op != APKRT_SURFACE_REMOVE) host.opaque = has_alpha(host.format) ? 0 : 1;
+    as_host([&] { described.surface(described.context, &host); });
+    return 0;
 }
 
 /// A time limit: none below 0 or for NaN, and at most 10^9 s (about 31 years), which fits every clock.
@@ -174,6 +253,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             windows::set_frame_rate(a0, static_cast<std::uint32_t>(a1),
                                     [](std::uint32_t bits) { report(APKRT_REQUEST_FRAME_RATE, bits, nullptr); });
             return 0;
+        case APKRT_REQUEST_SURFACE:
+            return surface(a0);
         default:
             return -linux_errno::einval;
     }

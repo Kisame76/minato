@@ -139,12 +139,32 @@ typedef void (*apkrt_end_handler)(void *context, int status);
 /// may be small (an alternate signal stack): a handler that needs more hands its work to another thread.
 typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument, const char *text);
 
+/// Called for each surface request of the guest (ADR-0043 c4, guest_interface.h's struct apkrt_surface_request), on
+/// the guest thread that makes it, at once, with the runtime signal blocked, as the request handler is: it must not
+/// block. `request` lives until the handler returns. The runtime has checked it: per token a make, places and a
+/// remove, in that order, at most 16 tokens live; for a make and a place the buffer's size is set (the frame's when
+/// the guest gave 0 and 0) and so is `opaque`, and a place carries the make's format; a remove carries only the op and
+/// the token. The handler runs under the runtime's surface lock, so requests reach the host in the order the runtime
+/// took them, from whichever threads. The host answers, in its own order:
+///   - a make with a window of its own (apkrt_window_add) on a layer at the frame, below the window's layer for a
+///     negative z and above it for a positive one, by z and then in the order made, then APKRT_EVENT_SURFACE_CREATED;
+///     its gate opens as the window's does, so not in the background;
+///   - a place with the new frame and z, and for another size apkrt_window_set_size, then
+///     APKRT_EVENT_SURFACE_RESIZED; no event for a move;
+///   - a remove with apkrt_window_remove, without an event;
+///   - at the background and the end it removes every surface's window with the window, before
+///     APKRT_EVENT_PAUSE, and posts APKRT_EVENT_SURFACE_DESTROYED for each after PAUSE and the focus, before
+///     NATIVE_WINDOW_DESTROYED and STOP, where Android 15 calls surfaceDestroyed from the stopped window. The guest's
+///     place and remove of such a surface still come, and the host ignores them.
+typedef void (*apkrt_surface_handler)(void *context, const struct apkrt_surface_request *request);
+
 /// How the host describes the app before the program starts (ADR-0028, decision 3).
 struct apkrt_session {
     void *context;                             // passed to the handlers
     apkrt_end_handler end;                     // required
     apkrt_request_handler request;             // NULL: the requests go nowhere
     struct apkrt_configuration configuration;  // what activity-host gets when it connects
+    apkrt_surface_handler surface;             // NULL: surface requests answer -EOPNOTSUPP (ADR-0043 c4)
 };
 
 /// Begins the process's session: from now on the program's end calls its end handler instead of ending

@@ -16,12 +16,15 @@
 
 #include <pthread.h>
 #include <signal.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -36,7 +39,8 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/asm-generic/unistd.h, fcntl.h, errno.h.
 constexpr std::uint64_t nr_fcntl = 25, nr_read = 63;
 constexpr std::uint64_t f_getfd = 1, f_setfl = 4, fd_cloexec = 1, o_nonblock = 04000;
-constexpr long enoent = 2, eagain = 11, efault = 14, ebusy = 16, einval = 22;
+constexpr long enoent = 2, eagain = 11, efault = 14, ebusy = 16, eexist = 17, einval = 22, enospc = 28,
+               eopnotsupp = 95;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -107,6 +111,71 @@ std::vector<Request> take_requests() {
     return std::exchange(requests, {});
 }
 
+/// A surface request as the host's surface handler saw it (ADR-0043 c4).
+struct Surface {
+    apkrt_surface_request request;
+    pthread_t thread;
+    bool runtime_signal_blocked;
+};
+
+std::vector<Surface> surfaces;  // under requests_lock
+
+void on_surface(void *context, const apkrt_surface_request *request) {
+    CHECK(context == &requests);
+    const std::lock_guard<std::mutex> hold(requests_lock);
+    surfaces.push_back({*request, ::pthread_self(), runtime_signal_blocked()});
+}
+
+/// The surface requests seen since the last call.
+std::vector<Surface> take_surfaces() {
+    const std::lock_guard<std::mutex> hold(requests_lock);
+    return std::exchange(surfaces, {});
+}
+
+/// A surface request as SurfaceView makes one: a media surface below the window, RGB_565, its frame's size.
+apkrt_surface_request surface(std::uint32_t op, std::uint64_t token) {
+    apkrt_surface_request request{};
+    request.op = op;
+    request.z = -2;
+    request.token = token;
+    request.left = 0;
+    request.top = 300;
+    request.right = 1290;
+    request.bottom = 1026;
+    request.format = 4;  // PixelFormat.RGB_565
+    return request;
+}
+
+/// session_request's answer to a surface request at `address`.
+long ask_at(std::uint64_t at) {
+    return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_SURFACE, at);
+}
+
+long ask(const apkrt_surface_request &request) {
+    return ask_at(address(&request));
+}
+
+bool same(const apkrt_surface_request &a, const apkrt_surface_request &b) {
+    return std::memcmp(&a, &b, sizeof a) == 0;
+}
+
+/// Runs `body` in a child process and returns whether its checks passed there: for a session of the child's own,
+/// as a process has one. It runs on a thread of its own, as descriptors_test.cpp's does.
+template <typename Body>
+bool in_child(Body body) {
+    std::fflush(nullptr);
+    const pid_t child = ::fork();
+    if (child == 0) {
+        apk::testing::failures = 0;  // the child's checks alone
+        std::thread(body).join();
+        std::fflush(nullptr);
+        ::_exit(apk::testing::failures == 0 ? 0 : 1);
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 void on_end(void *, int) {}
 
 apkrt_configuration iphone() {
@@ -162,6 +231,18 @@ TEST(without_a_session_nothing_goes_through) {
     const auto window = apkrt_window_add(nullptr, 64, 64);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window, 0x42700000) == -enoent);  // 60.0f
     apkrt_window_remove(window);
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 7)) == -enoent);
+}
+
+TEST(a_host_without_a_surface_handler_refuses_every_surface_request) {
+    CHECK(in_child([] {
+        apkrt_session session{};
+        session.end = on_end;
+        session.configuration = iphone();
+        CHECK(apkrt_session_begin(&session) == 0);
+        CHECK(ask(surface(APKRT_SURFACE_MAKE, 7)) == -eopnotsupp);
+        CHECK(ask_at(0) == -eopnotsupp);
+    }));
 }
 
 // --- Events and answers -------------------------------------------------------------------------
@@ -171,6 +252,7 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     session.context = &requests;
     session.end = on_end;
     session.request = on_request;
+    session.surface = on_surface;
     session.configuration = iphone();
     CHECK(apkrt_session_begin(&session) == 0);
     session.configuration.width = 1;  // the runtime keeps its own copy
@@ -526,6 +608,196 @@ TEST(no_frame_rate_is_reported_for_a_removed_or_unknown_window) {
     CHECK(frame_rate(window, 60).empty());
     CHECK(frame_rate(window + 1000, 60).empty());
     CHECK(frame_rate(0, 60).empty());
+}
+
+// --- Surfaces (ADR-0043 c4) -----------------------------------------------------------------------
+
+TEST(a_surface_request_reaches_the_surface_handler_with_its_size_and_opacity) {
+    take_requests();
+    take_surfaces();
+    // A make in the frame's size: the frame is 1290 x 726 pixels.
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 7)) == 0);
+    // A place with a fixed size and another frame: format and opacity stay the make's.
+    auto place = surface(APKRT_SURFACE_PLACE, 7);
+    place.z = 1;
+    place.top = 0;
+    place.bottom = 2796;
+    place.width = 640;
+    place.height = 480;
+    place.format = 1;  // ignored: a format change is a remove and a make
+    CHECK(ask(place) == 0);
+    apkrt_surface_request remove{};  // only the op and the token count: z 0 and one side 0 are no matter
+    remove.op = APKRT_SURFACE_REMOVE;
+    remove.token = 7;
+    remove.left = 5;
+    remove.width = 7;
+    remove.format = 1;
+    CHECK(ask(remove) == 0);
+    // RGBA_8888, TRANSLUCENT and OPAQUE, which the holder makes RGB_565, but which has no alpha either.
+    for (const std::int32_t format : {1, -3, -1}) {
+        auto make = surface(APKRT_SURFACE_MAKE, 8);
+        make.format = format;
+        CHECK(ask(make) == 0);
+        CHECK(ask(surface(APKRT_SURFACE_REMOVE, 8)) == 0);
+    }
+    const auto seen = take_surfaces();
+    CHECK(seen.size() == 9);
+    CHECK(take_requests().empty());
+    if (seen.size() != 9) return;
+
+    auto made = surface(APKRT_SURFACE_MAKE, 7);
+    made.width = 1290;
+    made.height = 726;
+    made.opaque = 1;
+    CHECK(same(seen[0].request, made));
+    auto placed = place;
+    placed.format = 4;
+    placed.opaque = 1;
+    CHECK(same(seen[1].request, placed));
+    apkrt_surface_request removed{};
+    removed.op = APKRT_SURFACE_REMOVE;
+    removed.token = 7;
+    CHECK(same(seen[2].request, removed));
+    CHECK(seen[3].request.format == 1 && seen[3].request.opaque == 0);
+    CHECK(seen[5].request.format == -3 && seen[5].request.opaque == 0);
+    CHECK(seen[7].request.format == -1 && seen[7].request.opaque == 1);
+    for (const auto &each : seen) CHECK(each.thread == ::pthread_self() && each.runtime_signal_blocked);
+    CHECK(!runtime_signal_blocked());
+}
+
+TEST(the_runtime_refuses_a_surface_request_the_host_could_not_take) {
+    take_surfaces();
+    CHECK(ask_at(0) == -efault);
+    // A request on a page that is gone, and one that runs past the end of its mapping.
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);
+    const auto made = surface(APKRT_SURFACE_MAKE, 7);
+    std::memcpy(reinterpret_cast<void *>(first + page - 16), &made, 16);
+    CHECK(ask_at(first + page - 16) == -efault);
+    CHECK(ask_at(first + page) == -efault);
+    ::munmap(pages, page);
+
+    const auto refused = [](auto change) {
+        auto request = surface(APKRT_SURFACE_MAKE, 7);
+        change(request);
+        return ask(request) == -einval;
+    };
+    CHECK(refused([](auto &r) { r.op = 0; }));
+    CHECK(refused([](auto &r) { r.op = 4; }));
+    CHECK(refused([](auto &r) { r.token = 0; }));
+    CHECK(refused([](auto &r) { r.right = r.left; }));
+    CHECK(refused([](auto &r) { r.bottom = r.top - 1; }));
+    // An empty frame with a fixed size: the frame itself is refused, not only the size it would give.
+    CHECK(refused([](auto &r) { r.right = r.left; r.width = 640; r.height = 480; }));
+    CHECK(refused([](auto &r) { r.bottom = r.top - 1; r.width = 640; r.height = 480; }));
+    for (const std::int32_t z : {0, 3, -3}) CHECK(refused([z](auto &r) { r.z = z; }));
+    CHECK(refused([](auto &r) { r.width = 640; }));    // a fixed size needs both sides
+    CHECK(refused([](auto &r) { r.height = 480; }));
+    CHECK(refused([](auto &r) { r.width = -640; r.height = 480; }));
+    CHECK(refused([](auto &r) { r.width = 8193; r.height = 480; }));
+    CHECK(refused([](auto &r) { r.width = 640; r.height = 8193; }));
+    CHECK(refused([](auto &r) { r.right = 8193; }));  // the frame's size is the buffer's
+    CHECK(refused([](auto &r) { r.left = -(1 << 20); r.width = 640; r.height = 480; }));  // a frame side above 2^20
+    CHECK(refused([](auto &r) { r.left = INT32_MIN; r.right = INT32_MAX; r.width = 640; r.height = 480; }));
+    // The limits themselves pass.
+    auto largest = surface(APKRT_SURFACE_MAKE, 9);
+    largest.left = -(1 << 20) + 1290;
+    largest.width = 8192;
+    largest.height = 8192;
+    CHECK(ask(largest) == 0);
+    CHECK(ask(surface(APKRT_SURFACE_REMOVE, 9)) == 0);
+    const auto seen = take_surfaces();
+    CHECK(seen.size() == 2);
+}
+
+TEST(each_live_token_has_one_surface_and_sixteen_are_live_at_most) {
+    take_surfaces();
+    for (std::uint64_t token = 1; token <= 16; ++token) CHECK(ask(surface(APKRT_SURFACE_MAKE, token)) == 0);
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 17)) == -enospc);
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 5)) == -eexist);
+    CHECK(ask(surface(APKRT_SURFACE_PLACE, 99)) == -enoent);
+    CHECK(ask(surface(APKRT_SURFACE_REMOVE, 99)) == -enoent);
+    CHECK(ask(surface(APKRT_SURFACE_REMOVE, 5)) == 0);
+    CHECK(ask(surface(APKRT_SURFACE_PLACE, 5)) == -enoent);  // removed
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 17)) == 0);         // its place is free again
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 5)) == -enospc);
+    // A token stays live until the guest removes it, also after the host took its surface away (SURFACE_DESTROYED):
+    // its place and remove still answer 0, and the host ignores them.
+    CHECK(ask(surface(APKRT_SURFACE_PLACE, 17)) == 0);
+    for (std::uint64_t token = 1; token <= 17; ++token) {
+        if (token != 5) CHECK(ask(surface(APKRT_SURFACE_REMOVE, token)) == 0);
+    }
+    const auto seen = take_surfaces();
+    CHECK(seen.size() == 16 + 1 + 1 + 1 + 16);  // the makes, remove 5, make 17, place 17, the removes
+    if (seen.size() < 19) return;
+    CHECK(seen[16].request.op == APKRT_SURFACE_REMOVE && seen[16].request.token == 5);
+    CHECK(seen[17].request.op == APKRT_SURFACE_MAKE && seen[17].request.token == 17);
+    CHECK(seen[18].request.op == APKRT_SURFACE_PLACE && seen[18].request.token == 17);
+}
+
+TEST(surface_requests_from_many_threads_reach_the_host_one_at_a_time_in_each_tokens_order) {
+    take_surfaces();
+    std::vector<std::thread> threads;
+    for (std::uint64_t token = 101; token <= 108; ++token) {
+        threads.emplace_back([token] {
+            for (int round = 0; round < 50; ++round) {
+                CHECK(ask(surface(APKRT_SURFACE_MAKE, token)) == 0);
+                auto place = surface(APKRT_SURFACE_PLACE, token);
+                place.width = 100 + round;
+                place.height = 100;
+                CHECK(ask(place) == 0);
+                CHECK(ask(surface(APKRT_SURFACE_REMOVE, token)) == 0);
+            }
+        });
+    }
+    for (auto &thread : threads) thread.join();
+    const auto seen = take_surfaces();
+    CHECK(seen.size() == 8 * 50 * 3);
+    // Per token: make, place, remove, round after round, the place with its round's width.
+    for (std::uint64_t token = 101; token <= 108; ++token) {
+        std::uint32_t expected = APKRT_SURFACE_MAKE;
+        int round = 0;
+        bool in_order = true;
+        for (const auto &each : seen) {
+            if (each.request.token != token) continue;
+            in_order = in_order && each.request.op == expected;
+            if (expected == APKRT_SURFACE_PLACE) in_order = in_order && each.request.width == 100 + round;
+            if (expected == APKRT_SURFACE_REMOVE) ++round;
+            expected = expected == APKRT_SURFACE_REMOVE ? APKRT_SURFACE_MAKE : expected + 1;
+        }
+        CHECK(in_order && round == 50);
+    }
+}
+
+TEST(one_tokens_makes_and_removes_from_two_threads_reach_the_host_in_the_order_the_runtime_took_them) {
+    take_surfaces();
+    std::atomic<int> made{0}, removed{0};
+    std::thread maker([&] {
+        for (int round = 0; round < 2000; ++round) {
+            if (ask(surface(APKRT_SURFACE_MAKE, 200)) == 0) ++made;
+        }
+    });
+    std::thread remover([&] {
+        for (int round = 0; round < 2000; ++round) {
+            if (ask(surface(APKRT_SURFACE_REMOVE, 200)) == 0) ++removed;
+        }
+    });
+    maker.join();
+    remover.join();
+    if (made.load() > removed.load()) {
+        CHECK(ask(surface(APKRT_SURFACE_REMOVE, 200)) == 0);
+        ++removed;
+    }
+    const auto seen = take_surfaces();
+    CHECK(made.load() == removed.load() && seen.size() == static_cast<std::size_t>(2 * made.load()));
+    bool alternating = true;
+    for (std::size_t index = 0; index < seen.size(); ++index) {
+        alternating = alternating && seen[index].request.op == (index % 2 == 0 ? APKRT_SURFACE_MAKE : APKRT_SURFACE_REMOVE);
+    }
+    CHECK(alternating && made.load() > 10);
 }
 
 // --- Last: the full pipe ------------------------------------------------------------------------

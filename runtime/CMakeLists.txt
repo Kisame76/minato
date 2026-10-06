@@ -90,6 +90,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(frame_clock_test PRIVATE apk_defaults apk_testing)
   add_test(NAME runtime.frame_clock COMMAND frame_clock_test)
 
+  # apk-run's headless host (tools/headless_host.h): the session's surfaces and the windows' buffers, recorded.
+  add_executable(headless_host_test tests/headless_host_test.cpp)
+  target_include_directories(headless_host_test PRIVATE tools)
+  target_link_libraries(headless_host_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.headless_host COMMAND headless_host_test)
+
   add_executable(threads_test tests/threads_test.cpp tests/threads_probe.S)
   target_include_directories(threads_test PRIVATE src)
   target_link_libraries(threads_test PRIVATE apkrt apk_defaults apk_testing)
