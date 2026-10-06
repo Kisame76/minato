@@ -1029,3 +1029,29 @@ frameworks_base/core/java/com/android/internal/inputmethod/EditableInputConnecti
 # ADR-0043 step c4: SurfaceHolder, AOSP's interface, which our SurfaceView (framework/java) implements and through which
 # GLSurfaceView and EGL take a window surface.
 frameworks_base/core/java/android/view/SurfaceHolder.java
+
+# ADR-0043 step d), the XML drawables: the classes of the tags DrawableInflater knows that framework.jar lacked, so that
+# a theme's widgets inflate: ripple with its foreground, background, shader and animation session, layer-list,
+# animated-selector, animation-list, level-list, transition, scale, clip, rotate, animated-rotate and adaptive-icon;
+# ColorStateListDrawable, which Resources.getDrawable makes of a color state list; and VirtualRefBasePtr, which holds
+# every VectorDrawable's native tree in hwui (its natives are libandroid_runtime's, AOSP's JNI file). On a canvas that
+# is not hardware accelerated, as Minato's views draw, Android's RippleDrawable skips its patterned ripple, as on
+# Android's software path.
+frameworks_base/core/java/com/android/internal/util/VirtualRefBasePtr.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/AdaptiveIconDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/AnimatedRotateDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/AnimatedStateListDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/AnimationDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/ClipDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/ColorStateListDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/LayerDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/LevelListDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleAnimationSession.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleBackground.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleComponent.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleForeground.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleShader.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/RotateDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/ScaleDrawable.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/TransitionDrawable.java

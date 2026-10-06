@@ -44,7 +44,6 @@ com.android.internal.pm.parsing.PackageInfoCommonUtils <- android.content.pm.Pac
 com.android.internal.pm.parsing.PackageParser2 <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
 com.android.internal.pm.parsing.PackageParser2$Callback <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
 com.android.internal.pm.parsing.PackageParserException <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
-android.graphics.drawable.AdaptiveIconDrawable <- android.content.pm.PackageManager  # stays: PackageManager.isDefaultApplicationIcon, a hidden method for launchers
 com.android.internal.util.AnnotationValidations <- android.content.pm.PackageManager  # gap: PackageManager.ComponentEnabledSetting (API 33)
 android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo  # stays: ActivityInfo's display sandboxing checks, which the window manager makes with its own config
 
@@ -95,10 +94,7 @@ android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: The
 android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
 
 # Drawables and graphics.
-android.graphics.drawable.ColorStateListDrawable <- android.content.res.ResourcesImpl  # gap: Resources.getDrawable of a color state list
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
-com.android.internal.util.VirtualRefBasePtr <- android.graphics.drawable.VectorDrawable  # gap: every VectorDrawable.inflate makes one (VectorDrawableState.createNativeTree) (App: VirtualRefBasePtr's natives are libandroid_runtime's)
-com.android.internal.util.VirtualRefBasePtr <- android.graphics.CanvasProperty, android.graphics.HardwareRendererObserver, android.graphics.animation.RenderNodeAnimator, android.graphics.drawable.AnimatedVectorDrawable  # M4 step 10: hwui's render-thread objects
 android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
 android.view.ThreadedRenderer <- android.graphics.Bitmap  # M4 step 10: Bitmap.createBitmap of a Picture, drawn on hwui's render thread
 android.hardware.HardwareBuffer <- android.graphics.Bitmap  # gap: hardware bitmaps (Bitmap.wrapHardwareBuffer, getHardwareBuffer) (ADR-0043, Grafik)
@@ -242,17 +238,6 @@ android.content.IntentSender <- android.view.View  # gap: drag and drop's check 
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
-android.graphics.drawable.AdaptiveIconDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.AnimatedRotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.AnimatedStateListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.AnimationDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.ClipDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.LayerDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.LevelListDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.RippleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.RotateDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.ScaleDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
-android.graphics.drawable.TransitionDrawable <- android.graphics.drawable.DrawableInflater  # gap: XML drawables of the tags whose classes framework.jar lacks (animated-selector, level-list, layer-list, transition, ripple, adaptive-icon, scale, clip, rotate, animated-rotate, animation-list)
 android.os.OutcomeReceiver <- android.view.View  # gap: Credential Manager requests
 android.os.Vibrator <- android.view.View  # gap: haptic feedback
 android.view.ContentInfo$Builder <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)

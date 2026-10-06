@@ -1,0 +1,55 @@
+I/drawables-test: button: background RippleDrawable[InsetDrawable[GradientDrawable]], intrinsic -1x-1, padding [36,30][36,30], opacity -3, stateful true
+I/drawables-test: button: ripple radius -1, effect color 8dffffff
+I/drawables-test: button: idle, drawn 264x144 crc 7ff0171d
+I/drawables-test: button: pressed, drawn 264x144 crc 7ff0171d
+I/drawables-test: button: released, drawn 264x144 crc 7ff0171d
+I/drawables-test: checkbox: button AnimatedStateListDrawable(VectorDrawable), intrinsic 96x96, padding none, opacity -3, stateful true
+I/drawables-test: checkbox: unchecked AnimatedStateListDrawable(VectorDrawable), drawn 96x96 crc 40d70a0e
+I/drawables-test: checkbox: checked AnimatedStateListDrawable(VectorDrawable), drawn 96x96 crc e5791a44
+I/drawables-test: ripple: RippleDrawable[ColorDrawable, GradientDrawable], intrinsic 24x24, padding none, opacity -3, stateful true
+I/drawables-test: ripple: drawn 48x48 crc 370934eb
+I/drawables-test: ripple: pressed, RippleDrawable[ColorDrawable, GradientDrawable], drawn 48x48 crc 370934eb
+I/drawables-test: layer_list: LayerDrawable[GradientDrawable, GradientDrawable, GradientDrawable], intrinsic 24x24, padding none, opacity -3, stateful false
+I/drawables-test: layer_list: drawn 48x48 crc e44af13e
+I/drawables-test: inset: InsetDrawable[GradientDrawable], intrinsic 48x46, padding [4,6][8,10], opacity -3, stateful false
+I/drawables-test: inset: drawn 48x48 crc eec3c98c
+I/drawables-test: selector: StateListDrawable(GradientDrawable), intrinsic 24x24, padding none, opacity -1, stateful true
+I/drawables-test: selector: drawn 48x48 crc 010af5a6
+I/drawables-test: selector: pressed, StateListDrawable(GradientDrawable), drawn 48x48 crc 6d358858
+I/drawables-test: animated_selector: AnimatedStateListDrawable(GradientDrawable), intrinsic 24x24, padding none, opacity -1, stateful true
+I/drawables-test: animated_selector: drawn 48x48 crc 010af5a6
+I/drawables-test: animated_selector: checked, AnimatedStateListDrawable(GradientDrawable), drawn 48x48 crc 370934eb
+I/drawables-test: animation_list: AnimationDrawable(GradientDrawable), intrinsic 24x24, padding none, opacity -1, stateful false
+I/drawables-test: animation_list: drawn 48x48 crc 6d358858
+I/drawables-test: animation_list: frame 1 of 2, 60 ms, AnimationDrawable(GradientDrawable), drawn 48x48 crc 370934eb
+I/drawables-test: level_list: LevelListDrawable(GradientDrawable), intrinsic 24x24, padding none, opacity -1, stateful false
+I/drawables-test: level_list: drawn 48x48 crc 6d358858
+I/drawables-test: level_list: level 2, LevelListDrawable(GradientDrawable), drawn 48x48 crc 370934eb
+I/drawables-test: transition: TransitionDrawable[GradientDrawable, GradientDrawable], intrinsic 24x24, padding none, opacity -1, stateful false
+I/drawables-test: transition: drawn 48x48 crc 6d358858
+I/drawables-test: scale: ScaleDrawable[GradientDrawable], intrinsic 24x24, padding none, opacity -2, stateful false
+I/drawables-test: scale: drawn 48x48 crc cbf86111
+I/drawables-test: scale: level 5000, ScaleDrawable[GradientDrawable], drawn 48x48 crc 5f798627
+I/drawables-test: clip: ClipDrawable[GradientDrawable], intrinsic 24x24, padding none, opacity -2, stateful false
+I/drawables-test: clip: drawn 48x48 crc cbf86111
+I/drawables-test: clip: level 5000, ClipDrawable[GradientDrawable], drawn 48x48 crc 5736cc0e
+I/drawables-test: rotate: RotateDrawable[GradientDrawable], intrinsic 40x8, padding none, opacity -3, stateful false
+I/drawables-test: rotate: drawn 48x48 crc fb2b6338
+I/drawables-test: rotate: level 5000, RotateDrawable[GradientDrawable], drawn 48x48 crc f05e629f
+I/drawables-test: animated_rotate: AnimatedRotateDrawable[GradientDrawable], intrinsic 40x8, padding none, opacity -3, stateful false
+I/drawables-test: animated_rotate: drawn 48x48 crc fb2b6338
+I/drawables-test: adaptive_icon: AdaptiveIconDrawable[GradientDrawable, InsetDrawable[GradientDrawable]], intrinsic 32x30, padding none, opacity -3, stateful false
+I/drawables-test: adaptive_icon: drawn 48x48 crc 5e7eea46
+I/drawables-test: adaptive_icon: mask [0.0,0.0][48.0,48.0], AdaptiveIconDrawable[GradientDrawable, InsetDrawable[GradientDrawable]], drawn 48x48 crc 5e7eea46
+I/drawables-test: vector: VectorDrawable, intrinsic 48x48, padding none, opacity -3, stateful false
+I/drawables-test: vector: drawn 48x48 crc c64807fe
+I/drawables-test: color: ColorStateListDrawable, intrinsic -1x-1, padding none, opacity -1, stateful true
+I/drawables-test: color: drawn 48x48 crc f1749653
+I/drawables-test: color: pressed, drawn 48x48 crc 5c70a4e9
+I/drawables-test: shader: compiled, uniforms set
+I/drawables-test: shader: on the CPU: Software rendering doesn't support RuntimeShader
+I/drawables-test: shader: the wrong program: error: 1: unknown identifier 'undefined'
+I/drawables-test: half4 main(float2 p) { return undefined; 
+I/drawables-test:                               ^^^^^^^^^
+I/drawables-test: 1 error
+I/drawables-test: done

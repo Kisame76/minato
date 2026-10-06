@@ -1,0 +1,10 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android" android:paddingMode="stack">
+  <item android:drawable="@drawable/square_green"/>
+  <item android:left="6px" android:top="6px" android:right="6px" android:bottom="6px">
+    <shape android:shape="oval">
+      <solid android:color="#FF3355CC"/>
+    </shape>
+  </item>
+  <item android:gravity="bottom|right" android:width="10px" android:height="10px"
+      android:drawable="@drawable/square_red"/>
+</layer-list>
