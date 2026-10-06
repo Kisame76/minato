@@ -12,7 +12,8 @@ Then kill-self-test, whose second thread sends SIGKILL to its own process (ADR-0
 by tgkill to the main thread and by sigqueue: with a session the program ends at once through the session's end
 handler with 137, as a shell shows the kill, and apk-run's handler exits with it; without one the host's SIGKILL ends
 apk-run. Neither thread prints after the kill.
-Prints "skipped: ..." while a part is not built.
+Prints "skipped: ..." while session-test is not built. Without kill-self-test only its runs are left out, with a line
+"skipped: ..." after the result, so that session-test's checks still run.
 
 Usage: session_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work>
 """
@@ -55,14 +56,15 @@ def main():
     if len(sys.argv) != 7:
         raise SystemExit(__doc__)
     fixtures, bionic_lib, bionic_system, apk_convert, apk_run, work = sys.argv[1:]
-    for fixture in ("session-test", "kill-self-test"):
-        if not os.path.exists(os.path.join(fixtures, fixture)):
-            print(f"skipped: {os.path.join(fixtures, fixture)} is not built (tools/build-fixtures.sh)")
-            return
+    if not os.path.exists(os.path.join(fixtures, "session-test")):
+        print(f"skipped: {os.path.join(fixtures, 'session-test')} is not built (tools/build-fixtures.sh)")
+        return
+    killer = os.path.join(fixtures, "kill-self-test")
+    names = ["session-test"] + (["kill-self-test"] if os.path.exists(killer) else [])
 
     # The containers stay from run to run; runs side by side convert one at a time.
     system = os.path.join(work, "system-lib64")
-    programs = {name: os.path.join(work, "bin", f"{name}.dylib") for name in ("session-test", "kill-self-test")}
+    programs = {name: os.path.join(work, "bin", f"{name}.dylib") for name in names}
     for folder in (system, os.path.join(work, "bin")):
         os.makedirs(folder, exist_ok=True)
     with open(os.path.join(work, "convert.lock"), "w") as lock:
@@ -97,7 +99,7 @@ def main():
     for options, call, status in ((["--configuration", "1290x2796@3"], "kill", 137),
                                   (["--configuration", "1290x2796@3"], "tgkill", 137),
                                   (["--configuration", "1290x2796@3"], "sigqueue", 137),
-                                  ([], "kill", -9)):
+                                  ([], "kill", -9)) if "kill-self-test" in programs else ():
         result = run(*options, fixture="kill-self-test", arguments=[call])
         if result.returncode != status or result.stdout.splitlines() != KILLED:
             failures.append(f"kill-self-test {call} {'with' if options else 'without'} a session: exit status "
@@ -105,9 +107,13 @@ def main():
                             f"stderr's end {result.stderr.splitlines()[-5:]}")
     if not failures:
         print("--configuration began the session whose configuration session-test saw, portrait and landscape; "
-              "without it, ENOENT; malformed, usage. kill-self-test's SIGKILL to itself ended the program through "
-              "the session's end handler with 137, by kill, tgkill and sigqueue, and without a session by the "
-              "host's SIGKILL")
+              "without it, ENOENT; malformed, usage." +
+              (" kill-self-test's SIGKILL to itself ended the program through the session's end handler with 137, "
+               "by kill, tgkill and sigqueue, and without a session by the host's SIGKILL"
+               if "kill-self-test" in programs else ""))
+        # After the result, so that CTest's "^skipped:" leaves the test counted: only these runs are left out.
+        if "kill-self-test" not in programs:
+            print(f"skipped: {killer} is not built (tools/build-fixtures.sh): kill-self-test's runs are left out")
         return
     for failure in failures:
         print(f"FAIL: {failure}")
