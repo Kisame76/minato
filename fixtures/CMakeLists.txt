@@ -85,6 +85,8 @@ target_compile_options(dl-own PRIVATE -fsemantic-interposition)
 add_executable(dl-own-test suite/dl-own-test.c)
 target_link_libraries(dl-own-test PRIVATE dl)
 add_executable(signal-test suite/signal-test.c)
+# kill-self-test: SIGKILL to its own process, as Process.killProcess(Process.myPid()) sends it (ADR-0028).
+add_executable(kill-self-test suite/kill-self-test.c)
 # dl-lock-test and the library whose constructor holds the dynamic linker's lock (ADR-0025, addition d).
 add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)

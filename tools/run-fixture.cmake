@@ -76,9 +76,12 @@ if(DEFINED SYSTEM AND IS_DIRECTORY "${SYSTEM}")
 endif()
 execute_process(COMMAND "${RUN}" ${options} "${container}"
   RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
-# A program that abort() ends: CMake names the signal, a shell shows 128 + SIGABRT (6), as Android's does.
+# A program that abort() ends: CMake names the signal, a shell shows 128 + SIGABRT (6), as Android's does; one that
+# SIGKILL ends, 128 + SIGKILL (9).
 if(status STREQUAL "Subprocess aborted")
   set(status 134)
+elseif(status STREQUAL "Subprocess killed")
+  set(status 137)
 endif()
 message("exit status: ${status}\nstdout: [${output}]\nstderr: [${error}]")
 if(NOT status EQUAL EXPECTED_STATUS)

@@ -1,0 +1,2 @@
+kill-self-test: the main thread waits for the second thread
+kill-self-test: the second thread sends SIGKILL to its own process

@@ -36,6 +36,9 @@ dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-b
 # A library opened with dlopen finds its own definition of a name libc.so also has (ADR-0040 test 2, ADR-0033 e1).
 dl-own-test system libraries=libdl-own.so
 signal-test system
+# SIGKILL to its own process, as Android's Process.killProcess(Process.myPid()) sends it (ADR-0028, changed
+# 2026-10-07): the shell shows 128 + 9.
+kill-self-test system status=137
 # A thread that waits for the dynamic linker's lock takes signals there (ADR-0025, addition d).
 dl-lock-test system libraries=libdl-lock.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).

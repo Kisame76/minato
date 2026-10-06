@@ -8,6 +8,10 @@ minato_AConfiguration_fromSession. apk-run runs it four times:
   - without the option: no session, so both answer ENOENT;
   - with a malformed configuration: apk-run's usage, exit status 2.
 The exit status is the program's 0 in the first three, with a session as without one.
+Then kill-self-test, whose second thread sends SIGKILL to its own process (ADR-0028, changed 2026-10-07), by kill,
+by tgkill to the main thread and by sigqueue: with a session the program ends at once through the session's end
+handler with 137, as a shell shows the kill, and apk-run's handler exits with it; without one the host's SIGKILL ends
+apk-run. Neither thread prints after the kill.
 Prints "skipped: ..." while a part is not built.
 
 Usage: session_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work>
@@ -31,6 +35,11 @@ EXPECTED = {
         "AConfiguration: error 2",
     ],
 }
+# kill-self-test's lines before its kill (fixtures/expected/kill-self-test.out).
+KILLED = [
+    "kill-self-test: the main thread waits for the second thread",
+    "kill-self-test: the second thread sends SIGKILL to its own process",
+]
 
 
 def convert(apk_convert, elf, container):
@@ -46,29 +55,31 @@ def main():
     if len(sys.argv) != 7:
         raise SystemExit(__doc__)
     fixtures, bionic_lib, bionic_system, apk_convert, apk_run, work = sys.argv[1:]
-    if not os.path.exists(os.path.join(fixtures, "session-test")):
-        print(f"skipped: {os.path.join(fixtures, 'session-test')} is not built (tools/build-fixtures.sh)")
-        return
+    for fixture in ("session-test", "kill-self-test"):
+        if not os.path.exists(os.path.join(fixtures, fixture)):
+            print(f"skipped: {os.path.join(fixtures, fixture)} is not built (tools/build-fixtures.sh)")
+            return
 
     # The containers stay from run to run; runs side by side convert one at a time.
     system = os.path.join(work, "system-lib64")
-    program = os.path.join(work, "bin", "session-test.dylib")
-    for folder in (system, os.path.dirname(program)):
+    programs = {name: os.path.join(work, "bin", f"{name}.dylib") for name in ("session-test", "kill-self-test")}
+    for folder in (system, os.path.join(work, "bin")):
         os.makedirs(folder, exist_ok=True)
     with open(os.path.join(work, "convert.lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         for name in sorted(os.listdir(bionic_lib)):
             if name.endswith(".so"):
                 convert(apk_convert, os.path.join(bionic_lib, name), os.path.join(system, name + ".dylib"))
-        convert(apk_convert, os.path.join(fixtures, "session-test"), program)
+        for name, program in programs.items():
+            convert(apk_convert, os.path.join(fixtures, name), program)
 
-    def run(*options):
+    def run(*options, fixture="session-test", arguments=()):
         command = [apk_run, *options, "--mount", f"/system={bionic_system}", "--libraries", f"/system/lib64={system}",
-                   "--cwd", "/", "--argv0", "/data/local/tmp/session-test", program]
+                   "--cwd", "/", "--argv0", f"/data/local/tmp/{fixture}", programs[fixture], *arguments]
         try:
             return subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=60)
         except subprocess.TimeoutExpired as timeout:
-            print(f"FAIL: {' '.join(options)}: no end within {timeout.timeout} s")
+            print(f"FAIL: {fixture} {' '.join(options + tuple(arguments))}: no end within {timeout.timeout} s")
             sys.exit(1)
 
     failures = []
@@ -82,9 +93,21 @@ def main():
     malformed = run("--configuration", "1290x@3")
     if malformed.returncode != 2 or malformed.stdout:
         failures.append(f"malformed: exit status {malformed.returncode}, stdout {malformed.stdout.splitlines()}")
+    # SIGKILL to its own process: the session's end with 137, or without a session the host's SIGKILL (-9 here).
+    for options, call, status in ((["--configuration", "1290x2796@3"], "kill", 137),
+                                  (["--configuration", "1290x2796@3"], "tgkill", 137),
+                                  (["--configuration", "1290x2796@3"], "sigqueue", 137),
+                                  ([], "kill", -9)):
+        result = run(*options, fixture="kill-self-test", arguments=[call])
+        if result.returncode != status or result.stdout.splitlines() != KILLED:
+            failures.append(f"kill-self-test {call} {'with' if options else 'without'} a session: exit status "
+                            f"{result.returncode}, not {status}; stdout {result.stdout.splitlines()}, "
+                            f"stderr's end {result.stderr.splitlines()[-5:]}")
     if not failures:
         print("--configuration began the session whose configuration session-test saw, portrait and landscape; "
-              "without it, ENOENT; malformed, usage")
+              "without it, ENOENT; malformed, usage. kill-self-test's SIGKILL to itself ended the program through "
+              "the session's end handler with 137, by kill, tgkill and sigqueue, and without a session by the "
+              "host's SIGKILL")
         return
     for failure in failures:
         print(f"FAIL: {failure}")

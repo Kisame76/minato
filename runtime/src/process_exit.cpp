@@ -193,6 +193,14 @@ void end(int status) {
     stop();
 }
 
+void killed() {
+    constexpr int sigkill = 9;
+    if (session::end_handler().function != nullptr) end(128 + sigkill);
+    report_death_by(sigkill);
+    ::kill(::getpid(), SIGKILL);
+    for (;;) ::pause();
+}
+
 bool ended() {
     return program_ended.load();
 }

@@ -165,6 +165,41 @@ TEST(a_signal_names_the_process_and_the_app_uid_as_its_sender) {
     ::munmap(stack, stack_size);
 }
 
+// ADR-0028, changed 2026-10-07: SIGKILL to a thread of the process ends the whole process at once, but only when
+// that thread exists. To one that is gone, tgkill and rt_tgsigqueueinfo answer ESRCH, as Linux does, and nothing ends.
+constexpr std::uint64_t nr_rt_tgsigqueueinfo = 240, sigkill = 9;
+constexpr long esrch = 3;
+std::atomic<long> gone_tid{0};
+std::atomic<long> gone_tgkill{0};
+std::atomic<long> gone_queue{0};
+
+void note_own_tid(void *) {
+    gone_tid.store(probe_syscall(nr_gettid, 0));
+}
+
+void kill_a_thread_that_is_gone(void *) {
+    const auto pid = static_cast<std::uint64_t>(::getpid());
+    const auto tid = static_cast<std::uint64_t>(gone_tid.load());
+    gone_tgkill.store(probe_syscall(nr_tgkill, pid, tid, sigkill));
+    std::uint64_t info[16] = {};  // a struct siginfo of 128 bytes
+    gone_queue.store(probe_syscall(nr_rt_tgsigqueueinfo, pid, tid, sigkill, reinterpret_cast<std::uint64_t>(info)));
+}
+
+TEST(sigkill_to_a_thread_that_is_gone_answers_esrch) {
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, note_own_tid, nullptr) > 0);
+    join(&tid_word);
+    CHECK(gone_tid.load() > 0);
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, kill_a_thread_that_is_gone,
+                      nullptr) > 0);
+    join(&tid_word);
+    CHECK(gone_tgkill.load() == -esrch);
+    CHECK(gone_queue.load() == -esrch);
+    ::munmap(stack, stack_size);
+}
+
 // PSTATE.DIT (bit 24) by MRS and MSR, which every Apple Silicon Mac has (FEAT_DIT); SSBS (bit 12) goes the same
 // way on a device that has it, which no Mac does (el0-check shows the iPhone's).
 constexpr std::uint64_t dit = std::uint64_t{1} << 24;

@@ -774,14 +774,18 @@ TEST(surface_requests_from_many_threads_reach_the_host_one_at_a_time_in_each_tok
 
 TEST(one_tokens_makes_and_removes_from_two_threads_reach_the_host_in_the_order_the_runtime_took_them) {
     take_surfaces();
+    // Each thread goes on until the token went back and forth `pairs` times, so that the two meet however the
+    // machine schedules them (a fixed count of rounds let one thread finish before the other began, under load);
+    // the bound on the rounds ends a run in which they never would.
+    constexpr int pairs = 50;
     std::atomic<int> made{0}, removed{0};
     std::thread maker([&] {
-        for (int round = 0; round < 2000; ++round) {
+        for (int round = 0; round < 1'000'000 && made.load() < pairs; ++round) {
             if (ask(surface(APKRT_SURFACE_MAKE, 200)) == 0) ++made;
         }
     });
     std::thread remover([&] {
-        for (int round = 0; round < 2000; ++round) {
+        for (int round = 0; round < 1'000'000 && removed.load() < pairs; ++round) {
             if (ask(surface(APKRT_SURFACE_REMOVE, 200)) == 0) ++removed;
         }
     });
@@ -797,7 +801,7 @@ TEST(one_tokens_makes_and_removes_from_two_threads_reach_the_host_in_the_order_t
     for (std::size_t index = 0; index < seen.size(); ++index) {
         alternating = alternating && seen[index].request.op == (index % 2 == 0 ? APKRT_SURFACE_MAKE : APKRT_SURFACE_REMOVE);
     }
-    CHECK(alternating && made.load() > 10);
+    CHECK(alternating && made.load() == pairs);
 }
 
 // --- Last: the full pipe ------------------------------------------------------------------------

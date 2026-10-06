@@ -37,6 +37,12 @@ void program_starts();
 /// write(), the clock and task_info.
 void report_death_by(int signal);
 
+/// SIGKILL to the guest's own process, which nothing catches, blocks or ignores (ADR-0028, changed 2026-10-07):
+/// Linux ends every thread at once, so the calling thread ends the program right in its syscall. With a session as
+/// end() does, with 128 + 9 as a shell shows the kill, so that the app goes back to its library; without one by the
+/// host's SIGKILL after the report, as when a signal's default action ends the process.
+[[noreturn]] void killed();
+
 /// Reports `status` and the measures and ends the process with the status, keeping the low 8 bits as
 /// Linux does.
 [[noreturn]] void exit(int status);

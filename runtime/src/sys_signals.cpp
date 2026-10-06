@@ -3,6 +3,7 @@
 // of every blocking syscall on the thread's signal word (ADR-0026) or in its kqueue (ADR-0027). No
 // guest disposition or mask reaches a host signal.
 #include "identity.h"
+#include "process_exit.h"
 #include "signals.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -265,6 +266,7 @@ long sys_kill(int pid, int signal) {
     // every process it may signal: its own.
     if (pid != ::getpid() && pid != 0 && pid != -1 && pid != -::getpid()) return -linux_errno::esrch;
     if (signal != 0 && !valid_signal(signal)) return -linux_errno::einval;
+    if (signal == sigkill) process::killed();  // every thread at once, not when one goes back to guest code
     return signals::send_to_process(signal, sender_info(signal, signals::si_user));
 }
 
@@ -272,12 +274,20 @@ long sys_tgkill(int process, int tid, int signal) {
     if (tid <= 0 || (process != -1 && process <= 0)) return -linux_errno::einval;
     if (process != -1 && process != ::getpid()) return -linux_errno::esrch;
     if (signal != 0 && !valid_signal(signal)) return -linux_errno::einval;
+    if (signal == sigkill) {  // to one thread, it ends the whole process, once that thread exists
+        if (const long found = signals::send_to_thread(tid, 0, {}); found != 0) return found;
+        process::killed();
+    }
     return signals::send_to_thread(tid, signal, sender_info(signal, signals::si_tkill));
 }
 
 long sys_rt_sigqueueinfo(int process, int tid, int signal, std::uint64_t info_address) {
     if (process != ::getpid()) return -linux_errno::esrch;
     if (!valid_signal(signal)) return -linux_errno::einval;
+    if (signal == sigkill) {
+        if (const long found = tid == 0 ? 0 : signals::send_to_thread(tid, 0, {}); found != 0) return found;
+        process::killed();
+    }
     auto info = *as_pointer<const LinuxSiginfo>(info_address);
     info.signo = signal;
     return tid == 0 ? signals::send_to_process(signal, info) : signals::send_to_thread(tid, signal, info);
