@@ -187,10 +187,11 @@ final class GameSession {
         }
     }
 
-    /// The view's layer, the host side of every window the guest gets.
-    func attach(_ layer: CAMetalLayer) {
+    /// The view's layer, the host side of every window the guest gets, and its SurfaceViews' layers (ADR-0043 c4).
+    func attach(_ layer: CAMetalLayer, surfaces: SurfaceLayers) {
         self.layer = layer
         runtime?.layer = layer
+        runtime?.surfaces = surfaces
         #if BENCHMARK
         benchmark?.layer(layer)
         #endif
@@ -446,9 +447,10 @@ final class GameSession {
         }
     }
 
+    /// The window or SurfaceView surface with the most presents (ADR-0041 decision 3; ADR-0043 c4).
     private func sampleFrameRate() {
-        let window = bridge.window
-        let count = presents(window)
+        let (window, count) = ([bridge.window] + bridge.surfaceWindows).map { ($0, presents($0)) }
+            .max { $0.1 < $1.1 } ?? (0, 0)
         fps = frameRate.sample(window: window, presents: count, at: Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9)
         #if DEBUG
         SessionCheck.event("fps window \(window) presents \(count) value \(fps.map(String.init) ?? "none")")
@@ -507,6 +509,17 @@ final class GameSession {
             startFailure = reason
             SessionEndReport.startFailed(reason)
         }
+    }
+
+    /// A SurfaceView's request (ADR-0043 c4), on the main thread, in the order the runtime took them.
+    func surfaceRequested(_ request: SurfaceRequest) {
+        #if DEBUG
+        SessionCheck.event("surface \(request.operation) token \(request.token) z \(request.z)")
+        #endif
+        let wasBroken = bridge.isBroken
+        let handled = bridge.surfaceRequested(request, host: host)
+        // A post that broke the channel ends the session, as a callback's does.
+        if !wasBroken, bridge.isBroken { report(handled) }
     }
 
     private func deliver(_ event: Lifecycle.Event) {

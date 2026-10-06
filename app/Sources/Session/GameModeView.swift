@@ -24,7 +24,8 @@ struct GameModeView: View {
         // The edges defer the system's gestures, so the first swipe down from the top edge opens the
         // menu, and a second one the Notification Center. iOS keeps the top corners for itself even so: on
         // the iPhone only the middle of the edge reached the menu each time (ADR-0032, decision 9, 2026-10-01).
-        MetalLayerView(onLayer: { session.attach($0) }, onTopEdgeSwipe: { session.openMenu() }, onLayout: { pixels in
+        MetalLayerView(onLayer: { session.attach($0, surfaces: $1) }, onTopEdgeSwipe: { session.openMenu() },
+                       onLayout: { pixels in
             Task { @MainActor in session.windowLaidOut(pixels) }
         }, onTouches: { phase, changes, scale in
             session.touched(phase, changes, scale: scale)

@@ -33,6 +33,11 @@ public enum SessionEvent: Sendable, Equatable {
     /// A turn the activity handles itself (ADR-0038); the configuration keeps its start values, as Android 15's
     /// asset manager does for such a turn (rotation-test).
     case configurationChanged
+    /// A SurfaceView's surface (ADR-0043 c4): the answer to a make, with its window and the buffer's size, and to a
+    /// place with another size; the host took it away at the background or the end.
+    case surfaceCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
+    case surfaceResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
+    case surfaceDestroyed(token: UInt64, window: UInt64)
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -83,6 +88,14 @@ public protocol SessionHost: AnyObject {
     /// `apkrt_window_set_size`: the window has a new size, which the guest's ANativeWindow answers from then
     /// on (ADR-0038, step c).
     func setWindowSize(_ window: UInt64, width: Int32, height: Int32)
+    /// A SurfaceView's window (ADR-0043 c4): `apkrt_window_add` on a layer of its own at `frame`, in the window's
+    /// pixels, below the window's layer for a negative z and above it for a positive one; its gate starts closed.
+    /// Its ID, or 0 when the host has none for it.
+    func addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool) -> UInt64
+    /// The surface's layer moves to `frame` and `z`.
+    func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32)
+    /// `apkrt_window_remove` for a surface's window, whose layer goes with it; the window's frame rate stays.
+    func removeSurface(_ window: UInt64)
 }
 
 /// The lifecycle (ADR-0032, decision 7) on ADR-0028's session: each callback becomes an event for
@@ -126,6 +139,25 @@ public struct SessionBridge: Sendable {
     /// The wait that answers the lifecycle's `awaits`; an answer to an earlier one changes nothing.
     private var current: Wait?
 
+    /// A SurfaceView's surface (ADR-0043 c4), kept as apk-run's headless host keeps one.
+    private struct Surface: Sendable, Equatable {
+        var token: UInt64
+        var window: UInt64
+        var size: PixelSize
+        /// Its window went with the window's, at the background or the end.
+        var taken = false
+        /// The guest was told with SURFACE_DESTROYED.
+        var announced = false
+    }
+
+    /// The surfaces in the order they were made, until the guest removes them.
+    private var surfaces: [Surface] = []
+
+    /// The windows of the surfaces the guest has, in the order they were made, for the FPS label.
+    public var surfaceWindows: [UInt64] {
+        surfaces.filter { !$0.taken }.map(\.window)
+    }
+
     public init(lifecycle: Lifecycle) {
         self.lifecycle = lifecycle
     }
@@ -161,6 +193,54 @@ public struct SessionBridge: Sendable {
         return apply(lifecycle.handle(event), host: host)
     }
 
+    /// A SurfaceView's request as the runtime checked it (ADR-0043 c4), answered as apk-run's headless host answers
+    /// it: a make gets a window and SURFACE_CREATED, its gate open while the window's is; a place moves its layer, and
+    /// another size gives its window that size, then SURFACE_RESIZED; a remove takes the window away without an event.
+    /// A place or remove of a surface the host took away does nothing, but the remove forgets it. After the end every
+    /// request is dropped: its answer would never come. Nothing the lifecycle awaits comes of it.
+    @discardableResult
+    public mutating func surfaceRequested(_ request: SurfaceRequest, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { answer(request, host: host) }
+        return Handled()
+    }
+
+    private mutating func answer(_ request: SurfaceRequest, host: SessionHost) {
+        let index = surfaces.firstIndex { $0.token == request.token }
+        let size = request.size
+        switch request.operation {
+        case .make:
+            guard index == nil else { return }  // the runtime refuses it first
+            let window = host.addSurface(frame: request.frame, z: request.z, size: size, opaque: request.opaque)
+            guard window != 0 else { return }
+            surfaces.append(Surface(token: request.token, window: window, size: size))
+            guard posted(.surfaceCreated(token: request.token, window: window, width: size.width,
+                                         height: size.height), host: host) else { return }
+            if gateIsOpen { host.setGate(window, open: true) }
+        case .place:
+            guard let index, !surfaces[index].taken else { return }
+            let window = surfaces[index].window
+            host.placeSurface(window, frame: request.frame, z: request.z)
+            guard size != surfaces[index].size else { return }
+            surfaces[index].size = size
+            host.setWindowSize(window, width: size.width, height: size.height)
+            _ = posted(.surfaceResized(token: request.token, window: window, width: size.width, height: size.height),
+                       host: host)
+        case .remove:
+            guard let index else { return }
+            if !surfaces[index].taken { host.removeSurface(surfaces[index].window) }
+            surfaces.remove(at: index)
+        }
+    }
+
+    /// Posts `event`: false once the channel is broken for good.
+    private mutating func posted(_ event: SessionEvent, host: SessionHost) -> Bool {
+        guard host.post(event) != 0 else {
+            isBroken = true
+            return false
+        }
+        return true
+    }
+
     /// The wait ended with `apkrt_session_wait`'s `result`: 1 answered, 0 timed out, -1 the channel broke
     /// or the program ended.
     @discardableResult
@@ -180,7 +260,9 @@ public struct SessionBridge: Sendable {
     ///   closed, since `native_app_glue`'s onPause waits for an app thread that may wait at the closed gate (ADR-0029,
     ///   decision 15): at the background and the menu's Quit before onPause, and for an app that ends with the focus,
     ///   whose onPause comes first with the gate still open as on Android, before onNativeWindowDestroyed (changed by
-    ///   the lead's OK, App's c6 host fixes).
+    ///   the lead's OK, App's c6 host fixes);
+    /// - the surfaces' windows go with the window's, and at onDestroy those made in the background; their gates follow
+    ///   the window's (ADR-0043 c4).
     private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost) -> Handled {
         var handled = Handled()
         let givesUpWindow = callbacks.contains(.onNativeWindowDestroyed)
@@ -195,7 +277,9 @@ public struct SessionBridge: Sendable {
                 gone = window
                 window = 0
                 host.removeWindow(gone)
+                takeSurfacesAway(host)
             }
+            if callback == .onDestroy { takeSurfacesAway(host) }
             for event in sessionEvents(for: callback, gone: gone, host: host) {
                 serial = host.post(event)
                 guard serial != 0 else {
@@ -211,6 +295,7 @@ public struct SessionBridge: Sendable {
         if !gateIsOpen, lifecycle.gate == .open, window != 0 {
             gateIsOpen = true
             host.setGate(window, open: true)
+            for surface in surfaces where !surface.taken { host.setGate(surface.window, open: true) }
         }
         // The callback the lifecycle awaits is always the last it gave.
         if let callback = lifecycle.awaits, serial != 0 {
@@ -224,6 +309,16 @@ public struct SessionBridge: Sendable {
         guard gateIsOpen, lifecycle.gate != .open else { return }
         gateIsOpen = false
         host.setGate(window, open: false)
+        for surface in surfaces where !surface.taken { host.setGate(surface.window, open: false) }
+    }
+
+    /// Every surface's window goes (apkrt.h's surface handler, apk-run's take_away): with the window's at the
+    /// background and the end, and at onDestroy those made in the background, which hear nothing of it.
+    private mutating func takeSurfacesAway(_ host: SessionHost) {
+        for index in surfaces.indices where !surfaces[index].taken {
+            host.removeSurface(surfaces[index].window)
+            surfaces[index].taken = true
+        }
     }
 
     private static func isFocus(_ callback: Lifecycle.Callback) -> Bool {
@@ -248,6 +343,15 @@ public struct SessionBridge: Sendable {
                 events.append(.contentRectChanged(left: 0, top: 0, right: width, bottom: height))
             }
             return events + [.nativeWindowRedrawNeeded(window: window)]
+        case .onNativeWindowDestroyed:
+            // After PAUSE and the focus, before the window's and STOP, in the order they were made: where Android 15
+            // calls surfaceDestroyed from the stopped window, before onStop (apkrt.h's surface handler).
+            var events: [SessionEvent] = []
+            for index in surfaces.indices where surfaces[index].taken && !surfaces[index].announced {
+                surfaces[index].announced = true
+                events.append(.surfaceDestroyed(token: surfaces[index].token, window: surfaces[index].window))
+            }
+            return events + [event]
         case .onNativeWindowResized:
             host.setWindowSize(window, width: windowSize.width, height: windowSize.height)
             var events = [event]

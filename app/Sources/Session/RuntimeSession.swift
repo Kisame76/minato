@@ -12,6 +12,8 @@ final class RuntimeSessionHost: SessionHost {
     /// The layer every window of the session is on, once the view exists; the registry retains it while a
     /// window is there. The bridge adds windows only after the first layout.
     var layer: CAMetalLayer?
+    /// The SurfaceViews' layers beside the window's (ADR-0043 c4), once the view exists.
+    var surfaces: SurfaceLayers?
     /// The frame clock's `setPreferredRate`: the request handler calls it on the guest's thread, and a
     /// window's removal with 0.
     private let preferRate: @Sendable (Float) -> Void
@@ -66,6 +68,25 @@ final class RuntimeSessionHost: SessionHost {
         _ = apkrt_window_set_size(window, width, height)
     }
 
+    /// A SurfaceView's window on a layer of its own beside the window's (ADR-0043 c4); the registry retains the layer
+    /// while the window is there. 0 before the view exists or when the registry has no room.
+    func addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool) -> UInt64 {
+        surfaces?.add(frame: frame, z: z, opaque: opaque) { layer in
+            apkrt_window_add(Unmanaged.passUnretained(layer).toOpaque(), size.width, size.height)
+        } ?? 0
+    }
+
+    func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32) {
+        surfaces?.place(window, frame: frame, z: z)
+    }
+
+    /// Unlike the window's removal, the frame rate stays: APKRT_REQUEST_FRAME_RATE names no window, so a surface's
+    /// preference is the session's (ADR-0043 c4 (a)'s named limit).
+    func removeSurface(_ window: UInt64) {
+        _ = apkrt_window_remove(window)
+        surfaces?.remove(window)
+    }
+
     /// `apkrt_session_wait`, never on the main thread: 1 answered, 0 timed out, -1 the channel broke or the
     /// program ended.
     static func wait(serial: UInt32, seconds: Double) -> Int32 {
@@ -99,6 +120,11 @@ final class RuntimeSessionHost: SessionHost {
             (APKRT_EVENT_CONTENT_RECT_CHANGED, pair(left, top), pair(right, bottom), 0)
         case .nativeWindowRedrawNeeded(let window): (APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window, 0, 0)
         case .configurationChanged: (APKRT_EVENT_CONFIGURATION_CHANGED, 0, 0, 0)
+        case .surfaceCreated(let token, let window, let width, let height):
+            (APKRT_EVENT_SURFACE_CREATED, token, window, pair(width, height))
+        case .surfaceResized(let token, let window, let width, let height):
+            (APKRT_EVENT_SURFACE_RESIZED, token, window, pair(width, height))
+        case .surfaceDestroyed(let token, let window): (APKRT_EVENT_SURFACE_DESTROYED, token, window, 0)
         }
     }
 
@@ -122,6 +148,7 @@ final class RuntimeSessionHost: SessionHost {
         session.context = Unmanaged.passUnretained(self).toOpaque()
         session.end = Self.endHandler
         session.request = Self.requestHandler
+        session.surface = Self.surfaceHandler
         session.configuration = Self.record(configuration)
         guard apkrt_session_begin(&session) == 0 else { return "the session did not begin" }
         return nil
@@ -206,6 +233,31 @@ final class RuntimeSessionHost: SessionHost {
         }
     }
 
+    /// The runtime's checked surface request as the bridge takes it (ADR-0043 c4), or nil for an op it does not know.
+    static func surfaceRequest(_ record: apkrt_surface_request) -> SurfaceRequest? {
+        let operation: SurfaceRequest.Operation
+        switch record.op {
+        case APKRT_SURFACE_MAKE.rawValue: operation = .make
+        case APKRT_SURFACE_PLACE.rawValue: operation = .place
+        case APKRT_SURFACE_REMOVE.rawValue: operation = .remove
+        default: return nil
+        }
+        return SurfaceRequest(
+            operation: operation, token: record.token, z: record.z,
+            frame: PixelRect(left: record.left, top: record.top, right: record.right, bottom: record.bottom),
+            size: PixelSize(width: record.width, height: record.height), opaque: record.opaque != 0)
+    }
+
+    /// The session's surface handler (ADR-0043 c4): like the request handler it runs on the guest thread that asks,
+    /// here under the runtime's surface lock, and must not block, so a copy of the request goes to the main queue,
+    /// where the requests keep the order the runtime took them in.
+    static let surfaceHandler: apkrt_surface_handler = { _, record in
+        guard let request = record.flatMap({ RuntimeSessionHost.surfaceRequest($0.pointee) }) else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { GameSession.current?.surfaceRequested(request) }
+        }
+    }
+
     /// The session's request handler: it runs on the guest thread that asks and must not block, so the
     /// request goes to the main queue; the text lives only until it returns, so it is copied first. A frame
     /// rate goes to the clock at once, which takes it without blocking: the runtime reports none for a
@@ -244,6 +296,14 @@ final class NoGuestSessionHost: SessionHost {
     func waitScheduled(seconds: Double) -> Bool { true }
     func addInputChannel() -> UInt64 { 0 }
     func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {}
+
+    func addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool) -> UInt64 {
+        window += 1
+        return window
+    }
+
+    func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32) {}
+    func removeSurface(_ window: UInt64) {}
 
     static func wait(serial: UInt32, seconds: Double) -> Int32 { 1 }
 

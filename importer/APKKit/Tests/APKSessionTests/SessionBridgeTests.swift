@@ -16,6 +16,9 @@ struct SessionBridgeTests {
         case waitScheduled(Double)
         case addInputChannel
         case setWindowSize(UInt64, width: Int32, height: Int32)
+        case addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool)
+        case placeSurface(UInt64, frame: PixelRect, z: Int32)
+        case removeSurface(UInt64)
     }
 
     /// A session that records every call; window IDs and serial numbers count from 1, as the runtime's.
@@ -46,6 +49,23 @@ struct SessionBridgeTests {
         func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {
             calls.append(.setWindowSize(window, width: width, height: height))
         }
+
+        /// The host has no window for a surface: addSurface answers 0.
+        var refusesSurfaces = false
+
+        /// A surface's window counts with the session's windows, as in the runtime's registry.
+        func addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool) -> UInt64 {
+            calls.append(.addSurface(frame: frame, z: z, size: size, opaque: opaque))
+            guard !refusesSurfaces else { return 0 }
+            defer { nextWindow += 1 }
+            return nextWindow
+        }
+
+        func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32) {
+            calls.append(.placeSurface(window, frame: frame, z: z))
+        }
+
+        func removeSurface(_ window: UInt64) { calls.append(.removeSurface(window)) }
 
         func waitScheduled(seconds: Double) -> Bool {
             calls.append(.waitScheduled(seconds))
@@ -431,5 +451,225 @@ struct SessionBridgeTests {
         bridge.finished(try #require(wait), result: 1, host: host)
         bridge.handle(.foreground, host: host)
         #expect(host.take().contains(.addWindow(width: Self.height, height: Self.width)))
+    }
+
+    // MARK: ADR-0043 c4 (d): a SurfaceView's surfaces, answered as apk-run's headless host answers them
+
+    static let full = PixelRect(left: 0, top: 0, right: width, bottom: height)
+    static let fullSize = PixelSize(width: width, height: height)
+
+    static func make(_ token: UInt64, z: Int32 = -2, opaque: Bool = true) -> SurfaceRequest {
+        SurfaceRequest(operation: .make, token: token, z: z, frame: full, size: fullSize, opaque: opaque)
+    }
+
+    static func place(_ token: UInt64, z: Int32 = -2, frame: PixelRect = full, size: PixelSize = fullSize)
+        -> SurfaceRequest {
+        SurfaceRequest(operation: .place, token: token, z: z, frame: frame, size: size, opaque: true)
+    }
+
+    /// A remove carries only the op and the token (apkrt.h).
+    static func remove(_ token: UInt64) -> SurfaceRequest {
+        SurfaceRequest(operation: .remove, token: token, z: 0, frame: PixelRect(left: 0, top: 0, right: 0, bottom: 0),
+                       size: PixelSize(width: 0, height: 0), opaque: false)
+    }
+
+    /// A make gets a window on a layer of its own, then SURFACE_CREATED with the window and the buffer's size; its
+    /// gate opens, as the window's is open.
+    @Test func aMakeGetsAWindowThenCreatedAndTheWindowsGate() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.surfaceRequested(Self.make(5), host: host)
+        #expect(host.take() == [
+            .addSurface(frame: Self.full, z: -2, size: Self.fullSize, opaque: true),
+            .post(.surfaceCreated(token: 5, window: 2, width: Self.width, height: Self.height)),
+            .setGate(2, open: true),
+        ])
+        #expect(bridge.surfaceWindows == [2])
+    }
+
+    /// A surface's gate follows the window's: closed at inactive and with the menu, open again with the focus.
+    @Test func aSurfacesGateFollowsTheWindows() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        _ = host.take()
+
+        bridge.surfaceRequested(Self.make(5, z: 1, opaque: false), host: host)
+        #expect(host.take() == [
+            .addSurface(frame: Self.full, z: 1, size: Self.fullSize, opaque: false),
+            .post(.surfaceCreated(token: 5, window: 2, width: Self.width, height: Self.height)),
+        ])
+        bridge.handle(.active, host: host)
+        #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true), .setGate(2, open: true)])
+        bridge.handle(.menuOpened, host: host)
+        #expect(host.take() == [
+            .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
+        ])
+    }
+
+    /// A place moves the surface's layer; another size also gives its window that size, then SURFACE_RESIZED; a move
+    /// alone gets no event, as apk-run's.
+    @Test func aPlaceMovesTheLayerAndAnotherSizeResizesTheWindow() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        _ = host.take()
+
+        let lower = PixelRect(left: 0, top: 100, right: Self.width, bottom: Self.height + 100)
+        bridge.surfaceRequested(Self.place(5, frame: lower), host: host)
+        #expect(host.take() == [.placeSurface(2, frame: lower, z: -2)])
+
+        let half = PixelRect(left: 0, top: 0, right: Self.width, bottom: Self.height / 2)
+        let halfSize = PixelSize(width: Self.width, height: Self.height / 2)
+        bridge.surfaceRequested(Self.place(5, z: -1, frame: half, size: halfSize), host: host)
+        #expect(host.take() == [
+            .placeSurface(2, frame: half, z: -1), .setWindowSize(2, width: Self.width, height: Self.height / 2),
+            .post(.surfaceResized(token: 5, window: 2, width: Self.width, height: Self.height / 2)),
+        ])
+    }
+
+    /// A remove takes the window away without an event; the token is forgotten, so a later place or remove of it
+    /// does nothing (the runtime refuses them first).
+    @Test func aRemoveTakesTheWindowAwayWithoutAnEvent() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        _ = host.take()
+
+        bridge.surfaceRequested(Self.remove(5), host: host)
+        #expect(host.take() == [.removeSurface(2)])
+        #expect(bridge.surfaceWindows == [])
+        bridge.surfaceRequested(Self.place(5), host: host)
+        bridge.surfaceRequested(Self.remove(5), host: host)
+        #expect(host.take() == [])
+    }
+
+    /// At the background every surface's window goes right after the window's, before PAUSE, and SURFACE_DESTROYED
+    /// comes for each in make order after PAUSE and the focus, before NATIVE_WINDOW_DESTROYED and STOP (apkrt.h's
+    /// surface handler; apk-run's hide).
+    @Test func theBackgroundTakesTheSurfacesWithTheWindow() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        bridge.surfaceRequested(Self.make(6, z: 1), host: host)
+        _ = host.take()
+
+        bridge.handle(.inactive, host: host)
+        #expect(host.take() == [
+            .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
+            .setGate(3, open: false),
+        ])
+        let wait = try #require(bridge.handle(.background, host: host).wait)
+        #expect(host.take() == [
+            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout), .removeWindow(1), .removeSurface(2),
+            .removeSurface(3), .post(.pause), .post(.surfaceDestroyed(token: 5, window: 2)),
+            .post(.surfaceDestroyed(token: 6, window: 3)), .post(.nativeWindowDestroyed(window: 1)),
+        ])
+        #expect(wait.callback == .onNativeWindowDestroyed)
+        #expect(bridge.surfaceWindows == [])
+
+        // The guest's place and remove of a surface the host took away still come; the host ignores them.
+        bridge.surfaceRequested(Self.place(5), host: host)
+        bridge.surfaceRequested(Self.remove(5), host: host)
+        bridge.surfaceRequested(Self.remove(6), host: host)
+        #expect(host.take() == [])
+        bridge.finished(wait, result: 1, host: host)
+        #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+    }
+
+    /// An app that ends with the focus: its surfaces go with the window, after PAUSE and the focus, and their
+    /// SURFACE_DESTROYED comes before NATIVE_WINDOW_DESTROYED.
+    @Test(arguments: [Lifecycle.Event.quit, .finish])
+    func anEndTakesTheSurfacesWithTheWindow(end: Lifecycle.Event) {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        _ = host.take()
+
+        bridge.handle(end, host: host)
+        #expect(host.take() == [
+            .post(.pause), .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
+            .removeWindow(1), .removeSurface(2), .post(.surfaceDestroyed(token: 5, window: 2)),
+            .post(.nativeWindowDestroyed(window: 1)),
+        ])
+    }
+
+    /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
+    /// return.
+    @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        bridge.finished(try #require(bridge.handle(.background, host: host).wait), result: 1, host: host)
+        _ = host.take()
+
+        bridge.surfaceRequested(Self.make(5), host: host)
+        #expect(host.take() == [
+            .addSurface(frame: Self.full, z: -2, size: Self.fullSize, opaque: true),
+            .post(.surfaceCreated(token: 5, window: 2, width: Self.width, height: Self.height)),
+        ])
+        bridge.handle(.foreground, host: host)
+        bridge.handle(.active, host: host)
+        #expect(host.take().suffix(3) == [
+            .post(.windowFocusChanged(true)), .setGate(3, open: true), .setGate(2, open: true),
+        ])
+        #expect(bridge.surfaceWindows == [2])
+    }
+
+    /// An end in the background takes a surface made there away before onDestroy, without an event (apk-run's
+    /// take_away at the end).
+    @Test func anEndInTheBackgroundTakesTheSurfacesBeforeOnDestroy() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        bridge.finished(try #require(bridge.handle(.background, host: host).wait), result: 1, host: host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        _ = host.take()
+
+        bridge.handle(.quit, host: host)
+        #expect(host.take() == [.removeSurface(2), .post(.destroy)])
+        #expect(bridge.surfaceWindows == [])
+    }
+
+    /// A request after the end is dropped: its answer would never come (the c4 plan's risks).
+    @Test func aRequestAfterTheEndIsDropped() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        bridge.finished(second, result: 1, host: host)
+        #expect(bridge.lifecycle.hasEnded)
+        _ = host.take()
+
+        bridge.surfaceRequested(Self.make(5), host: host)
+        #expect(host.take() == [])
+    }
+
+    /// A surface the host has no window for gets no answer, and the bridge does not keep it.
+    @Test func aSurfaceTheHostRefusesGetsNoEvent() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        host.refusesSurfaces = true
+
+        bridge.surfaceRequested(Self.make(5), host: host)
+        #expect(host.take() == [.addSurface(frame: Self.full, z: -2, size: Self.fullSize, opaque: true)])
+        #expect(bridge.surfaceWindows == [])
+        bridge.surfaceRequested(Self.remove(5), host: host)
+        #expect(host.take() == [])
+    }
+
+    /// SURFACE_CREATED's post that fails breaks the channel, as any post does: the gate stays shut.
+    @Test func aFailedCreatedPostBreaksTheChannel() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        host.breaksAt = 10
+
+        bridge.surfaceRequested(Self.make(5), host: host)
+        #expect(host.take() == [
+            .addSurface(frame: Self.full, z: -2, size: Self.fullSize, opaque: true),
+            .post(.surfaceCreated(token: 5, window: 2, width: Self.width, height: Self.height)),
+        ])
+        #expect(bridge.isBroken)
     }
 }

@@ -25,7 +25,10 @@
 #              <app>-<start>.png of a start that failed, which shows an alert's text
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
-#              alone; java-test among them runs in the Simulator too
+#              alone; java-test or surface-test among them runs in the Simulator too
+#   SURFACE_TEST set: surface-test (ADR-0043 c4 (d)) runs too, a GLSurfaceView whose surface is a layer of its own
+#              beside the window's; its sizes are the screen's, so in the Simulator Android's 1290 x 2796 become the
+#              Simulator's, and test 4's Button, centered, keeps its size at that screen's center
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -57,6 +60,9 @@ ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
 [[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
+SURFACE_TEST=${SURFACE_TEST:-}
+[[ " $ONLY " != *" surface-test "* ]] || SURFACE_TEST=yes
+[[ -z "$SURFACE_TEST" ]] || APPS+=("surface-test io.github.kisame76.minato.test.surface")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -524,6 +530,39 @@ if first_difference is not None and sorted(got) == sorted(wanted):
     print(f"      | the order differs at line {first_difference + 1}: ours {got[first_difference]!r}, "
           f"expected {wanted[first_difference]!r}")
 compare_log("java-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
+EOF
+fi
+
+if [[ -n "$SURFACE_TEST" ]] && wanted surface-test; then
+  run_start surface-test io.github.kisame76.minato.test.surface 1
+  python3 - "$WORK/surface-test-1.log" fixtures/expected/surface-test.logcat "$WORK" <<'EOF' \
+    || failures=$((failures + 1))
+import os
+import re
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected, work = sys.argv[1:]
+log = open(path, encoding="utf-8", errors="replace").read()
+wanted = open(expected, encoding="utf-8").read()
+# Android's sizes are the AVD's screen, the iPhone 15 Pro Max's; on another screen the view's line names its size.
+screen = re.search(r"^I/surface-test: view: at 0, 0, (\d+) x (\d+)$", log, re.M)
+if screen and screen.groups() != ("1290", "2796"):
+    print(f"note    the screen is {screen[1]} x {screen[2]} pixels, which take the place of Android's 1290 x 2796")
+    wanted = wanted.replace("1290 x 2796", f"{screen[1]} x {screen[2]}")
+    # Test 4's Button, centered over the GLSurfaceView: its size stays, its place is the center of this screen.
+    button = re.search(r"^I/surface-test: button: added at \d+, \d+, (\d+) x (\d+)$", wanted, re.M)
+    if button:
+        width, height = int(button[1]), int(button[2])
+        x, y = (int(screen[1]) - width) // 2, (int(screen[2]) - height) // 2
+        print(f"note    the Button is {width} x {height}, centered on this screen at {x}, {y}")
+        wanted = wanted.replace(button[0], f"I/surface-test: button: added at {x}, {y}, {width} x {height}")
+ours = os.path.join(work, "surface-test.logcat")
+with open(ours, "w", encoding="utf-8") as handle:
+    handle.write(wanted)
+compare_log("surface-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
 fi
 
