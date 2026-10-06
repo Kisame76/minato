@@ -206,6 +206,32 @@ enum Texts {
         }
     }
 
+    // MARK: - OBBs (ADR-0049 d), in App's words
+
+    /// The question about an OBB no app takes by its name, or the alert where no app can take one.
+    static func obbQuestion(_ question: OBBQuestion) -> (title: String, message: String) {
+        question.apps.isEmpty
+            ? ("No App for “\(question.file)”", "Import the app it belongs to first, then its expansion file.")
+            : ("Add “\(question.file)” to an App?", "An expansion file holds extra content for an app. Choose the app it belongs to.")
+    }
+
+    /// The note after OBBs came into an app: "“<file>” was added to “<app>”.", and what they replaced; nil where none
+    /// came. `file` is the name the user picked where they named the app, else the OBBs' own names are shown.
+    static func obbNote(_ result: ImportResult, file: String? = nil) -> String? {
+        guard !result.installedOBBs.isEmpty else { return nil }
+        let added = file.map { [$0] } ?? result.installedOBBs.map(\.fileName)
+        var note = "\(list(added.map { "“\($0)”" })) \(added.count == 1 ? "was" : "were") added to “\(result.entry.displayName)”."
+        if !result.replacedOBBs.isEmpty {
+            note += " \(added.count == 1 ? "It replaces" : "They replace") \(list(result.replacedOBBs.map { "“\($0)”" }))."
+        }
+        return note
+    }
+
+    /// A picked OBB that could not go in, by its picked name, with why.
+    static func obbRefused(_ file: String, app: String, because reason: String) -> String {
+        "“\(file)” couldn’t be added to “\(app)”: \(reason)."
+    }
+
     /// The question's apps, for an error after the answer.
     static func subject(of question: UpdateQuestion) -> String {
         question.sets.count == 1 ? "“\(question.sets[0].name)”" : "The \(question.sets.count) apps"

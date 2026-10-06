@@ -76,9 +76,9 @@ public actor Library {
 
     /// The picks that are not installed yet, one URL each and the oldest first, for `importUnit`: a unit's folder, or a
     /// file lying flat in incoming/ (ADR-0048, decision 1). Normally those `adopt` just took over, after an interrupted
-    /// import also those left over from last time. A pick still being taken over is none yet, and one with nothing but
-    /// OBBs waits for ADR-0049's step d; any other file may be a container, whatever its extension (ADR-0049 a3). What
-    /// such an import left in apps/ goes first.
+    /// import also those left over from last time. A pick still being taken over is none yet; one with nothing but OBBs
+    /// is one too (ADR-0049 d); any other file may be a container, whatever its extension (ADR-0049 a3). What such an
+    /// import left in apps/ goes first.
     public func scanUnits() throws -> [URL] {
         try waitingUnits().map(\.url)
     }
@@ -105,7 +105,7 @@ public actor Library {
                 let apks = files.filter(Self.isAPK)
                 if files.isEmpty {
                     rmdir(item.path) // its last file went, the folder did not
-                } else if !files.allSatisfy(Self.isOBB) {
+                } else {
                     units.append((created, item.lastPathComponent, item, apks))
                 }
             } else if values.isRegularFile == true, Self.isAPK(item) {
@@ -362,6 +362,7 @@ public actor Library {
             entry.ignoredFiles = plan.leftOut.named
             try store(entry)
             try moveOBBs(plan, of: package, from: staging)
+            try? FileManager.default.removeItem(at: staging)
             return finish(ImportResult(entry: entry, decision: decision, report: report, installedOBBs: plan.moves))
         case (.unchanged, let installed?), (.reject, let installed?):
             return finish(ImportResult(entry: installed, decision: decision, report: report))
@@ -458,7 +459,10 @@ public actor Library {
         entry.ignoredFiles = plan.leftOut.named
         try store(entry)
         removeEverything(in: appDirectory, except: folder)
-        if let staging { try moveOBBs(plan, of: package, from: staging) }
+        if let staging {
+            try moveOBBs(plan, of: package, from: staging)
+            try? FileManager.default.removeItem(at: staging)
+        }
         return finish(ImportResult(entry: entry, decision: decision, report: report, installedOBBs: plan.moves))
     }
 
@@ -566,26 +570,25 @@ public actor Library {
         return staging
     }
 
-    /// Carries out `plan` in `package`'s OBB folder, never through a link (the lead's reviewer): the folder and the
-    /// staging folder are opened as themselves, the staged OBBs move in first, each by rename over the file or link of
-    /// its name, and only then do the replaced files of their kinds go, so an interruption leaves both, never neither.
-    /// Then the staging folder goes.
-    private func moveOBBs(_ plan: OBBPlan, of package: String, from staging: URL) throws {
+    /// Carries out `plan` in `package`'s OBB folder, never through a link (the lead's reviewer): the folder and `source`
+    /// are opened as themselves, the OBBs move in first, each from its name in `source` (`names`, else its own) by
+    /// rename over the file or link of its name, and only then do the replaced files of their kinds go, so an
+    /// interruption leaves both, never neither.
+    private func moveOBBs(_ plan: OBBPlan, of package: String, from source: URL, names: [String: String] = [:]) throws {
         try paths.prepareData(for: package)
         let target = try Self.openFolder(paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true))
         defer { close(target) }
         if !plan.moves.isEmpty {
-            let source = try Self.openFolder(staging)
-            defer { close(source) }
+            let from = try Self.openFolder(source)
+            defer { close(from) }
             for file in plan.moves {
-                guard renameatx_np(source, file.fileName, target, file.fileName, 0) == 0 else {
+                guard renameatx_np(from, names[file.fileName] ?? file.fileName, target, file.fileName, 0) == 0 else {
                     throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                 }
             }
         }
         try faultBetweenTheOBBMoves?()
         for name in plan.removals { _ = unlinkat(target, name, 0) }
-        try? FileManager.default.removeItem(at: staging)
     }
 
     /// `folder` opened as itself: a link in its place fails (ELOOP).
@@ -618,8 +621,8 @@ public actor Library {
     /// An XAPK's OBBs are read with the APKs, and each goes with the set of its package from the same XAPK (ADR-0049
     /// c2); one without such a set is named on the XAPK's entries, beside what the XAPK itself left out.
     @discardableResult
-    public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], signing: ImportSigning? = nil,
-                           progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
+    public func importUnit(_ unit: URL, replacing answered: Set<AskingVersion> = [], assigning: [String: String] = [:],
+                           signing: ImportSigning? = nil, progress: @Sendable (Double) -> Void = { _ in }) throws -> [ImportResult] {
         var isFolder: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
         var urls: [URL] = []
@@ -627,10 +630,15 @@ public actor Library {
         var leftOut: [URL: LeftOut] = [:]
         var refused: [(file: URL, error: ContainerError)] = []
         var taken: [URL] = []
+        var picked: [URL] = []
         fromContainers = [:]
         defer { fromContainers = [:] }
         if isFolder.boolValue {
-            for file in try Self.files(inUnit: unit) where !Self.isOBB(file) {
+            for file in try Self.files(inUnit: unit) {
+                if Self.isOBB(file) {
+                    picked.append(file)
+                    continue
+                }
                 switch try expand(file, in: unit) {
                 case .apk:
                     urls.append(file)
@@ -655,7 +663,8 @@ public actor Library {
         }
         let sizes = try urls.map { try Self.sourceFile(for: $0).size }
         let obbSizes = try obbs.map { try Self.sourceFile(for: $0.url).size }
-        let total = Double(max(sizes.reduce(0, +) + obbSizes.reduce(0, +), 1))
+        let pickedSizes = try picked.map { try Self.sourceFile(for: $0).size }
+        let total = Double(max(sizes.reduce(0, +) + obbSizes.reduce(0, +) + pickedSizes.reduce(0, +), 1))
         var read: UInt64 = 0
         var digests: [URL: String] = [:]
         var unreadable: [URL] = []
@@ -681,6 +690,12 @@ public actor Library {
             read += size
             obbFiles.append((obb.url, PackageFile(fileName: obb.name.fileName, splitName: nil, size: size, sha256: sha256),
                              obb.name, obb.path, obb.container))
+        }
+        var pickedFiles: [(url: URL, size: UInt64, sha256: String)] = []
+        for (url, size) in zip(picked, pickedSizes) {
+            let sha256 = try hash(url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
+            read += size
+            pickedFiles.append((url, size, sha256))
         }
         let groups = SetGrouping.byPackageAndVersion(members)
         // Each OBB goes with the set of its package from its own container; one without is named there.
@@ -709,7 +724,7 @@ public actor Library {
                 extras[index].leftOut = leftOut[container] ?? LeftOut()
             }
         }
-        let parts = Double(max(unreadable.count + groups.count, 1))
+        let parts = Double(max(unreadable.count + groups.count + picked.count, 1))
         var results = try refused.map { try refuse($0.file, $0.error) }
         for url in unreadable {
             let part = Double(results.count)
@@ -730,14 +745,121 @@ public actor Library {
                 progress(0.5 + 0.5 * Double(results.count) / parts)
             }
         }
-        // The unit goes once nothing in it waits for an answer, its containers and their folders with it; an OBB waits
-        // for ADR-0049's step d.
-        if !results.contains(where: { if case .ask = $0.decision { true } else { false } }) {
-            for url in urls + taken { try? FileManager.default.removeItem(at: url) }
+        // The unit's own OBBs, once none of its sets waits for an answer (ADR-0049 decision 5): each goes to the app its
+        // name gives, or to the one the user named for it, and one without either waits for the user.
+        let asks = results.contains { if case .ask = $0.decision { true } else { false } }
+        var placed: [URL] = []
+        if !asks {
+            for obb in pickedFiles {
+                guard let target = target(forPicked: obb.url.lastPathComponent, assigning: assigning) else { continue }
+                results.append(try installPicked(obb, as: target.name, into: target.entry))
+                placed.append(obb.url)
+                progress(0.5 + 0.5 * Double(results.count) / parts)
+            }
+        }
+        // The unit goes once nothing in it waits for an answer, its containers and their folders with it.
+        if !asks {
+            for url in urls + taken + placed { try? FileManager.default.removeItem(at: url) }
             rmdir(unit.path)
         }
         progress(1)
         return results
+    }
+
+    /// The unit's OBBs no app takes yet, by file name, for App's question (ADR-0049 decision 5); none while a set of the
+    /// unit waits for its own answer, as its OBBs wait with it.
+    public func obbsWaitingForAnApp(inUnit unit: URL) -> [String] {
+        guard let files = try? Self.files(inUnit: unit), files.allSatisfy(Self.isOBB) else { return [] }
+        return files.map(\.lastPathComponent).filter { target(forPicked: $0, assigning: [:]) == nil }
+    }
+
+    /// "Don’t Import" for one picked OBB of a unit (ADR-0049 d, App's review): that file goes, found among the unit's
+    /// own files, so the name leads nowhere else, and the unit goes with its last file; its other OBBs keep waiting.
+    public func discardPickedOBB(_ fileName: String, inUnit unit: URL) {
+        guard Self.isDirectChild(unit, of: paths.incoming),
+              let file = (try? Self.files(inUnit: unit))?.first(where: { $0.lastPathComponent == fileName && Self.isOBB($0) })
+        else { return }
+        try? FileManager.default.removeItem(at: file)
+        rmdir(unit.path) // only once nothing else waits in it
+    }
+
+    /// The apps a picked OBB can go to, by their names as App's question lists them: those ready or needing their
+    /// splits (the lead), never an incompatible one or a file's entry, which is invalid, nor one whose versionCode names
+    /// no OBB (App's review), which could not take the file.
+    public func appsForOBBs() -> [LibraryEntry] {
+        appsTakingOBBs().filter { Self.obbName(for: $0, picked: "main.obb") != nil }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// The apps that take a picked OBB by its own name: those ready or needing their splits.
+    private func appsTakingOBBs() -> [LibraryEntry] {
+        entries.filter { $0.state == .ready || $0.state == .needsSplits }
+    }
+
+    /// The name a picked file takes in `entry`'s app (decision 5): `main.<its versionCode>.<package>.obb`, or `patch.…`
+    /// where the picked name starts with "patch", with the int versionCode Android writes, the long one's lower half
+    /// (`PackageInfo.versionCode`); nil where that gives no OBB name, as `OBBName` checks it.
+    private static func obbName(for entry: LibraryEntry, picked fileName: String) -> OBBName? {
+        let version = Int32(truncatingIfNeeded: entry.report?.versionCode ?? -1)
+        return OBBName("\(fileName.hasPrefix("patch") ? "patch" : "main").\(version).\(entry.id).obb")
+    }
+
+    /// The app a picked OBB goes to and its name there (decision 5): the app the user named for it among those
+    /// `appsForOBBs` lists, under the name `obbName(for:picked:)` makes, else the app its own name gives, ready or
+    /// needing its splits, under that name. nil while it waits for the user.
+    private func target(forPicked fileName: String, assigning: [String: String]) -> (entry: LibraryEntry, name: OBBName)? {
+        if let package = assigning[fileName], let entry = appsForOBBs().first(where: { $0.id == package }),
+           let name = Self.obbName(for: entry, picked: fileName) {
+            return (entry, name)
+        }
+        if let name = OBBName(fileName), let entry = appsTakingOBBs().first(where: { $0.id == name.package }) {
+            return (entry, name)
+        }
+        return nil
+    }
+
+    /// Installs a picked OBB for `entry`'s app under `name` (decision 5): it replaces the installed one of its kind,
+    /// newer or older, and a file of its own name with other bytes too, as the pick is the user's own act (the lead);
+    /// the same bytes move nothing. As in c2 the target name is read with lstat first, so something else there refuses
+    /// the file, the entry records it before the unit's clone moves in by rename through no-follow descriptors, and the
+    /// replaced files go after. The result is the app's entry, `.unchanged`, with what came in and what it replaced.
+    private func installPicked(_ obb: (url: URL, size: UInt64, sha256: String), as name: OBBName,
+                               into entry: LibraryEntry) throws -> ImportResult {
+        let package = entry.id
+        try paths.prepareData(for: package)
+        let folder = paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true)
+        let present = Self.entries(in: folder)
+        let file = PackageFile(fileName: name.fileName, splitName: nil, size: obb.size, sha256: obb.sha256)
+        var result = ImportResult(entry: entry, decision: .unchanged, report: entry.report)
+        var replaced: [String] = []
+        switch present[name.fileName] {
+        case nil, .typeSymbolicLink?:
+            break
+        case .typeRegular?:
+            if entry.obbs.contains(file) { return result }
+            if holds(folder.appendingPathComponent(name.fileName), file) {
+                result.entry.obbs = entry.obbs.filter { $0.fileName != file.fileName } + [file]
+                try store(result.entry)
+                return result
+            }
+            replaced.append(name.fileName)
+        default:
+            result.refusedOBBs = [IgnoredFile(path: obb.url.lastPathComponent,
+                                              reason: "something else is in the app’s expansion file folder under that name")]
+            return result
+        }
+        let files = Set(present.filter { $0.value == .typeRegular }.keys)
+        let others = files.union(entry.obbs.map(\.fileName)).compactMap { OBBName($0) }
+            .filter { $0.kind == name.kind && $0.package == package && $0 != name }
+        let removals = others.map(\.fileName).filter(files.contains).sorted()
+        let gone = Set(others.map(\.fileName) + [file.fileName])
+        result.entry.obbs = entry.obbs.filter { !gone.contains($0.fileName) } + [file]
+        try store(result.entry)
+        try moveOBBs(OBBPlan(moves: [file], removals: removals), of: package, from: obb.url.deletingLastPathComponent(),
+                     names: [file.fileName: obb.url.lastPathComponent])
+        result.installedOBBs = [file]
+        result.replacedOBBs = replaced + removals
+        return result
     }
 
     /// What a unit's file gives (ADR-0049 a3 and c2).
@@ -974,10 +1096,10 @@ public actor Library {
         }
     }
 
-    /// The answer "Keep Installed" to a question: the waiting file goes, or a unit's APKs and containers, each container's
-    /// folders before it, as at the end of `importUnit` (ADR-0049 a3 and c2, found by c2's set-check), while its OBBs
-    /// wait for ADR-0049's step d; the installed version stays. Everything goes from inside the unit's own folder, a
-    /// link as a link.
+    /// The answer "Keep Installed" or "Don’t Import" to a question: the waiting file goes, or a unit's files, each
+    /// container's folders before it, as at the end of `importUnit` (ADR-0049 a3 and c2, found by c2's set-check), and
+    /// its OBBs with them, as the original stays where the user has it (ADR-0049 d, the lead); the installed version
+    /// stays. Everything goes from inside the unit's own folder, a link as a link.
     public func keepInstalled(discarding url: URL) {
         var isFolder: ObjCBool = false
         guard Self.isDirectChild(url, of: paths.incoming),
@@ -985,7 +1107,7 @@ public actor Library {
             discardPickedCopy(url)
             return
         }
-        for file in (try? Self.files(inUnit: url)) ?? [] where !Self.isOBB(file) {
+        for file in (try? Self.files(inUnit: url)) ?? [] {
             let folders = Self.takenOutFolders(of: file)
             try? FileManager.default.removeItem(at: folders.contents)
             try? FileManager.default.removeItem(at: folders.obbs)

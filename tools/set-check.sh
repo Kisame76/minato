@@ -8,8 +8,10 @@
 # toc.json, which skips the set's x86_64 split, and in a plain .zip each install or update its app, and a .apks without
 # an APK says why on its tile. An XAPK (c2) installs its set with its OBB in the app's OBB folder, which backups leave
 # out, and names on the entry what it leaves out, an OBB of another app among it; its update's OBB replaces the first,
-# and other bytes under that OBB's name ask first: "Keep Installed" keeps the file, "Replace" puts them in. The app's
-# Info.plist offers it for .apks and .xapk in "Open with". The Debug build answers through
+# and other bytes under that OBB's name ask first: "Keep Installed" keeps the file, "Replace" puts them in. Single OBBs
+# (d): one picked by hand for X by its name replaces X's main, older as it is; one without an OBB name asks which app it
+# belongs to and is named for X; "Don’t Import" lets one go. The app's Info.plist offers it for .apks, .xapk and .obb in
+# "Open with". The Debug build answers through
 # app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
 # Usage: tools/set-check.sh [simulator name or UDID]
 # Optional environment:
@@ -196,6 +198,11 @@ container x3/game.xapk manifest.json="$WORK/x2-manifest.json" "$X.apk=$X2/base.a
 printf 'main 2, rebuilt' > "$WORK/main.2.rebuilt.obb"
 container x4/game.xapk manifest.json="$WORK/x2-manifest.json" "$X.apk=$X2/base.apk" \
   config.arm64_v8a.apk="$X2/split_config.arm64_v8a.apk" "Android/obb/$X/main.2.$X.obb=$WORK/main.2.rebuilt.obb"
+# Single OBBs (ADR-0049 d): main 1 for X by its name; a file without an OBB name, twice.
+mkdir -p "$WORK/units/o1" "$WORK/units/o2" "$WORK/units/o3"
+printf 'main 1, picked' > "$WORK/units/o1/main.1.$X.obb"
+printf 'level' > "$WORK/units/o2/level.obb"
+printf 'level, again' > "$WORK/units/o3/level.obb"
 
 if [[ -n "${APP:-}" ]]; then
   xcrun simctl install "$SIM_UDID" "$APP"
@@ -481,7 +488,8 @@ LEFT_OUT+=" | Android/obb/com.example.other/main.1.com.example.other.obb: it is 
 expect "  what it leaves out, named on the entry" "$LEFT_OUT" "$(ignored "$X")"
 expect "  the unit is gone" "no" "$(waiting x2)"
 offer x3
-expect "an XAPK's update" "note Updated “Set Check X” to 2.0." "$(event "note ")"
+expect "an XAPK's update, with its OBB in the note (ADR-0049 d)" \
+  "note Updated “Set Check X” to 2.0. “main.2.$X.obb” was added to “Set Check X”." "$(event "note ")"
 expect "  its OBB replaces the first" "main.2.$X.obb: main 2" "$(obbs "$X")"
 expect "  and it leaves nothing out" "-" "$(ignored "$X")"
 expect "  the unit is gone" "no" "$(waiting x3)"
@@ -500,8 +508,30 @@ expect "  Replace" "answered replace" "$(event "answered ")"
 sleep 1
 expect "  puts the new bytes in" "main.2.$X.obb: main 2, rebuilt" "$(obbs "$X")"
 expect "  the unit is gone" "no" "$(waiting x4)"
+offer o1
+expect "an OBB picked by hand goes to the app its name gives" \
+  "note “main.1.$X.obb” was added to “Set Check X”. It replaces “main.2.$X.obb”." "$(event "note ")"
+expect "  and replaces the main, older as it is" "main.1.$X.obb: main 1, picked" "$(obbs "$X")"
+expect "  the unit is gone" "no" "$(waiting o1)"
+OBB_QUESTION="alert Add “level.obb” to an App? | An expansion file holds extra content for an app. Choose the app it belongs to."
+offer o2 "app $X"
+alert=$(event "alert Add")
+expect "an OBB without an OBB name asks which app" "yes" \
+  "$([[ "$alert" == "$OBB_QUESTION | "*"Set Check X"*" / Don’t Import" ]] && echo yes || echo no)"
+shot obb-question
+expect "  the answer names its app" "answered app $X" "$(event "answered ")"
+expect "  which takes it under a name of its own" \
+  "note “level.obb” was added to “Set Check X”. It replaces “main.1.$X.obb”." "$(event "note ")"
+expect "  as its main for 2.0" "main.2.$X.obb: level" "$(obbs "$X")"
+expect "  the unit is gone" "no" "$(waiting o2)"
+offer o3 keep
+expect "Don’t Import" "answered keep" "$(event "answered ")"
+sleep 1
+expect "  lets the OBB go with its unit" "no" "$(waiting o3)"
+expect "  and leaves the app's OBB as it is" "main.2.$X.obb: level" "$(obbs "$X")"
 expect "\"Open with\" offers Minato for .apks" "yes" "$(open_with io.github.kisame76.minato.apks apks)"
 expect "\"Open with\" offers Minato for .xapk" "yes" "$(open_with io.github.kisame76.minato.xapk xapk)"
+expect "\"Open with\" offers Minato for .obb" "yes" "$(open_with io.github.kisame76.minato.obb obb)"
 
 for app in "${APPS[@]}"; do remove "$app"; done
 rm -rf "$CHECK"

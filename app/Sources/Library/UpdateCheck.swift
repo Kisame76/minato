@@ -7,7 +7,8 @@ import UIKit
 /// Answers tools/update-check.sh (ADR-0034, test 4) and tools/set-check.sh (ADR-0048 b7c) in the Simulator. A script
 /// leaves its requests as files in tmp/update-check/; nothing happens without that folder. Each process appends what it
 /// shows to tmp/update-check/events, one line per event: "<seconds since 1970> <pid> <event>".
-///   answer  "replace" or "keep": the library answers the question that is up, and removes the file.
+///   answer  "replace" or "keep": the library answers the question that is up, and removes the file; for an OBB's
+///           question "app <package>" or "keep" (ADR-0049 d).
 ///   end     a package: the library removes that app, then the whole folder, which ends the check.
 enum UpdateCheck {
     static let folder = URL.temporaryDirectory.appending(path: "update-check", directoryHint: .isDirectory)
@@ -73,6 +74,19 @@ enum UpdateCheck {
             try? FileManager.default.removeItem(at: folder.appending(path: "answer"))
             try? await Task.sleep(for: .seconds(0.5))
             await library.answer(question, replace: answer == "replace")
+        }
+    }
+
+    /// An OBB's question is up: records it, then answers it when the script asks for that (ADR-0049 d).
+    @MainActor
+    static func obbQuestionShown(_ question: OBBQuestion, in library: LibraryModel) {
+        guard isOn else { return }
+        Task { @MainActor in
+            guard await alertShown(), let answer = text(of: "answer") else { return }
+            try? FileManager.default.removeItem(at: folder.appending(path: "answer"))
+            try? await Task.sleep(for: .seconds(0.5))
+            let package = answer.hasPrefix("app ") ? String(answer.dropFirst(4)) : nil
+            await library.assign(question, to: question.apps.first { $0.id == package })
         }
     }
 

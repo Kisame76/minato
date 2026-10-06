@@ -183,16 +183,17 @@ struct ContainerImportTests {
         #expect(await library.entries.first?.report?.versionCode == 2)
     }
 
-    @Test func aUnitWaitsForItsContainersButNotForHiddenFilesOrOBBs() async throws {
-        // App's review: hidden files are no containers (.DS_Store, "._x", ".x.icloud"); an OBB waits for step d.
+    @Test func aUnitWaitsForItsContainersAndOBBsButNotForHiddenFiles() async throws {
+        // App's review: hidden files are no containers (.DS_Store, "._x", ".x.icloud"); a unit of an OBB is one since
+        // ADR-0049 d.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
         let waiting = try Sets.unit(["game.apks": Self.container("SAI")], in: sandbox.paths)
-        _ = try Sets.unit([".DS_Store": Data([0]), "._game.apks": Data([0]), ".game.apks.icloud": Data([0]),
-                           "main.1.org.example.sets.obb": Data([0])], in: sandbox.paths)
+        _ = try Sets.unit([".DS_Store": Data([0]), "._game.apks": Data([0]), ".game.apks.icloud": Data([0])], in: sandbox.paths)
+        let obb = try Sets.unit(["main.1.org.example.sets.obb": Data([0])], in: sandbox.paths)
 
-        #expect(try await library.scanUnits().map(\.lastPathComponent) == [waiting.lastPathComponent])
+        #expect(Set(try await library.scanUnits().map(\.lastPathComponent)) == [waiting.lastPathComponent, obb.lastPathComponent])
         // scan() still gives APKs only.
         #expect(try await library.scan().isEmpty)
     }

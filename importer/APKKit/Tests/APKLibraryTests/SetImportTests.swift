@@ -180,7 +180,8 @@ struct SetImportTests {
     }
 
     @Test func aUnitsOtherFilesGoTheirOwnWay() async throws {
-        // A file that is no APK is recorded as before; an OBB waits for ADR-0049.
+        // A file that is no APK is recorded as before; an OBB goes to the app its name gives, here the set's own
+        // (ADR-0049 d).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -190,7 +191,8 @@ struct SetImportTests {
         let results = try await library.importUnit(unit)
 
         #expect(Set(results.map(\.entry.id)) == ["file:junk.apk", SplitAPK.package])
-        #expect(try FileManager.default.contentsOfDirectory(atPath: unit.path) == ["main.1.org.example.sets.obb"])
+        #expect(results.last?.installedOBBs.map(\.fileName) == ["main.1.org.example.sets.obb"])
+        #expect(!sandbox.exists(unit))
     }
 
     @Test func aSetAndroidRefusesBecomesAnInvalidEntry() async throws {

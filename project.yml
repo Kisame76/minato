@@ -124,6 +124,11 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - io.github.kisame76.minato.xapk
+          # An app's expansion file on its own (ADR-0049 d).
+          - CFBundleTypeName: Android Expansion File
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - io.github.kisame76.minato.obb
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.android.package-archive
             UTTypeDescription: Android Package
@@ -150,6 +155,14 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension:
                 - xapk
+          # Imported, not exported: .obb is Android's expansion file, which Minato does not define.
+          - UTTypeIdentifier: io.github.kisame76.minato.obb
+            UTTypeDescription: Android Expansion File
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - obb
     # Every build carries increased-memory-limit: about 6 GiB instead of 3.3 GiB
     # and a 64 GiB address range on iOS 27 (ADR-0012, spike S2).
     entitlements:

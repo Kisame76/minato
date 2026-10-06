@@ -9,6 +9,8 @@ extension UTType {
     static let apkSet = UTType(importedAs: "io.github.kisame76.minato.apks")
     /// project.yml's imported type for APKPure's .xapk (ADR-0049 c2).
     static let xapk = UTType(importedAs: "io.github.kisame76.minato.xapk")
+    /// project.yml's imported type for an app's expansion file, .obb (ADR-0049 d).
+    static let obb = UTType(importedAs: "io.github.kisame76.minato.obb")
 }
 
 /// The library, laid out like a folder in the Files app: icon grid, search, a "…" menu with Select
@@ -36,8 +38,8 @@ struct LibraryView: View {
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
                 .toolbar { toolbar }
                 // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
-                // (ADR-0049 a3), or in an .xapk with its OBBs (c2).
-                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .xapk, .zip, .folder],
+                // (ADR-0049 a3), or in an .xapk with its OBBs (c2), and an app's OBB on its own (d).
+                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .xapk, .obb, .zip, .folder],
                               allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }
@@ -74,6 +76,17 @@ struct LibraryView: View {
                     Button(texts.decline, role: .cancel) { Task { await model.answer(question, replace: false) } }
                 } message: { question in
                     Text(Texts.unitQuestion(question).message)
+                }
+                // ADR-0049 d: the app an OBB belongs to, one button per app that can take it.
+                .alert(obbQuestionTitle, isPresented: obbQuestionShown, presenting: model.obbQuestions.first) { question in
+                    ForEach(question.apps, id: \.id) { app in
+                        Button(app.displayName) { Task { await model.assign(question, to: app) } }
+                    }
+                    Button(question.apps.isEmpty ? "OK" : "Don’t Import", role: .cancel) {
+                        Task { await model.assign(question, to: nil) }
+                    }
+                } message: { question in
+                    Text(Texts.obbQuestion(question).message)
                 }
                 .alert("Error", isPresented: errorShown) {
                     Button("OK") { model.errorMessage = nil }
@@ -312,6 +325,15 @@ struct LibraryView: View {
     /// Dismissing it without a button leaves the question: the unit waits, and the next launch asks again.
     private var questionShown: Binding<Bool> {
         Binding(get: { !model.questions.isEmpty }, set: { _ in })
+    }
+
+    private var obbQuestionTitle: String {
+        model.obbQuestions.first.map { Texts.obbQuestion($0).title } ?? ""
+    }
+
+    /// Dismissing it without a button leaves the question, as for an update's.
+    private var obbQuestionShown: Binding<Bool> {
+        Binding(get: { !model.obbQuestions.isEmpty }, set: { _ in })
     }
 
     private var errorShown: Binding<Bool> {

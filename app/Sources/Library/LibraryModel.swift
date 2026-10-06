@@ -33,8 +33,8 @@ struct LibraryItem: Identifiable {
 /// A pick that waits in incoming/ (ADR-0048, decision 1): a unit's folder, or a file an older build left there.
 struct WaitingUnit {
     let url: URL
-    /// Its APKs' and containers' names in the order the library reads them (`Library.importUnit`), so the title stays
-    /// the same.
+    /// Its APKs', containers' and OBBs' names in the order the library reads them (`Library.importUnit`), so the title
+    /// stays the same.
     let apks: [String]
     /// Their size together, for the log.
     let size: Int
@@ -44,9 +44,9 @@ struct WaitingUnit {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys),
                                                                   options: [.skipsHiddenFiles])) ?? [url]
-        // Its APKs and containers (ADR-0049 a3), not the OBBs, which wait for their step.
+        // Its APKs, containers (ADR-0049 a3) and OBBs (ADR-0049 d).
         let apks = files
-            .filter { $0.pathExtension.lowercased() != "obb" && (try? $0.resourceValues(forKeys: keys))?.isRegularFile == true }
+            .filter { (try? $0.resourceValues(forKeys: keys))?.isRegularFile == true }
             .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
         self.apks = apks.map(\.lastPathComponent)
         size = apks.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: keys))?.fileSize ?? 0) }
@@ -108,6 +108,17 @@ struct UpdateQuestion: Identifiable {
     }
 }
 
+/// An OBB of a unit that no app takes by its name (ADR-0049 d): the user names the app, or lets it go with its unit.
+struct OBBQuestion: Identifiable {
+    let unit: URL
+    /// Its name in the unit, as the user picked it.
+    let file: String
+    /// The apps it can go to, by name (`Library.appsForOBBs`); with none, an alert says so instead.
+    let apps: [LibraryEntry]
+
+    var id: String { unit.path + "/" + file }
+}
+
 /// UI state around the `Library` actor, which does the file work off the main thread.
 @MainActor
 @Observable
@@ -129,6 +140,8 @@ final class LibraryModel {
     var updateRejected: (title: String, message: String)?
     /// Imports that ask first, the first one shown.
     private(set) var questions: [UpdateQuestion] = []
+    /// OBBs that wait for the user to name their app, the first one shown (ADR-0049 d).
+    private(set) var obbQuestions: [OBBQuestion] = []
     /// The signer for native code at import (ADR-0032), which the signing coordinator provides; nil
     /// while the certificate is not valid, and then the import keeps the originals only.
     @ObservationIgnored var importSigning: @MainActor () -> ImportSigning? = { nil }
@@ -378,18 +391,72 @@ final class LibraryModel {
             switch result.decision {
             case .install, .reject:
                 break
-            case .update, .unchanged, .reinstall:
+            case .update, .reinstall:
                 if let text = Texts.updateNote(result) { notes.append(text) }
+            case .unchanged:
+                // An OBB that came in says so on its own (ADR-0049 d).
+                if result.installedOBBs.isEmpty, result.replacedOBBs.isEmpty, let text = Texts.updateNote(result) {
+                    notes.append(text)
+                }
             case .ask:
                 if let set = UpdateQuestion.Asking(result, installed: installed) { asking.append(set) }
             }
+            if let text = Texts.obbNote(result) { notes.append(text) }
         }
         #if DEBUG
         UpdateCheck.tiles(of: results, in: installed)
         #endif
         reject(results)
+        refuseOBBs(results)
         if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
         ask(asking, about: unit)
+    }
+
+    /// Picked OBBs that could not go in, in one alert (ADR-0049 d).
+    private func refuseOBBs(_ results: [ImportResult]) {
+        let texts = results.flatMap { result in
+            result.refusedOBBs.map { Texts.obbRefused($0.path, app: result.entry.displayName, because: $0.reason) }
+        }
+        if !texts.isEmpty { errorMessage = texts.joined(separator: "\n\n") }
+    }
+
+    /// Holds the unit, and queues the question about its first OBB no app takes by its name (ADR-0049 d); none while
+    /// a set of the unit waits for its own answer.
+    private func askAboutOBBs(in unit: URL, with library: Library) async {
+        guard let file = await library.obbsWaitingForAnApp(inUnit: unit).first else { return }
+        held.insert(unit)
+        obbQuestions.append(OBBQuestion(unit: unit, file: file, apps: await library.appsForOBBs()))
+        #if DEBUG
+        if obbQuestions.count == 1 { UpdateCheck.obbQuestionShown(obbQuestions[0], in: self) }
+        #endif
+    }
+
+    /// The answer to an OBB's question: the app it goes to, under a name made for that app, or none, which lets that
+    /// file go as "Don’t Import" does, and OK where no app can take it (ADR-0049 d, App's review). Then the unit's next
+    /// OBB asks.
+    func assign(_ question: OBBQuestion, to app: LibraryEntry?) async {
+        obbQuestions.removeAll { $0.id == question.id }
+        #if DEBUG
+        UpdateCheck.event("answered \(app.map { "app \($0.id)" } ?? "keep")")
+        if let next = obbQuestions.first { UpdateCheck.obbQuestionShown(next, in: self) }
+        #endif
+        guard let library else { return }
+        var results: [ImportResult] = []
+        if let app {
+            do {
+                results = try await library.importUnit(question.unit, assigning: [question.file: app.id], signing: importSigning())
+            } catch {
+                errorMessage = "“\(question.file)” could not be added to “\(app.displayName)”: \(error.localizedDescription)"
+            }
+        } else {
+            await library.discardPickedOBB(question.file, inUnit: question.unit)
+        }
+        entries = await library.entries
+        held.remove(question.unit)
+        let notes = results.compactMap { Texts.obbNote($0, file: question.file) }
+        refuseOBBs(results)
+        if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
+        await askAboutOBBs(in: question.unit, with: library)
     }
 
     /// The files of a unit the installed apps keep their versions against, in one alert.
@@ -460,6 +527,7 @@ final class LibraryModel {
         reject(results.filter(question.lists))
         if !notes.isEmpty { showNote(notes.joined(separator: " ")) }
         ask(asking, about: question.unit)
+        if asking.isEmpty { await askAboutOBBs(in: question.unit, with: library) }
     }
 
     private func showNote(_ text: String) {
@@ -493,6 +561,7 @@ final class LibraryModel {
             log.info("Imported \(unit.title, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB, \(decisions, privacy: .public)) in \(ContinuousClock.now - start, privacy: .public)")
             let installed = await library.entries
             show(results, of: url, installed: installed)
+            await askAboutOBBs(in: url, with: library)
         } catch {
             errorMessage = "\(Texts.files(unit.apks)) could not be imported: \(error.localizedDescription)"
         }

@@ -16,7 +16,8 @@ struct UnitQuestionTests {
     typealias Sets = SetImportTests
 
     @Test func aScanGivesEachWaitingPickOnceOldestFirst() async throws {
-        // A flat file of an older build is a unit of its own; a pick still being taken over, and one with no APK, wait.
+        // A flat file of an older build is a unit of its own; a pick still being taken over waits; one of OBBs only is a
+        // unit since ADR-0049 d.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let flat = try sandbox.file(SampleAPK.make(), named: "flat.apk", in: sandbox.paths.incoming)
@@ -28,7 +29,7 @@ struct UnitQuestionTests {
         let obbOnly = sandbox.paths.incoming.appendingPathComponent(UUID().uuidString, isDirectory: true)
         _ = try sandbox.file(Data("obb".utf8), named: "main.1.org.example.game.obb", in: obbOnly)
 
-        #expect(LibraryTests.resolved(try await library.scanUnits()) == LibraryTests.resolved([flat, unit]))
+        #expect(LibraryTests.resolved(try await library.scanUnits()) == LibraryTests.resolved([flat, unit, obbOnly]))
         #expect(LibraryTests.resolved(try await library.scan())
             == LibraryTests.resolved([flat, unit.appendingPathComponent("one.apk"), unit.appendingPathComponent("two.apk")]))
     }
@@ -186,8 +187,9 @@ struct UnitQuestionTests {
     }
 
     @Test(arguments: [true, false])
-    func keepInstalledOnAUnitDropsItsAPKsWhileItsOBBsWait(withOBB: Bool) async throws {
-        // As the unit's end after an import: an OBB waits for ADR-0049, and a unit without one goes.
+    func keepInstalledOnAUnitDropsItsAPKsAndItsOBBs(withOBB: Bool) async throws {
+        // As the unit's end after an import, and its OBBs with it, as the original stays where the user has it
+        // (ADR-0049 d, the lead).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -201,9 +203,7 @@ struct UnitQuestionTests {
 
         await library.keepInstalled(discarding: unit)
 
-        #expect(!sandbox.exists(unit.appendingPathComponent("v1.apk")))
-        #expect(sandbox.exists(unit.appendingPathComponent(obb)) == withOBB)
-        #expect(sandbox.exists(unit) == withOBB)
+        #expect(!sandbox.exists(unit))
         #expect(try await library.scanUnits().isEmpty)
         #expect(await library.entries == [installed])
     }
