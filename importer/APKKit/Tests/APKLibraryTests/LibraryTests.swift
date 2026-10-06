@@ -203,9 +203,9 @@ struct LibraryTests {
             == sandbox.root.appendingPathComponent("Library/Caches/guest/org.example.game/data").path)
     }
 
-    /// At every start of a Java app, since iOS may empty Caches: the guest's /data with ART's dalvik-cache, user/0 and
-    /// the code path's lib/arm64, as framework/tests/app_process_run.py makes them; and the version's files read-only,
-    /// which an app imported before ADR-0039 c5 gets then.
+    /// At every start of a Java app, since iOS may empty Caches: the guest's /data with ART's dalvik-cache, user/0,
+    /// data and the code path's lib/arm64, as framework/tests/app_process_run.py makes them, and no local; and the
+    /// version's files read-only, which an app imported before ADR-0039 c5 gets then.
     @Test func preparingAJavaStartMakesTheGuestsDataAndTheFilesReadOnly() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -221,6 +221,10 @@ struct LibraryTests {
             #expect(data.path == sandbox.paths.guestDataDirectory(for: entry.id).path)
             #expect(sandbox.exists(data.appendingPathComponent("dalvik-cache/arm64")))
             #expect(sandbox.exists(data.appendingPathComponent("user/0")))
+            // /data/data, the parent of the app's data mount, which the guest stats as Android's root 0751 (ADR-0052's
+            // owners); /data/local stays absent, as the owner model counts /data/local/tmp as the app's.
+            #expect(sandbox.exists(data.appendingPathComponent("data")))
+            #expect(!sandbox.exists(data.appendingPathComponent("local")))
             #expect(sandbox.exists(data.appendingPathComponent("app/~~AAAA/org.example.game-BBBB==/lib/arm64")))
             for name in ["base.apk", "signers.json"] {
                 #expect(try Self.permissions(version.appendingPathComponent(name)) == 0o444)

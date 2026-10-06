@@ -225,6 +225,11 @@ with tempfile.TemporaryDirectory() as scratch:
         return result.stdout.splitlines()
 
     plain_command = started(plain, os.path.join(scratch, "plain-work"))
+    # /data/data, the parent of the app's data mount, which the guest stats as Android's root 0751 (ADR-0052's
+    # owners); /data/local stays absent, as the owner model counts /data/local/tmp as the app's.
+    plain_data = os.path.join(scratch, "plain-work", "run", "data")
+    check(os.path.isdir(os.path.join(plain_data, "data")) and not os.path.exists(os.path.join(plain_data, "local")),
+          f"the run has /data/data and no /data/local: {files(plain_data)}")
     entries = [plain_command[i + 1] for i, argument in enumerate(plain_command) if argument == "--libraries"]
     check(len(entries) == 3 and not any("/lib/arm64=" in entry for entry in entries),
           f"without libraries the command's library folders stay those of today: {entries}")

@@ -79,7 +79,9 @@ public struct LibraryPaths: Sendable {
     }
 
     /// What a Java app's start needs, at every start, since iOS may empty Caches (ADR-0039 c5): the guest's /data with
-    /// ART's dalvik-cache/arm64, user/0 and the code path's lib/arm64 with the app's JNI libraries (cloneLibraries), as
+    /// ART's dalvik-cache/arm64, user/0, data (the parent of the app's data mount, which the guest stats with Android
+    /// 15's owner, root's 0751, ADR-0052; /data/local stays absent, as the owner model counts /data/local/tmp as the
+    /// app's) and the code path's lib/arm64 with the app's JNI libraries (cloneLibraries), as
     /// framework/tests/app_process_run.py makes them, and the version's files read-only, which an app imported before
     /// c5 gets then. Another code path, an older version's, goes. `codePath` is the guest's
     /// /data/app/~~<a>/<package>-<b>. Returns the guest's /data.
@@ -99,7 +101,8 @@ public struct LibraryPaths: Sendable {
         }
         let lib = data.appendingPathComponent("\(codePath.dropFirst("/data/".count))/lib/arm64", isDirectory: true)
         for folder in [data.appendingPathComponent("dalvik-cache/arm64", isDirectory: true),
-                       data.appendingPathComponent("user/0", isDirectory: true), lib] {
+                       data.appendingPathComponent("user/0", isDirectory: true),
+                       data.appendingPathComponent("data", isDirectory: true), lib] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         try cloneLibraries(of: entry, into: lib)

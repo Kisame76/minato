@@ -265,7 +265,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder,
     /data/user/0/<package>, is a mount of its own, also as /data/data/<package> after it, and its external data and
     OBB folders are mounted as GuestStart mounts them (decision 6): a rename or link between them and the rest of
-    /data answers EXDEV, as on Android 15 (ADR-0039 decision 3).
+    /data answers EXDEV, as on Android 15 (ADR-0039 decision 3). The run's /data holds /data/data, which the guest
+    stats with Android 15's owner, root's 0751 (ADR-0052); /data/local stays absent, as the owner model counts
+    /data/local/tmp as the app's.
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
     host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
@@ -302,7 +304,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 f"/sdcard/Android/obb/{package}": "external-obb"}
     if not again or not os.path.isdir(run):
         shutil.rmtree(run, ignore_errors=True)
-        for folder in ("data/dalvik-cache/arm64", app.lstrip("/"), f"{data}/cache".lstrip("/"),
+        for folder in ("data/dalvik-cache/arm64", "data/data", app.lstrip("/"), f"{data}/cache".lstrip("/"),
                        f"{data}/code_cache".lstrip("/"), "apex/com.android.art/javalib", "apex/com.android.art/lib64",
                        "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu", "apex/com.android.tzdata/etc/tz",
                        "apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64", "framework",
