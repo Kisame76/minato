@@ -1,0 +1,11 @@
+I/obb-test: obbDir /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.obb
+I/obb-test: obbDirs 1
+I/obb-test: files main.1.io.github.kisame76.minato.test.obb.obb
+I/obb-test: main size 96 canRead true
+I/obb-test: main line Minato obb-test, main expansion file, version 1.
+I/obb-test: main line An expansion file holds what the APK does not.
+I/obb-test: main by path size 96 canRead true
+I/obb-test: main by path line Minato obb-test, main expansion file, version 1.
+I/obb-test: main by path line An expansion file holds what the APK does not.
+I/obb-test: patch exists false
+I/obb-test: done

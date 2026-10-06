@@ -4,9 +4,10 @@
 # twice over the same data), asset-ndk-test (ADR-0041 decision 7's, whose JNI library System.loadLibrary loads),
 # jni-lib-test (step c5.1's, which looks at its JNI library in nativeLibraryDir), jnigraphics-test (ADR-0041 a5's,
 # whose JNI library links libjnigraphics, which the app's guest system has from build/hwui/lib, and reads and writes
-# bitmaps through AndroidBitmap_* and decodes the APK's picture.png through AImageDecoder) and surface-test
-# (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's) are imported and
-# tapped in the library,
+# bitmaps through AndroidBitmap_* and decodes the APK's picture.png through AImageDecoder), surface-test
+# (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's) and, in the Simulator,
+# obb-test (ADR-0049 test 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives
+# to it by its name) are imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
 # sends to tmp/session-check/guest-out, and the lines of the others' own tags in their guest logs, of both of
@@ -63,6 +64,8 @@ JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
 [[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
+# obb-test's OBB comes as a unit folder of its own, which this check makes in the Simulator only.
+[[ "$ON_DEVICE" == yes ]] || APPS+=("obb-test io.github.kisame76.minato.test.obb")
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
@@ -200,6 +203,9 @@ screenshot() {
 # the index still names one.
 remove_test_apps() {
   terminate
+  # obb-test's OBB unit (pick_obb), which a run that ended before the library took it leaves, and the launch would
+  # import.
+  [[ "$ON_DEVICE" == yes ]] || rm -rf "${SUPPORT:?}/incoming/obb-test-obb" "${SUPPORT:?}/incoming/obb-test-obb.partial"
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   for app in "${APPS[@]}"; do echo "${app#* }"; done > "$CHECK/end"
@@ -425,6 +431,15 @@ for app in "${APPS[@]}"; do
     cp "build/${app%% *}/${app%% *}.apk" "$SUPPORT/incoming/"
   fi
 done
+# obb-test's main OBB (ADR-0049 test 8): a unit of its own after the APKs, a folder that appears whole, as "+" leaves a
+# pick; the library gives it to obb-test, which it imports first, by its name. remove_test_apps took any left over.
+pick_obb() {
+  local unit="${SUPPORT:?}/incoming/obb-test-obb"
+  mkdir "$unit.partial"
+  cp "fixtures/apps/obb-test/main.1.$1.obb" "$unit.partial/"
+  mv "$unit.partial" "$unit"
+}
+if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then pick_obb io.github.kisame76.minato.test.obb; fi
 send_requests
 launch
 for app in "${APPS[@]}"; do
@@ -501,6 +516,13 @@ EOF
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics
+if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
+  # Its OBB must be in its OBB folder before the tap.
+  obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
+  for _ in $(seq 1 100); do [[ -f "$obb" ]] && break; sleep 0.2; done
+  if [[ -f "$obb" ]]; then ok "obb-test's OBB is in its OBB folder"; else fail "no OBB in obb-test's OBB folder"; fi
+  run_one obb-test io.github.kisame76.minato.test.obb
+fi
 
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then
   run_lifecycle 1

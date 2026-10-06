@@ -39,7 +39,9 @@
 # (test 1), whose lines are System.out's that start with "app-start-test: ". A test
 # app's lines of logcat with its own tag (logcat -v tag) must be fixtures/expected/<app>.logcat; those with the tag
 # <app>-device differ by device and are only shown.
-# jnigraphics-test (ADR-0041 a5), whose JNI library links libjnigraphics, is one of those Java apps too.
+# jnigraphics-test (ADR-0041 a5), whose JNI library links libjnigraphics, is one of those Java apps too, and so is
+# obb-test (ADR-0049 test 8), whose OBB the script pushes into /sdcard/Android/obb/<package>/ before the start, where a
+# user or a store puts one, and removes after the run.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -435,7 +437,8 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test)
+      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
+      | obb-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -509,6 +512,11 @@ run_app() {
     # "cmd window user-rotation" says "free" or "lock <rotation>", which it takes back as it is.
     rotation=$(run cmd window user-rotation | tr -d '\r')
     run cmd window user-rotation lock 0 >/dev/null
+  fi
+  if [[ "$app" == obb-test ]]; then
+    # ADR-0049 test 8: its main OBB in its OBB folder before the start, as a user or a store puts one there.
+    run mkdir -p "/sdcard/Android/obb/${package:?}"
+    device push "fixtures/apps/$app/main.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
   fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   if [[ "$app" == rotation-test ]]; then
@@ -639,6 +647,7 @@ run_app() {
     app_lines "$tag" | grep -F ": $app: " >"$RESULTS/$app.logcat" || true
   fi
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  [[ "$app" != obb-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
   if [[ "$app" == canvas-test ]]; then
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
     device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"
