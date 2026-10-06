@@ -2,9 +2,13 @@
 # Runs ADR-0045 step 7b's test of touch time on the Mac (framework/tests/java_app_run.py): builds apk-run and
 # apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
 # framework.jar (about 10 s) and touch-test (seconds) every time, so it never tests an old binary; then starts
-# touch-test through app_process and compares its log with Android 15's on apk-runner-35
-# (fixtures/expected/touch-test.logcat, from tools/android-reference.sh --app touch-test): made-up MotionEvents, their
-# split in a ViewGroup, their parcel, and VelocityTracker's and GestureDetector's velocities (7b1).
+# touch-test through app_process in a session on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at
+# scale 3 in en-US, and compares its log with Android 15's on that display (fixtures/expected/touch-test.logcat, from
+# tools/android-reference.sh --app touch-test):
+#   - made-up MotionEvents, their split in a ViewGroup, their parcel, and VelocityTracker's and GestureDetector's
+#     velocities (7b1);
+#   - a tap in the window's middle and a swipe to the right through it, which apk-run's lifecycle plays on the
+#     session's input channel as adb shell input plays them on the AVD (7b2).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/touch-check.sh
 set -euo pipefail
@@ -22,8 +26,9 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh touch-test >/dev/null
 
-python3 framework/tests/java_app_run.py touch-test io.github.kisame76.minato.test.touch \
-  io.github.kisame76.minato.test.touch.TouchApplication build/art build/bionic/lib build/bionic/system \
-  build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
-  "$NATIVE/runtime/apk-run" build/touch-check build/framework-native/app_process64 build/framework/framework.jar \
-  build/framework-res/framework-res build/touch-test/touch-test.apk fixtures/expected/touch-test.logcat
+python3 framework/tests/java_app_run.py --lifecycle start,tap:645:1398,swipe:300:1398:1000:1398:200 touch-test \
+  io.github.kisame76.minato.test.touch io.github.kisame76.minato.test.touch.TouchApplication build/art \
+  build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+  "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/touch-check \
+  build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+  build/touch-test/touch-test.apk fixtures/expected/touch-test.logcat 1290x2796@3,en-US

@@ -1065,3 +1065,9 @@ frameworks_base/core/java/android/view/VelocityTracker.java
 frameworks_base/core/java/android/widget/Checkable.java
 frameworks_base/core/java/android/widget/CheckBox.java
 frameworks_base/core/java/android/widget/CompoundButton.java
+
+# ADR-0045 step 7b2, the input channel: InputChannel and InputEventReceiver, with natives of ours on the session's
+# input channel (framework/native/android_runtime/android_view_InputEventReceiver.cpp), for ViewRootImpl's
+# WindowInputEventReceiver.
+frameworks_base/core/java/android/view/InputChannel.java
+frameworks_base/core/java/android/view/InputEventReceiver.java

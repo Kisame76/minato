@@ -44,7 +44,7 @@
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
-# up, so that its lines do not depend on the device.
+# up, so that its lines do not depend on the device; since step 7b2 it has its own activity, on the display below.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
 # pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
 # views-test (ADR-0043 test 1, step c3) runs on java-test's AVD, drawn in software with the system bars shown: a second
@@ -159,9 +159,10 @@ fi
 # (ADR-0042 b), whose window's insets controller depends on the bars, runs there too, java-test (ADR-0043 step c1),
 # whose lifecycle the host drives as Minato's does, views-test (step c3), whose screen nothing but the bars covers
 # there, text-test (step d)), which also waits for its window's focus, and surface-test (step c4), whose GLSurfaceView
-# fills the window between the bars.
+# fills the window between the bars. touch-test (ADR-0045 step 7b2) runs there too: the script taps its window's
+# middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
-  "$app" == views-test || "$app" == text-test || "$app" == surface-test ]]; then
+  "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -426,7 +427,7 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | touch-test | checkbox-test)
+      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -434,6 +435,11 @@ run_app() {
     # window has focus.
     activity-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.Launcher
+      ;;
+    # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with
+    # "done" at the click of the swipe that the script plays.
+    touch-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TouchActivity
       ;;
     # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
     start-stops-test)
@@ -506,6 +512,13 @@ run_app() {
     # shellcheck disable=SC2086
     run cmd window user-rotation $rotation >/dev/null
     [[ "$turned" == yes ]] || return 1
+  fi
+  if [[ "$app" == touch-test ]]; then
+    # ADR-0045 step 7b2: a tap in the window's middle, then a swipe to the right through it, each a second after
+    # the line before it, as apk-run's lifecycle plays them in tools/touch-check.sh.
+    { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
+      wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
+      run input swipe 300 1398 1000 1398 200; } || return 1
   fi
   if [[ "$app" == activity-test ]]; then
     wait_for "$app" APP_CMD_GAINED_FOCUS || return 1

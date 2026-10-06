@@ -23,4 +23,20 @@ I/touch-test: velocity: 6000.0 1875.0 px/s, capped at 3000: 3000.0 1875.0, axis 
 I/touch-test: gesture: down
 I/touch-test: gesture: fling 6000.0 1875.0 px/s
 I/touch-test: gesture: scrolls 8
+I/touch-test: made-up events: done
+I/touch-test: pad: ready
+I/touch-test: pad: ACTION_DOWN, pointers 1, source 0x1002, tool 1
+I/touch-test: gesture: down
+I/touch-test: pad: moved before the end: false, with history: false
+I/touch-test: pad: ACTION_UP, pointers 1, source 0x1002, tool 1
+I/touch-test: gesture: single tap up
+I/touch-test: pad: click
+I/touch-test: gesture: single tap confirmed
+I/touch-test: pad: ACTION_DOWN, pointers 1, source 0x1002, tool 1
+I/touch-test: gesture: down
+I/touch-test: gesture: scroll
+I/touch-test: pad: moved before the end: true, with history: true
+I/touch-test: pad: ACTION_UP, pointers 1, source 0x1002, tool 1
+I/touch-test: gesture: fling right
+I/touch-test: pad: click
 I/touch-test: done

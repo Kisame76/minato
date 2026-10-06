@@ -224,6 +224,8 @@ sources_in(android_runtime_sources "${jni}"
 # ActivityThread's native (b3.4c) reads the session's configuration through libandroid, which it opens with dlopen
 # rather than linking: on Android libandroid needs libandroid_runtime, not the other way. DisplayEventReceiver's
 # natives (ADR-0041 a)) take libandroid's AChoreographer the same way.
+# InputChannel's and InputEventReceiver's (ADR-0045 step 7b2), ours on the session's input channel, take its
+# ALooper the same way.
 # The GLES bindings (ADR-0041 a), decision 4): AOSP's core/jni files for android.opengl, javax.microedition.khronos and
 # com.google.android.gles_jni, five of them in tools/build-framework-native.sh's patched copies
 # (native/patches/opengl-without-libgui.patch: no libgui, libui or libEGL's private API, and no ETC1), with ours for a
@@ -253,6 +255,8 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
             native/android_runtime/android_view_KeyEvent.cpp native/android_runtime/minato_gles.cpp
+            native/android_runtime/android_view_InputChannel.cpp
+            native/android_runtime/android_view_InputEventReceiver.cpp
             native/android_runtime/android_os_Parcel.cpp native/android_runtime/minato_parcel.cpp)
 target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"
                            PRIVATE "${jni}" "${jni}/android/opengl" native/include "${NATIVEHELPER}/include"

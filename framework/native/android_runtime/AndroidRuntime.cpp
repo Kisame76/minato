@@ -58,6 +58,9 @@ extern int register_android_view_KeyEvent(JNIEnv *env);
 // MotionEvent's and VelocityTracker's (ADR-0045 step 7b1): AOSP's core/jni files over libinput.
 extern int register_android_view_MotionEvent(JNIEnv *env);
 extern int register_android_view_VelocityTracker(JNIEnv *env);
+// InputChannel's and InputEventReceiver's (ADR-0045 step 7b2): ours on the session's input channel.
+extern int register_android_view_InputChannel(JNIEnv *env);
+extern int register_android_view_InputEventReceiver(JNIEnv *env);
 // The GLES bindings (ADR-0041 a)): AOSP's core/jni files; util.cpp's classes are in namespace android.
 extern int register_android_opengl_classes(JNIEnv *env);
 
@@ -112,7 +115,8 @@ int register_framework_natives(JNIEnv *env) {
           register_android_hardware_SensorManager, register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent,
-          register_android_view_MotionEvent, register_android_view_VelocityTracker}) {
+          register_android_view_MotionEvent, register_android_view_VelocityTracker,
+          register_android_view_InputChannel, register_android_view_InputEventReceiver}) {
         if (registration(env) < 0) {
             env->PopLocalFrame(nullptr);
             return -1;

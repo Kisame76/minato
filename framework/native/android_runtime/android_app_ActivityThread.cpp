@@ -10,7 +10,8 @@
 // A function libandroid lacks throws UnsatisfiedLinkError with its name.
 // Since ADR-0043 step c1 the others connect the driver to the host's session as activity-host connects (ADR-0028):
 // the event pipe's descriptor, one record read at a time, each event answered, the FINISH request, and the end; since
-// ADR-0043 step c4 also SurfaceView's surface request, whose struct the native fills.
+// ADR-0043 step c4 also SurfaceView's surface request, whose struct the native fills, and since ADR-0045 step 7b2
+// the input channel's connect, whose descriptor becomes an InputChannel (android_view_InputChannel.cpp).
 #include <android/configuration.h>
 #include <dlfcn.h>
 #include <stddef.h>
@@ -18,6 +19,7 @@
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 #include <nativehelper/JNIPlatformHelp.h>
+#include <nativehelper/scoped_utf_chars.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -25,6 +27,7 @@
 #include <APKRuntime/guest_interface.h>
 
 #include "core_jni_helpers.h"
+#include "minato_input_channel.h"
 
 // The libandroid functions the native calls, with the NDK header's types.
 #define LIBANDROID_FUNCTIONS(X)                                                                                     \
@@ -187,6 +190,17 @@ jint SessionRequestSurface(JNIEnv *, jclass, jint op, jint z, jlong token, jint 
                    : 0;
 }
 
+// input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null
+// when the runtime refuses the ID, or with the exception pending when the name cannot be read, which is read
+// first, as AOSP's natives read theirs before they open a channel.
+jobject SessionConnectInput(JNIEnv *env, jclass, jlong id, jstring name) {
+    ScopedUtfChars label(env, name);
+    if (label.c_str() == nullptr) return nullptr;
+    const long fd = syscall(APKRT_NR_INPUT_CONNECT, static_cast<uint64_t>(id));
+    if (fd < 0) return nullptr;
+    return android_view_InputChannel_createJavaObject(env, static_cast<int>(fd), label.c_str());
+}
+
 [[noreturn]] void Exit(JNIEnv *, jclass, jint status) {
     _exit(status);
 }
@@ -200,6 +214,8 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionAnswer", "(I)V", reinterpret_cast<void *>(SessionAnswer)},
         {"nativeSessionRequest", "(IJJ)I", reinterpret_cast<void *>(SessionRequest)},
         {"nativeSessionRequestSurface", "(IIJIIIIIII)I", reinterpret_cast<void *>(SessionRequestSurface)},
+        {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
+         reinterpret_cast<void *>(SessionConnectInput)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},
 };
 

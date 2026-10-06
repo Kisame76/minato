@@ -18,7 +18,10 @@
  *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
  *   - the back dispatcher is AOSP's, local: without a window session it keeps the callbacks and tells no one
  *     (ADR-0041 c) wires the back gesture);
- *   - the members that View, ViewGroup, Window and Activity reach answer as AOSP's does for a window without input,
+ *   - touches come through the session's input channel, which ActivityThread hands over (ADR-0045 step 7b2): a
+ *     WindowInputEventReceiver delivers them as AOSP's input stages deliver a touch, MOVEs at the frame's
+ *     CALLBACK_INPUT;
+ *   - the members that View, ViewGroup, Window and Activity reach answer as AOSP's does for a window without keys,
  *     drawing, accessibility or IME focus, which come with ADR-0041 a)'s rest.
  */
 package android.view;
@@ -86,7 +89,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     final Choreographer mChoreographer;
     /** As AOSP's: set by ViewGroup while a layout transition runs, so that empty invalidations still count. */
     public boolean mIsAnimating;
-    /** The input frame's statistics, which View reads only while it handles a pointer event (ADR-0041 a)'s input). */
+    /**
+     * The input frame's statistics, which View reads only while it handles a pointer event, under the flag
+     * adpfMeasureDuringInputEventBoost, which the framework's flags leave off (ADR-0045 step 7b2).
+     */
     protected final ViewFrameInfo mViewFrameInfo = null;
     /** The window's surface, on the session's host window from NATIVE_WINDOW_CREATED to its DESTROYED (c3). */
     public final Surface mSurface = new Surface();
@@ -128,6 +134,17 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mInLayout;
     private boolean mTraversalScheduled;
     private int mTraversalBarrier;
+    // The window's touches (ADR-0045 step 7b2): the session's input channel and its receiver, whose MOVEs wait for
+    // the frame's CALLBACK_INPUT unless a view asked for unbuffered dispatch, as AOSP's.
+    private InputChannel mInputChannel;
+    private WindowInputEventReceiver mInputEventReceiver;
+    private boolean mConsumeBatchedInputScheduled;
+    private boolean mConsumeBatchedInputImmediatelyScheduled;
+    private boolean mUnbufferedInputDispatch;
+    private int mUnbufferedInputSource = InputDevice.SOURCE_CLASS_NONE;
+    private final ConsumeBatchedInputRunnable mConsumedBatchedInputRunnable = new ConsumeBatchedInputRunnable();
+    private final ConsumeBatchedInputImmediatelyRunnable mConsumeBatchedInputImmediatelyRunnable =
+            new ConsumeBatchedInputImmediatelyRunnable();
     private boolean mApplyInsetsRequested;
     private boolean mUpcomingWindowFocus;
     private boolean mWindowFocusChanged;
@@ -671,6 +688,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mSurface.release();
             mAdded = false;
             unscheduleTraversals();
+            disposeInput();
         }
         WindowManagerGlobal.getInstance().doRemoveView(this);
     }
@@ -1078,9 +1096,206 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         mHandler.removeMessages(MSG_INVALIDATE, view);
     }
 
-    /** No input reaches a window before ADR-0041 a)'s input. */
+    /**
+     * The window's input channel (ADR-0045 step 7b2), which ActivityThread makes of the session's at
+     * INPUT_QUEUE_CREATED, as AOSP's setView gets one from the window manager: a WindowInputEventReceiver on this
+     * thread's looper delivers its touches. Null, at INPUT_QUEUE_DESTROYED, takes both away.
+     */
+    public void setInputChannel(InputChannel inputChannel) {
+        disposeInput();
+        mInputChannel = inputChannel;
+        if (inputChannel != null) {
+            mInputEventReceiver = new WindowInputEventReceiver(inputChannel, Looper.myLooper());
+        }
+    }
+
+    /** As AOSP's dispatchDetachedFromWindow: the receiver, then the channel. */
+    private void disposeInput() {
+        if (mInputEventReceiver != null) {
+            mInputEventReceiver.dispose();
+            mInputEventReceiver = null;
+        }
+        if (mInputChannel != null) {
+            mInputChannel.dispose();
+            mInputChannel = null;
+        }
+    }
+
+    /**
+     * AOSP's WindowInputEventReceiver for touches, without InputEventCompatProcessor, which only changes a stylus's
+     * buttons for targets below 23, and without the focus, capture, drag and touch mode events, which the session's
+     * channel does not carry.
+     */
+    final class WindowInputEventReceiver extends InputEventReceiver {
+        WindowInputEventReceiver(InputChannel inputChannel, Looper looper) {
+            super(inputChannel, looper);
+        }
+
+        @Override
+        public void onInputEvent(InputEvent event) {
+            deliverInputEvent(event, this);
+        }
+
+        @Override
+        public void onBatchedInputEventPending(int source) {
+            final boolean unbuffered = mUnbufferedInputDispatch
+                    || (source & mUnbufferedInputSource) != InputDevice.SOURCE_CLASS_NONE;
+            if (unbuffered) {
+                if (mConsumeBatchedInputScheduled) {
+                    unscheduleConsumeBatchedInput();
+                }
+                // Consume event immediately if unbuffered input dispatch has been requested.
+                consumeBatchedInputEvents(-1);
+                return;
+            }
+            scheduleConsumeBatchedInput();
+        }
+
+        @Override
+        public void dispose() {
+            unscheduleConsumeBatchedInput();
+            super.dispose();
+        }
+    }
+
+    /** As AOSP's: a view asked for unbuffered dispatch of a source's events (View.requestUnbufferedDispatch). */
+    @Override
+    public void onDescendantUnbufferedRequested() {
+        mUnbufferedInputSource = mView.mUnbufferedInputSource;
+    }
+
+    void scheduleConsumeBatchedInput() {
+        // If anything is currently scheduled to consume batched input then there's no point in scheduling it again.
+        if (!mConsumeBatchedInputScheduled && !mConsumeBatchedInputImmediatelyScheduled) {
+            mConsumeBatchedInputScheduled = true;
+            mChoreographer.postCallback(Choreographer.CALLBACK_INPUT, mConsumedBatchedInputRunnable, null);
+        }
+    }
+
+    void unscheduleConsumeBatchedInput() {
+        if (mConsumeBatchedInputScheduled) {
+            mConsumeBatchedInputScheduled = false;
+            mChoreographer.removeCallbacks(Choreographer.CALLBACK_INPUT, mConsumedBatchedInputRunnable, null);
+        }
+    }
+
+    void scheduleConsumeBatchedInputImmediately() {
+        if (!mConsumeBatchedInputImmediatelyScheduled) {
+            unscheduleConsumeBatchedInput();
+            mConsumeBatchedInputImmediatelyScheduled = true;
+            mHandler.post(mConsumeBatchedInputImmediatelyRunnable);
+        }
+    }
+
+    boolean doConsumeBatchedInput(long frameTimeNanos) {
+        return mInputEventReceiver != null && mInputEventReceiver.consumeBatchedInputEvents(frameTimeNanos);
+    }
+
+    final class ConsumeBatchedInputRunnable implements Runnable {
+        @Override
+        public void run() {
+            mConsumeBatchedInputScheduled = false;
+            if (doConsumeBatchedInput(mChoreographer.getFrameTimeNanos())) {
+                // If we consumed a batch here, we want to go ahead and schedule the consumption of batched input
+                // events on the next frame, as AOSP's does.
+                scheduleConsumeBatchedInput();
+            }
+        }
+    }
+
+    final class ConsumeBatchedInputImmediatelyRunnable implements Runnable {
+        @Override
+        public void run() {
+            mConsumeBatchedInputImmediatelyScheduled = false;
+            doConsumeBatchedInput(-1);
+        }
+    }
+
+    /**
+     * AOSP's deliverInputEvent and its input stages for a touch, in one: a focus change still posted reaches the views
+     * first, as deliverInputEvent's handleWindowFocusChanged before the stages; an event the window cannot take now is
+     * dropped, or cancelled when it ends a gesture (InputStage.shouldDropInputEvent); then EarlyPostImeInputStage's and
+     * ViewPostImeInputStage's processPointerEvent; the end of unbuffered dispatch at a touch's end, handled or dropped,
+     * as ViewPostImeInputStage.onDeliverToNext; and the answer. Keys come with step 7c.
+     */
+    private void deliverInputEvent(InputEvent event, InputEventReceiver receiver) {
+        handleWindowFocusChanged();
+        boolean handled = false;
+        if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+            final MotionEvent motion = (MotionEvent) event;
+            if (!shouldDropInputEvent(motion)) {
+                handled = processPointerEvent(motion);
+            }
+            if (mUnbufferedInputDispatch && motion.isTouchEvent() && isTerminalInputEvent(motion)) {
+                mUnbufferedInputDispatch = false;
+                scheduleConsumeBatchedInput();
+            }
+        }
+        receiver.finishInputEvent(event, handled);
+    }
+
+    /** As AOSP's for a motion event: an UP, a CANCEL or a HOVER_EXIT ends what came before it. */
+    private static boolean isTerminalInputEvent(MotionEvent event) {
+        final int action = event.getAction();
+        return action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
+                || action == MotionEvent.ACTION_HOVER_EXIT;
+    }
+
+    private boolean shouldDropInputEvent(MotionEvent event) {
+        if (mView == null || !mAdded) {
+            Log.w(TAG, "Dropping event due to root view being removed: " + event);
+            return true;
+        }
+        if (!mStopped) {
+            return false;
+        }
+        if (isTerminalInputEvent(event)) {
+            // Don't drop terminal input events, however mark them as canceled.
+            event.cancel();
+            Log.w(TAG, "Cancelling event (window is stopped):" + event);
+            return false;
+        }
+        Log.w(TAG, "Dropping event (window is stopped): " + event);
+        return true;
+    }
+
+    private boolean processPointerEvent(MotionEvent event) {
+        // EarlyPostImeInputStage: touch mode at a DOWN or a scroll from any device, no tooltip at a DOWN, the scroll's
+        // offset. Left out: the compatibility translator (mTranslator), for screen-compat apps only; the autofill UI's
+        // hide at a DOWN (requestHideFillUi); the last touch for a drag's start and the IME's last UP, which come with
+        // drags and the IME.
+        final int action = event.getAction();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_SCROLL) {
+            ensureTouchMode(true);
+        }
+        if (action == MotionEvent.ACTION_DOWN && mAttachInfo.mTooltipHost != null) {
+            mAttachInfo.mTooltipHost.hideTooltip();
+        }
+        if (mCurScrollY != 0) {
+            event.offsetLocation(0, mCurScrollY);
+        }
+        // ViewPostImeInputStage. Left out: the handwriting initiator, which starts only with a stylus; the pointer
+        // icon's and the tooltip's updates (maybeUpdatePointerIcon, maybeUpdateTooltip), for mice and hovers only; the
+        // touch boost of variable refresh rates.
+        mAttachInfo.mUnbufferedDispatchRequested = false;
+        mAttachInfo.mHandlingPointerEvent = true;
+        final boolean handled = mView.dispatchPointerEvent(event);
+        mAttachInfo.mHandlingPointerEvent = false;
+        if (mAttachInfo.mUnbufferedDispatchRequested && !mUnbufferedInputDispatch) {
+            mUnbufferedInputDispatch = true;
+            if (mConsumeBatchedInputScheduled) {
+                scheduleConsumeBatchedInputImmediately();
+            }
+        }
+        return handled;
+    }
+
+    /**
+     * An event handed in directly, not through the window's input channel: an input method's, accessibility's or an
+     * injected one, which come with ADR-0045 step 7c. Touches come through the channel (ADR-0045 step 7b2).
+     */
     public void dispatchInputEvent(InputEvent event) {
-        Log.w(TAG, "No input on Minato's windows yet (ADR-0041 a)): " + event);
+        Log.w(TAG, "No events handed in directly on Minato's windows yet (ADR-0045 step 7c): " + event);
     }
 
     public boolean dispatchUnhandledKeyEvent(KeyEvent event) {
@@ -1104,8 +1319,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return false;
     }
 
+    /** As AOSP's: whether the receiver has a touch waiting (ADR-0045 step 7b2). */
     public boolean probablyHasInput() {
-        return false;
+        return mInputEventReceiver != null && mInputEventReceiver.probablyHasInput();
     }
 
     boolean isInLayout() {
@@ -1151,7 +1367,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     void transformMatrixToLocal(Matrix m) {
     }
 
-    // The members that come with ADR-0041 a)'s rest: the hardware renderer, input, IME and accessibility.
+    // The members that come with ADR-0041 a)'s rest: the hardware renderer, keys, IME and accessibility.
 
     public InsetsController getInsetsController() {
         return mInsetsController;

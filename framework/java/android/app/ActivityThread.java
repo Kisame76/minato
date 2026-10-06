@@ -75,6 +75,7 @@ import android.util.Slog;
 import android.util.SuperNotCalledException;
 import android.util.UtilConfig;
 import android.view.Display;
+import android.view.InputChannel;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewManager;
@@ -785,6 +786,8 @@ public final class ActivityThread {
     private static final int EVENT_NATIVE_WINDOW_RESIZED = 10;
     private static final int EVENT_NATIVE_WINDOW_REDRAW_NEEDED = 11;
     private static final int EVENT_NATIVE_WINDOW_DESTROYED = 12;
+    private static final int EVENT_INPUT_QUEUE_CREATED = 13;
+    private static final int EVENT_INPUT_QUEUE_DESTROYED = 14;
     private static final int EVENT_LOW_MEMORY = 17;
     private static final int EVENT_SURFACE_CREATED = 18;
     private static final int EVENT_SURFACE_RESIZED = 19;
@@ -801,7 +804,7 @@ public final class ActivityThread {
     private FileDescriptor mSessionEvents;
     /** The launcher activity's record, which the session's events drive. */
     private ActivityClientRecord mSessionActivity;
-    /** The event types answered without more, each logged once: input, the content's rectangle and turns. */
+    /** The event types answered without more, each logged once: the content's rectangle and turns. */
     private final boolean[] mSkippedEvents = new boolean[32];
 
     /**
@@ -905,6 +908,24 @@ public final class ActivityThread {
                     root.setHostWindow(0, 0, 0);
                 }
                 break;
+            case EVENT_INPUT_QUEUE_CREATED:
+            case EVENT_INPUT_QUEUE_DESTROYED:
+                // The window's touches (ADR-0045 step 7b2): the session's input channel as an InputChannel, none
+                // for channel 0 and at the queue's end.
+                if (root != null) {
+                    InputChannel channel = null;
+                    if (type == EVENT_INPUT_QUEUE_CREATED && event[2] != 0) {
+                        channel = nativeSessionConnectInput(event[2],
+                                String.valueOf(root.mWindowAttributes.getTitle()));
+                        if (channel == null) {
+                            Log.w(TAG, "The session's input channel " + event[2] + " did not connect: no touches");
+                        }
+                    }
+                    root.setInputChannel(channel);
+                } else if (type == EVENT_INPUT_QUEUE_CREATED && event[2] != 0) {
+                    Log.w(TAG, "The session's input channel came before a window: no touches");
+                }
+                break;
             case EVENT_SURFACE_CREATED:
                 SurfaceView.dispatchSurfaceCreated(event[2], event[3], (int) event[4], (int) (event[4] >>> 32));
                 break;
@@ -918,8 +939,7 @@ public final class ActivityThread {
                 handleLowMemory();
                 break;
             default:
-                // The input queue's events (gap 7's step), NativeActivity's content rectangle (ADR-0041 b)) and turns
-                // (ADR-0041 decision 9).
+                // NativeActivity's content rectangle (ADR-0041 b)) and turns (ADR-0041 decision 9).
                 if (type > 0 && type < mSkippedEvents.length && !mSkippedEvents[type]) {
                     mSkippedEvents[type] = true;
                     Log.w(TAG, "The session's event " + type + " is answered without more (ADR-0043 step c1)");
@@ -1135,6 +1155,12 @@ public final class ActivityThread {
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,
             int bottom, int width, int height, int format);
+
+    /**
+     * input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null
+     * when the runtime refuses the ID.
+     */
+    private static native InputChannel nativeSessionConnectInput(long id, String name);
 
     /** Ends the process at once, as activity-host's _exit does: Android kills the app's process later anyway. */
     private static native void nativeExit(int status);

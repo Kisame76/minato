@@ -46,7 +46,8 @@ public class TouchApplication extends Application {
         guarded("parcel", this::parcel);
         guarded("velocity", this::velocity);
         guarded("gesture", this::gesture);
-        Log.i(TAG, "done");
+        // TouchActivity ends the test with the touches the host plays (step 7b2).
+        Log.i(TAG, "made-up events: done");
     }
 
     private void down() {

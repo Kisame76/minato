@@ -30,6 +30,13 @@
 //               surface destroyed, the window destroyed, STOP and SAVE_INSTANCE_STATE;
 //   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
 //               rectangle, the gate opening as at the start.
+//   tap:<x>:<y> (ADR-0045 step 7b2) a finger's tap at <x>, <y> in the window's pixels, on the session's input
+//               channel: DOWN and UP at the same time, with the pressures 1 and 0, as Android's `input tap`;
+//   swipe:<x1>:<y1>:<x2>:<y2>:<ms>  a finger's swipe from the first place to the second: DOWN, then a MOVE every
+//               period of the session's refresh rate with two samples, the period's middle and its end, on the
+//               line between the places, as UIKit hands the iPhone's coalesced touches, and UP at the second
+//               place <ms> after the DOWN, as `input swipe`'s. With a touch in the list, the start's
+//               INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as before.
 // The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
@@ -41,8 +48,9 @@
 // The guest's FINISH request then gets the quit: the window and the surfaces removed, PAUSE, the focus lost, each
 // surface destroyed, the window destroyed, STOP and DESTROY, or only DESTROY after a last background, as Android
 // destroys a stopped activity. The first step is
-// start, and background and foreground alternate. A step waits 120 s for its answer, as an app process on the
-// interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays no more steps.
+// start, and background and foreground alternate, with touches in the foreground. A step waits 120 s for its answer,
+// as an app process on the interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays
+// no more steps. A touch has no answer: the next step comes a second after its last event.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
 #include "APKRuntime/apkrt.h"
 #include "apk_run_layers.h"
@@ -56,6 +64,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
@@ -135,13 +144,48 @@ void run_frame_clock(std::int32_t rate) {
         });
 }
 
-/// --lifecycle's steps: start first, then background and foreground in turn; false for any other list.
+/// A touch step (ADR-0045 step 7b2): a tap's place, or a swipe's two places and its duration.
+struct Touch {
+    bool swipe = false;
+    float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    int milliseconds = 0;
+};
+
+/// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0; false for any
+/// other step.
+bool parse_touch(const std::string &step, Touch &touch) {
+    int used = 0;
+    if (std::sscanf(step.c_str(), "tap:%f:%f%n", &touch.x1, &touch.y1, &used) == 2 &&
+        used == static_cast<int>(step.size()) && std::isfinite(touch.x1) && std::isfinite(touch.y1)) {
+        touch.swipe = false;
+        return true;
+    }
+    used = 0;
+    if (std::sscanf(step.c_str(), "swipe:%f:%f:%f:%f:%d%n", &touch.x1, &touch.y1, &touch.x2, &touch.y2,
+                    &touch.milliseconds, &used) == 5 &&
+        used == static_cast<int>(step.size()) && touch.milliseconds > 0 && std::isfinite(touch.x1) &&
+        std::isfinite(touch.y1) && std::isfinite(touch.x2) && std::isfinite(touch.y2)) {
+        touch.swipe = true;
+        return true;
+    }
+    return false;
+}
+
+/// --lifecycle's steps: start first, then background and foreground in turn, and touches after the start or a
+/// foreground; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
     std::istringstream list(value);
+    std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
     for (std::string step; std::getline(list, step, ',');) {
-        const char *const wanted = steps.empty() ? "start" : steps.size() % 2 == 1 ? "background" : "foreground";
+        Touch touch;
+        if (turns % 2 == 1 && parse_touch(step, touch)) {
+            steps.push_back(step);
+            continue;
+        }
+        const char *const wanted = turns == 0 ? "start" : turns % 2 == 1 ? "background" : "foreground";
         if (step != wanted) return false;
         steps.push_back(step);
+        ++turns;
     }
     return !steps.empty();
 }
@@ -231,15 +275,71 @@ bool answered(std::uint32_t serial, const char *what) {
     return false;
 }
 
+// AMOTION_EVENT_ACTION_DOWN, _UP and _MOVE, as guest_interface.h's struct apkrt_motion_event names them.
+constexpr std::int32_t kActionDown = 0, kActionUp = 1, kActionMove = 2;
+
+/// The uptime clock, the guest's CLOCK_MONOTONIC, in nanoseconds, as the frame clock's.
+std::int64_t uptime() {
+    return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
+
+/// Sleeps until `time` on the uptime clock.
+void sleep_until(std::int64_t time) {
+    for (std::int64_t wait; (wait = time - uptime()) > 0;) {
+        const timespec delay{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
+        nanosleep(&delay, nullptr);
+    }
+}
+
+/// Posts one event of a finger, pointer 0, with `count` samples at `times` and `places` to input channel `input`.
+void post_touch(std::uint64_t input, std::int32_t action, std::int64_t down, std::uint32_t count,
+                const std::int64_t *times, const apkrt_pointer_coords *places) {
+    const std::int32_t id = 0;
+    if (apkrt_input_post(input, action, down, 1, &id, count, times, places) != 1) {
+        std::fprintf(stderr, "apk-run: the post of touch action %d failed\n", action);
+    }
+}
+
+/// A touch step on input channel `input` (ADR-0045 step 7b2): a tap as Android's `input tap` injects one, or a swipe
+/// as its `input swipe`, places on the line by its lerp, with a MOVE every period of `rate` holding two samples.
+void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
+    const std::int64_t down = uptime();
+    const apkrt_pointer_coords first{touch.x1, touch.y1, 1, 0};
+    post_touch(input, kActionDown, down, 1, &down, &first);
+    if (!touch.swipe) {
+        const apkrt_pointer_coords last{touch.x1, touch.y1, 0, 0};
+        post_touch(input, kActionUp, down, 1, &down, &last);
+        return;
+    }
+    const std::int64_t period = 1'000'000'000 / rate;
+    const std::int64_t end = down + static_cast<std::int64_t>(touch.milliseconds) * 1'000'000;
+    const auto place = [&](std::int64_t time) {
+        const float alpha = static_cast<float>(time - down) / static_cast<float>(end - down);
+        return apkrt_pointer_coords{(touch.x2 - touch.x1) * alpha + touch.x1,
+                                    (touch.y2 - touch.y1) * alpha + touch.y1, 1, 0};
+    };
+    for (std::int64_t time = down + period; time < end; time += period) {
+        sleep_until(time);
+        const std::int64_t times[2] = {time - period / 2, time};
+        const apkrt_pointer_coords places[2] = {place(times[0]), place(times[1])};
+        post_touch(input, kActionMove, down, 2, times, places);
+    }
+    sleep_until(end);
+    const apkrt_pointer_coords last{touch.x2, touch.y2, 0, 0};
+    post_touch(input, kActionUp, down, 1, &end, &last);
+}
+
 /// --lifecycle's steps, then the quit after FINISH, on a thread of its own: the waits for answers may run on no
 /// guest thread.
-void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int32_t height) {
+void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int32_t height, std::int32_t rate) {
     std::uint64_t window = 0;
     // graphics-run's layer for the window, the same at every start and return, or none.
     const auto *layers = apk_run_layers();
     const auto add_window = [&] {
         return apkrt_window_add(layers != nullptr ? layers->window_layer(width, height) : nullptr, width, height);
     };
+    // The touch steps' input channel, none without one (ADR-0045 step 7b2).
+    std::uint64_t input = 0;
     // The window's events as Android 15 calls a NativeActivity's: created, resized with the same size, the content's
     // rectangle at the start, then redraw needed and the focus.
     const auto show = [&](bool first) {
@@ -269,10 +369,18 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             post(APKRT_EVENT_CREATE);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
-            post(APKRT_EVENT_INPUT_QUEUE_CREATED, 0);
+            Touch touch;
+            const auto touches = [&](const std::string &step) { return parse_touch(step, touch); };
+            if (std::any_of(steps.begin(), steps.end(), touches)) {
+                input = apkrt_input_add();
+                if (input == 0) std::fprintf(stderr, "apk-run: no input channel for the touches\n");
+            }
+            post(APKRT_EVENT_INPUT_QUEUE_CREATED, input);
             const std::uint32_t shown = show(true);
             apkrt_window_set_gate(window, 1);
             if (!answered(shown, "the start")) return;
+        } else if (Touch touch; parse_touch(steps[index], touch)) {
+            play_touch(input, touch, rate);
         } else if (steps[index] == "background") {
             apkrt_set_background(1);
             surfaces.set_background(true);
@@ -407,7 +515,9 @@ int main(int argc, char **argv) {
         }
         // Events wait in the pipe until the guest reads them, so the start may be posted before the program runs.
         if (!lifecycle.empty()) {
-            std::thread(run_lifecycle, lifecycle, session.configuration.width, session.configuration.height).detach();
+            std::thread(run_lifecycle, lifecycle, session.configuration.width, session.configuration.height,
+                        session.configuration.refresh_rate)
+                    .detach();
         }
     }
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
