@@ -201,6 +201,30 @@ Owner android_owner(std::string_view path) {
     return {};
 }
 
+/// Whether the guest path `path` lies on one of the system's partitions, which Android 15 mounts read-only (ADR-0052's
+/// later step): /system, /system_ext, /vendor, /product and /odm, and each APEX below /apex, whose own folder is a
+/// tmpfs. Every change there answers EROFS before the permission checks, as Linux checks the mount first
+/// (sb_permission, mnt_want_write) [verified: owner-rules-test's system and apex lines on the emulator, 2026-10-06].
+/// The folders match without regard to ASCII case, as the owners' do.
+bool read_only(std::string_view path) {
+    const auto below = [path](std::string_view folder) {
+        return path.size() >= folder.size() && ::strncasecmp(path.data(), folder.data(), folder.size()) == 0 &&
+               (path.size() == folder.size() || path[folder.size()] == '/');
+    };
+    for (const std::string_view folder : {"/system", "/system_ext", "/vendor", "/product", "/odm"}) {
+        if (below(folder)) return true;
+    }
+    return path.size() > 6 && ::strncasecmp(path.data(), "/apex/", 6) == 0;
+}
+
+/// The guest folder whose entry a guest path in normal form names. Linux's create, remove, rename and link go by the
+/// mount of that folder (filename_create, filename_parentat), the other changes by the file's: so an entry of /apex
+/// itself, a tmpfs, is not an APEX's.
+std::string_view folder_of(std::string_view guest) {
+    const auto slash = guest.rfind('/');
+    return slash == std::string_view::npos || slash == 0 ? std::string_view("/") : guest.substr(0, slash);
+}
+
 /// A file's mode bits as stat reports them: Android's for /data's own folders, the host's else.
 mode_t mode_of(mode_t host, const Owner &owner) {
     return owner.mode != 0 ? static_cast<mode_t>((host & S_IFMT) | owner.mode) : host;
@@ -215,6 +239,16 @@ Owner owner_of(const Description &description) {
     if (::fcntl(description.host(), F_GETPATH, host) != 0) return {app_uid, app_uid};
     const auto guest = vfs::guest_path(host);
     return guest ? android_owner(*guest) : Owner{};
+}
+
+/// Whether a descriptor's file lies on the system's read-only partitions, by the path the runtime wrote it for or the
+/// guest path its host file has; a pipe's and a file the guest cannot name do not.
+bool read_only(const Description &description) {
+    if (!description.written_path.empty()) return read_only(description.written_path);
+    char host[MAXPATHLEN];
+    if (::fcntl(description.host(), F_GETPATH, host) != 0) return false;
+    const auto guest = vfs::guest_path(host);
+    return guest && read_only(*guest);
 }
 
 LinuxStat to_linux_stat(const struct stat &host, Owner owner) {
@@ -551,15 +585,18 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     }
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    // A file that is there needs write permission to be written or truncated (O_PATH only names it); one that is not
-    // needs its folder to be created in (may_o_create).
-    if (entry_at(host, true)) {
+    // A file that is there needs write permission to be written or truncated (O_PATH only names it), and on a read-only
+    // partition answers EROFS first, a folder EISDIR first, the host's; one that is not there needs its folder to be
+    // created in (may_o_create), EROFS first there too once the folder is there.
+    if (const auto entry = entry_at(host, true)) {
         const bool writes = (flags & linux_open::access_mode) != O_RDONLY || (flags & linux_open::truncate) != 0;
         const bool exclusive = (flags & linux_open::create) != 0 && (flags & linux_open::exclusive) != 0;
         if (writes && !exclusive && !(flags & linux_open::path)) {
+            if (read_only(host.guest) && S_ISREG(entry->st_mode)) return -linux_errno::erofs;
             if (const long refused = may_write(host)) return refused;
         }
     } else if ((flags & linux_open::create) != 0 && errno == ENOENT) {
+        if (read_only(folder_of(host.guest)) && LastFolder(host).error() == 0) return -linux_errno::erofs;
         if (const long refused = may_change_entries(host)) return refused;
     }
     int host_flags = flags & linux_open::access_mode;
@@ -594,10 +631,15 @@ long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     if (::faccessat(host.directory, host.path.c_str(), mode & 07, host_flags) != 0) return -to_linux_errno(errno);
     if ((mode & 07) == 0) return 0;  // F_OK: the file is there
     // Reading, writing and executing as Linux grants them to the app uid and gid (ADR-0039 decision 3), by the
-    // owner and group stat reports; AT_EACCESS answers the same, since the effective ids are the real ones.
+    // owner and group stat reports; AT_EACCESS answers the same, since the effective ids are the real ones. Writing a
+    // file, folder or link on a read-only partition is EROFS first (sb_permission).
     struct stat status;
     if (::fstatat(host.directory, host.path.c_str(), &status, host_at_flags(flags) | AT_RESOLVE_BENEATH) != 0) {
         return -to_linux_errno(errno);
+    }
+    if ((mode & 02) != 0 && read_only(host.guest) &&
+        (S_ISREG(status.st_mode) || S_ISDIR(status.st_mode) || S_ISLNK(status.st_mode))) {
+        return -linux_errno::erofs;
     }
     return (mode & 07 & ~granted(status.st_mode, owner_at(host))) == 0 ? 0 : -linux_errno::eacces;
 }
@@ -619,10 +661,11 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
 long sys_mkdirat(int directory, std::uint64_t path, int mode) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    if (!entry_at(host, false)) {  // EEXIST first, the host's
+    const LastFolder folder(host);
+    if (!entry_at(host, false)) {  // EEXIST first, the host's; then EROFS (filename_create)
+        if (read_only(folder_of(host.guest)) && folder.error() == 0) return -linux_errno::erofs;
         if (const long refused = may_change_entries(host)) return refused;
     }
-    const LastFolder folder(host);
     if (folder.error() != 0) return folder.error();
     return result_or_error(::mkdirat(folder.descriptor(), folder.name().c_str(), static_cast<mode_t>(mode & 07777)));
 }
@@ -631,6 +674,8 @@ long sys_unlinkat(int directory, std::uint64_t path, int flags) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     const bool remove_directory = (flags & linux_at_removedir) != 0;
+    // On a read-only partition EROFS, once the folder is there: Linux checks the mount before the name (do_unlinkat).
+    if (read_only(folder_of(host.guest)) && LastFolder(host).error() == 0) return -linux_errno::erofs;
     if (entry_at(host, false)) {  // ENOENT first, the host's
         if (const long refused = may_change_entries(host)) return refused;
     }
@@ -659,6 +704,10 @@ long sys_renameat2(int old_directory, std::uint64_t old_path, int new_directory,
     const auto to = resolve(new_directory, new_path);
     if (to.error != 0) return to.error;
     if (in_different_mounts(from, to)) return -linux_errno::exdev;
+    // On a read-only partition EROFS, once both folders are there, before the names (do_renameat2).
+    if (read_only(folder_of(from.guest)) && LastFolder(from).error() == 0 && LastFolder(to).error() == 0) {
+        return -linux_errno::erofs;
+    }
     if (entry_at(from, false)) {  // ENOENT first, the host's
         if (const long refused = may_change_entries(from)) return refused;
         if (const long refused = may_change_entries(to)) return refused;
@@ -681,6 +730,7 @@ long sys_linkat(int old_directory, std::uint64_t old_path, int new_directory, st
     if (!entry_at(from, (flags & linux_at_symlink_follow) != 0)) return -to_linux_errno(errno);
     if (entry_at(to, false)) return -linux_errno::eexist;
     if (const LastFolder folder(to); folder.error() != 0) return folder.error();
+    if (read_only(folder_of(to.guest))) return -linux_errno::erofs;  // filename_create's, before EXDEV
     if (in_different_mounts(from, to)) return -linux_errno::exdev;
     return -linux_errno::eacces;
 }
@@ -689,12 +739,13 @@ long sys_symlinkat(std::uint64_t target, int directory, std::uint64_t path) {
     if (target == 0) return -linux_errno::efault;
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    if (!entry_at(host, false)) {  // EEXIST first, the host's
+    const LastFolder folder(host);
+    if (!entry_at(host, false)) {  // EEXIST first, the host's; then EROFS (filename_create)
+        if (read_only(folder_of(host.guest)) && folder.error() == 0) return -linux_errno::erofs;
         if (const long refused = may_change_entries(host)) return refused;
     }
     // The link keeps the guest's text; readlink gives it back unchanged. Where it leads, the host follows only below
     // the mount it lies in (ADR-0052).
-    const LastFolder folder(host);
     if (folder.error() != 0) return folder.error();
     return result_or_error(::symlinkat(as_pointer<const char>(target), folder.descriptor(), folder.name().c_str()));
 }
@@ -717,7 +768,8 @@ long sys_readlinkat(int directory, std::uint64_t path, std::uint64_t buffer, std
 long sys_fchmodat(int directory, std::uint64_t path, int mode) {
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
-    if (const auto object = touched(host, true)) {  // ENOENT first, the host's
+    if (const auto object = touched(host, true)) {  // ENOENT first, the host's; then EROFS (chmod_common)
+        if (read_only(host.guest)) return -linux_errno::erofs;
         if (const long refused = may_set_attributes(object->first)) return refused;
     }
     return result_or_error(
@@ -746,12 +798,19 @@ long sys_fchownat(int directory, std::uint64_t path, std::uint32_t owner, std::u
     const bool follow = (flags & linux_at_symlink_nofollow) == 0;
     const auto object = touched(host, follow);
     if (!object) return entry_at(host, follow) ? -linux_errno::eacces : -to_linux_errno(errno);
+    if (read_only(host.guest)) return -linux_errno::erofs;  // do_fchownat's mnt_want_write
     return chown_answer(object->first, owner, group);
 }
 
 long sys_truncate(std::uint64_t path, std::int64_t length) {
     const auto host = resolve(linux_at_fdcwd, path);
     if (host.error != 0) return host.error;
+    // vfs_truncate: a folder is EISDIR and another file than a regular one EINVAL, before EROFS.
+    if (const auto entry = entry_at(host, true); entry && read_only(host.guest)) {
+        return S_ISDIR(entry->st_mode) ? -linux_errno::eisdir
+               : !S_ISREG(entry->st_mode) ? -linux_errno::einval
+                                         : -linux_errno::erofs;
+    }
     if (const long refused = may_write(host)) return refused;
     const int descriptor = ::openat(host.directory, host.path.c_str(), O_WRONLY | O_CLOEXEC | O_RESOLVE_BENEATH);
     if (descriptor < 0) return -to_linux_errno(errno);
@@ -787,6 +846,7 @@ long sys_utimensat(int directory, std::uint64_t path, std::uint64_t times, int f
         if (!description) return -linux_errno::ebadf;
         struct stat status;
         if (::fstat(description->host(), &status) == 0) {
+            if (!omitted && read_only(*description)) return -linux_errno::erofs;  // vfs_utimes' mnt_want_write
             if (const long answer = refused(owner_of(*description), status)) return answer;
         }
         return result_or_error(::futimens(description->host(), pointer));
@@ -794,6 +854,7 @@ long sys_utimensat(int directory, std::uint64_t path, std::uint64_t times, int f
     const auto host = resolve(directory, path);
     if (host.error != 0) return host.error;
     if (const auto object = touched(host, (flags & linux_at_symlink_nofollow) == 0)) {  // ENOENT first, the host's
+        if (!omitted && read_only(host.guest)) return -linux_errno::erofs;
         if (const long answer = refused(object->first, object->second)) return answer;
     }
     return result_or_error(
@@ -1097,6 +1158,7 @@ long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) 
 long sys_fchmod(int fd, int mode) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    if (read_only(*description)) return -linux_errno::erofs;  // chmod_common's mnt_want_write
     if (const long refused = may_set_attributes(owner_of(*description))) return refused;
     return result_or_error(::fchmod(description->host(), static_cast<mode_t>(mode & 07777)));
 }
@@ -1104,6 +1166,7 @@ long sys_fchmod(int fd, int mode) {
 long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    if (read_only(*description)) return -linux_errno::erofs;  // vfs_fchown's mnt_want_write_file
     return chown_answer(owner_of(*description), owner, group);
 }
 
@@ -1208,7 +1271,8 @@ struct LinuxStatfs {
 };
 static_assert(sizeof(LinuxStatfs) == 120);
 
-LinuxStatfs to_linux_statfs(const struct statfs &host) {
+/// The host's statfs as Linux's, read-only (ST_RDONLY) also for the system's partitions, as Android 15 mounts them.
+LinuxStatfs to_linux_statfs(const struct statfs &host, bool partition_read_only) {
     constexpr std::int64_t ext4_super_magic = 0xef53;  // what /data reports on many devices
     constexpr std::int64_t st_rdonly = 1, st_nosuid = 2, st_valid = 0x20;
     LinuxStatfs result{};
@@ -1223,7 +1287,8 @@ LinuxStatfs to_linux_statfs(const struct statfs &host) {
     result.fsid[1] = host.f_fsid.val[1];
     result.name_length = 255;
     result.fragment_size = host.f_bsize;
-    result.flags = st_valid | ((host.f_flags & MNT_RDONLY) ? st_rdonly : 0) | ((host.f_flags & MNT_NOSUID) ? st_nosuid : 0);
+    result.flags = st_valid | ((host.f_flags & MNT_RDONLY) != 0 || partition_read_only ? st_rdonly : 0) |
+                   ((host.f_flags & MNT_NOSUID) ? st_nosuid : 0);
     return result;
 }
 
@@ -1239,15 +1304,17 @@ long sys_statfs(std::uint64_t path, std::uint64_t buffer) {
     const int error = errno;
     ::close(descriptor);
     if (answer != 0) return -to_linux_errno(error);
-    *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status);
+    *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status, read_only(host.guest));
     return 0;
 }
 
 long sys_fstatfs(int fd, std::uint64_t buffer) {
+    const auto description = descriptors::get(fd);
+    const bool partition_read_only = description && read_only(*description);
     return with_host(fd, [&](int host) {
         struct statfs status;
         if (::fstatfs(host, &status) != 0) return -to_linux_errno(errno);
-        *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status);
+        *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(status, partition_read_only);
         return 0L;
     });
 }

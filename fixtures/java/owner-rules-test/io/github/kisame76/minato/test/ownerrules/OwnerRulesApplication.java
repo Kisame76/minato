@@ -12,7 +12,8 @@ import java.io.File;
  * ADR-0039 decision 3's test of the owner rules for the calls that change a file or a folder's entries: chmod, chown,
  * the times, opening for writing, truncate, link, symlink, mkdir, creating, rename and unlink. On the app's own APK
  * and code folder, which belong to system, Android refuses them; in its data, cache and external files folders, which
- * are its own, they work. From Application.attachBaseContext it logs each call's answer, "ok" or the errno's name,
+ * are its own, they work. On the system's read-only partitions, /system and an APEX, they answer EROFS (ADR-0052's
+ * later step). From Application.attachBaseContext it logs each call's answer, "ok" or the errno's name,
  * with the tag owner-rules-test, and ends with "done"; tools/android-reference.sh compares it with Android 15's log.
  * The APK's truncate comes last, after which a runtime that let it through could not read the APK any more. Only
  * public API, as an app has it on Android; no path is logged, as the code folder's name differs per install.
@@ -184,5 +185,56 @@ public class OwnerRulesApplication extends Application {
         log("external unlink", () -> Os.remove(external + "/own-moved.txt"));
         log("external rmdir", () -> Os.remove(external + "/folder"));
         clear(external + "/own-link.txt");
+
+        // The system's read-only partitions (ADR-0052's later step): every change answers EROFS, after EEXIST for a
+        // name that is there and after EXDEV across mounts. No call here could harm a file if it went through: none
+        // writes, truncates or removes an existing one, a removal or move in the folder names a missing file (Linux
+        // checks the mount before it looks the name up), and the move into files is EXDEV before any host call.
+        readOnly("system", "/system/etc", "/system/etc/public.libraries.txt", files);
+        readOnly("apex", "/apex/com.android.art/javalib", "/apex/com.android.art/javalib/core-oj.jar", files);
+    }
+
+    /** The calls that change something, on `file` and in `folder` of a read-only partition. */
+    static void readOnly(String name, String folder, String file, String files) {
+        clear(files + "/" + name + "-linked", files + "/" + name + "-moved");
+        log(name + " open a file for writing", () -> Os.close(Os.open(file, OsConstants.O_WRONLY, 0)));
+        log(name + " create a file", () -> create(folder + "/minato-new.txt"));
+        log(name + " create an existing file exclusively",
+                () -> Os.close(Os.open(file, OsConstants.O_CREAT | OsConstants.O_EXCL | OsConstants.O_WRONLY, 0600)));
+        log(name + " access a file for writing", () -> Os.access(file, OsConstants.W_OK));
+        log(name + " chmod a file", () -> Os.chmod(file, mode(file)));
+        log(name + " chown a file", () -> Os.chown(file, Os.getuid(), Os.getgid()));
+        log(name + " fchmod an open file", () -> {
+            java.io.FileDescriptor descriptor = Os.open(file, OsConstants.O_RDONLY, 0);
+            try {
+                Os.fchmod(descriptor, mode(file));
+            } finally {
+                Os.close(descriptor);
+            }
+        });
+        log(name + " fchown an open file", () -> {
+            java.io.FileDescriptor descriptor = Os.open(file, OsConstants.O_RDONLY, 0);
+            try {
+                Os.fchown(descriptor, Os.getuid(), Os.getgid());
+            } finally {
+                Os.close(descriptor);
+            }
+        });
+        log(name + " times of a file", () -> touch(file));
+        log(name + " mkdir a new folder", () -> Os.mkdir(folder + "/minato-new", 0700));
+        log(name + " mkdir an existing folder", () -> Os.mkdir(folder, 0700));
+        log(name + " symlink a new name", () -> Os.symlink(file, folder + "/minato-symlink"));
+        log(name + " symlink an existing name", () -> Os.symlink(file, file));
+        log(name + " link in its folder", () -> Os.link(file, folder + "/minato-link"));
+        log(name + " link into files", () -> Os.link(file, files + "/" + name + "-linked"));
+        log(name + " rename a missing file in its folder",
+                () -> Os.rename(folder + "/minato-missing", folder + "/minato-moved"));
+        log(name + " rename a file into files", () -> Os.rename(file, files + "/" + name + "-moved"));
+        log(name + " unlink a missing file", () -> Os.remove(folder + "/minato-missing"));
+        log(name + " rmdir its folder", () -> Os.remove(folder));
+        log(name + " statvfs read-only", () -> {
+            if ((Os.statvfs(folder).f_flag & OsConstants.ST_RDONLY) == 0) throw new IllegalStateException("writable");
+        });
+        clear(files + "/" + name + "-linked", files + "/" + name + "-moved");
     }
 }

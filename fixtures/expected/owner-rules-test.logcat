@@ -37,4 +37,44 @@ I/owner-rules-test: external mkdir: ok
 I/owner-rules-test: external rename: ok
 I/owner-rules-test: external unlink: ok
 I/owner-rules-test: external rmdir: ok
+I/owner-rules-test: system open a file for writing: EROFS
+I/owner-rules-test: system create a file: EROFS
+I/owner-rules-test: system create an existing file exclusively: EEXIST
+I/owner-rules-test: system access a file for writing: EROFS
+I/owner-rules-test: system chmod a file: EROFS
+I/owner-rules-test: system chown a file: EROFS
+I/owner-rules-test: system fchmod an open file: EROFS
+I/owner-rules-test: system fchown an open file: EROFS
+I/owner-rules-test: system times of a file: IllegalStateException
+I/owner-rules-test: system mkdir a new folder: EROFS
+I/owner-rules-test: system mkdir an existing folder: EEXIST
+I/owner-rules-test: system symlink a new name: EROFS
+I/owner-rules-test: system symlink an existing name: EEXIST
+I/owner-rules-test: system link in its folder: EROFS
+I/owner-rules-test: system link into files: EXDEV
+I/owner-rules-test: system rename a missing file in its folder: EROFS
+I/owner-rules-test: system rename a file into files: EXDEV
+I/owner-rules-test: system unlink a missing file: EROFS
+I/owner-rules-test: system rmdir its folder: EROFS
+I/owner-rules-test: system statvfs read-only: ok
+I/owner-rules-test: apex open a file for writing: EROFS
+I/owner-rules-test: apex create a file: EROFS
+I/owner-rules-test: apex create an existing file exclusively: EEXIST
+I/owner-rules-test: apex access a file for writing: EROFS
+I/owner-rules-test: apex chmod a file: EROFS
+I/owner-rules-test: apex chown a file: EROFS
+I/owner-rules-test: apex fchmod an open file: EROFS
+I/owner-rules-test: apex fchown an open file: EROFS
+I/owner-rules-test: apex times of a file: IllegalStateException
+I/owner-rules-test: apex mkdir a new folder: EROFS
+I/owner-rules-test: apex mkdir an existing folder: EEXIST
+I/owner-rules-test: apex symlink a new name: EROFS
+I/owner-rules-test: apex symlink an existing name: EEXIST
+I/owner-rules-test: apex link in its folder: EROFS
+I/owner-rules-test: apex link into files: EXDEV
+I/owner-rules-test: apex rename a missing file in its folder: EROFS
+I/owner-rules-test: apex rename a file into files: EXDEV
+I/owner-rules-test: apex unlink a missing file: EROFS
+I/owner-rules-test: apex rmdir its folder: EROFS
+I/owner-rules-test: apex statvfs read-only: ok
 I/owner-rules-test: done

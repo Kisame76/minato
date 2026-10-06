@@ -847,7 +847,7 @@ TEST(access_checks_the_mode_bits_of_the_owner_stat_reports) {
     }
     apkrt::vfs::mount("/data/app/~~AAAA/io.example-BBBB", scratch.host + "/code");
     apkrt::vfs::mount("/data/user/0/io.example", scratch.host + "/data");
-    apkrt::vfs::mount("/system", scratch.host + "/system");
+    apkrt::vfs::mount("/mnt", scratch.host + "/system");  // root's, off the read-only partitions
     constexpr std::uint64_t r_ok = 4, w_ok = 2, x_ok = 1, at_eaccess = 0x200;
     const auto access = [](const char *path, std::uint64_t mode, std::uint64_t flags = 0) {
         return call(nr_faccessat2, {at_fdcwd, address(path), mode, flags});
@@ -865,10 +865,10 @@ TEST(access_checks_the_mode_bits_of_the_owner_stat_reports) {
     CHECK(access("/data/user/0/io.example/own", r_ok | w_ok) == 0);
     CHECK(access("/data/user/0/io.example/own", x_ok) == -eacces);
     // Root's: the others' bits.
-    CHECK(access("/system/tool", r_ok | x_ok) == 0);
-    CHECK(access("/system/tool", w_ok) == -eacces);
-    CHECK(access("/system/shared", r_ok | w_ok) == 0);
-    CHECK(access("/system/missing", 0) == -enoent);
+    CHECK(access("/mnt/tool", r_ok | x_ok) == 0);
+    CHECK(access("/mnt/tool", w_ok) == -eacces);
+    CHECK(access("/mnt/shared", r_ok | w_ok) == 0);
+    CHECK(access("/mnt/missing", 0) == -enoent);
     // A path relative to a directory descriptor has the owner stat reports for it as well.
     const auto code = open_guest(at_fdcwd, "/data/app/~~AAAA/io.example-BBBB", o_rdonly | o_directory);
     CHECK(call(nr_faccessat, {unsigned_of(code), address("base.apk"), r_ok}) == 0);
@@ -1117,6 +1117,109 @@ TEST(a_link_inside_one_mount_does_not_open_the_code) {
     CHECK(call(nr_unlinkat, {at_fdcwd, at(evil), 0}) == 0);
     struct stat host{};
     CHECK(::stat((whole.host + "/data" + code.substr(5) + "/lib/arm64/libfoo.so").c_str(), &host) == 0);
+}
+
+// ADR-0052's later step: Android 15 mounts the system's partitions read-only, so every change there answers EROFS, in
+// Linux's order: after EEXIST for a name that is there, after EXDEV across mounts and after EISDIR for a folder opened
+// for writing; before ENOENT where Linux checks the mount before the last name (unlink, rmdir, rename); before any
+// permission (owner-rules-test's system and apex lines on the emulator, 2026-10-06).
+struct System : Install {
+    const std::string file = "/system/etc/public.libraries.txt", apex_file = "/apex/com.android.art/javalib/core-oj.jar";
+
+    System() {
+        CHECK(std::system(("mkdir -p '" + host + "/system/etc' '" + host + "/apex/com.android.art/javalib'").c_str()) ==
+              0);
+        for (const char *name : {"/system/etc/public.libraries.txt", "/apex/com.android.art/javalib/core-oj.jar"}) {
+            CHECK(::close(::open((host + name).c_str(), O_CREAT | O_WRONLY, 0644)) == 0);
+        }
+        apkrt::vfs::mount("/system", host + "/system");
+        apkrt::vfs::mount("/apex", host + "/apex");
+    }
+};
+
+TEST(the_systems_partitions_answer_erofs_as_on_android_15) {
+    constexpr std::int64_t erofs = 30;
+    constexpr std::uint64_t w_ok = 2, r_ok = 4, utime_omit = (1UL << 30) - 2;
+    System system;
+    const struct {
+        std::int64_t seconds, nanoseconds;
+    } times[2] = {{1'000'000'000, 0}, {1'000'000'000, 0}},
+      omitted[2] = {{0, static_cast<std::int64_t>(utime_omit)}, {0, static_cast<std::int64_t>(utime_omit)}};
+    for (const auto &[folder, file] : {std::pair<std::string, std::string>{"/system/etc", system.file},
+                                       std::pair<std::string, std::string>{"/apex/com.android.art/javalib",
+                                                                           system.apex_file}}) {
+        CHECK(open_guest(at_fdcwd, file.c_str(), o_wronly) == -erofs);
+        CHECK(open_guest(at_fdcwd, file.c_str(), o_rdonly | o_trunc) == -erofs);
+        CHECK(open_guest(at_fdcwd, (folder + "/new").c_str(), o_creat | o_wronly, 0600) == -erofs);
+        CHECK(open_guest(at_fdcwd, file.c_str(), o_creat | o_excl | o_wronly, 0600) == -eexist);
+        CHECK(open_guest(at_fdcwd, folder.c_str(), o_wronly) == -eisdir);
+        CHECK(open_guest(at_fdcwd, (folder + "/missing/new").c_str(), o_creat | o_wronly, 0600) == -enoent);
+        const auto created = open_guest(at_fdcwd, file.c_str(), o_creat | o_rdonly, 0600);  // reads only: no write
+        CHECK(created >= 0);
+        call(nr_close, {unsigned_of(created)});
+        CHECK(call(nr_faccessat, {at_fdcwd, at(file), w_ok, 0}) == -erofs);
+        CHECK(call(nr_faccessat, {at_fdcwd, at(file), r_ok, 0}) == 0);
+        CHECK(call(nr_fchmodat, {at_fdcwd, at(file), 0644}) == -erofs);
+        CHECK(call(nr_fchmodat, {at_fdcwd, at(folder + "/missing"), 0644}) == -enoent);
+        CHECK(call(nr_fchownat, {at_fdcwd, at(file), 10100, 10100, 0}) == -erofs);
+        CHECK(call(nr_utimensat, {at_fdcwd, at(file), address(times), 0}) == -erofs);
+        CHECK(call(nr_utimensat, {at_fdcwd, at(file), address(omitted), 0}) == 0);  // nothing to change
+        CHECK(call(nr_truncate, {at(file), 0}) == -erofs);
+        CHECK(call(nr_truncate, {at(folder), 0}) == -eisdir);
+        CHECK(call(nr_mkdirat, {at_fdcwd, at(folder + "/new"), 0700}) == -erofs);
+        CHECK(call(nr_mkdirat, {at_fdcwd, at(folder), 0700}) == -eexist);
+        CHECK(call(nr_mkdirat, {at_fdcwd, at(folder + "/missing/new"), 0700}) == -enoent);
+        CHECK(call(nr_symlinkat, {at(file), at_fdcwd, at(folder + "/symlink")}) == -erofs);
+        CHECK(call(nr_symlinkat, {at(file), at_fdcwd, at(file)}) == -eexist);
+        CHECK(call(nr_linkat, {at_fdcwd, at(file), at_fdcwd, at(folder + "/link"), 0}) == -erofs);
+        CHECK(call(nr_linkat, {at_fdcwd, at(file), at_fdcwd, at(system.data + "/link"), 0}) == -exdev);
+        CHECK(call(nr_linkat, {at_fdcwd, at(folder + "/missing"), at_fdcwd, at(folder + "/link"), 0}) == -enoent);
+        CHECK(call(nr_renameat2, {at_fdcwd, at(folder + "/missing"), at_fdcwd, at(folder + "/moved"), 0}) == -erofs);
+        CHECK(call(nr_renameat2, {at_fdcwd, at(file), at_fdcwd, at(system.data + "/moved"), 0}) == -exdev);
+        CHECK(call(nr_unlinkat, {at_fdcwd, at(folder + "/missing"), 0}) == -erofs);
+        CHECK(call(nr_unlinkat, {at_fdcwd, at(file), 0}) == -erofs);
+        CHECK(call(nr_unlinkat, {at_fdcwd, at(folder), at_removedir}) == -erofs);
+        // Through a descriptor as well.
+        const auto fd = open_guest(at_fdcwd, file.c_str(), o_rdonly);
+        CHECK(fd >= 0);
+        CHECK(call(nr_fchmod, {unsigned_of(fd), 0644}) == -erofs);
+        CHECK(call(nr_fchown, {unsigned_of(fd), 10100, 10100}) == -erofs);
+        CHECK(call(nr_utimensat, {unsigned_of(fd), 0, 0, 0}) == -erofs);
+        call(nr_close, {unsigned_of(fd)});
+        // statfs says so, as Linux's ST_RDONLY.
+        struct {
+            std::int64_t type, block_size, blocks, free, available, files, free_files;
+            std::int32_t fsid[2];
+            std::int64_t name_length, fragment_size, flags, spare[4];
+        } linux_statfs{};
+        CHECK(call(nr_statfs, {at(folder), address(&linux_statfs)}) == 0 && (linux_statfs.flags & 1) != 0);
+        constexpr std::uint64_t nr_fstatfs = 44;
+        linux_statfs.flags = 0;
+        const auto opened = open_guest(at_fdcwd, folder.c_str(), o_rdonly | o_directory);
+        CHECK(call(nr_fstatfs, {unsigned_of(opened), address(&linux_statfs)}) == 0 && (linux_statfs.flags & 1) != 0);
+        call(nr_close, {unsigned_of(opened)});
+    }
+    // Between two partitions, as fs/namei.c orders it: link takes the new folder's mount before EXDEV (filename_create),
+    // rename checks EXDEV first (do_renameat2).
+    CHECK(call(nr_linkat, {at_fdcwd, at(system.file), at_fdcwd, at("/apex/com.android.art/javalib/link"), 0}) == -erofs);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(system.file), at_fdcwd, at("/apex/com.android.art/javalib/moved"), 0}) ==
+          -exdev);
+    // /apex itself is not an APEX: root's folder refuses with EACCES. /data stays writable.
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/apex/new"), 0700}) == -eacces);
+    struct {
+        std::int64_t type, block_size, blocks, free, available, files, free_files;
+        std::int32_t fsid[2];
+        std::int64_t name_length, fragment_size, flags, spare[4];
+    } data_statfs{};
+    CHECK(call(nr_statfs, {at(system.data), address(&data_statfs)}) == 0 && (data_statfs.flags & 1) == 0);
+    // Nothing came into the partitions, and their files are as they were.
+    for (const char *name : {"system/etc/new", "system/etc/symlink", "system/etc/link", "system/etc/moved",
+                             "apex/com.android.art/javalib/new", "apex/new", "data/link", "data/moved"}) {
+        CHECK(!system.has(name));
+    }
+    struct stat status;
+    CHECK(::stat((system.host + "/system/etc/public.libraries.txt").c_str(), &status) == 0 &&
+          (status.st_mode & 07777) == 0644 && status.st_mtime != 1'000'000'000);
 }
 
 TEST(relative_paths_start_at_the_working_directory_or_a_directory_fd) {
