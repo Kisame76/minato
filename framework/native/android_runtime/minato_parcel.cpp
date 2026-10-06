@@ -294,6 +294,28 @@ status_t Parcel::writeDouble(double val) {
     return writeAligned(val);
 }
 
+status_t Parcel::writeBool(bool val) {
+    return writeInt32(int32_t(val));
+}
+
+status_t Parcel::writeByte(int8_t val) {
+    return writeInt32(int32_t(val));
+}
+
+status_t Parcel::writeUint32(uint32_t val) {
+    return writeAligned(val);
+}
+
+// As libbinder's writeData for a vector of bytes: the length, whose status it does not check, then write()'s bytes.
+status_t Parcel::writeByteVector(const std::vector<uint8_t> &val) {
+    if (val.size() > static_cast<size_t>(INT32_MAX)) return BAD_VALUE;
+    writeInt32(static_cast<int32_t>(val.size()));
+    void *const data = writeInplace(val.size());
+    if (data == nullptr) return mError;
+    if (!val.empty()) memcpy(data, val.data(), val.size());
+    return NO_ERROR;
+}
+
 void *Parcel::writeInplace(size_t len) {
     if (len > INT32_MAX) return nullptr;
     const size_t padded = padSize(len);
@@ -483,6 +505,36 @@ float Parcel::readFloat() const {
 
 double Parcel::readDouble() const {
     return readAligned<double>();
+}
+
+status_t Parcel::readFloat(float *out) const {
+    return readAligned(out);
+}
+
+bool Parcel::readBool() const {
+    return readInt32() != 0;
+}
+
+int8_t Parcel::readByte() const {
+    return int8_t(readInt32());
+}
+
+uint32_t Parcel::readUint32() const {
+    return readAligned<uint32_t>();
+}
+
+// As libbinder's readData for a vector of bytes: a negative length is a null vector, one beyond the data is refused.
+status_t Parcel::readByteVector(std::vector<uint8_t> *val) const {
+    int32_t size;
+    if (const status_t status = readInt32(&size); status != NO_ERROR) return status;
+    if (size < 0) return UNEXPECTED_NULL;
+    if (static_cast<size_t>(size) > dataAvail()) return BAD_VALUE;
+    val->clear();
+    const void *data = readInplace(static_cast<size_t>(size));
+    if (data == nullptr) return BAD_VALUE;
+    val->resize(static_cast<size_t>(size));
+    if (size > 0) memcpy(val->data(), data, static_cast<size_t>(size));
+    return NO_ERROR;
 }
 
 const void *Parcel::readInplace(size_t len) const {

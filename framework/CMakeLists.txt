@@ -182,6 +182,30 @@ add_library(hwui SHARED IMPORTED)
 set_target_properties(hwui PROPERTIES IMPORTED_LOCATION "${HWUI_LIB}/libhwui.so"
                       INTERFACE_INCLUDE_DIRECTORIES "${hwui_include}")
 
+# --- libinput's MotionEvent and VelocityTracker (ADR-0045 step 7b1), for MotionEvent's and VelocityTracker's natives:
+# libinput's Input.cpp and VelocityTracker.cpp at android-15.0.0_r1 as they stand (tools/fetch-sources.py --set
+# framework), with ours for InputEventLabels (native/android_runtime/input_event_labels.cpp), and in native/include
+# for the two AIDL headers, InputDevice.h's reserved device ids, an empty DisplayViewport.h and binder/Parcel.h onto
+# minato_parcel.h; and libui's Transform with the Region and Rect it names. Soong's flags carry -ffp-contract=off, so
+# the velocities' floats come out as Android's.
+set(input_sources "${SOURCES}/frameworks_native_input")
+set(ui_sources "${SOURCES}/frameworks_native_graphics/libs/ui")
+add_library(input STATIC "${input_sources}/libs/input/Input.cpp" "${input_sources}/libs/input/VelocityTracker.cpp"
+            native/android_runtime/input_event_labels.cpp "${ui_sources}/Transform.cpp" "${ui_sources}/Region.cpp"
+            "${ui_sources}/Rect.cpp")
+target_include_directories(input PUBLIC "${input_sources}/include" native/include "${ui_sources}/include"
+                           "${SOURCES}/frameworks_native_graphics/libs/math/include"
+                           "${SOURCES}/frameworks_native_graphics/libs/arect/include"
+                           "${SOURCES}/frameworks_native_headers/include" PRIVATE "${ui_sources}/include_private"
+                           native/android_runtime)
+set_target_properties(input PROPERTIES CXX_STANDARD 20)
+soong_module(input FLAGS -Wall -Wextra -Werror -Wno-unused-parameter)
+# libmath's half.h specializes std::is_floating_point, which this clang refuses unless told; its users need it too.
+target_compile_options(input PUBLIC -Wno-invalid-specialization)
+target_link_libraries(input PUBLIC utils cutils base guest_log PRIVATE art_libnativehelper)
+sources_in(input_jni_sources "${SOURCES}/frameworks_base/core/jni"
+  android_view_MotionEvent.cpp android_view_VelocityTracker.cpp)
+
 # --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
 # files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
 # for AndroidRuntime's statics, Trace without Perfetto, the one function of android_util_Binder.cpp they call, and
@@ -220,7 +244,8 @@ foreach(file android_opengl_EGL14.cpp android_opengl_EGL15.cpp android_opengl_EG
   endif()
   list(APPEND gles_sources "${gles_patched}/${file}")
 endforeach()
-add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} native/android_runtime/AndroidRuntime.cpp
+add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${input_jni_sources}
+            native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp native/android_runtime/android_view_Surface.cpp
@@ -239,7 +264,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
-                      GLESv2 GLESv3 nativewindow)
+                      GLESv2 GLESv3 nativewindow input)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <string>
 
+#include "android_os_Parcel.h"
 #include "core_jni_helpers.h"
 #include "minato_parcel.h"
 
@@ -746,6 +747,22 @@ const JNINativeMethod gParcelMethods[] = {
 
 }  // namespace
 
+// Parcel.mNativePtr, for parcelForJavaObject.
+static jfieldID gParcelNativePtr;
+
+// As AOSP's, which core/jni's android_os_Parcel.h declares: the parcel behind a Java Parcel, for natives that take one
+// as an object, such as MotionEvent's (ADR-0045 step 7b1). A finalized one throws IllegalStateException; null is null.
+Parcel *parcelForJavaObject(JNIEnv *env, jobject obj) {
+    if (obj) {
+        Parcel *p = reinterpret_cast<Parcel *>(env->GetLongField(obj, gParcelNativePtr));
+        if (p != nullptr) {
+            return p;
+        }
+        jniThrowException(env, "java/lang/IllegalStateException", "Parcel has been finalized!");
+    }
+    return nullptr;
+}
+
 int register_android_os_Parcel(JNIEnv *env) {
     JavaVM *vm;
     env->GetJavaVM(&vm);
@@ -761,6 +778,7 @@ int register_android_os_Parcel(JNIEnv *env) {
     gStrictModeCallbackOffsets.callback =
             GetStaticMethodIDOrDie(env, strictMode, "onBinderStrictModePolicyChange", "(I)V");
 
+    gParcelNativePtr = GetFieldIDOrDie(env, FindClassOrDie(env, "android/os/Parcel"), "mNativePtr", "J");
     return RegisterMethodsOrDie(env, "android/os/Parcel", gParcelMethods, NELEM(gParcelMethods));
 }
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0045 step 7b's test of touch time (touch-test): made-up MotionEvents, their split in a ViewGroup, their
+     parcel, and VelocityTracker's and GestureDetector's velocities, in Application.onCreate on apk-runner-35. The
+     launcher activity is the framework's own android.app.Activity, so that `am start` starts the process on
+     Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.touch" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Touch Test"
+      android:name="io.github.kisame76.minato.test.touch.TouchApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

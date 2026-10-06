@@ -538,6 +538,27 @@
         "framework/api/current.txt"
       ],
       "digest": "69e5814c677e64519bdeda2985a768bcebe5f33a409ee8b74a5565960df385d3"
+    },
+    {
+      "name": "frameworks_native_input",
+      "project": "platform/frameworks/native",
+      "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
+      "license": "Apache-2.0",
+      "files": [
+        "include/attestation/HmacKeyManager.h",
+        "include/ftl/details/mixins.h",
+        "include/ftl/enum.h",
+        "include/ftl/mixins.h",
+        "include/ftl/string.h",
+        "include/input/Input.h",
+        "include/input/InputEventLabels.h",
+        "include/input/PrintTools.h",
+        "include/input/RingBuffer.h",
+        "include/input/VelocityTracker.h",
+        "libs/input/Input.cpp",
+        "libs/input/VelocityTracker.cpp"
+      ],
+      "digest": "914d91f613e99b1f8eec40e3ae40c30a3cd07663284cc85f03cede0bc063136d"
     }
   ],
   "angle": {

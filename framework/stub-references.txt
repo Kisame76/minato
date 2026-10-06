@@ -371,7 +371,6 @@ android.view.KeyCharacterMap <- android.hardware.input.IInputManager  # stays: I
 android.view.KeyCharacterMap <- android.hardware.input.InputManagerGlobal  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.view.KeyCharacterMap <- android.view.InputDevice  # stays: InputDevice's parcel constructor and writeToParcel, which only a parcel runs
 android.view.PointerIcon <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.view.VelocityTracker <- android.view.GestureDetector  # ADR-0045 7b): velocity tracking, which GestureDetector asks at its first touch event; its natives come with MotionEvent's
 android.view.VerifiedInputEvent <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs

@@ -69,6 +69,13 @@ public:
     status_t writeInt64(int64_t val);
     status_t writeFloat(float val);
     status_t writeDouble(double val);
+    // What libinput's MotionEvent parcel takes beside the rest (ADR-0045 step 7b1), as libbinder's: a bool and a byte
+    // fill an int32's slot, a uint32 is aligned as an int32, and a byte vector is its length as an int32, then its
+    // bytes, padded to 4; a negative length reads as UNEXPECTED_NULL. readFloat also reads into a float, with a status.
+    status_t writeBool(bool val);
+    status_t writeByte(int8_t val);
+    status_t writeUint32(uint32_t val);
+    status_t writeByteVector(const std::vector<uint8_t> &val);
     void *writeInplace(size_t len);
     status_t writeString8(const char *str, size_t len);
     status_t writeString16(const char16_t *str, size_t len);
@@ -82,6 +89,11 @@ public:
     int64_t readInt64() const;
     float readFloat() const;
     double readDouble() const;
+    status_t readFloat(float *out) const;
+    bool readBool() const;
+    int8_t readByte() const;
+    uint32_t readUint32() const;
+    status_t readByteVector(std::vector<uint8_t> *val) const;
     const void *readInplace(size_t len) const;
     const char *readString8Inplace(size_t *outLen) const;
     const char16_t *readString16Inplace(size_t *outLen) const;

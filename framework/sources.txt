@@ -1055,3 +1055,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/RippleShader.ja
 frameworks_base_graphics/graphics/java/android/graphics/drawable/RotateDrawable.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/ScaleDrawable.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/TransitionDrawable.java
+
+# ADR-0045 step 7b1, touch time: VelocityTracker, whose natives, AOSP's core/jni file, run libinput's tracker, as
+# MotionEvent's run libinput's MotionEvent (framework/CMakeLists.txt).
+frameworks_base/core/java/android/view/VelocityTracker.java

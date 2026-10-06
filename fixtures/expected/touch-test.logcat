@@ -1,0 +1,26 @@
+I/touch-test: down: action 0, at 10.0 20.0, raw 10.0 20.0, pointers 1, id 0, tool 0, source 0x2, device 0, times 1000 1000, pressure 1.0, size 1.0, flags 0x0, edges 0, precision 1.0 1.0
+I/touch-test: move: history 2 (1008 30.0 40.0) (1016 50.0 60.0), now 1024 70.0 80.0, pressure 0.5
+I/touch-test: two pointers: action 5 index 1, ids 0 1, second at 150.0 50.0, id 1 at index 1, tool 1
+I/touch-test: split: left got ACTION_DOWN with 1 pointer(s), id 0 at 50.0 50.0
+I/touch-test: split: row handled ACTION_DOWN: true
+I/touch-test: split: right got ACTION_DOWN with 1 pointer(s), id 1 at 50.0 50.0
+I/touch-test: split: left got ACTION_MOVE with 1 pointer(s), id 0 at 50.0 50.0
+I/touch-test: split: row handled ACTION_POINTER_DOWN(1): true
+I/touch-test: split: right got ACTION_MOVE with 1 pointer(s), id 1 at 50.0 50.0
+I/touch-test: split: left got ACTION_MOVE with 1 pointer(s), id 0 at 50.0 50.0
+I/touch-test: split: row handled ACTION_MOVE: true
+I/touch-test: split: right got ACTION_UP with 1 pointer(s), id 1 at 50.0 50.0
+I/touch-test: split: left got ACTION_MOVE with 1 pointer(s), id 0 at 50.0 50.0
+I/touch-test: split: row handled ACTION_POINTER_UP(1): true
+I/touch-test: split: left got ACTION_UP with 1 pointer(s), id 0 at 50.0 50.0
+I/touch-test: split: row handled ACTION_UP: true
+I/touch-test: location: offset 15.0 27.0, raw 10.0 20.0
+I/touch-test: location: scaled 30.0 81.0, raw 10.0 20.0
+I/touch-test: location: set 1.0 2.0, raw 10.0 20.0
+I/touch-test: axes: AXIS_X AXIS_PRESSURE AXIS_GESTURE_PINCH_SCALE_FACTOR 99, from labels 1 27 17 -1
+I/touch-test: parcel: 280 bytes; back: action 2, history 2, at 70.0 80.0, first sample 30.0 at 1008, times 1000 1024, pressure 0.5
+I/touch-test: velocity: 6000.0 1875.0 px/s, capped at 3000: 3000.0 1875.0, axis X 3000.0, supports X true, scroll true, pressure false
+I/touch-test: gesture: down
+I/touch-test: gesture: fling 6000.0 1875.0 px/s
+I/touch-test: gesture: scrolls 8
+I/touch-test: done
