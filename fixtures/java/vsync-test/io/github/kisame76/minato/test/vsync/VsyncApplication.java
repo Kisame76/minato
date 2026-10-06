@@ -1,12 +1,16 @@
 package io.github.kisame76.minato.test.vsync;
 
+import android.app.Activity;
 import android.app.Application;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Choreographer;
+import android.view.View;
+import android.view.ViewTreeObserver;
 
 /**
  * ADR-0041 a)'s test of Java's Choreographer (decision 6): AOSP's class, whose DisplayEventReceiver's natives Minato
@@ -16,7 +20,8 @@ import android.view.Choreographer;
  * - getInstance gives one instance on the main thread;
  * - three frame callbacks in a row: rising frame times, each at or before its callback's System.nanoTime and less
  *   than 100 ms before it;
- * - postFrameCallbackDelayed by 100 ms runs 100 ms or more after its post's SystemClock.uptimeMillis;
+ * - postFrameCallbackDelayed by 100 ms, posted once the launcher activity has drawn, so that the start's work no
+ *   longer holds the main thread, runs 100 ms or more after its post's SystemClock.uptimeMillis;
  * - a removed frame callback never runs, and one posted beside it does;
  * - postVsyncCallback's FrameData: at least one frame timeline, the preferred one among them, each deadline before
  *   its expected presentation, both rising from one timeline to the next;
@@ -33,6 +38,8 @@ public class VsyncApplication extends Application {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private Choreographer choreographer;
+    // The delayed callback's post waits for both.
+    private boolean threeFramesDone, firstDrawDone;
 
     @Override
     public void onCreate() {
@@ -40,6 +47,7 @@ public class VsyncApplication extends Application {
         try {
             choreographer = Choreographer.getInstance();
             Log.i(TAG, "getInstance on the main thread: the same twice " + (choreographer == Choreographer.getInstance()));
+            afterFirstDraw();
             threeFrames(new long[3], new long[3], 0);
         } catch (Throwable t) {
             failed(t);
@@ -72,8 +80,64 @@ public class VsyncApplication extends Application {
                     + before + ", less than 100 ms before it " + recent);
             Log.i(TAG + "-device", "frames " + (frameTimes[1] - frameTimes[0]) / 1000 + " and "
                     + (frameTimes[2] - frameTimes[1]) / 1000 + " us apart");
-            delayed();
+            threeFramesDone = true;
+            delayedWhenReady();
         });
+    }
+
+    /** Notes the launcher activity's first draw in a message after it, as onDraw may not remove its listener. */
+    private void afterFirstDraw() {
+        registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+                unregisterActivityLifecycleCallbacks(this);
+                final View decor = activity.getWindow().getDecorView();
+                decor.getViewTreeObserver().addOnDrawListener(new ViewTreeObserver.OnDrawListener() {
+                    @Override
+                    public void onDraw() {
+                        final ViewTreeObserver.OnDrawListener listener = this;
+                        main.post(() -> {
+                            if (firstDrawDone) {
+                                return;
+                            }
+                            decor.getViewTreeObserver().removeOnDrawListener(listener);
+                            firstDrawDone = true;
+                            delayedWhenReady();
+                        });
+                    }
+                });
+            }
+
+            @Override
+            public void onActivityStarted(Activity activity) {
+            }
+
+            @Override
+            public void onActivityResumed(Activity activity) {
+            }
+
+            @Override
+            public void onActivityPaused(Activity activity) {
+            }
+
+            @Override
+            public void onActivityStopped(Activity activity) {
+            }
+
+            @Override
+            public void onActivitySaveInstanceState(Activity activity, Bundle outState) {
+            }
+
+            @Override
+            public void onActivityDestroyed(Activity activity) {
+            }
+        });
+    }
+
+    private void delayedWhenReady() {
+        if (threeFramesDone && firstDrawDone) {
+            delayed();
+        }
     }
 
     private void delayed() {
