@@ -196,6 +196,10 @@ Owner android_owner(std::string_view path) {
         const auto depth = depth_below(9);  // a ~~ folder, and the app's code folder in it
         return {system_uid, system_uid, depth == 1 ? mode_t{0771} : depth == 2 ? mode_t{0775} : mode_t{0}};
     }
+    // Where SystemUI and idmap2 leave Monet's overlays (ADR-0043 f): system's, the folder 0771 and its files 0644
+    // [verified: ls -la on the emulator, 2026-10-07], so the app reads them and changes nothing there.
+    if (is("/data/resource-cache")) return {system_uid, system_uid, 0771};
+    if (below("/data/resource-cache")) return {system_uid, system_uid, 0644};
     if (below("/data") || below("/proc")) return {app_uid, app_uid};
     if (below("/storage") || below("/sdcard")) return {app_uid, ext_data_rw_gid};
     return {};

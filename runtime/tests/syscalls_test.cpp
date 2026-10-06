@@ -1023,6 +1023,38 @@ TEST(the_apps_code_is_systems_in_any_case) {
     CHECK(::stat((code + "/base.apk").c_str(), &host) == 0 && (host.st_mode & 07777) == 0644);
 }
 
+// /data/resource-cache, where Android 15's SystemUI and idmap2 leave Monet's overlays (ADR-0043 f), is system's: the
+// folder 0771 and its files 0644, so the app reads and stats them and makes, removes, renames and writes nothing
+// there, with Android's EACCES. Its mount comes after /data's, as the Mac's harness has it.
+TEST(the_resource_cache_is_systems) {
+    Scratch scratch;
+    const auto cache = scratch.host + "/resource-cache";
+    CHECK(std::system(("mkdir -p '" + cache + "' '" + scratch.host + "/data'").c_str()) == 0);
+    const int made = ::open((cache + "/overlay.frro").c_str(), O_CREAT | O_WRONLY, 0644);
+    CHECK(made >= 0 && ::write(made, "FRRO", 4) == 4);
+    ::close(made);
+    apkrt::vfs::mount("/data", scratch.host + "/data");
+    apkrt::vfs::mount("/data/resource-cache", cache);
+    const std::string folder = "/data/resource-cache", overlay = folder + "/overlay.frro";
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, at(folder), address(&status), 0}) == 0);
+    CHECK(status.uid == 1000 && status.gid == 1000 && (status.mode & 07777) == 0771);
+    CHECK(call(nr_newfstatat, {at_fdcwd, at(overlay), address(&status), 0}) == 0);
+    CHECK(status.uid == 1000 && status.gid == 1000 && (status.mode & 07777) == 0644);
+    const auto file = open_guest(at_fdcwd, overlay.c_str(), o_rdonly);
+    CHECK(file >= 0 && read_text(file, 8) == "FRRO");
+    call(nr_close, {unsigned_of(file)});
+    CHECK(open_guest(at_fdcwd, overlay.c_str(), o_wronly) == -eacces);
+    CHECK(open_guest(at_fdcwd, (folder + "/new.frro").c_str(), o_creat | o_wronly, 0600) == -eacces);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(folder + "/new"), 0700}) == -eacces);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(overlay), 0}) == -eacces);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(overlay), at_fdcwd, at(folder + "/moved.frro"), 0}) == -eacces);
+    CHECK(call(nr_fchmodat, {at_fdcwd, at(overlay), 0666}) == -eacces);
+    struct stat host{};
+    CHECK(::stat((cache + "/overlay.frro").c_str(), &host) == 0 && (host.st_mode & 07777) == 0644 && host.st_size == 4);
+    CHECK(::access((cache + "/new.frro").c_str(), F_OK) != 0 && ::access((cache + "/new").c_str(), F_OK) != 0);
+}
+
 // ADR-0052: a guest's symlinks stay inside the guest's file system. Every host call starts at its mount's host folder
 // with Darwin's RESOLVE_BENEATH, so a link or ".." that would leave the mount answers EACCES, whatever the host has
 // there; a link inside its mount still works.
