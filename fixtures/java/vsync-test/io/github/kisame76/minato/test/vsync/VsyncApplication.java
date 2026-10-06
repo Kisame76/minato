@@ -16,7 +16,7 @@ import android.view.Choreographer;
  * - getInstance gives one instance on the main thread;
  * - three frame callbacks in a row: rising frame times, each at or before its callback's System.nanoTime and less
  *   than 100 ms before it;
- * - postFrameCallbackDelayed by 100 ms runs 100 ms or more after its post;
+ * - postFrameCallbackDelayed by 100 ms runs 100 ms or more after its post's SystemClock.uptimeMillis;
  * - a removed frame callback never runs, and one posted beside it does;
  * - postVsyncCallback's FrameData: at least one frame timeline, the preferred one among them, each deadline before
  *   its expected presentation, both rising from one timeline to the next;
@@ -77,7 +77,9 @@ public class VsyncApplication extends Application {
     }
 
     private void delayed() {
-        final long posted = System.nanoTime();
+        // In whole ms, as Choreographer counts the delay from uptimeMillis (doCallbacks): 12 frames at 120 Hz are
+        // 99.999996 ms, so the callback may run just under 100 ms after a System.nanoTime() taken here.
+        final long posted = SystemClock.uptimeMillis() * MS;
         choreographer.postFrameCallbackDelayed(frameTimeNanos -> {
             Log.i(TAG, "postFrameCallbackDelayed(100): ran 100 ms or more after its post "
                     + (System.nanoTime() - posted >= 100 * MS));
