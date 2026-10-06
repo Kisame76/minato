@@ -41,7 +41,7 @@
 # <app>-device differ by device and are only shown.
 # jnigraphics-test (ADR-0041 a5), whose JNI library links libjnigraphics, is one of those Java apps too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
-# the M4 plan's display.
+# the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
 # up, so that its lines do not depend on the device.
@@ -145,11 +145,12 @@ else
   done
 fi
 
-# config-test's AVD has the M4 plan's display, and view-tree-test's, animator-test's and drawables-test's, whose
-# sizes in dp they turn into px at that density; every other test keeps apk-runner-35's, which its reference has.
+# config-test's AVD has the M4 plan's display, and view-tree-test's, animator-test's, drawables-test's and
+# checkbox-test's, whose sizes in dp they turn into px at that density; every other test keeps apk-runner-35's,
+# which its reference has.
 avd_display=""
 if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-test ||
-  "$app" == drawables-test ]]; then
+  "$app" == drawables-test || "$app" == checkbox-test ]]; then
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
@@ -425,7 +426,7 @@ run_app() {
     config-test | styled-text-test | package-manager-test | package-manager-legacy-test | context-test | looper-test \
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
-      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | touch-test)
+      | owner-rules-test | settings-test | jnigraphics-test | drawables-test | touch-test | checkbox-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

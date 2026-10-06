@@ -1059,3 +1059,9 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/TransitionDrawa
 # ADR-0045 step 7b1, touch time: VelocityTracker, whose natives, AOSP's core/jni file, run libinput's tracker, as
 # MotionEvent's run libinput's MotionEvent (framework/CMakeLists.txt).
 frameworks_base/core/java/android/view/VelocityTracker.java
+
+# ADR-0043 step e1), the widgets CompoundButton and CheckBox: a Material CheckBox of an app's layout or code, on d)'s
+# drawables; Checkable, which CompoundButton implements, was a compile-only stub.
+frameworks_base/core/java/android/widget/Checkable.java
+frameworks_base/core/java/android/widget/CheckBox.java
+frameworks_base/core/java/android/widget/CompoundButton.java

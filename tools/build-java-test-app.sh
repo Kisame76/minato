@@ -15,7 +15,8 @@
 # without its own fixtures/java folder, a twin such as compat-test-35, takes the sources of the app it is named after.
 # jnigraphics-test (ADR-0041 a5) is one more, whose JNI library links libjnigraphics, and touch-test (ADR-0045 step
 # 7b), whose events are made up.
-# drawables-test (ADR-0043 step d)) is one more, with an XML drawable of every tag in res/drawable.
+# drawables-test (ADR-0043 step d)) is one more, with an XML drawable of every tag in res/drawable, and checkbox-test
+# (step e1)), with a layout of CheckBoxes in res/layout.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).

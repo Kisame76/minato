@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- checkbox-test's CheckBoxes as an app's layout gives them: one checked with a text, one unchecked without. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+  <CheckBox android:id="@+id/agree" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:checked="true" android:text="@string/agree"/>
+  <CheckBox android:id="@+id/plain" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+</LinearLayout>

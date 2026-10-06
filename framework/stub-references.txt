@@ -227,7 +227,6 @@ android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays:
 android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
 android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill structure (populateChildrenForAutofill), for a service Minato does not run
-android.widget.Checkable <- android.view.View  # stays: View.onProvideStructure, for autofill and content capture, which Minato does not run
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
 com.google.android.collect.Lists <- android.view.View  # stays: View.dumpFlags, a debugging dump
 com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
@@ -497,3 +496,11 @@ com.android.internal.inputmethod.IInputContentUriToken$Stub <- android.view.inpu
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
 com.android.internal.util.IndentingPrintWriter <- android.view.textclassifier.TextClassificationConstants  # stays: TextClassificationConstants.dump, which only dumpsys runs
 com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
+
+# ADR-0043 step e1), CompoundButton and CheckBox (App): their autofill, assist, accessibility and debug answers, which
+# only those services and tools ask for, and a button drawable from an Icon.
+android.graphics.drawable.Icon <- android.widget.CompoundButton  # gap: setButtonIcon and setButtonIconAsync, a button drawable from an Icon, as Icon is compile-only
+android.view.ViewHierarchyEncoder <- android.widget.CompoundButton  # stays: the view hierarchy's debug encoding, which only the hierarchy viewer runs
+android.view.ViewStructure <- android.widget.CompoundButton  # stays: the assist and autofill structure, which only those services ask for
+android.view.accessibility.AccessibilityNodeInfo <- android.widget.CompoundButton  # stays: accessibility, off (ADR-0041): node infos only for an accessibility service
+android.view.autofill.AutofillValue <- android.widget.CompoundButton  # stays: autofill, off (step c2c3), which alone asks a CompoundButton for its value or fills it

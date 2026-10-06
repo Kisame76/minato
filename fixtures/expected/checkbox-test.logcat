@@ -1,0 +1,23 @@
+I/checkbox-test: inflated: agree android.widget.CheckBox, checked true ("checked"), clickable true, focusable true, text "I agree"
+I/checkbox-test: inflated: plain android.widget.CheckBox, checked false ("not checked"), clickable true, focusable true, text ""
+I/checkbox-test: made: checked false ("not checked"), clickable true, focusable true, text "", accessibility class android.widget.CheckBox
+I/checkbox-test: button: agree android.graphics.drawable.AnimatedStateListDrawable, current android.graphics.drawable.VectorDrawable, 96 x 96, its state checked true
+I/checkbox-test: button: agree tint none, mode null
+I/checkbox-test: size: agree at 0, 0, 222 x 96, padding 0 0 0 0, compound padding left 96, baseline 64
+I/checkbox-test: button: plain android.graphics.drawable.AnimatedStateListDrawable, current android.graphics.drawable.VectorDrawable, 96 x 96, its state checked false
+I/checkbox-test: button: plain tint none, mode null
+I/checkbox-test: size: plain at 0, 96, 96 x 96, padding 0 0 0 0, compound padding left 96, baseline 64
+I/checkbox-test: click: checked changed to true, isChecked true
+I/checkbox-test: click: clicked, isChecked true
+I/checkbox-test: click: handled true, checked true ("checked")
+I/checkbox-test: click: checked changed to false, isChecked false
+I/checkbox-test: click: without a click listener, handled false, checked false ("not checked")
+I/checkbox-test: same: listener calls 0, checked true ("checked")
+I/checkbox-test: nested: listener saw true
+I/checkbox-test: nested: listener calls 1, checked false ("not checked")
+I/checkbox-test: toggle: checked true ("checked")
+I/checkbox-test: toggle: again checked false ("not checked")
+I/checkbox-test: saved: android.widget.CompoundButton$SavedState, read back as android.widget.CompoundButton$SavedState, restored checked true ("checked")
+I/checkbox-test: drawn: unchecked 96x96 crc 40d70a0e
+I/checkbox-test: drawn: checked 96x96 crc e5791a44
+I/checkbox-test: done
