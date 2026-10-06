@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Checks ADR-0039 c5 in the Simulator or, with --device, on the iPhone (step c6): a Java app starts in game mode from
 # the library, as a NativeActivity app does. app-start-test (ADR-0039's test 1), context-test (step c1's, started
-# twice over the same data), asset-ndk-test (ADR-0041 decision 7's, whose JNI library System.loadLibrary loads) and
-# jni-lib-test (step c5.1's, which looks at its JNI library in nativeLibraryDir) are imported and tapped in the
-# library, and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
+# twice over the same data), asset-ndk-test (ADR-0041 decision 7's, whose JNI library System.loadLibrary loads),
+# jni-lib-test (step c5.1's, which looks at its JNI library in nativeLibraryDir), jnigraphics-test (ADR-0041 a5's,
+# whose JNI library links libjnigraphics, which the app's guest system has from build/hwui/lib, and reads and writes
+# bitmaps through AndroidBitmap_* and decodes the APK's picture.png through AImageDecoder) and surface-test
+# (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's) are imported and
+# tapped in the library,
+# and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
 # sends to tmp/session-check/guest-out, and the lines of the others' own tags in their guest logs, of both of
 # context-test's starts (framework/tests/java_app_run.py). An app process never ends by itself (step c2b): 2 s after
@@ -15,7 +19,8 @@
 # app/Sources/Session/SessionCheck.swift; on the iPhone devicectl sends the requests and fetches the events and files,
 # as tools/session-check.sh does, the app must stay unlocked, and the times count the fetches' delay too. The test
 # apps leave the library before the run, which a killed run may have left them in, and after it; in the Simulator the
-# library is then as before.
+# library is then as before. surface-test's sizes are the screen's: in the Simulator Android's 1290 x 2796 become the
+# Simulator's, and test 4's Button, centered, keeps its size at that screen's center.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -25,10 +30,7 @@
 #              <app>-<start>.png of a start that failed, which shows an alert's text
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
-#              alone; java-test or surface-test among them runs in the Simulator too
-#   SURFACE_TEST set: surface-test (ADR-0043 c4 (d)) runs too, a GLSurfaceView whose surface is a layer of its own
-#              beside the window's; its sizes are the screen's, so in the Simulator Android's 1290 x 2796 become the
-#              Simulator's, and test 4's Button, centered, keeps its size at that screen's center
+#              alone; java-test among them runs in the Simulator too
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -54,15 +56,14 @@ fi
 
 # The test apps, "<app> <package>", and where each one's last line appears.
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
-      "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib")
+      "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib"
+      "jnigraphics-test io.github.kisame76.minato.test.jnigraphics"
+      "surface-test io.github.kisame76.minato.test.surface")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
 [[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
-SURFACE_TEST=${SURFACE_TEST:-}
-[[ " $ONLY " != *" surface-test "* ]] || SURFACE_TEST=yes
-[[ -z "$SURFACE_TEST" ]] || APPS+=("surface-test io.github.kisame76.minato.test.surface")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -499,6 +500,7 @@ EOF
 }
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
+run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics
 
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then
   run_lifecycle 1
@@ -533,7 +535,7 @@ compare_log("java-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
 fi
 
-if [[ -n "$SURFACE_TEST" ]] && wanted surface-test; then
+if wanted surface-test; then
   run_start surface-test io.github.kisame76.minato.test.surface 1
   python3 - "$WORK/surface-test-1.log" fixtures/expected/surface-test.logcat "$WORK" <<'EOF' \
     || failures=$((failures + 1))
