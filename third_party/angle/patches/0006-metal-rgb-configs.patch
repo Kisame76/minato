@@ -1,0 +1,65 @@
+RGB888 configs without alpha on the Metal backend (ADR-0043 c4; ADR-0029, decision 8).
+
+Why: GLSurfaceView's default config chooser (8, 8, 8, 0 and a depth of 16 or more) takes the first config
+with exactly no alpha, which Android 15 lists first (RGB888, buffer size 24, EGL_NATIVE_VISUAL_ID
+RGBX_8888). The Metal backend made only RGBA8888 configs, so every app on that chooser failed with "No
+config chosen". Now DisplayMtl adds an RGB888 twin without alpha of every config, after them, so that the
+RGBA8888 configs keep their IDs, with GL_RGB8 as the render target format and no RGBA texture binding.
+SurfaceMtl gives their surfaces B8G8R8X8, which the format table stores as BGRA8Unorm with ANGLE's emulated
+alpha: the window's drawables get the write mask without alpha that offscreen textures of that format get
+already, and clears write alpha 1. So alpha reads 1, as on Android: after a clear or a draw with less, and
+for GL_DST_ALPHA; GL_ALPHA_BITS is 0.
+Upstream: could go upstream; the Vulkan backend lists GL_RGB8 configs on Android (DisplayVkAndroid.cpp).
+Remove: when upstream's Metal backend lists configs without alpha.
+
+diff --git a/src/libANGLE/renderer/metal/DisplayMtl.mm b/src/libANGLE/renderer/metal/DisplayMtl.mm
+--- a/src/libANGLE/renderer/metal/DisplayMtl.mm
++++ b/src/libANGLE/renderer/metal/DisplayMtl.mm
+@@ -632,6 +632,24 @@
+         config.depthSize   = GetDepthSize(config.depthStencilFormat);
+         config.stencilSize = GetStencilSize(config.depthStencilFormat);
+         configs.add(config);
++    }
++
++    // Minato (patch 0006): an RGB888 twin without alpha of every config, as Android lists one first for
++    // GLSurfaceView's default chooser (8, 8, 8, 0). SurfaceMtl keeps its surfaces' alpha at 1. The twins come
++    // last, so the RGBA8888 configs keep their IDs.
++    std::vector<egl::Config> twins;
++    for (const auto &entry : configs)
++    {
++        egl::Config twin        = entry.second;
++        twin.alphaSize          = 0;
++        twin.bufferSize         = twin.redSize + twin.greenSize + twin.blueSize;
++        twin.renderTargetFormat = GL_RGB8;
++        twin.bindToTextureRGBA  = EGL_FALSE;
++        twins.push_back(twin);
++    }
++    for (const egl::Config &twin : twins)
++    {
++        configs.add(twin);
+     }
+ 
+     return configs;
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.mm b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.mm
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+@@ -84,7 +84,9 @@
+ {
+     mRobustResourceInit =
+         attribs.get(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE, EGL_FALSE) == EGL_TRUE;
+-    mColorFormat = display->getPixelFormat(angle::FormatID::B8G8R8A8_UNORM);
++    // Minato (patch 0006): a config without alpha draws into BGRA8 with ANGLE's emulated alpha, kept at 1.
++    mColorFormat = display->getPixelFormat(state.config->alphaSize == 0 ? angle::FormatID::B8G8R8X8_UNORM
++                                                                       : angle::FormatID::B8G8R8A8_UNORM);
+ 
+     mSamples = state.config->samples;
+ 
+@@ -689,6 +691,8 @@
+         if (!mColorTexture)
+         {
+             mColorTexture = mtl::Texture::MakeFromMetal(mCurrentDrawable.get().texture);
++            // Minato (patch 0006): the drawables of a config without alpha take no alpha writes.
++            mColorTexture->setColorWritableMask(mtl::GetEmulatedColorWriteMask(mColorFormat));
+             ASSERT(!mColorRenderTarget.getTexture());
+             mColorRenderTarget.setWithImplicitMSTexture(mColorTexture, mMSColorTexture,
+                                                         mtl::kZeroNativeMipLevel, 0, mColorFormat);

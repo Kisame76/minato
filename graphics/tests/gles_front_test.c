@@ -7,7 +7,8 @@
      EGL_KHR_platform_android among the client extensions; no GL_ANGLE_blob_cache, and GL_NUM_EXTENSIONS
      through every query counts what glGetStringi lists.
    - Configs: EGL_RECORDABLE_ANDROID and EGL_FRAMEBUFFER_TARGET_ANDROID do not reach ANGLE; the config answers
-     them with EGL_FALSE and EGL_NATIVE_VISUAL_ID with WINDOW_FORMAT_RGBA_8888.
+     them with EGL_FALSE and EGL_NATIVE_VISUAL_ID with WINDOW_FORMAT_RGBA_8888. GLSurfaceView's default spec
+     (8, 8, 8, 0 and a depth of 16) finds RGB888 without alpha first (patch 0006), with WINDOW_FORMAT_RGBX_8888.
    - eglGetProcAddress: for every name of the two tables the front lib's own function, the export where
      there is one (libEGL's, libGLESv2's), never ANGLE's; NULL for other names.
    - Debug output: glGetPointervKHR answers the app's function and user data; a message on a guest thread
@@ -127,7 +128,7 @@ static void configs(EGLDisplay display, EGLConfig *config) {
                                  EGL_WINDOW_BIT | EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_NONE};
     eglChooseConfig(display, attributes, config, 1, &count);
     EGLint visual = -1, recorded = -1, framebuffer = -1;
-    const EGLBoolean got_visual = eglGetConfigAttrib(display, *config, EGL_NATIVE_VISUAL_ID, &visual);
+    EGLBoolean got_visual = eglGetConfigAttrib(display, *config, EGL_NATIVE_VISUAL_ID, &visual);
     const EGLBoolean got_recorded = eglGetConfigAttrib(display, *config, EGL_RECORDABLE_ANDROID, &recorded);
     const EGLBoolean got_framebuffer =
         eglGetConfigAttrib(display, *config, EGL_FRAMEBUFFER_TARGET_ANDROID, &framebuffer);
@@ -135,6 +136,19 @@ static void configs(EGLDisplay display, EGLConfig *config) {
            "EGL_FRAMEBUFFER_TARGET_ANDROID %d (%s)\n",
            visual, got_visual ? "EGL_TRUE" : "EGL_FALSE", recorded, got_recorded ? "EGL_TRUE" : "EGL_FALSE",
            framebuffer, got_framebuffer ? "EGL_TRUE" : "EGL_FALSE");
+    const EGLint rgb[] = {EGL_RED_SIZE,   8, EGL_GREEN_SIZE, 8,  EGL_BLUE_SIZE,       8,
+                          EGL_ALPHA_SIZE, 0, EGL_DEPTH_SIZE, 16, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+                          EGL_NONE};
+    EGLConfig first = NULL;
+    EGLint alpha = -1, buffer = -1;
+    visual = -1;
+    eglChooseConfig(display, rgb, &first, 1, &count);
+    eglGetConfigAttrib(display, first, EGL_ALPHA_SIZE, &alpha);
+    eglGetConfigAttrib(display, first, EGL_BUFFER_SIZE, &buffer);
+    got_visual = eglGetConfigAttrib(display, first, EGL_NATIVE_VISUAL_ID, &visual);
+    printf("  GLSurfaceView's default spec, first config: EGL_ALPHA_SIZE %d, EGL_BUFFER_SIZE %d, "
+           "EGL_NATIVE_VISUAL_ID %d (%s)\n",
+           alpha, buffer, visual, got_visual ? "EGL_TRUE" : "EGL_FALSE");
 }
 
 typedef void (*get_integer_robust)(GLenum, GLsizei, GLsizei *, GLint *);

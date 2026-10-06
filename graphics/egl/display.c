@@ -4,7 +4,8 @@
      another native display or platform is EGL_NO_DISPLAY with EGL_BAD_PARAMETER, as Android's libEGL answers.
    - eglChooseConfig takes EGL_RECORDABLE_ANDROID and EGL_FRAMEBUFFER_TARGET_ANDROID out before ANGLE sees
      them; eglGetConfigAttrib answers them with EGL_FALSE and EGL_NATIVE_VISUAL_ID with WINDOW_FORMAT_RGBA_8888
-     for an RGBA8888 config.
+     for an RGBA8888 config and WINDOW_FORMAT_RGBX_8888 for an RGB888 one without alpha (patch 0006), as
+     Android 15 answers.
    - The extension strings leave out what tools/frontgen withholds (egl_withheld.inc); the client extensions
      name EGL_KHR_platform_android, whose display libEGL gives.
    - eglGetProcAddress hands out libEGL's own functions and libGLESv2's, never ANGLE's.
@@ -87,15 +88,18 @@ EGLBoolean eglChooseConfig(EGLDisplay display, const EGLint *attributes, EGLConf
     return result;
 }
 
-static int rgba8888(EGLDisplay display, EGLConfig config) {
+/* The window format of the config's buffers: RGBA_8888 for RGBA8888, RGBX_8888 for RGB888 without alpha, 0 for
+   another. */
+static EGLint window_format(EGLDisplay display, EGLConfig config) {
     static const EGLint channels[] = {EGL_RED_SIZE, EGL_GREEN_SIZE, EGL_BLUE_SIZE, EGL_ALPHA_SIZE};
+    EGLint bits[sizeof channels / sizeof *channels];
     for (size_t index = 0; index < sizeof channels / sizeof *channels; index++) {
-        EGLint bits = 0;
-        if (!minato_host_eglGetConfigAttrib(display, config, channels[index], &bits) || bits != 8) {
+        if (!minato_host_eglGetConfigAttrib(display, config, channels[index], &bits[index]) ||
+            (index < 3 && bits[index] != 8)) {
             return 0;
         }
     }
-    return 1;
+    return bits[3] == 8 ? WINDOW_FORMAT_RGBA_8888 : bits[3] == 0 ? WINDOW_FORMAT_RGBX_8888 : 0;
 }
 
 EGLBoolean eglGetConfigAttrib(EGLDisplay display, EGLConfig config, EGLint attribute, EGLint *value) {
@@ -109,8 +113,11 @@ EGLBoolean eglGetConfigAttrib(EGLDisplay display, EGLConfig config, EGLint attri
         return EGL_TRUE;
     }
     const EGLBoolean result = minato_host_eglGetConfigAttrib(display, config, attribute, value);
-    if (result && attribute == EGL_NATIVE_VISUAL_ID && rgba8888(display, config)) {
-        *value = WINDOW_FORMAT_RGBA_8888;
+    if (result && attribute == EGL_NATIVE_VISUAL_ID) {
+        const EGLint format = window_format(display, config);
+        if (format != 0) {
+            *value = format;
+        }
     }
     return result;
 }

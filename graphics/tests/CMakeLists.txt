@@ -14,11 +14,12 @@ else()
 endif()
 set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
-# Tests 2, 4 and 5 need Core Animation and Metal objects: Objective-C++ with ARC.
+# Tests 2, 4, 5 and rgb_configs need Core Animation and Metal objects: Objective-C++ with ARC.
 # Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003). Test 5:
-# EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11).
+# EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11). rgb_configs: RGB888 configs
+# without alpha on Metal, GLSurfaceView's default (patch 0006, ADR-0043 c4).
 enable_language(OBJCXX)
-foreach(test IN ITEMS fixed_size commit_gate presentation_time)
+foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)

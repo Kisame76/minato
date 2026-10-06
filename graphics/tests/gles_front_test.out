@@ -5,8 +5,9 @@ displays:
   another platform: EGL_NO_DISPLAY, EGL_BAD_PARAMETER
   eglInitialize: EGL_TRUE, EGL 1.5
 configs:
-  asked for EGL_RECORDABLE_ANDROID: EGL_TRUE, 10 configs; for EGL_FRAMEBUFFER_TARGET_ANDROID: EGL_TRUE, 10 configs
+  asked for EGL_RECORDABLE_ANDROID: EGL_TRUE, 20 configs; for EGL_FRAMEBUFFER_TARGET_ANDROID: EGL_TRUE, 20 configs
   RGBA8888 D24S8: EGL_NATIVE_VISUAL_ID 1 (EGL_TRUE), EGL_RECORDABLE_ANDROID 0 (EGL_TRUE), EGL_FRAMEBUFFER_TARGET_ANDROID 0 (EGL_TRUE)
+  GLSurfaceView's default spec, first config: EGL_ALPHA_SIZE 0, EGL_BUFFER_SIZE 24, EGL_NATIVE_VISUAL_ID 2 (EGL_TRUE)
   GL_RENDERER is ANGLE's Metal renderer: yes; GL_VERSION begins with OpenGL ES 3.0: yes
 strings:
   client extensions: EGL_EXT_client_extensions EGL_EXT_device_query EGL_KHR_client_get_all_proc_addresses EGL_ANGLE_feature_control EGL_ANGLE_display_power_preference EGL_ANGLE_no_error EGL_KHR_platform_android
