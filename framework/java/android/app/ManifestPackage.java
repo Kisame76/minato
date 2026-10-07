@@ -105,6 +105,8 @@ final class ManifestPackage {
 
     /** The platform's permissions by name, read once on first use. */
     private static Map<String, PermissionInfo> sPlatformPermissions;
+    /** framework-res's protected broadcasts, read with its permissions (ADR-0045 decision 5, step d2). */
+    private static Set<String> sProtectedBroadcasts;
     /** platform.xml's split permissions in its order, read once by the first manifest. */
     private static List<Split> sSplits;
 
@@ -243,12 +245,14 @@ final class ManifestPackage {
 
     /**
      * The platform's permissions: framework-res's manifest read once as the package "android", as Android's package
-     * manager reads it at boot, with FLAG_INSTALLED as its permissions are installed. Only <permission> is read.
+     * manager reads it at boot, with FLAG_INSTALLED as its permissions are installed. Only <permission> is read, and
+     * <protected-broadcast>'s names, which isProtectedBroadcast answers from (ADR-0045 decision 5, step d2).
      */
     private static synchronized Map<String, PermissionInfo> platformPermissions() {
         if (sPlatformPermissions == null) {
             AssetManager assets = AssetManager.getSystem();
             ManifestPackage platform;
+            Set<String> protectedBroadcasts = new HashSet<>();
             try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(FRAMEWORK_RES),
                     "AndroidManifest.xml")) {
                 platform = new ManifestPackage(manifestElement(parser, FRAMEWORK_RES), Resources.getSystem());
@@ -259,9 +263,23 @@ final class ManifestPackage {
                 int type;
                 while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                         && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-                    if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1 && !skipped(parser)
-                            && "permission".equals(parser.getName())) {
+                    if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
+                        continue;
+                    }
+                    if ("permission".equals(parser.getName())) {
                         platform.parsePermission(parser);
+                    } else if ("protected-broadcast".equals(parser.getName())) {
+                        // As ParsingPackageUtils.parseProtectedBroadcast: its name, intern'd, when it has one.
+                        TypedArray sa = platform.resources.obtainAttributes(parser,
+                                R.styleable.AndroidManifestProtectedBroadcast);
+                        try {
+                            String name = sa.getNonResourceString(R.styleable.AndroidManifestProtectedBroadcast_name);
+                            if (name != null) {
+                                protectedBroadcasts.add(name.intern());
+                            }
+                        } finally {
+                            sa.recycle();
+                        }
                     }
                 }
             } catch (IOException | XmlPullParserException e) {
@@ -273,8 +291,20 @@ final class ManifestPackage {
                 permissions.put(permission.name, permission);
             }
             sPlatformPermissions = Collections.unmodifiableMap(permissions);
+            sProtectedBroadcasts = Collections.unmodifiableSet(protectedBroadcasts);
         }
         return sPlatformPermissions;
+    }
+
+    /**
+     * Whether `action` is a protected broadcast of framework-res's manifest, which only the system may send, as the
+     * package manager's isProtectedBroadcast answers (ADR-0045 decision 5, step d2); null is none.
+     */
+    static boolean isProtectedBroadcast(String action) {
+        synchronized (ManifestPackage.class) {
+            platformPermissions();
+            return action != null && sProtectedBroadcasts.contains(action);
+        }
     }
 
     /**

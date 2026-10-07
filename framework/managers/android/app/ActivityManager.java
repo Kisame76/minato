@@ -11,8 +11,10 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Icon;
+import android.os.IBinder;
+import android.os.ServiceManager;
 import android.util.DisplayMetrics;
-import com.android.minato.services.Unwritten;
+import android.util.Singleton;
 
 class ActivityManager {
     private static final int FIRST_START_FATAL_ERROR_CODE = -100;
@@ -69,11 +71,34 @@ class ActivityManager {
         return FIRST_START_FATAL_ERROR_CODE <= result && result <= LAST_START_FATAL_ERROR_CODE;
     }
 
-    /** @hide The activity manager service, which Minato has none of (ADR-0045's local services). */
+    /** @hide The activity manager service, LocalActivityManagerService (ADR-0045 decision 5, step d2), from
+     * ServiceManager's "activity" as AOSP's getService takes it. */
     public static IActivityManager getService() {
-        Unwritten.log("android.app.ActivityManager.getService()", "null");
-        return null;
+        return IActivityManagerSingleton.get();
     }
+
+    private static final Singleton<IActivityManager> IActivityManagerSingleton = new Singleton<IActivityManager>() {
+        @Override
+        protected IActivityManager create() {
+            final IBinder b = ServiceManager.getService(Context.ACTIVITY_SERVICE);
+            return IActivityManager.Stub.asInterface(b);
+        }
+    };
+
+    /** @hide */
+    public static final int BROADCAST_SUCCESS = 0;
+
+    /** @hide */
+    public static final int INTENT_SENDER_BROADCAST = 1;
+
+    /** @hide */
+    public static final int INTENT_SENDER_ACTIVITY = 2;
+
+    /** @hide */
+    public static final int INTENT_SENDER_SERVICE = 4;
+
+    /** @hide */
+    public static final int INTENT_SENDER_FOREGROUND_SERVICE = 5;
 
     /** @hide As outside system_server on Android: the system is ready by the time an app runs. */
     public static boolean isSystemReady() {
@@ -492,5 +517,71 @@ class ActivityManager {
         public int getMinHeight() {
             return mMinHeight;
         }
+    }
+
+    /**
+     * @hide As AOSP's: a subset of immutable pending intent information suitable for caching on the client side, which
+     * PendingIntent asks the service for (ADR-0045 step d2, through step d3).
+     */
+    public static final class PendingIntentInfo implements android.os.Parcelable {
+
+        private final String mCreatorPackage;
+        private final int mCreatorUid;
+        private final boolean mImmutable;
+        private final int mIntentSenderType;
+
+        public PendingIntentInfo(String creatorPackage, int creatorUid, boolean immutable,
+                int intentSenderType) {
+            mCreatorPackage = creatorPackage;
+            mCreatorUid = creatorUid;
+            mImmutable = immutable;
+            mIntentSenderType = intentSenderType;
+        }
+
+        public String getCreatorPackage() {
+            return mCreatorPackage;
+        }
+
+        public int getCreatorUid() {
+            return mCreatorUid;
+        }
+
+        public boolean isImmutable() {
+            return mImmutable;
+        }
+
+        public int getIntentSenderType() {
+            return mIntentSenderType;
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(android.os.Parcel parcel, int flags) {
+            parcel.writeString(mCreatorPackage);
+            parcel.writeInt(mCreatorUid);
+            parcel.writeBoolean(mImmutable);
+            parcel.writeInt(mIntentSenderType);
+        }
+
+        public static final android.os.Parcelable.Creator<PendingIntentInfo> CREATOR =
+                new android.os.Parcelable.Creator<PendingIntentInfo>() {
+                    @Override
+                    public PendingIntentInfo createFromParcel(android.os.Parcel in) {
+                        return new PendingIntentInfo(
+                                /* creatorPackage= */ in.readString(),
+                                /* creatorUid= */ in.readInt(),
+                                /* immutable= */ in.readBoolean(),
+                                /* intentSenderType= */ in.readInt());
+                    }
+
+                    @Override
+                    public PendingIntentInfo[] newArray(int size) {
+                        return new PendingIntentInfo[size];
+                    }
+                };
     }
 }

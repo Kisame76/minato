@@ -3,22 +3,38 @@
  * Android's ActivityThread makes one from bindApplication's ApplicationInfo; it keeps the class loader, the app's
  * Resources and the Application, and makes the Application with its ContextImpl (makeApplicationInner). Ours does the
  * same for the one APK of the process, and since step c2c1 it makes the app's AppComponentFactory once, as
- * createAppFactory does, which then also makes the providers. Android's also loads splits and shared libraries, and
- * dispatches receivers and services through system_server; those come with M5 and ADR-0045.
+ * createAppFactory does, which then also makes the providers. Since ADR-0045's step d2 it keeps the registered
+ * receivers' dispatchers, as AOSP's, through which the local activity manager service delivers broadcasts. Android's
+ * also loads splits and shared libraries, and dispatches services through system_server; those come with M5 and
+ * ADR-0045.
  */
 package android.app;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IIntentReceiver;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Process;
+import android.os.RemoteException;
+import android.os.StrictMode;
+import android.util.ArrayMap;
+import android.util.Log;
 import android.util.Slog;
 import java.io.File;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
 public final class LoadedApk {
+    static final String TAG = "LoadedApk";
+
     private final ActivityThread mActivityThread;
     final String mPackageName;
     private final ApplicationInfo mApplicationInfo;
@@ -199,5 +215,256 @@ public final class LoadedApk {
             }
         }
         return AppComponentFactory.DEFAULT;
+    }
+
+    /** The registered receivers' dispatchers by the context that registered them (ADR-0045 decision 5). */
+    private final ArrayMap<Context, ArrayMap<BroadcastReceiver, ReceiverDispatcher>> mReceivers = new ArrayMap<>();
+
+    /**
+     * As AOSP's: the receivers that `context` registered and did not unregister go when it goes, an activity's at its
+     * destroy, each with ActivityThread's IntentReceiverLeaked line that shows where it was registered, and StrictMode's
+     * report when its VM policy detects leaked registrations.
+     */
+    public void removeContextRegistrations(Context context, String who, String what) {
+        final boolean reportRegistrationLeaks = StrictMode.vmRegistrationLeaksEnabled();
+        synchronized (mReceivers) {
+            ArrayMap<BroadcastReceiver, ReceiverDispatcher> rmap = mReceivers.remove(context);
+            if (rmap != null) {
+                for (int i = 0; i < rmap.size(); i++) {
+                    ReceiverDispatcher rd = rmap.valueAt(i);
+                    IntentReceiverLeaked leak = new IntentReceiverLeaked(what + " " + who + " has leaked IntentReceiver "
+                            + rd.getIntentReceiver() + " that was originally registered here. Are you missing a "
+                            + "call to unregisterReceiver()?");
+                    leak.setStackTrace(rd.getLocation().getStackTrace());
+                    Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
+                    if (reportRegistrationLeaks) {
+                        StrictMode.onIntentReceiverLeaked(leak);
+                    }
+                    try {
+                        ActivityManager.getService().unregisterReceiver(rd.getIIntentReceiver());
+                    } catch (RemoteException e) {
+                        throw e.rethrowFromSystemServer();
+                    }
+                }
+            }
+        }
+    }
+
+    /** As AOSP's: the dispatcher of `r`, a registered receiver's kept per context until it is forgotten. */
+    public IIntentReceiver getReceiverDispatcher(BroadcastReceiver r, Context context, Handler handler,
+            Instrumentation instrumentation, boolean registered) {
+        synchronized (mReceivers) {
+            ReceiverDispatcher rd = null;
+            ArrayMap<BroadcastReceiver, ReceiverDispatcher> map = null;
+            if (registered) {
+                map = mReceivers.get(context);
+                if (map != null) {
+                    rd = map.get(r);
+                }
+            }
+            if (rd == null) {
+                rd = new ReceiverDispatcher(mActivityThread.getApplicationThread(), r, context, handler,
+                        instrumentation, registered);
+                if (registered) {
+                    if (map == null) {
+                        map = new ArrayMap<>();
+                        mReceivers.put(context, map);
+                    }
+                    map.put(r, rd);
+                }
+            } else {
+                rd.validate(context, handler);
+            }
+            rd.mForgotten = false;
+            return rd.getIIntentReceiver();
+        }
+    }
+
+    /**
+     * As AOSP's: forgets the dispatcher of a receiver `context` registered, and throws IllegalArgumentException for
+     * one it did not; Android's debugUnregister, which keeps where it was unregistered, is not kept.
+     */
+    public IIntentReceiver forgetReceiverDispatcher(Context context, BroadcastReceiver r) {
+        synchronized (mReceivers) {
+            ArrayMap<BroadcastReceiver, ReceiverDispatcher> map = mReceivers.get(context);
+            if (map != null) {
+                ReceiverDispatcher rd = map.get(r);
+                if (rd != null) {
+                    map.remove(r);
+                    if (map.size() == 0) {
+                        mReceivers.remove(context);
+                    }
+                    rd.mForgotten = true;
+                    return rd.getIIntentReceiver();
+                }
+            }
+            if (context == null) {
+                throw new IllegalStateException("Unbinding Receiver " + r + " from Context that is no longer in use: "
+                        + context);
+            }
+            throw new IllegalArgumentException("Receiver not registered: " + r);
+        }
+    }
+
+    /**
+     * AOSP's receiver dispatcher: the service delivers through its InnerReceiver, whose Args runs onReceive on the
+     * receiver's handler with itself as the PendingResult, so that an ordered broadcast's finish, also goAsync's from
+     * another thread, sends the result back and lets the next receiver have it.
+     */
+    static final class ReceiverDispatcher {
+
+        static final class InnerReceiver extends IIntentReceiver.Stub {
+            final IApplicationThread mApplicationThread;
+            final WeakReference<ReceiverDispatcher> mDispatcher;
+            final ReceiverDispatcher mStrongRef;
+
+            InnerReceiver(IApplicationThread thread, ReceiverDispatcher rd, boolean strong) {
+                mApplicationThread = thread;
+                mDispatcher = new WeakReference<>(rd);
+                mStrongRef = strong ? rd : null;
+            }
+
+            @Override
+            public void performReceive(Intent intent, int resultCode, String data, Bundle extras, boolean ordered,
+                    boolean sticky, int sendingUser) {
+                Log.wtf(TAG, "performReceive() called targeting raw IIntentReceiver for " + intent);
+                performReceive(intent, resultCode, data, extras, ordered, sticky,
+                        BroadcastReceiver.PendingResult.guessAssumeDelivered(
+                                BroadcastReceiver.PendingResult.TYPE_REGISTERED, ordered),
+                        sendingUser, Process.INVALID_UID, null);
+            }
+
+            public void performReceive(Intent intent, int resultCode, String data, Bundle extras, boolean ordered,
+                    boolean sticky, boolean assumeDelivered, int sendingUser, int sendingUid, String sendingPackage) {
+                final ReceiverDispatcher rd;
+                if (intent == null) {
+                    Log.wtf(TAG, "Null intent received");
+                    rd = null;
+                } else {
+                    rd = mDispatcher.get();
+                }
+                if (rd != null) {
+                    rd.performReceive(intent, resultCode, data, extras, ordered, sticky, assumeDelivered, sendingUser,
+                            sendingUid, sendingPackage);
+                } else if (!assumeDelivered) {
+                    // The receiver went before its broadcast came: acknowledged for it, so that the next one gets it.
+                    IActivityManager mgr = ActivityManager.getService();
+                    try {
+                        if (extras != null) {
+                            extras.setAllowFds(false);
+                        }
+                        mgr.finishReceiver(mApplicationThread.asBinder(), resultCode, data, extras, false,
+                                intent.getFlags());
+                    } catch (RemoteException e) {
+                        throw e.rethrowFromSystemServer();
+                    }
+                }
+            }
+        }
+
+        final IApplicationThread mAppThread;
+        final IIntentReceiver.Stub mIIntentReceiver;
+        final BroadcastReceiver mReceiver;
+        final Context mContext;
+        final Handler mActivityThread;
+        final Instrumentation mInstrumentation;
+        final boolean mRegistered;
+        final IntentReceiverLeaked mLocation;
+        boolean mForgotten;
+
+        final class Args extends BroadcastReceiver.PendingResult {
+            private Intent mCurIntent;
+
+            Args(Intent intent, int resultCode, String resultData, Bundle resultExtras, boolean ordered,
+                    boolean sticky, boolean assumeDelivered, int sendingUser, int sendingUid, String sendingPackage) {
+                super(resultCode, resultData, resultExtras, mRegistered ? TYPE_REGISTERED : TYPE_UNREGISTERED, ordered,
+                        sticky, assumeDelivered, mAppThread.asBinder(), sendingUser, intent.getFlags(), sendingUid,
+                        sendingPackage);
+                mCurIntent = intent;
+            }
+
+            Runnable getRunnable() {
+                return () -> {
+                    final BroadcastReceiver receiver = mReceiver;
+                    final IActivityManager mgr = ActivityManager.getService();
+                    final Intent intent = mCurIntent;
+                    if (intent == null) {
+                        Log.wtf(TAG, "Null intent being dispatched");
+                    }
+                    mCurIntent = null;
+                    if (receiver == null || intent == null || mForgotten) {
+                        sendFinished(mgr);
+                        return;
+                    }
+                    try {
+                        ClassLoader cl = mReceiver.getClass().getClassLoader();
+                        intent.setExtrasClassLoader(cl);
+                        intent.prepareToEnterProcess(ManifestPackage.isProtectedBroadcast(intent.getAction()), null);
+                        setExtrasClassLoader(cl);
+                        receiver.setPendingResult(this);
+                        receiver.onReceive(mContext, intent);
+                    } catch (Exception e) {
+                        sendFinished(mgr);
+                        if (mInstrumentation == null || !mInstrumentation.onException(mReceiver, e)) {
+                            throw new RuntimeException("Error receiving broadcast " + intent + " in " + mReceiver, e);
+                        }
+                    }
+                    if (receiver.getPendingResult() != null) {
+                        finish();
+                    }
+                };
+            }
+        }
+
+        ReceiverDispatcher(IApplicationThread appThread, BroadcastReceiver receiver, Context context,
+                Handler activityThread, Instrumentation instrumentation, boolean registered) {
+            if (activityThread == null) {
+                throw new NullPointerException("Handler must not be null");
+            }
+            mAppThread = appThread;
+            mIIntentReceiver = new InnerReceiver(mAppThread, this, !registered);
+            mReceiver = receiver;
+            mContext = context;
+            mActivityThread = activityThread;
+            mInstrumentation = instrumentation;
+            mRegistered = registered;
+            mLocation = new IntentReceiverLeaked(null);
+            mLocation.fillInStackTrace();
+        }
+
+        void validate(Context context, Handler activityThread) {
+            if (mContext != context) {
+                throw new IllegalStateException("Receiver " + mReceiver + " registered with differing Context (was "
+                        + mContext + " now " + context + ")");
+            }
+            if (mActivityThread != activityThread) {
+                throw new IllegalStateException("Receiver " + mReceiver + " registered with differing handler (was "
+                        + mActivityThread + " now " + activityThread + ")");
+            }
+        }
+
+        IntentReceiverLeaked getLocation() {
+            return mLocation;
+        }
+
+        BroadcastReceiver getIntentReceiver() {
+            return mReceiver;
+        }
+
+        IIntentReceiver getIIntentReceiver() {
+            return mIIntentReceiver;
+        }
+
+        void performReceive(Intent intent, int resultCode, String data, Bundle extras, boolean ordered,
+                boolean sticky, boolean assumeDelivered, int sendingUser, int sendingUid, String sendingPackage) {
+            final Args args = new Args(intent, resultCode, data, extras, ordered, sticky, assumeDelivered, sendingUser,
+                    sendingUid, sendingPackage);
+            if (intent == null) {
+                Log.wtf(TAG, "Null intent received");
+            }
+            if (intent == null || !mActivityThread.post(args.getRunnable())) {
+                args.sendFinished(ActivityManager.getService());
+            }
+        }
     }
 }

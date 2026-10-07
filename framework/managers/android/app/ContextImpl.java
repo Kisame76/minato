@@ -9,11 +9,14 @@
 // adds an activity's context, with its token and its own Resources, the window manager and the display: an
 // activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045's
 // gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider.
+import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IContentProvider;
+import android.content.IIntentReceiver;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
@@ -30,9 +33,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.FileUtils;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.storage.StorageManager;
 import android.system.ErrnoException;
@@ -358,6 +363,141 @@ class ContextImpl {
 
     public ContentResolver getContentResolver() {
         return mContentResolver;
+    }
+
+    // ADR-0045 decision 5, step d2: receivers and broadcasts within the process, as the tag's ContextImpl has them,
+    // through LoadedApk's dispatchers and the local activity manager service. Sticky broadcasts, other users and the
+    // receiver's app ops stay the generated methods.
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+        return registerReceiver(receiver, filter, null, null);
+    }
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, int flags) {
+        return registerReceiver(receiver, filter, null, null, flags);
+    }
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, String broadcastPermission,
+            Handler scheduler) {
+        return registerReceiverInternal(receiver, filter, broadcastPermission, scheduler, getOuterContext(), 0);
+    }
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, String broadcastPermission,
+            Handler scheduler, int flags) {
+        return registerReceiverInternal(receiver, filter, broadcastPermission, scheduler, getOuterContext(), flags);
+    }
+
+    /** As AOSP's: the receiver's dispatcher on its handler, the main thread's by default, then the service. */
+    private Intent registerReceiverInternal(BroadcastReceiver receiver, IntentFilter filter, String broadcastPermission,
+            Handler scheduler, Context context, int flags) {
+        IIntentReceiver rd = null;
+        if (receiver != null) {
+            rd = mPackageInfo.getReceiverDispatcher(receiver, context,
+                    scheduler != null ? scheduler : mMainThread.getHandler(), mMainThread.getInstrumentation(), true);
+        }
+        try {
+            final Intent intent = ActivityManager.getService().registerReceiverWithFeature(
+                    mMainThread.getApplicationThread(), getBasePackageName(), null, null, rd, filter,
+                    broadcastPermission, UserHandle.myUserId(), flags);
+            if (intent != null) {
+                intent.setExtrasClassLoader(getClassLoader());
+                intent.prepareToEnterProcess(ManifestPackage.isProtectedBroadcast(intent.getAction()), null);
+            }
+            return intent;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    public void unregisterReceiver(BroadcastReceiver receiver) {
+        IIntentReceiver rd = mPackageInfo.forgetReceiverDispatcher(getOuterContext(), receiver);
+        try {
+            ActivityManager.getService().unregisterReceiver(rd);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    public void sendBroadcast(Intent intent) {
+        broadcast(intent, null, null, false, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendBroadcast(Intent intent, String receiverPermission) {
+        broadcast(intent, permissions(receiverPermission), null, false, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendBroadcast(Intent intent, String receiverPermission, Bundle options) {
+        broadcast(intent, permissions(receiverPermission), options, false, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendBroadcastWithMultiplePermissions(Intent intent, String[] receiverPermissions) {
+        broadcast(intent, receiverPermissions, null, false, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission) {
+        broadcast(intent, permissions(receiverPermission), null, true, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission, Bundle options) {
+        broadcast(intent, permissions(receiverPermission), options, true, null, null, Activity.RESULT_OK, null, null);
+    }
+
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission, BroadcastReceiver resultReceiver,
+            Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
+        broadcast(intent, permissions(receiverPermission), null, true, resultReceiver, scheduler, initialCode,
+                initialData, initialExtras);
+    }
+
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission, Bundle options,
+            BroadcastReceiver resultReceiver, Handler scheduler, int initialCode, String initialData,
+            Bundle initialExtras) {
+        broadcast(intent, permissions(receiverPermission), options, true, resultReceiver, scheduler, initialCode,
+                initialData, initialExtras);
+    }
+
+    /** With an app op, which the app's own receivers are not asked about (the generated AppOpsManager answers). */
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission, String receiverAppOp,
+            BroadcastReceiver resultReceiver, Handler scheduler, int initialCode, String initialData,
+            Bundle initialExtras) {
+        broadcast(intent, permissions(receiverPermission), null, true, resultReceiver, scheduler, initialCode,
+                initialData, initialExtras);
+    }
+
+    private static String[] permissions(String receiverPermission) {
+        return receiverPermission == null ? null : new String[] {receiverPermission};
+    }
+
+    /**
+     * As AOSP's sendBroadcast and sendOrderedBroadcastAsUser: the final receiver's dispatcher, unregistered, on its
+     * handler, the main thread's by default; the intent's resolved type; then the service.
+     */
+    private void broadcast(Intent intent, String[] receiverPermissions, Bundle options, boolean ordered,
+            BroadcastReceiver resultReceiver, Handler scheduler, int initialCode, String initialData,
+            Bundle initialExtras) {
+        IIntentReceiver rd = null;
+        if (resultReceiver != null) {
+            rd = mPackageInfo.getReceiverDispatcher(resultReceiver, getOuterContext(),
+                    scheduler != null ? scheduler : mMainThread.getHandler(), mMainThread.getInstrumentation(), false);
+        }
+        String resolvedType = intent.resolveTypeIfNeeded(getContentResolver());
+        try {
+            intent.prepareToLeaveProcess(getOuterContext());
+            ActivityManager.getService().broadcastIntentWithFeature(mMainThread.getApplicationThread(), null, intent,
+                    resolvedType, rd, initialCode, initialData, initialExtras, receiverPermissions, null, null,
+                    AppOpsManager.OP_NONE, options, ordered, false, UserHandle.myUserId());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** @hide As AOSP's: the context's registrations go after the message that ends it, an activity's destroy. */
+    final void scheduleFinalCleanup(String who, String what) {
+        mMainThread.getHandler().post(() -> performFinalCleanup(who, what));
+    }
+
+    /** @hide */
+    final void performFinalCleanup(String who, String what) {
+        mPackageInfo.removeContextRegistrations(getOuterContext(), who, what);
     }
 
     /** The Application, once LoadedApk made it: null while its attachBaseContext runs, as on Android. */

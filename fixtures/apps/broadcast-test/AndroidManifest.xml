@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0045 decision 5's test (broadcast-test): an app's own broadcasts within its process. Its activity matches
+     IntentFilters, encodes Base64, registers receivers under Android 14's export rules, and sends unordered and ordered
+     broadcasts to them: priorities, results, an abort, goAsync, a handler of its own, an unregistered receiver, and a
+     receiver that its second activity, Leak, leaks at its destroy. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.broadcast" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="broadcast-test">
+    <activity android:name="io.github.kisame76.minato.test.broadcast.BroadcastActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.broadcast.LeakActivity" android:exported="false"/>
+  </application>
+</manifest>

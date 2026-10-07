@@ -92,7 +92,7 @@ frameworks_base/core/java/android/os/ParcelableException.java
 # what they extend and what their looked-up members call: TypedValue, SparseArray and ArrayMap with their helpers for
 # AssetManager's natives; OverlayableInfo, AssetFileDescriptor, ParcelFileDescriptor and Parcelable for ApkAssets';
 # DataClass, the source-only annotation of OverlayableInfo, as in AOSP's framework; UtilConfig, which SparseArray and
-# ArrayMap read. AnnotationValidations, which OverlayableInfo's constructor calls, stays a stub (framework/stubs/types).
+# ArrayMap read. AnnotationValidations, which OverlayableInfo's constructor calls, was a stub until ADR-0045's d1.
 # Rect, which WindowConfiguration's constructor makes and Configuration's static initializer reaches.
 # What AssetManager's system path calls: ArraySet, the system set. XmlBlock.Parser's interfaces, XmlResourceParser and
 # AttributeSet, without which the class cannot load.
@@ -462,6 +462,28 @@ frameworks_base/core/java/android/app/StackTrace.java
 frameworks_base/core/java/android/os/AsyncTask.java
 frameworks_base/core/java/android/util/Dumpable.java
 frameworks_base/core/java/android/util/SparseBooleanArray.java
+
+# ADR-0045 d1: IntentFilter, the intents plan's fact 1 (docs/plans/adr-0039-b3.5b2-intents.md), which registered
+# receivers match broadcasts with (decision 5) and on which App's b3.5b2-3 builds its queries: with the URI-relative
+# filters and their two parcels, and AnnotationValidations with modules-utils' NonNull and ColorInt, which
+# UriRelativeFilter's constructor validates with at run time. And Base64, which Google's asset-delivery encodes with
+# (ADR-0050 c1).
+frameworks_base/core/java/android/content/IntentFilter.java
+frameworks_base/core/java/android/content/UriRelativeFilter.java
+frameworks_base/core/java/android/content/UriRelativeFilterGroup.java
+frameworks_base/core/java/android/content/UriRelativeFilterParcel.aidl
+frameworks_base/core/java/android/content/UriRelativeFilterGroupParcel.aidl
+frameworks_base/core/java/com/android/internal/util/AnnotationValidations.java
+modules_utils/java/android/annotation/NonNull.java
+modules_utils/java/android/annotation/ColorInt.java
+frameworks_base/core/java/android/util/Base64.java
+
+# ADR-0045 d2: the receivers' interface, through which LocalActivityManagerService delivers to LoadedApk's dispatchers,
+# and PendingIntent with its sender's interface, whose class Google's asset-delivery resolves (ADR-0050 c1); its intent
+# senders come with d3.
+frameworks_base/core/java/android/content/IIntentReceiver.aidl
+frameworks_base/core/java/android/content/IIntentSender.aidl
+frameworks_base/core/java/android/app/PendingIntent.java
 
 # ADR-0039 step c2c2: the view tree that every inflated layout and every View subclass needs (LayoutInflater, View,
 # ViewGroup, FrameLayout, ViewConfiguration, ViewTreeObserver, Gravity, the insets, AnimationUtils and LayoutTransition,

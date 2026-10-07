@@ -1663,6 +1663,11 @@ public final class ActivityThread {
             }
             activity.mDecor = null;
         }
+        // As AOSP's: the receivers it registered and left go after this message (ADR-0045 decision 5, step d2).
+        Context c = activity.getBaseContext();
+        if (c instanceof ContextImpl) {
+            ((ContextImpl) c).scheduleFinalCleanup(activity.getClass().getName(), "Activity");
+        }
     }
 
     /**

@@ -44,7 +44,6 @@ com.android.internal.pm.parsing.PackageInfoCommonUtils <- android.content.pm.Pac
 com.android.internal.pm.parsing.PackageParser2 <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
 com.android.internal.pm.parsing.PackageParser2$Callback <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
 com.android.internal.pm.parsing.PackageParserException <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
-com.android.internal.util.AnnotationValidations <- android.content.pm.PackageManager  # gap: PackageManager.ComponentEnabledSetting (API 33)
 android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo  # stays: ActivityInfo's display sandboxing checks, which the window manager makes with its own config
 
 # The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
@@ -75,7 +74,6 @@ com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo 
 # StrictMode (c1 took it): the penalties and checks that need system_server.
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
-android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 
 # The app model, activities and views.
@@ -101,11 +99,8 @@ android.media.MediaCodecList <- android.graphics.ImageDecoder  # gap: HEIF and A
 android.media.MediaFormat <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
 android.provider.FontRequest <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.provider.FontsContract <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
-android.util.Base64 <- android.graphics.Typeface  # gap: downloadable fonts' certificates (Typeface.createFromResources)
 android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
 com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
-com.android.internal.util.AnnotationValidations <- android.content.om.OverlayableInfo  # stays: OverlayableInfo comes from the overlay manager, which Minato does not have
-android.annotation.NonNull <- android.content.om.OverlayableInfo  # stays: OverlayableInfo comes from the overlay manager, which Minato does not have
 
 # Text layout: TextView's step (M4 step 10).
 android.text.BidiFormatter <- android.text.TextUtils  # M4 step 10: TextUtils.listEllipsize
@@ -118,7 +113,6 @@ com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a c
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
 android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFileName, for the hidden buildUniqueFile of documents providers
 com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle  # stays: BaseBundle.dumpStats, for dumpsys
-android.util.Base64 <- com.android.internal.util.XmlUtils  # stays: XmlUtils' byte-array attributes, which SharedPreferences never write (c1)
 com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.internal.util.ArtBinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.modules.utils.BinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
@@ -147,7 +141,6 @@ android.os.BundleMerger <- android.content.Intent  # gap: Intent.mergeExtras wit
 android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Minato has no MediaProvider
 android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
 android.os.ShellCommand <- android.content.Intent  # stays: the am shell command's parser, which no shell runs in an app process
-android.app.IActivityManager <- android.app.Service, android.content.BroadcastReceiver  # gap: services and broadcast receivers, with ADR-0045's local activity service
 android.content.ContentCaptureOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.content.ContentCaptureOptions$ContentProtectionOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
@@ -168,12 +161,10 @@ com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.co
 # code inflates, measures and lays out detached. What only an attached view reaches stayed a stub until step c2c3's
 # window; the display, input, Choreographer and the animators until ADR-0041 a); drawing until M4 step 10. XML
 # drawables whose classes framework.jar lacks stay gaps.
-android.annotation.NonNull <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
 android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
 android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
 android.view.WindowMetrics <- android.view.View  # ADR-0041 a): the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses (the window metrics come with the insets, decision 8)
-com.android.internal.util.AnnotationValidations <- android.view.PrivacyIndicatorBounds  # ADR-0041 a): PrivacyIndicatorBounds' checked constructor, which only non-zero window insets reach (decision 8; step c2c3's windows dispatch none) (WindowInsets.inset, a rotation)
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
@@ -223,7 +214,6 @@ android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill 
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
 com.google.android.collect.Lists <- android.view.View  # stays: View.dumpFlags, a debugging dump
 com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
-android.app.PendingIntent <- android.view.View  # gap: drag and drop's check for an activity's pending intent
 android.content.ClipData <- android.view.View  # gap: drag and drop
 android.content.ClipData$Item <- android.view.View  # gap: drag and drop
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
@@ -254,11 +244,8 @@ android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  #
 android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.ExitTransitionCoordinator$ActivityExitTransitionCallbacks <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.FullscreenRequestHandler <- android.app.Activity  # gap: Activity.requestFullscreenMode (API 34), which leaves a freeform window, and Minato's windows are always fullscreen
-android.app.IActivityManager <- android.app.Activity  # gap: Activity.createPendingResult and setLocusContext, which ask the activity manager (ADR-0045's local services)
-android.app.IActivityManager <- android.app.Instrumentation  # stays: an instrumentation test's results, and no test instrumentation runs on Minato
 android.app.IAppTask <- android.app.Instrumentation  # stays: app tasks (ActivityManager.AppTask), which no Context's ActivityManager gives on Minato
 android.app.IInstrumentationWatcher <- android.app.Instrumentation  # stays: an instrumentation test's watcher, and no test instrumentation runs on Minato
-android.app.PendingIntent <- android.app.Activity  # gap: Activity.createPendingResult, whose PendingIntent the activity manager makes (ADR-0045's local services)
 android.app.PictureInPictureParams <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
 android.app.PictureInPictureParams$Builder <- android.app.Activity  # gap: the deprecated enterPictureInPictureMode(), which builds its params first; Minato has no picture-in-picture (no FEATURE_PICTURE_IN_PICTURE), where Android returns false
 android.app.ScreenCaptureCallbackHandler <- android.app.Activity  # gap: screenshot detection (API 34's registerScreenCaptureCallback), which Minato's windows report none of
@@ -268,7 +255,6 @@ android.app.TaskStackBuilder <- android.app.Activity  # stays: up navigation rec
 android.app.UiAutomation <- android.app.Instrumentation  # stays: UI automation of an instrumentation test, and no test instrumentation runs on Minato
 android.app.VoiceInteractor <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
 android.app.VoiceInteractor$Request <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
-android.content.IntentFilter <- android.app.Instrumentation  # stays: an instrumentation test's activity monitors, and no test instrumentation runs on Minato
 android.content.IntentSender <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
 android.content.IntentSender$SendIntentException <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
 android.content.IntentSender$SendIntentException <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
@@ -314,7 +300,6 @@ com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # st
 # ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
 # sensor runs.
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
-android.content.IntentFilter <- android.hardware.SystemSensorManager  # gap: getDynamicSensorList and the dynamic and runtime sensor callbacks, whose receivers need IntentFilter and decision 5's broadcasts
 android.hardware.HardwareBuffer <- android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers
 android.hardware.LegacySensorManager <- android.hardware.SensorManager  # gap: the SensorListener API, deprecated since API 3, which needs the window manager's rotation watcher
 android.hardware.input.InputSensorInfo <- android.hardware.Sensor  # stays: an input device's sensor, which only InputManager makes
@@ -381,7 +366,6 @@ com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolu
 android.accounts.Account <- android.content.ContentResolver  # gap: syncs (requestSync, startSync and the sync extras' check), which need accounts; Minato has no AccountManager yet
 android.accounts.Account <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
-android.app.IActivityManager <- android.content.ContentResolver  # gap: ContentResolver.getType of an authority no provider has, which Android asks the activity manager
 android.app.IUriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions (take, release and list), which ask the URI grants service
 android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
 android.content.OperationApplicationException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
@@ -420,8 +404,9 @@ android.content.pm.ResolveInfo <- android.speech.tts.TtsEngines  # gap: an engin
 # ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
 android.app.Dialog <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
-android.app.PendingIntent <- android.text.style.EasyEditSpan, android.widget.Editor, android.widget.TextView  # stays: the pending intents of an input method's easy-edit spans and of text classification's actions, both absent until their steps
-android.app.PendingIntent$CanceledException <- android.widget.Editor, android.widget.TextView  # stays: the pending intents of an input method's easy-edit spans and of text classification's actions, both absent until their steps
+android.app.ActivityOptions <- android.app.PendingIntent  # gap: sending an activity's PendingIntent, which names its caller's display, with ADR-0045 step d3's intent senders
+android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.getIntentSender, with ADR-0045 step d3's intent senders
+android.content.pm.ParceledListSlice <- android.app.PendingIntent  # stays: queryIntentComponents, a system and test API, whose list the local activity manager answers with none (ADR-0045 step d2)
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
 android.content.ClipData <- android.view.inputmethod.BaseInputConnection, android.widget.Editor, android.widget.TextView, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
 android.content.ClipData$Item <- android.view.inputmethod.BaseInputConnection, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)

@@ -47,6 +47,7 @@
 # strictmode-test (ADR-0039 step c2d3) is one too.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
 # local_testing_dir only from a manifest.
+# broadcast-test (ADR-0045 decision 5), whose activity sends its own broadcasts to its own receivers, is one too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -479,6 +480,11 @@ run_app() {
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
+      ;;
+    # broadcast-test (ADR-0045 decision 5): its activity's parts, each within 5 s, end with "done".
+    broadcast-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BroadcastActivity
+      limit=90
       ;;
     # activity-start-test (ADR-0039 step c2c3): its own activity, behind the alias Launcher, ends with "done" once its
     # window has focus.

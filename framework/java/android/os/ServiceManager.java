@@ -8,11 +8,13 @@
  * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e),
  * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
  * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
- * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1); App's services join it. A name of ABSENT, a
+ * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1), the seventh "activity", ActivityManager's
+ * (ADR-0045 decision 5, step d2); App's services join it. A name of ABSENT, a
  * service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
 
+import android.app.LocalActivityManagerService;
 import android.app.LocalActivityTaskManager;
 import android.content.ContentResolver;
 import android.content.ContentService;
@@ -50,6 +52,7 @@ public final class ServiceManager {
         sMakers.put(ContentResolver.CONTENT_SERVICE_NAME, ContentService::newBinder);
         sMakers.put(Context.DEVICE_IDENTIFIERS_SERVICE, DeviceIdentifiersService::newBinder);
         sMakers.put(Context.ACTIVITY_TASK_SERVICE, LocalActivityTaskManager::newBinder);
+        sMakers.put(Context.ACTIVITY_SERVICE, LocalActivityManagerService::newBinder);
     }
 
     private ServiceManager() {

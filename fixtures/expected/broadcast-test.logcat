@@ -1,0 +1,42 @@
+I/broadcast-test: filter: actions 1, has true, category true, scheme https, priority 5
+I/broadcast-test: match: all 0x508000, other action -3, no category 0x508000, other category -4, other host -2, other path -2, no data -2
+I/broadcast-test: match intent: 0x508000
+I/broadcast-test: typed: png 0x608000, text -1
+I/broadcast-test: bad type: java.lang.RuntimeException, cause android.content.IntentFilter$MalformedMimeTypeException
+I/broadcast-test: base64: TWluYXRvIGJyb2FkY2FzdC10ZXN0
+I/broadcast-test: base64 url: -_8AEA, back [-5, -1, 0, 16]
+I/broadcast-test: base64 wrapped: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA|AAAA|
+I/broadcast-test: no flag: java.lang.SecurityException: io.github.kisame76.minato.test.broadcast: One of RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED should be specified when a receiver isn't being registered exclusively for system broadcasts
+I/broadcast-test: both flags: java.lang.IllegalArgumentException: Receiver can't specify both RECEIVER_EXPORTED and RECEIVER_NOT_EXPORTEDflag
+I/broadcast-test: not exported: registered, sticky false
+I/broadcast-test: protected only, no flag: registered, sticky false
+I/broadcast-test: protected and own, no flag: java.lang.SecurityException: io.github.kisame76.minato.test.broadcast: One of RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED should be specified when a receiver isn't being registered exclusively for system broadcasts
+I/broadcast-test: null receiver, no flag: sticky false
+I/broadcast-test: unregister unknown: java.lang.IllegalArgumentException, "Receiver not registered" true
+I/broadcast-test: unordered: sent, received before it returned 0
+I/broadcast-test: unordered A: ordered false, sticky false, another's change false, value 1, main thread true, abort taken true
+I/broadcast-test: unordered B: ordered false, sticky false, another's change false, value 1, main thread true, abort taken true
+I/broadcast-test: ordered P10: code 1, data d, k 0, ordered true
+I/broadcast-test: ordered P10: finishes on its own thread
+I/broadcast-test: ordered P0a: code 2, data d/P10, k 1, ordered true
+I/broadcast-test: ordered P0b: code 3, data d/P10/P0a, k 2, ordered true
+I/broadcast-test: ordered Pm10: code 4, data d/P10/P0a/P0b, k 3, ordered true
+I/broadcast-test: ordered final: code 5, data d/P10/P0a/P0b/Pm10, k 4, main thread true
+I/broadcast-test: ordered P10: code 1, data d, k 0, ordered true
+I/broadcast-test: ordered P10: finishes on its own thread
+I/broadcast-test: ordered P0a: code 2, data d/P10, k 1, ordered true
+I/broadcast-test: ordered P0a: aborts
+I/broadcast-test: ordered with an abort final: code 3, data d/P10/P0a, k 2, main thread true
+I/broadcast-test: nobody final: code 7, data empty, extras null
+I/broadcast-test: threaded: on broadcast-test-handler
+I/broadcast-test: threaded final: code 1, data d, k 0, main thread true
+I/broadcast-test: unregistered final: code 1, data d, k 0, main thread true
+I/broadcast-test: unregistered: received false
+I/broadcast-test: unregistered while sent R2: data d
+I/broadcast-test: unregistered while sent R3: data R2
+I/broadcast-test: unregistered while sent final: code 1, data R3, k 0, main thread true
+I/broadcast-test: leak: Leak registered its receiver and finishes
+I/broadcast-test: leak: Leak destroyed
+I/broadcast-test: leak final: code 1, data d, k 0, main thread true
+I/broadcast-test: leak: the leaked receiver received false after the destroy
+I/broadcast-test: done

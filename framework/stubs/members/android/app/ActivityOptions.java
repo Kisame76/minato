@@ -1,6 +1,7 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 step c2c3), which tools/managergen joins with it:
 // Activity names the scene transition info. (ADR-0039 step c2c3) Activity's scene transitions. (ADR-0039 step c2c3)
-// ActivityTransitionState reads a scene transition's info.
+// ActivityTransitionState reads a scene transition's info. (ADR-0045 step d2) PendingIntent's activities name their
+// caller's display.
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.ResultReceiver;
@@ -37,6 +38,11 @@ class ActivityOptions {
 
     /** @hide */
     public SceneTransitionInfo getSceneTransitionInfo() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public ActivityOptions setCallerDisplayId(int callerDisplayId) {
         throw new RuntimeException("stub");
     }
 }
