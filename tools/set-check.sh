@@ -5,14 +5,14 @@
 # and over the installed version; one unit's rejections share one alert; and a question over an installed and a fresh
 # set says what it does to each. Each unit goes into the library's incoming/ folder as a folder of APKs, as "+" leaves a
 # pick there, and a launch imports it. Then containers (ADR-0049 a3): a set in SAI's .apks, in bundletool's .apks with a
-# toc.json, which skips the set's x86_64 split, and in a plain .zip each install or update its app, and a .apks without
-# an APK says why on its tile. An XAPK (c2) installs its set with its OBB in the app's OBB folder, which backups leave
-# out, and names on the entry what it leaves out, an OBB of another app among it; its update's OBB replaces the first,
-# and other bytes under that OBB's name ask first: "Keep Installed" keeps the file, "Replace" puts them in. Single OBBs
-# (d): one picked by hand for X by its name replaces X's main, older as it is; one without an OBB name asks which app it
-# belongs to and is named for X; "Don’t Import" lets one go. The app's Info.plist offers it for .apks, .xapk and .obb in
-# "Open with". The Debug build answers through
-# app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
+# toc.json, which skips the set's x86_64 split, in a plain .zip and in APKMirror's plain .apkm (e) each install or
+# update its app, and a .apks without an APK and an encrypted .apkm say why on their tiles. An XAPK (c2) installs its
+# set with its OBB in the app's OBB folder, which backups leave out, and names on the entry what it leaves out, an OBB
+# of another app among it; its update's OBB replaces the first, and other bytes under that OBB's name ask first: "Keep
+# Installed" keeps the file, "Replace" puts them in. Single OBBs (d): one picked by hand for X by its name replaces X's
+# main, older as it is; one without an OBB name asks which app it belongs to and is named for X; "Don’t Import" lets
+# one go. The app's Info.plist offers it for .apks, .xapk, .apkm and .obb in "Open with". The Debug build answers
+# through app/Sources/Library/UpdateCheck.swift. The test apps are removed afterwards.
 # Usage: tools/set-check.sh [simulator name or UDID]
 # Optional environment:
 #   SKIP_BUILD  when set, installs the app built last instead of building it first
@@ -120,9 +120,9 @@ apk ar/a-base.apk A 4 ' android:isSplitRequired="true"'
 apk ar/a-split_config.x86_64.apk A 4 ' split="config.x86_64"'
 cp "$WORK/units/ag/g-base.apk" "$WORK/units/ag/g-split_config.de.apk" "$WORK/units/ar/"
 
-# Containers (ADR-0049 a3): K 1.0 to 3.0, each a set whose x86_64 split the choice skips, packed as SAI, bundletool and
-# a zipped folder do; then a .apks without an APK.
-for code in 1 2 3; do
+# Containers (ADR-0049 a3): K 1.0 to 4.0, each a set whose x86_64 split the choice skips, packed as SAI, bundletool, a
+# zipped folder and APKMirror's plain .apkm (e) do; then a .apks without an APK and an encrypted .apkm.
+for code in 1 2 3 4; do
   set_of "k$code-files" K "$code"
   apk "k$code-files/split_config.x86_64.apk" K "$code" ' split="config.x86_64"'
 done
@@ -168,6 +168,16 @@ container k2/k.apks toc.json="$WORK/toc.json" splits/base-master.apk="$K2/base.a
 container k3/k.zip "K/base.apk=$K3/base.apk" "K/arm64.apk=$K3/split_config.arm64_v8a.apk" \
   "K/x86_64.apk=$K3/split_config.x86_64.apk" "__MACOSX/K/._base.apk="
 container x1/empty.apks readme.txt=
+# A plain .apkm: K 4.0's set beside info.json with APKMirror's keys as public descriptions name them [unverified], which
+# decides nothing; an encrypted one is no ZIP.
+K4=$WORK/units/k4-files
+printf '{"apkm_version": 5, "app_name": "Set Check K", "pname": "%s", "versioncode": "4"}' "${PREFIX}k" \
+  > "$WORK/info.json"
+container k4/k.apkm info.json="$WORK/info.json" base.apk="$K4/base.apk" \
+  split_config.arm64_v8a.apk="$K4/split_config.arm64_v8a.apk" \
+  split_config.x86_64.apk="$K4/split_config.x86_64.apk" icon.png=
+mkdir -p "$WORK/units/k5"
+printf 'not a ZIP, as an encrypted APKM is not' > "$WORK/units/k5/locked.apkm"
 # XAPKs (ADR-0049 c2), packed as APKPure packs them: X 1.0's set with its main OBB, a file in its OBB folder that is no
 # OBB and an OBB of an app it holds no APK of; then X 2.0 with main 2, which replaces main 1, and X 2.0 again with other
 # bytes under main 2's name.
@@ -323,7 +333,8 @@ remove() {
   for _ in $(seq 1 50); do [[ -d "$CHECK" ]] || break; sleep 0.2; done
   mkdir -p "$CHECK"
 }
-APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE" "${PREFIX}k" "file:empty.apks" "$X")
+APPS=("${PREFIX}a" "${PREFIX}b" "${PREFIX}c" "${PREFIX}d" "${PREFIX}g" "$LONE" "${PREFIX}k" "file:empty.apks"
+      "file:locked.apkm" "$X")
 # Whether the installed app claims type $1 with extension $2 for "Open with": its document type and the type it
 # imports (project.yml).
 open_with() {
@@ -474,6 +485,14 @@ expect "  with the toc's choice" "2.0 splits config.arm64_v8a skipped -" "$(entr
 offer k3
 expect "a set in a plain .zip" "note Updated “Set Check K” to 3.0." "$(event "note ")"
 expect "  its splits" "3.0 splits config.arm64_v8a skipped config.x86_64" "$(entry "${PREFIX}k")"
+offer k4
+expect "a set in a plain .apkm" "note Updated “Set Check K” to 4.0." "$(event "note ")"
+expect "  its splits, whatever info.json says" "4.0 splits config.arm64_v8a skipped config.x86_64" \
+  "$(entry "${PREFIX}k")"
+offer k5
+expect "an encrypted .apkm" "tile locked.apkm | Not installed: Encrypted APKM files aren’t supported" \
+  "$(event "tile locked.apkm")"
+expect "  the unit is gone" "no" "$(waiting k5)"
 offer x1
 expect "a .apks without an APK" "tile empty.apks | Not installed: It holds no APK" "$(event "tile empty.apks")"
 shot container-refusal-tile
@@ -532,6 +551,7 @@ expect "  and leaves the app's OBB as it is" "main.2.$X.obb: level" "$(obbs "$X"
 expect "\"Open with\" offers Minato for .apks" "yes" "$(open_with io.github.kisame76.minato.apks apks)"
 expect "\"Open with\" offers Minato for .xapk" "yes" "$(open_with io.github.kisame76.minato.xapk xapk)"
 expect "\"Open with\" offers Minato for .obb" "yes" "$(open_with io.github.kisame76.minato.obb obb)"
+expect "\"Open with\" offers Minato for .apkm" "yes" "$(open_with io.github.kisame76.minato.apkm apkm)"
 
 for app in "${APPS[@]}"; do remove "$app"; done
 rm -rf "$CHECK"

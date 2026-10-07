@@ -259,8 +259,6 @@ struct ContainerTests {
         (.notEnoughSpace(needed: 3_000_000, available: 1_000_000), "It needs 3 MB of free space, and 1 MB are free"),
         (.invalidTOC("its toc.pb is cut short in a varint"), "Its toc.pb is cut short in a varint"),
         (.incompatible("No arm64-v8a APK"), "No arm64-v8a APK"),
-        (.notYetSupported(.xapk), "XAPK files aren’t supported yet"),
-        (.notYetSupported(.apkm), "APKM files aren’t supported yet"),
     ] as [(ContainerError, String)])
     func eachRefusalIsASentenceForTheLibrary(_ error: ContainerError, _ refusal: String) {
         // The library shows an entry's refusal as it is, after "Not installed:".

@@ -9,6 +9,8 @@ extension UTType {
     static let apkSet = UTType(importedAs: "io.github.kisame76.minato.apks")
     /// project.yml's imported type for APKPure's .xapk (ADR-0049 c2).
     static let xapk = UTType(importedAs: "io.github.kisame76.minato.xapk")
+    /// project.yml's imported type for APKMirror's .apkm (ADR-0049 e).
+    static let apkm = UTType(importedAs: "io.github.kisame76.minato.apkm")
     /// project.yml's imported type for an app's expansion file, .obb (ADR-0049 d).
     static let obb = UTType(importedAs: "io.github.kisame76.minato.obb")
 }
@@ -38,8 +40,9 @@ struct LibraryView: View {
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
                 .toolbar { toolbar }
                 // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
-                // (ADR-0049 a3), or in an .xapk with its OBBs (c2), and an app's OBB on its own (d).
-                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.apk, .apkSet, .xapk, .obb, .zip, .folder],
+                // (ADR-0049 a3), in an .xapk with its OBBs (c2) or an .apkm (e), and an app's OBB on its own (d).
+                .fileImporter(isPresented: $isImporting,
+                              allowedContentTypes: [.apk, .apkSet, .xapk, .apkm, .obb, .zip, .folder],
                               allowsMultipleSelection: true) { result in
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }

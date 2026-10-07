@@ -71,7 +71,6 @@ struct ContainerImportTests {
 
     @Test(arguments: [
         ("game.xapk", "manifest", "It holds no APK"),
-        ("game.apkm", "info", "APKM files aren’t supported yet"),
         ("game.apkm", "encrypted", "Encrypted APKM files aren’t supported"),
         ("game.apks", "no APK", "It holds no APK"),
         ("game.apks", "no ZIP", "It is neither an APK nor a container of APKs"),
@@ -85,7 +84,6 @@ struct ContainerImportTests {
         case "manifest":
             data = Self.zip([("manifest.json", Data("{}".utf8)),
                              ("Android/obb/org.example.sets/main.1.org.example.sets.obb", Data("obb".utf8))])
-        case "info": data = Self.zip([("info.json", Data(#"{"apkm_version": 5}"#.utf8)), ("base.apk", Sets.base)])
         case "no APK": data = Self.zip([("readme.txt", Data("x".utf8))])
         default: data = Data([0x00, 0x08, 0x00, 0x00]) + Data(repeating: 0x5A, count: 64)
         }

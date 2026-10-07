@@ -8,7 +8,8 @@ public enum ContainerKind: Sendable, Equatable {
     /// `manifest.json` at the root: an XAPK (ADR-0049 step c), but beside `AndroidManifest.xml` only with one of
     /// XAPK's keys.
     case xapk
-    /// `info.json` at the root with `apkm_version` or `pname`: a plain APKM (step e).
+    /// `info.json` at the root with `apkm_version` or `pname`: a plain APKM, whose APKs make a set as a loose set's do
+    /// (step e).
     case apkm
     /// `toc.pb` or `toc.json` at the root: bundletool's `.apks`, chosen from its toc (step a2).
     case bundletool
@@ -41,8 +42,6 @@ public enum ContainerError: Error, Sendable, Equatable, LocalizedError {
     case invalidTOC(String)
     /// Nothing in the container fits this iPhone, as `extract-apks` would say.
     case incompatible(String)
-    /// A kind whose step has not come yet: an XAPK (ADR-0049 step c) or an APKM (step e).
-    case notYetSupported(ContainerKind)
 
     public var errorDescription: String? {
         switch self {
@@ -57,7 +56,6 @@ public enum ContainerError: Error, Sendable, Equatable, LocalizedError {
             "it needs \(Self.bytes(needed)) of free space, and \(Self.bytes(available)) are free"
         case .unsafeName(let name): "“\(name)” is no name for a file Minato takes out of it"
         case .destinationExists: "the folder for its files exists already"
-        case .notYetSupported(let kind): "\(kind == .apkm ? "APKM" : "XAPK") files aren’t supported yet"
         }
     }
 

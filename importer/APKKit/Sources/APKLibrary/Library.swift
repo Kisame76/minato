@@ -892,12 +892,11 @@ public actor Library {
             var contents: XAPKContents?
             switch container.kind {
             case .apk: return .apk
-            case .apkm: return .refused(.notYetSupported(container.kind))
             case .xapk:
                 contents = try container.xapkContents()
                 items = contents?.apks ?? []
             case .bundletool: items = try container.bundletoolItems(for: BundletoolDevice(device)).items
-            case .looseSet: items = try container.looseSetItems()
+            case .apkm, .looseSet: items = try container.looseSetItems()
             }
             let apks = try takeOut(items, of: container, into: folder)
             guard let contents else { return .container(apks: apks, obbs: [], leftOut: LeftOut(), folders: [folder]) }
