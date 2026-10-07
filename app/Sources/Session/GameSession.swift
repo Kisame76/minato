@@ -355,6 +355,7 @@ final class GameSession {
         SessionEndReport.ended()
         #if DEBUG
         SessionCheck.event("program ended \(status)")
+        SessionCheck.event("angle swapchains \(minato_graphics_angle_vulkan_swapchains())")
         #endif
         #if BENCHMARK
         if let benchmark {

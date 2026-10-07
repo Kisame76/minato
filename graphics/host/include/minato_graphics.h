@@ -54,8 +54,10 @@ int minato_graphics_set_angle_backend(int vulkan);
 
 /* ADR-0044, decision 1, at run time too: whether the ES 3.1 path may run, before ANGLE's instance is made. Draws
    a)'s triangle quietly in a Metal pass as MoltenVK sets it up, once without and once with both of Apple's calls.
-   Returns 1 when the first vertex provokes without them and the last with them; 0 otherwise with the reason in
-   `reason` (`size` bytes), and also when `forced` asks it to fail, as the App's Debug override does (test 2). */
+   Returns 1 when the first vertex provokes without them and the last with them, with the time it took in `reason`
+   ("passed in 2.41 ms", `size` bytes); 0 otherwise with the reason there, and also when `forced` asks it to fail, as
+   the App's Debug override does (test 2). Its shader is compiled from source until c2b measures that time
+   (a departure from decision 1 for now). */
 int minato_graphics_angle_vulkan_check(int forced, char *reason, size_t size);
 
 /* For tests: the swapchains ANGLE's Vulkan backend made through graphics/host since the program started. */

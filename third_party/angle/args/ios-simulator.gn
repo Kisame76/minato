@@ -6,6 +6,7 @@ target_environment = "simulator"
 target_cpu = "arm64"
 ios_enable_code_signing = false
 
-# Metal only, until ADR-0044 c) brings Vulkan to iOS.
+# Metal only: MoltenVK has no Simulator slice (ADR-0030, decision 8), so nothing could run ANGLE's Vulkan
+# backend there (ADR-0044 c2).
 angle_enable_vulkan = false
 angle_build_vulkan_system_info = false

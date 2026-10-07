@@ -1,0 +1,251 @@
+The Vulkan backend's display and window surface for iOS (Minato's ADR-0044, decision 3; ADR-0029, decision 8).
+
+Why: Vulkan's platform code exists for macOS only and builds only under is_mac (vulkan_backend.gni), while
+Display.cpp asks for the Mac display on every Apple platform, so an iOS build with the Vulkan backend lacks
+IsVulkanMacDisplayAvailable and CreateVulkanMacDisplay. DisplayVkMac imports Cocoa, and WindowSurfaceVkMac adds a
+CAMetalLayer sublayer of its own, sized through autoresizingMask, which iOS lacks. This patch adds the iOS display
+and window surface, made from the macOS ones: no Cocoa and no IOSurface client buffers; the window is the
+CAMetalLayer the surface draws to, used as it is, as SurfaceMtl does on iOS, so that its owner keeps seeing each
+drawable it presents; the current window size is the layer's bounds times its contentsScale, as MoltenVK gives a
+surface's current extent, and the drawable size stays the swapchain's. They keep the Mac display's function names,
+so Display.cpp's Apple branch picks the iOS display without a change.
+Upstream: could go upstream, with names of their own for iOS.
+Remove: when upstream builds the Vulkan backend for iOS.
+
+diff --git a/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.h b/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.h
+new file mode 100644
+index 0000000..78a24e9
+--- /dev/null
++++ b/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.h
+@@ -0,0 +1,37 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// DisplayVkIOS.h:
++//    Defines the class interface for DisplayVkIOS, implementing DisplayVk for iOS, made from
++//    DisplayVkMac without Cocoa and without IOSurface client buffers.
++//
++
++#ifndef LIBANGLE_RENDERER_VULKAN_IOS_DISPLAYVKIOS_H_
++#define LIBANGLE_RENDERER_VULKAN_IOS_DISPLAYVKIOS_H_
++
++#include "libANGLE/renderer/vulkan/DisplayVk.h"
++
++namespace rx
++{
++
++class DisplayVkIOS : public DisplayVk
++{
++  public:
++    DisplayVkIOS(const egl::DisplayState &state);
++
++    bool isValidNativeWindow(EGLNativeWindowType window) const override;
++
++    SurfaceImpl *createWindowSurfaceVk(const egl::SurfaceState &state,
++                                       EGLNativeWindowType window) override;
++
++    egl::ConfigSet generateConfigs() override;
++    void checkConfigSupport(egl::Config *config) override;
++
++    const char *getWSIExtension() const override;
++};
++
++}  // namespace rx
++
++#endif  // LIBANGLE_RENDERER_VULKAN_IOS_DISPLAYVKIOS_H_
+diff --git a/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.mm b/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.mm
+new file mode 100644
+index 0000000..38da70f
+--- /dev/null
++++ b/src/libANGLE/renderer/vulkan/ios/DisplayVkIOS.mm
+@@ -0,0 +1,63 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// DisplayVkIOS.mm:
++//    Implements methods from DisplayVkIOS
++//
++
++#include "libANGLE/renderer/vulkan/ios/DisplayVkIOS.h"
++
++#include <vulkan/vulkan.h>
++
++#include "libANGLE/renderer/vulkan/DisplayVk_api.h"
++#include "libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.h"
++#include "libANGLE/renderer/vulkan/vk_caps_utils.h"
++
++#import <QuartzCore/CAMetalLayer.h>
++
++namespace rx
++{
++
++DisplayVkIOS::DisplayVkIOS(const egl::DisplayState &state) : DisplayVk(state) {}
++
++// The window is the CAMetalLayer the surface draws to, as the Metal backend takes one on iOS.
++bool DisplayVkIOS::isValidNativeWindow(EGLNativeWindowType window) const
++{
++    NSObject *layer = reinterpret_cast<NSObject *>(window);
++    return [layer isKindOfClass:[CAMetalLayer class]];
++}
++
++SurfaceImpl *DisplayVkIOS::createWindowSurfaceVk(const egl::SurfaceState &state,
++                                                 EGLNativeWindowType window)
++{
++    ASSERT(isValidNativeWindow(window));
++    return new WindowSurfaceVkIOS(state, window);
++}
++
++egl::ConfigSet DisplayVkIOS::generateConfigs()
++{
++    constexpr GLenum kColorFormats[] = {GL_BGRA8_EXT, GL_BGRX8_ANGLEX};
++    return egl_vk::GenerateConfigs(kColorFormats, egl_vk::kConfigDepthStencilFormats, this);
++}
++
++void DisplayVkIOS::checkConfigSupport(egl::Config *config) {}
++
++const char *DisplayVkIOS::getWSIExtension() const
++{
++    return VK_EXT_METAL_SURFACE_EXTENSION_NAME;
++}
++
++// Display.cpp asks for the Mac display on every Apple platform; on iOS it is this one.
++bool IsVulkanMacDisplayAvailable()
++{
++    return true;
++}
++
++DisplayImpl *CreateVulkanMacDisplay(const egl::DisplayState &state)
++{
++    return new DisplayVkIOS(state);
++}
++
++}  // namespace rx
+diff --git a/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.h b/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.h
+new file mode 100644
+index 0000000..7d12183
+--- /dev/null
++++ b/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.h
+@@ -0,0 +1,37 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// WindowSurfaceVkIOS.h:
++//    Defines the class interface for WindowSurfaceVkIOS, implementing WindowSurfaceVk for iOS:
++//    the given CAMetalLayer as it is, without a sublayer of its own.
++//
++
++#ifndef LIBANGLE_RENDERER_VULKAN_IOS_WINDOWSURFACEVKIOS_H_
++#define LIBANGLE_RENDERER_VULKAN_IOS_WINDOWSURFACEVKIOS_H_
++
++#include "libANGLE/renderer/vulkan/SurfaceVk.h"
++
++#import <QuartzCore/CAMetalLayer.h>
++
++namespace rx
++{
++
++class WindowSurfaceVkIOS : public WindowSurfaceVk
++{
++  public:
++    WindowSurfaceVkIOS(const egl::SurfaceState &surfaceState, EGLNativeWindowType window);
++    ~WindowSurfaceVkIOS() override;
++
++  private:
++    angle::Result createSurfaceVk(vk::ErrorContext *context) override;
++    angle::Result getCurrentWindowSize(vk::ErrorContext *context,
++                                       gl::Extents *extentsOut) const override;
++
++    CAMetalLayer *mMetalLayer;
++};
++
++}  // namespace rx
++
++#endif  // LIBANGLE_RENDERER_VULKAN_IOS_WINDOWSURFACEVKIOS_H_
+diff --git a/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.mm b/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.mm
+new file mode 100644
+index 0000000..be12aa7
+--- /dev/null
++++ b/src/libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.mm
+@@ -0,0 +1,59 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// WindowSurfaceVkIOS.mm:
++//    Implements methods from WindowSurfaceVkIOS
++//
++
++#include "libANGLE/renderer/vulkan/ios/WindowSurfaceVkIOS.h"
++
++#include "libANGLE/renderer/vulkan/vk_renderer.h"
++#include "libANGLE/renderer/vulkan/vk_utils.h"
++
++namespace rx
++{
++
++WindowSurfaceVkIOS::WindowSurfaceVkIOS(const egl::SurfaceState &surfaceState,
++                                       EGLNativeWindowType window)
++    : WindowSurfaceVk(surfaceState, window), mMetalLayer(nullptr)
++{}
++
++WindowSurfaceVkIOS::~WindowSurfaceVkIOS()
++{
++    [mMetalLayer release];
++}
++
++// The surface draws to the given layer, as SurfaceMtl does on iOS: its owner sizes and places it
++// and sees each drawable it presents, which a sublayer would hide. The swapchain sets its device,
++// drawable size and framebufferOnly.
++angle::Result WindowSurfaceVkIOS::createSurfaceVk(vk::ErrorContext *context)
++{
++    mMetalLayer = [reinterpret_cast<CAMetalLayer *>(mNativeWindowType) retain];
++
++    VkMetalSurfaceCreateInfoEXT createInfo = {};
++    createInfo.sType                       = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
++    createInfo.flags                       = 0;
++    createInfo.pNext                       = nullptr;
++    createInfo.pLayer                      = mMetalLayer;
++    ANGLE_VK_TRY(context, VK_CALL(vkCreateMetalSurfaceEXT, context->getRenderer()->getInstance(),
++                                  &createInfo, nullptr, &mSurface));
++
++    return angle::Result::Continue;
++}
++
++// The layer's size in pixels, bounds times contentsScale, as MoltenVK gives a surface's current
++// extent; the drawable size stays the swapchain's.
++angle::Result WindowSurfaceVkIOS::getCurrentWindowSize(vk::ErrorContext *context,
++                                                       gl::Extents *extentsOut) const
++{
++    ANGLE_VK_CHECK(context, (mMetalLayer != nullptr), VK_ERROR_INITIALIZATION_FAILED);
++    const CGSize size   = mMetalLayer.bounds.size;
++    const CGFloat scale = mMetalLayer.contentsScale;
++    *extentsOut         = gl::Extents(static_cast<int>(size.width * scale),
++                                      static_cast<int>(size.height * scale), 1);
++    return angle::Result::Continue;
++}
++
++}  // namespace rx
+diff --git a/src/libANGLE/renderer/vulkan/vulkan_backend.gni b/src/libANGLE/renderer/vulkan/vulkan_backend.gni
+index f29c808..3d07bec 100644
+--- a/src/libANGLE/renderer/vulkan/vulkan_backend.gni
++++ b/src/libANGLE/renderer/vulkan/vulkan_backend.gni
+@@ -234,3 +234,12 @@ if (is_mac) {
+     "mac/WindowSurfaceVkMac.mm",
+   ]
+ }
++
++if (is_ios) {
++  vulkan_backend_sources += [
++    "ios/DisplayVkIOS.h",
++    "ios/DisplayVkIOS.mm",
++    "ios/WindowSurfaceVkIOS.h",
++    "ios/WindowSurfaceVkIOS.mm",
++  ]
++}

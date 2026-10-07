@@ -39,7 +39,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 
 ## Graphics: ANGLE (ADR-0029)
 
-ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend. The Mac's test library also has the Vulkan backend (ADR-0044 c), not in the app until its iOS slices get it), with Volk from ANGLE's tree (MIT) and four more of the dependencies it keeps: Vulkan-Headers (`31386378`, Apache-2.0 or MIT), SPIRV-Headers (`49654312`, MIT), SPIRV-Tools (`b40380bf`, Apache-2.0) and VulkanMemoryAllocator (`7e55b011`, MIT). The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
+ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend. The iPhone's slice and the Mac's test library also have the Vulkan backend (ADR-0044 c), the Simulator's slice not, with Volk from ANGLE's tree and four more of the dependencies it keeps, in the table below. The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
 
 | Part in `libGLESv2` | Version | License |
 |---|---|---|
@@ -49,6 +49,11 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 | Abseil (`third_party/abseil-cpp`) | `435e7d97` | Apache-2.0 |
 | Chromium's libc++, libc++abi and llvm-libc, linked in and hidden | `97b436da`, `fc1897a2`, `32082418` | Apache-2.0 WITH LLVM-exception |
 | zlib (`third_party/zlib`) | `5eb4d7ed` | Zlib |
+| Volk (`src/third_party/volk`) | with ANGLE | MIT |
+| Vulkan-Headers (`third_party/vulkan-headers/src`), headers only | `31386378` | Apache-2.0 OR MIT, used under Apache-2.0 |
+| SPIRV-Headers (`third_party/spirv-headers/src`), headers only | `49654312` | MIT |
+| SPIRV-Tools (`third_party/spirv-tools/src`) | `b40380bf` | Apache-2.0 |
+| VulkanMemoryAllocator (`third_party/vulkan_memory_allocator`) | `7e55b011` | MIT |
 
 The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from [`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 

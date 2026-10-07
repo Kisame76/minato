@@ -5,6 +5,11 @@ target_environment = "device"
 target_cpu = "arm64"
 ios_enable_code_signing = false
 
-# Metal only, until ADR-0044 c) brings Vulkan to iOS.
-angle_enable_vulkan = false
-angle_build_vulkan_system_info = false
+# ANGLE's Vulkan backend on MoltenVK beside Metal (ADR-0044, decision 3), through volk as on the Mac: it takes
+# graphics/host's vkGetInstanceProcAddr (patch 0009) and never opens a loader. Patch 0007 brings the display and
+# the window surface for iOS. The backend reads drivers' versions through the system info's Vulkan sources, which
+# are built for that but not used for the system info itself (angle_enable_vulkan_system_info stays false).
+angle_enable_vulkan = true
+angle_shared_libvulkan = true
+angle_use_custom_libvulkan = false
+angle_build_vulkan_system_info = true

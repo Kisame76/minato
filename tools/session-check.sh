@@ -60,8 +60,13 @@
 # the new stream must play, and both streams must close through the host. WINDOW=1 runs test 3 of ADR-0043 with
 # window-test (build/fixtures/apks/window-test.apk), which draws by the CPU on graphics/host's buffers: 18 frames in
 # three formats, then its ANativeActivity_finish; its log must be Android 15's (fixtures/expected/window-test.logcat),
-# and its strides go with its device lines. Every other round runs game mode
-# without a guest.
+# and its strides go with its device lines. ANGLE_VULKAN=1 runs ADR-0044 c2's tests 2 and 3 on ANGLE's Vulkan
+# backend, which the Debug build takes for a session when tmp/guest-environment holds MINATO_ANGLE_BACKEND=vulkan:
+# gles31-test (build/fixtures/apks/gles31-test.apk) must log its exact values (fixtures/expected/gles31-test.logcat),
+# with the run-time check's time from the session's event; with MINATO_ANGLE_CHECK=fail too the session refuses the
+# ES 3.1 path with that reason and does not start; gles-test and gles-live must log Android 15's lines, gles-test
+# through one swapchain, and gles-live through Home and back. In the Simulator, which has no MoltenVK, each start on
+# that path is refused. Every other round runs game mode without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
 # Optional environment:
@@ -87,6 +92,8 @@
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
 #   AUDIO_LIVE  only the round of audio-live
 #   WINDOW      only test 3 of ADR-0043, with window-test
+#   ANGLE_VULKAN  only ADR-0044 c2's rounds on ANGLE's Vulkan backend; with LIVE, gles-live is installed once and
+#               runs both ways on the iPhone
 #   WAY         with AUDIO_LIVE: the restart's only way, "url" or "workspace" (the default order when unset)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -103,6 +110,8 @@ OPENSL_PKG="io.github.kisame76.minato.test.opensl"
 ROTATION_PKG="io.github.kisame76.minato.test.rotation"
 AUDIO_LIVE_PKG="io.github.kisame76.minato.test.audiolive"
 WINDOW_PKG="io.github.kisame76.minato.test.window"
+GLES_PKG="io.github.kisame76.minato.test.gles"
+GLES31_PKG="io.github.kisame76.minato.test.gles31"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -132,6 +141,10 @@ GUEST_APPS=""
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 [[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
 [[ -z "${WINDOW:-}" ]] || GUEST_APPS+="$WINDOW_PKG build/fixtures/apks/window-test.apk"$'\n'
+if [[ -n "${ANGLE_VULKAN:-}" ]]; then
+  GUEST_APPS+="$GLES31_PKG build/fixtures/apks/gles31-test.apk"$'\n'"$GLES_PKG build/fixtures/apks/gles-test.apk"$'\n'
+  [[ -n "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
+fi
 if [[ -n "${GUEST_AUDIO:-}" ]]; then
   GUEST_APPS+="$AAUDIO_PKG build/fixtures/apks/aaudio-test.apk"$'\n'"$OPENSL_PKG build/fixtures/apks/opensl-test.apk"$'\n'
 fi
@@ -1142,6 +1155,78 @@ run_window() {
   compare_guest_log window-test
 }
 
+# ADR-0044 c2: the Debug override in tmp/guest-environment, the MINATO_* lines $1, or none for an empty $1.
+put_angle_environment() {
+  printf '%s' "$1" > "$WORK/guest-environment"
+  put_guest_environment "$WORK/guest-environment"
+}
+
+# Test app $1, whose log tag is $2, on ANGLE's Vulkan backend: the override's event with the run-time check's time,
+# the app's own end, one swapchain and its log; in the Simulator the refusal.
+run_angle_app() {
+  local pkg=$1 tag=$2
+  begin_round "ADR-0044 c2: $tag on ANGLE's Vulkan backend" || return 0
+  rm -f "$CHECK/no-guest"
+  put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\n'
+  echo "$pkg" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  launch
+  await_event "process gameMode $pkg .*" 60 || { abort_round "no game mode after the tap"; return; }
+  if [[ "$ON_DEVICE" == no ]]; then
+    await_event "angle backend refused .*" 20 && ok "  refused without MoltenVK: $(event_of "$EVENT")" \
+      || fail "  the Simulator, which has no MoltenVK, did not refuse the Vulkan path"
+    await_event "process library.*" 30 || fail "  no library after the refusal"
+    return
+  fi
+  await_event "angle backend (vulkan|refused) .*" 20 || { abort_round "  no event of the override"; return; }
+  [[ "$(event_of "$EVENT")" == "angle backend vulkan passed in "* ]] \
+    && ok "  on the Vulkan path, the run-time check $(event_of "$EVENT" | sed 's/^angle backend vulkan //')" \
+    || { abort_round "  not on the Vulkan path: $(event_of "$EVENT")"; return; }
+  say "$tag runs now on ANGLE's Vulkan backend and ends by itself."
+  await_event "program ended .*" 90 \
+    && expect "  it ends with status 0" "program ended 0" "$(event_of "$EVENT")" || fail "  it did not end"
+  await_event "angle swapchains .*" 5 \
+    && expect "  ANGLE made one swapchain" "angle swapchains 1" "$(event_of "$EVENT")" || fail "  no swapchain count"
+  await_event "process library.*" 30 || fail "  no library after the end"
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  compare_guest_log "$tag"
+}
+
+# Test 2's last part: the run-time check forced to fail refuses the ES 3.1 path, and gles31-test does not start.
+run_angle_refused() {
+  begin_round "ADR-0044 c2: the run-time check forced to fail refuses the ES 3.1 path" || return 0
+  rm -f "$CHECK/no-guest"
+  put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\nMINATO_ANGLE_CHECK=fail\n'
+  echo "$GLES31_PKG" > "$CHECK/tap"
+  send_requests
+  launch
+  await_event "process gameMode $GLES31_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "angle backend refused .*" 20 \
+    && expect "  the check refuses" "angle backend refused the run-time check was forced to fail" \
+      "$(event_of "$EVENT")" || fail "  no refusal"
+  await_event "could not start .*" 10 \
+    && expect "  the session does not start" \
+      "could not start the ES 3.1 path is refused: the run-time check was forced to fail" "$(event_of "$EVENT")" \
+    || fail "  the session started"
+  await_event "process library.*" 30 || { fail "  no library after the refusal"; return; }
+  [[ "$(event_of "$EVENT")" == "process library quitUnexpectedly "*" failure the ES 3.1 path is refused: "* ]] \
+    && ok "  the library shows the reason" || fail "  the library shows no reason: $(event_of "$EVENT")"
+}
+
+# gles-live's test 8 on ANGLE's Vulkan backend, through Home and back; then the override's event and the swapchains.
+run_angle_live() {
+  put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\n'
+  run_live "$GLES_LIVE_PKG" gles-live
+  fetch_events
+  local backend swapchains
+  backend=$(grep -E -m 1 "^[0-9.]+ [0-9]+ angle backend " "$EVENTS" | sed 's/^[0-9.]* [0-9]* //' || true)
+  swapchains=$(grep -E "^[0-9.]+ [0-9]+ angle swapchains " "$EVENTS" | tail -n 1 | sed 's/^[0-9.]* [0-9]* //' || true)
+  [[ "$ON_DEVICE" == no || "$backend" == "angle backend vulkan passed in "* ]] \
+    && ok "  gles-live's session: ${backend:-no override}" || fail "  gles-live not on the Vulkan path: $backend"
+  [[ "$ON_DEVICE" == no ]] || echo "      ${swapchains:-no swapchain count}"
+}
+
 # The lines of tag $1 in the guest's log against Android 15's (fixtures/expected/$1.logcat), then the lines of
 # its -device tag, which differ by device.
 compare_guest_log() {
@@ -1424,7 +1509,8 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
 fi
 
 if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}" ||
-      -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}" ]]; then
+      -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}" ||
+      -n "${ANGLE_VULKAN:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1437,6 +1523,15 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   [[ -n "${ROTATION:-}" ]] && run_rotation
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   [[ -n "${WINDOW:-}" ]] && run_window
+  if [[ -n "${ANGLE_VULKAN:-}" ]]; then
+    run_angle_app "$GLES31_PKG" gles31-test
+    run_angle_refused
+    run_angle_app "$GLES_PKG" gles-test
+    # In the Simulator gles-live's start is refused as the others are, and test 8 needs it running.
+    [[ "$ON_DEVICE" == no ]] || run_angle_live
+    # An empty file passes nothing; on the iPhone it cannot be deleted.
+    put_angle_environment ""
+  fi
   if [[ -n "${LIVE:-}" ]]; then
     run_live "$GLES_LIVE_PKG" gles-live
     [[ "$ON_DEVICE" == no ]] || run_live "$VULKAN_LIVE_PKG" vulkan-live

@@ -261,6 +261,84 @@
       ]
     },
     {
+      "name": "Volk",
+      "section": "Graphics: ANGLE",
+      "license": "MIT",
+      "rows": [
+        "Volk (src/third_party/volk)"
+      ],
+      "texts": [
+        {
+          "from": "angle:src/third_party/volk/LICENSE.md",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "Vulkan-Headers-ANGLE",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0 OR MIT, used under Apache-2.0",
+      "rows": [
+        "Vulkan-Headers (third_party/vulkan-headers/src), headers only"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/vulkan-headers/src/include/vulkan/vulkan_core.h",
+          "lines": [
+            5,
+            7
+          ],
+          "as": "NOTICE"
+        },
+        {
+          "from": "angle:third_party/vulkan-headers/src/LICENSES/Apache-2.0.txt",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "SPIRV-Headers-ANGLE",
+      "section": "Graphics: ANGLE",
+      "license": "MIT",
+      "rows": [
+        "SPIRV-Headers (third_party/spirv-headers/src), headers only"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/spirv-headers/src/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "SPIRV-Tools-ANGLE",
+      "section": "Graphics: ANGLE",
+      "license": "Apache-2.0",
+      "rows": [
+        "SPIRV-Tools (third_party/spirv-tools/src)"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/spirv-tools/src/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "VulkanMemoryAllocator",
+      "section": "Graphics: ANGLE",
+      "license": "MIT",
+      "rows": [
+        "VulkanMemoryAllocator (third_party/vulkan_memory_allocator)"
+      ],
+      "texts": [
+        {
+          "from": "angle:third_party/vulkan_memory_allocator/LICENSE.txt",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
       "name": "MoltenVK",
       "section": "Graphics: MoltenVK",
       "license": "Apache-2.0",

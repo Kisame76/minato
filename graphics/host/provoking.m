@@ -5,6 +5,7 @@
 #import <Metal/Metal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "minato_graphics.h"
 
@@ -132,6 +133,7 @@ int minato_graphics_angle_vulkan_check(int forced, char *reason, size_t size) {
         snprintf(reason, size, "the run-time check was forced to fail");
         return 0;
     }
+    const uint64_t start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         if (device == nil) {
@@ -158,6 +160,7 @@ int minato_graphics_angle_vulkan_check(int forced, char *reason, size_t size) {
                      with.vertex >= 0 ? "another vertex does" : with.detail);
             return 0;
         }
+        snprintf(reason, size, "passed in %.2f ms", (double)(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1e6);
         return 1;
     }
 }
