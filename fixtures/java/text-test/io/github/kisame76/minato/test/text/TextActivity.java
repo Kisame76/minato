@@ -31,12 +31,11 @@ import java.util.Locale;
  * logs the EditText's defaults, Godot's setup with its filter and key listeners, each TextWatcher call, both views
  * after the global layout, then, at the window's first focus, typing as an input method types through an
  * InputConnection, the input method manager's answers on a device without an input method, and both again after another
- * view took the focus while a text was composed. The TextView's color is logged with the tag text-test-device, which
- * the check shows and does not compare: a known difference, the system palette (ADR-0043 step d)).
+ * view took the focus while a text was composed. The TextView's color, from the system palette, is compared since
+ * ADR-0043 step f), which gives Minato Android 15's Monet overlays.
  */
 public class TextActivity extends Activity {
     private static final String TAG = "text-test";
-    private static final String DEVICE_TAG = "text-test-device";
     private GodotLikeEditText mEdit;
     private TextView mText;
     private View mOther;
@@ -61,7 +60,7 @@ public class TextActivity extends Activity {
         mText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         mText.setText("Minato text");
         Log.i(TAG, "text: " + describe(mText));
-        Log.i(DEVICE_TAG, "text: color 0x" + Integer.toHexString(mText.getCurrentTextColor()));
+        Log.i(TAG, "text: color 0x" + Integer.toHexString(mText.getCurrentTextColor()));
 
         mEdit.addTextChangedListener(new TextWatcher() {
             @Override

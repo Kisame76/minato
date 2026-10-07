@@ -73,6 +73,8 @@ LAST = r"^app-start-test: MessageDigest "
 # The collector an app runs, app_process's -Xgc: (ADR-0033 decision 5), as ART's heap names it in the line it logs
 # at every start, on Android 15 too: "Using CollectorTypeCMS GC.".
 COLLECTOR = "CMS"
+# Monet's overlays for /data/resource-cache (ADR-0043 f)).
+MONET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "monet-overlays.py")
 
 
 def collector_type(stderr):
@@ -277,7 +279,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     OBB folders are mounted as GuestStart mounts them (decision 6): a rename or link between them and the rest of
     /data answers EXDEV, as on Android 15 (ADR-0039 decision 3). The run's /data holds /data/data, which the guest
     stats with Android 15's owner, root's 0751 (ADR-0052); /data/local stays absent, as the owner model counts
-    /data/local/tmp as the app's.
+    /data/local/tmp as the app's. With framework-res's folder among `mounts`, /data/resource-cache holds Monet's
+    overlays made from that build of framework-res, as SystemUI and idmap2 keep them there on Android 15 (ADR-0043
+    f)): every app's Resources take them, as its overlay paths.
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
     host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
@@ -354,6 +358,14 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--mount", f"{guest}={os.path.join(run, host)}"]
     for guest, host in mounts:
         command += ["--mount", f"{guest}={host}"]
+    framework_res = dict(mounts).get("/system/framework/framework-res")
+    if framework_res is not None:
+        cache = os.path.join(work, "resource-cache")
+        result = subprocess.run([sys.executable, MONET, os.path.dirname(os.path.abspath(framework_res)), cache],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            raise SystemExit(f"monet-overlays.py failed: {result.stderr.strip()}")
+        command += ["--mount", f"/data/resource-cache={cache}"]
     if configuration is not None:
         command += ["--configuration", configuration, "--lifecycle", lifecycle or "start"]
     command += ["--libraries", f"/system/lib64={system_lib64}",

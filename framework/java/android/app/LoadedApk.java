@@ -16,6 +16,7 @@ import android.content.res.Resources;
 import android.util.Slog;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 
 public final class LoadedApk {
     private final ActivityThread mActivityThread;
@@ -24,6 +25,8 @@ public final class LoadedApk {
     private final ClassLoader mClassLoader;
     private final AppComponentFactory mAppComponentFactory;
     private ApkAssets mApkAssets;
+    // The overlays of the app's overlay paths, Monet's (ADR-0043 f)), loaded with its APK.
+    private ApkAssets[] mOverlayAssets;
     private Resources mResources;
     private Application mApplication;
 
@@ -72,10 +75,10 @@ public final class LoadedApk {
     }
 
     /**
-     * The app's Resources over base.apk and the system's framework-res, with the system Resources' configuration
-     * and display metrics, which the session gave them (b3.4c). Android's come from ResourcesManager, whose display
-     * metrics ask DisplayManagerGlobal; that comes with ADR-0041's local display manager, and until then a
-     * configuration change does not reach these Resources.
+     * The app's Resources over base.apk, its overlays and the system's framework-res, with the system Resources'
+     * configuration and display metrics, which the session gave them (b3.4c). Android's come from ResourcesManager,
+     * whose display metrics ask DisplayManagerGlobal; that comes with ADR-0041's local display manager, and until then
+     * a configuration change does not reach these Resources.
      */
     @SuppressWarnings("deprecation") // Resources' public constructor, which ResourcesManager's path replaces.
     public Resources getResources() {
@@ -86,23 +89,55 @@ public final class LoadedApk {
                 } catch (IOException e) {
                     throw new IllegalStateException("cannot load " + getResDir() + "'s resources", e);
                 }
-                AssetManager assets = new AssetManager.Builder().addApkAssets(mApkAssets).build();
+                mOverlayAssets = loadOverlays(mApplicationInfo.overlayPaths);
                 Resources system = Resources.getSystem();
-                mResources = new Resources(assets, system.getDisplayMetrics(), system.getConfiguration());
+                mResources = new Resources(newAssetManager(), system.getDisplayMetrics(), system.getConfiguration());
             }
             return mResources;
         }
     }
 
     /**
+     * As ResourcesManager.createAssetManager: the package's APK, then its overlays; AssetManager.Builder puts the
+     * system's framework-res first.
+     */
+    private AssetManager newAssetManager() {
+        AssetManager.Builder builder = new AssetManager.Builder().addApkAssets(mApkAssets);
+        for (ApkAssets overlay : mOverlayAssets) {
+            builder.addApkAssets(overlay);
+        }
+        return builder.build();
+    }
+
+    /**
+     * The overlays of the app's overlay paths (ADR-0043 f)), each through the idmap that idmap2 keeps for it in
+     * /data/resource-cache, as ResourcesManager.loadApkAssets loads an overlay; one that does not load is left out
+     * with ResourcesManager's warning, as createAssetManager leaves it out.
+     */
+    private static ApkAssets[] loadOverlays(String[] overlayPaths) {
+        ArrayList<ApkAssets> overlays = new ArrayList<>();
+        if (overlayPaths != null) {
+            for (String path : overlayPaths) {
+                try {
+                    overlays.add(ApkAssets.loadOverlayFromPath(
+                            "/data/resource-cache/" + path.substring(1).replace('/', '@') + "@idmap", 0));
+                } catch (IOException e) {
+                    Slog.w("ResourcesManager", String.format("failed to add overlay path '%s'", path), e);
+                }
+            }
+        }
+        return overlays.toArray(new ApkAssets[0]);
+    }
+
+    /**
      * An activity's own Resources (step c2c3), as ResourcesManager.createBaseTokenResources gives each activity its
-     * own: the package's APK in an AssetManager of their own, the session's display metrics, and the session's
-     * configuration with what the activity's window adds, its WindowConfiguration.
+     * own: the package's APK and its overlays in an AssetManager of their own, the session's display metrics, and the
+     * session's configuration with what the activity's window adds, its WindowConfiguration.
      */
     @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
     Resources createActivityResources(Configuration overrideConfiguration) {
         getResources();
-        AssetManager assets = new AssetManager.Builder().addApkAssets(mApkAssets).build();
+        AssetManager assets = newAssetManager();
         Resources system = Resources.getSystem();
         Configuration config = new Configuration(system.getConfiguration());
         if (overrideConfiguration != null) {

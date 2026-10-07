@@ -88,6 +88,15 @@ final class ManifestPackage {
     private static final String PLATFORM = "android";
     /** framework-res's folder, which AssetManager's system set holds (decision 8). */
     private static final String FRAMEWORK_RES = "/system/framework/framework-res";
+    /**
+     * The overlays of framework-res that Android 15's package manager gives every package's overlay paths: SystemUI's
+     * Monet overlays, as the reference AVD names and orders them (ADR-0043 f)). tools/monet-overlays.py writes them
+     * into /data/resource-cache from framework/monet-overlays.txt.
+     */
+    private static final String[] FRAMEWORK_OVERLAYS = {
+            "/data/resource-cache/com.android.systemui-neutral-ridM.frro",
+            "/data/resource-cache/com.android.systemui-accent-eYU1.frro",
+            "/data/resource-cache/com.android.systemui-dynamic-Mh0R.frro"};
     /** SystemConfig's file of the platform's permissions, of which the guest reads the split permissions. */
     private static final String PLATFORM_XML = "/system/etc/permissions/platform.xml";
     /** SystemConfig's targetSdk of a split that names none: CUR_DEVELOPMENT + 1, so it always applies. */
@@ -1188,11 +1197,15 @@ final class ManifestPackage {
 
     // The install.
 
-    /** What the installer and system_server add: decision 6's folders, decision 3's uid, the install time. */
+    /**
+     * What the installer and system_server add: decision 6's folders, decision 3's uid, the install time, and the
+     * framework's overlays (ADR-0043 f)).
+     */
     private void install(String apk, String libraryDir, String dataDir) {
         ApplicationInfo ai = mApplication;
         ai.sourceDir = apk;
         ai.publicSourceDir = apk;
+        ai.overlayPaths = FRAMEWORK_OVERLAYS.clone();
         ai.nativeLibraryDir = libraryDir;
         ai.nativeLibraryRootDir = new File(libraryDir).getParent();
         ai.primaryCpuAbi = "arm64-v8a";

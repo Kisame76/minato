@@ -1,5 +1,6 @@
 I/text-test: edit: input type 0x20001, ime options 0x10000006, key listener android.text.method.TextKeyListener, movement android.text.method.ArrowKeyMovementMethod, focusable true, in touch mode true, filters 0, text size 54.0, max lines 2147483647, gravity 0x800013, editable true, bounds for width true, color 0xfff1f0f7
 I/text-test: text: input type 0x0, ime options 0x0, key listener null, movement null, focusable false, in touch mode false, filters 0, text size 60.0, max lines 2147483647, gravity 0x800033, editable false, bounds for width true
+I/text-test: text: color 0xff8f909a
 I/text-test: before "" 0 0 5
 I/text-test: on "12345" 0 0 5
 I/text-test: after "12345"

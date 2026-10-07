@@ -45,6 +45,8 @@
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
+# palette-test (ADR-0043 step f)) is one too, on apk-runner-35: its system colors are those of the overlays that
+# SystemUI makes from the image's default wallpaper (Monet).
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
 # up, so that its lines do not depend on the device; since step 7b2 it has its own activity, on the display below.
@@ -438,7 +440,7 @@ run_app() {
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
-      | obb-test)
+      | obb-test | palette-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
