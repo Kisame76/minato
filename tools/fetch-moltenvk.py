@@ -138,7 +138,10 @@ def fetch_file(item, base=BUILD):
 
 
 def unpack(archive, destination, sha256):
-    """Unpacks a checked archive with the "data" filter; skipped when its marker names the same SHA-256."""
+    """Unpacks a checked archive with the "data" filter; skipped when its marker names the same SHA-256. Where
+    tarfile has no filters (Python before 3.12, such as macOS's 3.9.6), the filter's refusals that matter here
+    are made by hand, member by member: kinds other than files, folders and links, a member that would land
+    outside through a link, and a link that leads out."""
     require_inside(destination)
     marker = os.path.join(destination, MARKER)
     if os.path.exists(marker):
@@ -154,7 +157,17 @@ def unpack(archive, destination, sha256):
         for member in tar.getmembers():
             if member.name.startswith("/") or ".." in member.name.split("/"):
                 raise SystemExit(f"fetch-moltenvk: refusing archive member {member.name!r}")
-        tar.extractall(destination, filter="data")
+            if hasattr(tarfile, "data_filter"):
+                continue
+            if not (member.isfile() or member.isdir() or member.issym()):
+                raise SystemExit(f"fetch-moltenvk: refusing archive member {member.name!r} of an unexpected kind")
+            if not inside(os.path.join(destination, member.name), destination) or member.issym() and (
+                    member.linkname.startswith("/") or
+                    not inside(os.path.join(destination, os.path.dirname(member.name), member.linkname), destination)):
+                raise SystemExit(f"fetch-moltenvk: refusing archive member {member.name!r}, which leads out")
+            tar.extract(member, destination)
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(destination, filter="data")
     with open(marker, "w") as handle:
         json.dump({"sha256": sha256}, handle)
 
@@ -292,7 +305,7 @@ def expect(condition, what):
 def refused(action):
     try:
         action()
-    except (SystemExit, tarfile.FilterError):
+    except (SystemExit, getattr(tarfile, "FilterError", SystemExit)):
         return True
     return False
 
@@ -331,6 +344,24 @@ def self_test():
             tar.addfile(info)
         expect(refused(lambda: unpack(archive, os.path.join(directory, "out"), "0" * 64)),
                "an archive with a link that leaves it is refused")
+
+        # Links that lead out only together: "b -> ." makes "a -> b/.." the folder's parent, so "a/x" would land
+        # beside it. The "data" filter of Python 3.14 writes "a" as its normpath "."; by hand, "a" is refused when it
+        # comes after "b", and "a/x" when "a" came first. Either way nothing lands outside.
+        for order in (("b", "a"), ("a", "b")):
+            archive = os.path.join(directory, "chain.tar")
+            with tarfile.open(archive, "w") as tar:
+                for name in order:
+                    info = tarfile.TarInfo(name)
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = {"b": ".", "a": "b/.."}[name]
+                    tar.addfile(info)
+                info = tarfile.TarInfo("a/x")
+                info.size = 1
+                tar.addfile(info, io.BytesIO(b"x"))
+            refused(lambda: unpack(archive, os.path.join(directory, "out"), "0" * 64))
+            expect(not os.path.exists(os.path.join(directory, "x")),
+                   f"an archive whose links lead out together, \"{order[0]}\" first, writes nothing outside")
 
         sample = os.path.join(directory, "sample")
         with open(sample, "wb") as handle:
