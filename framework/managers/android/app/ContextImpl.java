@@ -13,6 +13,7 @@ import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IContentProvider;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
@@ -26,6 +27,7 @@ import android.hardware.input.InputManager;
 import android.net.wifi.WifiManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.IBinder;
@@ -36,6 +38,7 @@ import android.os.storage.StorageManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.util.AndroidRuntimeException;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.view.Display;
@@ -748,6 +751,45 @@ class ContextImpl {
     public void enforceUriPermission(Uri uri, String readPermission, String writePermission, int pid, int uid,
             int modeFlags, String message) {
         enforceUri(uriPermission(uid), modeFlags, uid, uri, message);
+    }
+
+    // Starts from a context that is not an activity's, as the tag's ContextImpl makes them (ADR-0039 step b3.5b2-1):
+    // Instrumentation's, which LocalActivityTaskManager answers.
+
+    public void startActivity(Intent intent) {
+        startActivity(intent, null);
+    }
+
+    /**
+     * As the tag's: outside an activity a start needs FLAG_ACTIVITY_NEW_TASK, for a target SDK below 24 or from 28 on,
+     * unless its options name the task to launch in, which ActivityOptions.fromBundle reads from this key, as
+     * framework.jar has no ActivityOptions yet.
+     */
+    public void startActivity(Intent intent, Bundle options) {
+        final int targetSdkVersion = getApplicationInfo().targetSdkVersion;
+        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) == 0
+                && (targetSdkVersion < Build.VERSION_CODES.N || targetSdkVersion >= Build.VERSION_CODES.P)
+                && (options == null || options.getInt("android.activity.launchTaskId", -1) == -1)) {
+            throw new AndroidRuntimeException("Calling startActivity() from outside of an Activity"
+                    + " context requires the FLAG_ACTIVITY_NEW_TASK flag. Is this really what you want?");
+        }
+        mMainThread.getInstrumentation().execStartActivity(getOuterContext(), mMainThread.getApplicationThread(),
+                null, (Activity) null, intent, -1, options);
+    }
+
+    public void startActivities(Intent[] intents) {
+        startActivities(intents, null);
+    }
+
+    /** As the tag's: outside an activity the first intent needs FLAG_ACTIVITY_NEW_TASK. */
+    public void startActivities(Intent[] intents, Bundle options) {
+        if ((intents[0].getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) == 0) {
+            throw new AndroidRuntimeException("Calling startActivities() from outside of an Activity"
+                    + " context requires the FLAG_ACTIVITY_NEW_TASK flag on first Intent. Is this really what you"
+                    + " want?");
+        }
+        mMainThread.getInstrumentation().execStartActivities(getOuterContext(), mMainThread.getApplicationThread(),
+                null, (Activity) null, intents, options);
     }
 
     // Helpers.

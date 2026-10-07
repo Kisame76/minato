@@ -173,8 +173,10 @@ fi
 # there, text-test (step d)), which also waits for its window's focus, and surface-test (step c4), whose GLSurfaceView
 # fills the window between the bars. touch-test (ADR-0045 step 7b2) runs there too: the script taps its window's
 # middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
+# activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
-  "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ]]; then
+  "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
+  "$app" == activity-flow-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -477,6 +479,11 @@ run_app() {
     # window has focus.
     activity-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.Launcher
+      ;;
+    # activity-flow-test (ADR-0039 step b3.5b2-1): its launcher, SplashActivity, starts the app's other activities in
+    # turn, and its log ends with "done" once the last of them has finished.
+    activity-flow-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SplashActivity
       ;;
     # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with
     # "done" at the click of the swipe that the script plays.

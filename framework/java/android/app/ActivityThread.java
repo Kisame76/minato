@@ -23,11 +23,14 @@
  * connects to it after the bind and reads its events on the main looper, one at a time, each answered once its
  * callbacks returned; they become Android's lifecycle transactions (CREATE the launch, START, RESUME, PAUSE, STOP and
  * DESTROY as AOSP's handlers, the instance state saved with the stop by the target SDK), and the window's events reach
- * its ViewRootImpl. The root activity's finish() asks the host, which answers with the quit. Without a session the
+ * its ViewRootImpl. The last activity's finish() asks the host, which answers with the quit. Without a session the
  * launch runs by itself as before. Since ADR-0045's gap 13a it gives ContentResolver the app's providers and the
  * local settings provider (acquireProvider), whose android_id is the host's --android-id. Since step c2d3 it gives
  * the main thread and the process StrictMode's defaults for the app's target SDK, and allows disk writes while the
- * Application is made and created, as handleBindApplication does.
+ * Application is made and created, as handleBindApplication does. Since step b3.5b2-1 the app starts its own
+ * activities in its one task: a start or a finish runs Android's transactions in their order on the main thread,
+ * the activities below the top stop once the main thread is idle, the session's lifecycle drives the top activity,
+ * and the session's window, input channel and focus go to the top activity's window.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -82,6 +85,7 @@ import android.view.InputChannel;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewManager;
+import android.view.ViewParent;
 import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
@@ -95,7 +99,10 @@ import dalvik.system.VMRuntime;
 import dalvik.system.ZipPathValidator;
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.xmlpull.v1.XmlPullParserException;
 
 public final class ActivityThread {
@@ -124,9 +131,8 @@ public final class ActivityThread {
     private final Bundle mCoreSettings = coreSettings();
     /** AOSP's Instrumentation, made at the bind as handleBindApplication makes it (step c2c3). */
     Instrumentation mInstrumentation;
-    /** The task's root activity and its top resumed one, which LocalActivityClientController answers for. */
-    IBinder mTaskRootToken;
-    IBinder mTopToken;
+    /** The process's activity client controller (step c2c3), which the activity task service hands out too. */
+    LocalActivityClientController mActivityClientController;
 
     /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
     final ArrayMap<String, ContentProvider> mLocalProvidersByAuthority = new ArrayMap<>();
@@ -423,7 +429,8 @@ public final class ActivityThread {
             // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).
             thread.mInstrumentation = new Instrumentation();
             thread.mInstrumentation.basicInit(thread);
-            ActivityClient.setActivityClientController(new LocalActivityClientController(thread));
+            thread.mActivityClientController = new LocalActivityClientController(thread);
+            ActivityClient.setActivityClientController(thread.mActivityClientController);
             // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
             thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
             // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, and Android's
@@ -643,6 +650,16 @@ public final class ActivityThread {
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
         intent.setComponent(new ComponentName(info.packageName, info.name));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        ActivityClientRecord r = newRecord(intent, info);
+        if (performLaunchActivity(r) == null) {
+            removeRecord(r);
+            return null;
+        }
+        return r;
+    }
+
+    /** A new record on top of the task, with the window's configuration from the display. */
+    private ActivityClientRecord newRecord(Intent intent, ActivityInfo info) {
         ActivityClientRecord r = new ActivityClientRecord();
         r.token = new Binder();
         r.intent = intent;
@@ -651,10 +668,13 @@ public final class ActivityThread {
         r.overrideConfig = windowConfiguration();
         r.requestedOrientation = info.screenOrientation;
         mActivities.put(r.token, r);
-        if (mTaskRootToken == null) {
-            mTaskRootToken = r.token;
-        }
-        return performLaunchActivity(r) != null ? r : null;
+        mTask.add(r);
+        return r;
+    }
+
+    private void removeRecord(ActivityClientRecord r) {
+        mTask.remove(r);
+        mActivities.remove(r.token);
     }
 
     /**
@@ -755,11 +775,12 @@ public final class ActivityThread {
      */
     private void handleResumeActivity(ActivityClientRecord r) {
         final Activity a = r.activity;
+        // As AOSP's resume to the final state: a start for a result before it no longer keeps the window hidden.
+        a.mStartedActivity = false;
         a.performResume(false, "RESUME_ACTIVITY");
         r.state = ON_RESUME;
         r.savedState = null;
         reportTopResumedActivityChanged(r, r.isTopResumedActivity, "topWhenResuming");
-        mTopToken = r.token;
         final boolean willBeVisible = !a.mStartedActivity;
         if (r.window == null && !a.mFinished && willBeVisible) {
             r.window = a.getWindow();
@@ -825,8 +846,19 @@ public final class ActivityThread {
 
     /** The session's event pipe; null without a session. */
     private FileDescriptor mSessionEvents;
-    /** The launcher activity's record, which the session's events drive. */
-    private ActivityClientRecord mSessionActivity;
+    /** Whether the session's lifecycle has the app resumed, so that starts and finishes run; true without a session. */
+    private boolean mSessionResumed;
+    /**
+     * The session's window (ID 0 for none) and its size in pixels, its input channel and its focus, as the host gave
+     * them last; the window of the activity on top holds them (step b3.5b2-1).
+     */
+    private long mHostWindow;
+    private int mHostWidth;
+    private int mHostHeight;
+    private InputChannel mHostInput;
+    private boolean mHostFocus;
+    /** The window that holds them: the root of the activity that came to the top last, null before the first. */
+    private ViewRootImpl mHostRoot;
     /** The event types answered without more, each logged once: the content's rectangle and turns. */
     private final boolean[] mSkippedEvents = new boolean[32];
 
@@ -838,6 +870,7 @@ public final class ActivityThread {
     private void attachSession() {
         FileDescriptor events = nativeSessionConnect();
         if (events == null) {
+            mSessionResumed = true;
             sMainThreadHandler.post(this::handleLaunchLauncherActivity);
             return;
         }
@@ -871,12 +904,15 @@ public final class ActivityThread {
      */
     private void handleSessionEvent(long[] event) {
         final int type = (int) event[0];
-        final ActivityClientRecord r = mSessionActivity;
-        final ViewRootImpl root = r != null && r.window != null ? r.window.getDecorView().getViewRootImpl() : null;
+        // The lifecycle's events drive the task's top activity that is not finishing (step b3.5b2-1): a finished one
+        // goes once the session resumes and its finish runs. The pause and the stop take whichever activity is resumed
+        // or paused, also one whose finish has not run yet. The window's events reach the window on top.
+        final ActivityClientRecord r = topLiveRecord();
+        final ViewRootImpl root = mHostRoot;
         switch (type) {
             case EVENT_CREATE:
-                if (r == null) {
-                    mSessionActivity = launchLauncherActivity();
+                if (mTask.isEmpty()) {
+                    launchLauncherActivity();
                 }
                 break;
             case EVENT_START:
@@ -887,38 +923,52 @@ public final class ActivityThread {
                 }
                 break;
             case EVENT_RESUME:
+                mSessionResumed = true;
                 if (r != null && r.state == ON_START) {
                     handleResumeActivity(r);
                     handleTopResumedActivityChanged(r, true);
+                    moveHostTo(r);
                 }
+                runTransactions();
                 break;
             case EVENT_PAUSE:
-                if (r != null && r.state == ON_RESUME) {
-                    handlePauseActivity(r);
+                mSessionResumed = false;
+                for (int i = mTask.size() - 1; i >= 0; i--) {
+                    ActivityClientRecord resumed = mTask.get(i);
+                    if (resumed.state == ON_RESUME) {
+                        handlePauseActivity(resumed, !resumed.activity.mFinished);
+                    }
                 }
                 break;
             case EVENT_STOP:
-                if (r != null && r.state == ON_PAUSE) {
-                    handleStopActivity(r);
+                for (ActivityClientRecord paused : reversedTask()) {
+                    if (paused.state == ON_PAUSE) {
+                        handleStopActivity(paused);
+                    }
                 }
                 break;
             case EVENT_DESTROY:
-                if (r != null) {
-                    handleDestroyActivity(r);
+                // The app's end: every activity of the task, the top first.
+                for (ActivityClientRecord destroyed : reversedTask()) {
+                    handleDestroyActivity(destroyed);
                 }
                 break;
             case EVENT_SAVE_INSTANCE_STATE:
                 // As Android's: the stop saved the state, before onStop for a target below 28 and after it from 28 on.
                 break;
             case EVENT_WINDOW_FOCUS_CHANGED:
+                mHostFocus = event[2] != 0;
                 if (root != null) {
-                    root.windowFocusChanged(event[2] != 0);
+                    root.windowFocusChanged(mHostFocus);
                 }
                 break;
             case EVENT_NATIVE_WINDOW_CREATED:
             case EVENT_NATIVE_WINDOW_RESIZED:
+                mHostWindow = event[2];
+                mHostWidth = (int) event[3];
+                mHostHeight = (int) event[4];
                 if (root != null) {
-                    root.setHostWindow(event[2], (int) event[3], (int) event[4]);
+                    root.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
                 }
                 break;
             case EVENT_NATIVE_WINDOW_REDRAW_NEEDED:
@@ -927,6 +977,7 @@ public final class ActivityThread {
                 }
                 break;
             case EVENT_NATIVE_WINDOW_DESTROYED:
+                mHostWindow = 0;
                 if (root != null) {
                     root.setHostWindow(0, 0, 0);
                 }
@@ -934,20 +985,21 @@ public final class ActivityThread {
             case EVENT_INPUT_QUEUE_CREATED:
             case EVENT_INPUT_QUEUE_DESTROYED:
                 // The window's touches (ADR-0045 step 7b2): the session's input channel as an InputChannel, none
-                // for channel 0 and at the queue's end.
-                if (root != null) {
-                    InputChannel channel = null;
-                    if (type == EVENT_INPUT_QUEUE_CREATED && event[2] != 0) {
-                        channel = nativeSessionConnectInput(event[2],
-                                String.valueOf(root.mWindowAttributes.getTitle()));
-                        if (channel == null) {
-                            Log.w(TAG, "The session's input channel " + event[2] + " did not connect: no touches");
-                        }
+                // for channel 0 and at the queue's end; one that comes before a window waits for it (step b3.5b2-1).
+                InputChannel channel = null;
+                if (type == EVENT_INPUT_QUEUE_CREATED && event[2] != 0) {
+                    channel = nativeSessionConnectInput(event[2],
+                            root != null ? String.valueOf(root.mWindowAttributes.getTitle()) : mPackageName);
+                    if (channel == null) {
+                        Log.w(TAG, "The session's input channel " + event[2] + " did not connect: no touches");
                     }
-                    root.setInputChannel(channel);
-                } else if (type == EVENT_INPUT_QUEUE_CREATED && event[2] != 0) {
-                    Log.w(TAG, "The session's input channel came before a window: no touches");
                 }
+                if (root != null) {
+                    root.setInputChannel(channel);
+                } else if (mHostInput != null) {
+                    mHostInput.dispose();
+                }
+                mHostInput = channel;
                 break;
             case EVENT_SURFACE_CREATED:
                 SurfaceView.dispatchSurfaceCreated(event[2], event[3], (int) event[4], (int) (event[4] >>> 32));
@@ -976,17 +1028,276 @@ public final class ActivityThread {
         watchSession();
     }
 
-    /** The root activity's finish(): with a session, the host answers it with the quit; false without one. */
-    boolean requestFinish(IBinder token) {
-        if (mSessionEvents == null || token != mTaskRootToken) {
+    // The app's one task (step b3.5b2-1). Android's activity task manager keeps an app's activities in tasks and drives
+    // them with lifecycle transactions; Minato runs one app per process and has no recents, so all its activities
+    // share one task, also those started with FLAG_ACTIVITY_NEW_TASK, which Android gives a task of their own only for
+    // another affinity (a named departure). A start or a finish, asked from any thread, becomes a transaction on the
+    // main thread, run in the order asked while the session has the app resumed: the top activity pauses, the next one
+    // comes up to its resume and takes the session's window, and once the main thread is idle the activities below the
+    // top stop and the finished ones go, as Android stops them once the new top reports idle.
+
+    /** The task's activities, its root first and its top last; a launch adds one, a destroy removes it. */
+    private final ArrayList<ActivityClientRecord> mTask = new ArrayList<>();
+    /** The starts and finishes asked for and not run yet, in their order; the main thread's. */
+    private final ArrayDeque<Runnable> mTransactions = new ArrayDeque<>();
+    /** Starts asked for, from any thread, whose launch has not run: the last activity's finish waits for them. */
+    private final AtomicInteger mPendingStarts = new AtomicInteger();
+    /** Whether an idle pass over the activities below the top is due. */
+    private boolean mIdleScheduled;
+
+    /**
+     * LocalActivityTaskManager's start, from any thread: Android's answer for the intent at once, the launch on the
+     * main thread later. Only an explicit component of the app's manifest starts, as no other app is installed: an
+     * implicit intent resolves with step b3.5b2-3, and a result comes with step b3.5b2-2.
+     */
+    int startActivity(Intent intent, int requestCode) {
+        ComponentName component = intent.getComponent();
+        if (component == null) {
+            return ActivityManager.START_INTENT_NOT_RESOLVED;
+        }
+        ActivityInfo info = mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false);
+        if (info == null) {
+            return ActivityManager.START_CLASS_NOT_FOUND;
+        }
+        if (requestCode >= 0) {
+            Log.w(TAG, "No activity results yet (ADR-0039 b3.5b2-2): " + component.toShortString()
+                    + " starts without returning one");
+        }
+        final Intent started = new Intent(intent);
+        mPendingStarts.incrementAndGet();
+        sMainThreadHandler.post(() -> addTransaction(() -> handleStartTransaction(started, info)));
+        return ActivityManager.START_SUCCESS;
+    }
+
+    /**
+     * Activity.finish's, through LocalActivityClientController, from any thread: true once the finish is asked for;
+     * false for an unknown activity and, without a session, for the last one, which then stays, as before.
+     */
+    boolean finishActivity(IBinder token) {
+        final ActivityClientRecord r = mActivities.get(token);
+        if (r == null || (mSessionEvents == null && mTask.size() == 1 && mPendingStarts.get() == 0)) {
             return false;
+        }
+        sMainThreadHandler.post(() -> addTransaction(() -> handleFinishTransaction(r)));
+        return true;
+    }
+
+    private void addTransaction(Runnable transaction) {
+        mTransactions.add(transaction);
+        runTransactions();
+    }
+
+    /** Runs the transactions asked for, in their order, while the session has the app resumed. */
+    private void runTransactions() {
+        while (mSessionResumed && !mTransactions.isEmpty()) {
+            mTransactions.poll().run();
+        }
+    }
+
+    /**
+     * As Android's start of an activity on top of the task: the top one's top resumed state goes and it pauses, the
+     * user leaving it unless the intent has FLAG_ACTIVITY_NO_USER_ACTION; then the new one's launch up to its resume,
+     * the top resumed state and the session's window. One that finished in onCreate goes without them.
+     */
+    private void handleStartTransaction(Intent intent, ActivityInfo info) {
+        mPendingStarts.decrementAndGet();
+        ActivityClientRecord top = topRecord();
+        if (top != null && top.state == ON_RESUME) {
+            handleTopResumedActivityChanged(top, false);
+            handlePauseActivity(top, (intent.getFlags() & Intent.FLAG_ACTIVITY_NO_USER_ACTION) == 0);
+        }
+        ActivityClientRecord r = newRecord(intent, info);
+        if (performLaunchActivity(r) == null) {
+            removeRecord(r);
+            if (top != null && !finishing(top)) {
+                resumeRecord(top);
+            }
+        } else if (!finishing(r)) {
+            handleStartActivity(r);
+            handleResumeActivity(r);
+            handleTopResumedActivityChanged(r, true);
+            moveHostTo(r);
+        }
+        scheduleIdle();
+    }
+
+    /**
+     * As Android's finish of an activity. The last one's asks the host, which answers with the quit (ADR-0043 step c1).
+     * The top one's top resumed state goes and it pauses, and the activity below it comes back, unless a start asked
+     * for is still to run, which then takes the top. A finished activity stops and goes once the main thread is idle.
+     */
+    private void handleFinishTransaction(ActivityClientRecord r) {
+        if (!mTask.contains(r)) {
+            return;
+        }
+        if (topLiveRecord() == null && mPendingStarts.get() == 0) {
+            requestSessionFinish();
+            return;
+        }
+        if (r == topRecord()) {
+            if (r.state == ON_RESUME) {
+                handleTopResumedActivityChanged(r, false);
+                handlePauseActivity(r, false);
+            }
+            ActivityClientRecord next = topLiveRecord();
+            if (next != null) {
+                resumeRecord(next);
+            }
+        }
+        scheduleIdle();
+    }
+
+    /**
+     * As Android's resume of an activity that comes back to the top: onRestart and onStart after its stop, onResume,
+     * the top resumed state and the session's window.
+     */
+    private void resumeRecord(ActivityClientRecord r) {
+        if (r.state == ON_STOP) {
+            performRestartActivity(r);
+        } else if (r.state == ON_CREATE) {
+            handleStartActivity(r);
+        }
+        if (r.state == ON_START || r.state == ON_PAUSE) {
+            handleResumeActivity(r);
+            handleTopResumedActivityChanged(r, true);
+            moveHostTo(r);
+        }
+    }
+
+    /** The last activity's finish: with a session, the host answers it with the quit (ADR-0043 step c1). */
+    private void requestSessionFinish() {
+        if (mSessionEvents == null) {
+            return;
         }
         int error = nativeSessionRequest(REQUEST_FINISH, 0, 0);
         if (error != 0) {
             Log.e(TAG, "The session refused FINISH: " + error);
-            return false;
         }
-        return true;
+    }
+
+    /**
+     * As Android's activityIdle, once the main thread has nothing left to do: the activities below the live top stop,
+     * and the finished ones go. While transactions wait for the session, their own pass follows them.
+     */
+    private void scheduleIdle() {
+        if (mIdleScheduled) {
+            return;
+        }
+        mIdleScheduled = true;
+        Looper.myQueue().addIdleHandler(() -> {
+            mIdleScheduled = false;
+            if (mTransactions.isEmpty()) {
+                ActivityClientRecord top = topLiveRecord();
+                for (ActivityClientRecord r : reversedTask()) {
+                    if (r == top) {
+                        continue;
+                    }
+                    if (finishing(r)) {
+                        handleDestroyActivity(r);
+                    } else if (r.state == ON_PAUSE) {
+                        handleStopActivity(r);
+                    }
+                }
+            }
+            return false;
+        });
+    }
+
+    /**
+     * The session's window, input channel and focus go to the activity that came to the top (step b3.5b2-1), as
+     * Android's window manager gives them to the top window. The window before loses its focus and its surface, so its
+     * SurfaceViews' surfaces go; it keeps no share of the input channel. The new one gets the window, which its next
+     * traversal draws whole, a share of the channel, whose queue the host connects once, and the focus, which it takes
+     * once it drew. The screen keeps the old window's last frame until the new one's first.
+     */
+    private void moveHostTo(ActivityClientRecord r) {
+        final ViewRootImpl to = rootOf(r);
+        final ViewRootImpl from = mHostRoot;
+        if (to == null || to == from) {
+            return;
+        }
+        mHostRoot = to;
+        InputChannel input = mHostInput;
+        if (from != null) {
+            if (mHostFocus) {
+                from.windowFocusChanged(false);
+            }
+            if (input != null) {
+                input = input.dup();
+                from.setInputChannel(null);
+            }
+            from.setHostWindow(0, 0, 0);
+        }
+        mHostInput = input;
+        if (mHostWindow != 0) {
+            to.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
+        }
+        if (input != null) {
+            to.setInputChannel(input);
+        }
+        if (mHostFocus) {
+            to.windowFocusChanged(true);
+        }
+    }
+
+    /**
+     * The activity's window once its decor is added: AOSP's setView makes the root the decor's parent at once, while
+     * the decor's getViewRootImpl answers only after the first traversal attached it.
+     */
+    private static ViewRootImpl rootOf(ActivityClientRecord r) {
+        View decor = r.window != null ? r.window.peekDecorView() : null;
+        ViewParent parent = decor != null ? decor.getParent() : null;
+        return parent instanceof ViewRootImpl ? (ViewRootImpl) parent : null;
+    }
+
+    private ActivityClientRecord topRecord() {
+        return mTask.isEmpty() ? null : mTask.get(mTask.size() - 1);
+    }
+
+    /** The task's activities from the top down, as a copy that their destroys do not change. */
+    private ArrayList<ActivityClientRecord> reversedTask() {
+        ArrayList<ActivityClientRecord> records = new ArrayList<>(mTask);
+        java.util.Collections.reverse(records);
+        return records;
+    }
+
+    /** The task's top activity that is not finishing, or null. */
+    private ActivityClientRecord topLiveRecord() {
+        for (int i = mTask.size() - 1; i >= 0; i--) {
+            if (!finishing(mTask.get(i))) {
+                return mTask.get(i);
+            }
+        }
+        return null;
+    }
+
+    private static boolean finishing(ActivityClientRecord r) {
+        return r.activity == null || r.activity.mFinished;
+    }
+
+    /**
+     * As Android's task root for getTaskForActivity with onlyRoot: the activity at or below the task's first one that
+     * is not finishing, or the bottom one while all are.
+     */
+    boolean isTaskRoot(IBinder token) {
+        int index = -1;
+        int root = 0;
+        for (int i = mTask.size() - 1; i >= 0; i--) {
+            ActivityClientRecord r = mTask.get(i);
+            if (r.token == token) {
+                index = i;
+            }
+            if (!finishing(r)) {
+                root = i;
+            }
+        }
+        return index >= 0 && index <= root;
+    }
+
+    /** As Android's isTopOfTask: whether the activity is the task's top one that is not finishing. */
+    boolean isTopOfTask(IBinder token) {
+        ActivityClientRecord top = topLiveRecord();
+        return top != null && top.token == token;
     }
 
     /**
@@ -1041,13 +1352,13 @@ public final class ActivityThread {
     }
 
     /**
-     * As AOSP's handlePauseActivity: the user leaves an activity that is not finishing, as at HOME; the top resumed
-     * state goes; then onPause. A target below 11 (pre-Honeycomb), whose state Android saves here, cannot be installed
-     * on Android 15.
+     * As AOSP's handlePauseActivity: the user leaves the activity, as at HOME or at a start without
+     * FLAG_ACTIVITY_NO_USER_ACTION, but not at its finish; the top resumed state goes; then onPause. A target below 11
+     * (pre-Honeycomb), whose state Android saves here, cannot be installed on Android 15.
      */
-    private void handlePauseActivity(ActivityClientRecord r) {
+    private void handlePauseActivity(ActivityClientRecord r, boolean userLeaving) {
         final Activity activity = r.activity;
-        if (!activity.mFinished) {
+        if (userLeaving) {
             mInstrumentation.callActivityOnPictureInPictureRequested(activity);
             mInstrumentation.callActivityOnUserLeaving(activity);
         }
@@ -1108,7 +1419,7 @@ public final class ActivityThread {
         final Activity activity = r.activity;
         activity.mFinished = true;
         if (r.state == ON_RESUME) {
-            handlePauseActivity(r);
+            handlePauseActivity(r, false);
         }
         if (r.state == ON_PAUSE) {
             callActivityOnStop(r, false);
@@ -1123,13 +1434,19 @@ public final class ActivityThread {
             r.window.closeAllPanels();
         }
         r.state = ON_DESTROY;
-        mActivities.remove(r.token);
+        removeRecord(r);
         View decor = activity.mDecor;
         if (decor != null) {
             if (activity.mWindowAdded) {
                 ViewRootImpl root = decor.getViewRootImpl();
                 if (root != null) {
                     root.setActivityConfigCallback(null);
+                }
+                if (mHostRoot != null && decor.getParent() == mHostRoot) {
+                    // The window that holds the session's: the next top gets them without it, and a share of the
+                    // input channel stays open for it, as the host connects the queue once.
+                    mHostRoot = null;
+                    mHostInput = mHostInput != null ? mHostInput.dup() : null;
                 }
                 activity.getWindowManager().removeViewImmediate(decor);
             }

@@ -408,7 +408,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * @hide ActivityThread's, at the session's NATIVE_WINDOW_CREATED and RESIZED: the host's window and its size in
      * pixels, at which the next traversal lays the tree out; at NATIVE_WINDOW_DESTROYED, ID 0, and the size stays. A
      * new window gives the window's surface, as relayoutWindow's new surface does, in the window's format, and the
-     * next draw takes the whole window (ADR-0043 c3); ID 0 releases it.
+     * next draw takes the whole window (ADR-0043 c3); ID 0 releases it. A window that takes the host's window back from
+     * another activity's (step b3.5b2-1) reports its format again, which the other's may have changed.
      */
     public void setHostWindow(long id, int width, int height) {
         if (id != mHostWindow) {
@@ -420,6 +421,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                     setBuffersFormat();
                 } catch (Surface.OutOfResourcesException e) {
                     Log.e(TAG, "No surface on the host's window " + id, e);
+                }
+                if (mReportedFormat != Integer.MIN_VALUE) {
+                    mReportedFormat = Integer.MIN_VALUE;
+                    setWindowFormat(mWindowFormat);
                 }
                 mFullRedrawNeeded = true;
                 scheduleTraversals();

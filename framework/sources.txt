@@ -1088,3 +1088,7 @@ frameworks_base/core/java/android/widget/CompoundButton.java
 # WindowInputEventReceiver.
 frameworks_base/core/java/android/view/InputChannel.java
 frameworks_base/core/java/android/view/InputEventReceiver.java
+
+# ADR-0039 step b3.5b2-1, App: the app's own starts. ActivityNotFoundException, which Instrumentation's
+# checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.
+frameworks_base/core/java/android/content/ActivityNotFoundException.java

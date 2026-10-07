@@ -53,6 +53,9 @@ class ActivityManager {
     public static final int START_ASSISTANT_NOT_ACTIVE_SESSION = FIRST_START_FATAL_ERROR_CODE + 11;
 
     /** @hide */
+    public static final int START_SUCCESS = FIRST_START_SUCCESS_CODE;
+
+    /** @hide */
     public static final int START_RETURN_INTENT_TO_CALLER = FIRST_START_SUCCESS_CODE + 1;
 
     /** @hide */

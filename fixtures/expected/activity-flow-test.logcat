@@ -1,0 +1,60 @@
+I/activity-flow-test: Splash onCreate, saved state false
+I/activity-flow-test: Splash onStart
+I/activity-flow-test: Splash onResume
+I/activity-flow-test: Splash onTopResumedActivityChanged true
+I/activity-flow-test: Splash starts Main and finishes
+I/activity-flow-test: Splash onTopResumedActivityChanged false
+I/activity-flow-test: Splash onUserLeaveHint
+I/activity-flow-test: Splash onPause
+I/activity-flow-test: Main onCreate, saved state false, flags 0x0
+I/activity-flow-test: Main onStart
+I/activity-flow-test: Main onResume
+I/activity-flow-test: Main onTopResumedActivityChanged true
+I/activity-flow-test: Splash onStop
+I/activity-flow-test: Splash onDestroy, finishing true
+I/activity-flow-test: Main is the task's root: true
+I/activity-flow-test: MissingActivity: android.content.ActivityNotFoundException: Unable to find explicit activity class {io.github.kisame76.minato.test.activityflow/io.github.kisame76.minato.test.activityflow.MissingActivity}; have you declared this activity in your AndroidManifest.xml, or does your intent not match its declared <intent-filter>?
+I/activity-flow-test: Without FLAG_ACTIVITY_NEW_TASK: android.util.AndroidRuntimeException: Calling startActivity() from outside of an Activity context requires the FLAG_ACTIVITY_NEW_TASK flag. Is this really what you want?
+I/activity-flow-test: NOTHING: android.content.ActivityNotFoundException: No Activity found to handle Intent { act=io.github.kisame76.minato.test.activityflow.NOTHING }
+I/activity-flow-test: file URI: android.os.FileUriExposedException: file:///sdcard/flow.txt exposed beyond app through Intent.getData()
+I/activity-flow-test: Main starts Second
+I/activity-flow-test: Main onTopResumedActivityChanged false
+I/activity-flow-test: Main onUserLeaveHint
+I/activity-flow-test: Main onPause
+I/activity-flow-test: Second onCreate, saved state false, flags 0x0
+I/activity-flow-test: Second onStart
+I/activity-flow-test: Second onResume
+I/activity-flow-test: Second onTopResumedActivityChanged true
+I/activity-flow-test: Main onStop
+I/activity-flow-test: Main onSaveInstanceState
+I/activity-flow-test: Second finishes
+I/activity-flow-test: Second onTopResumedActivityChanged false
+I/activity-flow-test: Second onPause
+I/activity-flow-test: Main onRestart
+I/activity-flow-test: Main onStart
+I/activity-flow-test: Main onResume
+I/activity-flow-test: Main onTopResumedActivityChanged true
+I/activity-flow-test: Second onStop
+I/activity-flow-test: Second onDestroy, finishing true
+I/activity-flow-test: The Application starts Third with FLAG_ACTIVITY_NEW_TASK
+I/activity-flow-test: Main onTopResumedActivityChanged false
+I/activity-flow-test: Main onUserLeaveHint
+I/activity-flow-test: Main onPause
+I/activity-flow-test: Third onCreate, saved state false, flags 0x10000000
+I/activity-flow-test: Third onStart
+I/activity-flow-test: Third onResume
+I/activity-flow-test: Third onTopResumedActivityChanged true
+I/activity-flow-test: Main onStop
+I/activity-flow-test: Main onSaveInstanceState
+I/activity-flow-test: Third is the task's root: false, in Main's task: true
+I/activity-flow-test: Third finishes
+I/activity-flow-test: Third onTopResumedActivityChanged false
+I/activity-flow-test: Third onPause
+I/activity-flow-test: Main onRestart
+I/activity-flow-test: Main onStart
+I/activity-flow-test: Main onResume
+I/activity-flow-test: Main onTopResumedActivityChanged true
+I/activity-flow-test: Third onStop
+I/activity-flow-test: Third onDestroy, finishing true
+I/activity-flow-test: focus gained: Splash 1, Main 3, Second 1, Third 1; Main lost it 2 times
+I/activity-flow-test: done

@@ -8,13 +8,15 @@
  * (registerRemoteAnimations, setForceSendResultForMediaProjection, setActivityRecordInputSinkEnabled,
  * restartActivityProcessIfVisible, invalidateHomeTaskSnapshot, dismissKeyguard with a message), so no permission is
  * checked here. The answers:
- *   - one task for the app, whose root is its first activity, as the launcher starts it in a task of its own;
+ *   - one task for the app, whose root is its first activity that is not finishing, as the launcher starts it in a
+ *     task of its own and the app's own starts join it (step b3.5b2-1);
  *   - the requested orientation per activity, from its manifest until the activity sets one; ADR-0032's sessions turn
  *     with it later;
  *   - no caller: a launch from the home screen shares no identity, so the uid is Process.INVALID_UID where AIDL's
  *     default 0 would be root's, and a caller's content URI permission is denied;
- *   - the root activity's finish asks the host's session, which answers with the quit (ADR-0043 step c1); without a
- *     session it is refused, as AIDL's default answers.
+ *   - a finish goes to ActivityThread's task (step b3.5b2-1): the last activity's asks the host's session, which
+ *     answers with the quit (ADR-0043 step c1); without a session the last one's is refused, as AIDL's default
+ *     answers.
  */
 package android.app;
 
@@ -36,13 +38,13 @@ final class LocalActivityClientController extends IActivityClientController.Defa
 
     @Override
     public boolean finishActivity(IBinder token, int resultCode, Intent resultData, int finishTask) {
-        return mThread.requestFinish(token);
+        return mThread.finishActivity(token);
     }
 
     @Override
     public int getTaskForActivity(IBinder token, boolean onlyRoot) {
         ActivityThread.ActivityClientRecord r = mThread.mActivities.get(token);
-        if (r == null || (onlyRoot && token != mThread.mTaskRootToken)) {
+        if (r == null || (onlyRoot && !mThread.isTaskRoot(token))) {
             return -1;
         }
         return TASK_ID;
@@ -50,7 +52,7 @@ final class LocalActivityClientController extends IActivityClientController.Defa
 
     @Override
     public boolean isTopOfTask(IBinder token) {
-        return token != null && token == mThread.mTopToken;
+        return token != null && mThread.isTopOfTask(token);
     }
 
     @Override

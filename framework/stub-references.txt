@@ -88,7 +88,6 @@ android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # sta
 android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
 android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
 android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: Theme.encode, for the view server's hierarchy dump
-android.content.ActivityNotFoundException <- android.text.style.URLSpan  # M4 step 10: URLSpan.onClick, through TextView's links
 
 # Drawables and graphics.
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
@@ -247,12 +246,9 @@ com.android.internal.view.menu.MenuBuilder <- android.view.View  # gap: context 
 # helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
 # parcel code never runs.
 android.app.ActionBar <- android.app.Activity  # stays: the action bar's calls, which Activity makes only with an action bar, and our PhoneWindow requests none, so getActionBar() is null (a listed gap)
-android.app.ActivityOptions <- android.app.Activity, android.app.ActivityTransitionState, android.app.Instrumentation  # step b3.5b2: options of an activity that starts another, as Instrumentation's execStartActivity hands them on
+android.app.ActivityOptions <- android.app.Activity, android.app.ActivityTransitionState, android.app.Instrumentation  # gap: a start with options, such as an animation or a scene transition, which step b3.5b2-1 leaves out; a start without options runs none of this
 android.app.ActivityOptions <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
 android.app.ActivityOptions$SceneTransitionInfo <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
-android.app.ActivityTaskManager <- android.app.ActivityClient  # stays: ActivityClient's controller from the task manager, which Minato's ActivityThread replaces at the bind (LocalActivityClientController)
-android.app.ActivityTaskManager <- android.app.Activity, android.app.Instrumentation  # step b3.5b2: starting another activity, and Activity's questions of the task manager (picture-in-picture actions, local voice interaction)
-android.app.ActivityTaskManager <- android.view.WindowManager  # gap: WindowManager.hasWindowExtensionsEnabled, which androidx.window asks; the task manager is a system service (ADR-0045's local services)
 android.app.AlertDialog$Builder <- android.app.Activity  # gap: performStart's warning dialog for a debuggable app with a linker warning, a second window (ADR-0041 decision 2)
 android.app.Dialog <- android.app.Activity  # ADR-0041 a): Activity's managed dialogs (showDialog), a second window (decision 2, step 8)
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
@@ -261,8 +257,6 @@ android.app.ExitTransitionCoordinator$ActivityExitTransitionCallbacks <- android
 android.app.FullscreenRequestHandler <- android.app.Activity  # gap: Activity.requestFullscreenMode (API 34), which leaves a freeform window, and Minato's windows are always fullscreen
 android.app.IActivityManager <- android.app.Activity  # gap: Activity.createPendingResult and setLocusContext, which ask the activity manager (ADR-0045's local services)
 android.app.IActivityManager <- android.app.Instrumentation  # stays: an instrumentation test's results, and no test instrumentation runs on Minato
-android.app.IActivityTaskManager <- android.app.ActivityClient  # stays: ActivityClient's controller from the task manager, which Minato's ActivityThread replaces at the bind (LocalActivityClientController)
-android.app.IActivityTaskManager <- android.app.Activity, android.app.Instrumentation  # step b3.5b2: starting another activity through the task manager
 android.app.IAppTask <- android.app.Instrumentation  # stays: app tasks (ActivityManager.AppTask), which no Context's ActivityManager gives on Minato
 android.app.IInstrumentationWatcher <- android.app.Instrumentation  # stays: an instrumentation test's watcher, and no test instrumentation runs on Minato
 android.app.PendingIntent <- android.app.Activity  # gap: Activity.createPendingResult, whose PendingIntent the activity manager makes (ADR-0045's local services)
@@ -275,7 +269,6 @@ android.app.TaskStackBuilder <- android.app.Activity  # stays: up navigation rec
 android.app.UiAutomation <- android.app.Instrumentation  # stays: UI automation of an instrumentation test, and no test instrumentation runs on Minato
 android.app.VoiceInteractor <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
 android.app.VoiceInteractor$Request <- android.app.Activity  # stays: a voice interaction session's activity, which only the voice interaction service starts, and Minato has none
-android.content.ActivityNotFoundException <- android.app.Instrumentation  # step b3.5b2: starting another activity, whose result Instrumentation checks
 android.content.IntentFilter <- android.app.Instrumentation  # stays: an instrumentation test's activity monitors, and no test instrumentation runs on Minato
 android.content.IntentSender <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
 android.content.IntentSender$SendIntentException <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result

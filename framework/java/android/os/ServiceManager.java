@@ -7,11 +7,13 @@
  * getService does for a service that does not exist, and is logged once per name. The table's first entry is
  * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e),
  * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
- * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3); App's services join
- * it. A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
+ * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
+ * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1); App's services join it. A name of ABSENT, a
+ * service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
 
+import android.app.LocalActivityTaskManager;
 import android.content.ContentResolver;
 import android.content.ContentService;
 import android.content.Context;
@@ -47,6 +49,7 @@ public final class ServiceManager {
         sMakers.put(Context.INPUT_SERVICE, InputService::newBinder);
         sMakers.put(ContentResolver.CONTENT_SERVICE_NAME, ContentService::newBinder);
         sMakers.put(Context.DEVICE_IDENTIFIERS_SERVICE, DeviceIdentifiersService::newBinder);
+        sMakers.put(Context.ACTIVITY_TASK_SERVICE, LocalActivityTaskManager::newBinder);
     }
 
     private ServiceManager() {

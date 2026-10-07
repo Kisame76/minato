@@ -29,6 +29,9 @@
 # apps leave the library before the run, which a killed run may have left them in, and after it; in the Simulator the
 # library is then as before. surface-test's sizes are the screen's: in the Simulator Android's 1290 x 2796 become the
 # Simulator's, and test 4's Button, centered, keeps its size at that screen's center.
+# activity-flow-test (ADR-0039 step b3.5b2-1's) is one of those apps too: its activities start one another in
+# the app's one task, the session's window going to the top one, and the host's layer is not opaque under
+# the windows of Second and Third, which have alpha, and opaque again each time Main has the window back.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -39,12 +42,15 @@
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
-#   GODOT_TEST set: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
-#              run too: their "godot-bench: " lines must be Android 15's (fixtures/expected/godot-bench-*.logcat) and
-#              their run must have frames and no failures, as tools/godot-java-check.sh checks them on the Mac,
-#              which also taps the bench for its touch line; this check plays no touches, so it leaves that line out.
+#   GODOT_TEST no: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
+#              stay out; else they run too: their "godot-bench: " lines must be Android 15's
+#              (fixtures/expected/godot-bench-*.logcat) and their run must have frames and no failures, as
+#              tools/godot-java-check.sh checks them on the Mac, which also taps the bench for its touch line; this
+#              check plays no touches, so it leaves that line out.
 #              godot-bench-vulkan runs on the iPhone only: MoltenVK has no Simulator slice (ADR-0030, decision 8), and
-#              Godot draws with GLES there, which its bench counts as a failure. Opt-in until they are green.
+#              Godot draws with GLES there, which its bench counts as a failure. On by default since 2026-10-07,
+#              when both ran green on the iPhone (vulkan 528 and gles 525 frames, 0 failures) and gles in the
+#              Simulator.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -73,7 +79,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib"
       "jnigraphics-test io.github.kisame76.minato.test.jnigraphics"
       "surface-test io.github.kisame76.minato.test.surface" "palette-test io.github.kisame76.minato.test.palette"
-      "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode")
+      "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode"
+      "activity-flow-test io.github.kisame76.minato.test.activityflow")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -83,7 +90,8 @@ ONLY=${ONLY:-}
 # packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
-GODOT_TEST=${GODOT_TEST:-}
+GODOT_TEST=${GODOT_TEST-yes}
+[[ "$GODOT_TEST" != no ]] || GODOT_TEST=""
 [[ " $ONLY " != *" godot-bench-"* ]] || GODOT_TEST=yes
 # The Vulkan APK on the iPhone only: the Simulator has no MoltenVK (ADR-0030, decision 8).
 [[ -z "$GODOT_TEST" || "$ON_DEVICE" == no ]] || APPS+=("godot-bench-vulkan io.github.kisame76.minato.godotbench.vulkan")
@@ -585,6 +593,19 @@ run_one palette-test io.github.kisame76.minato.test.palette
 run_one binder-test io.github.kisame76.minato.test.binder
 # StrictMode's defaults from the bind, and getSerial's answer from the local device identifiers service (step c2d3).
 run_one strictmode-test io.github.kisame76.minato.test.strictmode
+# The app's own starts in its one task (step b3.5b2-1). The host's layer starts opaque and loses it under Second's and
+# Third's windows, whose formats have alpha; it gets it back each time Main takes the session's window again and
+# reports its own format. Both have alpha, as an opaque Third's new window would report what Main's take-back must.
+if wanted activity-flow-test; then
+  run_one activity-flow-test io.github.kisame76.minato.test.activityflow
+  fetch_events
+  opacity=$(sed -n -E 's/^[0-9.]+ [0-9]+ layer opaque ([01])$/\1/p' "$EVENTS" | tr -d '\n')
+  if [[ "$opacity" == 10101 ]]; then
+    ok "  the layer: opaque, not under Second's and Third's windows, opaque again under Main's after each"
+  else
+    fail "  the layer's opacity went ${opacity:-nowhere}, not 1, 0, 1, 0, 1"
+  fi
+fi
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   # Its OBB must be in its OBB folder before the tap.
   obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
