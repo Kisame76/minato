@@ -2,7 +2,8 @@
 """The gap table of the corpus (docs/plans/2026-10-07-corpus-harness.md): reads the JSONs of tools/corpus-run.py's
 runs and maps every finding to a gap of the compatibility plan's section 2 by fixtures/corpus/gap-patterns.txt, then
 writes docs/corpus/gaps.md: per gap, the apps it stops first and the apps it hits at all, the most first; the findings
-no pattern maps, by kind; and the apps with their levels. Each run rewrites it, so section 2's order follows the data.
+no pattern maps, by kind; and the apps with their host, levels and "Displayed" time. Each run rewrites it, so section
+2's order follows the data.
 Python 3.9.
 
 Usage: corpus-gaps.py <out folder>... [--table <gaps.md>] [--patterns <gap-patterns.txt>]
@@ -98,13 +99,15 @@ def main():
         lines.append(f"- *{kind}:*")
         for text, names in sorted(unmapped[kind].items(), key=lambda item: (-len(item[1]), item[0]))[:40]:
             lines.append(f"  - `{text[:160]}`: {len(names)} ({', '.join(sorted(names))})")
-    lines += ["", "## Apps", "", "| App | " + " | ".join(LEVELS) + " | First failure |",
-              "|---|" + "---|" * (len(LEVELS) + 1)]
+    lines += ["", "## Apps", "", "| App | Host | " + " | ".join(LEVELS) + " | Displayed | First failure |",
+              "|---|---|" + "---|" * (len(LEVELS) + 2)]
     for app in sorted(apps, key=lambda a: a.get("package") or a["apk"]):
         marks = [{True: "yes", False: "no", None: "-"}[app["levels"].get(level)] for level in LEVELS]
         failure = app.get("first_failure")
         shown = f"{failure['kind']}: `{failure['text'][:100]}`" if failure else ""
-        lines.append(f"| {app.get('package') or app['apk']} | " + " | ".join(marks) + f" | {shown} |")
+        displayed = app.get("displayed", {}).get("ms")
+        lines.append(f"| {app.get('package') or app['apk']} | {app.get('host', '')} | " + " | ".join(marks) +
+                     f" | {'' if displayed is None else f'{displayed} ms'} | {shown} |")
     os.makedirs(os.path.dirname(table), exist_ok=True)
     with open(table, "w") as handle:
         handle.write("\n".join(lines) + "\n")

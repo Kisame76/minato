@@ -21,5 +21,6 @@
 18	Intents to iOS	No Activity found to handle Intent
 19	Graphics coverage	EGL_BAD|GL_INVALID|Vulkan
 20	Play Asset Delivery at run time	AssetPackManager|SplitInstallManager
-H1	Harness: a NativeActivity app without code starts through app_process	^exception: java\.lang\.RuntimeException: Unable to instantiate activity .*NativeActivity
-H2	Harness: GLES needs --graphics, where no first post is logged yet	eglGetDisplay failed|EGL_NOT_INITIALIZED
+21	Time zone data for ICU	^data: IcuRegistration: no time zone files
+22	Framework breadth: public classes framework.jar lacks	^stub class: (android|com/android/internal)[/.]|^exception: java\.lang\.ClassNotFoundException: Didn't find class "(android|com\.android\.internal)\.
+H2	Harness: GLES needs --graphics, where no first post is logged yet	eglGetDisplay failed|EGL_NOT_INITIALIZED|^egl: 

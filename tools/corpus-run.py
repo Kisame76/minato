@@ -6,21 +6,30 @@ failure and every finding by kind, which tools/corpus-gaps.py counts.
 
 The levels, as the plan's section 3 defines them:
   imports    every library of lib/arm64-v8a converted (apk-convert), every refusal kept;
-  starts     the first post of a window on apk-run's headless host, until the activity controller logs "Displayed";
-  frame      the first frame, then input that changes it: not measured until apk-run counts posts and compares the
-             frame after a touch;
+  starts     the launcher activity's window drawn, as ActivityTaskManager logs it ("Displayed <component> for user 0:
+             +<time>"), or, for an app without that line, a window's first post on apk-run's headless host; for a
+             NativeActivity also its start answered on activity-host ("apk-run: the start was answered", which
+             Runtime's gap 4 (a) brings), as it may draw by GLES or not at all;
+  frame      after the tap or the swipe, a window's frame that differs from its last one before the touch, or a new
+             window that posted (apk-run's "after <step>" lines); a blinking cursor or an animation counts too, and
+             under --graphics it is not measured (H2);
   audio, network  not measured until network d);
   lives      the process still running at the end of its time, after a background and foreground round, or ended
              with status 0.
 Apps run on apk-run's headless host for now; --graphics runs them on graphics-run, the Mac's ANGLE with the App's
-session layers, as tools/surface-check.sh does, where GLES works but no first post is logged yet. Each app runs in a
-child of this script under sandbox-exec with tools/corpus.sb: it reads the repo, the toolchain and the system, writes
-only its run's folder and networks only on loopback, and the child refuses to run an APK when it can read the user's
-home folder. An app's run folder goes once its child has ended, unless --keep-work keeps it. --check-sandbox shows
-that the profile holds: no home folder, no address beyond the host, loopback yes.
+session layers, as tools/surface-check.sh does, where GLES works but no first post is logged yet. A Java app starts
+through app_process; an app whose launcher activity is android.app.NativeActivity starts on activity-host without
+Java, as the App starts it (GuestStart, ADR-0028), with its manifest's android.app.lib_name and func_name. Each app
+runs in a child of this script under sandbox-exec with tools/corpus.sb: it reads the repo, the toolchain and the
+system, writes only its run's folder and networks only on loopback, and the child refuses to run an APK when it can
+read the user's home folder. An app's run folder goes once its child has ended, unless --keep-work keeps it. --build
+takes ART, bionic, hwui, framework-res, ICU's data and the framework from another build folder than the repo's, such
+as a trial's before its landing. --check-sandbox shows that the profile holds: no home folder, no address beyond the
+host, loopback yes.
 Python 3.9.
 
-Usage: corpus-run.py [--seconds <n>] [--native <build dir>] [--graphics] [--keep-work] <list.json> <out folder>
+Usage: corpus-run.py [--seconds <n>] [--native <build dir>] [--build <build folder>] [--graphics] [--keep-work]
+                     <list.json> <out folder>
        corpus-run.py --check-sandbox [--without-profile]
 A list: {"apks": [{"apk": <path from the repo>, "package"?, "version"?, "url"?, "sha256"?, "license"?}, ...]}.
 """
@@ -42,6 +51,13 @@ HOME = os.path.expanduser("~")
 CONFIGURATION = "1290x2796@3,en-US"  # the iPhone 15 Pro Max's display, as the Java checks start their sessions
 LIFECYCLE = "start,tap:645:1398,swipe:300:1398:1000:1398:200,background,foreground"
 FIRST_POST = "apk-run: the first post of window"
+# ActivityMetricsLogger's line for a launch, which our ActivityThread logs at the window's first draw.
+DISPLAYED = re.compile(r"^I/ActivityTaskManager: Displayed (\S+) for user \d+: (\S+)$")
+# apk-run's line once the session's start was answered: every callback of the start returned (Runtime's gap 4 (a)).
+START_ANSWERED = "apk-run: the start was answered"
+# apk-run's line for each window after a touch step (headless_host.h's Buffers).
+TOUCHED = re.compile(r"^apk-run: window (\d+) after (\S+): (\d+) posts since, (\d+) in all, "
+                     r"(the frame changed|the frame stayed|a new window)(, removed)?$")
 TEST_NET = ("192.0.2.1", 443)  # RFC 5737's TEST-NET-1: nothing answers there, so only a refusal ends a connect fast
 # The repo's files that app_process_run.start() hard-links into a run. A link from the repo needs the sandbox's whole
 # file-write* on it, which no app gets, so the parent links them into the out folder's shared/ once, and the child
@@ -53,13 +69,19 @@ STAGED = ["build/sources/icu/icu4c/source/stubdata/icudt75l.dat", "build/bionic/
 FINDINGS = [
     ("refused", re.compile(r"apk-convert: incompatible: (.*)")),
     ("library", re.compile(r"(UnsatisfiedLinkError: .*|dlopen failed: .*|cannot locate symbol .*)")),
-    ("stub class", re.compile(r"NoClassDefFoundError: (\S+)")),
+    # A class framework.jar lacks or has as a compile-only stub, as ART names it: "Failed resolution of: L<name>;" at a
+    # call site, else the name.
+    ("stub class", re.compile(r"NoClassDefFoundError: (?:Failed resolution of: L)?([\w$/.]+)")),
     ("syscall",
      re.compile(r"apkrt: (Linux syscall \d+|fcntl command \d+|ioctl request 0x[0-9a-f]+) is not supported yet")),
     ("unwritten", re.compile(r"Unwritten: (\S+)")),
+    # Data the system lacks, which the app runs without (no failure): ICU's time zone files (a tzdata APEX).
+    ("data", re.compile(r"(IcuRegistration: no time zone files) were found")),
     ("exception",
      re.compile(r"^(?:[VDIWEF]/[^:]*: )?((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error)(?:: .*)?)$")),
     ("killed", re.compile(r"Process\s*: Sending signal\. PID: \d+ (SIG: \d+)")),
+    # An EGL call the app reports as failed, as GLES apps log it on apk-run's headless host, which has no GLES (H2).
+    ("egl", re.compile(r"\b(egl[A-Z]\w*) failed")),
 ]
 
 
@@ -131,6 +153,79 @@ def badging(apk):
             "abis": re.findall(r"'([^']+)'", abis.group(1)) if abis else []}
 
 
+def manifest_tree(apk):
+    """The manifest as aapt2 prints its tree: nested {"tag", "attributes", "children"}, attribute values as text."""
+    output = subprocess.run([os.path.join(REPO, "build", "aapt2", "aapt2"), "dump", "xmltree", "--file",
+                             "AndroidManifest.xml", apk], capture_output=True, text=True).stdout
+    root = {"tag": None, "attributes": {}, "children": []}
+    stack = [(-1, root)]
+    for line in output.splitlines():
+        indent, text = len(line) - len(line.lstrip()), line.strip()
+        element = re.match(r"E: (\S+)", text)
+        attribute = re.match(r"A: (?:[^=]*?:)?(\w+)\(0x[0-9a-f]+\)=(.*)$", text) or re.match(r"A: (\w+)=(.*)$", text)
+        if element:
+            while stack[-1][0] >= indent:
+                stack.pop()
+            node = {"tag": element.group(1), "attributes": {}, "children": []}
+            stack[-1][1]["children"].append(node)
+            stack.append((indent, node))
+        elif attribute:
+            string = re.match(r'"((?:[^"\\]|\\.)*)"', attribute.group(2))
+            stack[-1][1]["attributes"][attribute.group(1)] = string.group(1) if string else attribute.group(2)
+    return root
+
+
+def native_activity(apk):
+    """The library and function the launcher NativeActivity loads, as NativeActivity.onCreate reads them from its
+    meta-data, with its defaults ("main", "ANativeActivity_onCreate"): from the manifest's first activity named
+    android.app.NativeActivity."""
+    def walk(node):
+        yield node
+        for child in node["children"]:
+            yield from walk(child)
+    values = {}
+    for node in walk(manifest_tree(apk)):
+        if node["tag"] == "activity" and node["attributes"].get("name") == "android.app.NativeActivity":
+            values = {child["attributes"].get("name"): child["attributes"].get("value")
+                      for child in node["children"] if child["tag"] == "meta-data"}
+            break
+    return (values.get("android.app.lib_name") or "main",
+            values.get("android.app.func_name") or "ANativeActivity_onCreate")
+
+
+def start_native_activity(app_process_run, apk, package, apk_convert, apk_run, build, work, run_app):
+    """The APK's NativeActivity on activity-host in a session, as GuestStart starts it in the App (ADR-0028, decision
+    14): base.apk at its code path, the app's data, external and OBB folders, /system from bionic's, the system's
+    libraries (bionic's and the graphics front libs) and the app's, and activity-host with the manifest's library and
+    function; `run_app`'s result."""
+    library, function = native_activity(apk)
+    convert = app_process_run.convert
+    system_lib64, app_lib64 = os.path.join(work, "system-lib64"), os.path.join(work, "app-lib64")
+    app_process_run.convert_directory(apk_convert, os.path.join(build, "bionic", "lib"), system_lib64)
+    app_process_run.convert_directory(apk_convert, os.path.join(build, "graphics", "guest", "bin"), system_lib64)
+    host = os.path.join(work, "bin", "activity-host.dylib")
+    convert(apk_convert, os.path.join(build, "bionic", "bin", "activity-host"), host)
+    app = app_process_run.code_path(apk, package)
+    run = os.path.join(work, "run")
+    for folder in ("data", "external-data", "external-obb", "lib-arm64"):
+        os.makedirs(os.path.join(run, folder), exist_ok=True)
+    app_process_run.install_libraries(apk_convert, apk, os.path.join(run, "lib-arm64"), work)
+    command = [apk_run, "--mount", f"{app}/base.apk={apk}"]
+    for guest, host_folder in ((f"/data/user/0/{package}", "data"), (f"/data/data/{package}", "data"),
+                               (f"/storage/emulated/0/Android/data/{package}", "external-data"),
+                               (f"/sdcard/Android/data/{package}", "external-data"),
+                               (f"/storage/emulated/0/Android/obb/{package}", "external-obb"),
+                               (f"/sdcard/Android/obb/{package}", "external-obb")):
+        command += ["--mount", f"{guest}={os.path.join(run, host_folder)}"]
+    command += ["--mount", f"/system={os.path.join(build, 'bionic', 'system')}",
+                "--configuration", CONFIGURATION, "--lifecycle", LIFECYCLE,
+                "--libraries", f"/system/lib64={system_lib64}", "--libraries", f"{app}/lib/arm64={app_lib64}",
+                "--cwd", "/", "--app-environment", "--env", f"LD_LIBRARY_PATH={app}/lib/arm64",
+                "--argv0", "/system/bin/activity-host", host,
+                "--package", package, "--apk", f"{app}/base.apk", "--library", library, "--function", function]
+    return run_app(command)
+
+
 def findings_of(text):
     found = {kind: [] for kind, _ in FINDINGS}
     first = None
@@ -142,13 +237,25 @@ def findings_of(text):
                 name = match.group(1)
                 if name not in found[kind]:
                     found[kind].append(name)
-                if first is None and kind != "unwritten":
+                if first is None and kind not in ("unwritten", "data"):
                     first = {"kind": kind, "text": name}
                 break
     return found, first
 
 
-def run_one(entry, out, seconds, native, graphics):
+def duration_ms(text):
+    """TimeUtils.formatDuration's text as milliseconds ("+1s234ms" is 1234), or None."""
+    if text == "0":
+        return 0
+    match = re.fullmatch(r"([+-])(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m(?!s))?(?:(\d+)s)?(\d+)ms", text)
+    if not match:
+        return None
+    days, hours, minutes, seconds, millis = (int(group or 0) for group in match.groups()[1:])
+    total = (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000 + millis
+    return -total if match.group(1) == "-" else total
+
+
+def run_one(entry, out, seconds, native, build, graphics):
     """In the sandbox: the levels, findings and log of one APK, as JSON in `out`."""
     try:
         os.listdir(HOME)
@@ -161,8 +268,9 @@ def run_one(entry, out, seconds, native, graphics):
     real_link = os.link
 
     def link(source, target, *args, **kwargs):
-        """os.link, with a source in the repo taken from the parent's shared/ copy (STAGED), else copied."""
-        source = os.fspath(source)
+        """os.link, with a source in the repo, also behind a link, from the parent's shared/ copy (STAGED), else
+        copied."""
+        source = os.path.realpath(os.fspath(source))
         if source.startswith(REPO + os.sep):
             staged = os.path.join(out, "shared", os.path.relpath(source, REPO))
             if not os.path.exists(staged):
@@ -221,30 +329,47 @@ def run_one(entry, out, seconds, native, graphics):
             return subprocess.CompletedProcess(command, status, "".join(output["stdout"]), "".join(output["stderr"]))
 
         app_process_run.run_app = run_app
-        build = os.path.join(REPO, "build")
+        build = os.path.abspath(build)
         mounts = [("/system/framework/framework-res", os.path.join(build, "framework-res", "framework-res"))]
+        apk_convert = os.path.join(REPO, native, "importer", "converter", "apk-convert")
+        apk_run = os.path.join(REPO, native, *(("graphics", "tests", "graphics-run") if graphics
+                                               else ("runtime", "apk-run")))
         try:
-            result = app_process_run.start(
-                os.path.join(build, "art"), os.path.join(build, "bionic", "lib"),
-                os.path.join(build, "bionic", "system"), os.path.join(build, "hwui", "lib"),
-                os.path.join(build, "sources", "icu", "icu4c", "source", "stubdata", "icudt75l.dat"),
-                os.path.join(REPO, native, "importer", "converter", "apk-convert"),
-                os.path.join(REPO, native, *(("graphics", "tests", "graphics-run") if graphics
-                                             else ("runtime", "apk-run"))),
-                os.path.join(work, "run"),
-                os.path.join(build, "framework-native", "app_process64"),
-                os.path.join(build, "framework", "framework.jar"), apk, record["package"], None, mounts=mounts,
-                configuration=CONFIGURATION, lifecycle=LIFECYCLE)
+            if record["activity"] == "android.app.NativeActivity":
+                record["host"] = "activity-host"
+                result = start_native_activity(app_process_run, apk, record["package"], apk_convert, apk_run, build,
+                                               os.path.join(work, "run"), run_app)
+            else:
+                record["host"] = "app_process"
+                result = app_process_run.start(
+                    os.path.join(build, "art"), os.path.join(build, "bionic", "lib"),
+                    os.path.join(build, "bionic", "system"), os.path.join(build, "hwui", "lib"),
+                    os.path.join(build, "sources", "icu", "icu4c", "source", "stubdata", "icudt75l.dat"),
+                    apk_convert, apk_run, os.path.join(work, "run"),
+                    os.path.join(build, "framework-native", "app_process64"),
+                    os.path.join(build, "framework", "framework.jar"), apk, record["package"], None, mounts=mounts,
+                    configuration=CONFIGURATION, lifecycle=LIFECYCLE)
         except SystemExit as error:
             log += f"\n{error}"
     if result is not None:
         log += "\n" + result.stdout + "\n" + result.stderr
         record["status"] = result.returncode
         record["alive_at_end"] = kept.get("alive_at_end", False)
-    starts = FIRST_POST in log
+    lines = log.splitlines()
+    displayed = next((match for match in map(DISPLAYED.match, lines) if match), None)
+    if displayed:
+        record["displayed"] = {"component": displayed.group(1), "ms": duration_ms(displayed.group(2))}
+    touched = [match for match in map(TOUCHED.match, lines) if match]
+    record["touches"] = [{"step": match.group(2), "window": int(match.group(1)), "since": int(match.group(3)),
+                          "posts": int(match.group(4)), "frame": match.group(5), "removed": bool(match.group(6))}
+                         for match in touched]
+    starts = (displayed is not None or FIRST_POST in log or
+              record.get("host") == "activity-host" and START_ANSWERED in lines)
+    frame = any(match.group(5) == "the frame changed" or (match.group(5) == "a new window" and match.group(3) != "0")
+                for match in touched)
     record["levels"].update({
         "starts": starts,
-        "frame": None,
+        "frame": None if graphics else frame,
         "audio": None,
         "network": None,
         "lives": bool(result is not None and starts and
@@ -269,11 +394,12 @@ def main():
         return
     if arguments[:1] == ["--one"]:
         entry, out, seconds, native = json.loads(arguments[1]), arguments[2], float(arguments[3]), arguments[4]
-        run_one(entry, out, seconds, native, arguments[5:] == ["--graphics"])
+        run_one(entry, out, seconds, native, arguments[5], arguments[6:] == ["--graphics"])
         return
     # build/native/macos: Runtime's rollout folder, with apk-run, graphics-run and apk-convert of main's HEAD.
     seconds, native, graphics, keep_work = 120.0, os.path.join("build", "native", "macos"), False, False
-    while arguments[:1] in (["--seconds"], ["--native"], ["--graphics"], ["--keep-work"]):
+    build = os.path.join(REPO, "build")
+    while arguments[:1] in (["--seconds"], ["--native"], ["--build"], ["--graphics"], ["--keep-work"]):
         if arguments[0] == "--graphics":
             graphics, arguments = True, arguments[1:]
             continue
@@ -282,6 +408,8 @@ def main():
             continue
         if arguments[0] == "--seconds":
             seconds = float(arguments[1])
+        elif arguments[0] == "--build":
+            build = os.path.abspath(arguments[1])
         else:
             native = arguments[1]
         arguments = arguments[2:]
@@ -304,7 +432,7 @@ def main():
             os.link(os.path.join(REPO, path), staged)
     for entry in entries:
         command = sandbox_command([sys.executable, os.path.abspath(__file__), "--one", json.dumps(entry), out,
-                                   str(seconds), native] + (["--graphics"] if graphics else []), out)
+                                   str(seconds), native, build] + (["--graphics"] if graphics else []), out)
         child = subprocess.run(command, env=environment, capture_output=True, text=True)
         name = os.path.splitext(os.path.basename(entry["apk"]))[0]
         if not keep_work:
