@@ -15,6 +15,7 @@
 # without its own fixtures/java folder, a twin such as compat-test-35, takes the sources of the app it is named after.
 # jnigraphics-test (ADR-0041 a5) is one more, whose JNI library links libjnigraphics, and touch-test (ADR-0045 step
 # 7b), whose events are made up.
+# binder-test (ADR-0043 step d2b)) is one more, whose binders are its own.
 # drawables-test (ADR-0043 step d)) is one more, with an XML drawable of every tag in res/drawable, and checkbox-test
 # (step e1)), with a layout of CheckBoxes in res/layout. pointer-insets-test (ADR-0042 b) is one more, with a
 # <pointer-icon> in res/xml and its bitmap in res/drawable.

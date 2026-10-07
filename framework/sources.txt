@@ -831,6 +831,14 @@ frameworks_base/core/java/android/os/NetworkOnMainThreadException.java
 frameworks_base/core/java/android/os/PersistableBundle.java
 frameworks_base/core/java/android/util/SizeF.java
 
+# ADR-0043 step d2b) (App): ShellCallback and ResultReceiver with their AIDL, the types of IBinder.shellCommand, which
+# ART resolves when it checks an app's class against IBinder: a bound service's local binder, an AIDL stub, an IBinder
+# of the app's own; an app's ResultReceiver sends through IResultReceiver to its Handler.
+frameworks_base/core/java/android/os/ResultReceiver.java
+frameworks_base/core/java/android/os/ShellCallback.java
+frameworks_base/core/java/com/android/internal/os/IResultReceiver.aidl
+frameworks_base/core/java/com/android/internal/os/IShellCallback.aidl
+
 # ADR-0045, the storage and app ops Godot's start asks for (stops 4 and 6 of the Godot b) rerun past 7a):
 # StorageVolume, the one emulated volume that our StorageManager (managergen's, framework/managers) lists.
 frameworks_base/core/java/android/os/storage/StorageVolume.java

@@ -291,7 +291,6 @@ android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityMana
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
-android.os.ResultReceiver <- android.window.ImeOnBackInvokedDispatcher  # stays: the input method's back dispatcher, which only InputMethodManager makes for an input method's window, and Minato has no input method yet
 android.os.TestLooperManager <- android.app.Instrumentation  # stays: an instrumentation test's looper control, and no test instrumentation runs on Minato
 android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys

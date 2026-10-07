@@ -116,14 +116,32 @@ public class Binder implements IBinder {
         return mDescriptor != null && mDescriptor.equals(descriptor) ? mOwner : null;
     }
 
+    /**
+     * As AOSP's for the interface's code: the descriptor. A dump and a shell command, which dumpsys and the shell send
+     * from their processes, stay unknown codes here, as no other process reaches the app's binders.
+     */
     protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+        if (code == INTERFACE_TRANSACTION) {
+            reply.writeString(getInterfaceDescriptor());
+            return true;
+        }
         return false;
     }
 
-    /** A transaction is a call of onTransact in this process, as AOSP's Binder makes it for a local caller. */
+    /**
+     * A transaction is a call of onTransact in this process, as AOSP's Binder makes it for a local caller: onTransact
+     * reads the data from its start, and the caller the reply (ADR-0043 d2b)).
+     */
     @Override
     public final boolean transact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
-        return onTransact(code, data, reply, flags);
+        if (data != null) {
+            data.setDataPosition(0);
+        }
+        boolean handled = onTransact(code, data, reply, flags);
+        if (reply != null) {
+            reply.setDataPosition(0);
+        }
+        return handled;
     }
 
     /** A local binder dies with the process, so a death recipient is never called, as with AOSP's. */

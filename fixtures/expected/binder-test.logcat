@@ -1,0 +1,17 @@
+I/binder-test: local: descriptor null, ping true, alive true, local interface null
+I/binder-test: local: attached, descriptor io.github.kisame76.minato.test.binder.IAdder, local interface the owner true, another descriptor's null
+I/binder-test: local: calling uid the app's true, calling pid the process's true
+I/binder-test: local: linked to death, unlinked true
+I/binder-test: transact: add true, sum 5
+I/binder-test: transact: one-way add true
+I/binder-test: transact: interface true, io.github.kisame76.minato.test.binder.IAdder
+I/binder-test: transact: another code false, reply size 0
+I/binder-test: stub: asInterface gives the stub true, add 9, descriptor io.github.kisame76.minato.test.binder.IAdder
+I/binder-test: stub: through the proxy, add 13, its binder the stub true
+I/binder-test: parcel: the local binder back true, the stub true, null null, the stub's interface true
+I/binder-test: own: descriptor own, ping true
+I/binder-test: own: back from a parcel null
+I/binder-test: receiver: without a Handler 1 first, on the sender's thread true, contents 0
+I/binder-test: receiver: with a Handler, came true, 2 second, on its thread true
+I/binder-test: parceled receiver: copy android.os.ResultReceiver, came true, 3 third, on the original's thread true
+I/binder-test: done
