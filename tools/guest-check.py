@@ -12,11 +12,13 @@ every container in Guest/ passes `codesign -v`.
   apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data
                     and the time zones
   apex-lib64/       the APEXes' lib64: libart.so in ART's, libjavacrypto.so in Conscrypt's
+  resource-cache/   /data/resource-cache for a Java app (ADR-0043 f)): each overlay of
+                    framework/monet-overlays.txt and its idmap
 
-system/ and apex/ are what the guest's file system mounts (GuestStart.swift), and the runtime resolves every guest
-path below its mount's folder with O_RESOLVE_BENEATH: a link whose walk leaves it answers EACCES (ADR-0052), even one
-that comes back or names a file inside by an absolute text. So a link there must stay in its folder at every step; the
-folder itself may be a link, as apkrt_mount takes the host path's realpath.
+system/, apex/ and resource-cache/ are what the guest's file system mounts (GuestStart.swift), and the runtime
+resolves every guest path below its mount's folder with O_RESOLVE_BENEATH: a link whose walk leaves it answers EACCES
+(ADR-0052), even one that comes back or names a file inside by an absolute text. So a link there must stay in its
+folder at every step; the folder itself may be a link, as apkrt_mount takes the host path's realpath.
 
 A missing path, an empty file, a container that fails `codesign -v` and a link that leaves its mounted folder are
 named; the run ends with 1 then.
@@ -35,6 +37,14 @@ FRONT_LIBS = ["libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "l
 BIONIC = ["libc.so", "libdl.so", "libm.so", "liblog.so", "libandroid.so", "libnativewindow.so", "libz.so"]
 ART_JARS = ["core-oj.jar", "core-libart.jar", "okhttp.jar", "bouncycastle.jar", "core-icu4j.jar"]
 
+
+def monet_files():
+    """Each overlay's file of framework/monet-overlays.txt and its idmap, by idmap2's name for it (ADR-0043 f))."""
+    listed = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "framework", "monet-overlays.txt")
+    files = [line.split()[2] for line in open(listed, encoding="utf-8") if line.startswith("overlay ")]
+    return [name for file in files for name in (file, f"data@resource-cache@{file}@idmap")]
+
+
 REQUIRED = (
     ["bin/activity-host.dylib", "bin/app_process64.dylib"]
     + [f"lib64/{name}.dylib" for name in BIONIC + FRONT_LIBS + ["libandroid_runtime.so"] + HWUI + ART_COPIES]
@@ -45,10 +55,11 @@ REQUIRED = (
     + ["apex/com.android.conscrypt/javalib/conscrypt.jar", "apex/com.android.i18n/etc/icu/icudt75l.dat",
        "apex/com.android.tzdata/etc/tz/tzdata", "apex-lib64/com.android.art/libart.so.dylib",
        "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
+    + [f"resource-cache/{name}" for name in monet_files()]
 )
 
-# The folders of Guest/ that the guest's file system mounts, as /system and /apex.
-MOUNTED = ["system", "apex"]
+# The folders of Guest/ that the guest's file system mounts, as /system, /apex and /data/resource-cache.
+MOUNTED = ["system", "apex", "resource-cache"]
 LINK_LIMIT = 32  # Darwin's MAXSYMLINKS: a longer chain answers ELOOP
 
 

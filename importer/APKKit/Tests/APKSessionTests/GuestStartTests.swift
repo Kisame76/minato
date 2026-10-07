@@ -114,12 +114,13 @@ struct GuestStartTests {
     }
 
     /// The guest's /data is the app's folder in Caches, where ART finds /data and its dalvik-cache (the lead's
-    /// decision for c5); the app's paths lie over it, as in decision 14, with signers.json beside base.apk and ART's
-    /// APEXes in /apex.
+    /// decision for c5); Monet's overlays from the bundle lie over it as /data/resource-cache (ADR-0043 f)), and the
+    /// app's paths, as in decision 14, with signers.json beside base.apk and ART's APEXes in /apex.
     @Test func mountsDataThenTheAppsPathsAndTheAPEXes() {
         let app = Self.codePath
         #expect(Self.javaStart()?.mounts == [
             .init(guest: "/data", host: "/c/guest/p/data"),
+            .init(guest: "/data/resource-cache", host: "/b/Minato.app/Guest/resource-cache"),
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "\(app)/signers.json", host: "/v/apps/p/1/signers.json"),
             .init(guest: "/data/user/0/\(Self.package)", host: "/v/data/p/data"),

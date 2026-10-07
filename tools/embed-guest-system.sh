@@ -17,6 +17,9 @@
 #                             data and the time zone file
 #   apex-lib64/<APEX>/        the APEXes' lib64: ART's release flavor in com.android.art, libjavacrypto in
 #                             com.android.conscrypt
+#   resource-cache/           Monet's overlays (ADR-0043 f)), the fabricated overlays of
+#                             framework/monet-overlays.txt and their idmaps, made from this build's framework-res:
+#                             a Java app's /data/resource-cache (GuestStart.swift)
 # Every container is converted at build time and signed with the app's identity and the bundle ID as
 # identifier (route 1 of ADR-0008). tools/build-bionic.sh builds what it takes from build/bionic,
 # tools/build-front-libs.sh the front libs in build/graphics/guest/bin, tools/build-art.sh ART in build/art,
@@ -121,6 +124,8 @@ mkdir -p "$OUT/system/framework" "$OUT/system/etc/permissions"
 cp "$FRAMEWORK_JAR" "$OUT/system/framework/"
 cp -R "$FRAMEWORK_RES" "$OUT/system/framework/"
 cp "$PLATFORM_XML" "$OUT/system/etc/permissions/"
+# Monet's overlays from the same framework-res (ADR-0043 f)), as SystemUI and idmap2 keep them on Android 15.
+python3 "$SRCROOT/tools/monet-overlays.py" "$(dirname "$FRAMEWORK_RES")" "$OUT/resource-cache" >/dev/null
 
 # ART's APEXes (ADR-0033 d2), as runtime/tests/art_run.py lays them out on the Mac: the folders ART and ICU look
 # for, bin/ and lib64/ empty in the files, since their programs and libraries are containers.

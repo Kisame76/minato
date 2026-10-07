@@ -57,14 +57,18 @@ public struct GuestStart: Sendable, Equatable {
     /// A Java app's start (ADR-0039 c5): app_process64 with the arguments of framework/tests/app_process_run.py's
     /// start(), whose ActivityThread takes the Application class from the manifest. `signers` is the version's
     /// signers.json, nil for an unsigned APK. `guestData` stands for /data: the app's folder in Caches, where ART
-    /// finds /data and its dalvik-cache (the lead's decision for c5); the app's paths lie over it, and ART's APEXes are
-    /// /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra entries.
+    /// finds /data and its dalvik-cache (the lead's decision for c5); Monet's overlays from the bundle lie over it as
+    /// /data/resource-cache, where every app's Resources find them (ADR-0043 f)), the app's paths too, and ART's
+    /// APEXes are /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra
+    /// entries.
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
                  data: String, external: String, obb: String, guestData: String, guestSystem: String,
                  environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
-        mounts = [Path(guest: "/data", host: guestData), Path(guest: "\(app)/base.apk", host: apk)]
+        mounts = [Path(guest: "/data", host: guestData),
+                  Path(guest: "/data/resource-cache", host: "\(guestSystem)/resource-cache"),
+                  Path(guest: "\(app)/base.apk", host: apk)]
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
             + Self.dataMounts(package: package, data: data, external: external, obb: obb)
             + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]

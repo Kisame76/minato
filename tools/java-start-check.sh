@@ -5,13 +5,15 @@
 # jni-lib-test (step c5.1's, which looks at its JNI library in nativeLibraryDir), jnigraphics-test (ADR-0041 a5's,
 # whose JNI library links libjnigraphics, which the app's guest system has from build/hwui/lib, and reads and writes
 # bitmaps through AndroidBitmap_* and decodes the APK's picture.png through AImageDecoder), surface-test
-# (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's) and, in the Simulator,
-# obb-test (ADR-0049 test 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives
-# to it by its name) are imported and tapped in the library,
+# (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's), palette-test
+# (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache) and, in the
+# Simulator, obb-test (ADR-0049 test 8's, which reads its main OBB, picked after it as a unit of its own, which the
+# library gives to it by its name) are imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
-# sends to tmp/session-check/guest-out, and the lines of the others' own tags in their guest logs, of both of
-# context-test's starts (framework/tests/java_app_run.py). An app process never ends by itself (step c2b): 2 s after
+# sends to tmp/session-check/guest-out, with ART's line in its guest log that names its collector, CMS (ADR-0033
+# decision 5), and the lines of the others' own tags in their guest logs, of both of context-test's starts
+# (framework/tests/java_app_run.py). An app process never ends by itself (step c2b): 2 s after
 # the app's last line the script ends Minato, as tools/android-reference.sh stops the app on the AVD after that line,
 # and it prints the time from the tap to that line. On the iPhone, java-test (ADR-0043 step c1) follows: twice the
 # tap, its window's focus, Home (Settings comes to the front), the return to Minato and the app's own finish, as on
@@ -65,7 +67,7 @@ fi
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
       "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib"
       "jnigraphics-test io.github.kisame76.minato.test.jnigraphics"
-      "surface-test io.github.kisame76.minato.test.surface")
+      "surface-test io.github.kisame76.minato.test.surface" "palette-test io.github.kisame76.minato.test.palette")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -491,22 +493,28 @@ if wanted app-start-test; then
     || failures=$((failures + 1))
 import sys
 sys.path.insert(0, "framework/tests")
-from app_process_run import expected_lines, our_lines
+from app_process_run import COLLECTOR, collector_type, expected_lines, our_lines
 
 out, log, expected = sys.argv[1:]
 got, wanted = our_lines(open(out, encoding="utf-8", errors="replace").read()), expected_lines(expected)
-if got == wanted:
-    print(f"ok      app-start-test printed what Android 15's app process shows, {len(got)} lines")
+lines = open(log, encoding="utf-8", errors="replace").read().splitlines()
+# ART's line at every start names its collector: app_process's CMS, as on the Mac (ADR-0033 decision 5).
+collector = collector_type("\n".join(lines))
+if got == wanted and collector == COLLECTOR:
+    print(f"ok      app-start-test printed what Android 15's app process shows, {len(got)} lines, under {COLLECTOR}")
     sys.exit(0)
-print("FAIL    app-start-test's lines differ from Android 15's:")
-for line in wanted:
-    if line not in got:
-        print(f"      | only Android's: {line}")
-for line in got:
-    if line not in wanted:
-        print(f"      | only ours:      {line}")
+if collector != COLLECTOR:
+    print(f"FAIL    app-start-test's ART runs {collector or 'a collector its log does not name'}, not {COLLECTOR}")
+if got != wanted:
+    print("FAIL    app-start-test's lines differ from Android 15's:")
+    for line in wanted:
+        if line not in got:
+            print(f"      | only Android's: {line}")
+    for line in got:
+        if line not in wanted:
+            print(f"      | only ours:      {line}")
 print("      | its guest log, last 40 lines:")
-for line in open(log, encoding="utf-8", errors="replace").read().splitlines()[-40:]:
+for line in lines[-40:]:
     print(f"      | {line}")
 sys.exit(1)
 EOF
@@ -548,6 +556,8 @@ EOF
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics
+# Its colors come from Monet's overlays, which every app's Resources take from /data/resource-cache (ADR-0043 f)).
+run_one palette-test io.github.kisame76.minato.test.palette
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   # Its OBB must be in its OBB folder before the tap.
   obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
