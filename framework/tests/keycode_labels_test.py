@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""KeyEvent's natives (framework/native/android_runtime/android_view_KeyEvent.cpp, ADR-0039 step c2c3) against
-KeyEvent.java at android-15.0.0_r1: kLabels names every KEYCODE_ constant without its prefix at the index of its value,
+"""The key labels of KeyEvent's natives (ADR-0039 step c2c3), which libinput's InputEventLabels holds since ADR-0045
+step 7c1 (framework/native/android_runtime/input_event_labels.cpp), against KeyEvent.java at android-15.0.0_r1:
+kKeyLabels names every KEYCODE_ constant without its prefix at the index of its value,
 from KEYCODE_UNKNOWN to LAST_KEYCODE, with no gap, so that keyCodeToString and keyCodeFromString answer as Android's
 libinput table does. Skipped while the fetched sources are absent. tools/framework-host-check.sh runs it.
 """
@@ -10,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-NATIVE = os.path.join(ROOT, "framework", "native", "android_runtime", "android_view_KeyEvent.cpp")
+NATIVE = os.path.join(ROOT, "framework", "native", "android_runtime", "input_event_labels.cpp")
 KEY_EVENT = os.path.join(ROOT, "build", "sources", "frameworks_base", "core", "java", "android", "view",
                          "KeyEvent.java")
 
@@ -27,10 +28,10 @@ def java_keycodes(text):
 
 
 def native_labels(text):
-    """kLabels' strings, in order."""
-    table = re.search(r"constexpr const char \*kLabels\[\] = \{(.*?)\};", text, re.S)
+    """kKeyLabels' strings, in order."""
+    table = re.search(r"constexpr const char \*kKeyLabels\[\] = \{(.*?)\};", text, re.S)
     if not table:
-        raise SystemExit(f"{NATIVE}: no kLabels table")
+        raise SystemExit(f"{NATIVE}: no kKeyLabels table")
     return re.findall(r'"([^"]*)"', table.group(1))
 
 
@@ -48,7 +49,8 @@ def main():
     expected = [codes[value] for value in sorted(codes)]
     if labels != expected:
         first = next((i for i, (a, b) in enumerate(zip(labels, expected)) if a != b), min(len(labels), len(expected)))
-        failures.append(f"kLabels has {len(labels)} labels, KeyEvent.java {len(expected)}; first difference at {first}")
+        failures.append(f"kKeyLabels has {len(labels)} labels, KeyEvent.java {len(expected)}; first difference at "
+                        f"{first}")
     if expected and last != expected[-1]:
         failures.append(f"LAST_KEYCODE is KEYCODE_{last}, the table ends with {expected[-1]}")
     if failures:

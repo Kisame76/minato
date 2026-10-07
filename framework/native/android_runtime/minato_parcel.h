@@ -79,6 +79,9 @@ public:
     void *writeInplace(size_t len);
     status_t writeString8(const char *str, size_t len);
     status_t writeString16(const char16_t *str, size_t len);
+    // As libbinder's, for libinput's KeyCharacterMap parcel (ADR-0045 step 7c1): a C string is its bytes and NUL,
+    // padded to 4; readCString finds the NUL within the data or answers null; errorCheck is the parcel's error.
+    status_t writeCString(const char *str);
     // A blob of len bytes, always in place (BLOB_INPLACE), which *outData then points at.
     status_t writeBlob(size_t len, void **outData);
     status_t writeStrongBinder(JNIEnv *env, jobject binder);
@@ -97,6 +100,8 @@ public:
     const void *readInplace(size_t len) const;
     const char *readString8Inplace(size_t *outLen) const;
     const char16_t *readString16Inplace(size_t *outLen) const;
+    const char *readCString() const;
+    status_t errorCheck() const { return mError; }
     status_t readBlob(size_t len, const void **outData) const;
     // A new local reference to the binder at the position, or null.
     jobject readStrongBinder(JNIEnv *env) const;

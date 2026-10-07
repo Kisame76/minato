@@ -559,6 +559,27 @@
         "libs/input/VelocityTracker.cpp"
       ],
       "digest": "914d91f613e99b1f8eec40e3ae40c30a3cd07663284cc85f03cede0bc063136d"
+    },
+    {
+      "name": "frameworks_base_keyboards",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "data/keyboards/Virtual.kcm"
+      ],
+      "digest": "39f2aadeac8ed432323fcfb509d97c437aaeee59365ba98e01df361c24ecc4b3"
+    },
+    {
+      "name": "frameworks_native_keys",
+      "project": "platform/frameworks/native",
+      "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
+      "license": "Apache-2.0",
+      "files": [
+        "include/input/KeyCharacterMap.h",
+        "libs/input/KeyCharacterMap.cpp"
+      ],
+      "digest": "5401db5a398e99308452f63e1c7b301ea043428521ff5f2ee1cff0dc4a501c18"
     }
   ],
   "angle": {

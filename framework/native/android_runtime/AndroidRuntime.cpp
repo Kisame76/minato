@@ -54,7 +54,11 @@ extern int register_android_app_ActivityThread(JNIEnv *env);
 extern int register_android_animation_PropertyValuesHolder(JNIEnv *env);
 extern int register_android_util_EventLog(JNIEnv *env);
 extern int register_android_app_Activity(JNIEnv *env);
+// KeyEvent's and KeyCharacterMap's (ADR-0045 step 7c1): AOSP's core/jni files over libinput; the input service's, ours,
+// for the virtual keyboard's map.
 extern int register_android_view_KeyEvent(JNIEnv *env);
+extern int register_android_view_KeyCharacterMap(JNIEnv *env);
+extern int register_android_hardware_input_InputService(JNIEnv *env);
 // MotionEvent's and VelocityTracker's (ADR-0045 step 7b1): AOSP's core/jni files over libinput.
 extern int register_android_view_MotionEvent(JNIEnv *env);
 extern int register_android_view_VelocityTracker(JNIEnv *env);
@@ -115,6 +119,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_hardware_SensorManager, register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent,
+          register_android_view_KeyCharacterMap, register_android_hardware_input_InputService,
           register_android_view_MotionEvent, register_android_view_VelocityTracker,
           register_android_view_InputChannel, register_android_view_InputEventReceiver}) {
         if (registration(env) < 0) {

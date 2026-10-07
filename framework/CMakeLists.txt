@@ -187,13 +187,23 @@ set_target_properties(hwui PROPERTIES IMPORTED_LOCATION "${HWUI_LIB}/libhwui.so"
 # framework), with ours for InputEventLabels (native/android_runtime/input_event_labels.cpp), and in native/include
 # for the two AIDL headers, InputDevice.h's reserved device ids, an empty DisplayViewport.h and binder/Parcel.h onto
 # minato_parcel.h; and libui's Transform with the Region and Rect it names. Soong's flags carry -ffp-contract=off, so
-# the velocities' floats come out as Android's.
+# the velocities' floats come out as Android's. Since step 7c1 also libinput's KeyCharacterMap.cpp as it stands, for
+# KeyCharacterMap's natives, with ours for the meta-state functions of libinput's Keyboard.cpp
+# (native/android_runtime/keyboard_meta_state.cpp) and a stand-in input/Keyboard.h in native/include.
 set(input_sources "${SOURCES}/frameworks_native_input")
+set(keys_sources "${SOURCES}/frameworks_native_keys")
 set(ui_sources "${SOURCES}/frameworks_native_graphics/libs/ui")
+foreach(source frameworks_native_keys frameworks_base_keyboards)
+  if(NOT EXISTS "${SOURCES}/${source}")
+    message(FATAL_ERROR "No ${SOURCES}/${source}: run tools/fetch-sources.py --set framework")
+  endif()
+endforeach()
 add_library(input STATIC "${input_sources}/libs/input/Input.cpp" "${input_sources}/libs/input/VelocityTracker.cpp"
-            native/android_runtime/input_event_labels.cpp "${ui_sources}/Transform.cpp" "${ui_sources}/Region.cpp"
+            "${keys_sources}/libs/input/KeyCharacterMap.cpp" native/android_runtime/input_event_labels.cpp
+            native/android_runtime/keyboard_meta_state.cpp "${ui_sources}/Transform.cpp" "${ui_sources}/Region.cpp"
             "${ui_sources}/Rect.cpp")
-target_include_directories(input PUBLIC "${input_sources}/include" native/include "${ui_sources}/include"
+target_include_directories(input PUBLIC "${input_sources}/include" "${keys_sources}/include" native/include
+                           "${ui_sources}/include"
                            "${SOURCES}/frameworks_native_graphics/libs/math/include"
                            "${SOURCES}/frameworks_native_graphics/libs/arect/include"
                            "${SOURCES}/frameworks_native_headers/include" PRIVATE "${ui_sources}/include_private"
@@ -203,8 +213,23 @@ soong_module(input FLAGS -Wall -Wextra -Werror -Wno-unused-parameter)
 # libmath's half.h specializes std::is_floating_point, which this clang refuses unless told; its users need it too.
 target_compile_options(input PUBLIC -Wno-invalid-specialization)
 target_link_libraries(input PUBLIC utils cutils base guest_log PRIVATE art_libnativehelper)
+# AOSP's core/jni files for MotionEvent's and VelocityTracker's natives, and since step 7c1 for KeyEvent's and
+# KeyCharacterMap's.
 sources_in(input_jni_sources "${SOURCES}/frameworks_base/core/jni"
-  android_view_MotionEvent.cpp android_view_VelocityTracker.cpp)
+  android_view_MotionEvent.cpp android_view_VelocityTracker.cpp android_view_KeyEvent.cpp
+  android_view_KeyCharacterMap.cpp)
+# The virtual keyboard's key character map (ADR-0045 step 7c1): Virtual.kcm's text as a C array with its NUL, which the
+# input service's native parses under Android's path (native/android_runtime/android_hardware_input_InputService.cpp),
+# rewritten only when the file changes.
+set(virtual_kcm "${SOURCES}/frameworks_base_keyboards/data/keyboards/Virtual.kcm")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${virtual_kcm}")
+file(READ "${virtual_kcm}" virtual_kcm_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," virtual_kcm_bytes "${virtual_kcm_hex}")
+file(WRITE "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp.new"
+     "// Made by framework/CMakeLists.txt from Virtual.kcm (ADR-0045 step 7c1).\n"
+     "extern const char kVirtualKcm[];\nconst char kVirtualKcm[] = {${virtual_kcm_bytes}0};\n")
+configure_file("${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp.new" "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp"
+               COPYONLY)
 
 # --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
 # files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
@@ -254,7 +279,8 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
-            native/android_runtime/android_view_KeyEvent.cpp native/android_runtime/minato_gles.cpp
+            native/android_runtime/minato_gles.cpp native/android_runtime/android_hardware_input_InputService.cpp
+            "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp"
             native/android_runtime/android_view_InputChannel.cpp
             native/android_runtime/android_view_InputEventReceiver.cpp
             native/android_runtime/android_os_Parcel.cpp native/android_runtime/minato_parcel.cpp)

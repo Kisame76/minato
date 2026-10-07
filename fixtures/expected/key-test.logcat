@@ -1,0 +1,20 @@
+I/key-test: virtual: keyboard type 4, modifier behavior 0
+I/key-test: get: A 0x61, Shift+A 0x41, Caps Lock+A 0x41, Shift+Caps Lock+A 0x61, 1 0x31, Shift+1 0x21, SPACE 0x20, DEL 0x0
+I/key-test: dead: Alt+E 0x800000b4, on e 0xe9
+I/key-test: number: A 0x0, 1 0x31; label: A 0x41, 1 0x31
+I/key-test: match: 1 in the digits 0x31, A in the digits 0x0, 1 in ! 0x21
+I/key-test: printing: A true, SPACE false, DEL false
+I/key-test: events of Hi!: 10, down KEYCODE_SHIFT_LEFT/0x41 down KEYCODE_H/0x41 up KEYCODE_H/0x41 up KEYCODE_SHIFT_LEFT down KEYCODE_I up KEYCODE_I down KEYCODE_SHIFT_LEFT/0x41 down KEYCODE_1/0x41 up KEYCODE_1/0x41 up KEYCODE_SHIFT_LEFT; device -1, source 0x101
+I/key-test: parcel: 6540 bytes, equal true, keyboard type 4, Shift+1 0x21
+I/key-test: event: device -1, unicode 0x31, with Shift 0x21, number 0x31, match 0x31, label 0x31, printing true, map's keyboard type 4
+I/key-test: edit: focused true, input type 0x2, key listener android.text.method.DigitsKeyListener
+I/key-test: edit: down KEYCODE_1, unicode 0x31, device -1
+I/key-test: edit: up KEYCODE_1, unicode 0x31, device -1
+I/key-test: KEYCODE_1: text "1", in touch mode false
+I/key-test: edit: down KEYCODE_A, unicode 0x61, device -1
+I/key-test: edit: up KEYCODE_A, unicode 0x61, device -1
+I/key-test: KEYCODE_A: text "1", in touch mode false
+I/key-test: edit: down KEYCODE_DEL, unicode 0x0, device -1
+I/key-test: edit: up KEYCODE_DEL, unicode 0x0, device -1
+I/key-test: KEYCODE_DEL: text "", in touch mode false
+I/key-test: done

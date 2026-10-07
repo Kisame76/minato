@@ -148,9 +148,15 @@ public class DecorView extends FrameLayout {
         return cb != null ? cb.dispatchGenericMotionEvent(ev) : super.dispatchGenericMotionEvent(ev);
     }
 
-    /** The view tree's own dispatch, which the activity's default dispatch comes back to through the window. */
+    /**
+     * The view tree's own dispatch, which the activity's default dispatch comes back to through the window; for a key,
+     * then the unhandled-key listeners of the window's views, as AOSP's but for action modes (ADR-0045 step 7c1).
+     */
     boolean superDispatchKeyEvent(KeyEvent event) {
-        return super.dispatchKeyEvent(event);
+        if (super.dispatchKeyEvent(event)) {
+            return true;
+        }
+        return (getViewRootImpl() != null) && getViewRootImpl().dispatchUnhandledKeyEvent(event);
     }
 
     boolean superDispatchKeyShortcutEvent(KeyEvent event) {

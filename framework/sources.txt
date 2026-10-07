@@ -754,9 +754,9 @@ frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11ExtensionPac
 # ADR-0045, the input service Godot's start asks for (gap 7a of the Godot survey): InputManager, InputManagerGlobal and
 # InputDevice over the local input service (android.hardware.input.InputService, ours), with IInputManager's AIDL and
 # what it names, and the gesture detectors Godot's input handler makes, with AppGlobals, whose core settings
-# ViewConfiguration's input timeouts ask from GestureDetector's static init on. KeyCharacterMap (step 7c) and
-# VelocityTracker (step 7b) stay compile-only, as do an input device's battery, lights, sensors and vibrators, which
-# Minato's devices lack.
+# ViewConfiguration's input timeouts ask from GestureDetector's static init on. VelocityTracker and KeyCharacterMap come
+# with steps 7b1 and 7c1 below; an input device's battery, lights, sensors and vibrators stay compile-only, as Minato's
+# devices lack them.
 frameworks_base/core/java/android/app/AppGlobals.java
 frameworks_base/core/java/android/hardware/input/HostUsiVersion.java
 frameworks_base/core/java/android/hardware/input/IInputDeviceBatteryListener.aidl
@@ -1088,6 +1088,12 @@ frameworks_base/core/java/android/widget/CompoundButton.java
 # WindowInputEventReceiver.
 frameworks_base/core/java/android/view/InputChannel.java
 frameworks_base/core/java/android/view/InputEventReceiver.java
+
+# ADR-0045 step 7c1, typed keys: KeyCharacterMap, whose natives, AOSP's core/jni file, run libinput's key character map,
+# with the virtual keyboard's from the input service (framework/CMakeLists.txt), and SoundEffectConstants, which
+# ViewRootImpl's focus moves by key ask for their sound (none plays yet).
+frameworks_base/core/java/android/view/KeyCharacterMap.java
+frameworks_base/core/java/android/view/SoundEffectConstants.java
 
 # ADR-0039 step b3.5b2-1, App: the app's own starts. ActivityNotFoundException, which Instrumentation's
 # checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.

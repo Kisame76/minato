@@ -43,6 +43,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
+import android.util.SparseArray;
 import android.util.TimeUtils;
 import android.view.View.AttachInfo;
 import android.view.Window.OnContentApplyWindowInsetsListener;
@@ -50,8 +51,10 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.window.ActivityWindowInfo;
 import android.window.WindowOnBackInvokedDispatcher;
+import com.android.internal.os.SomeArgs;
 import com.android.internal.policy.DecorView;
 import java.io.PrintWriter;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -69,6 +72,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private static final int MSG_INVALIDATE = 3;
     private static final int MSG_INVALIDATE_RECT = 4;
     private static final int MSG_CHECK_FOCUS = 5;
+    private static final int MSG_DISPATCH_INPUT_EVENT = 6;
+    private static final int MSG_DISPATCH_KEY_FROM_IME = 7;
 
     /** Called with the activity's configuration; AOSP's ActivityThread gives it every window of an activity. */
     public interface ActivityConfigCallback {
@@ -120,6 +125,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private final W mWindow = new W();
     private final WindowOnBackInvokedDispatcher mOnBackInvokedDispatcher;
     private final Rect mTempRect = new Rect();
+    private final UnhandledKeyManager mUnhandledKeyManager = new UnhandledKeyManager();
     private final ImeFocusController mImeFocusController;
     private final HandwritingInitiator mHandwritingInitiator = new HandwritingInitiator();
     private final Runnable mTraversalRunnable = this::doTraversal;
@@ -207,6 +213,21 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 case MSG_CHECK_FOCUS:
                     mImeFocusController.onScheduledCheckFocus();
                     break;
+                case MSG_DISPATCH_INPUT_EVENT: {
+                    final SomeArgs args = (SomeArgs) msg.obj;
+                    deliverInputEvent((InputEvent) args.arg1, (InputEventReceiver) args.arg2, false);
+                    args.recycle();
+                    break;
+                }
+                case MSG_DISPATCH_KEY_FROM_IME: {
+                    KeyEvent event = (KeyEvent) msg.obj;
+                    if ((event.getFlags() & KeyEvent.FLAG_FROM_SYSTEM) != 0) {
+                        // As AOSP's: an input method may not say that its key comes from the system.
+                        event = KeyEvent.changeFlags(event, event.getFlags() & ~KeyEvent.FLAG_FROM_SYSTEM);
+                    }
+                    deliverInputEvent(event, null, true);
+                    break;
+                }
                 default:
                     break;
             }
@@ -1138,7 +1159,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
         @Override
         public void onInputEvent(InputEvent event) {
-            deliverInputEvent(event, this);
+            deliverInputEvent(event, this, false);
         }
 
         @Override
@@ -1217,16 +1238,24 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * AOSP's deliverInputEvent and its input stages for a touch, in one: a focus change still posted reaches the views
-     * first, as deliverInputEvent's handleWindowFocusChanged before the stages; an event the window cannot take now is
-     * dropped, or cancelled when it ends a gesture (InputStage.shouldDropInputEvent); then EarlyPostImeInputStage's and
-     * ViewPostImeInputStage's processPointerEvent; the end of unbuffered dispatch at a touch's end, handled or dropped,
-     * as ViewPostImeInputStage.onDeliverToNext; and the answer. Keys come with step 7c.
+     * AOSP's deliverInputEvent and its input stages for a touch and a key, in one: the unhandled-key listeners learn of
+     * a key first (UnhandledKeyManager.preDispatch); a focus change still posted reaches the views before the stages,
+     * as deliverInputEvent's handleWindowFocusChanged; a key goes through its stages (processKeyEvent), the input
+     * method's own after it (postIme) as AOSP's FLAG_DELIVER_POST_IME; a touch is dropped when the window cannot take it
+     * now, or cancelled when it ends a gesture (InputStage.shouldDropInputEvent), then goes through
+     * EarlyPostImeInputStage's and ViewPostImeInputStage's processPointerEvent; the end of unbuffered dispatch at a
+     * touch's end, handled or dropped, as ViewPostImeInputStage.onDeliverToNext; and the answer, as finishInputEvent's:
+     * to the receiver, or for an event handed in directly, its recycling.
      */
-    private void deliverInputEvent(InputEvent event, InputEventReceiver receiver) {
+    private void deliverInputEvent(InputEvent event, InputEventReceiver receiver, boolean postIme) {
+        if (event instanceof KeyEvent) {
+            mUnhandledKeyManager.preDispatch((KeyEvent) event);
+        }
         handleWindowFocusChanged();
         boolean handled = false;
-        if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+        if (event instanceof KeyEvent) {
+            handled = processKeyEvent((KeyEvent) event, postIme);
+        } else if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
             final MotionEvent motion = (MotionEvent) event;
             if (!shouldDropInputEvent(motion)) {
                 handled = processPointerEvent(motion);
@@ -1236,32 +1265,275 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 scheduleConsumeBatchedInput();
             }
         }
-        receiver.finishInputEvent(event, handled);
+        if (receiver != null) {
+            receiver.finishInputEvent(event, handled);
+        } else {
+            event.recycleIfNeededAfterDispatch();
+        }
     }
 
-    /** As AOSP's for a motion event: an UP, a CANCEL or a HOVER_EXIT ends what came before it. */
-    private static boolean isTerminalInputEvent(MotionEvent event) {
-        final int action = event.getAction();
+    /** As AOSP's: a key's UP, or a motion event's UP, CANCEL or HOVER_EXIT, ends what came before it. */
+    private static boolean isTerminalInputEvent(InputEvent event) {
+        if (event instanceof KeyEvent) {
+            return ((KeyEvent) event).getAction() == KeyEvent.ACTION_UP;
+        }
+        final int action = ((MotionEvent) event).getAction();
         return action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
                 || action == MotionEvent.ACTION_HOVER_EXIT;
     }
 
-    private boolean shouldDropInputEvent(MotionEvent event) {
+    /**
+     * As AOSP's InputStage.shouldDropInputEvent: a key while the window has no focus, or any event while it is stopped.
+     * Left out: the reasons of what Minato lacks: the back key of an embedded window, autofill's UI, ambient mode and a
+     * pause for a transition.
+     */
+    private boolean shouldDropInputEvent(InputEvent event) {
         if (mView == null || !mAdded) {
             Log.w(TAG, "Dropping event due to root view being removed: " + event);
             return true;
         }
-        if (!mStopped) {
+        final String reason;
+        if (!mAttachInfo.mHasWindowFocus && !event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+            reason = "no window focus";
+        } else if (mStopped) {
+            reason = "window is stopped";
+        } else {
             return false;
         }
         if (isTerminalInputEvent(event)) {
             // Don't drop terminal input events, however mark them as canceled.
             event.cancel();
-            Log.w(TAG, "Cancelling event (window is stopped):" + event);
+            Log.w(TAG, "Cancelling event (" + reason + "):" + event);
             return false;
         }
-        Log.w(TAG, "Dropping event (window is stopped): " + event);
+        Log.w(TAG, "Dropping event (" + reason + "): " + event);
         return true;
+    }
+
+    /**
+     * A key's input stages, as AOSP's (ADR-0045 step 7c1): ViewPreImeInputStage's dispatchKeyEventPreIme, unless the
+     * input method sent the key; no ImeInputStage, as Minato has no input method; EarlyPostImeInputStage's tooltip key
+     * and leaving touch mode; ViewPostImeInputStage's unhandled-key listeners, dispatchKeyEvent, a shortcut while a
+     * modifier is held and the focus moves of the arrows and tab. A stage that finds the window unable to take the key
+     * drops it, as each of AOSP's does. Left out, as Minato lacks them: NativePreImeInputStage's and
+     * NativePostImeInputStage's input queue of a NativeActivity (takeInputQueue), the fallback event handler
+     * (PhoneFallbackEventHandler: media, volume, call and camera keys), a focus move into an adjacent window of
+     * multi-window, and SyntheticInputStage's fallback keys, which only a key the system hands back unhandled takes.
+     */
+    private boolean processKeyEvent(KeyEvent event, boolean postIme) {
+        if (shouldDropInputEvent(event)) {
+            return false;
+        }
+        if (!postIme && mView.dispatchKeyEventPreIme(event)) {
+            return true;
+        }
+        if (mAttachInfo.mTooltipHost != null) {
+            mAttachInfo.mTooltipHost.handleTooltipKey(event);
+        }
+        // If the key's purpose is to exit touch mode then we consume it and consider it handled.
+        if (checkForLeavingTouchModeAndConsume(event)) {
+            return true;
+        }
+        if (mUnhandledKeyManager.preViewDispatch(event)) {
+            return true;
+        }
+        // Deliver the key to the view hierarchy.
+        if (mView.dispatchKeyEvent(event)) {
+            return true;
+        }
+        if (shouldDropInputEvent(event)) {
+            return false;
+        }
+        // This dispatch is for windows that don't have a Window.Callback. Otherwise, the Window.Callback usually will
+        // have already called this (see DecorView.superDispatchKeyEvent) leaving this call a no-op.
+        if (mUnhandledKeyManager.dispatch(mView, event)) {
+            return true;
+        }
+        int groupNavigationDirection = 0;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getKeyCode() == KeyEvent.KEYCODE_TAB) {
+            if (KeyEvent.metaStateHasModifiers(event.getMetaState(), KeyEvent.META_CTRL_ON)) {
+                groupNavigationDirection = View.FOCUS_FORWARD;
+            } else if (KeyEvent.metaStateHasModifiers(event.getMetaState(),
+                    KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON)) {
+                groupNavigationDirection = View.FOCUS_BACKWARD;
+            }
+        }
+        // If a modifier is held, try to interpret the key as a shortcut.
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && !KeyEvent.metaStateHasNoModifiers(event.getMetaState())
+                && event.getRepeatCount() == 0
+                && !KeyEvent.isModifierKey(event.getKeyCode())
+                && groupNavigationDirection == 0) {
+            if (mView.dispatchKeyShortcutEvent(event)) {
+                return true;
+            }
+            if (shouldDropInputEvent(event)) {
+                return false;
+            }
+        }
+        // Handle automatic focus changes.
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            return groupNavigationDirection != 0 ? performKeyboardGroupNavigation(groupNavigationDirection)
+                    : performFocusNavigation(event);
+        }
+        return false;
+    }
+
+    /** As AOSP's ViewPostImeInputStage's, without a move into an adjacent window, which only multi-window has. */
+    private boolean performFocusNavigation(KeyEvent event) {
+        int direction = 0;
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (event.hasNoModifiers()) {
+                    direction = View.FOCUS_LEFT;
+                }
+                break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (event.hasNoModifiers()) {
+                    direction = View.FOCUS_RIGHT;
+                }
+                break;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (event.hasNoModifiers()) {
+                    direction = View.FOCUS_UP;
+                }
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (event.hasNoModifiers()) {
+                    direction = View.FOCUS_DOWN;
+                }
+                break;
+            case KeyEvent.KEYCODE_TAB:
+                if (event.hasNoModifiers()) {
+                    direction = View.FOCUS_FORWARD;
+                } else if (event.hasModifiers(KeyEvent.META_SHIFT_ON)) {
+                    direction = View.FOCUS_BACKWARD;
+                }
+                break;
+        }
+        if (direction != 0) {
+            View focused = mView.findFocus();
+            if (focused != null) {
+                View v = focused.focusSearch(direction);
+                if (v != null && v != focused) {
+                    // do the math the get the interesting rect of previous focused into the coord system of newly
+                    // focused view
+                    focused.getFocusedRect(mTempRect);
+                    if (mView instanceof ViewGroup) {
+                        ((ViewGroup) mView).offsetDescendantRectToMyCoords(focused, mTempRect);
+                        ((ViewGroup) mView).offsetRectIntoDescendantCoords(v, mTempRect);
+                    }
+                    if (v.requestFocus(direction, mTempRect)) {
+                        boolean isFastScrolling = event.getRepeatCount() > 0;
+                        playSoundEffect(SoundEffectConstants.getConstantForFocusDirection(direction, isFastScrolling));
+                        return true;
+                    }
+                }
+                // Give the focused view a last chance to handle the dpad key.
+                if (mView.dispatchUnhandledMove(focused, direction)) {
+                    return true;
+                }
+            } else {
+                if (mView.restoreDefaultFocus()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** As AOSP's ViewPostImeInputStage's: Ctrl+Tab and Ctrl+Shift+Tab move between keyboard navigation clusters. */
+    private boolean performKeyboardGroupNavigation(int direction) {
+        final View focused = mView.findFocus();
+        if (focused == null && mView.restoreDefaultFocus()) {
+            return true;
+        }
+        View cluster = focused == null ? keyboardNavigationClusterSearch(null, direction)
+                : focused.keyboardNavigationClusterSearch(null, direction);
+
+        // Since requestFocus only takes "real" focus directions (and therefore also restoreFocusInCluster), convert
+        // forward/backward focus into FOCUS_DOWN.
+        int realDirection = direction;
+        if (direction == View.FOCUS_FORWARD || direction == View.FOCUS_BACKWARD) {
+            realDirection = View.FOCUS_DOWN;
+        }
+
+        if (cluster != null && cluster.isRootNamespace()) {
+            // the default cluster. Try to find a non-clustered view to focus.
+            if (cluster.restoreFocusNotInCluster()) {
+                playSoundEffect(SoundEffectConstants.getContantForFocusDirection(direction));
+                return true;
+            }
+            // otherwise skip to next actual cluster
+            cluster = keyboardNavigationClusterSearch(null, direction);
+        }
+
+        if (cluster != null && cluster.restoreFocusInCluster(realDirection)) {
+            playSoundEffect(SoundEffectConstants.getContantForFocusDirection(direction));
+            return true;
+        }
+
+        return false;
+    }
+
+    /** As AOSP's: whether the key is used for keyboard navigation. */
+    private static boolean isNavigationKey(KeyEvent keyEvent) {
+        switch (keyEvent.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_PAGE_UP:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+            case KeyEvent.KEYCODE_MOVE_HOME:
+            case KeyEvent.KEYCODE_MOVE_END:
+            case KeyEvent.KEYCODE_TAB:
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_ENTER:
+                return true;
+        }
+        return false;
+    }
+
+    /** As AOSP's: whether the key types a character, which the device's key character map says. */
+    private static boolean isTypingKey(KeyEvent keyEvent) {
+        return keyEvent.getUnicodeChar() > 0;
+    }
+
+    /** As AOSP's: whether the key leaves touch mode, and whether that alone is its purpose, which consumes it. */
+    private boolean checkForLeavingTouchModeAndConsume(KeyEvent event) {
+        // Only relevant in touch mode.
+        if (!mAttachInfo.mInTouchMode) {
+            return false;
+        }
+
+        // Only consider leaving touch mode on DOWN or MULTIPLE actions, never on UP.
+        final int action = event.getAction();
+        if (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_MULTIPLE) {
+            return false;
+        }
+
+        // Don't leave touch mode if the IME told us not to.
+        if ((event.getFlags() & KeyEvent.FLAG_KEEP_TOUCH_MODE) != 0) {
+            return false;
+        }
+
+        // If the key can be used for keyboard navigation then leave touch mode and select a focused view if needed
+        // (in ensureTouchMode). When a new focused view is selected, we consume the navigation key because navigation
+        // doesn't make much sense unless a view already has focus so the key's purpose is to set focus.
+        if (event.hasNoModifiers() && isNavigationKey(event)) {
+            return ensureTouchMode(false);
+        }
+
+        // If the key can be used for typing then leave touch mode and select a focused view if needed (in
+        // ensureTouchMode). Always allow the view to process the typing key.
+        if (isTypingKey(event)) {
+            ensureTouchMode(false);
+            return false;
+        }
+
+        return false;
     }
 
     private boolean processPointerEvent(MotionEvent event) {
@@ -1296,31 +1568,121 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * An event handed in directly, not through the window's input channel: an input method's, accessibility's or an
-     * injected one, which come with ADR-0045 step 7c. Touches come through the channel (ADR-0045 step 7b2).
+     * As AOSP's: an event handed in directly, not through the window's input channel (an injected one, accessibility's),
+     * which takes the same stages on the window's thread, its answer to no receiver (ADR-0045 step 7c1). Touches come
+     * through the channel (ADR-0045 step 7b2).
      */
     public void dispatchInputEvent(InputEvent event) {
-        Log.w(TAG, "No events handed in directly on Minato's windows yet (ADR-0045 step 7c): " + event);
+        dispatchInputEvent(event, null);
     }
 
+    /** As AOSP's: the event to the window's thread, ahead of a traversal's barrier, and its answer to the receiver. */
+    public void dispatchInputEvent(InputEvent event, InputEventReceiver receiver) {
+        final SomeArgs args = SomeArgs.obtain();
+        args.arg1 = event;
+        args.arg2 = receiver;
+        final Message msg = mHandler.obtainMessage(MSG_DISPATCH_INPUT_EVENT, args);
+        msg.setAsynchronous(true);
+        mHandler.sendMessage(msg);
+    }
+
+    /** As AOSP's: the unhandled-key listeners of the window's views, which DecorView asks after the view tree. */
     public boolean dispatchUnhandledKeyEvent(KeyEvent event) {
-        return false;
+        return mUnhandledKeyManager.dispatch(mView, event);
     }
 
     public void dispatchKeyFromAutofill(KeyEvent event) {
     }
 
-    /** A key an input method sends, which reaches the window as input does: not yet (ADR-0041 a)). */
+    /** As AOSP's: a key an input method sends, which takes the stages after the input method's (ADR-0045 step 7c1). */
     public void dispatchKeyFromIme(KeyEvent event) {
-        dispatchInputEvent(event);
+        final Message msg = mHandler.obtainMessage(MSG_DISPATCH_KEY_FROM_IME, event);
+        msg.setAsynchronous(true);
+        mHandler.sendMessage(msg);
     }
 
     public void touchModeChanged(boolean inTouchMode) {
         mAttachInfo.mInTouchMode = inTouchMode;
     }
 
-    /** As AOSP's for a touch screen: the window stays in touch mode, so nothing changes. */
+    /**
+     * As AOSP's, whose window manager keeps the touch mode of the display and tells its windows (ADR-0045 step 7c1): a
+     * touch's DOWN enters touch mode and a typing or navigation key leaves it. In Minato the mode is the window's own, a
+     * listed gap: the app's other windows keep theirs, and a new window, such as the next activity's (ADR-0039 step
+     * b3.5b2-1), starts in touch mode even after a key left it.
+     */
     boolean ensureTouchMode(boolean inTouchMode) {
+        if (mAttachInfo.mInTouchMode == inTouchMode) return false;
+        return ensureTouchModeLocally(inTouchMode);
+    }
+
+    /** As AOSP's: the new mode, its observers, and the focus it moves. */
+    private boolean ensureTouchModeLocally(boolean inTouchMode) {
+        if (mAttachInfo.mInTouchMode == inTouchMode) return false;
+
+        mAttachInfo.mInTouchMode = inTouchMode;
+        mAttachInfo.mTreeObserver.dispatchOnTouchModeChanged(inTouchMode);
+
+        return (inTouchMode) ? enterTouchMode() : leaveTouchMode();
+    }
+
+    private boolean enterTouchMode() {
+        if (mView != null && mView.hasFocus()) {
+            // note: not relying on mFocusedView here because this could be when the window is first being added, and
+            // mFocused isn't set yet.
+            final View focused = mView.findFocus();
+            if (focused != null && !focused.isFocusableInTouchMode()) {
+                final ViewGroup ancestorToTakeFocus = findAncestorToTakeFocusInTouchMode(focused);
+                if (ancestorToTakeFocus != null) {
+                    // there is an ancestor that wants focus after its descendants that is focusable in touch mode..
+                    // give it focus
+                    return ancestorToTakeFocus.requestFocus();
+                } else {
+                    // There's nothing to focus. Clear and propagate through the hierarchy, but don't attempt to place
+                    // new focus.
+                    focused.clearFocusInternal(null, true, false);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** As AOSP's: an ancestor of the focused view that wants focus after its descendants and takes it in touch mode. */
+    private static ViewGroup findAncestorToTakeFocusInTouchMode(View focused) {
+        ViewParent parent = focused.getParent();
+        while (parent instanceof ViewGroup) {
+            final ViewGroup vgParent = (ViewGroup) parent;
+            if (vgParent.getDescendantFocusability() == ViewGroup.FOCUS_AFTER_DESCENDANTS
+                    && vgParent.isFocusableInTouchMode()) {
+                return vgParent;
+            }
+            if (vgParent.isRootNamespace()) {
+                return null;
+            } else {
+                parent = vgParent.getParent();
+            }
+        }
+        return null;
+    }
+
+    private boolean leaveTouchMode() {
+        if (mView != null) {
+            if (mView.hasFocus()) {
+                View focusedView = mView.findFocus();
+                if (!(focusedView instanceof ViewGroup)) {
+                    // some view has focus, let it keep it
+                    return false;
+                } else if (((ViewGroup) focusedView).getDescendantFocusability() != ViewGroup.FOCUS_AFTER_DESCENDANTS) {
+                    // some view group has focus, and doesn't prefer its children over itself for focus, so let them
+                    // keep it.
+                    return false;
+                }
+            }
+
+            // find the best view to give focus to in this brave new non-touch-mode world
+            return mView.restoreDefaultFocus();
+        }
         return false;
     }
 
@@ -1534,5 +1896,80 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void dump(String prefix, PrintWriter writer) {
         writer.println(prefix + "ViewRootImpl " + mWindowAttributes.getTitle() + ": " + mWidth + " x " + mHeight
                 + (mAttachInfo.mHasWindowFocus ? ", focused" : ""));
+    }
+
+    /**
+     * AOSP's, without its trace sections (ADR-0045 step 7c1): the views' unhandled-key listeners
+     * (View.addOnUnhandledKeyEventListener), which get a key that the view tree left, and its repeats and release.
+     */
+    private static class UnhandledKeyManager {
+        // This is used to ensure that unhandled events are only dispatched once. We attempt to dispatch more than once
+        // in order to achieve a certain order. Specifically, if we are in an Activity or Dialog (and have a
+        // Window.Callback), the unhandled events should be dispatched after the view hierarchy, but before the
+        // Callback. However, if we aren't in an activity, we still want unhandled keys to be dispatched.
+        private boolean mDispatched = true;
+
+        // Keeps track of which Views have unhandled key focus for which keys. This doesn't include modifiers.
+        private final SparseArray<WeakReference<View>> mCapturedKeys = new SparseArray<>();
+
+        // The current receiver. This value is transient and used between the pre-dispatch and pre-view phase to ensure
+        // that other input-stages don't interfere with tracking.
+        private WeakReference<View> mCurrentReceiver = null;
+
+        boolean dispatch(View root, KeyEvent event) {
+            if (mDispatched) {
+                return false;
+            }
+            mDispatched = true;
+
+            View consumer = root.dispatchUnhandledKeyEvent(event);
+
+            // If an unhandled listener handles one, then keep track of it so that the consuming view is first to
+            // receive its repeats and release as well.
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                int keycode = event.getKeyCode();
+                if (consumer != null && !KeyEvent.isModifierKey(keycode)) {
+                    mCapturedKeys.put(keycode, new WeakReference<>(consumer));
+                }
+            }
+            return consumer != null;
+        }
+
+        /** Called before the event gets dispatched to anything. */
+        void preDispatch(KeyEvent event) {
+            // Always clean-up 'up' events since it's possible for earlier dispatch stages to consume them without
+            // consuming the corresponding 'down' event.
+            mCurrentReceiver = null;
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                int idx = mCapturedKeys.indexOfKey(event.getKeyCode());
+                if (idx >= 0) {
+                    mCurrentReceiver = mCapturedKeys.valueAt(idx);
+                    mCapturedKeys.removeAt(idx);
+                }
+            }
+        }
+
+        /**
+         * Called before the event gets dispatched to the view hierarchy.
+         * @return {@code true} if an unhandled handler has focus and consumed the event
+         */
+        boolean preViewDispatch(KeyEvent event) {
+            mDispatched = false;
+            if (mCurrentReceiver == null) {
+                mCurrentReceiver = mCapturedKeys.get(event.getKeyCode());
+            }
+            if (mCurrentReceiver != null) {
+                View target = mCurrentReceiver.get();
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    mCurrentReceiver = null;
+                }
+                if (target != null && target.isAttachedToWindow()) {
+                    target.onUnhandledKeyEvent(event);
+                }
+                // consume anyways so that we don't feed uncaptured key events to other views
+                return true;
+            }
+            return false;
+        }
     }
 }

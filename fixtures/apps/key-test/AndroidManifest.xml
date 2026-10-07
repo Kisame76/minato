@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0045 step 7c's test of typed keys (key-test): the virtual keyboard's key character map in
+     Application.onCreate (7c1); then KEYCODE_1, KEYCODE_A and KEYCODE_DEL, which KeyActivity injects into its own
+     window, into an EditText with a DigitsKeyListener, on apk-runner-35-iphone-gesture, the iPhone 15 Pro Max's
+     display, without an input method. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.key" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Key Test"
+      android:name="io.github.kisame76.minato.test.key.KeyApplication">
+    <activity android:name="io.github.kisame76.minato.test.key.KeyActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

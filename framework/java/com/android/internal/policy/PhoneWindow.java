@@ -32,6 +32,7 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 import android.view.AttachedSurfaceControl;
+import android.view.InputEvent;
 import android.view.InputQueue;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -472,6 +473,20 @@ public class PhoneWindow extends Window {
     @Override
     public boolean superDispatchGenericMotionEvent(MotionEvent event) {
         return mDecor.superDispatchGenericMotionEvent(event);
+    }
+
+    /** As AOSP's: an event the app injects goes through the window's input stages (ADR-0045 step 7c1). */
+    @Override
+    public void injectInputEvent(InputEvent event) {
+        getViewRootImpl().dispatchInputEvent(event);
+    }
+
+    private ViewRootImpl getViewRootImpl() {
+        final ViewRootImpl viewRootImpl = mDecor != null ? mDecor.getViewRootImpl() : null;
+        if (viewRootImpl != null) {
+            return viewRootImpl;
+        }
+        throw new IllegalStateException("view not added");
     }
 
     @Override

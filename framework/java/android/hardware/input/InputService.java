@@ -4,9 +4,10 @@
  * class, as the display service is. Its answers:
  *   - getInputDeviceIds and getInputDevice: Minato's devices, built with InputDevice.Builder.
  *     - The virtual keyboard, id -1, as Android's EventHub makes it (createVirtualKeyboardLocked): "Virtual", a
- *       keyboard with letters and a d-pad. Its key character map is step 7c's; until then it has none.
+ *       keyboard with letters and a d-pad, with Virtual.kcm's key character map as EventHub loads it (step 7c1).
  *     - The touchscreen, id 1, M3's input device (runtime/android/input.cpp:17): a finger's coordinates on the
- *       session's screen, its pressure and its touch and tool sizes, the axes M3's events carry.
+ *       session's screen, its pressure and its touch and tool sizes, the axes M3's events carry. It has no keys, so
+ *       its key character map is empty, as Android's are for such devices (step 7c1).
  *   - registerInputDevicesChangedListener keeps the listener: no device comes or goes yet.
  *   - The 10 methods that IInputManager.aidl guards with @EnforcePermission check the app's permission and throw
  *     SecurityException with PermissionEnforcer's message without it. Each but BLUETOOTH is a signature permission
@@ -165,6 +166,7 @@ public final class InputService extends IInputManager.Default {
                 .setDescriptor(VIRTUAL_KEYBOARD_DESCRIPTOR)
                 .setSources(InputDevice.SOURCE_KEYBOARD | InputDevice.SOURCE_DPAD)
                 .setKeyboardType(InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                .setKeyCharacterMap(nativeVirtualKeyCharacterMap())
                 .build();
     }
 
@@ -191,6 +193,10 @@ public final class InputService extends IInputManager.Default {
                 .addMotionRange(MotionEvent.AXIS_TOUCH_MINOR, source, 0, diagonal, 0, 0, 0)
                 .addMotionRange(MotionEvent.AXIS_TOOL_MAJOR, source, 0, diagonal, 0, 0, 0)
                 .addMotionRange(MotionEvent.AXIS_TOOL_MINOR, source, 0, diagonal, 0, 0, 0)
+                .setKeyCharacterMap(KeyCharacterMap.obtainEmptyMap(TOUCHSCREEN_ID))
                 .build();
     }
+
+    /** The virtual keyboard's key character map, Virtual.kcm's, which libandroid_runtime holds (ADR-0045 step 7c1). */
+    private static native KeyCharacterMap nativeVirtualKeyCharacterMap();
 }

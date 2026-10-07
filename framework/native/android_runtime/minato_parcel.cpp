@@ -328,6 +328,16 @@ void *Parcel::writeInplace(size_t len) {
     return data;
 }
 
+// As libbinder's: write() of the string with its NUL (ADR-0045 step 7c1).
+status_t Parcel::writeCString(const char *str) {
+    const size_t len = strlen(str) + 1;
+    if (len > INT32_MAX) return BAD_VALUE;
+    void *const data = writeInplace(len);
+    if (data == nullptr) return mError;
+    memcpy(data, str, len);
+    return NO_ERROR;
+}
+
 status_t Parcel::writeString8(const char *str, size_t len) {
     if (str == nullptr) return writeInt32(-1);
     status_t err = writeInt32(len);
@@ -550,6 +560,16 @@ const void *Parcel::readInplace(size_t len) const {
         const void *data = mData + mDataPos;
         mDataPos += padded;
         return data;
+    }
+    return nullptr;
+}
+
+// As libbinder's: the string at the position when its NUL lies within the data, else null (ADR-0045 step 7c1).
+const char *Parcel::readCString() const {
+    if (mDataPos < mDataSize) {
+        const char *str = reinterpret_cast<const char *>(mData + mDataPos);
+        const auto *end = static_cast<const char *>(memchr(str, 0, mDataSize - mDataPos));
+        if (end != nullptr) return static_cast<const char *>(readInplace(static_cast<size_t>(end - str) + 1));
     }
     return nullptr;
 }

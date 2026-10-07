@@ -17,7 +17,8 @@
 #     from the very ELF file given (step c1);
 #   - framework/tests/event_log_tags_test.py checks tools/event-log-tags.py, which writes EventLogTags for
 #     framework.jar (ADR-0039 step c2c3);
-#   - framework/tests/keycode_labels_test.py checks KeyEvent's native key labels against KeyEvent.java (step c2c3);
+#   - framework/tests/keycode_labels_test.py checks KeyEvent's native key labels against KeyEvent.java (step c2c3; in
+#     input_event_labels.cpp since ADR-0045 step 7c1);
 #   - framework/tests/axis_labels_test.py checks the native axis labels against MotionEvent.java (ADR-0045 step 7b1);
 #   - managergen --implement (ADR-0039 b3.5a) writes SampleAppManager from framework/tests/managergen/java's
 #     SampleBaseManager, for ImplementedSampleTest;

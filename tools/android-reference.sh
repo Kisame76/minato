@@ -55,6 +55,7 @@
 # settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
 # up, so that its lines do not depend on the device; since step 7b2 it has its own activity, on the display below.
+# key-test (ADR-0045 step 7c) is one too, whose keys it injects into its own window, on that display.
 # canvas-test (ADR-0043 test 2) is a Java app of the same kind on apk-runner-35, debuggable: the script takes the raw
 # pixels it writes into its cache folder with run-as, gzipped, which must be fixtures/expected/canvas-test.rgba.gz.
 # views-test (ADR-0043 test 1, step c3) runs on java-test's AVD, drawn in software with the system bars shown: a second
@@ -173,10 +174,11 @@ fi
 # there, text-test (step d)), which also waits for its window's focus, and surface-test (step c4), whose GLSurfaceView
 # fills the window between the bars. touch-test (ADR-0045 step 7b2) runs there too: the script taps its window's
 # middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
-# activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too.
+# activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too, and so does
+# key-test (ADR-0045 step 7c), which injects its keys once its window has focus.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
-  "$app" == activity-flow-test ]]; then
+  "$app" == activity-flow-test || "$app" == key-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -490,6 +492,11 @@ run_app() {
     touch-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TouchActivity
       ;;
+    # key-test (ADR-0045 step 7c): its own launcher activity, KeyActivity, which ends with "done" once the keys it
+    # injects have reached its EditText.
+    key-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.KeyActivity
+      ;;
     # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
     start-stops-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
@@ -573,6 +580,11 @@ run_app() {
     { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
+  fi
+  if [[ "$app" == key-test ]]; then
+    # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its
+    # window once it is done brings the display back, so that the runs after it start in touch mode as before.
+    { wait_for "$app" done && run input tap 645 1398; } || return 1
   fi
   if [[ "$app" == activity-test ]]; then
     wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
@@ -765,7 +777,9 @@ if [[ -n "$app" ]]; then
     [[ -n "$started" ]] || trap present_timestamp_back EXIT
     present_timestamp_on
   fi
-  if [[ "$app" == text-test ]]; then
+  # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
+  # as a hardware keyboard's do.
+  if [[ "$app" == text-test || "$app" == key-test ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
   fi
