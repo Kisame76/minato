@@ -6,7 +6,8 @@
  * matters when it runs. Its answers:
  *   - getDisplayInfo(0): the session's screen, which ActivityThread put into the system Resources (ADR-0028's
  *     configuration), at the session's highest refresh rate, at which Minato's frame clock runs (ADR-0036); modes of
- *     60 Hz and that rate; rotation 90 for a landscape session; no other display;
+ *     60 Hz and that rate, all of them for apps too (appsSupportedModes, which Display.getSupportedModes answers);
+ *     a built-in screen's flags; rotation 90 for a landscape session; no other display;
  *   - getDisplayIds: display 0 alone;
  *   - getPreferredWideGamutColorSpaceId: Display P3, an iPhone's panel;
  *   - createVirtualDisplay: no display, so that DisplayManagerGlobal's wrapper fails as Android's does without one;
@@ -222,7 +223,9 @@ public final class DisplayService extends IDisplayManager.Default {
         }
         DisplayInfo info = new DisplayInfo();
         info.type = Display.TYPE_INTERNAL;
-        info.flags = Display.FLAG_SUPPORTS_PROTECTED_BUFFERS | Display.FLAG_SECURE | Display.FLAG_TRUSTED;
+        // A built-in screen's flags, as the emulator's display 0 has them (0x4083): it turns with its content.
+        info.flags = Display.FLAG_SUPPORTS_PROTECTED_BUFFERS | Display.FLAG_SECURE | Display.FLAG_TRUSTED
+                | Display.FLAG_ROTATES_WITH_CONTENT;
         info.displayId = Display.DEFAULT_DISPLAY;
         info.displayGroupId = Display.DEFAULT_DISPLAY_GROUP;
         info.name = "Built-in Screen";
@@ -237,6 +240,8 @@ public final class DisplayService extends IDisplayManager.Default {
         Display.Mode sixty = new Display.Mode(1, naturalWidth, naturalHeight, RATE_WITHOUT_SESSION);
         info.supportedModes = rate == RATE_WITHOUT_SESSION ? new Display.Mode[] {sixty}
                 : new Display.Mode[] {sixty, new Display.Mode(2, naturalWidth, naturalHeight, rate)};
+        // Display.getSupportedModes answers the modes apps may see, every one of them here.
+        info.appsSupportedModes = info.supportedModes;
         info.modeId = info.defaultModeId = info.supportedModes[info.supportedModes.length - 1].getModeId();
         info.renderFrameRate = rate;
         info.logicalDensityDpi = metrics.densityDpi;

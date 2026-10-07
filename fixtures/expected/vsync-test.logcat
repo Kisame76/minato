@@ -1,4 +1,5 @@
 I/vsync-test: getInstance on the main thread: the same twice true
+I/vsync-test: display 0: modes true, the current one among them true, rotates with content true
 I/vsync-test: 3 frame callbacks: frame times rising true, each at or before its callback true, less than 100 ms before it true
 I/vsync-test: postFrameCallbackDelayed(100): ran 100 ms or more after its post true
 I/vsync-test: removeFrameCallback: the removed callback ran false, the one beside it ran true

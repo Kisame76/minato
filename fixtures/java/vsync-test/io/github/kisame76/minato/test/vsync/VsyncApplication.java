@@ -9,8 +9,10 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Choreographer;
+import android.view.Display;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.WindowManager;
 
 /**
  * ADR-0041 a)'s test of Java's Choreographer (decision 6): AOSP's class, whose DisplayEventReceiver's natives Minato
@@ -18,6 +20,7 @@ import android.view.ViewTreeObserver;
  * profileinstaller asks for its frame callback while the providers install, and goes on step by step in the main
  * Looper's callbacks:
  * - getInstance gives one instance on the main thread;
+ * - display 0 has modes, the current one among them, and the built-in screen's flags;
  * - three frame callbacks in a row: rising frame times, each at or before its callback's System.nanoTime and less
  *   than 100 ms before it;
  * - postFrameCallbackDelayed by 100 ms, posted once the launcher activity has drawn, so that the start's work no
@@ -35,6 +38,8 @@ import android.view.ViewTreeObserver;
 public class VsyncApplication extends Application {
     private static final String TAG = "vsync-test";
     private static final long MS = 1_000_000;
+    /** Display.FLAG_ROTATES_WITH_CONTENT, which is hidden. */
+    private static final int FLAG_ROTATES_WITH_CONTENT = 1 << 14;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private Choreographer choreographer;
@@ -47,11 +52,35 @@ public class VsyncApplication extends Application {
         try {
             choreographer = Choreographer.getInstance();
             Log.i(TAG, "getInstance on the main thread: the same twice " + (choreographer == Choreographer.getInstance()));
+            display();
             afterFirstDraw();
             threeFrames(new long[3], new long[3], 0);
         } catch (Throwable t) {
             failed(t);
         }
+    }
+
+    /**
+     * Display 0's modes, which games read at their start (Unity among them) and some index from 0: at least one, the
+     * current one among them, and the built-in screen's flag that it turns with its content. The modes themselves and
+     * the flags differ by device.
+     */
+    private void display() {
+        Display display = getSystemService(WindowManager.class).getDefaultDisplay();
+        Display.Mode[] modes = display.getSupportedModes();
+        Display.Mode current = display.getMode();
+        boolean among = false;
+        StringBuilder all = new StringBuilder();
+        for (Display.Mode mode : modes) {
+            among |= mode.getModeId() == current.getModeId();
+            all.append(all.length() == 0 ? "" : ", ").append(mode.getModeId()).append(": ")
+                    .append(mode.getPhysicalWidth()).append(" x ").append(mode.getPhysicalHeight()).append(" at ")
+                    .append(mode.getRefreshRate());
+        }
+        Log.i(TAG, "display 0: modes " + (modes.length >= 1) + ", the current one among them " + among
+                + ", rotates with content " + ((display.getFlags() & FLAG_ROTATES_WITH_CONTENT) != 0));
+        Log.i(TAG + "-device", "display 0: " + modes.length + " modes [" + all + "], current " + current.getModeId()
+                + ", flags 0x" + Integer.toHexString(display.getFlags()));
     }
 
     private static void failed(Throwable t) {
