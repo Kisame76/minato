@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/fetch-sources.py's lists (ADR-0021, ADR-0033 a): a plain run fetches and pins only "sources", the guest
 libc's; --set art only "art"; an archive with a "url" is checked against its SHA-256 before anything of it is
-extracted into its "directory", and an archive of one commit without a SHA-256 by its content digest alone.
+extracted into its "directory", and an archive of one commit without a SHA-256, whose url names the commit by all
+40 hex digits, by its content digest alone.
 Against a host in memory, in a scratch directory. And its fetch: a host that answers
 429 (Too Many Requests) is asked again after its Retry-After, at most 120 s, or after a backoff, 5 tries in all."""
 import contextlib
@@ -46,11 +47,30 @@ def archive(files):
     return buffer.getvalue()
 
 
+def linked(members):
+    """A .tar.gz of (name, kind, value) in their order: a "file" with its content, a "dir", or a "link" to a target."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        for name, kind, value in members:
+            info = tarfile.TarInfo(name)
+            if kind == "link":
+                info.type, info.linkname = tarfile.SYMTYPE, value
+                tar.addfile(info)
+            elif kind == "dir":
+                info.type, info.mode = tarfile.DIRTYPE, 0o755
+                tar.addfile(info)
+            else:
+                info.size, info.mode = len(value), 0o644
+                tar.addfile(info, io.BytesIO(value))
+    return buffer.getvalue()
+
+
 LIBC = archive({"libc/NOTICE": b"libc\n"})
 ART = archive({"runtime/runtime.cc": b"// art\n"})
 JDK = archive({"jdk-17/Contents/Home/bin/java": b"#!/bin/sh\n"})
+VOLK_COMMIT = "3333" * 10
 VOLK = archive({"volk-3333/volk.h": b"// volk\n"})
-VOLK_URL = "https://github.example/zeux/volk/archive/3333.tar.gz"
+VOLK_URL = f"https://github.example/zeux/volk/archive/{VOLK_COMMIT}.tar.gz"
 SERVED = {
     f"{HOST}/platform/bionic/+archive/1111.tar.gz": LIBC,
     f"{HOST}/platform/art/+archive/2222.tar.gz": ART,
@@ -182,7 +202,7 @@ def main():
     # An archive of one commit that its host makes on request (MoltenVK's from GitHub, ADR-0044 b): no SHA-256 of
     # its bytes, only the content digest, as android.googlesource.com's sources have.
     with tempfile.TemporaryDirectory() as root:
-        listed = dict(manifest(), volk=[{"name": "volk", "url": VOLK_URL, "commit": "3333",
+        listed = dict(manifest(), volk=[{"name": "volk", "url": VOLK_URL, "commit": VOLK_COMMIT,
                                          "directory": "build/sources/moltenvk/Volk", "digest": ""}])
         fetched, error, after = run(module, root, listed, ["--set", "volk", "--pin"])
         check(error is None and fetched == [VOLK_URL], f"an archive of a commit without a SHA-256: {fetched} {error}")
@@ -201,6 +221,54 @@ def main():
         fetched, error, _ = run(module, root, listed, ["--set", "volk", "--pin"])
         check(error is not None and fetched == [],
               f"an archive with neither a SHA-256 nor a commit is refused: {error}")
+    # The url names the commit the archive is of, by all 40 hex digits: not a branch's archive listed with a commit,
+    # nor an abbreviated commit.
+    branch = "https://github.example/zeux/volk/archive/refs/heads/main.tar.gz"
+    SERVED[branch] = VOLK
+    for what, url, commit in (("a branch's archive", branch, VOLK_COMMIT),
+                              ("an abbreviated commit", VOLK_URL, VOLK_COMMIT[:7])):
+        with tempfile.TemporaryDirectory() as root:
+            listed = dict(manifest(), volk=[{"name": "volk", "url": url, "commit": commit,
+                                             "directory": "build/sources/moltenvk/Volk", "digest": ""}])
+            fetched, error, _ = run(module, root, listed, ["--set", "volk", "--pin"])
+            check(error is not None and "commit" in error and fetched == [],
+                  f"{what} as the archive of a commit is refused before it is fetched: {fetched} {error}")
+    del SERVED[branch]
+
+    # Links that lead out only together: "b -> ." and "a -> b/.." each look harmless by name, but "a" is the folder's
+    # parent, so "a/x" would land beside the folder. No member is written through a link, and a link that leaves the
+    # folder through other links is left out once all is extracted; android.googlesource.com's archives too. Links keep
+    # their targets as written, which Python 3.14's tarfile would write as their normpath ("b/.." as ".").
+    chain_commit = "4444" * 10
+    chain = f"https://github.example/chain/archive/{chain_commit}.tar.gz"
+    listed = dict(manifest(), chain=[{"name": "chain", "url": chain, "commit": chain_commit,
+                                      "directory": "build/sources/moltenvk/Chain", "digest": ""}])
+    for what, members in (
+            ("through a chain of links that leads out",
+             [("b", "link", "."), ("a", "link", "b/.."), ("a/x", "file", b"out\n")]),
+            ("through a link to a folder inside", [("d", "dir", None), ("l", "link", "d"), ("l/y", "file", b"y\n")]),
+            ("in place of a link", [("m", "link", "n"), ("m", "file", b"m\n")])):
+        with tempfile.TemporaryDirectory() as root:
+            SERVED[chain] = linked(members)
+            fetched, error, _ = run(module, root, listed, ["--set", "chain", "--pin"])
+            written = [os.path.relpath(os.path.join(folder, name), root) for folder, _, names in os.walk(root)
+                       for name in names if name in ("x", "y", "m", "n")]
+            check(error is not None and "link" in error, f"a member written {what} is refused: {error}")
+            check(written == [], f"nothing is written {what}: {written}")
+    with tempfile.TemporaryDirectory() as root:
+        SERVED[chain] = linked([("b", "link", "."), ("a", "link", "b/.."), ("kept", "file", b"kept\n"),
+                                ("same", "link", "./kept")])
+        fetched, error, _ = run(module, root, listed, ["--set", "chain", "--pin"])
+        folder = os.path.join(root, "build/sources/moltenvk/Chain")
+        check(error is None, f"an archive whose links only lead out does not fail: {error}")
+        check(os.path.isfile(os.path.join(folder, "kept")) and os.path.islink(os.path.join(folder, "b")) and
+              not os.path.lexists(os.path.join(folder, "a")),
+              "a link that leaves the folder through another link is left out, the others are kept")
+        same = os.path.join(folder, "same")
+        check(os.path.islink(same) and os.readlink(same) == "./kept",
+              f"a link keeps its target as written, so the digest does not depend on Python's version: "
+              f"{os.readlink(same) if os.path.islink(same) else None}")
+    del SERVED[chain]
 
     with tempfile.TemporaryDirectory() as root:
         fetched, error, _ = run(module, root, manifest(), ["--set", "nothing"])

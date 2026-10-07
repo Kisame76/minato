@@ -7,7 +7,8 @@ Each source is an archive of one commit, or single files and folders of it, from
 android.googlesource.com, extracted to build/sources/<name>/. A source with a "url" is an archive from elsewhere,
 checked against its "sha256" before anything of it is extracted into its "directory" below the repository. An
 archive of one commit that its host makes on request, as GitHub's are (MoltenVK's sources, ADR-0044 b), names
-its "commit" instead of a "sha256", and only its content is pinned, as for android.googlesource.com.
+its "commit" instead of a "sha256", all 40 hex digits, which its "url" names too, and only its content is pinned, as
+for android.googlesource.com.
 The content is checked against the pinned digest in the list:
 SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not depend on how the
 server packs the archive. A source whose digest matches is not fetched again.
@@ -21,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tarfile
@@ -74,9 +76,20 @@ def digest(directory):
     return hashlib.sha256(b"".join(sorted(lines))).hexdigest()
 
 
+def inside(path, directory):
+    """Whether `path`, with every link on its way resolved, is `directory` or lies below it."""
+    path, directory = os.path.realpath(path), os.path.realpath(directory)
+    return path == directory or path.startswith(directory + os.sep)
+
+
 def extract(archive, directory):
-    """Extracts a .tar.gz, refusing absolute paths, '..' and anything but files, folders and links.
-    Links that point out of the archive (AOSP has a few into sibling projects) are left out."""
+    """Extracts a .tar.gz, refusing absolute paths, '..', anything but files, folders and links, and a member that
+    would be written through a link or in a link's place: links that each look harmless by name can lead out
+    together ("b -> ." and "a -> b/.." make "a" the folder's parent, so "a/x" would land beside it), and Python 3.9's
+    tarfile has no filter against that. Links that point out of the archive (AOSP has a few into sibling projects)
+    are left out, and once all is extracted, so are links that leave the folder through other links. Where tarfile
+    has filters, it takes 'tar', which keeps link targets as written: 3.14's default, 'data', writes "b/.." as ".",
+    which would keep such a link and change the content digest."""
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         for member in tar.getmembers():
             parts = member.name.split("/")
@@ -84,12 +97,23 @@ def extract(archive, directory):
                 raise SystemExit(f"refusing archive member {member.name!r}")
             if not (member.isfile() or member.isdir() or member.issym()):
                 raise SystemExit(f"refusing archive member {member.name!r} of an unexpected kind")
+            way = directory
+            for part in parts:
+                way = os.path.join(way, part)
+                if os.path.islink(way):
+                    raise SystemExit(f"refusing archive member {member.name!r}, which would be written through or "
+                                     f"in place of the link {os.path.relpath(way, directory)!r}")
             if member.issym():
                 resolved = os.path.normpath(os.path.join(os.path.dirname(member.name), member.linkname))
                 if member.linkname.startswith("/") or resolved == ".." or resolved.startswith("../"):
                     print(f"  left out link {member.name} -> {member.linkname}")
                     continue
-            tar.extract(member, directory)
+            tar.extract(member, directory, **({"filter": "tar"} if hasattr(tarfile, "tar_filter") else {}))
+    leaving = [os.path.join(folder, name) for folder, folders, names in os.walk(directory) for name in folders + names
+               if os.path.islink(os.path.join(folder, name)) and not inside(os.path.join(folder, name), directory)]
+    for link in leaving:
+        print(f"  left out link {os.path.relpath(link, directory)} -> {os.readlink(link)}")
+        os.remove(link)
 
 
 def main():
@@ -140,6 +164,10 @@ def main():
             elif "url" in source:
                 if "sha256" not in source and "commit" not in source:
                     raise SystemExit(f"{name}: an archive needs its SHA-256, or the commit it is an archive of")
+                if "sha256" not in source and not (re.fullmatch("[0-9a-f]{40}", source["commit"])
+                                                   and source["commit"] in source["url"]):
+                    raise SystemExit(f"{name}: an archive without a SHA-256 is of the commit its url names, by all 40 "
+                                     f"hex digits, not {source['commit']!r} and {source['url']}")
                 data = fetch(source["url"])
                 downloaded = len(data)
                 archive_sha256 = hashlib.sha256(data).hexdigest()
