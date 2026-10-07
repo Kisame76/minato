@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -135,8 +136,18 @@ private:
 /// 0 0 0 0 when that leaves nothing, as graphics/host's buffers answer. A lock of a window whose buffer a lock holds
 /// answers -EBUSY rather than take the buffer from under its writer; a removed window keeps a locked buffer until its
 /// post and takes no lock after (-ENODEV).
+/// Each window counts its posts, for the corpus harness's "frame" level: mark() notes the counts and each window's
+/// last posted frame by its hash before a touch, and since_mark() tells per window what came after: its posts since,
+/// whether one of their frames differed from the marked one, and whether the window is new or removed since.
 class Buffers {
 public:
+    /// What a window did since the last mark: posts in all and since, a frame that differed from the one before the
+    /// mark, made after the mark (with no frame before), removed after it.
+    struct Since {
+        std::uint64_t id = 0, posts = 0, since = 0;
+        bool changed = false, made = false, removed = false;
+    };
+
     int lock(std::uint64_t id, apkrt_window_buffer &buffer) {
         const int bytes = buffer.format == 1 || buffer.format == 2 ? 4 : buffer.format == 4 ? 2 : 0;
         if (bytes == 0 || buffer.width <= 0 || buffer.height <= 0) return -EINVAL;
@@ -164,6 +175,7 @@ public:
             if (dirty[0] >= dirty[2] || dirty[1] >= dirty[3]) dirty[0] = dirty[1] = dirty[2] = dirty[3] = 0;
         }
         held.locked = true;
+        if (const auto [count, made] = counts_.try_emplace(id); made) count->second.made = true;
         buffer.stride = buffer.width;
         buffer.bits = held.pixels.data();
         return 0;
@@ -177,14 +189,61 @@ public:
         first = !found->second.posted;
         found->second.posted = true;
         found->second.locked = false;
+        auto &count = counts_[id];
+        ++count.posts;
+        if (count.watching) {
+            // Under the lock, as a mark is: the writer is done with these bytes, and no lock takes them meanwhile.
+            const std::uint64_t hash = frame_hash(found->second.pixels);
+            if (!count.hashed) {
+                count.hash = hash;
+                count.hashed = true;
+            } else if (hash != count.hash) {
+                count.changed = true;
+                count.watching = false;
+            }
+        }
         if (removed_.count(id) != 0) buffers_.erase(found);
         return 0;
+    }
+
+    /// Before a touch: each window's posts so far and the hash of its last posted frame, or of the frame it posts next
+    /// while a lock holds its buffer or it never posted; from then on each post hashes its frame until one differs.
+    /// The windows removed before it are forgotten.
+    void mark() {
+        const std::lock_guard<std::mutex> hold(lock_);
+        for (auto it = counts_.begin(); it != counts_.end();) {
+            if (it->second.removed) {
+                it = counts_.erase(it);
+                continue;
+            }
+            auto &count = it->second;
+            count.at_mark = count.posts;
+            count.changed = count.made = false;
+            count.watching = true;
+            const auto found = buffers_.find(it->first);
+            count.hashed = found != buffers_.end() && found->second.posted && !found->second.locked;
+            if (count.hashed) count.hash = frame_hash(found->second.pixels);
+            ++it;
+        }
+    }
+
+    /// Every window there at the last mark or made since, by ID; the posts after this call hash no more.
+    std::vector<Since> since_mark() {
+        const std::lock_guard<std::mutex> hold(lock_);
+        std::vector<Since> windows;
+        for (auto &[id, count] : counts_) {
+            windows.push_back({id, count.posts, count.posts - count.at_mark, count.changed, count.made,
+                               count.removed});
+            count.watching = false;
+        }
+        return windows;
     }
 
     /// The window is gone: its buffer goes now, or at its post while a lock holds it.
     void removed(std::uint64_t id) {
         const std::lock_guard<std::mutex> hold(lock_);
         removed_.insert(id);
+        if (const auto count = counts_.find(id); count != counts_.end()) count->second.removed = true;
         const auto found = buffers_.find(id);
         if (found != buffers_.end() && !found->second.locked) buffers_.erase(found);
     }
@@ -196,9 +255,32 @@ private:
         bool locked = false, posted = false;
     };
 
+    /// A window's posts and the frame before the last mark, kept past its removal until the next mark.
+    struct Count {
+        std::uint64_t posts = 0, at_mark = 0, hash = 0;
+        bool hashed = false;    // `hash` is the frame before the mark's
+        bool watching = false;  // posts hash their frames until one differs
+        bool changed = false, made = false, removed = false;
+    };
+
+    /// FNV-1a over the frame's bytes, 8 at a time: the window's pixels and nothing else, as its stride is its width.
+    static std::uint64_t frame_hash(const std::vector<std::uint8_t> &pixels) {
+        constexpr std::uint64_t prime = 0x100000001b3;
+        std::uint64_t hash = 0xcbf29ce484222325;
+        std::size_t at = 0;
+        for (; at + 8 <= pixels.size(); at += 8) {
+            std::uint64_t word;
+            std::memcpy(&word, pixels.data() + at, sizeof word);
+            hash = (hash ^ word) * prime;
+        }
+        for (; at < pixels.size(); ++at) hash = (hash ^ pixels[at]) * prime;
+        return hash;
+    }
+
     std::mutex lock_;
     std::map<std::uint64_t, Buffer> buffers_;
     std::set<std::uint64_t> removed_;  // IDs are never reused
+    std::map<std::uint64_t, Count> counts_;  // every window with a buffer since the last mark, by ID
 };
 
 }  // namespace headless

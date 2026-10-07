@@ -44,7 +44,11 @@
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
-// ("apk-run: the first post of window <id>"), which java_app_run.py --drawn looks for.
+// ("apk-run: the first post of window <id>"), which java_app_run.py --drawn looks for. Before a touch they mark
+// each window's last frame, and before the next step, or a second after a last touch, each window there at the touch
+// or made since gets a line for the corpus harness's "frame" level: "apk-run: window <id> after <step>: <n> posts
+// since, <m> in all, the frame changed|the frame stayed|a new window[, removed]", where a frame changed when one
+// posted after the touch differs from the last one before it.
 // The guest's FINISH request then gets the quit: the window and the surfaces removed, PAUSE, the focus lost, each
 // surface destroyed, the window destroyed, STOP and DESTROY, or only DESTROY after a last background, as Android
 // destroys a stopped activity. The first step is
@@ -361,9 +365,23 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
         post(APKRT_EVENT_STOP);
     };
+    // The touch step whose lines are due before the next step, with the headless buffers only.
+    std::string touched;
+    const auto report = [&] {
+        if (touched.empty()) return;
+        for (const auto &window : buffers.since_mark()) {
+            std::fprintf(stderr, "apk-run: window %llu after %s: %llu posts since, %llu in all, %s%s\n",
+                         static_cast<unsigned long long>(window.id), touched.c_str(),
+                         static_cast<unsigned long long>(window.since), static_cast<unsigned long long>(window.posts),
+                         window.made ? "a new window" : window.changed ? "the frame changed" : "the frame stayed",
+                         window.removed ? ", removed" : "");
+        }
+        touched.clear();
+    };
     bool stopped = false;
     for (std::size_t index = 0; index < steps.size(); ++index) {
         if (index > 0) std::this_thread::sleep_for(std::chrono::seconds(1));
+        report();
         if (steps[index] == "start") {
             window = add_window();
             post(APKRT_EVENT_CREATE);
@@ -380,6 +398,10 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             apkrt_window_set_gate(window, 1);
             if (!answered(shown, "the start")) return;
         } else if (Touch touch; parse_touch(steps[index], touch)) {
+            if (apk_run_sets_window_buffers() == 0) {
+                buffers.mark();
+                touched = steps[index];
+            }
             play_touch(input, touch, rate);
         } else if (steps[index] == "background") {
             apkrt_set_background(1);
@@ -399,6 +421,10 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             if (!answered(shown, "the return")) return;
             stopped = false;
         }
+    }
+    if (!touched.empty()) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        report();
     }
     std::unique_lock<std::mutex> hold(finishing.lock);
     finishing.asked.wait(hold, [] { return finishing.finish; });

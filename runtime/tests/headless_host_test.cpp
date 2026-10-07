@@ -270,6 +270,85 @@ TEST(a_removed_window_keeps_its_locked_buffer_until_the_post_and_takes_no_lock_a
     CHECK(buffers.post(2, first) == -EINVAL);
 }
 
+// The frame counts (the corpus harness's "frame" level): each window's posts, and after a mark whether a frame differs.
+
+/// One frame of window `id`, its 100 x 50 RGBA_8888 pixels all `value`: a lock, the drawing and the post.
+bool draw(headless::Buffers &buffers, std::uint64_t id, int value) {
+    auto frame = buffer(100, 50);
+    if (buffers.lock(id, frame) != 0) return false;
+    std::memset(frame.bits, value, 100 * 50 * 4);
+    bool first = false;
+    return buffers.post(id, first) == 0;
+}
+
+/// Window `id`'s line of since_mark(), or one with ID 0 without it.
+headless::Buffers::Since since(headless::Buffers &buffers, std::uint64_t id) {
+    for (const auto &window : buffers.since_mark()) {
+        if (window.id == id) return window;
+    }
+    return {};
+}
+
+TEST(a_mark_counts_the_posts_after_it_and_tells_whether_a_frame_differed_from_the_last_before) {
+    headless::Buffers buffers;
+    CHECK(draw(buffers, 1, 1) && draw(buffers, 1, 1) && draw(buffers, 1, 2));
+    buffers.mark();
+    auto window = since(buffers, 1);
+    CHECK(window.id == 1 && window.posts == 3 && window.since == 0 && !window.changed && !window.made &&
+          !window.removed);
+    buffers.mark();
+    CHECK(draw(buffers, 1, 2));  // the same picture again
+    window = since(buffers, 1);
+    CHECK(window.posts == 4 && window.since == 1 && !window.changed);
+    buffers.mark();
+    CHECK(draw(buffers, 1, 3) && draw(buffers, 1, 2));  // another one, then back: it changed after the mark
+    window = since(buffers, 1);
+    CHECK(window.posts == 6 && window.since == 2 && window.changed);
+    buffers.mark();
+    CHECK(!since(buffers, 1).changed);
+}
+
+TEST(a_window_whose_buffer_a_lock_holds_at_the_mark_takes_its_next_post_as_the_frame_before) {
+    headless::Buffers buffers;
+    CHECK(draw(buffers, 1, 1));
+    auto drawing = buffer(100, 50);
+    CHECK(buffers.lock(1, drawing) == 0);  // a frame begun before the mark
+    buffers.mark();
+    std::memset(drawing.bits, 7, 100 * 50 * 4);  // and drawn after it
+    bool first = false;
+    CHECK(buffers.post(1, first) == 0);
+    CHECK(draw(buffers, 1, 7));
+    auto window = since(buffers, 1);
+    CHECK(window.since == 2 && !window.changed);  // the frame before the touch, then the same again
+    CHECK(buffers.lock(1, drawing) == 0);
+    buffers.mark();
+    CHECK(buffers.post(1, first) == 0 && draw(buffers, 1, 8));
+    CHECK(since(buffers, 1).changed);
+    auto fresh = buffer(100, 50);  // a window that never posted takes its first post as the frame before
+    CHECK(buffers.lock(3, fresh) == 0);
+    buffers.mark();
+    CHECK(buffers.post(3, first) == 0);
+    window = since(buffers, 3);
+    CHECK(window.id == 3 && window.since == 1 && !window.changed && !window.made);
+}
+
+TEST(a_window_made_after_the_mark_is_new_and_one_removed_after_it_says_so_until_the_next_mark) {
+    headless::Buffers buffers;
+    CHECK(draw(buffers, 1, 1) && draw(buffers, 2, 1));
+    buffers.removed(2);
+    buffers.mark();
+    CHECK(draw(buffers, 1, 2) && draw(buffers, 3, 1) && draw(buffers, 3, 1));
+    buffers.removed(1);
+    const auto windows = buffers.since_mark();
+    CHECK(windows.size() == 2);  // window 2 went before the mark
+    auto window = since(buffers, 1);
+    CHECK(window.posts == 2 && window.since == 1 && window.changed && window.removed && !window.made);
+    window = since(buffers, 3);
+    CHECK(window.posts == 2 && window.since == 2 && window.made && !window.removed);
+    buffers.mark();
+    CHECK(since(buffers, 1).id == 0 && since(buffers, 3).id == 3 && !since(buffers, 3).made);
+}
+
 }  // namespace
 
 int main() {
