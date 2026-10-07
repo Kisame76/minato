@@ -1,0 +1,11 @@
+# The types tools/api-coverage.py batches first (--first): what the Unity test APK failed on or needs next (App's probe on the
+# iPhone, 2026-10-07), one qualified name a line. Its packages' pure-Java types come in the first batches.
+android.os.ConditionVariable
+android.os.Messenger
+android.os.UserManager
+android.net.TrafficStats
+android.database.sqlite.SQLiteOpenHelper
+android.database.sqlite.SQLiteDatabase
+android.database.sqlite.SQLiteException
+android.database.Cursor
+android.content.IntentFilter

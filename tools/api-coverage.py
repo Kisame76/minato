@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""The framework's breadth (the compatibility plan's entry 22, docs/plans/2026-10-07-framework-breadth.md): every
+public type of Android 15's API (frameworks/base's core/api/current.txt) that framework.jar lacks, by package and by
+what it needs, and the batches in which the pure-Java ones go into framework/sources.txt.
+
+A missing top-level type's group comes from its AOSP source and from the hidden types it pulls in; the worst wins, in
+this order:
+  pure Java    its source is fetched and plain Java;
+  service      it reaches a system service: ServiceManager, a Stub's asInterface, getSystemService, or an AIDL
+               interface (a .aidl file that declares an interface, not one that declares a parcelable);
+  native       it declares native methods (JNI);
+  not fetched  build/sources lacks its source.
+A type uses what it imports and the types of its own package that it names. A used type outside the API that
+framework.jar lacks has no compile-only stub, so it comes with the type, as do the hidden types it uses in turn: they
+are pulled in, and their groups count. A used API type that framework.jar lacks is a stub at compile time and stays one
+unless a batch takes it: a stub reference, which framework/stub-references.txt must list. A nested type that
+framework.jar lacks while it has its top-level type counts apart: for our own types (--ours), our code has to add it.
+The pure-Java types go into batches of up to --batch types (60), whole packages where they fit: first the packages of
+--first's types (fixtures/corpus/api-first.txt: one qualified name a line, # starts a comment), then the packages whose
+types the most other missing types use. Within a package a type comes after the ones it uses. A type that another step
+takes (fixtures/corpus/api-taken.txt: a package, which is its own types only, or a type, then a tab and the step) goes
+into no batch; the table lists it with its step. Writes the table (docs/corpus/api-coverage.md) and the JSON for the
+batches (build/api-coverage.json). It reads framework.jar's classes in build/framework/classes, so
+tools/build-framework.sh comes first. Python 3.9.
+
+Usage: api-coverage.py [--api <current.txt>] [--classes <folder>] [--sources <folder>]... [--ours <folder>]
+                       [--first <file>] [--taken <file>] [--batch <n>] [--table <file>] [--json <file>]
+"""
+import collections
+import json
+import os
+import re
+import sys
+
+TOOLS = os.path.dirname(os.path.abspath(__file__))
+REPO = os.environ.get("MINATO_REPO") or os.path.dirname(TOOLS)
+GROUPS = ["pure Java", "service", "native", "not fetched"]
+TYPE = re.compile(r'^  (?:@\w+(?:\("[^"]*"\))? )*(?:public|protected) (?:\w+ )*?(?:class|interface|enum|@interface) '
+                  r'([\w.]+)')
+# Comments, strings and characters, which name nothing.
+NOISE = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.S)
+NATIVE = re.compile(r"\bnative\s+[\w<>\[\],.? ]+?\s+\w+\s*\(")
+SERVICE = re.compile(r"\bServiceManager\b|\.Stub\.asInterface\b|\bgetSystemService\s*\(")
+AIDL_INTERFACE = re.compile(r"^\s*(?:oneway\s+)?interface\s+\w+", re.M)
+IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+?)(\.\*)?\s*;", re.M)
+NAME = re.compile(r"\b[A-Z]\w*\b")
+
+
+def read_api(path):
+    """The API's public types as (package, name), a nested one's name as Outer.Inner."""
+    types, package = [], None
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            match = re.match(r"^package (\S+) \{", line)
+            if match:
+                package = match.group(1)
+                continue
+            match = TYPE.match(line)
+            if match and package:
+                types.append((package, match.group(1)))
+    return types
+
+
+def class_names(folder):
+    """The binary names of the classes in `folder`, as a/b/Outer$Inner."""
+    names = set()
+    for directory, _, files in os.walk(folder):
+        for name in files:
+            if name.endswith(".class"):
+                names.add(os.path.relpath(os.path.join(directory, name), folder)[:-len(".class")])
+    return names
+
+
+def source_index(roots):
+    """The fetched sources: {qualified name: path} of the .java files and the qualified names of the AIDL
+    interfaces."""
+    java, aidl = {}, set()
+    for root in roots:
+        for directory, _, files in os.walk(root):
+            for name in files:
+                stem, extension = os.path.splitext(name)
+                qualified = os.path.relpath(os.path.join(directory, stem), root).replace(os.sep, ".")
+                if extension == ".java":
+                    java.setdefault(qualified, os.path.join(directory, name))
+                elif extension == ".aidl":
+                    with open(os.path.join(directory, name), encoding="utf-8", errors="replace") as handle:
+                        if AIDL_INTERFACE.search(NOISE.sub(" ", handle.read())):
+                            aidl.add(qualified)
+    return java, aidl
+
+
+class Coverage:
+    def __init__(self, api, classes, roots, ours):
+        self.types = read_api(api)
+        self.classes = class_names(classes)
+        self.java, self.aidl = source_index(roots)
+        self.ours = ours
+        self.present = lambda qualified: qualified.replace(".", "/") in self.classes
+        tops = sorted({(package, name) for package, name in self.types if "." not in name})
+        self.tops = tops
+        self.missing = [f"{package}.{name}" for package, name in tops if not self.present(f"{package}.{name}")]
+        missing = set(self.missing)
+        # A nested type framework.jar lacks under a top-level type it has.
+        self.nested = []
+        for package, name in self.types:
+            top = f"{package}.{name.split('.')[0]}"
+            binary = f"{package.replace('.', '/')}/{name.replace('.', '$')}"
+            if "." in name and top not in missing and binary not in self.classes:
+                self.nested.append((package, name))
+        self.by_package = collections.defaultdict(set)  # the missing and hidden types' simple names, per package
+        for qualified in missing:
+            self.by_package[qualified.rsplit(".", 1)[0]].add(qualified.rsplit(".", 1)[1])
+        for qualified in self.java:
+            if not self.present(qualified):
+                self.by_package[qualified.rsplit(".", 1)[0]].add(qualified.rsplit(".", 1)[1])
+        self.own, self.uses, self.hidden = {}, {}, set()
+        pending = list(self.missing)
+        while pending:
+            qualified = pending.pop()
+            if qualified in self.own:
+                continue
+            self.own[qualified], self.uses[qualified] = self.read(qualified)
+            for used in self.uses[qualified]:
+                if used not in self.own:
+                    if used not in missing:
+                        self.hidden.add(used)
+                    pending.append(used)
+        self.group = {q: GROUPS[max([GROUPS.index(self.own[q])] + [GROUPS.index(self.own[h]) for h in self.pulls(q)])]
+                      for q in self.own}
+
+    def resolve(self, qualified):
+        """The missing type, API or hidden, that a qualified name names or lies in; None for one framework.jar has or
+        that no source defines."""
+        parts = qualified.split(".")
+        for end in range(len(parts), 1, -1):
+            candidate = ".".join(parts[:end])
+            if self.present(candidate):
+                return None
+            if candidate in self.java or candidate in self.missing_set():
+                return candidate
+        return None
+
+    def missing_set(self):
+        if not hasattr(self, "_missing_set"):
+            self._missing_set = set(self.missing)
+        return self._missing_set
+
+    def read(self, qualified):
+        """A type's own group and the missing types it uses."""
+        path = self.java.get(qualified)
+        if path is None:
+            return "not fetched", set()
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            code = NOISE.sub(" ", handle.read())
+        package = qualified.rsplit(".", 1)[0]
+        used, aidl = set(), False
+        packages = [package]
+        for match in IMPORT.finditer(code):
+            name = match.group(2)
+            if match.group(3):
+                packages.append(name)
+                continue
+            if match.group(1):
+                name = name.rsplit(".", 1)[0]
+            if name in self.aidl:
+                aidl = True
+            found = self.resolve(name)
+            if found:
+                used.add(found)
+        names = set(NAME.findall(code))
+        for each in packages:
+            for name in names & self.by_package.get(each, set()):
+                used.add(f"{each}.{name}")
+            aidl = aidl or any(f"{each}.{name}" in self.aidl for name in names)
+        used.discard(qualified)
+        if NATIVE.search(code):
+            return "native", used
+        if aidl or SERVICE.search(code):
+            return "service", used
+        return "pure Java", used
+
+    def pulls(self, qualified):
+        """The hidden types a type pulls in: those it reaches through hidden ones only."""
+        seen, pending = set(), [u for u in self.uses.get(qualified, ()) if u in self.hidden]
+        while pending:
+            hidden = pending.pop()
+            if hidden in seen:
+                continue
+            seen.add(hidden)
+            pending.extend(u for u in self.uses.get(hidden, ()) if u in self.hidden)
+        return sorted(seen)
+
+    def batches(self, first, size, taken=()):
+        """The pure-Java types that no other step takes, in batches of up to `size`, whole packages where they fit."""
+        pure = [q for q in self.missing if self.group[q] == "pure Java" and q not in taken]
+        packages = collections.defaultdict(list)
+        for qualified in pure:
+            packages[qualified.rsplit(".", 1)[0]].append(qualified)
+        demand = collections.Counter()
+        for qualified in self.missing:
+            for used in self.uses.get(qualified, ()):
+                if used in packages.get(used.rsplit(".", 1)[0], ()):
+                    demand[used.rsplit(".", 1)[0]] += 1
+        order = []
+        for qualified in first:
+            package = qualified.rsplit(".", 1)[0]
+            if package in packages and package not in order:
+                order.append(package)
+        order += sorted((p for p in packages if p not in order), key=lambda p: (-demand[p], p))
+        batches, current = [], []
+        for package in order:
+            ordered, seen = [], set()
+
+            def visit(qualified):
+                if qualified in seen:
+                    return
+                seen.add(qualified)
+                for used in sorted(self.uses.get(qualified, ())):
+                    if used in packages[package]:
+                        visit(used)
+                ordered.append(qualified)
+
+            for qualified in sorted(packages[package]):
+                visit(qualified)
+            if current and len(current) + len(ordered) > size:
+                batches.append(sorted(current))
+                current = []
+            while len(ordered) > size:
+                batches.append(sorted(ordered[:size]))
+                ordered = ordered[size:]
+            current += ordered
+        if current:
+            batches.append(sorted(current))
+        return batches
+
+
+def main():
+    arguments = sys.argv[1:]
+    options = {"--api": os.path.join(REPO, "build", "sources", "frameworks_base_api", "core", "api", "current.txt"),
+               "--classes": os.path.join(REPO, "build", "framework", "classes"),
+               "--ours": os.path.join(REPO, "framework", "java"),
+               "--first": os.path.join(REPO, "fixtures", "corpus", "api-first.txt"),
+               "--taken": os.path.join(REPO, "fixtures", "corpus", "api-taken.txt"), "--batch": "60",
+               "--table": os.path.join(REPO, "docs", "corpus", "api-coverage.md"),
+               "--json": os.path.join(REPO, "build", "api-coverage.json")}
+    roots = []
+    while arguments:
+        if len(arguments) < 2 or arguments[0] not in list(options) + ["--sources"]:
+            raise SystemExit(__doc__.split("Usage: ")[1].strip())
+        if arguments[0] == "--sources":
+            roots.append(arguments[1])
+        else:
+            options[arguments[0]] = arguments[1]
+        arguments = arguments[2:]
+    if not roots:
+        sources = os.path.join(REPO, "build", "sources")
+        roots = [os.path.join(sources, "frameworks_base", "core", "java"),
+                 os.path.join(sources, "frameworks_base_graphics", "graphics", "java"),
+                 os.path.join(sources, "frameworks_base", "opengl", "java")]
+        # frameworks/base's other java folders, fetched for this (third_party/sources.json's frameworks_base_types):
+        # media/java, telephony/java, apex/jobscheduler/framework/java and the rest, each a root of its own.
+        types = os.path.join(sources, "frameworks_base_types")
+        for directory, folders, _ in sorted(os.walk(types)):
+            if os.path.basename(directory) == "java":
+                roots.append(directory)
+                folders[:] = []
+    first, steps = [], []
+    if os.path.exists(options["--first"]):
+        with open(options["--first"]) as handle:
+            first = [line.split("#")[0].strip() for line in handle if line.split("#")[0].strip()]
+    if os.path.exists(options["--taken"]):
+        with open(options["--taken"]) as handle:
+            steps = [tuple(line.rstrip("\n").split("\t", 1)) for line in handle
+                     if line.strip() and not line.startswith("#")]
+    coverage = Coverage(options["--api"], options["--classes"], roots, options["--ours"])
+    taken = {}
+    for qualified in coverage.missing:
+        for name, step in steps:
+            if qualified == name or qualified.rsplit(".", 1)[0] == name:
+                taken[qualified] = step
+                break
+    batches = coverage.batches(first, int(options["--batch"]), taken)
+    ours = sorted(f"{package}.{name}" for package, name in coverage.nested
+                  if os.path.exists(os.path.join(options["--ours"], *package.split("."), name.split(".")[0] + ".java")))
+    missing = set(coverage.missing)
+    types = {q: {"group": coverage.group[q], "uses": sorted(coverage.uses.get(q, ())), "pulls": coverage.pulls(q),
+                 "stubs": sorted(u for u in coverage.uses.get(q, ()) if u in missing),
+                 "source": coverage.java.get(q), "taken": taken.get(q)} for q in coverage.missing}
+    os.makedirs(os.path.dirname(os.path.abspath(options["--json"])), exist_ok=True)
+    with open(options["--json"], "w") as handle:
+        json.dump({"types": types, "batches": batches, "ours": ours,
+                   "nested": sorted({f"{p}.{n}" for p, n in coverage.nested} - set(ours))}, handle, indent=1)
+        handle.write("\n")
+
+    counts = collections.Counter(coverage.group[q] for q in coverage.missing)
+    rows = collections.defaultdict(lambda: collections.Counter())
+    for package, name in coverage.tops:
+        qualified = f"{package}.{name}"
+        rows[package]["present" if qualified not in types else coverage.group[qualified]] += 1
+        rows[package]["missing"] += qualified in types
+    lines = ["# The framework's API coverage", "",
+             "Written by tools/api-coverage.py from Android 15's API (frameworks/base's core/api/current.txt) and",
+             "framework.jar's classes, for the [framework breadth plan](../plans/2026-10-07-framework-breadth.md).",
+             "Do not edit by hand.", "",
+             f"The API has {len(coverage.types)} public types, {len(coverage.tops)} of them top-level. framework.jar "
+             f"has {len(coverage.tops) - len(coverage.missing)} of these; {len(coverage.missing)} are missing: "
+             + ", ".join(f"{counts[g]} {g}" for g in GROUPS) + f". Our own types lack {len(ours)} nested ones.", "",
+             "## Packages", "",
+             "| Package | In framework.jar | Missing | " + " | ".join(g[0].upper() + g[1:] for g in GROUPS) + " |",
+             "|---|---|---|" + "---|" * len(GROUPS)]
+    for package in sorted(rows, key=lambda p: (-rows[p]["missing"], p)):
+        row = rows[package]
+        if row["missing"]:
+            lines.append(f"| {package} | {row['present']} | {row['missing']} | "
+                         + " | ".join(str(row[g]) for g in GROUPS) + " |")
+    lines += ["", "## Batches of the pure-Java types", ""]
+    for number, batch in enumerate(batches, 1):
+        pulled = sorted({p for q in batch for p in coverage.pulls(q)})
+        packages = sorted({q.rsplit(".", 1)[0] for q in batch})
+        lines.append(f"{number}. {', '.join(packages)} ({len(batch)}"
+                     + (f", pulling in {len(pulled)} hidden" if pulled else "") + "): "
+                     + ", ".join(q.rsplit(".", 1)[1] for q in batch))
+    lines += ["", "## Not fetched", "", "Their sources lie beyond build/sources: a later fetch, with the user's go.",
+              ""]
+    unfetched = collections.defaultdict(list)
+    for qualified in coverage.missing:
+        if coverage.java.get(qualified) is None:
+            unfetched[qualified.rsplit(".", 1)[0]].append(qualified.rsplit(".", 1)[1])
+    lines += [f"- {package}: {', '.join(sorted(names))}" for package, names in sorted(unfetched.items())] or ["None."]
+    lines += ["", "## Taken by other steps", ""]
+    by_step = collections.defaultdict(list)
+    for qualified, step in taken.items():
+        by_step[step].append(qualified)
+    for step in sorted(by_step):
+        lines.append(f"- {step}: {len(by_step[step])} ("
+                     + ", ".join(sorted(q.rsplit('.', 1)[1] for q in by_step[step])[:12])
+                     + (", …" if len(by_step[step]) > 12 else "") + ")")
+    if not by_step:
+        lines.append("None.")
+    lines += ["", "## Nested types our own classes lack", ""]
+    lines += [f"- {name}" for name in ours] or ["None."]
+    with open(options["--table"], "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+    print(f"{options['--table']}: {len(coverage.missing)} missing, " + ", ".join(f"{counts[g]} {g}" for g in GROUPS)
+          + f"; {len(batches)} batches; {len(ours)} nested types of ours")
+
+
+if __name__ == "__main__":
+    main()
