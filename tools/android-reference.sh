@@ -64,7 +64,9 @@
 # Test 2's Godot APKs godot-bench-vulkan and godot-bench-gles (ADR-0042 a) come from build/godot
 # (tools/build-godot.sh) and run with the emulator's defaults too. Godot logs under its own tag, godot: bench.gd's
 # lines that begin "godot-bench:" must be fixtures/expected/<app>.logcat, the rest are only shown, and the line of
-# their run must count frames and no failure, after which the app has finished by itself.
+# their run must count frames and no failure, after which the app has finished by itself. Once the bench has
+# started, the script taps the screen's middle five times, 1 s apart, and bench.gd logs the first touch that reaches
+# it, in percent of its viewport (Godot's input, ADR-0042 b)).
 # A Java program of fixtures/java (ADR-0033 b) runs with --art as `dalvikvm64 -Xint` runs it from
 # /data/local/tmp, its jar from build/art/test (tools/build-art.sh) and its JNI library, if it names one, from the
 # fixtures' build, found through -Djava.library.path: its stdout must be fixtures/expected/<program>.out, and the
@@ -387,7 +389,29 @@ run_godot() {
   device uninstall "$package" >/dev/null 2>&1 || true
   device install "$apk" >/dev/null
   run logcat -c
+  # Android shows its full-screen confirmation over an app that goes immersive, as Godot does, the first time, and
+  # the confirmation takes the taps below: confirmed for the run, as by a user who dismissed it once, then restored.
+  local confirmations
+  confirmations=$(run settings get secure immersive_mode_confirmations | tr -d '\r')
+  run settings put secure immersive_mode_confirmations confirmed
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$launcher" >/dev/null
+  # Godot's input (ADR-0042 b)): taps in the screen's middle once the bench runs, of which bench.gd logs the first.
+  # The middle of the display as it is turned now (dumpsys window's cur=), since Godot turns it to landscape and
+  # input tap takes the turned display's coordinates; wm size gives the unturned one.
+  if wait_for godot "godot-bench: start " 180; then
+    local size
+    size=$(run dumpsys window displays | tr -d '\r' |
+      awk '!found && match($0, /cur=[0-9]+x[0-9]+/) { print substr($0, RSTART + 4, RLENGTH - 4); found = 1 }')
+    for _ in 1 2 3 4 5; do
+      run input tap $(( ${size%x*} / 2 )) $(( ${size#*x} / 2 ))
+      sleep 1
+    done
+  fi
+  if [[ -z "$confirmations" || "$confirmations" == null ]]; then
+    run settings delete secure immersive_mode_confirmations >/dev/null
+  else
+    run settings put secure immersive_mode_confirmations "$confirmations"
+  fi
   # The emulator draws on the CPU: the engine's start, its shader compiles and 10 s of frames. An app that hangs is
   # shown and removed, so that it does not draw beside the next one.
   if ! wait_for godot " failures" 180; then

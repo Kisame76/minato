@@ -1,3 +1,4 @@
 I/godot   : godot-bench: no bench.conf: the emulator's defaults
 I/godot   : godot-bench: start default rate 60 load light seconds 10 meshes 512
 I/godot   : godot-bench: rendering gl_compatibility opengl3
+I/godot   : godot-bench: first touch at 50 % x 50 %

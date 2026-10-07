@@ -14,7 +14,9 @@
 # CPU time that Godot measured for the frame before (process callbacks and the renderer's setup).
 # The log: lines that begin "godot-bench:" are the same on every device (tools/android-reference.sh compares
 # them), lines that begin "godot-bench-device:" are not and are only shown, and the last one,
-# "run <run>: <frames> frames, <failures> failures", is checked by its form.
+# "run <run>: <frames> frames, <failures> failures", is checked by its form. The first touch on the screen is
+# logged once, as a share of the viewport in whole percent, so that the line is the same on every screen (Godot's
+# input, ADR-0042 b)).
 # The process environment carries the frame the main loop draws (GODOT_BENCH_FRAME, from 0) and, after the last,
 # GODOT_BENCH_DONE: the twin's frame hook reads them around each frame, so that its recording holds exactly the
 # frames of scene.csv (ADR-0042 c).
@@ -83,6 +85,7 @@ var started_us := 0
 var next_second := 1
 var frames_this_second := 0
 var finished := false
+var touched := false
 var rows := PackedStringArray(["index,tick_ns,cpu_ns"])
 var materials: Array[ShaderMaterial] = []
 var spin := Node3D.new()
@@ -125,6 +128,15 @@ func _process(_delta: float) -> void:
 		next_second += 1
 	if elapsed >= conf["seconds"]:
 		_finish()
+
+
+# The first touch only: how many of a run's taps land does not matter.
+func _input(event: InputEvent) -> void:
+	if touched or not (event is InputEventScreenTouch and event.pressed):
+		return
+	touched = true
+	var size := get_viewport().get_visible_rect().size
+	print("godot-bench: first touch at %d %% x %d %%" % [roundi(event.position.x / size.x * 100.0), roundi(event.position.y / size.y * 100.0)])
 
 
 func _read_arguments() -> void:

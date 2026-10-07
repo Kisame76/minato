@@ -4,7 +4,9 @@ tools/android-reference.sh --app <app> runs it on the AVD. app_process starts it
 (framework/tests/app_process_run.py's start(), with the manifest's Application), in a session of the M4 plan's display,
 1290 x 2796 at scale 3, under graphics-run with the session's layers (MINATO_SESSION_LAYERS=1): the SurfaceView of
 Godot's render view gets a layer of its own, on which the Mac's MoltenVK (MINATO_MOLTENVK) or ANGLE (MINATO_ANGLE)
-draws its frames.
+draws its frames. apk-run's lifecycle taps the window's middle six times, a second apart after the start, on the
+session's input channel, as tools/android-reference.sh taps the AVD's middle while the bench runs (test 2's gap 6):
+the bench logs its first touch, in fractions of its viewport, so the line is the same on every screen.
 
 Its log lines with the tag godot that begin "godot-bench: " must be Android 15's (fixtures/expected/<app>.logcat), as
 android-reference.sh compares them. Its other lines with that tag are only shown, and one of them must be
@@ -29,6 +31,9 @@ PERMISSIONS = os.path.join(ROOT, "build", "sources", "frameworks_base_etc", "dat
 # Godot's tag as logcat -v tag pads it (tools/android-reference.sh).
 TAG = r"^[VDIWEF]/godot *: "
 RUN = TAG + r"run [^:]+: [1-9][0-9]* frames, 0 failures$"
+# The window's middle in the session's 1290 x 2796, six times: the bench runs about 2 s after the start, and apk-run
+# plays the steps a second apart.
+LIFECYCLE = "start," + ",".join(["tap:645:1398"] * 6)
 # Its run line, whatever its counts: the run's end.
 LAST = TAG + r"run [^:]+: [0-9]+ frames, [0-9]+ failures$"
 
@@ -52,7 +57,8 @@ def main():
     if os.path.isfile(os.path.join(PERMISSIONS, "platform.xml")):
         mounts.append(("/system/etc/permissions", PERMISSIONS))
     result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, graphics_run, work, app_process,
-                   framework_jar, apk, package, None, mounts=mounts, configuration="1290x2796@3,en-US", last=LAST)
+                   framework_jar, apk, package, None, mounts=mounts, configuration="1290x2796@3,en-US", last=LAST,
+                   lifecycle=LIFECYCLE)
     if result is None:
         print("FAIL: no run line within 300 s")
         sys.exit(1)
