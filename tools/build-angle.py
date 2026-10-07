@@ -6,6 +6,7 @@ Usage: tools/build-angle.sh --self-test          check the script's guards (no n
        tools/build-angle.sh --gen [slice...]     gn gen for the slices (ios, ios-simulator, macos; all by default)
        tools/build-angle.sh --build [slice...]   patches, gn gen, ninja, the checks and build/ANGLE.xcframework
        tools/build-angle.sh --licenses slice     the licenses of what a built slice holds (decision 11)
+--self-test and --fetch run depot_tools' gclient.py, which needs Python 3.11 or newer; the other steps run on 3.9.
 
 The pins are the "angle" entry of third_party/sources.json. ANGLE and depot_tools come as single commits
 through plain git. gclient.py of that depot_tools, run with this Python rather than through vpython3, so
@@ -151,6 +152,19 @@ def write_gclient(directory, settings, url):
 # gclient skips every CIPD and GCS entry of DEPS and of the DEPS files it recurses into; the compiler and
 # GN, the only such entries the build needs, come from fetch_file() instead.
 IGNORED_TYPES = ["--ignore-dep-type", "cipd", "--ignore-dep-type", "gcs"]
+
+# gclient.py of the pinned depot_tools runs with this script's Python and imports enum.StrEnum (metrics_utils.py),
+# which Python has since 3.11: the steps that run it refuse an older Python with that reason instead of a traceback.
+GCLIENT_PYTHON = (3, 11)
+
+
+def python_refusal(version, step):
+    """Why `step` cannot run gclient.py on Python `version`, or None."""
+    if tuple(version[:2]) >= GCLIENT_PYTHON:
+        return None
+    return (f"build-angle: {step} runs depot_tools' gclient.py with this Python, {version[0]}.{version[1]}, but the "
+            f"pinned depot_tools needs {GCLIENT_PYTHON[0]}.{GCLIENT_PYTHON[1]} or newer (it imports enum.StrEnum); "
+            "run it with a newer python3, which tools/build-angle.sh takes from PATH")
 
 
 def gclient(directory, *arguments, capture=False):
@@ -400,6 +414,10 @@ def self_test():
         shutil.rmtree(directory)
     os.makedirs(directory)
     try:
+        expect(all(python_refusal(version, "--fetch") is not None for version in ((3, 9, 6), (3, 10, 14)))
+               and all(python_refusal(version, "--self-test") is None for version in ((3, 11, 0), (3, 14, 7))),
+               "the steps that run gclient.py refuse a Python below 3.11, with a reason")
+
         marker = os.path.join(directory, "side-effect")
         with open(os.path.join(directory, "DEPS"), "w") as handle:
             handle.write(f"__import__('pathlib').Path({marker!r}).write_text('ran')\n"
@@ -666,6 +684,10 @@ def main():
     for chosen in (options.gen or []) + (options.build or []) + ([options.licenses] if options.licenses else []):
         if chosen not in SLICES:
             parser.error("unknown slice: " + chosen)
+    for step, wanted in (("--self-test", options.self_test), ("--fetch", options.fetch)):
+        refusal = python_refusal(sys.version_info, step) if wanted else None
+        if refusal:
+            raise SystemExit(refusal)
     if options.self_test:
         self_test()
     if options.fetch:
