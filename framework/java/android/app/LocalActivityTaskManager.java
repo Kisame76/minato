@@ -3,10 +3,11 @@
  * what system_server's ActivityTaskManagerService answers an app's starts with, answered in the process, as
  * ServiceManager's "activity_task". A start goes to ActivityThread, which checks its explicit component against the
  * manifest at once, so that Instrumentation's checkStartActivityResult throws Android's ActivityNotFoundException, and
- * launches it on the main thread in the app's one task. Not yet written, each answered with START_CANCELED and a line,
- * so that the start throws rather than doing nothing: several intents at once and PendingIntent's activities. No other
- * app runs on Minato, so a start as another caller is refused, as Android refuses one without the signature
- * permission START_ACTIVITY_AS_CALLER, and there is one user, the app's.
+ * launches it on the main thread in the app's one task, with the activity that waits for its result (step
+ * b3.5b2-2a). Not yet written, each answered with START_CANCELED and a line, so that the start throws rather than
+ * doing nothing: several intents at once and PendingIntent's activities. No other app runs on Minato, so a start as
+ * another caller is refused, as Android refuses one without the signature permission START_ACTIVITY_AS_CALLER, and
+ * there is one user, the app's.
  */
 package android.app;
 
@@ -32,7 +33,8 @@ public final class LocalActivityTaskManager extends IActivityTaskManager.Stub {
             String resolvedType, IBinder resultTo, String resultWho, int requestCode, int flags,
             ProfilerInfo profilerInfo, Bundle options) {
         ActivityThread thread = ActivityThread.currentActivityThread();
-        return thread != null ? thread.startActivity(intent, requestCode) : ActivityManager.START_CANCELED;
+        return thread != null ? thread.startActivity(intent, resultTo, resultWho, requestCode)
+                : ActivityManager.START_CANCELED;
     }
 
     @Override

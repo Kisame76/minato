@@ -16,10 +16,14 @@
  *     default 0 would be root's, and a caller's content URI permission is denied;
  *   - a finish goes to ActivityThread's task (step b3.5b2-1): the last activity's asks the host's session, which
  *     answers with the quit (ADR-0043 step c1); without a session the last one's is refused, as AIDL's default
- *     answers.
+ *     answers;
+ *   - results (step b3.5b2-2a): a finish's result goes to the activity that waits for it, which getCallingActivity
+ *     and getCallingPackage name; finishActivity(requestCode) and finishAffinity finish the activities they name,
+ *     and finishAndRemoveTask from the task's root ends the task.
  */
 package android.app;
 
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -38,7 +42,27 @@ final class LocalActivityClientController extends IActivityClientController.Defa
 
     @Override
     public boolean finishActivity(IBinder token, int resultCode, Intent resultData, int finishTask) {
-        return mThread.finishActivity(token);
+        return mThread.finishActivity(token, resultCode, resultData, finishTask);
+    }
+
+    @Override
+    public void finishSubActivity(IBinder token, String resultWho, int requestCode) {
+        mThread.finishSubActivity(token, resultWho, requestCode);
+    }
+
+    @Override
+    public boolean finishActivityAffinity(IBinder token) {
+        return mThread.finishActivityAffinity(token);
+    }
+
+    @Override
+    public ComponentName getCallingActivity(IBinder token) {
+        return mThread.callingActivity(token);
+    }
+
+    @Override
+    public String getCallingPackage(IBinder token) {
+        return mThread.callingPackage(token);
     }
 
     @Override

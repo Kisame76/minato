@@ -1,0 +1,159 @@
+I/result-flow-test: Main onCreate, saved state false, calling activity none
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Main starts Ok for result 1
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: Ok onCreate, saved state false, flags 0x0, calling activity .MainActivity of io.github.kisame76.minato.test.resultflow
+I/result-flow-test: Ok onStart
+I/result-flow-test: Ok onResume
+I/result-flow-test: Ok onTopResumedActivityChanged true
+I/result-flow-test: Main onStop
+I/result-flow-test: Main onSaveInstanceState
+I/result-flow-test: Ok returns RESULT_OK and finishes
+I/result-flow-test: Ok onTopResumedActivityChanged false
+I/result-flow-test: Ok onPause
+I/result-flow-test: Main onRestart
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onActivityResult 1, result -1, from Ok
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Ok onStop
+I/result-flow-test: Ok onDestroy, finishing true
+I/result-flow-test: Main starts Early for result 2
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: Early onCreate, saved state false, flags 0x0, calling activity .MainActivity of io.github.kisame76.minato.test.resultflow
+I/result-flow-test: Early finishes in onCreate
+I/result-flow-test: Main onActivityResult 2, result 0, from none
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Early onDestroy, finishing true
+I/result-flow-test: Main starts NewTask for result 3 with FLAG_ACTIVITY_NEW_TASK
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onPause
+I/result-flow-test: Main onActivityResult 3, result 0, from none
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: NewTask onCreate, saved state false, flags 0x10000000, calling activity none
+I/result-flow-test: NewTask onStart
+I/result-flow-test: NewTask onResume
+I/result-flow-test: NewTask onTopResumedActivityChanged true
+I/result-flow-test: Main onStop
+I/result-flow-test: Main onSaveInstanceState
+I/result-flow-test: NewTask starts Sub for result 4
+I/result-flow-test: NewTask onTopResumedActivityChanged false
+I/result-flow-test: NewTask onUserLeaveHint
+I/result-flow-test: NewTask onPause
+I/result-flow-test: Sub onCreate, saved state false, flags 0x0, calling activity .NewTaskActivity of io.github.kisame76.minato.test.resultflow
+I/result-flow-test: Sub onStart
+I/result-flow-test: Sub onResume
+I/result-flow-test: Sub onTopResumedActivityChanged true
+I/result-flow-test: NewTask onStop
+I/result-flow-test: NewTask onSaveInstanceState
+I/result-flow-test: NewTask finishes Sub with finishActivity(4)
+I/result-flow-test: Sub onTopResumedActivityChanged false
+I/result-flow-test: Sub onPause
+I/result-flow-test: NewTask onRestart
+I/result-flow-test: NewTask onStart
+I/result-flow-test: NewTask onActivityResult 4, result 0, from none
+I/result-flow-test: NewTask onResume
+I/result-flow-test: NewTask onTopResumedActivityChanged true
+I/result-flow-test: Sub onStop
+I/result-flow-test: Sub onDestroy, finishing true
+I/result-flow-test: NewTask finishes
+I/result-flow-test: NewTask onTopResumedActivityChanged false
+I/result-flow-test: NewTask onPause
+I/result-flow-test: Main onRestart
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: NewTask onStop
+I/result-flow-test: NewTask onDestroy, finishing true
+I/result-flow-test: Main starts Forward for result 5
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: Forward onCreate, saved state false, flags 0x0, calling activity .MainActivity of io.github.kisame76.minato.test.resultflow
+I/result-flow-test: Forward onStart
+I/result-flow-test: Forward onResume
+I/result-flow-test: Forward onTopResumedActivityChanged true
+I/result-flow-test: Main onStop
+I/result-flow-test: Main onSaveInstanceState
+I/result-flow-test: FLAG_ACTIVITY_FORWARD_RESULT with result 6: android.util.AndroidRuntimeException: FORWARD_RESULT_FLAG used while also requesting a result
+I/result-flow-test: Forward starts Final with FLAG_ACTIVITY_FORWARD_RESULT and finishes
+I/result-flow-test: Forward onTopResumedActivityChanged false
+I/result-flow-test: Forward onUserLeaveHint
+I/result-flow-test: Forward onPause
+I/result-flow-test: Final onCreate, saved state false, flags 0x2000000, calling activity .MainActivity of io.github.kisame76.minato.test.resultflow
+I/result-flow-test: Final onStart
+I/result-flow-test: Final onResume
+I/result-flow-test: Final onTopResumedActivityChanged true
+I/result-flow-test: Forward onStop
+I/result-flow-test: Forward onDestroy, finishing true
+I/result-flow-test: Final returns RESULT_OK and finishes
+I/result-flow-test: Final onTopResumedActivityChanged false
+I/result-flow-test: Final onPause
+I/result-flow-test: Main onRestart
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onActivityResult 5, result -1, from Final
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Final onStop
+I/result-flow-test: Final onDestroy, finishing true
+I/result-flow-test: Main starts Other
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: Other onCreate, saved state false, flags 0x0, calling activity none
+I/result-flow-test: Other onStart
+I/result-flow-test: Other onResume
+I/result-flow-test: Other onTopResumedActivityChanged true
+I/result-flow-test: Main onStop
+I/result-flow-test: Main onSaveInstanceState
+I/result-flow-test: Other starts OtherTop
+I/result-flow-test: Other onTopResumedActivityChanged false
+I/result-flow-test: Other onUserLeaveHint
+I/result-flow-test: Other onPause
+I/result-flow-test: OtherTop onCreate, saved state false, flags 0x0, calling activity none
+I/result-flow-test: OtherTop onStart
+I/result-flow-test: OtherTop onResume
+I/result-flow-test: OtherTop onTopResumedActivityChanged true
+I/result-flow-test: Other onStop
+I/result-flow-test: Other onSaveInstanceState
+I/result-flow-test: OtherTop calls finishAffinity
+I/result-flow-test: OtherTop onTopResumedActivityChanged false
+I/result-flow-test: OtherTop onPause
+I/result-flow-test: Other onDestroy, finishing true
+I/result-flow-test: Main onRestart
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: OtherTop onStop
+I/result-flow-test: OtherTop onDestroy, finishing true
+I/result-flow-test: Main starts Last
+I/result-flow-test: Main onTopResumedActivityChanged false
+I/result-flow-test: Main onUserLeaveHint
+I/result-flow-test: Main onPause
+I/result-flow-test: Last onCreate, saved state false, flags 0x0, calling activity none
+I/result-flow-test: Last onStart
+I/result-flow-test: Last onResume
+I/result-flow-test: Last onTopResumedActivityChanged true
+I/result-flow-test: Main onStop
+I/result-flow-test: Main onSaveInstanceState
+I/result-flow-test: Last calls finishAndRemoveTask
+I/result-flow-test: Last onTopResumedActivityChanged false
+I/result-flow-test: Last onPause
+I/result-flow-test: Main onRestart
+I/result-flow-test: Main onStart
+I/result-flow-test: Main onResume
+I/result-flow-test: Main onTopResumedActivityChanged true
+I/result-flow-test: Last onStop
+I/result-flow-test: Last onDestroy, finishing true
+I/result-flow-test: done

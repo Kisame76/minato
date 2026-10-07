@@ -175,11 +175,13 @@ fi
 # fills the window between the bars. touch-test (ADR-0045 step 7b2) runs there too: the script taps its window's
 # middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
 # activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too, and so does
-# key-test (ADR-0045 step 7c), which injects its keys once its window has focus, and gesture-flow-test
-# (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's.
+# key-test (ADR-0045 step 7c), which injects its keys once its window has focus, gesture-flow-test
+# (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a),
+# whose steps wait for its windows' focus as activity-flow-test's.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
-  "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ]]; then
+  "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
+  "$app" == result-flow-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -492,6 +494,12 @@ run_app() {
     # log ends with "done" at the UP of a tap in Second's window.
     gesture-flow-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FirstActivity
+      ;;
+    # result-flow-test (ADR-0039 step b3.5b2-2a): its launcher, MainActivity, starts the others for their results, and
+    # its log ends with "done" at the destroy of Last, whose finishAndRemoveTask finishes it alone, as it is not the
+    # task's root.
+    result-flow-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MainActivity
       ;;
     # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with
     # "done" at the click of the swipe that the script plays.

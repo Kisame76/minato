@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0039 step b3.5b2-2a's test (result-flow-test): an app's activities return results to the ones that started
+     them. Main, the launcher, starts for a result in turn: Ok, which returns RESULT_OK with an extra; Early, which
+     finishes in its onCreate; NewTask with FLAG_ACTIVITY_NEW_TASK, whose result Android cancels at once, and which
+     starts Sub for a result and finishes it with finishActivity; Forward, which hands its result on to Final with
+     FLAG_ACTIVITY_FORWARD_RESULT. Other and OtherTop share another affinity, so OtherTop's finishAffinity ends both
+     and leaves Main, which then starts Last. Last's finishAndRemoveTask is a plain finish, as Last is not the task's
+     root, so Main comes back. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.resultflow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+      android:name="io.github.kisame76.minato.test.resultflow.ResultApplication">
+    <activity android:name="io.github.kisame76.minato.test.resultflow.MainActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.OkActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.EarlyActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.NewTaskActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.SubActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.ForwardActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.FinalActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.OtherActivity" android:exported="false"
+        android:taskAffinity="io.github.kisame76.minato.test.resultflow.other"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.OtherTopActivity" android:exported="false"
+        android:taskAffinity="io.github.kisame76.minato.test.resultflow.other"/>
+    <activity android:name="io.github.kisame76.minato.test.resultflow.LastActivity" android:exported="false"/>
+  </application>
+</manifest>
