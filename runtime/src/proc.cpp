@@ -164,6 +164,7 @@ struct ProgramHeader {
 };
 constexpr std::uint32_t pt_load = 1;
 constexpr std::uint32_t pf_x = 1;
+constexpr std::uint64_t small_page_size = 4096;  // the pages of a library laid out for 4 KiB (ADR-0007)
 
 /// What Linux's ELF loader records of the program's segments (load_elf_binary): its code, its data
 /// and where its heap would start.
@@ -333,13 +334,22 @@ std::vector<Label> guest_labels() {
             continue;
         }
         const auto *headers = static_cast<const ProgramHeader *>(object.program_headers);
+        // A library laid out for 4 KiB pages keeps the lines a 4 KiB device shows: the converter moved its
+        // image as a whole (ADR-0007), so its first line starts at the bias, where crash reporters expect
+        // file offset 0, and no line starts in the page before it.
+        std::uint64_t granule = page_size();
+        for (std::size_t index = 0; index < object.program_header_count; ++index) {
+            if (headers[index].type == pt_load && headers[index].align < granule) granule = small_page_size;
+        }
+        const auto granule_down = [&](std::uint64_t address) { return address & ~(granule - 1); };
+        const auto granule_up = [&](std::uint64_t address) { return granule_down(address + granule - 1); };
         for (std::size_t index = 0; index < object.program_header_count; ++index) {
             const auto &header = headers[index];
             if (header.type != pt_load) continue;
             const std::uint64_t start = object.bias + header.vaddr;
-            const std::uint64_t begin = page_down(start);
-            const std::uint64_t file_end = header.filesz != 0 ? page_up(start + header.filesz) : begin;
-            const std::uint64_t memory_end = page_up(start + header.memsz);
+            const std::uint64_t begin = granule_down(start);
+            const std::uint64_t file_end = header.filesz != 0 ? granule_up(start + header.filesz) : begin;
+            const std::uint64_t memory_end = granule_up(start + header.memsz);
             if (file_end > begin) {
                 file.begin = begin;
                 file.end = file_end;

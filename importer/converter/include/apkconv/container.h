@@ -2,6 +2,7 @@
 // ADR-0019). The layout is documented in APKRuntime/container_format.h, which the loader shares.
 #pragma once
 
+#include "apkconv/elf.h"
 #include "apkconv/macho.h"
 #include "apkconv/rewrite.h"
 
@@ -33,6 +34,7 @@ struct Report {
     std::uint32_t x18_islands = 0;   // instructions run with a scratch register for x18 (ADR-0020)
     std::uint64_t relocations = 0;   // RELR addresses plus RELA entries, all in writable memory
     std::uint64_t image_offset = 0;  // where the ELF image starts in the container
+    std::uint64_t image_shift = 0;   // how far a 4 KiB layout moved it past a 16 KiB page (ADR-0007)
     std::uint64_t stub_bytes = 0;    // islands and veneers
     std::uint64_t island_table_bytes = 0;  // one entry per x18 island (ADR-0020 X4)
 };
@@ -48,6 +50,21 @@ class Incompatible : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
+
+/// Where an ELF image goes in 16 KiB pages (ADR-0007 decision 2, as amended 2026-10-07). Its LOAD
+/// segments are aligned to 4 KiB or more, the non-writable ones on 4 KiB pages below the writable
+/// ones. The whole image moves by `shift` so that its first writable 4 KiB page starts a 16 KiB page,
+/// as AOSP's 16 KiB compat mode moves its load bias: ADRP counts 4 KiB pages, so no instruction or
+/// table in the image changes. Pages below that boundary hold code, those above it data.
+struct PageLayout {
+    std::uint64_t min_vaddr = 0;       // the first LOAD segment's 16 KiB page
+    std::uint64_t writable_start = 0;  // the first writable LOAD segment's page, else `end`
+    std::uint64_t end = 0;             // past the last LOAD segment, the data in whole 16 KiB pages
+    std::uint64_t shift = 0;           // 0, 4, 8 or 12 KiB
+};
+
+/// The layout of `file`. Throws Incompatible with the reason when no shift fits it.
+PageLayout page_layout(const elf::File &file);
 
 /// Converts `elf`. Throws Incompatible, or elf::FormatError when the file is broken.
 Container convert(std::span<const std::byte> elf, const Options &options);

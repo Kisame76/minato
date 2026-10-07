@@ -64,6 +64,12 @@ add_executable(thread-test suite/thread-test.c)
 add_library(tls-lib SHARED suite/libtls-lib.c)
 add_executable(tls-test suite/tls-test.c)
 target_link_libraries(tls-test PRIVATE tls-lib)
+# page4k-test and its library, linked for 4 KiB pages as NDK builds before r28 are: code and writable
+# data meet in one 16 KiB page, so the converter moves the library's whole image (ADR-0007 decision 2).
+add_library(page4k-lib SHARED suite/libpage4k-lib.c)
+target_link_options(page4k-lib PRIVATE -Wl,-z,max-page-size=4096)
+add_executable(page4k-test suite/page4k-test.c)
+target_link_libraries(page4k-test PRIVATE page4k-lib)
 # dl-test and the libraries it opens at run time; libdl-missing.so is built for libdl-broken.so to
 # link against, but never installed next to dl-test.
 add_library(dl-helper SHARED suite/libdl-helper.c)

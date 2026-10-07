@@ -244,6 +244,76 @@ std::array<std::uint8_t, 16> content_uuid(std::span<const std::byte> image, cons
 
 }  // namespace
 
+PageLayout page_layout(const elf::File &file) {
+    constexpr std::uint64_t small_page = 4 * 1024;  // Android's pages before 16 KiB
+    if (const auto *segment = elf::first_misaligned_load(file, small_page)) {
+        throw Incompatible(std::format(
+            "LOAD segment at {:#x} does not fit 4 KiB pages: aligned to {:#x}, at offset {:#x} (ADR-0007)",
+            segment->address, segment->alignment, segment->offset));
+    }
+    std::vector<const elf::Segment *> loads;
+    for (const auto &segment : file.segments) {
+        if (segment.type == elf::SegmentType::load && segment.memory_size > 0) loads.push_back(&segment);
+    }
+    if (loads.empty()) throw Incompatible("the file has no LOAD segments");
+    std::ranges::sort(loads, {}, &elf::Segment::address);
+
+    // On pages of `granule`: the first writable page (the end without a writable segment), unless a
+    // non-writable segment reaches into it. One shift can put only one such boundary on a 16 KiB page.
+    struct Boundary {
+        std::uint64_t start = 0;
+        const elf::Segment *crossing = nullptr;
+    };
+    const auto boundary = [&](std::uint64_t granule) {
+        Boundary result;
+        std::optional<std::uint64_t> first_writable;
+        for (const auto *segment : loads) {
+            result.start = std::max(result.start, align_up(segment->address + segment->memory_size, granule));
+            if ((segment->flags & elf::segment_writable) && !first_writable) {
+                first_writable = segment->address & ~(granule - 1);
+            }
+        }
+        if (first_writable) result.start = *first_writable;
+        for (const auto *segment : loads) {
+            if ((segment->flags & elf::segment_writable) == 0 &&
+                align_up(segment->address + segment->memory_size, granule) > result.start) {
+                result.crossing = segment;
+                break;
+            }
+        }
+        return result;
+    };
+
+    PageLayout layout;
+    layout.min_vaddr = page_down(loads.front()->address);
+    std::uint64_t last = 0;
+    std::uint64_t alignment = small_page;
+    for (const auto *segment : loads) {
+        last = std::max(last, align_up(segment->address + segment->memory_size, small_page));
+        alignment = std::max(alignment, segment->alignment);
+    }
+    if (const auto pages = boundary(page_size); pages.crossing == nullptr) {
+        // As it is: built for 16 KiB pages, or for 4 KiB pages with code and data apart.
+        layout.writable_start = pages.start;
+    } else if (const auto small_pages = boundary(small_page); small_pages.crossing == nullptr) {
+        layout.writable_start = small_pages.start;
+        layout.shift = (page_size - (layout.writable_start - layout.min_vaddr) % page_size) % page_size;
+        if (layout.shift % alignment != 0) {
+            throw Incompatible(std::format(
+                "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs (ADR-0007)",
+                alignment, layout.shift));
+        }
+    } else {
+        throw Incompatible(std::format(
+            "the non-writable segment at {:#x} comes after or shares a 4 KiB page with a writable one (ADR-0007)",
+            small_pages.crossing->address));
+    }
+    layout.end = last > layout.writable_start
+                     ? layout.writable_start + align_up(last - layout.writable_start, page_size)
+                     : layout.writable_start;  // no writable segment: the code's end, on a 16 KiB page
+    return layout;
+}
+
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
     const auto file = elf::read(elf_bytes);
     if (file.machine != elf::machine_aarch64) {
@@ -252,9 +322,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     if (file.type != elf::FileType::shared) {
         throw Incompatible("not position independent (no ET_DYN): nothing can be mapped below 4 GiB on iOS");
     }
-    if (const auto *segment = elf::first_misaligned_load(file)) {
-        throw Incompatible(std::format("LOAD segment at {:#x} does not fit 16 KiB pages (ADR-0007)", segment->address));
-    }
+    const auto layout = page_layout(file);
 
     std::vector<const elf::Segment *> loads;
     for (const auto &segment : file.segments) {
@@ -270,28 +338,19 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     report.is_static = file.interpreter.empty() && !dynamic_value(dynamic, dt_needed);
     report.relocations = check_relocations(file, elf_bytes, dynamic);
 
-    // Layout of the ELF image: the non-writable segments first, the writable ones on later pages.
-    const std::uint64_t min_vaddr = page_down(loads.front()->address);
-    std::uint64_t end = 0;
-    std::optional<std::uint64_t> first_writable;
-    std::uint64_t writable_file_end = 0;
+    // Layout of the ELF image (page_layout): the non-writable segments first, the writable ones from a
+    // 16 KiB page of the container on, their file bytes and the whole data in 16 KiB pages.
+    const std::uint64_t min_vaddr = layout.min_vaddr;
+    const std::uint64_t writable_start = layout.writable_start;
+    const std::uint64_t end = layout.end;
+    std::uint64_t writable_file_end = writable_start;
     for (const auto *segment : loads) {
-        end = std::max(end, page_up(segment->address + segment->memory_size));
-        if (segment->flags & elf::segment_writable) {
-            if (!first_writable) first_writable = page_down(segment->address);
-            if (segment->file_size > 0) {
-                writable_file_end = std::max(writable_file_end, page_up(segment->address + segment->file_size));
-            }
+        if ((segment->flags & elf::segment_writable) && segment->file_size > 0) {
+            writable_file_end = std::max(
+                writable_file_end,
+                writable_start + align_up(segment->address + segment->file_size - writable_start, page_size));
         }
     }
-    const std::uint64_t writable_start = first_writable.value_or(end);
-    for (const auto *segment : loads) {
-        if ((segment->flags & elf::segment_writable) == 0 && page_up(segment->address + segment->memory_size) > writable_start) {
-            throw Incompatible(std::format(
-                "the non-writable segment at {:#x} comes after or shares a page with a writable one", segment->address));
-        }
-    }
-    writable_file_end = std::max(writable_file_end, writable_start);
 
     // Scan the executable sections: only there are the bytes known to be instructions (R1).
     const auto scan = scan_sections(file, elf_bytes, sections);
@@ -342,7 +401,9 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
     for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
     const std::uint64_t image_offset = page_up(stubs_offset + stubs_size);
-    const auto container_address = [&](std::uint64_t address) { return image_offset + (address - min_vaddr); };
+    const auto container_address = [&](std::uint64_t address) {
+        return image_offset + layout.shift + (address - min_vaddr);
+    };
 
     auto &text = dylib.segments[0];
     text.vm_size = text.file_size = container_address(writable_start);
@@ -426,7 +487,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         ++report.x18_islands;
     }
     std::memcpy(bytes.data() + islands_offset, islands.data(), islands.size() * sizeof(apk_island));
-    report.image_offset = image_offset;
+    report.image_offset = image_offset + layout.shift;
+    report.image_shift = layout.shift;
     report.stub_bytes = stubs_size;
     report.island_table_bytes = islands.size() * sizeof(apk_island);
 
@@ -434,7 +496,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     std::memcpy(info.magic, APK_CONTAINER_MAGIC, sizeof info.magic);
     info.version = APK_CONTAINER_VERSION;
     info.flags = report.is_static ? APK_CONTAINER_STATIC : 0;
-    info.image_offset = image_offset;
+    info.image_offset = image_offset + layout.shift;
     info.image_size = end - min_vaddr;
     info.min_vaddr = min_vaddr;
     info.entry = file.entry;

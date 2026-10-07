@@ -32,6 +32,9 @@ thread-test system
 tls-test system libraries=libtls-lib.so
 # Without LD_LIBRARY_PATH linker64 does not look next to the program and cannot link tls-test.
 tls-test-no-library-path program=tls-test system libraries=libtls-lib.so no-library-path status=1
+# A library laid out for 4 KiB pages whose code and data meet in one 16 KiB page: the converter moves
+# its whole image (ADR-0007 decision 2, as amended).
+page4k-test system libraries=libpage4k-lib.so
 dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-broken.so,libdl-unresolved.so
 # A library opened with dlopen finds its own definition of a name libc.so also has (ADR-0040 test 2, ADR-0033 e1).
 dl-own-test system libraries=libdl-own.so

@@ -1,0 +1,8 @@
+constructor: 42
+counter: 7, then 8; dlsym finds the same: yes
+operations: 6 9
+names: alpha beta gamma
+thread values: main 5, the other thread's before its write 5, main after it 5
+program headers: 3 LOAD segments: r-x rw- rw-; code and writable data share a 16 KiB page: yes
+the counter in a writable LOAD: yes, the code in an executable LOAD: yes
+maps: lines in order and apart yes, the first at the load address with offset 0 yes, the counter in a writable line yes, the code in an executable line yes

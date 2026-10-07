@@ -76,6 +76,31 @@ ElfBuilder static_program(std::uint64_t relocated_address = 0x4800) {
     return builder;
 }
 
+/// static_program with 4 KiB pages (ADR-0007 decision 2): both LOAD segments aligned to 4 KiB, the rw- one at
+/// `writable`, which must lie 0x2c0 into a 4 KiB page, as its file offset does.
+ElfBuilder four_kib_program(std::uint64_t writable) {
+    ElfBuilder builder;
+    builder.put<std::uint64_t>(24, 0x200);  // e_entry
+    builder
+        .segments({
+            {pt_phdr, r, 0x40, 0x40, 5 * 56, 5 * 56, 8},
+            {pt_load, r | x, 0, 0, 0x220, 0x220, 0x1000},
+            {pt_load, r | w, 0x2c0, writable, 0x40, 0x1000, 0x1000},
+            {pt_dynamic, r | w, 0x2c0, writable, 0x40, 0x40, 8},
+            {pt_gnu_stack, r | w, 0, 0, 0, 0, 0},
+        })
+        .put<std::uint64_t>(0x160, writable + 0x540)
+        .dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 8}, {dt_relrent, 8}, {0, 0}});
+    std::memcpy(builder.bytes.data() + 0x200, code, sizeof code);
+    builder.sections({
+        {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof code},
+        {".dynamic", sht_dynamic, shf_alloc | shf_write, writable, 0x2c0, 0x40},
+        {".bss", sht_nobits, shf_alloc | shf_write, writable + 0x40, 0x300, 0xfc0},
+    });
+    return builder;
+}
+
 apk::container::Container convert(const ElfBuilder &builder) {
     return apk::container::convert(builder.bytes, {.install_name = "@rpath/test-program.dylib"});
 }
@@ -428,10 +453,58 @@ TEST(the_island_table_describes_every_x18_island) {
     }
 }
 
+TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
+    // ADR-0007 decision 2, as amended: the whole image moves by a multiple of 4 KiB, as AOSP's 16 KiB compat mode
+    // moves its load bias, and nothing in it changes.
+    const std::pair<std::uint64_t, std::uint64_t> cases[] = {{0x42c0, 0}, {0x32c0, 0x1000}, {0x22c0, 0x2000},
+                                                             {0x12c0, 0x3000}};
+    for (const auto &[writable, shift] : cases) {
+        const auto builder = four_kib_program(writable);
+        const auto container = convert(builder);
+        const auto &bytes = container.bytes;
+        const auto info = read_info(bytes);
+        CHECK(container.report.image_shift == shift);
+        CHECK(container.report.image_offset == info.image_offset);
+        CHECK(info.image_offset % 0x4000 == shift);
+        CHECK(info.min_vaddr == 0);
+        CHECK(info.writable_start == (writable & ~std::uint64_t{0xfff}));
+        CHECK((info.image_offset + info.writable_start - info.min_vaddr) % 0x4000 == 0);  // code below, data above
+        CHECK(info.writable_end == writable - 0x2c0 + 0x4000);  // .bss's end, the data in whole 16 KiB pages
+        CHECK(info.image_size == info.writable_end);
+        CHECK(info.runtime_slots == info.image_offset + info.image_size);  // the 16 KiB page after the data
+        // The ELF's bytes at their addresses: its header at the start, the dynamic table in the data.
+        CHECK(std::memcmp(bytes.data() + info.image_offset, builder.bytes.data(), 64) == 0);
+        CHECK(std::memcmp(bytes.data() + info.image_offset + writable, builder.bytes.data() + 0x2c0, 0x40) == 0);
+    }
+}
+
+TEST(refuses_a_4_kib_layout_no_shift_fits) {
+    // Code and data on one 4 KiB page.
+    CHECK_THROWS(Incompatible, convert(four_kib_program(0x2c0)), "shares a 4 KiB page with a writable one");
+
+    // A read-only segment after the data: a second boundary between code and data.
+    auto read_only_after = four_kib_program(0x12c0);
+    read_only_after.segments({
+        {pt_phdr, r, 0x40, 0x40, 5 * 56, 5 * 56, 8},
+        {pt_load, r | x, 0, 0, 0x220, 0x220, 0x1000},
+        {pt_load, r | w, 0x2c0, 0x12c0, 0x40, 0x1000, 0x1000},
+        {pt_load, r, 0x100, 0x3100, 0x40, 0x40, 0x1000},
+        {pt_dynamic, r | w, 0x2c0, 0x12c0, 0x40, 0x40, 8},
+    });
+    CHECK_THROWS(Incompatible, convert(read_only_after), "the non-writable segment at 0x3100 comes after");
+
+    // Aligned to less than 4 KiB.
+    auto small = four_kib_program(0x42c0);
+    small.put<std::uint64_t>(64 + 56 + 48, 0x800);  // p_align of the code segment
+    CHECK_THROWS(Incompatible, convert(small), "4 KiB pages");
+
+    // A segment that asks for 16 KiB alignment, which a shift of 8 KiB would break.
+    auto mixed = four_kib_program(0x22c0);
+    mixed.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // p_align of the code segment
+    CHECK_THROWS(Incompatible, convert(mixed), "cannot move by 0x2000");
+}
+
 TEST(refuses_what_cannot_run) {
-    auto four_kib = static_program();
-    four_kib.put<std::uint64_t>(64 + 56 + 48, 0x1000);  // p_align of the code segment
-    CHECK_THROWS(Incompatible, convert(four_kib), "16 KiB");
 
     auto darwin_syscall = static_program();
     darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
