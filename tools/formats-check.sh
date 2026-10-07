@@ -6,7 +6,13 @@
 # through build-apks (default, --mode=universal, --local-testing), and extract-apks chooses from each for the device
 # spec Minato chooses for: the install with the on-demand module asked for, as Minato installs it, and each pack's own
 # on top. importer/APKKit's BundletoolRealOutputTests then opens each .apks as a container and must name the same
-# APKs and packs, and protoc decodes the tests' own toc writer against bundletool's commands.proto.
+# APKs and packs, and protoc decodes the tests' own toc writer against bundletool's commands.proto. Then
+# tools/aab-to-apk.sh (ADR-0051) turns the bundle into a universal APK with the base, the feature module bundletool
+# fuses and the install-time pack, signed with make-apk's key, and refuses wrong arguments, a bundle without
+# BundleConfig.pb, a missing JDK and a missing key; it also turns activity-test, as a bundle of its manifest, library
+# and assets, into the universal APK that apk-inspect must read as ready and that
+#   FIXTURES_BUILD=build/formats-check/aab/fixtures tools/android-reference.sh --app activity-test
+# runs on Android 15 against its expected lines.
 # Skips with a message when bundletool (tools/fetch-bundletool.py), the JDK, aapt2, protoc or framework-res is
 # missing; downloads nothing. Writes below build/formats-check/.
 # Usage: tools/formats-check.sh
@@ -87,6 +93,9 @@ module("camera", '  <dist:module dist:title="@string/camera"><dist:delivery><dis
 module("ar", '  <dist:module dist:title="@string/ar"><dist:delivery><dist:install-time><dist:conditions>'
        '<dist:device-feature dist:name="android.hardware.camera.ar"/></dist:conditions></dist:install-time>'
        '</dist:delivery><dist:fusing dist:include="false"/></dist:module>\n  <application android:hasCode="false"/>')
+# An asset each, so that a universal APK shows which feature module it fused (ADR-0051).
+write("camera/assets/camera.txt", "camera\n")
+write("ar/assets/ar.txt", "ar\n")
 for pack, delivery in (("start", "install-time"), ("level2", "fast-follow"), ("level3", "on-demand")):
     module(pack, f'  <dist:module dist:type="asset-pack"><dist:fusing dist:include="true"/>'
            f'<dist:delivery><dist:{delivery}/></dist:delivery></dist:module>', pack=True)
@@ -208,4 +217,104 @@ for expected in 'package_name: "org.example.sets"' 'variant_number: 2' 'split_id
   grep -q -F "$expected" "$WORK/sample-toc.txt" || { echo "FAIL  protoc's decoding lacks: $expected"; exit 1; }
 done
 echo "ok    protoc decodes the tests' toc writer as written"
+
+# ADR-0051, tests 2 and 5: tools/aab-to-apk.sh on the test bundle.
+AAB="$WORK/aab"
+mkdir -p "$AAB/fixtures/apks" "$AAB/tmp"
+# Its private folders go here, so that none it leaves goes unseen.
+export TMPDIR="$PWD/$AAB/tmp"
+fail() {
+  echo "FAIL  $1"
+  exit 1
+}
+line=$(tools/aab-to-apk.sh "$WORK/app.aab" --out "$AAB/app.apk" 2>"$AAB/app.log") \
+  || { cat "$AAB/app.log"; fail "aab-to-apk refuses the test bundle"; }
+[[ "$line" == "aab-to-apk: wrote $AAB/app.apk ("*" bytes, SHA-256 "* ]] \
+  || fail "aab-to-apk's line is not make-apk's: $line"
+entries=$(unzip -Z1 "$AAB/app.apk" 2>/dev/null) || fail "aab-to-apk wrote no $AAB/app.apk"
+for wanted in assets/start.txt assets/camera.txt lib/arm64-v8a/libformats.so; do
+  grep -qx "$wanted" <<<"$entries" || fail "the universal APK lacks $wanted"
+done
+for unwanted in assets/ar.txt assets/level2.txt assets/level3.txt; do
+  ! grep -qx "$unwanted" <<<"$entries" || fail "the universal APK holds $unwanted"
+done
+check=$(/usr/bin/python3 tools/apk-check.py "$AAB/app.apk" 2>&1 || true)
+certificate=$(shasum -a 256 <"$HOME/.android/minato-debug-key/certificate.der" | cut -d ' ' -f 1)
+for wanted in "RESULT: signatures valid" "v2 certificate sha256 $certificate" "v3 certificate sha256 $certificate"; do
+  grep -qF "$wanted" <<<"$check" || fail "apk-check lacks: $wanted"
+done
+# bundletool signs v1 as well below minSdk 24, and the test bundle's is 21.
+! grep -q "^v1 signature files: none" <<<"$check" || fail "the universal APK has no v1 signature, at minSdk 21"
+echo "ok    aab-to-apk's universal APK holds the base, the fused feature module and the install-time pack, signed" \
+  "with make-apk's key"
+/usr/bin/python3 - "$WORK/app.aab" "$AAB/no-config.aab" <<'EOF'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as bundle, zipfile.ZipFile(sys.argv[2], "w") as out:
+    for entry in bundle.infolist():
+        if entry.filename != "BundleConfig.pb":
+            out.writestr(entry, bundle.read(entry))
+EOF
+# refused <status> <reason> <output> <arguments...>: aab-to-apk ends with that status and writes no output.
+refused() {
+  local wanted=$1 reason=$2 output=$3 status=0
+  shift 3
+  tools/aab-to-apk.sh "$@" >"$AAB/refused.log" 2>&1 || status=$?
+  [[ "$status" == "$wanted" && ! -e "$output" ]] \
+    || { cat "$AAB/refused.log"; fail "aab-to-apk with $reason ends with $status, not $wanted, or writes $output"; }
+}
+refused 64 "no arguments" "$AAB/none.apk"
+refused 64 "no --out" "$AAB/none.apk" "$WORK/app.aab"
+refused 1 "a bundle without BundleConfig.pb" "$AAB/no-config.apk" "$AAB/no-config.aab" --out "$AAB/no-config.apk"
+JDK=/nonexistent refused 1 "no JDK" "$AAB/no-jdk.apk" "$WORK/app.aab" --out "$AAB/no-jdk.apk"
+grep -q "JDK" "$AAB/refused.log" || fail "aab-to-apk without a JDK does not say so"
+refused 1 "no key" "$AAB/no-key.apk" "$WORK/app.aab" --out "$AAB/no-key.apk" --key "$AAB/no-key"
+grep -q "no key.der" "$AAB/refused.log" || fail "aab-to-apk without a key does not say so"
+[[ -z "$(find "$AAB" \( -name '*.partial' -o -name '*.p12' \) -print)" && -z "$(ls -A "$AAB/tmp")" ]] \
+  || fail "aab-to-apk left a partial APK, a keystore or a folder of its own"
+echo "ok    aab-to-apk refuses wrong arguments (64), a bundle without BundleConfig.pb, a missing JDK and a missing" \
+  "key (1), and leaves nothing"
+
+# ADR-0051, tests 3 and 4: activity-test (a NativeActivity with assets) as a bundle of one module.
+ACTIVITY=fixtures/apps/activity-test
+LIBRARY=build/fixtures/bin/libactivity-test.so
+[[ -f "$LIBRARY" ]] || fail "no $LIBRARY (tools/build-fixtures.sh)"
+"$AAPT2" link --proto-format -o "$AAB/activity-linked.apk" -I "$FRAMEWORK_RES" \
+  --manifest "$ACTIVITY/AndroidManifest.xml"
+/usr/bin/python3 - "$AAB/activity-linked.apk" "$ACTIVITY/assets" "$LIBRARY" "$AAB/activity-base.zip" <<'EOF'
+import os
+import sys
+import zipfile
+
+linked, assets, library, module = sys.argv[1:]
+with zipfile.ZipFile(linked) as apk, zipfile.ZipFile(module, "w", zipfile.ZIP_DEFLATED) as out:
+    for entry in apk.infolist():
+        name = "manifest/AndroidManifest.xml" if entry.filename == "AndroidManifest.xml" else entry.filename
+        out.writestr(name, apk.read(entry))
+    out.write(library, "lib/arm64-v8a/" + os.path.basename(library))
+    for directory, _, files in sorted(os.walk(assets)):
+        for file in sorted(files):
+            path = os.path.join(directory, file)
+            out.write(path, os.path.join("assets", os.path.relpath(path, assets)))
+EOF
+# stored.ogg stays stored, as a developer's noCompress keeps it, since the app reads it through a descriptor.
+echo '{"compression": {"uncompressedGlob": ["assets/stored.ogg"]}}' >"$AAB/activity-config.json"
+bundletool build-bundle --modules="$AAB/activity-base.zip" --config="$AAB/activity-config.json" \
+  --output="$AAB/activity-test.aab" >/dev/null
+tools/aab-to-apk.sh "$AAB/activity-test.aab" --out "$AAB/fixtures/apks/activity-test.apk" >/dev/null \
+  || fail "aab-to-apk refuses activity-test's bundle"
+[[ -z "$(ls -A "$AAB/tmp")" ]] || fail "aab-to-apk left a folder of its own"
+ln -sfn "$PWD/build/fixtures/bin" "$AAB/fixtures/bin"
+SWIFT_PATHS=(--package-path importer/APKKit --build-path "${SWIFT_BUILD:-build/swiftpm-formats-check}")
+swift build "${SWIFT_PATHS[@]}" --product apk-inspect >"$AAB/apk-inspect-build.log" 2>&1 \
+  || { tail -20 "$AAB/apk-inspect-build.log"; fail "no apk-inspect"; }
+inspect=$("$(swift build "${SWIFT_PATHS[@]}" --show-bin-path)/apk-inspect" "$AAB/fixtures/apks/activity-test.apk")
+for wanted in '^label: +Activity Test$' '^version: +1\.0 \(1\)$' \
+    '^runtime: +nativeActivity\(library: "activity-test"\)$' '^status: +ready$'; do
+  grep -Eq "$wanted" <<<"$inspect" \
+    || { echo "$inspect"; fail "apk-inspect's report of activity-test's universal APK lacks $wanted"; }
+done
+echo "ok    activity-test's universal APK reads as ready, Activity Test 1.0 (1); on Android 15:" \
+  "FIXTURES_BUILD=$AAB/fixtures tools/android-reference.sh --app activity-test"
 echo "formats check: passed"
