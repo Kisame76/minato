@@ -5,7 +5,9 @@ ADR-0033 a).
 
 Each source is an archive of one commit, or single files and folders of it, from
 android.googlesource.com, extracted to build/sources/<name>/. A source with a "url" is an archive from elsewhere,
-checked against its "sha256" before anything of it is extracted into its "directory" below the repository.
+checked against its "sha256" before anything of it is extracted into its "directory" below the repository. An
+archive of one commit that its host makes on request, as GitHub's are (MoltenVK's sources, ADR-0044 b), names
+its "commit" instead of a "sha256", and only its content is pinned, as for android.googlesource.com.
 The content is checked against the pinned digest in the list:
 SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not depend on how the
 server packs the archive. A source whose digest matches is not fetched again.
@@ -136,10 +138,12 @@ def main():
                     with open(file_path, "wb") as handle:
                         handle.write(base64.b64decode(data))
             elif "url" in source:
+                if "sha256" not in source and "commit" not in source:
+                    raise SystemExit(f"{name}: an archive needs its SHA-256, or the commit it is an archive of")
                 data = fetch(source["url"])
                 downloaded = len(data)
                 archive_sha256 = hashlib.sha256(data).hexdigest()
-                if archive_sha256 != source["sha256"]:
+                if "sha256" in source and archive_sha256 != source["sha256"]:
                     raise SystemExit(f"{name}: the archive's SHA-256 {archive_sha256} does not match the pinned "
                                      f"{source['sha256']}")
                 extract(data, staging)

@@ -13,7 +13,8 @@ only, becomes build/MoltenVK.xcframework, which the app build embeds in device b
 archive's dylib and the headers go to fixed places in build/moltenvk/ for CTest and graphics/host. The
 license texts of what MoltenVK's binary holds besides its own code go to third_party/moltenvk/licenses/,
 which the repo keeps. The script writes only below build/moltenvk/, to build/MoltenVK.xcframework and
-below third_party/moltenvk/licenses/.
+below third_party/moltenvk/licenses/. Since ADR-0044 b), tools/build-moltenvk.sh builds MoltenVK from its
+sources into the same places, and the builds take that one; --fetch puts the release back.
 """
 import argparse
 import hashlib

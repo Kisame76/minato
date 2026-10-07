@@ -52,9 +52,9 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 
 The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from [`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 
-## Graphics: MoltenVK (ADR-0030)
+## Graphics: MoltenVK (ADR-0030, ADR-0044 b))
 
-MoltenVK 1.4.2 as Khronos released it (tag `v1.4.2`, commit `db660224`), from `github.com/KhronosGroup/MoltenVK/releases`. `tools/fetch-moltenvk.sh` fetches it into `build/moltenvk/` (not in the repo), checked against the SHA-256 in [`third_party/sources.json`](third_party/sources.json). The app embeds the dynamic framework for the device from `build/MoltenVK.xcframework`; nothing of it is built or changed.
+MoltenVK 1.4.2 (tag `v1.4.2`, commit `db660224`), built by us from Khronos's sources since ADR-0044 b): `tools/fetch-sources.py --set moltenvk-src` fetches GitHub's archives of MoltenVK and of the parts below, at the commits of its `ExternalRevisions/`, into `build/sources/moltenvk/` (not in the repo), pinned by their content digests in [`third_party/sources.json`](third_party/sources.json), and `tools/build-moltenvk.sh` builds them unchanged, with Apple's private Metal API compiled in and off by default. The app embeds the dynamic framework for the device from `build/MoltenVK.xcframework`. The release (`github.com/KhronosGroup/MoltenVK/releases`, `tools/fetch-moltenvk.sh --fetch`, checked against the SHA-256 in the same file) holds the same parts at the same commits.
 
 | Part in `MoltenVK.framework` | Version | License |
 |---|---|---|
@@ -65,7 +65,7 @@ MoltenVK 1.4.2 as Khronos released it (tag `v1.4.2`, commit `db660224`), from `g
 | SPIRV-Headers (headers only) | `29981f65` | MIT |
 | Vulkan-Headers (headers only) | `v1.4.357` @`e3b1eec0` | Apache-2.0 OR MIT |
 
-Only MoltenVK's own license text comes with the release. The texts of SPIRV-Cross, SPIRV-Tools, SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/) (`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030, and the Vulkan headers of the same version from MoltenVK's release, against which our guest `libvulkan.so` is built.
+MoltenVK's own license text comes from its sources (`build/moltenvk/LICENSE`). The texts of SPIRV-Cross, SPIRV-Tools, SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/) (`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030, the Vulkan headers of the same version from MoltenVK's build, against which our guest `libvulkan.so` is built, and the rest of these sources, which only build MoltenVK. Vulkan-Tools and Volk, which only MoltenVK's demos use, are not fetched.
 
 ## Parity benchmark (ADR-0037)
 

@@ -1,8 +1,8 @@
 # Minato's graphics (ADR-0029, ADR-0030): the host side of the front libs and their tests. The guest
 # front libs themselves are built with the NDK by tools/build-front-libs.sh.
-# MoltenVK as released, from tools/fetch-moltenvk.sh (ADR-0030): graphics/host's probe needs its headers,
-# and its tests are skipped without it.
-set(APK_MOLTENVK_DIR "${PROJECT_SOURCE_DIR}/build/moltenvk" CACHE PATH "MoltenVK from tools/fetch-moltenvk.sh")
+# MoltenVK, ours from tools/build-moltenvk.sh (ADR-0044 b)) in the places of the release of tools/fetch-moltenvk.sh
+# (ADR-0030): graphics/host's probe needs its headers, and its tests are skipped without it.
+set(APK_MOLTENVK_DIR "${PROJECT_SOURCE_DIR}/build/moltenvk" CACHE PATH "MoltenVK from tools/build-moltenvk.sh")
 # The probe is Objective-C (a CAMetalLayer); enabled here, above graphics/host and the tests that link it.
 enable_language(OBJC)
 add_subdirectory(host)

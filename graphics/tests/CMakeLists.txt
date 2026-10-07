@@ -47,6 +47,20 @@ else()
 endif()
 set_tests_properties(graphics.moltenvk_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 
+# ADR-0044 b), test 4: our MoltenVK keeps the private Metal API off and turns it on for one instance through
+# VK_EXT_layer_settings; MoltenVK as released fails it.
+if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")
+  add_executable(moltenvk-private-api moltenvk_private_api.cpp)
+  target_include_directories(moltenvk-private-api SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(moltenvk-private-api PRIVATE apk_defaults)
+  add_test(NAME graphics.moltenvk_private_api
+    COMMAND moltenvk-private-api "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
+else()
+  add_test(NAME graphics.moltenvk_private_api
+    COMMAND ${CMAKE_COMMAND} -E echo "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/build-moltenvk.sh")
+endif()
+set_tests_properties(graphics.moltenvk_private_api PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+
 # Test 3: every GLES and EGL function of the NDK's stubs (APK_ANDROID_NDK, graphics/CMakeLists.txt) is exported
 # by the three slices or on the stub list.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

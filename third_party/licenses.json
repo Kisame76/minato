@@ -269,7 +269,7 @@
       ],
       "texts": [
         {
-          "from": "moltenvk:MoltenVK-ios/MoltenVK/LICENSE",
+          "from": "moltenvk:LICENSE",
           "as": "LICENSE"
         }
       ]
@@ -347,7 +347,7 @@
           "as": "NOTICE"
         },
         {
-          "from": "moltenvk:MoltenVK-ios/MoltenVK/LICENSE",
+          "from": "moltenvk:LICENSE",
           "as": "LICENSE"
         }
       ]

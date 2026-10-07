@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/fetch-sources.py's lists (ADR-0021, ADR-0033 a): a plain run fetches and pins only "sources", the guest
 libc's; --set art only "art"; an archive with a "url" is checked against its SHA-256 before anything of it is
-extracted into its "directory". Against a host in memory, in a scratch directory. And its fetch: a host that answers
+extracted into its "directory", and an archive of one commit without a SHA-256 by its content digest alone.
+Against a host in memory, in a scratch directory. And its fetch: a host that answers
 429 (Too Many Requests) is asked again after its Retry-After, at most 120 s, or after a backoff, 5 tries in all."""
 import contextlib
 import hashlib
@@ -48,10 +49,13 @@ def archive(files):
 LIBC = archive({"libc/NOTICE": b"libc\n"})
 ART = archive({"runtime/runtime.cc": b"// art\n"})
 JDK = archive({"jdk-17/Contents/Home/bin/java": b"#!/bin/sh\n"})
+VOLK = archive({"volk-3333/volk.h": b"// volk\n"})
+VOLK_URL = "https://github.example/zeux/volk/archive/3333.tar.gz"
 SERVED = {
     f"{HOST}/platform/bionic/+archive/1111.tar.gz": LIBC,
     f"{HOST}/platform/art/+archive/2222.tar.gz": ART,
     "https://jdk.example/jdk.tar.gz": JDK,
+    VOLK_URL: VOLK,
 }
 
 
@@ -174,6 +178,29 @@ def main():
         fetched, error, _ = run(module, root, manifest(jdk_sha256="0" * 64), ["--set", "art", "--pin", "jdk"])
         check(error is not None and "SHA-256" in error, f"an archive with another SHA-256 is refused: {error}")
         check(not os.path.exists(os.path.join(root, "build/tools/jdk")), "nothing of a refused archive is extracted")
+
+    # An archive of one commit that its host makes on request (MoltenVK's from GitHub, ADR-0044 b): no SHA-256 of
+    # its bytes, only the content digest, as android.googlesource.com's sources have.
+    with tempfile.TemporaryDirectory() as root:
+        listed = dict(manifest(), volk=[{"name": "volk", "url": VOLK_URL, "commit": "3333",
+                                         "directory": "build/sources/moltenvk/Volk", "digest": ""}])
+        fetched, error, after = run(module, root, listed, ["--set", "volk", "--pin"])
+        check(error is None and fetched == [VOLK_URL], f"an archive of a commit without a SHA-256: {fetched} {error}")
+        check(after["volk"][0]["digest"] != "", "--pin pins the commit archive's content digest")
+        check(os.path.isfile(os.path.join(root, "build/sources/moltenvk/Volk/volk-3333/volk.h")),
+              "the commit archive lies in its directory")
+    with tempfile.TemporaryDirectory() as root:
+        SERVED[VOLK_URL] = archive({"volk-3333/volk.h": b"// another volk\n"})
+        fetched, error, _ = run(module, root, after, ["--set", "volk"])
+        SERVED[VOLK_URL] = VOLK
+        check(error is not None and "digest" in error, f"other content under a pinned commit is refused: {error}")
+        check(not os.path.exists(os.path.join(root, "build/sources/moltenvk/Volk")),
+              "nothing of the refused commit archive is extracted")
+    with tempfile.TemporaryDirectory() as root:
+        listed = dict(manifest(), volk=[{"name": "volk", "url": VOLK_URL, "digest": ""}])
+        fetched, error, _ = run(module, root, listed, ["--set", "volk", "--pin"])
+        check(error is not None and fetched == [],
+              f"an archive with neither a SHA-256 nor a commit is refused: {error}")
 
     with tempfile.TemporaryDirectory() as root:
         fetched, error, _ = run(module, root, manifest(), ["--set", "nothing"])
