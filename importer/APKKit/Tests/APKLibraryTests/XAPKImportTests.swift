@@ -228,7 +228,7 @@ struct XAPKImportTests {
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
         let apks = [("\(Self.package).apk", Sets.base)]
-            + ["com.other.app", "com.third.app"].map { ("\($0).apk", SplitAPK.make(package: $0)) }
+            + ["com.other.app", "com.third.app"].map { (name: String) in ("\(name).apk", SplitAPK.make(package: name)) }
         let unit = try Sets.unit(["game.xapk": Self.xapk(apks, extra: [(Self.obbPath("readme.txt"), Data("x".utf8))])],
                                  in: sandbox.paths)
 
