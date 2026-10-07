@@ -2588,6 +2588,139 @@ TEST(af_unix_datagrams_are_limited_by_the_senders_buffer_alone) {
     call(nr_close, {unsigned_of(ends[1])});
 }
 
+// SOCK_SEQPACKET socketpairs (ADR-0054 step a2): socket-test compares the most with Android 15; these are the cases
+// it does not show, from Linux 6.6's af_unix.c and datagram.c.
+constexpr std::uint64_t sock_seqpacket = 5, msg_dontwait = 0x40;
+constexpr std::int64_t econnreset = 104, epipe = 32;
+
+TEST(a_seqpacket_reset_comes_before_the_messages_left) {
+    // A close that left messages unread sets the peer's sk_err, which __skb_try_recv_datagram answers before the
+    // queue, and unix_seqpacket_sendmsg before a send: ECONNRESET once, then the messages, then the end.
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    CHECK(write_text(ends[0], "left") == 4);
+    CHECK(write_text(ends[1], "unread") == 6);
+    call(nr_close, {unsigned_of(ends[0])});
+    char buffer[8];
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == -econnreset);
+    CHECK(read_text(ends[1], 8) == "left");
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == 0);
+    call(nr_close, {unsigned_of(ends[1])});
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    CHECK(write_text(ends[1], "unread") == 6);
+    call(nr_close, {unsigned_of(ends[0])});
+    CHECK(call(nr_sendto, {unsigned_of(ends[1]), address("x"), 1, 0x4000 /* MSG_NOSIGNAL */, 0, 0}) == -econnreset);
+    CHECK(call(nr_sendto, {unsigned_of(ends[1]), address("x"), 1, 0x4000, 0, 0}) == -epipe);
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+TEST(a_seqpacket_peers_close_ends_a_receive_that_waits) {
+    // Darwin wakes the waiting end when its datagram peer closes; Linux's end of the messages follows.
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    std::thread closer([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        call(nr_close, {unsigned_of(ends[0])});
+    });
+    char buffer[8];
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, 0, 0, 0}) == 0);
+    closer.join();
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+TEST(a_seqpacket_shut_rd_ends_its_receives_and_the_peers_sends) {
+    // unix_shutdown gives the peer SEND_SHUTDOWN for this end's RCV_SHUTDOWN: its sends get EPIPE, and this end's
+    // receives the end once nothing is left.
+    constexpr std::uint64_t nr_shutdown = 210, shut_rd = 0;
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    CHECK(write_text(ends[1], "kept") == 4);
+    CHECK(call(nr_shutdown, {unsigned_of(ends[0]), shut_rd}) == 0);
+    CHECK(read_text(ends[0], 8) == "kept");
+    char buffer[8];
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[0]), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(ends[1]), address("x"), 1, 0x4000 /* MSG_NOSIGNAL */, 0, 0}) == -epipe);
+    CHECK(write_text(ends[0], "back") == 4);  // the other direction stays open
+    CHECK(read_text(ends[1], 8) == "back");
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+TEST(a_seqpacket_send_ignores_a_name) {
+    // unix_seqpacket_sendmsg drops msg_name: the message goes to the peer.
+    const Scratch scratch;
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    const auto nowhere = unix_name("/data/local/tmp/nowhere.sock");
+    CHECK(call(nr_sendto, {unsigned_of(ends[0]), address("named"), 5, 0, address(&nowhere.first), nowhere.second}) == 5);
+    char buffer[8];
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == 5);
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+/// How long a receive on `waiting` waits until `end` ends it, done 200 ms in by another thread; a close of `rescue`
+/// 2 s in ends it otherwise, so that a receive that `end` does not wake fails rather than hangs.
+template <typename End>
+std::chrono::milliseconds seqpacket_wait(std::int64_t waiting, std::int64_t rescue, End end) {
+    std::thread other([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        end();
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        call(nr_close, {unsigned_of(rescue)});
+    });
+    char buffer[8];
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(call(nr_recvfrom, {unsigned_of(waiting), address(buffer), sizeof buffer, 0, 0, 0}) == 0);
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+    other.join();
+    return waited;
+}
+
+TEST(a_seqpacket_shutdown_ends_a_receive_that_waits) {
+    // Linux wakes the receive at once, for the other's SHUT_WR as for this end's own SHUT_RD; Darwin wakes nothing
+    // for a datagram, the runtime's mark does.
+    constexpr std::uint64_t nr_shutdown = 210, shut_rd = 0, shut_wr = 1;
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    CHECK(seqpacket_wait(ends[1], ends[0], [&] { call(nr_shutdown, {unsigned_of(ends[0]), shut_wr}); }) <
+          std::chrono::milliseconds(1500));
+    call(nr_close, {unsigned_of(ends[1])});
+    CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+    CHECK(seqpacket_wait(ends[0], ends[1], [&] { call(nr_shutdown, {unsigned_of(ends[0]), shut_rd}); }) <
+          std::chrono::milliseconds(1500));
+    call(nr_close, {unsigned_of(ends[0])});
+}
+
+TEST(two_receives_on_an_ended_seqpacket_never_get_the_mark) {
+    // The runtime's mark stays queued behind the messages of an end that receives no more: two threads that receive
+    // at once get the message and the end, never the mark (unix_dgram_recvmsg receives under u->iolock).
+    constexpr std::uint64_t nr_shutdown = 210, shut_wr = 1;
+    int wrong = 0;
+    for (int round = 0; round < 300; ++round) {
+        std::int32_t ends[2] = {-1, -1};
+        CHECK(call(nr_socketpair, {af_unix, sock_seqpacket, 0, address(ends)}) == 0);
+        CHECK(write_text(ends[0], "data!") == 5);
+        CHECK(call(nr_shutdown, {unsigned_of(ends[0]), shut_wr}) == 0);
+        std::atomic<int> ready{0};
+        std::int64_t results[2] = {-1, -1};
+        const auto receive = [&](int which) {
+            char buffer[32];
+            ++ready;
+            while (ready.load() < 2) {
+            }
+            results[which] = call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, msg_dontwait, 0, 0});
+        };
+        std::thread other(receive, 1);
+        receive(0);
+        other.join();
+        wrong += !((results[0] == 5 && results[1] == 0) || (results[0] == 0 && results[1] == 5));
+        call(nr_close, {unsigned_of(ends[0])});
+        call(nr_close, {unsigned_of(ends[1])});
+    }
+    CHECK(wrong == 0);
+}
+
 TEST(getsockopt_without_a_buffer_is_efault) {
     // sk_getsockopt copies the value to the guest's buffer: none is EFAULT, as setsockopt's.
     constexpr std::uint64_t nr_getsockopt = 209, sol_socket = 1, so_type = 3;

@@ -6,8 +6,11 @@
 
 #include "descriptors.h"
 
+#include <sys/uio.h>
+
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -16,6 +19,21 @@ namespace apkrt::sockets {
 /// Linux's HZ on Android 15's kernel: SO_RCVTIMEO and SO_SNDTIMEO keep their time in jiffies of it, and read it back
 /// so (socket-test, 150 ms reads back as 152 ms).
 constexpr std::int64_t hz = 250;
+
+class Socket;
+
+/// What the two ends of a SOCK_SEQPACKET socketpair share, which the runtime builds on a Darwin datagram pair (ADR-0054
+/// step a2): what Darwin does not tell the other end. Each end is a side, 0 or 1. An end that receives no more gets
+/// `mark` queued last, a message of the runtime's that stays: it wakes a call that waits, as Darwin wakes none for a
+/// datagram peer's close or shutdown, and keeps the end readable, as Linux's is.
+struct SeqpacketPair {
+    std::mutex mutex;  // for what follows; a send checks and sends under it, as Linux under the peer's lock
+    std::mutex receiving[2];  // a side's receives one at a time, as Linux's u->iolock: no two see the same head
+    bool shut_read[2] = {}, shut_write[2] = {}, closed[2] = {};
+    bool reset[2] = {};  // the side's next call gets ECONNRESET: the other closed with messages it never read
+    unsigned char mark[16] = {};      // random, so that no message of the guest's is the mark
+    std::weak_ptr<Socket> ends[2];
+};
 
 class Socket final : public descriptors::Description {
 public:
@@ -43,6 +61,9 @@ public:
     bool multicast_all = true; // IP_MULTICAST_ALL
     int receive_buffer = 0, send_buffer = 0;  // what SO_RCVBUF and SO_SNDBUF were set to, 0 for not set
     int kept[8] = {};          // options Linux takes that change nothing here (sys_sockets.cpp, kept_options)
+
+    std::shared_ptr<SeqpacketPair> pair;  // a SOCK_SEQPACKET socketpair's, else none; set before the socket is shared
+    int side = 0;
 };
 
 /// The socket behind `description`, or null.
@@ -62,8 +83,19 @@ bool restarts(std::uint64_t number, int fd);
 std::uint32_t poll_bits(Socket &socket, bool read_filter, bool end, std::uint32_t readable, std::uint32_t writable,
                         std::uint32_t hangup);
 
-/// Linux's EPOLLRDHUP.
-constexpr std::uint32_t pollrdhup = 0x2000;
+/// Linux's EPOLLRDHUP, and EPOLLERR, which poll's POLLERR equals.
+constexpr std::uint32_t pollrdhup = 0x2000, pollerr = 0x8;
+
+/// Whether EPIPE from a write on guest descriptor `fd` raises SIGPIPE: not for a SOCK_SEQPACKET socket, whose send
+/// never raises it on Linux (unix_dgram_sendmsg).
+bool raises_sigpipe(int fd);
+
+/// Whether read and write on `description` go as messages through the socket's own receive and send: a
+/// SOCK_SEQPACKET socket's (transfer_message).
+bool takes_messages(const descriptors::Description &description);
+
+/// read, readv, write or writev of `vectors` on such a socket, as recv and send without flags.
+long transfer_message(descriptors::Description &description, bool writing, const iovec *vectors, int count);
 
 /// Where an AF_UNIX name in the file system lies on the host (sys_files.cpp): the folder of its last component,
 /// opened below its mount, and that component's name, or a negative Linux errno.

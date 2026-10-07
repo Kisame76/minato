@@ -334,6 +334,17 @@ void limit_datagrams(int host, int linux_size) {
     ::setsockopt(host, SOL_SOCKET, SO_SNDBUF, &most, sizeof most);
 }
 
+/// Gives a host AF_UNIX datagram socket Linux's datagrams. unix_dgram_sendmsg limits one by the sender's buffer
+/// alone, where Darwin also refuses one that does not fit the receiver's (net.local.dgram.recvspace, 4096) with
+/// ENOBUFS: room for the longest that Linux takes, after SO_SNDBUF's most (twice wmem_max, less 32 bytes), twice, or
+/// what the host's kern.ipc.maxsockbuf allows.
+void hold_datagrams(int host, int linux_size) {
+    limit_datagrams(host, linux_size);
+    for (int room = 4 * linux_buffer_max; room >= linux_buffer; room /= 2) {
+        if (::setsockopt(host, SOL_SOCKET, SO_RCVBUF, &room, sizeof room) == 0) break;
+    }
+}
+
 /// Linux's family of a Darwin one.
 int linux_family(int host_family) {
     switch (host_family) {
@@ -671,7 +682,11 @@ long host_control_of(const LinuxMsghdr &message, HostControl &out) {
                 ::fcntl(token[0], F_SETFD, FD_CLOEXEC);
                 ::fcntl(token[1], F_SETFD, FD_CLOEXEC);
                 out.tokens.push_back(token[0]);
-                in_flight.tokens[token_key(token[0])] = {std::move(handle), token[1]};
+                auto &slot = in_flight.tokens[token_key(token[0])];
+                // A key there already is a stale token's, whose message went without being swept yet: no two live
+                // sockets share an inode, so Darwin gave the freed one to this token. Its kept end goes.
+                if (slot.kept >= 0) ::close(slot.kept);
+                slot = {std::move(handle), token[1]};
                 hosts.push_back(token[0]);
             }
             out.put(SOL_SOCKET, SCM_RIGHTS, hosts.data(), hosts.size() * sizeof(int));
@@ -855,12 +870,65 @@ Held hold(int fd) {
     return held;
 }
 
+// --- SOCK_SEQPACKET socketpairs ----------------------------------------------------------------------------------
+
+/// A SOCK_SEQPACKET end's ECONNRESET, once, after the other end closed with messages it never read: Linux's sk_err,
+/// which a receive (__skb_try_recv_datagram) and a send (unix_seqpacket_sendmsg) answer first. 0 for none.
+long seqpacket_reset(Socket &socket) {
+    const std::lock_guard lock(socket.pair->mutex);
+    if (!socket.pair->reset[socket.side]) return 0;
+    socket.pair->reset[socket.side] = false;
+    return -linux_errno::econnreset;
+}
+
+/// Whether a SOCK_SEQPACKET end receives no more: Linux's RCV_SHUTDOWN, for its own SHUT_RD, the other's SHUT_WR or
+/// close; and whether it sends no more: SEND_SHUTDOWN, for its own SHUT_WR, the other's SHUT_RD or close.
+bool seqpacket_ended_locked(const SeqpacketPair &pair, int own, bool sending) {
+    const int other = 1 - own;
+    return sending ? pair.shut_write[own] || pair.shut_read[other] || pair.closed[other]
+                   : pair.shut_read[own] || pair.shut_write[other] || pair.closed[other];
+}
+
+bool seqpacket_ended(Socket &socket, bool sending) {
+    const std::lock_guard lock(socket.pair->mutex);
+    return seqpacket_ended_locked(*socket.pair, socket.side, sending);
+}
+
+/// Queues the pair's mark for the end that `from`, the other end's host socket, sends to.
+void seqpacket_mark(const SeqpacketPair &pair, int from) {
+    static_cast<void>(::send(from, pair.mark, sizeof pair.mark, MSG_DONTWAIT));
+}
+
+/// Whether the next message of a SOCK_SEQPACKET end is the pair's mark, which is never received.
+bool seqpacket_at_mark(Socket &socket) {
+    unsigned char head[sizeof socket.pair->mark + 1];
+    const ssize_t length = ::recv(socket.host(), head, sizeof head, MSG_PEEK | MSG_DONTWAIT);
+    return length == static_cast<ssize_t>(sizeof socket.pair->mark) &&
+           std::memcmp(head, socket.pair->mark, sizeof socket.pair->mark) == 0;
+}
+
+/// A SOCK_SEQPACKET end's receive answer for Darwin's: the end of the messages once none is left and it receives
+/// no more, which Darwin tells with one ECONNRESET for the datagram peer's close and not at all for a shutdown.
+long seqpacket_received(Socket &socket, long result) {
+    if (result != -linux_errno::econnreset && result != -linux_errno::eagain) return result;
+    if (result == -linux_errno::econnreset) {
+        const std::lock_guard lock(socket.pair->mutex);
+        socket.pair->closed[1 - socket.side] = true;
+    }
+    return seqpacket_ended(socket, false) ? 0 : result;
+}
+
 /// sendmsg's work for the guest's `message` on `socket`.
 long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
     if (message.vector_count > 1024) return -linux_errno::emsgsize;  // UIO_MAXIOV
-    const bool stream = socket.type == sock_stream;
+    const bool stream = socket.type == sock_stream, seqpacket = socket.pair != nullptr;
+    if (seqpacket) {
+        if (const long reset = seqpacket_reset(socket)) return reset;
+        // unix_dgram_sendmsg: EPIPE for an end that sends no more, without SIGPIPE.
+        if (seqpacket_ended(socket, true)) return -linux_errno::epipe;
+    }
     HostName name;
-    const bool named = message.name != 0 && message.name_length > 0;
+    const bool named = message.name != 0 && message.name_length > 0 && !seqpacket;  // a seqpacket's name is ignored
     if (named && stream && socket.family == af_unix) {
         const std::lock_guard lock(socket.mutex);
         return socket.connected ? -linux_errno::eisconn : -linux_errno::eopnotsupp;
@@ -889,12 +957,24 @@ long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
             host.msg_iovlen = static_cast<int>(rest.size());
             host.msg_control = control_sent ? nullptr : control.bytes.data();
             host.msg_controllen = control_sent ? 0 : static_cast<socklen_t>(control.bytes.size());
+            if (seqpacket) {
+                // The check and the send as one, so that a message never lands behind the other end's mark.
+                const std::lock_guard lock(socket.pair->mutex);
+                if (seqpacket_ended_locked(*socket.pair, socket.side, true)) return -linux_errno::epipe;
+                return sys::result_or_error(::sendmsg(socket.host(), &host, host_flags(flags)));
+            }
             return in_folder(name.folder, [&] {
                 return sys::result_or_error(::sendmsg(socket.host(), &host, host_flags(flags)));
             });
         });
         if (result < 0) {
             if (sent > 0) return sent;
+            if (seqpacket) {
+                // Darwin's answers once the datagram peer is gone, and its EPIPE after this end's SHUT_WR.
+                const bool gone = result == -linux_errno::edestaddrreq || result == -linux_errno::enotconn ||
+                                  result == -linux_errno::econnrefused || result == -linux_errno::econnreset;
+                return gone ? -linux_errno::epipe : result;
+            }
             if (result == -linux_errno::epipe && (flags & msg_nosignal) == 0) sys::raise_sigpipe();
             return result;
         }
@@ -922,7 +1002,7 @@ long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
 long receive_message(Socket &socket, LinuxMsghdr &message, int flags, std::string *from) {
     if (flags & msg_errqueue) return -linux_errno::eagain;  // no error queue is kept
     if (message.vector_count > 1024) return -linux_errno::emsgsize;
-    const bool stream = socket.type == sock_stream;
+    const bool stream = socket.type == sock_stream, seqpacket = socket.pair != nullptr;
     const bool dont_wait = socket.nonblocking() || (flags & msg_dontwait) != 0;
     std::vector<iovec> rest;
     std::size_t wanted = 0;
@@ -946,6 +1026,15 @@ long receive_message(Socket &socket, LinuxMsghdr &message, int flags, std::strin
     while (true) {
         msghdr host{};
         const long result = wait_ready(socket, false, dont_wait, [&] {
+            host = {};
+            // A seqpacket end's answer for Darwin's failure: the end of the messages may stand in for it.
+            const auto answer = [&](long failure) { return seqpacket ? seqpacket_received(socket, failure) : failure; };
+            std::unique_lock<std::mutex> one_at_a_time;  // a seqpacket end's look at its head and its receive
+            if (seqpacket) {
+                one_at_a_time = std::unique_lock(socket.pair->receiving[socket.side]);
+                if (const long reset = seqpacket_reset(socket)) return reset;
+                if (seqpacket_ended(socket, false) && seqpacket_at_mark(socket)) return 0L;
+            }
             if (want_whole) {
                 char first;  // a byte: with none, Darwin answers 0 rather than EAGAIN when nothing is there
                 iovec probe_vector{&first, 1};
@@ -953,19 +1042,21 @@ long receive_message(Socket &socket, LinuxMsghdr &message, int flags, std::strin
                 probe.msg_iov = &probe_vector;
                 probe.msg_iovlen = 1;
                 if (const long found = sys::result_or_error(::recvmsg(socket.host(), &probe, MSG_PEEK)); found < 0) {
-                    return found;
+                    return answer(found);
                 }
                 socklen_t size = sizeof whole;
                 if (::getsockopt(socket.host(), SOL_SOCKET, SO_NREAD, &whole, &size) != 0) whole = -1;
             }
-            host = {};
             host.msg_name = &sender;
             host.msg_namelen = sizeof sender;
             host.msg_iov = rest.data();
             host.msg_iovlen = static_cast<int>(rest.size());
             host.msg_control = host_control.data();
             host.msg_controllen = static_cast<socklen_t>(host_control.size());
-            return sys::result_or_error(::recvmsg(socket.host(), &host, host_flags(flags)));
+            const long got = sys::result_or_error(::recvmsg(socket.host(), &host, host_flags(flags)));
+            if (got >= 0) return got;
+            host = {};  // nothing came: no name, no control
+            return answer(got);
         });
         if (result < 0) {
             if (received > 0) break;
@@ -1036,6 +1127,9 @@ long put_int(int value, std::uint64_t address, std::uint64_t length_address) {
     std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
     if (room < 0) return -linux_errno::einval;
     const auto copied = static_cast<std::int32_t>(std::min<std::size_t>(static_cast<std::size_t>(room), sizeof value));
+    // Each of getsockopt's copies checks the length it read itself: a guest thread that changes the length after
+    // sys_getsockopt's check still gets EFAULT, never a write to address 0.
+    if (copied > 0 && address == 0) return -linux_errno::efault;
     std::memcpy(sys::as_pointer<void>(address), &value, static_cast<std::size_t>(copied));
     std::memcpy(sys::as_pointer<void>(length_address), &copied, sizeof copied);
     return 0;
@@ -1046,6 +1140,7 @@ long put_whole(const void *data, std::size_t size, std::uint64_t address, std::u
     std::int32_t room;
     std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
     if (room < 0 || static_cast<std::size_t>(room) < size) return -linux_errno::einval;
+    if (address == 0) return -linux_errno::efault;
     std::memcpy(sys::as_pointer<void>(address), data, size);
     const auto length = static_cast<std::int32_t>(size);
     std::memcpy(sys::as_pointer<void>(length_address), &length, sizeof length);
@@ -1217,6 +1312,7 @@ long get_socket_level(Socket &socket, int name, std::uint64_t value, std::uint64
             std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
             if (room < 0) return -linux_errno::einval;
             const auto copied = static_cast<std::int32_t>(std::min<std::size_t>(static_cast<std::size_t>(room), sizeof guest));
+            if (copied > 0 && value == 0) return -linux_errno::efault;
             std::memcpy(sys::as_pointer<void>(value), &guest, static_cast<std::size_t>(copied));
             std::memcpy(sys::as_pointer<void>(length_address), &copied, sizeof copied);
             return 0;
@@ -1233,6 +1329,7 @@ long get_socket_level(Socket &socket, int name, std::uint64_t value, std::uint64
             std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
             if (room < 0) return -linux_errno::einval;
             const auto copied = static_cast<std::int32_t>(std::min<std::size_t>(static_cast<std::size_t>(room), sizeof credentials));
+            if (copied > 0 && value == 0) return -linux_errno::efault;
             std::memcpy(sys::as_pointer<void>(value), &credentials, static_cast<std::size_t>(copied));
             std::memcpy(sys::as_pointer<void>(length_address), &copied, sizeof copied);
             return 0;
@@ -1394,6 +1491,7 @@ long get_ip_level(Socket &socket, int name, std::uint64_t value, std::uint64_t l
         std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
         if (room < 0) return -linux_errno::einval;
         if (room > 0 && room < static_cast<std::int32_t>(sizeof(int)) && number >= 0 && number <= 255) {
+            if (value == 0) return -linux_errno::efault;  // the length read here decides, as put_int's
             *sys::as_pointer<unsigned char>(value) = static_cast<unsigned char>(number);
             const std::int32_t one = 1;
             std::memcpy(sys::as_pointer<void>(length_address), &one, sizeof one);
@@ -1506,19 +1604,21 @@ Socket::Socket(int host, bool nonblocking, int family_number, int type_number, i
     const bool tcp = type == sock_stream && family != af_unix;
     send_buffer = tcp ? tcp_send_buffer : linux_buffer;
     receive_buffer = tcp ? tcp_receive_buffer : linux_buffer;
-    if (family == af_unix && type == sock_dgram) {
-        // unix_dgram_sendmsg limits a datagram by the sender's buffer alone, where Darwin also refuses one that does
-        // not fit the receiver's (net.local.dgram.recvspace, 4096) with ENOBUFS: room for the longest that Linux
-        // takes, after SO_SNDBUF's most (twice wmem_max, less 32 bytes), twice, or what the host's
-        // kern.ipc.maxsockbuf allows.
-        limit_datagrams(host, send_buffer);
-        for (int room = 4 * linux_buffer_max; room >= linux_buffer; room /= 2) {
-            if (::setsockopt(host, SOL_SOCKET, SO_RCVBUF, &room, sizeof room) == 0) break;
-        }
-    }
+    // A seqpacket's host is a datagram socket too.
+    if (family == af_unix && (type == sock_dgram || type == sock_seqpacket)) hold_datagrams(host, send_buffer);
 }
 
 Socket::~Socket() {
+    if (pair) {
+        // unix_release_sock: the other end receives and sends no more, and gets ECONNRESET first if this one
+        // leaves messages it never read.
+        const std::lock_guard lock(pair->mutex);  // a send of the other's is in this end's queue now or gets EPIPE
+        char first;
+        const bool unread = ::recv(host(), &first, 1, MSG_PEEK | MSG_DONTWAIT) >= 0 && !seqpacket_at_mark(*this);
+        pair->closed[side] = true;
+        if (unread) pair->reset[1 - side] = true;
+        seqpacket_mark(*pair, host());
+    }
     if (host_name.empty()) return;
     auto &names = unix_names();
     const std::lock_guard lock(names.mutex);
@@ -1577,6 +1677,15 @@ bool restarts(std::uint64_t number, int fd) {
 std::uint32_t poll_bits(Socket &socket, bool read_filter, bool end, std::uint32_t readable, std::uint32_t writable,
                         std::uint32_t hangup) {
     std::uint32_t bits = read_filter ? readable : writable;
+    if (socket.pair) {
+        // A seqpacket end's state, which its Darwin datagram does not show (unix_dgram_poll).
+        const bool receives = !seqpacket_ended(socket, false), sends = !seqpacket_ended(socket, true);
+        if (!receives) bits |= readable | pollrdhup;
+        if (!receives && !sends) bits |= hangup;
+        const std::lock_guard lock(socket.pair->mutex);
+        if (socket.pair->reset[socket.side]) bits |= pollerr;
+        return bits;
+    }
     if (!end) return bits;
     // The other direction's end, which the other filter shows: Darwin's poll of it alone reports POLLHUP for its EV_EOF.
     pollfd other{socket.host(), static_cast<short>(read_filter ? POLLOUT : POLLIN), 0};
@@ -1585,6 +1694,27 @@ std::uint32_t poll_bits(Socket &socket, bool read_filter, bool end, std::uint32_
     if (read_end) bits |= readable | pollrdhup;
     if (read_end && send_end) bits |= hangup;
     return bits;
+}
+
+bool raises_sigpipe(int fd) {
+    const auto description = descriptors::get(fd);
+    const auto *socket = description ? as_socket(*description) : nullptr;
+    return socket == nullptr || socket->pair == nullptr;
+}
+
+bool takes_messages(const descriptors::Description &description) {
+    const auto *socket = as_socket(description);
+    return socket != nullptr && socket->pair != nullptr;
+}
+
+long transfer_message(descriptors::Description &description, bool writing, const iovec *vectors, int count) {
+    Socket &socket = *as_socket(description);
+    LinuxMsghdr message{};
+    message.vectors = reinterpret_cast<std::uint64_t>(vectors);
+    message.vector_count = static_cast<std::uint64_t>(count);
+    if (writing) return send_message(socket, message, 0);
+    std::string from;
+    return receive_message(socket, message, 0, &from);
 }
 
 }  // namespace apkrt::sockets
@@ -1654,7 +1784,8 @@ long sys_socketpair(int domain, int type, int protocol, std::uint64_t vector) {
     if (base == sock_raw) base = sock_dgram;
     if (base != sock_stream && base != sock_dgram && base != sock_seqpacket) return -linux_errno::esocktnosupport;
     int hosts[2];
-    if (::socketpair(AF_UNIX, base, 0, hosts) != 0) return -to_linux_errno(errno);
+    // Darwin has no AF_UNIX SOCK_SEQPACKET: a datagram pair keeps its messages, and the runtime its ends (step a2).
+    if (::socketpair(AF_UNIX, base == sock_seqpacket ? SOCK_DGRAM : base, 0, hosts) != 0) return -to_linux_errno(errno);
     if (const long error = sockets::prepare(hosts[0])) {
         ::close(hosts[1]);
         return error;
@@ -1667,6 +1798,14 @@ long sys_socketpair(int domain, int type, int protocol, std::uint64_t vector) {
     auto first = std::make_shared<Socket>(hosts[0], nonblocking, af_unix, base, 0);
     auto second = std::make_shared<Socket>(hosts[1], nonblocking, af_unix, base, 0);
     first->connected = second->connected = true;
+    if (base == sock_seqpacket) {
+        auto pair = std::make_shared<sockets::SeqpacketPair>();
+        ::arc4random_buf(pair->mark, sizeof pair->mark);
+        pair->ends[0] = first;
+        pair->ends[1] = second;
+        first->pair = second->pair = std::move(pair);
+        second->side = 1;
+    }
     const long one = descriptors::add(std::move(first), close_on_exec);
     if (one < 0) return one;  // the second goes with its handle
     const long other = descriptors::add(std::move(second), close_on_exec);
@@ -1680,6 +1819,15 @@ long sys_socketpair(int domain, int type, int protocol, std::uint64_t vector) {
 }
 
 namespace {
+
+/// Puts a fresh host socket of `socket`'s kind in its place, unbound, under the same descriptor. Under its mutex.
+void unbind(Socket &socket) {
+    const int fresh = ::socket(AF_UNIX, socket.type == sock_stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+    if (fresh < 0 || sockets::prepare(fresh) != 0) return;  // prepare closes it when it fails
+    if (::dup2(fresh, socket.host()) >= 0) ::fcntl(socket.host(), F_SETFD, FD_CLOEXEC);
+    ::close(fresh);
+    if (socket.type != sock_stream) sockets::hold_datagrams(socket.host(), socket.send_buffer);
+}
 
 long bind_unix(Socket &socket, sockets::HostName &name) {
     const std::lock_guard lock(socket.mutex);
@@ -1698,6 +1846,9 @@ long bind_unix(Socket &socket, sockets::HostName &name) {
         if (result != 0) return result;
         struct stat status{};
         if (::fstatat(folder, host_name.c_str(), &status, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISSOCK(status.st_mode)) {
+            // Not the socket's node: the name goes, and the socket is unbound again, in a fresh host socket.
+            ::unlinkat(folder, host_name.c_str(), 0);
+            unbind(socket);
             return -linux_errno::eacces;
         }
         return 0L;
@@ -1892,6 +2043,22 @@ long sys_shutdown(int fd, int how) {
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     if (how < 0 || how > 2) return -linux_errno::einval;
+    if (Socket &socket = *held.socket; socket.pair) {
+        // unix_shutdown: the other end learns of it from the runtime, as Darwin does not tell a datagram's peer;
+        // SHUT_RD stays the runtime's, as Darwin's would drop the messages queued.
+        const std::shared_ptr<Socket> other = socket.pair->ends[1 - socket.side].lock();
+        const std::lock_guard lock(socket.pair->mutex);
+        if (how != SHUT_WR) {
+            socket.pair->shut_read[socket.side] = true;
+            if (other) sockets::seqpacket_mark(*socket.pair, other->host());  // into this end's own queue
+        }
+        if (how != SHUT_RD) {
+            socket.pair->shut_write[socket.side] = true;
+            sockets::seqpacket_mark(*socket.pair, socket.host());  // into the other's, before Darwin's SHUT_WR
+            ::shutdown(socket.host(), SHUT_WR);
+        }
+        return 0;
+    }
     if (::shutdown(held.socket->host(), how) == 0) return 0;
     // unix_shutdown answers 0 also for an unconnected socket.
     if (errno == ENOTCONN && held.socket->family == af_unix) return 0;

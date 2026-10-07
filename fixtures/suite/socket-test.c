@@ -172,6 +172,90 @@ static void test_socketpair_datagram(void) {
     close(pair[1]);
 }
 
+static void print_poll(const char *what, int fd) {
+    struct pollfd entry = {fd, POLLIN | POLLOUT | POLLRDHUP, 0};
+    int ready = poll(&entry, 1, 0);
+    printf("%s: %d, POLLIN %d, POLLOUT %d, POLLRDHUP %d, POLLHUP %d, POLLERR %d\n", what, ready,
+           (entry.revents & POLLIN) != 0, (entry.revents & POLLOUT) != 0, (entry.revents & POLLRDHUP) != 0,
+           (entry.revents & POLLHUP) != 0, (entry.revents & POLLERR) != 0);
+}
+
+static void test_socketpair_seqpacket(void) {
+    printf("-- socketpair, seqpacket\n");
+    int pair[2];
+    report("socketpair", socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair));
+    printf("  SO_TYPE %d, FD_CLOEXEC %d\n", int_option(pair[0], SOL_SOCKET, SO_TYPE),
+           (fcntl(pair[0], F_GETFD) & FD_CLOEXEC) != 0);
+    print_poll("poll at the start", pair[1]);
+    char big[5000];
+    memset(big, 's', sizeof big);
+    report("send 1", send(pair[0], big, 1, 0));
+    report("send 100", send(pair[0], big, 100, 0));
+    report("send 0", send(pair[0], big, 0, 0));
+    report("write 5000", write(pair[0], big, sizeof big));
+    char buffer[6000];
+    report("recv with MSG_PEEK", recv(pair[1], buffer, sizeof buffer, MSG_PEEK));
+    report("recv", recv(pair[1], buffer, sizeof buffer, 0));
+    report("recv of 100 into 10 bytes", recv(pair[1], buffer, 10, 0));
+    report("recv of the empty one", recv(pair[1], buffer, sizeof buffer, 0));
+    struct iovec vector = {buffer, 10};
+    struct msghdr message;
+    memset(&message, 0, sizeof message);
+    message.msg_iov = &vector;
+    message.msg_iovlen = 1;
+    report("recvmsg of 5000 into 10 bytes with MSG_TRUNC", recvmsg(pair[1], &message, MSG_TRUNC));
+    printf("  MSG_TRUNC %d, MSG_EOR %d\n", (message.msg_flags & MSG_TRUNC) != 0, (message.msg_flags & MSG_EOR) != 0);
+    report("recv of nothing with MSG_DONTWAIT", recv(pair[1], buffer, sizeof buffer, MSG_DONTWAIT));
+    report("write back", write(pair[1], "abc", 3));
+    report("read of a message", read(pair[0], buffer, sizeof buffer));
+    struct sockaddr_un name;
+    socklen_t length = sizeof name;
+    report("getpeername", getpeername(pair[0], (struct sockaddr *)&name, &length));
+    printf("  length %d\n", (int)length);
+    // The longest message: the sender's buffer less 32 bytes, as a datagram's.
+    int send_buffer = int_option(pair[0], SOL_SOCKET, SO_SNDBUF);
+    printf("SO_SNDBUF %d, SO_RCVBUF %d\n", send_buffer, int_option(pair[0], SOL_SOCKET, SO_RCVBUF));
+    char *huge = calloc(1, (size_t)send_buffer);
+    report("send of SO_SNDBUF less 32 bytes", send(pair[0], huge, (size_t)send_buffer - 32, MSG_DONTWAIT));
+    report("recv of it", recv(pair[1], huge, (size_t)send_buffer, 0));
+    report("send of one byte more", send(pair[0], huge, (size_t)send_buffer - 31, MSG_DONTWAIT));
+    free(huge);
+    // SHUT_WR: the peer reads the end, and still sends.
+    report("shutdown SHUT_WR", shutdown(pair[0], SHUT_WR));
+    print_poll("poll after the peer's SHUT_WR", pair[1]);
+    report("recv after the peer's SHUT_WR", recv(pair[1], buffer, sizeof buffer, MSG_DONTWAIT));
+    report("send after its own SHUT_WR", send(pair[0], "x", 1, MSG_NOSIGNAL));
+    report("send to the side that shut down", send(pair[1], "y", 1, 0));
+    report("recv there", recv(pair[0], buffer, sizeof buffer, 0));
+    close(pair[0]);
+    close(pair[1]);
+    // close: what came before it, then the end; a send gets EPIPE.
+    install(SIGPIPE, on_sigpipe, 0);
+    sigpipes = 0;
+    socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair);
+    report("send before the close", send(pair[0], "last", 4, 0));
+    close(pair[0]);
+    print_poll("poll after the peer's close", pair[1]);
+    report("recv of what came before the close", recv(pair[1], buffer, sizeof buffer, 0));
+    report("recv after the peer's close", recv(pair[1], buffer, sizeof buffer, 0));
+    report("recv again", recv(pair[1], buffer, sizeof buffer, MSG_DONTWAIT));
+    report("send to a closed peer", send(pair[1], "x", 1, 0));
+    printf("  SIGPIPE %d\n", (int)sigpipes);
+    report("write to a closed peer", write(pair[1], "x", 1));
+    printf("  SIGPIPE %d\n", (int)sigpipes);
+    close(pair[1]);
+    // A close with messages it never read: the peer's next call gets ECONNRESET, once.
+    socketpair(AF_UNIX, SOCK_SEQPACKET, 0, pair);
+    report("send to the side that closes", send(pair[1], "unread", 6, 0));
+    close(pair[0]);
+    print_poll("poll after a close with unread messages", pair[1]);
+    report("recv with MSG_DONTWAIT after it", recv(pair[1], buffer, sizeof buffer, MSG_DONTWAIT));
+    report("recv after it", recv(pair[1], buffer, sizeof buffer, 0));
+    report("recv again", recv(pair[1], buffer, sizeof buffer, 0));
+    close(pair[1]);
+    install(SIGPIPE, SIG_DFL, 0);
+}
+
 static void test_rights(void) {
     printf("-- SCM_RIGHTS\n");
     int pair[2], pipe_ends[2];
@@ -708,6 +792,7 @@ int main(void) {
     test_socket();
     test_socketpair_stream();
     test_socketpair_datagram();
+    test_socketpair_seqpacket();
     test_rights();
     test_unix_names();
     tcp_round(AF_INET);

@@ -46,6 +46,49 @@ send 100: 100
 recvmsg into 10 bytes: 10
   MSG_TRUNC 1, MSG_CTRUNC 0
 SO_TYPE: 2
+-- socketpair, seqpacket
+socketpair: 0
+  SO_TYPE 5, FD_CLOEXEC 1
+poll at the start: 1, POLLIN 0, POLLOUT 1, POLLRDHUP 0, POLLHUP 0, POLLERR 0
+send 1: 1
+send 100: 100
+send 0: 0
+write 5000: 5000
+recv with MSG_PEEK: 1
+recv: 1
+recv of 100 into 10 bytes: 10
+recv of the empty one: 0
+recvmsg of 5000 into 10 bytes with MSG_TRUNC: 5000
+  MSG_TRUNC 1, MSG_EOR 0
+recv of nothing with MSG_DONTWAIT: -1 errno 11 (Try again)
+write back: 3
+read of a message: 3
+getpeername: 0
+  length 2
+SO_SNDBUF 229376, SO_RCVBUF 229376
+send of SO_SNDBUF less 32 bytes: 229344
+recv of it: 229344
+send of one byte more: -1 errno 90 (Message too long)
+shutdown SHUT_WR: 0
+poll after the peer's SHUT_WR: 1, POLLIN 1, POLLOUT 1, POLLRDHUP 1, POLLHUP 0, POLLERR 0
+recv after the peer's SHUT_WR: 0
+send after its own SHUT_WR: -1 errno 32 (Broken pipe)
+send to the side that shut down: 1
+recv there: 1
+send before the close: 4
+poll after the peer's close: 1, POLLIN 1, POLLOUT 1, POLLRDHUP 1, POLLHUP 1, POLLERR 0
+recv of what came before the close: 4
+recv after the peer's close: 0
+recv again: 0
+send to a closed peer: -1 errno 32 (Broken pipe)
+  SIGPIPE 0
+write to a closed peer: -1 errno 32 (Broken pipe)
+  SIGPIPE 0
+send to the side that closes: 6
+poll after a close with unread messages: 1, POLLIN 1, POLLOUT 1, POLLRDHUP 1, POLLHUP 1, POLLERR 1
+recv with MSG_DONTWAIT after it: -1 errno 104 (Connection reset by peer)
+recv after it: 0
+recv again: 0
 -- SCM_RIGHTS
 sendmsg with two descriptors: 1
 recvmsg with MSG_CMSG_CLOEXEC: 1

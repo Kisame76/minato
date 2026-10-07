@@ -959,8 +959,11 @@ extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     const long result = dispatch(*frame);
     if (tracing()) trace(*frame, &result);
     // A write to a pipe or socket nobody reads: Linux raises SIGPIPE along with EPIPE (and along with
-    // the count of a write that got some bytes out first, sys_files.cpp).
-    if (result == -linux_errno::epipe && is_write(frame->x[8])) raise_sigpipe();
+    // the count of a write that got some bytes out first, sys_files.cpp), but not for a SOCK_SEQPACKET socket.
+    if (result == -linux_errno::epipe && is_write(frame->x[8]) &&
+        apkrt::sockets::raises_sigpipe(static_cast<int>(static_cast<std::int32_t>(frame->x[31])))) {
+        raise_sigpipe();
+    }
     frame->x[0] = static_cast<std::uint64_t>(result);
     errno = saved_errno;
     return apkrt::signals::at_syscall_exit();

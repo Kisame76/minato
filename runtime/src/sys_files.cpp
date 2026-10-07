@@ -1134,6 +1134,7 @@ long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain 
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
     if (description->kind() == Description::Kind::eventfd) return transfer_count(*description, writing, vectors, count);
     if (!description->can_block()) return result_or_error(plain(description->host()));
+    if (sockets::takes_messages(*description)) return sockets::transfer_message(*description, writing, vectors, count);
     return transfer(*description, writing, Buffers(vectors, count), sockets::deadline_of(*description, writing));
 }
 
