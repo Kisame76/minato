@@ -6,9 +6,11 @@
 # whose JNI library links libjnigraphics, which the app's guest system has from build/hwui/lib, and reads and writes
 # bitmaps through AndroidBitmap_* and decodes the APK's picture.png through AImageDecoder), surface-test
 # (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's), palette-test
-# (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache) and, in the
-# Simulator, obb-test (ADR-0049 test 8's, which reads its main OBB, picked after it as a unit of its own, which the
-# library gives to it by its name) are imported and tapped in the library,
+# (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache), binder-test
+# (ADR-0043 d2b)'s, whose Binder, AIDL-style stub, IBinder and ResultReceivers are its own), strictmode-test (ADR-0039
+# step c2d3's, StrictMode's defaults at the bind and Build.getSerial) and, in the Simulator, obb-test (ADR-0049 test
+# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name) are
+# imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
 # sends to tmp/session-check/guest-out, with ART's line in its guest log that names its collector, CMS (ADR-0033
@@ -67,7 +69,8 @@ fi
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
       "asset-ndk-test io.github.kisame76.minato.test.assetndk" "jni-lib-test io.github.kisame76.minato.test.jnilib"
       "jnigraphics-test io.github.kisame76.minato.test.jnigraphics"
-      "surface-test io.github.kisame76.minato.test.surface" "palette-test io.github.kisame76.minato.test.palette")
+      "surface-test io.github.kisame76.minato.test.surface" "palette-test io.github.kisame76.minato.test.palette"
+      "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -558,6 +561,10 @@ run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics
 # Its colors come from Monet's overlays, which every app's Resources take from /data/resource-cache (ADR-0043 f)).
 run_one palette-test io.github.kisame76.minato.test.palette
+# The app's own binders, which ART checks against IBinder's types at their first use (ADR-0043 d2b)).
+run_one binder-test io.github.kisame76.minato.test.binder
+# StrictMode's defaults from the bind, and getSerial's answer from the local device identifiers service (step c2d3).
+run_one strictmode-test io.github.kisame76.minato.test.strictmode
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   # Its OBB must be in its OBB folder before the tap.
   obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
