@@ -22,7 +22,8 @@
 # uptime clock and on CLOCK_MONOTONIC_RAW. FRAMES=1 runs one round in which game mode stays 5 s before its
 # menu and Quit (ADR-0036, decision 2): the frame clock runs while the gate is open, off the main thread, and
 # pauses with the menu; it prints the intervals between ticks. ENDS=1 runs the rounds of decision 8: a crash and
-# an app that cannot start show once at the library's next start, and a Quit shows nothing. AUDIO=1 runs one
+# an app that cannot start show once at the library's next start, and a Quit shows nothing, nor does a program's
+# kill of itself, which the runtime reports as 137 before its end handler (ADR-0028, decision 5). AUDIO=1 runs one
 # round in which game mode plays a 2 s test tone at 44.1 kHz through the audio host (ADR-0036, decision 4): the
 # session activates and asks for a 5 ms IO buffer, the engine runs, the render block reads about as many frames as 2 s
 # hold without an xrun, and the engine stops and the session deactivates once the stream closes; a second round
@@ -239,7 +240,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash self-kill start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -918,6 +919,17 @@ run_ends() {
   await_event "quit" 60 || { abort_round "no Quit"; return; }
   await_event "process library.*" 30 && expect "  the library shows nothing" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after Quit"
+
+  # Runtime's ADR-0028 decision 5: a program that kills itself, as Godot ends, is reported as 137 and then ends
+  # through the end handler, as an exit does; SessionCheck plays the runtime's part.
+  begin_round "a kill of itself (137)" || return 0
+  echo "$PKG" > "$CHECK/tap"
+  echo 137 > "$CHECK/self-kill"
+  send_requests
+  launch
+  await_event "program ended 137" 60 || { abort_round "game mode did not end"; return; }
+  await_event "process library.*" 30 && expect "  the library shows nothing" "process library" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
 }
 
 # Android 15's log of test app $1 (fixtures/expected/$1.logcat) with test 7's departure at Home: the focus goes

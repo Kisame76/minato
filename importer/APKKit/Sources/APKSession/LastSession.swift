@@ -8,6 +8,9 @@ public struct LastSession: Codable, Equatable, Sendable {
     public var name: String
     /// Why the app could not start (START_FAILED, or `apkrt_start_program`'s error), if it could not.
     public var failure: String?
+    /// Whether the program ended through the end handler: an exit, a quit or a kill of itself, never a crash; nil in
+    /// a record of an older build.
+    public var endedItself: Bool?
 
     public init(package: String, name: String, failure: String? = nil) {
         self.package = package
@@ -68,6 +71,15 @@ public struct LastSessionStore: Sendable {
         return descriptor
     }
 
+    /// The program ended through the end handler (ADR-0032, decision 7): an exit, a quit or a kill of itself, which
+    /// the runtime reports as 137 and ends as an exit (ADR-0028, decision 5). A crash ends the process without the
+    /// handler, so its record keeps no end.
+    public func ended() {
+        guard var session = read() else { return }
+        session.endedItself = true
+        write(session)
+    }
+
     /// The app could not start, for `reason`.
     public func failed(_ reason: String) {
         guard var session = read() else { return }
@@ -84,6 +96,8 @@ public struct LastSessionStore: Sendable {
         try? FileManager.default.removeItem(at: statusFile)
         guard let session else { return nil }
         if let failure = session.failure { return LastSessionNotice(name: session.name, cause: .failure(failure)) }
+        // An end through the end handler is no crash, whatever the status, a kill of itself's 137 too.
+        if session.endedItself == true { return nil }
         // A shell's 128 + the signal.
         guard let status, status > 128 else { return nil }
         return LastSessionNotice(name: session.name, cause: .signal(status - 128))

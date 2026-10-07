@@ -21,6 +21,12 @@ enum SessionEndReport {
         apkrt_report_exit_status(descriptor)
     }
 
+    /// The program ended through the end handler: no notice at the library's next start, whatever the status, as a
+    /// kill of itself reports 137 and ends the program as an exit does (ADR-0028, decision 5).
+    static func ended() {
+        store?.ended()
+    }
+
     /// START_FAILED, or `apkrt_start_program`'s error.
     static func startFailed(_ reason: String) {
         store?.failed(reason)
@@ -29,9 +35,15 @@ enum SessionEndReport {
     #if DEBUG
     /// For session-check: the status as the runtime reports it at a program's end, then the process ends.
     static func endAsTheRuntimeWould(_ status: Int32) {
+        reportAsTheRuntimeWould(status)
+        _exit(1)
+    }
+
+    /// For session-check: the status as the runtime reports it before it calls the end handler, as at a kill of
+    /// itself (ADR-0028, decision 5).
+    static func reportAsTheRuntimeWould(_ status: Int32) {
         let text = "\(status)\n"
         _ = text.withCString { write(descriptor, $0, strlen($0)) }
-        _exit(1)
     }
     #endif
 }

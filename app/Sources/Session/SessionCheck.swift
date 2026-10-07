@@ -231,6 +231,13 @@ enum SessionCheck {
             event("crash \(status)")
             SessionEndReport.endAsTheRuntimeWould(status)
         }
+        if let status = text(of: "self-kill").flatMap(Int32.init) {
+            try? FileManager.default.removeItem(at: folder.appending(path: "self-kill"))
+            event("self-kill \(status)")
+            // As the runtime ends a program that kills itself (ADR-0028, decision 5): its report, then the end handler.
+            SessionEndReport.reportAsTheRuntimeWould(status)
+            session.programEnded(status: status)
+        }
         if let reason = text(of: "start-failed") {
             try? FileManager.default.removeItem(at: folder.appending(path: "start-failed"))
             event("start failed \(reason)")

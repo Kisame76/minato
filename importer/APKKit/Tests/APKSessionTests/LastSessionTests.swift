@@ -76,6 +76,36 @@ struct LastSessionTests {
         #expect(store.take() == LastSessionNotice(name: "Example", cause: .failure("libmain.so is missing")))
     }
 
+    /// A program that ends through the end handler ends as an exit, a quit or a kill of itself, whose report a
+    /// self-kill makes 137 (Runtime's ADR-0028 decision 5, as Godot ends its process): no crash, so nothing is shown.
+    @Test func anEndThroughTheEndHandlerShowsNothingEvenAfterAKill() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        Self.report(128 + 9, to: descriptor)
+        store.ended()
+
+        #expect(store.take() == nil)
+    }
+
+    /// The same report without the end handler, as when a kill from outside ends the process: shown as a crash.
+    @Test func aKillWithoutTheEndHandlerIsShownWithItsSignal() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        Self.report(128 + 9, to: descriptor)
+
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(9)))
+    }
+
+    /// A record of an older build, without the end, reads as before: a crash is still shown.
+    @Test func anOlderRecordWithoutTheEndStillShowsACrash() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        try Data(#"{"package":"org.example.app","name":"Example"}"#.utf8).write(to: store.recordFile)
+        Self.report(128 + 11, to: descriptor)
+
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(11)))
+    }
+
     @Test func itIsReadOnceThenRemoved() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)

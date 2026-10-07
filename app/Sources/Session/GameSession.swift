@@ -350,6 +350,7 @@ final class GameSession {
     /// ends the process without this.
     func programEnded(status: Int32) {
         log.info("\(self.entry.id, privacy: .public) ended with status \(status)")
+        SessionEndReport.ended()
         #if DEBUG
         SessionCheck.event("program ended \(status)")
         #endif
