@@ -999,8 +999,16 @@ public actor Library {
             return (nil, "it is no APK Minato can read")
         }
         if slice.packageName != app.packageName { return (nil, "it belongs to \(slice.packageName)") }
-        if slice.versionCode != app.versionCode {
-            return (nil, "its versionCode \(slice.versionCode) is not the app’s \(app.versionCode)")
+        // bundletool gives a later pack's slice no versionCode and the base's versionCode attribute, without its
+        // versionCodeMajor, as its versionName, "since their version code is not used by Android"
+        // (AssetSlicesGenerator.java:56-76, 1.18.3); its --asset-modules-version-override writes another one there.
+        if slice.versionCode != app.versionCode,
+           slice.versionCode != 0 || slice.versionName != String(Int32(truncatingIfNeeded: app.versionCode)) {
+            if slice.versionCode != 0 {
+                return (nil, "its versionCode \(slice.versionCode) is not the app’s \(app.versionCode)")
+            }
+            guard let name = slice.versionName else { return (nil, "it has no versionCode and no versionName") }
+            return (nil, "its versionName \(name) is not the app’s versionCode \(Int32(truncatingIfNeeded: app.versionCode))")
         }
         if slice.certificates.isEmpty || slice.certificates != app.certificates || slice.signature.check.isFailure {
             return (nil, "it is signed by another key than the app")

@@ -19,7 +19,8 @@
 # drawables-test (ADR-0043 step d)) is one more, with an XML drawable of every tag in res/drawable, and checkbox-test
 # (step e1)), with a layout of CheckBoxes in res/layout. pointer-insets-test (ADR-0042 b) is one more, with a
 # <pointer-icon> in res/xml and its bitmap in res/drawable.
-# palette-test (ADR-0043 step f)) is one more.
+# palette-test (ADR-0043 step f)) is one more, and so is packs-test (ADR-0050 test 2), which tools/build-packs-test.sh
+# also packs as a bundletool set with a fast-follow and an on-demand pack.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).

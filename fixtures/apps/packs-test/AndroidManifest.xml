@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0050's test 2 (packs-test): an app reads the meta-data local_testing_dir, which switches Google's Play libraries
+     to their local-testing path, and the asset pack slices under its external files folder, in
+     Application.attachBaseContext. Its manifest has no meta-data; its twin packs-test-own has its own. The launcher
+     activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.packs" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="packs-test" android:name="io.github.kisame76.minato.test.packs.PacksApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

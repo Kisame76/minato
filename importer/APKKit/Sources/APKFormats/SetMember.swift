@@ -11,6 +11,10 @@ public struct SetMember: Sendable, Equatable {
     /// `AndroidManifest` refuses where the package parser's by resource ID differs. Where obfuscation renamed one, the
     /// resource ID's reading stands, where Android's installer reads 0 (a known gap; an older version still asks).
     public var versionCode: Int64
+    /// `<manifest android:versionName>` when it is text, nil for none or a reference: bundletool writes the app's
+    /// versionCode there on the slices of fast-follow and on-demand packs, which carry no versionCode
+    /// (`AssetSlicesGenerator.java:56-76`, 1.18.3; ADR-0049 f's fix).
+    public var versionName: String? = nil
     /// nil for the base.
     public var splitName: String?
     public var configForSplit: String?
@@ -91,6 +95,10 @@ public struct SetMember: Sendable, Equatable {
         }
         return SetMember(
             fileName: fileName, packageName: manifest.packageName, versionCode: manifest.versionCode,
+            versionName: manifest.versionName.flatMap { value -> String? in
+                if case .string(let name) = value { return name }
+                return nil
+            },
             splitName: manifest.splitName, configForSplit: manifest.configForSplit, isFeatureSplit: manifest.isFeatureSplit,
             isolatedSplits: manifest.isolatedSplits, usesSplit: manifest.usesSplit, requiredSplitTypes: manifest.requiredSplitTypes, splitTypes: manifest.splitTypes,
             splitRequired: manifest.splitRequired, stricterSplitSignal: manifest.stricterSplitSignal,

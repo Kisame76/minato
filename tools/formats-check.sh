@@ -12,7 +12,9 @@
 # BundleConfig.pb, a missing JDK and a missing key; it also turns activity-test, as a bundle of its manifest, library
 # and assets, into the universal APK that apk-inspect must read as ready and that
 #   FIXTURES_BUILD=build/formats-check/aab/fixtures tools/android-reference.sh --app activity-test
-# runs on Android 15 against its expected lines.
+# runs on Android 15 against its expected lines. Last, tools/build-packs-test.sh's packs-test, a set bundletool builds
+# with a fast-follow and an on-demand pack, must keep both packs' slices in packs/ when the library imports it
+# (PackRealOutputTests, ADR-0049 f's fix), which skips with a message while packs-test cannot be built.
 # Skips with a message when bundletool (tools/fetch-bundletool.py), the JDK, aapt2, protoc or framework-res is
 # missing; downloads nothing. Writes below build/formats-check/.
 # Usage: tools/formats-check.sh
@@ -317,4 +319,15 @@ for wanted in '^label: +Activity Test$' '^version: +1\.0 \(1\)$' \
 done
 echo "ok    activity-test's universal APK reads as ready, Activity Test 1.0 (1); on Android 15:" \
   "FIXTURES_BUILD=$AAB/fixtures tools/android-reference.sh --app activity-test"
+
+# ADR-0049 f's fix: bundletool gives a later pack's slice a versionName in place of a versionCode, which synthetic
+# slices did not show.
+if packs=$(tools/build-packs-test.sh 2>&1); then
+  PACKS_TEST_APKS="$PWD/build/packs-test/packs-test.apks" swift test "${SWIFT_PATHS[@]}" --filter PackRealOutputTests \
+    >"$WORK/packs-test.log" 2>&1 \
+    || { grep -E "✘|error:" "$WORK/packs-test.log" | head -20; fail "a real set's fast-follow and on-demand slices are not kept"; }
+  echo "ok    a real set keeps its fast-follow and on-demand slices in packs/"
+else
+  echo "skipped: packs-test is not built: ${packs##*$'\n'}"
+fi
 echo "formats check: passed"

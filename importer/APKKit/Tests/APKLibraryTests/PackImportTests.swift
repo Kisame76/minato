@@ -39,6 +39,19 @@ struct PackImportTests {
             """
     }
 
+    /// bundletool's versionName on a slice of a fast-follow or on-demand pack, which carries no versionCode: the app's
+    /// versionCode written out, "since their version code is not used by Android" (`AssetSlicesGenerator.java:56-76`,
+    /// 1.18.3).
+    static func versionName(_ name: String) -> AXMLBuilder.Attribute {
+        .android("versionName", 0x0101_021C, .string(name))
+    }
+
+    /// A later pack's slice as bundletool writes it: no versionCode, the app's as its versionName.
+    static func laterSlice(_ split: String, configForSplit: String? = nil, versionName name: String? = "1") -> Data {
+        SplitAPK.make(versionCode: nil, split: split, configForSplit: configForSplit,
+                      attributes: name.map { [versionName($0)] } ?? [])
+    }
+
     static let start = SplitAPK.make(split: "start")
     static let level2 = SplitAPK.make(split: "level2")
     static let level2ASTC = SplitAPK.make(split: "level2.config.astc", configForSplit: "level2")
@@ -107,7 +120,12 @@ struct PackImportTests {
         (SplitAPK.make(split: "level3", v2: [.init(.ec, algorithms: [TestSigner.ecdsaSHA256Verity])]),
          "its signature cannot be verified"),
         (SplitAPK.make(versionCode: 2, split: "level3"), "its versionCode 2 is not the app’s 1"),
+        // A versionCode of its own counts, whatever its versionName says.
+        (SplitAPK.make(versionCode: 2, split: "level3", attributes: [versionName("1")]), "its versionCode 2 is not the app’s 1"),
         (SplitAPK.make(package: "org.example.other", split: "level3"), "it belongs to org.example.other"),
+        // bundletool's form, of another version: its --asset-modules-version-override writes this too.
+        (laterSlice("level3", versionName: "2"), "its versionName 2 is not the app’s versionCode 1"),
+        (laterSlice("level3", versionName: nil), "it has no versionCode and no versionName"),
     ])
     func aPackSliceThatIsNotTheAppsIsLeftOutAndNamed(_ slice: Data, _ reason: String) async throws {
         let sandbox = try Sandbox()
@@ -302,6 +320,53 @@ struct PackImportTests {
         }
 
         let entry = try #require(results.first?.entry)
+        #expect(entry.packs?.map(\.fileName) == ["level2-master.apk", "level2-astc.apk", "level3-master.apk"])
+        #expect(entry.ignoredFiles == nil)
+    }
+
+    /// The slices of fast-follow and on-demand packs as bundletool writes them, with the app's versionCode as their
+    /// versionName and no versionCode of their own, are the app's (ADR-0049 f's fix).
+    @Test func laterSlicesAsBundletoolWritesThemAreKept() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entries = Self.entries().map { entry -> (String, Data) in
+            switch entry.0 {
+            case "asset-slices/level2-master.apk": (entry.0, Self.laterSlice("level2"))
+            case "asset-slices/level2-astc.apk": (entry.0, Self.laterSlice("level2.config.astc", configForSplit: "level2"))
+            case "asset-slices/level3-master.apk": (entry.0, Self.laterSlice("level3"))
+            default: entry
+            }
+        }
+
+        let results = try await library.importUnit(Sets.unit(["game.apks": ContainerImportTests.zip(entries)], in: sandbox.paths))
+
+        let entry = try #require(results.first?.entry)
+        #expect(results.count == 1 && entry.state == .ready)
+        #expect(entry.packs?.map(\.fileName) == ["level2-master.apk", "level2-astc.apk", "level3-master.apk"])
+        #expect(entry.ignoredFiles == nil)
+    }
+
+    /// The versionName bundletool writes is the base's versionCode attribute alone, without its versionCodeMajor
+    /// (`AndroidManifest.getVersionCode`), while the app's version counts both.
+    @Test func aLaterSliceNamesTheVersionCodeWithoutItsMajor() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entries: [(String, Data)] = [
+            ("toc.json", Data(Self.toc().utf8)), ("splits/base-master.apk", SplitAPK.make(versionCodeMajor: 1)),
+            ("splits/base-arm64_v8a.apk", SplitAPK.make(versionCodeMajor: 1, split: "config.arm64_v8a", abis: ["arm64-v8a"])),
+            ("asset-slices/start-master.apk", SplitAPK.make(versionCodeMajor: 1, split: "start")),
+            ("asset-slices/level2-master.apk", Self.laterSlice("level2")),
+            ("asset-slices/level2-astc.apk", Self.laterSlice("level2.config.astc", configForSplit: "level2")),
+            ("asset-slices/level3-master.apk", Self.laterSlice("level3")),
+        ]
+
+        let results = try await library.importUnit(Sets.unit(["game.apks": ContainerImportTests.zip(entries)], in: sandbox.paths))
+
+        let entry = try #require(results.first?.entry)
+        #expect(results.count == 1 && entry.state == .ready)
+        #expect(entry.report?.versionCode == Int64(1) << 32 | 1)
         #expect(entry.packs?.map(\.fileName) == ["level2-master.apk", "level2-astc.apk", "level3-master.apk"])
         #expect(entry.ignoredFiles == nil)
     }
