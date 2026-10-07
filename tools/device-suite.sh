@@ -18,7 +18,8 @@
 #   --art: the Java fixtures (art-hello, codec-test, conscrypt-test, crypto-test, stress-test):
 #       their stdout, the status 0, codec-test's offsets, a signal stress-test handled during a
 #       collection, and that ART's log names the heap window once, with 4 GiB, or 2 GiB without
-#       increased-memory-limit.
+#       increased-memory-limit. The benchmarks gc-bench and gc-bench-cms (ADR-0033 decision 5) run
+#       only when named: --art gc-bench gc-bench-cms.
 #   --art-run-tests [--sample]: the run-tests of fixtures/art-run-tests.txt, or CTest's sample of
 #       them: stdout, stderr without the logger's lines and the status, as on the Mac.
 #   --debug: ART's debug flavor (-flavor debug), with -Xcheck:jni.
@@ -119,7 +120,7 @@ if [[ -n "$ART" ]]; then
     for name in $(python3 -c 'import json, sys
 kind = "java" if sys.argv[2] == "fixtures" else "run-test"
 for test, entry in sorted(json.load(open(sys.argv[1])).items()):
-    if entry["kind"] == kind and (sys.argv[3] == "0" or entry.get("sample")):
+    if entry["kind"] == kind and not entry.get("benchmark") and (sys.argv[3] == "0" or entry.get("sample")):
         print(test)' build/device-art/tests.json "$ART" "$SAMPLE"); do
       tests+=("$name")
     done

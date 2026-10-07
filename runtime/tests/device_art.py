@@ -20,7 +20,9 @@ A command is a JSON object:
   "files"              the guest folder of files/, under /data
   "libraries"          the guest folder of libraries/, absent without JNI libraries
 The tests are the five Java fixtures of runtime/CMakeLists.txt (art_run.py's runs) and ART's run-tests of
-fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments those scripts give dalvikvm.
+fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments those scripts give dalvikvm. With
+build/art's gc-bench.jar the stage also holds two benchmarks (ADR-0033 decision 5): gc-bench under SS and gc-bench-cms
+under CMS, which check also holds to Android 15's lines and their collector; selftest leaves them out.
 
 `run` runs staged tests through apk-run with what the app's ART mode gives them: /apex as Android has it, Conscrypt's
 APEX included; bionic's /system; a new /data per test; ART's release flavor, after lib64-debug in the debug flavor.
@@ -71,6 +73,11 @@ JAVA_FIXTURES = {
     "conscrypt-test": {"conscrypt": True},
     "crypto-test": {"conscrypt": True, "added_jars": ["okhttp", "bouncycastle"]},
     "stress-test": {"library": "libstress-test.so", "stress": True},
+    # gc-bench under each collector (ADR-0033 decision 5): benchmarks of the footprint and the pauses, with ART's
+    # numbers at the end, which tools/device-suite.sh runs only by name and CTest's selftest leaves out. They are
+    # staged only once build/art has the jar.
+    "gc-bench": {"collector": "SS", "benchmark": True},
+    "gc-bench-cms": {"jar": "gc-bench", "collector": "CMS", "benchmark": True},
 }
 MARKER = ".device-art"  # in every stage, so that nothing but a stage is ever cleared
 
@@ -101,8 +108,10 @@ def stage(art, fixtures_bin, root, out, sample=False):
         return "no JDK 17 in build/tools/jdk-17 or no D8 (tools/fetch-sources.py --set art)"
     fixtures = {}
     for name, flags in JAVA_FIXTURES.items():
-        jar = os.path.join(art, "test", f"{name}.jar")
+        jar = os.path.join(art, "test", f"{flags.get('jar', name)}.jar")
         library = os.path.join(fixtures_bin, flags["library"]) if "library" in flags else None
+        if flags.get("benchmark") and not os.path.exists(jar):
+            continue
         for needed in [jar] + ([library] if library else []):
             if not os.path.exists(needed):
                 return f"{needed} is not built (tools/build-art.sh, tools/build-fixtures.sh)"
@@ -140,14 +149,17 @@ def stage(art, fixtures_bin, root, out, sample=False):
             shutil.copy(library, os.path.join(folder, "files"))
         for debug in (False, True):
             options = art_run.dalvikvm_options(debug, flags.get("conscrypt", False), flags.get("added_jars", ()),
-                                               library is not None)
+                                               library is not None, flags.get("collector"))
+            if flags.get("benchmark"):
+                options.append("-XX:DumpGCPerformanceOnShutdown")
             command = {"arguments": [DALVIKVM] + options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", "Main"],
                        "environment": [], "workingDirectory": "/", "folders": [], "files": "/data/local/tmp"}
             if library:
                 command["libraries"] = "/data/local/tmp"
             write_json(os.path.join(folder, "command-debug.json" if debug else "command.json"), command)
-        manifest[name] = {"kind": "java", "expected": f"fixtures/expected/{name}.out",
-                          "offsets": flags.get("offsets", False), "stress": flags.get("stress", False)}
+        manifest[name] = {"kind": "java", "expected": f"fixtures/expected/{flags.get('jar', name)}.out",
+                          "offsets": flags.get("offsets", False), "stress": flags.get("stress", False),
+                          "collector": flags.get("collector"), "benchmark": flags.get("benchmark", False)}
 
     # As art_run_tests.py runs them: in their own DEX_LOCATION, which is also ANDROID_DATA and the working directory.
     boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
@@ -248,6 +260,8 @@ def check(out, outputs, root, names=(), upper_half=False):
                 problems.append(art_run.offsets_failure(stderr))
             if entry.get("stress") and art_run.stress_failure(stderr):
                 problems.append(art_run.stress_failure(stderr))
+            if entry.get("collector") and art_run.collector_failure(stderr, entry["collector"]):
+                problems.append(art_run.collector_failure(stderr, entry["collector"]))
             if art_run.window_failure(stderr, upper_half):
                 problems.append(art_run.window_failure(stderr, upper_half))
         else:
@@ -287,11 +301,14 @@ def selftest(art, fixtures_bin, root, bionic_lib, bionic_system, icu_data, apk_c
         print(f"skipped: {why}")
         return
     outputs = os.path.join(work, "device-art-outputs" + flavor)
-    names = run(out, art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, outputs, debug, jobs=4)
+    manifest = read_json(os.path.join(out, "tests.json"))
+    tests = [test for test in sorted(manifest) if not manifest[test].get("benchmark")]
+    names = run(out, art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, outputs, debug, tests,
+                jobs=4)
     if not names:
         print("FAIL: nothing was staged")
         sys.exit(1)
-    failures = check(out, outputs, root)
+    failures = check(out, outputs, root, names)
     how = f"{len(names)} staged tests" + (" in the debug flavor" if debug else "")
     if failures:
         for failure in failures:
