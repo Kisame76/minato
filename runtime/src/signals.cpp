@@ -3,6 +3,7 @@
 #include "APKRuntime/apkrt.h"
 #include "islands.h"
 #include "process_exit.h"
+#include "sockets.h"
 #include "threads.h"
 
 #include <fcntl.h>
@@ -508,7 +509,8 @@ void install_handlers() {
 
 /// Linux restarts these after a handler only when they return EINTR on their own, never through
 /// SA_RESTART: sleeps, waits with a timeout, sigsuspend, sigtimedwait (kernel/signal.c, the
-/// ERESTARTNOHAND and ERESTART_RESTARTBLOCK cases).
+/// ERESTARTNOHAND and ERESTART_RESTARTBLOCK cases); and a socket's calls while it has a timeout for
+/// their direction (sock_intr_errno, sockets.h).
 bool restartable(std::uint64_t number, const apkrt_syscall_frame &frame) {
     switch (number) {
         case 22:   // epoll_pwait
@@ -523,7 +525,7 @@ bool restartable(std::uint64_t number, const apkrt_syscall_frame &frame) {
         case 98:  // futex: FUTEX_WAIT with a timeout comes back through restart_syscall, as EINTR here
             return frame.x[3] == 0;
         default:
-            return true;
+            return sockets::restarts(number, static_cast<int>(frame.x[31]));
     }
 }
 

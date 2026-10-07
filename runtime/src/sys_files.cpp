@@ -4,6 +4,7 @@
 #include "descriptors.h"
 #include "identity.h"
 #include "proc.h"
+#include "sockets.h"
 #include "syscalls.h"
 #include "vfs.h"
 
@@ -1041,8 +1042,9 @@ private:
     bool copied_ = false;
 };
 
-/// A read (`writing` false) or a write of `buffers` on `description`, which can block.
-long transfer(descriptors::Description &description, bool writing, Buffers buffers) {
+/// A read (`writing` false) or a write of `buffers` on `description`, which can block, until `deadline` at the latest:
+/// a socket's SO_RCVTIMEO or SO_SNDTIMEO, after which it answers EAGAIN, as Linux's sock_read_iter and sock_write_iter.
+long transfer(descriptors::Description &description, bool writing, Buffers buffers, std::int64_t deadline) {
     constexpr std::size_t unlimited = std::numeric_limits<std::size_t>::max();
     const int host = description.host();
     // The host call on the buffers still to go, of `limit` bytes of them at most.
@@ -1063,9 +1065,10 @@ long transfer(descriptors::Description &description, bool writing, Buffers buffe
         return result_or_error(writing ? ::writev(host, vectors, count) : ::readv(host, vectors, count));
     };
     // A write that got bytes out ends with their count, whatever came then; as Linux's pipe_write, a
-    // reader that went away raises SIGPIPE even so.
-    const auto count_of_moved = [](long moved, long last) {
-        if (last == -linux_errno::epipe) raise_sigpipe();
+    // reader that went away raises SIGPIPE even so. A socket's sendmsg raises it only when nothing went out.
+    const bool socket = sockets::as_socket(description) != nullptr;
+    const auto count_of_moved = [socket](long moved, long last) {
+        if (last == -linux_errno::epipe && !socket) raise_sigpipe();
         return moved;
     };
     auto &state = signals::current();
@@ -1087,8 +1090,9 @@ long transfer(descriptors::Description &description, bool writing, Buffers buffe
                 if (buffers.empty() || description.nonblocking()) return true;
             }
         };
-        const auto end = wait_for_descriptors(state, &watched, 1, finished, no_deadline);
+        const auto end = wait_for_descriptors(state, &watched, 1, finished, deadline);
         if (moved > 0) return count_of_moved(moved, last);
+        if (end == WaitEnd::timeout) return -linux_errno::eagain;
         return end == WaitEnd::done ? last : -linux_errno::eintr;
     }
 
@@ -1130,7 +1134,7 @@ long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain 
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
     if (description->kind() == Description::Kind::eventfd) return transfer_count(*description, writing, vectors, count);
     if (!description->can_block()) return result_or_error(plain(description->host()));
-    return transfer(*description, writing, Buffers(vectors, count));
+    return transfer(*description, writing, Buffers(vectors, count), sockets::deadline_of(*description, writing));
 }
 
 }  // namespace
@@ -1347,3 +1351,111 @@ long sys_fstatfs(int fd, std::uint64_t buffer) {
 }
 
 }  // namespace apkrt::sys
+
+// --- AF_UNIX's names in the file system (sockets.h) -------------------------------------------------------
+
+namespace apkrt::sockets {
+
+Place::~Place() {
+    if (folder >= 0) ::close(folder);
+}
+
+Place &Place::operator=(Place &&other) noexcept {
+    if (this != &other) {
+        if (folder >= 0) ::close(folder);
+        error = other.error;
+        folder = other.folder;
+        name = std::move(other.name);
+        other.folder = -1;
+    }
+    return *this;
+}
+
+namespace {
+
+/// The guest's links a path to a socket may pass at its end, as Linux's 40 (MAXSYMLINKS).
+constexpr int most_links = 40;
+
+Place place_at(std::string_view path, bool creating, int links) {
+    using namespace sys;
+    Place place;
+    if (path.empty()) {
+        place.error = -linux_errno::enoent;
+        return place;
+    }
+    const std::string text(path);
+    const auto host = resolve(linux_at_fdcwd, reinterpret_cast<std::uint64_t>(text.c_str()));
+    if (host.error != 0) {
+        place.error = host.error;
+        return place;
+    }
+    const LastFolder folder(host);
+    const auto keep = [&] {
+        place.name = folder.name();
+        if (folder.descriptor() == AT_FDCWD) {  // a mounted file: its host path from the table, as it is
+            place.folder = AT_FDCWD;
+            return;
+        }
+        place.folder = ::fcntl(folder.descriptor(), F_DUPFD_CLOEXEC, 0);
+        if (place.folder < 0) place.error = -to_linux_errno(errno);
+    };
+    if (creating) {
+        // unix_bind_bsd: filename_create's EEXIST, which bind answers EADDRINUSE, then EROFS, then may_create's EACCES.
+        if (entry_at(host, false)) {
+            place.error = -linux_errno::eaddrinuse;
+        } else if (folder.error() != 0) {
+            place.error = folder.error();
+        } else if (read_only(folder_of(host.guest))) {
+            place.error = -linux_errno::erofs;
+        } else if (const long refused = may_change_entries(host)) {
+            place.error = refused;
+        } else {
+            keep();
+        }
+        return place;
+    }
+    // unix_find_bsd: the path, write permission on what it names, and ECONNREFUSED when that is no socket.
+    if (folder.error() != 0) {
+        place.error = folder.error();
+        return place;
+    }
+    struct stat status;
+    const int nofollow = AT_SYMLINK_NOFOLLOW | (folder.descriptor() == AT_FDCWD ? 0 : AT_RESOLVE_BENEATH);
+    if (::fstatat(folder.descriptor(), folder.name().c_str(), &status, nofollow) != 0) {
+        place.error = -to_linux_errno(errno);
+        return place;
+    }
+    if (S_ISLNK(status.st_mode)) {
+        // The link's text is a guest path, relative to the link's folder (ADR-0052).
+        if (links >= most_links) {
+            place.error = -linux_errno::eloop;
+            return place;
+        }
+        char target[MAXPATHLEN];
+        const auto length = ::readlinkat(folder.descriptor(), folder.name().c_str(), target, sizeof target - 1);
+        if (length < 0) {
+            place.error = -to_linux_errno(errno);
+            return place;
+        }
+        target[length] = '\0';
+        const std::string_view guest = host.guest;
+        const auto slash = guest.rfind('/');
+        return place_at(vfs::absolute(target, slash == 0 ? "/" : std::string(guest.substr(0, slash))), false, links + 1);
+    }
+    if ((granted(status.st_mode, owner_at(host)) & 02) == 0) {
+        place.error = -linux_errno::eacces;
+    } else if (!S_ISSOCK(status.st_mode)) {
+        place.error = -linux_errno::econnrefused;
+    } else {
+        keep();
+    }
+    return place;
+}
+
+}  // namespace
+
+Place place_of(std::string_view path, bool creating) {
+    return place_at(path, creating, 0);
+}
+
+}  // namespace apkrt::sockets

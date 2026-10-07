@@ -1171,6 +1171,22 @@ TEST(a_write_whose_reader_goes_after_some_bytes_returns_their_count_and_raises_s
     probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[1]));
 }
 
+TEST(a_socket_write_whose_peer_goes_after_some_bytes_returns_their_count_without_sigpipe) {
+    // Unlike pipe_write, unix_stream_sendmsg sends SIGPIPE only when nothing went out (ADR-0054 step a).
+    constexpr std::uint64_t nr_socketpair = 199, af_unix = 1, sock_stream = 1;
+    static BrokenPipe broken;  // pipe[1] writes, pipe[0] is its peer
+    CHECK(probe_syscall(nr_socketpair, af_unix, sock_stream, 0, address(broken.pipe)) == 0);
+    const int before = handled[sigpipe].load();
+    Child child(write_into_a_pipe_that_breaks, &broken);
+    const auto host = child.host();
+    CHECK(within(2s, [&] { return broken.phase.load() == 1 && sleeping(host); }));
+    probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[0]));  // the peer goes
+    child.join();
+    CHECK(broken.result.load() > 0 && broken.result.load() < static_cast<long>(big_write));
+    CHECK(handled[sigpipe].load() == before);
+    probe_syscall(nr_close, static_cast<std::uint64_t>(broken.pipe[1]));
+}
+
 /// The guest thread of the next test: epoll_pwait, epoll_pwait2, ppoll and pselect6 in turn, each for up
 /// to 5 s on the pipe, which stays empty.
 struct FourWaits {

@@ -50,6 +50,8 @@ stw-test system
 fd-test system
 # eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 poll-test system
+# Sockets: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054 step a).
+socket-test system
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).
 memory-test system
 # 2,000 handlers of __cxa_atexit, whose read-only array bionic grows with mremap (ADR-0021, Godot's stop 8).

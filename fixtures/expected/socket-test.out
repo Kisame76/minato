@@ -1,0 +1,225 @@
+-- socket
+AF_INET stream: 1
+AF_INET6 datagram: 1
+AF_UNIX with flags: FD_CLOEXEC 1, O_NONBLOCK 1
+  SO_TYPE 1, SO_DOMAIN 1, SO_PROTOCOL 0, SO_ACCEPTCONN 0
+  fstat is a socket: 1
+an unknown family: -1 errno 97 (Address family not supported by protocol)
+an unknown type: -1 errno 22 (Invalid argument)
+UDP as a stream: -1 errno 93 (Protocol not supported)
+TCP by number: SO_PROTOCOL 6
+getsockopt of a directory: 0
+-- socketpair, stream
+socketpair: 0
+FD_CLOEXEC on both: 1
+write: 4
+read: 4
+  read ping
+send with MSG_DONTWAIT: 4
+recv with MSG_PEEK: 2
+recv: 4
+recv of nothing with MSG_DONTWAIT: -1 errno 11 (Try again)
+getsockname of an unnamed socket: 0
+  length 2, family 1
+getpeername: 0
+  length 2
+SO_PEERCRED: 0
+  length 12, the peer is this process: 1
+shutdown SHUT_WR: 0
+read after the peer's shutdown: 0
+shutdown of a folder: -1 errno 88 (Socket operation on non-socket)
+send to a closed peer: -1 errno 32 (Broken pipe)
+  SIGPIPE 1
+send with MSG_NOSIGNAL: -1 errno 32 (Broken pipe)
+  SIGPIPE 1
+write to a closed peer: -1 errno 32 (Broken pipe)
+  SIGPIPE 2
+-- socketpair, datagram
+socketpair: 0
+send 1: 1
+send 100: 100
+send 5000: 5000
+recv: 1
+recv of 100 into 10 bytes: 10
+recv of 5000 into 10 bytes with MSG_TRUNC: 5000
+send 100: 100
+recvmsg into 10 bytes: 10
+  MSG_TRUNC 1, MSG_CTRUNC 0
+SO_TYPE: 2
+-- SCM_RIGHTS
+sendmsg with two descriptors: 1
+recvmsg with MSG_CMSG_CLOEXEC: 1
+  controllen 24, level 1, type 1, len 24
+  FD_CLOEXEC 1 1
+  read through the received pipe: 7
+  read through
+  write to the received write end: 1
+sendmsg with one descriptor: 1
+recvmsg without room for it: 1
+  MSG_CTRUNC 1, controllen 0
+-- AF_UNIX, an abstract name
+bind: 0
+bind again: -1 errno 98 (Address already in use)
+listen: 0
+  SO_ACCEPTCONN 1
+getsockname: 0
+  same name: 1
+connect: 0
+getpeername of the client: 0
+  the server's name: 1
+accept4: 1, FD_CLOEXEC 1, peer name length 2
+send: 5
+recv: 5
+connect after the server closed: -1 errno 111 (Connection refused)
+-- AF_UNIX, errors
+connect to a missing file: -1 errno 2 (No such file or directory)
+connect to an abstract name nobody has: -1 errno 111 (Connection refused)
+connect to a plain file: -1 errno 111 (Connection refused)
+bind of the family alone: 0
+  length 8, abstract 1
+bind of a datagram socket: 0
+sendto: 5
+recvfrom: 5
+  the sender's name: 1
+-- TCP over 127.0.0.1
+SO_REUSEADDR: 0
+bind to port 0: 0
+  a port: 1
+listen: 0
+  SO_ACCEPTCONN 1, SO_REUSEADDR 1, SO_PROTOCOL 6, SO_DOMAIN is the family: 1
+non-blocking connect: 0 or EINPROGRESS: 1
+poll for POLLOUT: 1
+  revents POLLOUT 1
+  SO_ERROR 0
+connect again: 0
+accept4: 1, O_NONBLOCK 1, FD_CLOEXEC 1, the peer's family 1, length 16
+  the peer's port is the client's: 1
+  the client's peer is the server: 1
+recv of nothing with MSG_DONTWAIT: -1 errno 11 (Try again)
+send: 5
+recv with MSG_PEEK: 5
+recv: 5
+  hello
+send 5: 5
+send 5 more: 5
+recv of 10 with MSG_WAITALL: 10
+  abcdefghij
+SO_RCVTIMEO 150 ms: 0
+  read back: 0 s 152000 us, length 16
+recv of nothing: -1 errno 11 (Try again)
+  waited at least 140 ms: 1
+shutdown SHUT_WR: 0
+recv at the end: 0
+connect to a closed port: -1 errno 111 (Connection refused)
+-- TCP over ::1
+SO_REUSEADDR: 0
+bind to port 0: 0
+  a port: 1
+listen: 0
+  SO_ACCEPTCONN 1, SO_REUSEADDR 1, SO_PROTOCOL 6, SO_DOMAIN is the family: 1
+non-blocking connect: 0 or EINPROGRESS: 1
+poll for POLLOUT: 1
+  revents POLLOUT 1
+  SO_ERROR 0
+connect again: 0
+accept4: 1, O_NONBLOCK 1, FD_CLOEXEC 1, the peer's family 1, length 28
+  the peer's port is the client's: 1
+  the client's peer is the server: 1
+recv of nothing with MSG_DONTWAIT: -1 errno 11 (Try again)
+send: 5
+recv with MSG_PEEK: 5
+recv: 5
+  hello
+send 5: 5
+send 5 more: 5
+recv of 10 with MSG_WAITALL: 10
+  abcdefghij
+SO_RCVTIMEO 150 ms: 0
+  read back: 0 s 152000 us, length 16
+recv of nothing: -1 errno 11 (Try again)
+  waited at least 140 ms: 1
+shutdown SHUT_WR: 0
+recv at the end: 0
+connect to a closed port: -1 errno 111 (Connection refused)
+-- options
+TCP_NODELAY: 0
+  read back 1
+SO_KEEPALIVE: 0
+  read back 1
+TCP_KEEPIDLE 60: 0
+  read back 60
+TCP_KEEPINTVL 5: 0
+  read back 5
+TCP_KEEPCNT 3: 0
+  read back 3
+SO_LINGER on, 0 s: 0
+  read back on 1, 0 s, length 8
+SO_RCVBUF 65536: 0
+  read back 131072
+SO_SNDBUF 32768: 0
+  read back 65536
+TCP at first: SO_SNDBUF 2097152, SO_RCVBUF 6291456
+UDP at first: SO_SNDBUF 229376, SO_RCVBUF 229376
+AF_UNIX stream at first: SO_SNDBUF 229376, SO_RCVBUF 229376
+AF_UNIX datagram at first: SO_SNDBUF 229376, SO_RCVBUF 229376
+SO_SNDBUF and SO_RCVBUF 1: read back 4608 and 2304
+SO_SNDBUF and SO_RCVBUF 1073741824: read back 524288 and 524288
+IPV6_V6ONLY 0
+IPV6_TCLASS 0x20: 0
+  read back 0x20
+IP_TOS 0x10: 0
+  read back 0x10
+IP_TTL 64: 0
+  read back 64
+an unknown level: -1 errno 92 (Protocol not available)
+an unknown option: -1 errno 92 (Protocol not available)
+an option too short: -1 errno 22 (Invalid argument)
+-- v4-mapped
+connect of an AF_INET6 socket to ::ffff:127.0.0.1: 0
+  the peer is v4-mapped: 1, length 28
+  accepted as AF_INET: 1, from 127.0.0.1: 1
+-- UDP over 127.0.0.1
+bind: 0
+IP_PKTINFO: 0
+sendto: 8
+recvmsg: 8
+  datagram, from the sender's port: 1, name length 16
+  IP_PKTINFO: len 28, to 127.0.0.1, an interface: 1
+recv of 100 into 10 bytes with MSG_TRUNC: 100
+connect the sender: 0
+sendmmsg of 3: 3
+  msg_len 1 2 3
+recvmmsg of up to 5 with MSG_DONTWAIT: 3
+  msg_len 1 2 3
+send to the closed port: 1
+recv: -1 errno 111 (Connection refused)
+-- UDP over ::1
+bind: 0
+IPV6_RECVPKTINFO: 0
+sendto: 8
+recvmsg: 8
+  datagram, from the sender's port: 1, name length 28
+  IPV6_PKTINFO: len 36, to ::1, an interface: 1
+recv of 100 into 10 bytes with MSG_TRUNC: 100
+connect the sender: 0
+sendmmsg of 3: 3
+  msg_len 1 2 3
+recvmmsg of up to 5 with MSG_DONTWAIT: 3
+  msg_len 1 2 3
+send to the closed port: 1
+recv: -1 errno 111 (Connection refused)
+-- epoll
+epoll_ctl: 0
+epoll_wait at the start: 1
+  EPOLLOUT 1, EPOLLIN 0
+epoll_wait after a write: 1
+  EPOLLIN 1, EPOLLRDHUP 0
+epoll_wait after the peer's SHUT_WR: 1
+  EPOLLIN 1, EPOLLRDHUP 1, EPOLLHUP 0
+epoll_wait after the peer's close: 1
+  EPOLLIN 1, EPOLLRDHUP 1, EPOLLHUP 1
+-- a blocked recv and a signal
+without SA_RESTART: handler ran 1, recv -1 errno 4 (Interrupted system call)
+with SA_RESTART: handler ran 1, recv 4
+with SA_RESTART and SO_RCVTIMEO: handler ran 1, recv -1 errno 4 (Interrupted system call)
+done

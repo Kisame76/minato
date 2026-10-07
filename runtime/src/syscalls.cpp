@@ -16,6 +16,7 @@
 #include "process_exit.h"
 #include "session.h"
 #include "signals.h"
+#include "sockets.h"
 #include "syscalls.h"
 #include "threads.h"
 #include "windows.h"
@@ -69,6 +70,8 @@ long to_linux_errno(int error) {
         case EPROTOTYPE: return linux_errno::eprototype;
         case ENOPROTOOPT: return linux_errno::enoprotoopt;
         case EPROTONOSUPPORT: return linux_errno::eprotonosupport;
+        case ESOCKTNOSUPPORT: return linux_errno::esocktnosupport;
+        case EPFNOSUPPORT: return linux_errno::epfnosupport;
         case ENOTSUP:
         case EOPNOTSUPP: return linux_errno::eopnotsupp;
         case EAFNOSUPPORT: return linux_errno::eafnosupport;
@@ -76,13 +79,17 @@ long to_linux_errno(int error) {
         case EADDRNOTAVAIL: return linux_errno::eaddrnotavail;
         case ENETDOWN: return linux_errno::enetdown;
         case ENETUNREACH: return linux_errno::enetunreach;
+        case ENETRESET: return linux_errno::enetreset;
         case ECONNABORTED: return linux_errno::econnaborted;
         case ECONNRESET: return linux_errno::econnreset;
         case ENOBUFS: return linux_errno::enobufs;
         case EISCONN: return linux_errno::eisconn;
         case ENOTCONN: return linux_errno::enotconn;
+        case ESHUTDOWN: return linux_errno::eshutdown;
+        case ETOOMANYREFS: return linux_errno::etoomanyrefs;
         case ETIMEDOUT: return linux_errno::etimedout;
         case ECONNREFUSED: return linux_errno::econnrefused;
+        case EHOSTDOWN: return linux_errno::ehostdown;
         case EHOSTUNREACH: return linux_errno::ehostunreach;
         case EALREADY: return linux_errno::ealready;
         case EINPROGRESS: return linux_errno::einprogress;
@@ -220,7 +227,20 @@ constexpr std::uint64_t getgid = 176;
 constexpr std::uint64_t getegid = 177;
 constexpr std::uint64_t gettid = 178;
 constexpr std::uint64_t socket = 198;
+constexpr std::uint64_t socketpair = 199;
+constexpr std::uint64_t bind = 200;
+constexpr std::uint64_t listen = 201;
+constexpr std::uint64_t accept = 202;
+constexpr std::uint64_t connect = 203;
+constexpr std::uint64_t getsockname = 204;
+constexpr std::uint64_t getpeername = 205;
+constexpr std::uint64_t sendto = 206;
+constexpr std::uint64_t recvfrom = 207;
+constexpr std::uint64_t setsockopt = 208;
 constexpr std::uint64_t getsockopt = 209;
+constexpr std::uint64_t shutdown = 210;
+constexpr std::uint64_t sendmsg = 211;
+constexpr std::uint64_t recvmsg = 212;
 constexpr std::uint64_t munmap = 215;
 constexpr std::uint64_t mremap = 216;
 constexpr std::uint64_t clone = 220;
@@ -228,7 +248,10 @@ constexpr std::uint64_t mmap = 222;
 constexpr std::uint64_t mprotect = 226;
 constexpr std::uint64_t madvise = 233;
 constexpr std::uint64_t rt_tgsigqueueinfo = 240;
+constexpr std::uint64_t accept4 = 242;
+constexpr std::uint64_t recvmmsg = 243;
 constexpr std::uint64_t prlimit64 = 261;
+constexpr std::uint64_t sendmmsg = 269;
 constexpr std::uint64_t process_vm_readv = 270;
 constexpr std::uint64_t renameat2 = 276;
 constexpr std::uint64_t getrandom = 278;
@@ -561,27 +584,6 @@ long sys_getrandom(std::uint64_t buffer, std::uint64_t length, unsigned flags) {
     return static_cast<long>(length);
 }
 
-// --- Sockets ----------------------------------------------------------------------------------------
-
-/// No sockets yet. bionic's async_safe_log opens logd's socket with exactly this call before every
-/// message and writes to stderr when it fails. There is no logd here, so the call is refused quietly,
-/// as by a kernel without AF_UNIX: the report would reach the process's stderr past the guest's own
-/// (ADR-0035). Every other socket call is reported.
-long sys_socket(int domain, int type, int protocol) {
-    constexpr int af_unix = 1, sock_dgram = 2, sock_nonblock = 04000, sock_cloexec = 02000000;
-    if (domain == af_unix && type == (sock_dgram | sock_cloexec | sock_nonblock) && protocol == 0) {
-        return -linux_errno::eafnosupport;
-    }
-    report_unsupported(nr::socket);
-    return -linux_errno::enosys;
-}
-
-/// With no sockets, an open descriptor is none, as Linux answers for a file: libcore's FileDescriptor.isSocket asks
-/// for SO_DOMAIN, for example when a file is closed.
-long sys_getsockopt(int fd) {
-    return apkrt::descriptors::get(fd) != nullptr ? -linux_errno::enotsock : -linux_errno::ebadf;
-}
-
 bool is_write(std::uint64_t number) {
     return number == nr::write || number == nr::writev || number == nr::pwrite64 || number == nr::pwritev;
 }
@@ -663,10 +665,43 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case nr::userfaultfd:
         case nr::membarrier:
             return -linux_errno::enosys;
+        // Sockets (ADR-0054, sys_sockets.cpp).
         case nr::socket:
             return sys_socket(as_int(x[0]), as_int(x[1]), as_int(x[2]));
+        case nr::socketpair:
+            return sys_socketpair(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3]);
+        case nr::bind:
+            return sys_bind(as_int(x[0]), x[1], static_cast<std::uint32_t>(x[2]));
+        case nr::listen:
+            return sys_listen(as_int(x[0]), as_int(x[1]));
+        case nr::accept:
+            return sys_accept4(as_int(x[0]), x[1], x[2], 0);
+        case nr::accept4:
+            return sys_accept4(as_int(x[0]), x[1], x[2], as_int(x[3]));
+        case nr::connect:
+            return sys_connect(as_int(x[0]), x[1], static_cast<std::uint32_t>(x[2]));
+        case nr::getsockname:
+            return sys_getsockname(as_int(x[0]), x[1], x[2]);
+        case nr::getpeername:
+            return sys_getpeername(as_int(x[0]), x[1], x[2]);
+        case nr::sendto:
+            return sys_sendto(as_int(x[0]), x[1], x[2], as_int(x[3]), x[4], static_cast<std::uint32_t>(x[5]));
+        case nr::recvfrom:
+            return sys_recvfrom(as_int(x[0]), x[1], x[2], as_int(x[3]), x[4], x[5]);
+        case nr::setsockopt:
+            return sys_setsockopt(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3], static_cast<std::uint32_t>(x[4]));
         case nr::getsockopt:
-            return sys_getsockopt(as_int(x[0]));
+            return sys_getsockopt(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3], x[4]);
+        case nr::shutdown:
+            return sys_shutdown(as_int(x[0]), as_int(x[1]));
+        case nr::sendmsg:
+            return sys_sendmsg(as_int(x[0]), x[1], as_int(x[2]));
+        case nr::recvmsg:
+            return sys_recvmsg(as_int(x[0]), x[1], as_int(x[2]));
+        case nr::sendmmsg:
+            return sys_sendmmsg(as_int(x[0]), x[1], static_cast<std::uint32_t>(x[2]), as_int(x[3]));
+        case nr::recvmmsg:
+            return sys_recvmmsg(as_int(x[0]), x[1], static_cast<std::uint32_t>(x[2]), as_int(x[3]), x[4]);
 
         case nr::read:
             return sys_read(as_int(x[0]), x[1], x[2]);

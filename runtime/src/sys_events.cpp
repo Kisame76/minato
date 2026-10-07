@@ -3,6 +3,7 @@
 // which a signal always ends.
 #include "channels.h"
 #include "descriptors.h"
+#include "sockets.h"
 #include "syscalls.h"
 
 #include <fcntl.h>
@@ -201,7 +202,10 @@ int filters_for(const Description &description, std::uint32_t wanted, Filter (&f
             else if (wanted & pollerr) add(host, EVFILT_READ);
             break;
         case PipeEnd::none:
-            if (wanted & readable) add(host, EVFILT_READ);
+            // A socket's EPOLLRDHUP comes with its read filter's EV_EOF (sockets.h, poll_bits).
+            if ((wanted & readable) || ((wanted & sockets::pollrdhup) && sockets::as_socket(description))) {
+                add(host, EVFILT_READ);
+            }
             if (wanted & writable) add(host, EVFILT_WRITE);
             break;
     }
@@ -219,6 +223,9 @@ std::uint32_t bits_of(Description &description, std::int16_t filter, bool end, s
         case Kind::epoll: return readable;
         case Kind::channel: return channels::readable(description) ? readable : 0;
         case Kind::file: break;
+    }
+    if (auto *socket = sockets::as_socket(description)) {
+        return sockets::poll_bits(*socket, read_filter, end, readable, writable, pollhup);
     }
     const std::uint32_t hangup = end ? pollhup : 0, error = end ? pollerr : 0;
     switch (description.pipe_end()) {

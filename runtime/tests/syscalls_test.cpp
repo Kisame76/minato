@@ -10,6 +10,7 @@
 
 #include "check.h"
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <mach/mach.h>
 #include <pthread.h>
@@ -1887,7 +1888,7 @@ TEST(the_stack_limit_is_androids_and_changes_by_linuxs_rules) {
 // --- Sockets (ADR-0035) -----------------------------------------------------------------------------
 
 constexpr std::uint64_t nr_socket = 198;
-constexpr std::uint64_t af_unix = 1, af_inet = 2, sock_stream = 1, sock_dgram = 2, sock_nonblock = 04000,
+constexpr std::uint64_t af_unix = 1, sock_stream = 1, sock_dgram = 2, sock_nonblock = 04000,
                         sock_cloexec = 02000000;
 constexpr std::int64_t eafnosupport = 97;
 
@@ -1909,31 +1910,29 @@ std::string stderr_of(Body body) {
     return text;
 }
 
-TEST(only_bionics_log_socket_is_refused_quietly) {
-    // bionic's async_safe_log opens logd's socket before every message and writes to stderr when that
-    // fails. There is no logd here, so exactly that call is refused as by a kernel without AF_UNIX, and
-    // without the report, which would reach the process's stderr past the guest's own. Every other
-    // socket call is reported. In a child, since the report comes once per process.
+TEST(bionics_log_socket_finds_no_logd_quietly) {
+    // bionic's async_safe_log opens logd's socket before every message and writes to stderr when its connect fails.
+    // There is no logd here: the socket is made, and the connect to /dev/socket/logdw answers ENOENT, both without a
+    // report, which would reach the process's stderr past the guest's own (ADR-0054, which replaces ADR-0035's refusal
+    // of the socket). In a child, since a report comes once per process.
     CHECK(in_child([] {
-        std::int64_t result = 0;
+        std::int64_t fd = 0, connected = 0;
+        struct {
+            std::uint16_t family = af_unix;
+            char path[108] = "/dev/socket/logdw";
+        } logd;
         CHECK(stderr_of([&] {
-                  result = call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 0});
+                  fd = call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 0});
+                  connected = call(203, {unsigned_of(fd), address(&logd), 2 + sizeof "/dev/socket/logdw"});
               }).empty());
-        CHECK(result == -eafnosupport);
+        CHECK(fd >= 0 && connected == -enoent);
+        call(nr_close, {unsigned_of(fd)});
         // Linux takes the three as int: the upper halves of the registers do not count.
-        CHECK(stderr_of([&] {
-                  result = call(nr_socket, {af_unix | 0xdead'0000'0000, sock_dgram | sock_cloexec | sock_nonblock |
-                                                                            0xbeef'0000'0000,
-                                            0x1'0000'0000});
-              }).empty());
-        CHECK(result == -eafnosupport);
-        CHECK(stderr_of([&] { result = call(nr_socket, {af_unix, sock_dgram | sock_cloexec, 0}); }) ==
-              "apkrt: Linux syscall 198 is not supported yet\n");
-        CHECK(result == -enosys);
-        CHECK(call(nr_socket, {af_unix, sock_dgram, 0}) == -enosys);
-        CHECK(call(nr_socket, {af_unix, sock_stream | sock_cloexec | sock_nonblock, 0}) == -enosys);
-        CHECK(call(nr_socket, {af_inet, sock_dgram | sock_cloexec | sock_nonblock, 0}) == -enosys);
-        CHECK(call(nr_socket, {af_unix, sock_dgram | sock_cloexec | sock_nonblock, 1}) == -enosys);
+        fd = call(nr_socket, {af_unix | 0xdead'0000'0000, sock_dgram | sock_cloexec | sock_nonblock | 0xbeef'0000'0000,
+                              0x1'0000'0000});
+        CHECK(fd >= 0);
+        call(nr_close, {unsigned_of(fd)});
+        CHECK(call(nr_socket, {12345, sock_stream, 0}) == -eafnosupport);
     }));
 }
 
@@ -2410,6 +2409,457 @@ TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {
     for (const auto fd : {file, std::int64_t{ends[0]}, std::int64_t{ends[1]}, counter, epoll, stat}) {
         call(nr_close, {unsigned_of(fd)});
     }
+}
+
+// --- Sockets (ADR-0054 step a) ------------------------------------------------------------------------------
+// fixtures/suite/socket-test compares the rest with Android 15. Names in the file system are an app's, which the
+// shell that runs the fixtures on Android may not make (SELinux), so they are checked here.
+
+constexpr std::uint64_t nr_socketpair = 199, nr_bind = 200, nr_listen = 201, nr_connect = 203, nr_getsockname = 204,
+                        nr_getpeername = 205, nr_sendto = 206, nr_recvfrom = 207, nr_accept4 = 242;
+constexpr std::int64_t eaddrinuse = 98, econnrefused = 111;
+
+/// Linux's struct sockaddr_un: a 16-bit family, then 108 bytes of path.
+struct LinuxUnixName {
+    std::uint16_t family = af_unix;
+    char path[108] = {};
+};
+
+/// A name in the file system and its length as bind takes it, the path's NUL included.
+std::pair<LinuxUnixName, std::uint64_t> unix_name(std::string_view path) {
+    LinuxUnixName name;
+    std::memcpy(name.path, path.data(), path.size());
+    return {name, 2 + path.size() + 1};
+}
+
+/// getsockname or getpeername of `fd` as bytes.
+std::string name_of(std::uint64_t number, std::int64_t fd) {
+    LinuxUnixName name;
+    std::uint32_t length = sizeof name;
+    if (call(number, {unsigned_of(fd), address(&name), address(&length)}) != 0) return "error";
+    return std::string(reinterpret_cast<const char *>(&name), length);
+}
+
+std::string bytes_of(const std::pair<LinuxUnixName, std::uint64_t> &name) {
+    return std::string(reinterpret_cast<const char *>(&name.first), name.second);
+}
+
+/// A server bound to `path` and listening, a client connected to it, and the server's side of the connection;
+/// checks each step, also the names.
+void unix_round(const std::string &path, const std::string &host) {
+    const auto name = unix_name(path);
+    const auto server = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(server >= 0 && call(nr_bind, {unsigned_of(server), address(&name.first), name.second}) == 0);
+    struct stat status{};
+    CHECK(::stat(host.c_str(), &status) == 0 && S_ISSOCK(status.st_mode));  // the socket is where the guest put it
+    struct LinuxStat {
+        std::uint64_t device, inode;
+        std::uint32_t mode, links;
+        char rest[112];
+    } guest{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, address(path.c_str()), address(&guest), 0}) == 0 &&
+          (guest.mode & 0170000) == 0140000);
+    const auto other = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(other), address(&name.first), name.second}) == -eaddrinuse);
+    call(nr_close, {unsigned_of(other)});
+    CHECK(call(nr_listen, {unsigned_of(server), 4}) == 0);
+    CHECK(name_of(nr_getsockname, server) == bytes_of(name));
+    const auto client = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(client), address(&name.first), name.second}) == 0);
+    CHECK(name_of(nr_getpeername, client) == bytes_of(name));
+    CHECK(name_of(nr_getsockname, client) == std::string("\1\0", 2));  // unnamed: the family alone
+    LinuxUnixName peer;
+    std::uint32_t peer_length = sizeof peer;
+    const auto accepted = call(nr_accept4, {unsigned_of(server), address(&peer), address(&peer_length), 0});
+    CHECK(accepted >= 0 && peer_length == 2);
+    CHECK(name_of(nr_getsockname, accepted) == bytes_of(name));  // an accepted socket has its listener's name
+    CHECK(write_text(client, "unix") == 4 && read_text(accepted, 16) == "unix");
+    for (const auto fd : {accepted, client, server}) call(nr_close, {unsigned_of(fd)});
+    const auto late = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(late), address(&name.first), name.second}) == -econnrefused);
+    call(nr_close, {unsigned_of(late)});
+    CHECK(call(nr_unlinkat, {at_fdcwd, address(path.c_str()), 0}) == 0);
+}
+
+TEST(an_af_unix_name_in_the_file_system_is_the_guests_path) {
+    const Scratch scratch;
+    unix_round("/data/local/tmp/server.sock", scratch.host + "/server.sock");
+    unix_round("relative.sock", scratch.host + "/relative.sock");  // the working directory's, as bound
+}
+
+TEST(an_af_unix_name_longer_than_darwins_works) {
+    // 107 bytes, the most Linux's sun_path holds with its NUL; on the host far more than Darwin's 104.
+    const Scratch scratch;
+    const std::string folder = "/data/local/tmp/a-folder-with-a-long-name-for-a-socket";
+    CHECK(call(nr_mkdirat, {at_fdcwd, address(folder.c_str()), 0700}) == 0);
+    std::string path = folder + "/";
+    path += std::string(107 - path.size() - 5, 'n') + ".sock";
+    CHECK(path.size() == 107);
+    const std::string host = scratch.host + path.substr(std::string("/data/local/tmp").size());
+    CHECK(host.size() > 104);
+    unix_round(path, host);
+}
+
+TEST(af_unix_names_in_the_file_system_answer_as_linux) {
+    const Scratch scratch;
+    const auto fd = call(nr_socket, {af_unix, sock_stream, 0});
+    const auto missing = unix_name("/data/local/tmp/no-folder/x.sock");
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&missing.first), missing.second}) == -enoent);
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&missing.first), missing.second}) == -enoent);
+    const auto file = open_guest(at_fdcwd, "/data/local/tmp/plain", o_creat | o_wronly, 0600);
+    call(nr_close, {unsigned_of(file)});
+    const auto plain = unix_name("/data/local/tmp/plain");
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&plain.first), plain.second}) == -econnrefused);
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&plain.first), plain.second}) == -eaddrinuse);
+    const auto first = unix_name("/data/local/tmp/first.sock");
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&first.first), first.second}) == 0);
+    const auto second = unix_name("/data/local/tmp/second.sock");
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&second.first), second.second}) == -einval);  // bound already
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_datagram_names_its_sender_by_the_guests_path) {
+    const Scratch scratch;
+    const auto a = unix_name("/data/local/tmp/a.sock"), b = unix_name("b.sock");
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0}), receiver = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(sender), address(&a.first), a.second}) == 0);
+    CHECK(call(nr_bind, {unsigned_of(receiver), address(&b.first), b.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("dgram"), 5, 0, address(&b.first), b.second}) == 5);
+    char buffer[16];
+    LinuxUnixName from;
+    std::uint32_t length = sizeof from;
+    CHECK(call(nr_recvfrom, {unsigned_of(receiver), address(buffer), sizeof buffer, 0, address(&from), address(&length)}) ==
+          5);
+    CHECK(std::string(reinterpret_cast<const char *>(&from), length) == bytes_of(a));
+    call(nr_close, {unsigned_of(sender)});
+    call(nr_close, {unsigned_of(receiver)});
+}
+
+TEST(an_af_unix_datagram_may_be_as_long_as_on_linux) {
+    // Linux takes a datagram of up to its default send buffer less 32 bytes (212960), Darwin one of 2048.
+    const Scratch scratch;
+    constexpr std::uint64_t msg_dontwait = 0x40;  // so that a datagram that did not go fails instead of waiting
+    const std::vector<char> sent(200'000, 'd');
+    std::vector<char> received(sent.size() + 1);
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_dgram, 0, address(ends)}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(ends[0]), address(sent.data()), sent.size(), 0, 0, 0}) == 200'000);
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(received.data()), received.size(), msg_dontwait, 0, 0}) ==
+          200'000);
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+    const auto b = unix_name("b.sock");
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0}), receiver = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(receiver), address(&b.first), b.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address(sent.data()), sent.size(), 0, address(&b.first), b.second}) ==
+          200'000);
+    CHECK(call(nr_recvfrom, {unsigned_of(receiver), address(received.data()), received.size(), msg_dontwait, 0, 0}) ==
+          200'000);
+    call(nr_close, {unsigned_of(sender)});
+    call(nr_close, {unsigned_of(receiver)});
+}
+
+TEST(af_unix_datagrams_are_limited_by_the_senders_buffer_alone) {
+    // unix_dgram_sendmsg: EMSGSIZE above the sender's sk_sndbuf less 32 bytes, sk_sndbuf being 229376 at first and
+    // twice what SO_SNDBUF set, at most twice 262144 (Android 15, socket-test); the receiver's SO_RCVBUF does not count.
+    const Scratch scratch;
+    constexpr std::uint64_t nr_setsockopt = 208, sol_socket = 1, so_sndbuf = 7, so_rcvbuf = 8, msg_dontwait = 0x40;
+    constexpr std::int64_t emsgsize = 90;
+    const std::vector<char> sent(524'257, 'd');
+    std::vector<char> received(sent.size() + 1);
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_dgram, 0, address(ends)}) == 0);
+    const auto passes = [&](std::uint64_t length) {
+        const auto result = call(nr_sendto, {unsigned_of(ends[0]), address(sent.data()), length, 0, 0, 0});
+        if (result < 0) return result;
+        return call(nr_recvfrom, {unsigned_of(ends[1]), address(received.data()), received.size(), msg_dontwait, 0, 0});
+    };
+    CHECK(passes(229'344) == 229'344);
+    CHECK(passes(229'345) == -emsgsize);
+    const std::int32_t small = 1024, eight_k = 8192, most = 1 << 30;
+    CHECK(call(nr_setsockopt, {unsigned_of(ends[1]), sol_socket, so_rcvbuf, address(&small), sizeof small}) == 0);
+    CHECK(call(nr_setsockopt, {unsigned_of(ends[0]), sol_socket, so_sndbuf, address(&eight_k), sizeof eight_k}) == 0);
+    CHECK(passes(16'352) == 16'352);
+    CHECK(passes(16'353) == -emsgsize);
+    CHECK(call(nr_setsockopt, {unsigned_of(ends[0]), sol_socket, so_sndbuf, address(&most), sizeof most}) == 0);
+    CHECK(passes(524'256) == 524'256);
+    CHECK(passes(524'257) == -emsgsize);
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+TEST(getsockopt_without_a_buffer_is_efault) {
+    // sk_getsockopt copies the value to the guest's buffer: none is EFAULT, as setsockopt's.
+    constexpr std::uint64_t nr_getsockopt = 209, sol_socket = 1, so_type = 3;
+    CHECK(in_child([] {
+        const auto fd = call(nr_socket, {af_unix, sock_stream, 0});
+        std::uint32_t length = 4;
+        CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_socket, so_type, 0, address(&length)}) == -efault);
+        call(nr_close, {unsigned_of(fd)});
+    }));
+}
+
+/// Linux's struct msghdr and struct iovec on arm64.
+struct TestMsghdr {
+    std::uint64_t name = 0;
+    std::uint32_t name_length = 0, pad = 0;
+    std::uint64_t vectors = 0, vector_count = 0, control = 0, control_length = 0;
+    std::int32_t flags = 0, pad2 = 0;
+};
+struct TestIovec {
+    std::uint64_t base, length;
+};
+constexpr std::uint64_t nr_sendmsg = 211, nr_recvmsg = 212;
+
+/// Sends a byte on `fd` with `fds` in SCM_RIGHTS.
+std::int64_t send_rights(std::int64_t fd, std::initializer_list<std::int32_t> fds) {
+    char data = 'r';
+    TestIovec vector{address(&data), 1};
+    alignas(8) unsigned char control[64] = {};
+    const std::uint64_t length = 16 + fds.size() * sizeof(std::int32_t);
+    const std::int32_t sol_socket = 1, scm_rights = 1;
+    std::memcpy(control, &length, sizeof length);
+    std::memcpy(control + 8, &sol_socket, sizeof sol_socket);
+    std::memcpy(control + 12, &scm_rights, sizeof scm_rights);
+    std::memcpy(control + 16, fds.begin(), fds.size() * sizeof(std::int32_t));
+    TestMsghdr message;
+    message.vectors = address(&vector);
+    message.vector_count = 1;
+    message.control = address(control);
+    message.control_length = (length + 7) & ~std::uint64_t{7};
+    return call(nr_sendmsg, {unsigned_of(fd), address(&message), 0});
+}
+
+/// A byte received on `fd` with `flags`: the call's result, the control's length, the flags and the descriptors.
+struct ReceivedRights {
+    std::int64_t result;
+    std::uint64_t control_length;
+    std::int32_t flags;
+    std::vector<std::int32_t> fds;
+};
+
+ReceivedRights receive_rights(std::int64_t fd, std::uint64_t flags = 0) {
+    char data = 0;
+    TestIovec vector{address(&data), 1};
+    alignas(8) unsigned char control[64] = {};
+    TestMsghdr message;
+    message.vectors = address(&vector);
+    message.vector_count = 1;
+    message.control = address(control);
+    message.control_length = sizeof control;
+    ReceivedRights out{call(nr_recvmsg, {unsigned_of(fd), address(&message), flags}), message.control_length,
+                       message.flags, {}};
+    std::uint64_t length = 0;
+    if (out.control_length >= 16) std::memcpy(&length, control, sizeof length);
+    for (std::uint64_t at = 16; at + sizeof(std::int32_t) <= length && at + sizeof(std::int32_t) <= sizeof control;
+         at += sizeof(std::int32_t)) {
+        std::int32_t got;
+        std::memcpy(&got, control + at, sizeof got);
+        out.fds.push_back(got);
+    }
+    return out;
+}
+
+TEST(a_peek_leaves_the_descriptors_of_scm_rights_in_flight) {
+    // Darwin's MSG_PEEK gives a message's descriptors as zeros: the runtime passes none on a peek, and the receive
+    // after it gets them. (Linux gives copies on a peek, unix_peek_fds: a departure, ADR-0054 step a.)
+    CHECK(in_child([] {
+        constexpr std::uint64_t msg_peek = 2;
+        std::int32_t ends[2] = {-1, -1};
+        CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(ends)}) == 0);
+        int pipe_ends[2];
+        guest_pipe(pipe_ends);
+        CHECK(write_text(pipe_ends[1], "peek") == 4);
+        CHECK(send_rights(ends[0], {pipe_ends[0], pipe_ends[1]}) == 1);
+        call(nr_close, {unsigned_of(pipe_ends[0])});
+        call(nr_close, {unsigned_of(pipe_ends[1])});
+        const auto peeked = receive_rights(ends[1], msg_peek);
+        CHECK(peeked.result == 1 && peeked.control_length == 0 && peeked.fds.empty());
+        CHECK(::fcntl(0, F_GETFD) != -1);  // the host's descriptor 0 is nobody's to take
+        const auto received = receive_rights(ends[1]);
+        CHECK(received.result == 1 && received.fds.size() == 2);
+        if (received.fds.size() == 2) {
+            CHECK(read_text(received.fds[0], 8) == "peek");
+            for (const auto fd : received.fds) call(nr_close, {unsigned_of(fd)});
+        }
+        call(nr_close, {unsigned_of(ends[0])});
+        call(nr_close, {unsigned_of(ends[1])});
+        CHECK(::fcntl(0, F_GETFD) != -1);
+    }));
+}
+
+TEST(descriptors_in_flight_arrive_as_sent_also_two_of_one_file) {
+    // Two open descriptions of one file, each sent on a socketpair of its own and received in the other order:
+    // each arrives as the one sent, with its own offset, as Linux passes the open file itself.
+    const Scratch scratch;
+    if (FILE *file = std::fopen((scratch.host + "/flight").c_str(), "wb")) {
+        std::fputs("0123456789", file);
+        std::fclose(file);
+    }
+    const auto first = open_guest(at_fdcwd, "flight", o_rdonly), second = open_guest(at_fdcwd, "flight", o_rdonly);
+    CHECK(call(nr_lseek, {unsigned_of(second), 5, 0 /* SEEK_SET */}) == 5);
+    std::int32_t a[2] = {-1, -1}, b[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(a)}) == 0);
+    CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(b)}) == 0);
+    CHECK(send_rights(a[0], {static_cast<std::int32_t>(first)}) == 1);
+    CHECK(send_rights(b[0], {static_cast<std::int32_t>(second)}) == 1);
+    const auto from_b = receive_rights(b[1]), from_a = receive_rights(a[1]);
+    CHECK(from_b.fds.size() == 1 && from_a.fds.size() == 1);
+    if (from_b.fds.size() == 1 && from_a.fds.size() == 1) {
+        CHECK(read_text(from_b.fds[0], 1) == "5");
+        CHECK(read_text(from_a.fds[0], 1) == "0");
+        call(nr_close, {unsigned_of(from_b.fds[0])});
+        call(nr_close, {unsigned_of(from_a.fds[0])});
+    }
+    for (const auto fd : {first, second, std::int64_t{a[0]}, std::int64_t{a[1]}, std::int64_t{b[0]}, std::int64_t{b[1]}}) {
+        call(nr_close, {unsigned_of(fd)});
+    }
+}
+
+TEST(a_bind_goes_through_no_link_that_the_guest_plants) {
+    // The runtime binds a socket under a name of its own before it gives it the guest's: a link that the guest
+    // plants there, as at every name of the form it might guess, must not take the socket out of its tree.
+    const Scratch scratch;
+    char pattern[] = "/tmp/apkrt-outside-XXXXXX";
+    const std::string outside = ::mkdtemp(pattern);
+    for (int number = 0; number < 512; ++number) {
+        const std::string planted = scratch.host + "/.apkrt-" + std::to_string(::getpid()) + "-" + std::to_string(number);
+        static_cast<void>(::symlink((outside + "/escaped-" + std::to_string(number)).c_str(), planted.c_str()));
+    }
+    static_cast<void>(::symlink((outside + "/escaped-zeros").c_str(), (scratch.host + "/.apkrt-" + std::string(32, '0')).c_str()));
+    const auto name = unix_name("/data/local/tmp/planted.sock");
+    const auto fd = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&name.first), name.second}) == 0);
+    struct stat status{};
+    CHECK(::lstat((scratch.host + "/planted.sock").c_str(), &status) == 0 && S_ISSOCK(status.st_mode));
+    int escaped = 0;
+    if (DIR *directory = ::opendir(outside.c_str())) {
+        while (const dirent *entry = ::readdir(directory)) escaped += entry->d_name[0] != '.';
+        ::closedir(directory);
+    }
+    CHECK(escaped == 0);
+    call(nr_close, {unsigned_of(fd)});
+    static_cast<void>(std::system(("rm -rf '" + outside + "'").c_str()));
+}
+
+TEST(so_rcvtimeo_ends_a_read_of_a_socket_too) {
+    // sock_read_iter receives as recvmsg does, so the timeout ends a read with EAGAIN.
+    constexpr std::uint64_t nr_setsockopt = 208, sol_socket = 1, so_rcvtimeo = 20;
+    const struct {
+        std::int64_t seconds, microseconds;
+    } timeout{0, 150'000};
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(ends)}) == 0);
+    CHECK(call(nr_setsockopt, {unsigned_of(ends[0]), sol_socket, so_rcvtimeo, address(&timeout), sizeof timeout}) == 0);
+    std::thread late([&] {  // ends a read that waits on regardless, so that it fails instead of hanging
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        write_text(ends[1], "late");
+    });
+    char buffer[8];
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(call(nr_read, {unsigned_of(ends[0]), address(buffer), sizeof buffer}) == -eagain);
+    CHECK(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(140));
+    late.join();
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+}
+
+TEST(an_interest_in_epollrdhup_alone_sees_the_peers_shutdown) {
+    // ep_poll reports what unix_poll sets within the interest: EPOLLRDHUP once the peer sends no more.
+    constexpr std::uint64_t nr_epoll_ctl = 21, nr_epoll_pwait = 22, nr_shutdown = 210, epoll_ctl_add = 1, shut_wr = 1;
+    constexpr std::uint32_t epollrdhup = 0x2000;
+    struct LinuxEpollEvent {
+        std::uint32_t events;
+        std::uint64_t data;  // aligned: Linux packs the struct only on x86-64
+    };
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(ends)}) == 0);
+    const auto epoll = call(nr_epoll_create1, {0});
+    LinuxEpollEvent interest{epollrdhup, 7};
+    CHECK(call(nr_epoll_ctl, {unsigned_of(epoll), epoll_ctl_add, unsigned_of(ends[0]), address(&interest)}) == 0);
+    LinuxEpollEvent ready[2] = {};
+    CHECK(call(nr_epoll_pwait, {unsigned_of(epoll), address(ready), 2, 0, 0, 8}) == 0);
+    CHECK(call(nr_shutdown, {unsigned_of(ends[1]), shut_wr}) == 0);
+    CHECK(call(nr_epoll_pwait, {unsigned_of(epoll), address(ready), 2, 1000, 0, 8}) == 1);
+    CHECK(ready[0].events == epollrdhup && ready[0].data == 7);
+    for (const auto fd : {epoll, std::int64_t{ends[0]}, std::int64_t{ends[1]}}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_bind_of_the_family_alone_gives_an_abstract_name_of_five_hex_digits) {
+    // unix_autobind: the family, a NUL and "%05x", 8 bytes.
+    const Scratch scratch;
+    const auto fd = call(nr_socket, {af_unix, sock_dgram, 0});
+    const std::uint16_t family = af_unix;
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&family), sizeof family}) == 0);
+    const auto name = name_of(nr_getsockname, fd);
+    CHECK(name.size() == 8 && name[2] == '\0' && std::all_of(name.begin() + 3, name.end(), [](char digit) {
+              return (digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f');
+          }));
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(so_acceptconn_tells_a_listening_socket) {
+    const Scratch scratch;
+    constexpr std::uint64_t nr_getsockopt = 209, sol_socket = 1, so_acceptconn = 30;
+    const auto name = unix_name("listening.sock");
+    const auto fd = call(nr_socket, {af_unix, sock_stream, 0});
+    const auto accepting = [&] {
+        std::int32_t value = -1;
+        std::uint32_t length = sizeof value;
+        CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_socket, so_acceptconn, address(&value), address(&length)}) == 0);
+        return value;
+    };
+    CHECK(call(nr_bind, {unsigned_of(fd), address(&name.first), name.second}) == 0);
+    CHECK(accepting() == 0);
+    CHECK(call(nr_listen, {unsigned_of(fd), 4}) == 0);
+    CHECK(accepting() == 1);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(msg_trunc_tells_the_length_of_a_datagram_that_came_during_the_wait) {
+    // Darwin's loopback hands a UDP datagram over after sendto returned, so a recv right after it waits; MSG_TRUNC
+    // then tells the length of the datagram that came, not of none.
+    constexpr std::uint64_t af_inet = 2, msg_trunc = 0x20;
+    struct LinuxInetName {
+        std::uint16_t family = af_inet;
+        std::uint16_t port = 0;
+        std::uint8_t address[4] = {127, 0, 0, 1};
+        std::uint8_t zero[8] = {};
+    } receiver_name;
+    const auto receiver = call(nr_socket, {af_inet, sock_dgram, 0}), sender = call(nr_socket, {af_inet, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(receiver), address(&receiver_name), sizeof receiver_name}) == 0);
+    std::uint32_t length = sizeof receiver_name;
+    CHECK(call(nr_getsockname, {unsigned_of(receiver), address(&receiver_name), address(&length)}) == 0);
+    const std::string sent(100, 'u');
+    for (int round = 0; round < 20; ++round) {
+        CHECK(call(nr_sendto, {unsigned_of(sender), address(sent.data()), sent.size(), 0, address(&receiver_name),
+                               sizeof receiver_name}) == 100);
+        char buffer[10];
+        CHECK(call(nr_recvfrom, {unsigned_of(receiver), address(buffer), sizeof buffer, msg_trunc, 0, 0}) == 100);
+    }
+    call(nr_close, {unsigned_of(sender)});
+    call(nr_close, {unsigned_of(receiver)});
+}
+
+TEST(an_abstract_name_goes_with_its_socket) {
+    const Scratch scratch;
+    LinuxUnixName name;
+    std::memcpy(name.path, "\0abstract-test", 14);
+    const std::uint64_t length = 2 + 14;
+    for (int round = 0; round < 2; ++round) {  // the name is free again once its socket is closed
+        const auto fd = call(nr_socket, {af_unix, sock_stream, 0});
+        CHECK(call(nr_bind, {unsigned_of(fd), address(&name), length}) == 0);
+        CHECK(name_of(nr_getsockname, fd) == std::string(reinterpret_cast<const char *>(&name), length));
+        call(nr_close, {unsigned_of(fd)});
+    }
+    const auto pair_check = [&] {
+        std::int32_t ends[2] = {-1, -1};
+        CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(ends)}) == 0);
+        CHECK(write_text(ends[0], "pair") == 4 && read_text(ends[1], 8) == "pair");
+        call(nr_close, {unsigned_of(ends[0])});
+        call(nr_close, {unsigned_of(ends[1])});
+    };
+    pair_check();
 }
 
 }  // namespace

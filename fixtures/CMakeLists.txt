@@ -142,6 +142,8 @@ add_executable(stw-test suite/stw-test.c)
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 add_executable(poll-test suite/poll-test.c)
+# socket-test: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054).
+add_executable(socket-test suite/socket-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
 # (ADR-0035).
 add_executable(memory-test suite/memory-test.c)
