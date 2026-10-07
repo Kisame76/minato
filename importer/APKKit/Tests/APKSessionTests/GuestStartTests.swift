@@ -88,12 +88,12 @@ struct GuestStartTests {
     // MARK: - A Java app (ADR-0039 c5), as framework/tests/app_process_run.py's start() starts it on the Mac
 
     static func javaStart(signers: String? = "/v/apps/p/1/signers.json", sha256: String = Self.sha256,
-                          environment: [String] = []) -> GuestStart? {
+                          localTesting: Bool = false, environment: [String] = []) -> GuestStart? {
         GuestStart(
             javaApp: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, signers: signers,
             appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", external: "/v/data/p/external",
             obb: "/v/data/p/obb", guestData: "/c/guest/p/data", guestSystem: "/b/Minato.app/Guest",
-            environment: environment)
+            localTesting: localTesting, environment: environment)
     }
 
     @Test func aJavaAppHasTheSameCodePath() {
@@ -132,6 +132,15 @@ struct GuestStartTests {
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
             .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
         ])
+    }
+
+    /// An app whose kept pack slices the start lays out in local_testing of its external files folder gets
+    /// ActivityThread's --local-testing-dir, as the harness passes it with --packs (ADR-0050 decision 2); an app without
+    /// packs gets none. The mounts are the same either way, as the slices lie in the external folder's mount.
+    @Test func anAppWithPacksGetsTheLocalTestingDir() {
+        #expect(Self.javaStart(localTesting: true).map { Array($0.arguments.suffix(2)) } == ["--local-testing-dir", "local_testing"])
+        #expect(Self.javaStart()?.arguments.contains("--local-testing-dir") == false)
+        #expect(Self.javaStart(localTesting: true)?.mounts == Self.javaStart()?.mounts)
     }
 
     /// An unsigned APK has no signers.json: no mount and no argument, as the harness starts it.

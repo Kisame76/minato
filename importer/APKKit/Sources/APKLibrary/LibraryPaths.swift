@@ -102,7 +102,8 @@ public struct LibraryPaths: Sendable {
     /// 15's owner, root's 0751, ADR-0052; /data/local stays absent, as the owner model counts /data/local/tmp as the
     /// app's) and the code path's lib/arm64 with the app's JNI libraries (cloneLibraries), as
     /// framework/tests/app_process_run.py makes them, and the version's files read-only, which an app imported before
-    /// c5 gets then. Another code path, an older version's, goes. `codePath` is the guest's
+    /// c5 gets then; the version's kept pack slices in local_testing of the app's external files folder (layOutPacks,
+    /// ADR-0050). Another code path, an older version's, goes. `codePath` is the guest's
     /// /data/app/~~<a>/<package>-<b>. Returns the guest's /data.
     public func prepareJavaStart(for entry: LibraryEntry, codePath: String) throws -> URL {
         let parts = codePath.split(separator: "/", omittingEmptySubsequences: false)
@@ -126,6 +127,7 @@ public struct LibraryPaths: Sendable {
         }
         try cloneLibraries(of: entry, into: lib)
         try makeReadOnly(entry)
+        try layOutPacks(of: entry)
         return data
     }
 
@@ -148,6 +150,37 @@ public struct LibraryPaths: Sendable {
         }
     }
 
+    /// The version's kept pack slices in local_testing of the app's external files folder,
+    /// /sdcard/Android/data/<package>/files/local_testing, where Google's Play libraries look for them once the
+    /// meta-data local_testing_dir names it (ADR-0050 decision 2): APFS clones, read-only as their originals in packs/
+    /// are, made again at every start in the folder emptied first, which stays out of backups as packs/ does (ADR-0049
+    /// decision 9). The guest can write there, so nothing here follows a link (the lead's review): external and files,
+    /// the app's own folders, are opened as themselves, and a link or file in place of one stops the start; one in
+    /// place of local_testing, Minato's folder, goes as itself; what local_testing holds goes by unlinkat, a link as a
+    /// link; the clones come by clonefileat, each made read-only whatever its original's mode. The app's data folders are
+    /// made first, as the session makes them before a start (App's review). An app without packs keeps its external
+    /// folder as it is.
+    func layOutPacks(of entry: LibraryEntry) throws {
+        guard let packs = entry.packs, !packs.isEmpty else { return }
+        try prepareData(for: entry.id)
+        let external = try Self.openFolder(dataDirectory(for: entry.id).appendingPathComponent("external").path)
+        defer { close(external) }
+        let files = try Self.openFolder(named: "files", in: external)
+        defer { close(files) }
+        let folder = try Self.openFolder(named: "local_testing", in: files, replacing: true)
+        defer { close(folder) }
+        try Self.empty(folder)
+        let source = try Self.openFolder(versionDirectory(for: entry).appendingPathComponent("packs").path)
+        defer { close(source) }
+        for pack in packs {
+            guard clonefileat(source, pack.fileName, folder, pack.fileName, UInt32(CLONE_NOFOLLOW)) == 0,
+                  fchmodat(folder, pack.fileName, 0o444, AT_SYMLINK_NOFOLLOW) == 0 else {
+                throw Self.lastError()
+            }
+        }
+        try Self.excludeFromBackups(folder)
+    }
+
     /// The version's APKs and its signers.json, if it has one, read-only.
     func makeReadOnly(_ entry: LibraryEntry) throws {
         let version = versionDirectory(for: entry)
@@ -165,5 +198,94 @@ public struct LibraryPaths: Sendable {
     /// 3); stat() shows that owner with the host's mode, 0444 where Android shows 0644.
     static func makeReadOnly(_ file: URL) throws {
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+    }
+
+    // MARK: - Folders the guest can write, by descriptor (ADR-0050 decision 2)
+
+    private static let folderFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+
+    /// The folder at `path`, whose last part may be the guest's, opened as itself, never through a link.
+    private static func openFolder(_ path: String) throws -> Int32 {
+        let descriptor = Darwin.open(path, folderFlags)
+        guard descriptor >= 0 else { throw lastError() }
+        return descriptor
+    }
+
+    /// The folder `name` in the folder `parent`, made when it is missing, opened as itself: a link or a file of that
+    /// name throws, or with `replacing` goes as itself, and a new folder takes its place.
+    private static func openFolder(named name: String, in parent: Int32, replacing: Bool = false) throws -> Int32 {
+        let descriptor = openat(parent, name, folderFlags)
+        if descriptor >= 0 { return descriptor }
+        if replacing, errno == ELOOP || errno == ENOTDIR {
+            guard unlinkat(parent, name, 0) == 0 else { throw lastError() }
+        } else if errno != ENOENT {
+            throw lastError()
+        }
+        guard mkdirat(parent, name, 0o755) == 0 else { throw lastError() }
+        let made = openat(parent, name, folderFlags)
+        guard made >= 0 else { throw lastError() }
+        return made
+    }
+
+    /// Removes what the folder `descriptor` stands for holds: a folder with what it holds, each made writable first, as
+    /// the guest may have made one read-only, and a link as itself, never what it points at.
+    private static func empty(_ descriptor: Int32) throws {
+        guard fchmod(descriptor, 0o755) == 0 else { throw lastError() }
+        for name in try names(in: descriptor) {
+            var info = stat()
+            guard fstatat(descriptor, name, &info, AT_SYMLINK_NOFOLLOW) == 0 else { throw lastError() }
+            if info.st_mode & S_IFMT == S_IFDIR {
+                let folder = openat(descriptor, name, folderFlags)
+                guard folder >= 0 else { throw lastError() }
+                defer { close(folder) }
+                try empty(folder)
+                guard unlinkat(descriptor, name, AT_REMOVEDIR) == 0 else { throw lastError() }
+            } else {
+                guard unlinkat(descriptor, name, 0) == 0 else { throw lastError() }
+            }
+        }
+    }
+
+    /// The names in the folder `descriptor` stands for, without "." and "..".
+    private static func names(in descriptor: Int32) throws -> [String] {
+        let copy = dup(descriptor)
+        guard copy >= 0 else { throw lastError() }
+        guard let stream = fdopendir(copy) else {
+            let error = lastError()
+            close(copy)
+            throw error
+        }
+        defer { closedir(stream) }
+        rewinddir(stream)
+        var names: [String] = []
+        while let entry = readdir(stream) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { bytes in
+                String(decoding: bytes.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+            }
+            if name != "." && name != ".." {
+                names.append(name)
+            }
+        }
+        return names
+    }
+
+    /// Leaves the folder `descriptor` stands for out of backups, by the path the descriptor has, which names no link
+    /// (F_GETPATH), and only while that path is the folder.
+    private static func excludeFromBackups(_ descriptor: Int32) throws {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { throw lastError() }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        var opened = stat()
+        var named = stat()
+        guard fstat(descriptor, &opened) == 0, lstat(path, &named) == 0 else { throw lastError() }
+        guard opened.st_dev == named.st_dev, opened.st_ino == named.st_ino else { throw POSIXError(.ENOENT) }
+        var url = URL(fileURLWithPath: path, isDirectory: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
+    }
+
+    private static func lastError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }

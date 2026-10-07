@@ -265,7 +265,7 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
-          lifecycle=None, android_id=None, obbs=()):
+          lifecycle=None, android_id=None, obbs=(), packs=()):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -286,7 +286,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
     its data (step c1); the folders are made only for a new run. `obbs` are files copied into the app's OBB folder of
-    a new run, as a user or the library puts them there (ADR-0049 test 8)."""
+    a new run, as a user or the library puts them there (ADR-0049 test 8). `packs` are files copied read-only into the
+    folder local_testing of the app's external files folder of a new run, as the library lays out an app's kept pack
+    slices there, and ActivityThread gets --local-testing-dir local_testing, as GuestStart passes it (ADR-0050 test
+    2)."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -327,6 +330,12 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
             os.makedirs(os.path.join(run, folder))
         for obb in obbs:
             shutil.copy(obb, os.path.join(run, "external-obb", os.path.basename(obb)))
+        if packs:
+            local_testing = os.path.join(run, "external-data", "files", "local_testing")
+            os.makedirs(local_testing)
+            for pack in packs:
+                shutil.copy(pack, os.path.join(local_testing, os.path.basename(pack)))
+                os.chmod(os.path.join(local_testing, os.path.basename(pack)), 0o444)
         shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
         os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
         os.makedirs(os.path.join(run, app.lstrip("/"), "lib", "arm64"))
@@ -383,6 +392,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--signers", f"{app}/signers.json"]
     if android_id is not None:
         command += ["--android-id", android_id]
+    if packs:
+        command += ["--local-testing-dir", "local_testing"]
     return run_app(command, last)
 
 

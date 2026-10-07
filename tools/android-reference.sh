@@ -45,6 +45,8 @@
 # binder-test (ADR-0043 step d2b)), whose binders and ResultReceivers are the app's own, is one of those Java apps
 # too.
 # strictmode-test (ADR-0039 step c2d3) is one too.
+# packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
+# local_testing_dir only from a manifest.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -467,7 +469,7 @@ run_app() {
       | provider-test | view-tree-test | app-calls-test | vsync-test | animator-test | services-test | compat-test \
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
-      | obb-test | palette-test | binder-test | strictmode-test)
+      | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

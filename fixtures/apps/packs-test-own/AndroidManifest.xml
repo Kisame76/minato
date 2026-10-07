@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0050's twin test (packs-test-own): packs-test's app, from the same sources (fixtures/java/packs-test), whose
+     manifest names its own local_testing_dir, as a base from bundletool's build-apks with local testing does, under a
+     value of its own, which Minato keeps (decision 2). The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.packsown" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="packs-test-own" android:name="io.github.kisame76.minato.test.packs.PacksApplication">
+    <meta-data android:name="local_testing_dir" android:value="own_testing"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -1,0 +1,8 @@
+I/packs-test: GET_META_DATA: local_testing_dir local_testing
+I/packs-test: without GET_META_DATA: metaData null
+I/packs-test: context: metaData null
+I/packs-test: externalFilesDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.packs/files
+I/packs-test: local_testing files 2
+I/packs-test: local_testing fastfollow-master.apk size 39 canRead true canWrite false
+I/packs-test: local_testing ondemand-master.apk size 38 canRead true canWrite false
+I/packs-test: done

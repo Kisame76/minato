@@ -60,10 +60,12 @@ public struct GuestStart: Sendable, Equatable {
     /// finds /data and its dalvik-cache (the lead's decision for c5); Monet's overlays from the bundle lie over it as
     /// /data/resource-cache, where every app's Resources find them (ADR-0043 f)), the app's paths too, and ART's
     /// APEXes are /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra
-    /// entries.
+    /// entries. `localTesting`: the library keeps pack slices of the app, which the start lays out in local_testing of
+    /// its external files folder (LibraryPaths.layOutPacks), so ActivityThread names that folder as the meta-data
+    /// local_testing_dir (ADR-0050 decision 2).
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
                  data: String, external: String, obb: String, guestData: String, guestSystem: String,
-                 environment extra: [String] = []) {
+                 localTesting: Bool = false, environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "/data", host: guestData),
@@ -83,6 +85,7 @@ public struct GuestStart: Sendable, Equatable {
                      "--apk", "\(app)/base.apk", "--library-path", "\(app)/lib/arm64",
                      "--data-dir", "/data/user/0/\(package)"]
             + (signers == nil ? [] : ["--signers", "\(app)/signers.json"])
+            + (localTesting ? ["--local-testing-dir", "local_testing"] : [])
         environment = extra
     }
 

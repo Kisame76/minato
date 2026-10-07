@@ -287,7 +287,9 @@ final class GameSession {
                 appLibraries: paths.libraryDirectory(for: entry).path,
                 data: data.appending(path: "data").path, external: data.appending(path: "external").path,
                 obb: data.appending(path: "obb").path, guestData: paths.guestDataDirectory(for: entry.id).path,
-                guestSystem: bundle.appending(path: "Guest").path, environment: environment)
+                guestSystem: bundle.appending(path: "Guest").path,
+                // The kept pack slices, which prepareJavaStart lays out in local_testing (ADR-0050 decision 2).
+                localTesting: entry.packs?.isEmpty == false, environment: environment)
         }
         guard let start else { return nil }
         // Android's locale is the first preferred language, with the region's settings where it names none.

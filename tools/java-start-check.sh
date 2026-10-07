@@ -9,7 +9,10 @@
 # (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache), binder-test
 # (ADR-0043 d2b)'s, whose Binder, AIDL-style stub, IBinder and ResultReceivers are its own), strictmode-test (ADR-0039
 # step c2d3's, StrictMode's defaults at the bind and Build.getSerial) and, in the Simulator, obb-test (ADR-0049 test
-# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name) are
+# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name) and
+# packs-test (ADR-0050 test 2's, a bundletool .apks of tools/build-packs-test.sh with a fast-follow and an on-demand
+# pack, whose slices the library keeps and the start lays out in local_testing, read-only, with the meta-data
+# local_testing_dir; its lines are the Mac's, fixtures/expected/packs-test-packs.logcat, with that set's sizes) are
 # imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
@@ -77,6 +80,8 @@ ONLY=${ONLY:-}
 [[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
 # obb-test's OBB comes as a unit folder of its own, which this check makes in the Simulator only.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("obb-test io.github.kisame76.minato.test.obb")
+# packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
+[[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
 GODOT_TEST=${GODOT_TEST:-}
 [[ " $ONLY " != *" godot-bench-"* ]] || GODOT_TEST=yes
@@ -107,10 +112,12 @@ last_line() {
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
-# The APK of app $1: the Godot APKs are tools/build-godot.sh's, which this check does not make.
+# The APK of app $1: the Godot APKs are tools/build-godot.sh's, which this check does not make; packs-test's set is
+# tools/build-packs-test.sh's.
 apk() {
   case "$1" in
     godot-bench-*) echo "build/godot/$1.apk" ;;
+    packs-test) echo "build/packs-test/packs-test.apks" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
@@ -122,6 +129,7 @@ for app in "${APPS[@]}"; do
         exit 1
       fi
       ;;
+    packs-test) tools/build-packs-test.sh >/dev/null ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -236,9 +244,10 @@ screenshot() {
 # the index still names one.
 remove_test_apps() {
   terminate
-  # obb-test's OBB unit (pick_obb), which a run that ended before the library took it leaves, and the launch would
-  # import.
-  [[ "$ON_DEVICE" == yes ]] || rm -rf "${SUPPORT:?}/incoming/obb-test-obb" "${SUPPORT:?}/incoming/obb-test-obb.partial"
+  # obb-test's OBB unit (pick_obb) and packs-test's set (pick_set), which a run that ended before the library took
+  # them leaves, and the launch would import.
+  [[ "$ON_DEVICE" == yes ]] || rm -rf "${SUPPORT:?}/incoming/obb-test-obb" "${SUPPORT:?}/incoming/obb-test-obb.partial" \
+    "${SUPPORT:?}/incoming/packs-test-apks" "${SUPPORT:?}/incoming/packs-test-apks.partial"
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   for app in "${APPS[@]}"; do echo "${app#* }"; done > "$CHECK/end"
@@ -462,6 +471,8 @@ mkdir -p "$CHECK"
 [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
 : > "$EVENTS"
 for app in "${APPS[@]}"; do
+  # packs-test's set comes as a unit folder of its own (pick_set), as the library takes only APKs lying flat here.
+  [[ "${app%% *}" != packs-test ]] || continue
   if [[ "$ON_DEVICE" == yes ]]; then
     devicectl_copy to --source "$(apk "${app%% *}")" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
   else
@@ -477,6 +488,14 @@ pick_obb() {
   mv "$unit.partial" "$unit"
 }
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then pick_obb io.github.kisame76.minato.test.obb; fi
+# packs-test's set (ADR-0050 test 2), a unit folder that appears whole, as "+" leaves a pick.
+pick_set() {
+  local unit="${SUPPORT:?}/incoming/packs-test-apks"
+  mkdir "$unit.partial"
+  cp "$(apk packs-test)" "$unit.partial/"
+  mv "$unit.partial" "$unit"
+}
+if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then pick_set; fi
 send_requests
 launch
 for app in "${APPS[@]}"; do
@@ -541,11 +560,12 @@ EOF
 fi
 
 # Their Applications load their JNI libraries; jni-lib-test also looks at its own in nativeLibraryDir, the code path's
-# lib/arm64, where the library puts clones of the version's originals.
+# lib/arm64, where the library puts clones of the version's originals. $3 is the expected lines, by default
+# fixtures/expected/<app>.logcat.
 run_one() {
   wanted "$1" || return 0
   run_start "$1" "$2" 1
-  python3 - "$1" "$WORK/$1-1.log" "fixtures/expected/$1.logcat" <<'EOF' || failures=$((failures + 1))
+  python3 - "$1" "$WORK/$1-1.log" "${3:-fixtures/expected/$1.logcat}" <<'EOF' || failures=$((failures + 1))
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
@@ -571,6 +591,27 @@ if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   for _ in $(seq 1 100); do [[ -f "$obb" ]] && break; sleep 0.2; done
   if [[ -f "$obb" ]]; then ok "obb-test's OBB is in its OBB folder"; else fail "no OBB in obb-test's OBB folder"; fi
   run_one obb-test io.github.kisame76.minato.test.obb
+fi
+if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then
+  # Its fast-follow and on-demand pack slices, which the library keeps from its set (ADR-0049 f) and the start lays out
+  # read-only in local_testing of its external files folder, with the meta-data local_testing_dir (ADR-0050 decision 2):
+  # the Mac's lines with the sizes of the set's slices.
+  python3 - "$(apk packs-test)" fixtures/expected/packs-test-packs.logcat "$WORK/packs-test-apks.logcat" <<'EOF'
+import re
+import sys
+import zipfile
+
+apks, mac, out = sys.argv[1:]
+with zipfile.ZipFile(apks) as archive:
+    sizes = {name.rsplit("/", 1)[1]: archive.getinfo(name).file_size
+             for name in archive.namelist() if name.startswith("asset-slices/")}
+lines = []
+for line in open(mac).read().splitlines():
+    match = re.match(r"(.*: local_testing (\S+) size )\d+( .*)", line)
+    lines.append(f"{match.group(1)}{sizes.get(match.group(2), 0)}{match.group(3)}" if match else line)
+open(out, "w").write("\n".join(lines) + "\n")
+EOF
+  run_one packs-test io.github.kisame76.minato.test.packs "$WORK/packs-test-apks.logcat"
 fi
 
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then

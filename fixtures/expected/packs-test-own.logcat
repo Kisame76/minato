@@ -1,0 +1,6 @@
+I/packs-test-own: GET_META_DATA: local_testing_dir own_testing
+I/packs-test-own: without GET_META_DATA: metaData null
+I/packs-test-own: context: metaData null
+I/packs-test-own: externalFilesDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.packsown/files
+I/packs-test-own: local_testing absent
+I/packs-test-own: done

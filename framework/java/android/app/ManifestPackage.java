@@ -174,6 +174,17 @@ final class ManifestPackage {
      */
     static ManifestPackage read(String apk, String libraryDir, String dataDir, String signers)
             throws IOException, XmlPullParserException {
+        return read(apk, libraryDir, dataDir, signers, null);
+    }
+
+    /**
+     * With the folder GuestStart names when the library keeps fast-follow or on-demand pack slices of the app, laid out
+     * under the app's external files folder (ADR-0050 decision 2): the application's meta-data local_testing_dir names
+     * it, which switches Google's Play libraries to their local-testing path, unless the base's manifest has its own;
+     * null for an app without packs.
+     */
+    static ManifestPackage read(String apk, String libraryDir, String dataDir, String signers, String localTestingDir)
+            throws IOException, XmlPullParserException {
         ApkAssets apkAssets = ApkAssets.loadFromPath(apk);
         AssetManager assets = new AssetManager();
         assets.setApkAssets(new ApkAssets[] {apkAssets}, false);
@@ -187,7 +198,24 @@ final class ManifestPackage {
             if (signers != null) {
                 pkg.mSigningDetails = PackageSigning.details(SignersFile.read(new File(signers)));
             }
+            if (localTestingDir != null) {
+                pkg.localTesting(localTestingDir);
+            }
             return pkg;
+        }
+    }
+
+    /**
+     * The meta-data local_testing_dir = `folder`, where the base's manifest names none (ADR-0050 decision 2), as
+     * bundletool's build-apks --local-testing adds it to a base that lacks it; getApplicationInfo gives it with
+     * GET_META_DATA, as it gives the manifest's.
+     */
+    private void localTesting(String folder) {
+        if (mApplication.metaData == null) {
+            mApplication.metaData = new Bundle();
+        }
+        if (!mApplication.metaData.containsKey("local_testing_dir")) {
+            mApplication.metaData.putString("local_testing_dir", folder);
         }
     }
 

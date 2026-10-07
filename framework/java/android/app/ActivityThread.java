@@ -330,6 +330,7 @@ public final class ActivityThread {
         String dataDir = null;
         String signers = null;
         String androidId = null;
+        String localTestingDir = null;
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--package": packageName = args[i + 1]; break;
@@ -340,6 +341,7 @@ public final class ActivityThread {
                 case "--data-dir": dataDir = args[i + 1]; break;
                 case "--signers": signers = args[i + 1]; break;
                 case "--android-id": androidId = args[i + 1]; break;
+                case "--local-testing-dir": localTestingDir = args[i + 1]; break;
                 default: throw new IllegalArgumentException("ActivityThread.main: unknown argument " + args[i]);
             }
         }
@@ -348,7 +350,7 @@ public final class ActivityThread {
             throw new IllegalArgumentException(
                     "usage: ActivityThread.main --package <package> [--process <name>] --apk <base.apk> "
                     + "--library-path <folder> --data-dir <folder> [--signers <signers.json>] "
-                    + "[--application <class>] [--android-id <16 hex digits>]");
+                    + "[--application <class>] [--android-id <16 hex digits>] [--local-testing-dir <folder>]");
         }
         // As AOSP's main: the main thread's Looper, and the Handler that framework classes post to it with.
         Looper.prepareMainLooper();
@@ -358,10 +360,11 @@ public final class ActivityThread {
         System.setProperty("java.io.tmpdir", tmpdir);
         Os.setenv("TMPDIR", tmpdir, true);
         applySessionConfiguration();
-        // The import's signers.json beside the version (ADR-0034 decision 2, b3.5b1); an unsigned app has none.
+        // The import's signers.json beside the version (ADR-0034 decision 2, b3.5b1); an unsigned app has none. The
+        // folder of the app's kept pack slices under its external files folder (ADR-0050 decision 2); none without.
         ManifestPackage pkg;
         try {
-            pkg = ManifestPackage.read(apk, libraryPath, dataDir, signers);
+            pkg = ManifestPackage.read(apk, libraryPath, dataDir, signers, localTestingDir);
         } catch (IOException | XmlPullParserException e) {
             throw new IllegalStateException("ActivityThread.main: cannot read " + apk + "'s manifest", e);
         }

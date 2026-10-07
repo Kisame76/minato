@@ -33,6 +33,10 @@ android_id, as the host gives it (ADR-0045, gap 13a).
 With --obb <file>, once or more, the file lies in the app's OBB folder before the start, as a user or the library puts
 one there (ADR-0049 test 8).
 
+With --packs <file>, once or more, the file lies read-only in the folder local_testing of the app's external files
+folder before the start, as the library lays out an app's kept pack slices there, and ActivityThread gets
+--local-testing-dir local_testing (ADR-0050 test 2).
+
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
@@ -40,7 +44,7 @@ second time over the first start's folders, as tools/android-reference.sh starts
 starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
-                       [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]...
+                       [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -69,14 +73,17 @@ def main():
     android_id = None
     in_order = []
     obbs = []
+    packs = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"]):
+                       ["--in-order"], ["--obb"], ["--packs"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
             android_id, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--obb":
             obbs, args = obbs + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--packs":
+            packs, args = packs + [args[1]], args[2:]
         elif args[0] == "--drawn":
             drawn, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--in-order":
@@ -119,7 +126,7 @@ def main():
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
                        signers=signers, again=again,
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
-                       android_id=android_id, obbs=obbs)
+                       android_id=android_id, obbs=obbs, packs=packs)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

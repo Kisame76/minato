@@ -1,0 +1,6 @@
+I/packs-test: GET_META_DATA: metaData null
+I/packs-test: without GET_META_DATA: metaData null
+I/packs-test: context: metaData null
+I/packs-test: externalFilesDir /storage/emulated/0/Android/data/io.github.kisame76.minato.test.packs/files
+I/packs-test: local_testing absent
+I/packs-test: done
