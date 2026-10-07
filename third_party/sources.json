@@ -580,6 +580,49 @@
         "libs/input/KeyCharacterMap.cpp"
       ],
       "digest": "5401db5a398e99308452f63e1c7b301ea043428521ff5f2ee1cff0dc4a501c18"
+    },
+    {
+      "name": "frameworks_base_types",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "media/java",
+        "telephony/java",
+        "telecomm/java",
+        "rs/java",
+        "keystore/java",
+        "apex/jobscheduler/framework/java",
+        "identity/java",
+        "drm/java",
+        "omapi/java",
+        "apex/blobstore/framework/java",
+        "media/mca/effect/java",
+        "sax/java"
+      ],
+      "digest": "79b2a182bf236b86d7295ac715515c2d6e90c284f25683d44890f3b088642bba"
+    },
+    {
+      "name": "sqlite",
+      "project": "platform/external/sqlite",
+      "commit": "af6bb6a379e12d41b80a3468a4c8cab9263cc721",
+      "license": "public domain (dist: SQLite 3.44.3), Apache-2.0 (android)",
+      "files": [
+        "LICENSE",
+        "dist/Android.bp",
+        "dist/NOTICE",
+        "dist/sqlite-autoconf-3440300/sqlite3.c",
+        "dist/sqlite-autoconf-3440300/sqlite3.h",
+        "dist/sqlite-autoconf-3440300/sqlite3ext.h",
+        "android/Android.bp",
+        "android/NOTICE",
+        "android/OldPhoneNumberUtils.cpp",
+        "android/PhoneNumberUtils.cpp",
+        "android/PhoneNumberUtils.h",
+        "android/sqlite3_android.cpp",
+        "android/sqlite3_android.h"
+      ],
+      "digest": "6ba2eee560653efb81fc208a3c40ee923ab31838e8ad220da0d89875c41cf850"
     }
   ],
   "angle": {
