@@ -1,0 +1,25 @@
+# The corpus's gap patterns (tools/corpus-gaps.py): a finding, "<kind>: <text>" as tools/corpus-run.py
+# records it, belongs to the first gap whose regular expression it matches. One line each: the gap's number
+# in the compatibility plan's section 2 (H for one of the harness's own), a tab, its title, a tab, the
+# expression. Add a line when docs/corpus/gaps.md lists a finding no pattern maps.
+1	System services that answer null	getSystemService|Unwritten: android\.app\.ContextImpl\.getSystemService
+2	4 KB libraries	^refused: .*(4 KiB pages|shares a 4 KiB page|cannot move by)
+3	Networking: DNS and HTTP	UnknownHostException|Unable to resolve host|getaddrinfo|android/net/ConnectivityManager
+4	Second windows: dialogs, toasts, popups	android/(app/(AlertDialog|Dialog)|widget/(Toast|PopupWindow))\b
+5	Widgets and menus	^stub class: android/widget/
+6	Activity results, flags and launch modes	startActivityForResult|ActivityNotFoundException
+7	SQLite	android/database/sqlite|SQLiteDatabase|SQLiteOpenHelper
+8	WebView	android/webkit/
+9	Services, broadcasts, PendingIntent, jobs, alarms, notifications	android/app/(Service|NotificationManager|NotificationChannel|AlarmManager|PendingIntent|job/)
+11	Text input, keys and controllers	InputMethodManager|android/view/inputmethod/
+12	Play services absent, gracefully	com/google/android/gms|com\.google\.android\.gms
+13	Java media and video	android/media/(AudioTrack|SoundPool|MediaPlayer|MediaCodec|MediaExtractor)
+14	Missing NDK libraries	^library: .*(not found|cannot locate symbol|dlopen failed)
+15	Runtimes that need a JIT	Needs JIT|PROT_EXEC|executable memory
+16	Files, pickers and shared media	android/provider/(MediaStore|DocumentsContract)
+17	Device features and permission prompts	android/hardware/(Sensor|camera)|requestPermissions
+18	Intents to iOS	No Activity found to handle Intent
+19	Graphics coverage	EGL_BAD|GL_INVALID|Vulkan
+20	Play Asset Delivery at run time	AssetPackManager|SplitInstallManager
+H1	Harness: a NativeActivity app without code starts through app_process	^exception: java\.lang\.RuntimeException: Unable to instantiate activity .*NativeActivity
+H2	Harness: GLES needs --graphics, where no first post is logged yet	eglGetDisplay failed|EGL_NOT_INITIALIZED
