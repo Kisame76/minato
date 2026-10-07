@@ -13,6 +13,8 @@
  *     window's attributes as BLASTBufferQueue's. The host's session gives the window its focus (ADR-0043 step c1);
  *     without a session the window has no surface and draws nothing, and gains focus after the first traversal, as a
  *     new activity's window does once system_server shows it;
+ *   - an activity's window reports its first draw on the host's window to the activity's launch, which logs
+ *     Android's Displayed line (ActivityThread.reportWindowsDrawn), as the window manager reports it drawn;
  *   - the insets are none until ADR-0041 decision 8, so a window that fits the system windows keeps its whole size,
  *     as an edge-to-edge window does on Android 15. The window's InsetsController, ours, keeps what the app asks of it,
  *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
@@ -162,6 +164,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mFocusHeld;
     /** Whether the window drew since its host window came. */
     private boolean mDrawnSinceHostWindow;
+    /** Whether its first draw went to its activity's launch, for the Displayed line: once a window. */
+    private boolean mReportedDrawn;
     private int mWidth = -1;
     private int mHeight = -1;
     /** Whether the host's session gives the windows, their sizes and their focus (ADR-0043 step c1). */
@@ -382,6 +386,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             } else if (performDraw()) {
                 mDrawnSinceHostWindow = true;
                 releaseHeldFocus();
+                reportDrawn();
             }
         }
         if (first && !sHostWindows) {
@@ -687,6 +692,17 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (mFocusHeld && readyForFocus()) {
             mFocusHeld = false;
             windowFocusChanged(true);
+        }
+    }
+
+    /**
+     * As the window manager reports an activity's window drawn to its launch (ActivityRecord.onWindowsDrawn): once,
+     * after the activity's own window drew and posted on its host window.
+     */
+    private void reportDrawn() {
+        if (!mReportedDrawn && mWindowAttributes.type == WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+            mReportedDrawn = true;
+            ActivityThread.reportWindowsDrawn(mWindowAttributes.token);
         }
     }
 

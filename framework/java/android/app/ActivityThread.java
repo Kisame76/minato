@@ -67,6 +67,8 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.MessageQueue;
 import android.os.StrictMode;
+import android.os.SystemClock;
+import android.os.UserHandle;
 import android.permission.IPermissionManager;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
@@ -79,6 +81,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Slog;
 import android.util.SuperNotCalledException;
+import android.util.TimeUtils;
 import android.util.UtilConfig;
 import android.view.Display;
 import android.view.InputChannel;
@@ -185,6 +188,11 @@ public final class ActivityThread {
         ArrayList<Intent> pendingIntents;
         /** Whether its finish ran, as system_server's ActivityRecord.finishing. */
         boolean finishRequested;
+        /**
+         * When its launch began, in elapsedRealtime, as ActivityMetricsLogger's launching state notes it: the start of
+         * the Displayed line that its window's first draw logs (reportWindowsDrawn); 0 once logged.
+         */
+        long launchStartTime;
     }
 
     /** A result for an activity, as AOSP's ResultInfo: the embedded ID it was asked for, its request and its answer. */
@@ -414,6 +422,11 @@ public final class ActivityThread {
         long[] disabledChanges = CompatTable.disabledFor(targetSdk);
         VMRuntime.getRuntime().setTargetSdkVersion(targetSdk);
         VMRuntime.getRuntime().setDisabledCompatChanges(disabledChanges);
+        // As handleBindApplication before them: the process's start times, which apps read and the launcher's
+        // Displayed line counts from. Minato's host starts the process itself, so its request is its start.
+        final long startElapsed = SystemClock.elapsedRealtime();
+        final long startUptime = SystemClock.uptimeMillis();
+        android.os.Process.setStartTimes(startElapsed, startUptime, startElapsed, startUptime);
         AppCompatCallbacks.install(disabledChanges, CompatTable.loggableFor(targetSdk));
         AppSpecializationHooks.handleCompatChangesBeforeBindingApplication();
         initZipPathValidatorCallback();
@@ -678,6 +691,8 @@ public final class ActivityThread {
         intent.setComponent(new ComponentName(info.packageName, info.name));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         ActivityClientRecord r = newRecord(intent, info);
+        // A cold launch, which Android times from its request, before the process starts; ours from the start.
+        r.launchStartTime = android.os.Process.getStartElapsedRealtime();
         if (performLaunchActivity(r) == null) {
             removeRecord(r);
             return null;
@@ -685,7 +700,10 @@ public final class ActivityThread {
         return r;
     }
 
-    /** A new record on top of the task, with the window's configuration from the display. */
+    /**
+     * A new record on top of the task, with the window's configuration from the display and its launch's start: a
+     * launch that makes a new instance is a warm one, which Android's Displayed line times.
+     */
     private ActivityClientRecord newRecord(Intent intent, ActivityInfo info) {
         ActivityClientRecord r = new ActivityClientRecord();
         r.token = new Binder();
@@ -694,6 +712,7 @@ public final class ActivityThread {
         r.packageInfo = mLoadedApk;
         r.overrideConfig = windowConfiguration();
         r.requestedOrientation = info.screenOrientation;
+        r.launchStartTime = SystemClock.elapsedRealtime();
         mActivities.put(r.token, r);
         mTask.add(r);
         return r;
@@ -1764,6 +1783,26 @@ public final class ActivityThread {
     boolean isTopOfTask(IBinder token) {
         ActivityClientRecord top = topLiveRecord();
         return top != null && top.token == token;
+    }
+
+    /**
+     * @hide ViewRootImpl's, at the first draw of an activity's window on the host's window: once, the line that
+     * Android 15's ActivityMetricsLogger.logAppDisplayed logs for a launch that made the activity, a cold or a warm
+     * one, with the time since its start. An activity brought back, a hot launch, logs none, as on Android. The
+     * corpus harness reads it as the app's start.
+     */
+    public static void reportWindowsDrawn(IBinder token) {
+        final ActivityThread thread = sCurrentActivityThread;
+        final ActivityClientRecord r = thread != null ? thread.mActivities.get(token) : null;
+        if (r == null || r.launchStartTime == 0) {
+            return;
+        }
+        StringBuilder line = new StringBuilder("Displayed ");
+        line.append(r.intent.getComponent().flattenToShortString()).append(" for user ").append(UserHandle.myUserId())
+                .append(": ");
+        TimeUtils.formatDuration(SystemClock.elapsedRealtime() - r.launchStartTime, line);
+        Log.i("ActivityTaskManager", line.toString());
+        r.launchStartTime = 0;
     }
 
     /**

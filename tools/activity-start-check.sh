@@ -7,7 +7,8 @@
 # navigation keys (fixtures/expected/activity-start-test.logcat, from tools/android-reference.sh --app
 # activity-start-test): the launcher activity behind its alias, through onCreate, the window configuration,
 # setContentView in the window's layout, onStart to onResume and the top resumed state, then the window's first
-# traversal (attach, layout, global layout), a View.post and the window's focus.
+# traversal (attach, layout, global layout), a View.post and the window's focus. Its first draw logs Android's
+# "Displayed" line for the launch, system_server's on Android and so not in the reference: only its start is checked.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/activity-start-check.sh
 set -euo pipefail
@@ -25,7 +26,9 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh activity-start-test >/dev/null
 
-python3 framework/tests/java_app_run.py activity-start-test io.github.kisame76.minato.test.activitystart \
+python3 framework/tests/java_app_run.py \
+  --in-order "I/ActivityTaskManager: Displayed io.github.kisame76.minato.test.activitystart/.Launcher for user 0: +" \
+  activity-start-test io.github.kisame76.minato.test.activitystart \
   io.github.kisame76.minato.test.activitystart.StartApplication build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/activity-start-check build/framework-native/app_process64 \

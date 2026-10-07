@@ -3,7 +3,7 @@
  * framework's own build, with their signatures from the tag's class; is64Bit for b3.1's Build. AOSP's Process replaces
  * it when framework.jar is built from the tag's sources (step b3/c): its sources pull in most of the framework, 80,799
  * javac errors on their own. Step c1 adds what UserHandle, HandlerThread, StrictMode and ContextImpl call, step c2c3
- * what Instrumentation calls.
+ * what Instrumentation calls, and the corpus harness's Displayed line the start times, which apps read too.
  */
 package android.os;
 
@@ -139,5 +139,40 @@ public class Process {
     /** Whether this is an SDK sandbox's process, whose activities Instrumentation checks: never on Minato. */
     public static boolean isSdkSandbox() {
         return false;
+    }
+
+    // When the process started, as the tag's keeps it: ActivityThread's bind sets them, as handleBindApplication does.
+    private static long sStartElapsedRealtime;
+    private static long sStartUptimeMillis;
+    private static long sStartRequestedElapsedRealtime;
+    private static long sStartRequestedUptimeMillis;
+
+    /** As AOSP's: the elapsedRealtime at which the process started, before the app's code ran. */
+    public static long getStartElapsedRealtime() {
+        return sStartElapsedRealtime;
+    }
+
+    /** As AOSP's: the uptimeMillis at which the process started, before the app's code ran. */
+    public static long getStartUptimeMillis() {
+        return sStartUptimeMillis;
+    }
+
+    /** As AOSP's: the elapsedRealtime at which the system was about to start the process. */
+    public static long getStartRequestedElapsedRealtime() {
+        return sStartRequestedElapsedRealtime;
+    }
+
+    /** As AOSP's: the uptimeMillis at which the system was about to start the process. */
+    public static long getStartRequestedUptimeMillis() {
+        return sStartRequestedUptimeMillis;
+    }
+
+    /** @hide ActivityThread's at the bind, as AOSP's handleBindApplication calls it. */
+    public static final void setStartTimes(long elapsedRealtime, long uptimeMillis,
+            long startRequestedElapsedRealtime, long startRequestedUptime) {
+        sStartElapsedRealtime = elapsedRealtime;
+        sStartUptimeMillis = uptimeMillis;
+        sStartRequestedElapsedRealtime = startRequestedElapsedRealtime;
+        sStartRequestedUptimeMillis = startRequestedUptime;
     }
 }
