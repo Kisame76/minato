@@ -15,7 +15,8 @@ server packs the archive. A source whose digest matches is not fetched again.
 
 Usage: tools/fetch-sources.py [--set <list>] [--pin] [name...]
   --set   the list to fetch: sources (the default) or art
-  --pin   write the digests of what was fetched into the list (only for a new or changed entry)
+  --pin   write the digests of what was fetched into the list (only for a new or changed entry), into its text as
+          it is written, so that its compact lines stay as they are
 """
 import base64
 import hashlib
@@ -116,6 +117,32 @@ def extract(archive, directory):
         os.remove(link)
 
 
+EMPTY_DIGEST = re.compile(r'("digest"\s*:\s*)""')
+
+
+def pin_by_text(text, chosen, pinned):
+    """The list's text with the digests of `pinned` ((name, digest) of the list `chosen`) written in, all else as it
+    is written: for each, the one empty digest whose filling gives the list with that entry's digest and nothing else
+    changed. The list is read again for this, so that what changed in it during the fetch stays."""
+    wanted = json.loads(text)
+    for name, value in pinned:
+        entries = [entry for entry in wanted.get(chosen, []) if entry.get("name") == name]
+        if len(entries) != 1:
+            raise SystemExit(f"{name}: not found once in {os.path.relpath(MANIFEST, ROOT)}'s list {chosen!r}; "
+                             f"write its digest {value} there by hand")
+        entries[0]["digest"] = value
+        matching = []
+        for match in EMPTY_DIGEST.finditer(text):
+            candidate = text[:match.start()] + match.group(1) + json.dumps(value) + text[match.end():]
+            if json.loads(candidate) == wanted:
+                matching.append(candidate)
+        if len(matching) != 1:
+            raise SystemExit(f"{name}: its empty digest is not found once in {os.path.relpath(MANIFEST, ROOT)}; "
+                             f"write its digest {value} there by hand")
+        text = matching[0]
+    return text
+
+
 def main():
     arguments = sys.argv[1:]
     pin = "--pin" in arguments
@@ -132,7 +159,7 @@ def main():
     if not isinstance(manifest.get(chosen), list):
         raise SystemExit(f"{os.path.relpath(MANIFEST, ROOT)} has no list {chosen!r}: sources or art")
     host = manifest["host"]
-    changed = False
+    pinned = []
     os.makedirs(DESTINATION, exist_ok=True)
 
     for source in manifest[chosen]:
@@ -187,17 +214,18 @@ def main():
                 if not pin:
                     raise SystemExit(f"{name}: no pinned digest; check the source, then run with --pin")
                 source["digest"] = actual
-                changed = True
+                pinned.append((name, actual))
             shutil.rmtree(target, ignore_errors=True)
             os.rename(staging, target)
             print(f"{name}: {downloaded / 1e6:.2f} MB fetched, digest {actual}")
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
-    if changed:
+    if pinned:
+        with open(MANIFEST) as handle:
+            text = pin_by_text(handle.read(), chosen, pinned)
         with open(MANIFEST, "w") as handle:
-            json.dump(manifest, handle, indent=2)
-            handle.write("\n")
+            handle.write(text)
         print(f"pinned new digests in {os.path.relpath(MANIFEST, ROOT)}")
 
 

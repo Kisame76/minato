@@ -91,12 +91,16 @@ def manifest(jdk_sha256=None):
     }
 
 
-def run(module, root, listed, arguments):
-    """main() on `listed` as root/third_party/sources.json: the URLs it fetched, its error, the list after it."""
+def run(module, root, listed, arguments, text=None):
+    """main() on `listed` as root/third_party/sources.json, or on `text` written as it is: the URLs it fetched, its
+    error, the list after it."""
     path = os.path.join(root, "third_party", "sources.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as handle:
-        json.dump(listed, handle, indent=2)
+        if text is None:
+            json.dump(listed, handle, indent=2)
+        else:
+            handle.write(text)
     module.ROOT = root
     module.MANIFEST = path
     module.DESTINATION = os.path.join(root, "build", "sources")
@@ -193,6 +197,29 @@ def main():
         # Pinned and present: a second run fetches nothing.
         fetched, error, _ = run(module, root, after, ["--set", "art"])
         check(error is None and fetched == [], f"a pinned list that is present is not fetched again: {fetched} {error}")
+
+    # --pin writes a new digest into the list as it is written and leaves the rest alone: entries and lists on one
+    # line stay on theirs, as sources.json keeps them, and of two entries without a digest only the fetched one gets
+    # its own, however its key is spaced.
+    written = (
+        '{\n'
+        '  "host": "' + HOST + '",\n'
+        '  "sources": [{"name": "bionic", "project": "platform/bionic", "commit": "1111", "digest": ""}],\n'
+        '  "art": [\n'
+        '    {"name": "art", "project": "platform/art", "commit": "2222", "digest": ""},\n'
+        '    {"name": "jdk", "url": "https://jdk.example/jdk.tar.gz", "directory": "build/tools/jdk",\n'
+        '     "sha256": "' + hashlib.sha256(JDK).hexdigest() + '", "digest":""}\n'
+        '  ],\n'
+        '  "angle": {"keep": ["build", "third_party/zlib"]}\n'
+        '}\n')
+    with tempfile.TemporaryDirectory() as root:
+        fetched, error, after = run(module, root, None, ["--set", "art", "--pin", "jdk"], text=written)
+        with open(os.path.join(root, "third_party", "sources.json")) as handle:
+            pinned = handle.read()
+        digest = after["art"][1]["digest"]
+        check(error is None and digest != "", f"--pin pins jdk in a list written by hand: {error}")
+        check(pinned == written.replace('"digest":""}', '"digest":"' + digest + '"}'),
+              f"--pin changes only jdk's digest in the list's text:\n{pinned}")
 
     with tempfile.TemporaryDirectory() as root:
         fetched, error, _ = run(module, root, manifest(jdk_sha256="0" * 64), ["--set", "art", "--pin", "jdk"])
