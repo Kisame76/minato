@@ -73,13 +73,10 @@ android.view.SurfaceControl$RefreshRateRange <- android.view.DisplayInfo  # stay
 com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
 
 # StrictMode (c1 took it): the penalties and checks that need system_server.
-android.os.INetworkManagementService <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
-android.os.INetworkManagementService$Stub <- android.os.StrictMode  # gap: StrictMode.setVmPolicy, which asks netd on every call
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
-android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox and detectUnsafeIntentLaunch
+android.app.IActivityManager <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
-android.os.FileUriExposedException <- android.os.StrictMode  # gap: a file:// URI leaving the app, which Android's handleBindApplication makes fatal
 
 # The app model, activities and views.
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)

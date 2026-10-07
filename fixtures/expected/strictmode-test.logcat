@@ -1,0 +1,8 @@
+I/strictmode-test: policies: thread [StrictMode.ThreadPolicy; mask=1107296260], vm [StrictMode.VmPolicy; mask=1082130464]
+I/strictmode-test: serial: java.lang.SecurityException: getSerial: The uid <uid> does not meet the requirements to access device identifiers.
+I/strictmode-test: network on the main thread: android.os.NetworkOnMainThreadException
+I/strictmode-test: another thread: [StrictMode.ThreadPolicy; mask=0]
+I/strictmode-test: vm policy: set, now [StrictMode.VmPolicy; mask=0]
+I/strictmode-test: defaults: thread [StrictMode.ThreadPolicy; mask=1073741951], vm [StrictMode.VmPolicy; mask=1073756599]
+I/strictmode-test: lax: thread [StrictMode.ThreadPolicy; mask=0]
+I/strictmode-test: done

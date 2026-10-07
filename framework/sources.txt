@@ -839,6 +839,10 @@ frameworks_base/core/java/android/os/ShellCallback.java
 frameworks_base/core/java/com/android/internal/os/IResultReceiver.aidl
 frameworks_base/core/java/com/android/internal/os/IShellCallback.aidl
 
+# ADR-0039 step c2d3 (App): FileUriExposedException, which StrictMode throws for a file:// URI that leaves the app, as
+# the bind gives every app the VM defaults now.
+frameworks_base/core/java/android/os/FileUriExposedException.java
+
 # ADR-0045, the storage and app ops Godot's start asks for (stops 4 and 6 of the Godot b) rerun past 7a):
 # StorageVolume, the one emulated volume that our StorageManager (managergen's, framework/managers) lists.
 frameworks_base/core/java/android/os/storage/StorageVolume.java

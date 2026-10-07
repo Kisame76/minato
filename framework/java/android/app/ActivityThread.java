@@ -25,7 +25,9 @@
  * DESTROY as AOSP's handlers, the instance state saved with the stop by the target SDK), and the window's events reach
  * its ViewRootImpl. The root activity's finish() asks the host, which answers with the quit. Without a session the
  * launch runs by itself as before. Since ADR-0045's gap 13a it gives ContentResolver the app's providers and the
- * local settings provider (acquireProvider), whose android_id is the host's --android-id.
+ * local settings provider (acquireProvider), whose android_id is the host's --android-id. Since step c2d3 it gives
+ * the main thread and the process StrictMode's defaults for the app's target SDK, and allows disk writes while the
+ * Application is made and created, as handleBindApplication does.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -61,6 +63,7 @@ import android.os.LocaleList;
 import android.os.Looper;
 import android.os.Message;
 import android.os.MessageQueue;
+import android.os.StrictMode;
 import android.permission.IPermissionManager;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
@@ -390,33 +393,50 @@ public final class ActivityThread {
         // through Resources; neither reads that configuration.
         android.graphics.Compatibility.setTargetSdkVersion(targetSdk);
         Typeface.loadPreinstalledSystemFontMap();
+        // As handleBindApplication (step c2d3): StrictMode's defaults for the app. On a user build, and for an app that
+        // is no bundled system app, they only forbid network on the main thread and file:// URIs that leave the app,
+        // each by its target SDK.
+        StrictMode.initThreadDefaults(pkg.applicationInfo(0));
+        StrictMode.initVmDefaults(pkg.applicationInfo(0));
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);
         thread.mAndroidId = androidId;
         sCurrentActivityThread = thread;
-        // As handleBindApplication's makeApplicationInner (steps c1 and c1.1): the manifest's Application class, else
-        // android.app.Application, unless --application names one, through the app's AppComponentFactory, which loads
-        // and initializes it, then its attachBaseContext with the app's ContextImpl. currentApplication() gives it out
-        // from then on.
-        LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
-        thread.mLoadedApk = packageInfo;
-        Application app = packageInfo.makeApplication(application);
-        thread.mInitialApplication = app;
-        // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
-        // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).
-        thread.mInstrumentation = new Instrumentation();
-        thread.mInstrumentation.basicInit(thread);
-        ActivityClient.setActivityClientController(new LocalActivityClientController(thread));
-        // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
-        thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
-        // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, and Android's
-        // wrapping of what it throws.
+        // As handleBindApplication: disk writes are allowed while the Application is made and created, and the policy
+        // before them comes back afterwards as AOSP's rule has it, whose equals on a fresh ThreadPolicy never holds.
+        final StrictMode.ThreadPolicy savedPolicy = StrictMode.allowThreadDiskWrites();
+        final StrictMode.ThreadPolicy writesAllowedPolicy = StrictMode.getThreadPolicy();
         try {
-            thread.mInstrumentation.callApplicationOnCreate(app);
-        } catch (Exception e) {
-            if (!thread.mInstrumentation.onException(app, e)) {
-                throw new RuntimeException("Unable to create application " + app.getClass().getName() + ": " + e, e);
+            // As handleBindApplication's makeApplicationInner (steps c1 and c1.1): the manifest's Application class,
+            // else android.app.Application, unless --application names one, through the app's AppComponentFactory,
+            // which loads and initializes it, then its attachBaseContext with the app's ContextImpl.
+            // currentApplication() gives it out from then on.
+            LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
+            thread.mLoadedApk = packageInfo;
+            Application app = packageInfo.makeApplication(application);
+            thread.mInitialApplication = app;
+            // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
+            // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).
+            thread.mInstrumentation = new Instrumentation();
+            thread.mInstrumentation.basicInit(thread);
+            ActivityClient.setActivityClientController(new LocalActivityClientController(thread));
+            // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
+            thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
+            // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, and Android's
+            // wrapping of what it throws.
+            try {
+                thread.mInstrumentation.callApplicationOnCreate(app);
+            } catch (Exception e) {
+                if (!thread.mInstrumentation.onException(app, e)) {
+                    throw new RuntimeException("Unable to create application " + app.getClass().getName() + ": " + e,
+                            e);
+                }
+            }
+        } finally {
+            if (targetSdk < Build.VERSION_CODES.O_MR1
+                    || StrictMode.getThreadPolicy().equals(writesAllowedPolicy)) {
+                StrictMode.setThreadPolicy(savedPolicy);
             }
         }
         // The system's launch transaction comes after the bind, so the app's own posts from Application.onCreate run

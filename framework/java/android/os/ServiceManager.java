@@ -7,7 +7,8 @@
  * getService does for a service that does not exist, and is logged once per name. The table's first entry is
  * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e),
  * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
- * (ADR-0045, gap 13a); App's services join it.
+ * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3); App's services join
+ * it. A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
 
@@ -34,12 +35,18 @@ public final class ServiceManager {
     private static final Map<String, Supplier<IBinder>> sMakers = new HashMap<>();
     private static final Map<String, IBinder> sServices = new HashMap<>();
     private static final Set<String> sLoggedUnknown = new HashSet<>();
+    /**
+     * The services Minato does not have by decision: "network_management", netd's, which StrictMode.setVmPolicy asks
+     * at every app's start (step c2d3).
+     */
+    private static final Set<String> ABSENT = Set.of(Context.NETWORKMANAGEMENT_SERVICE);
 
     static {
         sMakers.put(Context.DISPLAY_SERVICE, DisplayService::newBinder);
         sMakers.put(Context.PLATFORM_COMPAT_SERVICE, PlatformCompatService::newBinder);
         sMakers.put(Context.INPUT_SERVICE, InputService::newBinder);
         sMakers.put(ContentResolver.CONTENT_SERVICE_NAME, ContentService::newBinder);
+        sMakers.put(Context.DEVICE_IDENTIFIERS_SERVICE, DeviceIdentifiersService::newBinder);
     }
 
     private ServiceManager() {
@@ -52,7 +59,7 @@ public final class ServiceManager {
             if (service == null) {
                 Supplier<IBinder> maker = sMakers.get(name);
                 if (maker == null) {
-                    if (sLoggedUnknown.add(name)) {
+                    if (!ABSENT.contains(name) && sLoggedUnknown.add(name)) {
                         Log.w(TAG, "No local service \"" + name + "\" (ADR-0045 decision 2)");
                     }
                     return null;

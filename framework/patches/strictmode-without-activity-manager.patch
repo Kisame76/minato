@@ -1,0 +1,26 @@
+Minato's patch to frameworks/base's core/java/android/os/StrictMode.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0039 step c2d3: a VM policy that detects unsafe intent launches registers no callback with the activity manager.
+
+Why: setVmPolicy registers StrictMode's callback for unsafe intent launches with the activity manager whenever the
+policy detects them, as enableDefaults' detectAll does for target SDK 31 and later. Minato has no activity manager
+(ActivityManager.getService answers null) and framework.jar leaves IActivityManager out, so the call ended the app
+with NoClassDefFoundError. The activity manager calls it back when the app starts an intent that its rules find
+unsafe; Minato's starts do not go through an activity manager, so no call would come.
+
+--- a/core/java/android/os/StrictMode.java
++++ b/core/java/android/os/StrictMode.java
+@@ -2153,14 +2153,6 @@
+     private static volatile UnsafeIntentStrictModeCallback sUnsafeIntentCallback;
+ 
+     private static void registerIntentMatchingRestrictionCallback() {
+-        if (sUnsafeIntentCallback == null) {
+-            sUnsafeIntentCallback = new UnsafeIntentStrictModeCallback();
+-            try {
+-                ActivityManager.getService().registerStrictModeCallback(sUnsafeIntentCallback);
+-            } catch (RemoteException e) {
+-                // system_server should not throw
+-            }
+-        }
+     }
+ 
+     /** Gets the current VM policy. */
