@@ -1,0 +1,78 @@
+An embedder's vkGetInstanceProcAddr for the Vulkan backend (Minato's ADR-0044, decision 3; ADR-0029, decision 8).
+
+Why: Minato's graphics/host stands in front of MoltenVK for ANGLE's instance (the private API's setting, the queues
+for "scheduled", the background gate), so ANGLE must reach Vulkan through graphics/host's vkGetInstanceProcAddr and
+never open a loader past it. ANGLEVulkanSetGetInstanceProcAddr, named like patch 0003's ANGLEMetalSetCommitGates,
+takes it before the first Vulkan display; once it was called, the renderer skips OpenLibVulkan and hands it to
+volkInitializeCustom. The checkout keeps no Vulkan loader, so angle_vulkan_entry_points names the loader's target
+only when ANGLE builds its own (angle_use_custom_libvulkan), as angle_libvulkan does.
+Upstream: not proposed; it is Minato's hook into the backend.
+Remove: never while graphics/host stands in front of MoltenVK for ANGLE.
+
+diff --git a/src/common/vulkan/BUILD.gn b/src/common/vulkan/BUILD.gn
+index aaf4379..639e2ac 100644
+--- a/src/common/vulkan/BUILD.gn
++++ b/src/common/vulkan/BUILD.gn
+@@ -123,7 +123,7 @@ if (angle_enable_vulkan) {
+       if (!angle_use_vulkan_null_display) {
+         public_deps += [ "//third_party/fuchsia-sdk/sdk/pkg/vulkan_layers:VkLayer_image_pipe_swapchain" ]
+       }
+-    } else if (!is_android) {
++    } else if (!is_android && angle_use_custom_libvulkan) {
+       if (angle_shared_libvulkan) {
+         data_deps = [ "$angle_vulkan_loader_dir:libvulkan" ]
+       } else {
+diff --git a/src/libANGLE/renderer/vulkan/vk_renderer.cpp b/src/libANGLE/renderer/vulkan/vk_renderer.cpp
+index 0dd3692..6dd3c2d 100644
+--- a/src/libANGLE/renderer/vulkan/vk_renderer.cpp
++++ b/src/libANGLE/renderer/vulkan/vk_renderer.cpp
+@@ -18,6 +18,8 @@
+ #include "libANGLE/renderer/vulkan/vk_utils.h"
+ 
+ #include <EGL/eglext.h>
++#include <export.h>
++#include <atomic>
+ #include <fstream>
+ 
+ #include "common/debug.h"
+@@ -71,8 +73,18 @@ constexpr bool kEnableVulkanAPIDumpLayer = true;
+ #else
+ constexpr bool kEnableVulkanAPIDumpLayer = false;
+ #endif
++
++// Minato (patch 0009): the embedder's vkGetInstanceProcAddr, which ANGLE takes instead of opening a Vulkan loader.
++std::atomic<PFN_vkGetInstanceProcAddr> gEmbedderGetInstanceProcAddr{nullptr};
+ }  // anonymous namespace
+ 
++// Minato (patch 0009): set before the first Vulkan display, ANGLE reaches Vulkan only through the embedder's
++// vkGetInstanceProcAddr (Minato's ADR-0044, decision 3).
++extern "C" ANGLE_EXPORT void ANGLEVulkanSetGetInstanceProcAddr(PFN_vkGetInstanceProcAddr getInstanceProcAddr)
++{
++    gEmbedderGetInstanceProcAddr.store(getInstanceProcAddr, std::memory_order_release);
++}
++
+ namespace rx
+ {
+ namespace
+@@ -2484,12 +2496,17 @@ angle::Result Renderer::initialize(vk::ErrorContext *context,
+ #if defined(ANGLE_SHARED_LIBVULKAN)
+     {
+         ANGLE_SCOPED_DISABLE_MSAN();
+-        mLibVulkanLibrary = angle::vk::OpenLibVulkan();
+-        ANGLE_VK_CHECK(context, mLibVulkanLibrary, VK_ERROR_INITIALIZATION_FAILED);
+-
++        // Minato (patch 0009): the embedder's vkGetInstanceProcAddr when it set one, else the loader's.
+         PFN_vkGetInstanceProcAddr vulkanLoaderGetInstanceProcAddr =
+-            reinterpret_cast<PFN_vkGetInstanceProcAddr>(
++            gEmbedderGetInstanceProcAddr.load(std::memory_order_acquire);
++        if (vulkanLoaderGetInstanceProcAddr == nullptr)
++        {
++            mLibVulkanLibrary = angle::vk::OpenLibVulkan();
++            ANGLE_VK_CHECK(context, mLibVulkanLibrary, VK_ERROR_INITIALIZATION_FAILED);
++
++            vulkanLoaderGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+                 angle::GetLibrarySymbol(mLibVulkanLibrary, "vkGetInstanceProcAddr"));
++        }
+ 
+         // Set all vk* function ptrs
+         VK_CALL(volkInitializeCustom, vulkanLoaderGetInstanceProcAddr);

@@ -4,3 +4,7 @@ target_os = "ios"
 target_environment = "device"
 target_cpu = "arm64"
 ios_enable_code_signing = false
+
+# Metal only, until ADR-0044 c) brings Vulkan to iOS.
+angle_enable_vulkan = false
+angle_build_vulkan_system_info = false

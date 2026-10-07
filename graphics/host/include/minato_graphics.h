@@ -3,6 +3,7 @@
 #ifndef MINATO_GRAPHICS_H
 #define MINATO_GRAPHICS_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -41,6 +42,24 @@ int minato_graphics_probe(const char *moltenvk);
    printing why. A debug build of the app, launched with MINATO_PROVOKING_PROBE set, runs it once it is active
    (probe.m) and exits with its result. */
 int minato_provoking_probe(void);
+
+/* ADR-0044, decision 4: the backend under the session's ANGLE, set before the app starts: 0 Metal, the default, or 1
+   ANGLE's Vulkan backend on MoltenVK, the ES 3.1 path (decision 3), for an app whose manifest requires ES 3.1. On
+   the Vulkan path libEGL's display is ANGLE's Vulkan display, and ANGLE reaches MoltenVK only through graphics/host's
+   functions (angle_vulkan.m): its instances with MoltenVK's private API on (decision 2), its devices with
+   VK_EXT_metal_objects and their queues in "scheduled", its submits held in the background as the commit gate holds
+   Metal's, and its acquires and presents with VK_SUBOPTIMAL_KHR as VK_SUCCESS. Returns 0, or -1 when there is no
+   MoltenVK for ANGLE (minato_graphics_set_providers without its path) or ANGLE lacks patch 0009's setter. */
+int minato_graphics_set_angle_backend(int vulkan);
+
+/* ADR-0044, decision 1, at run time too: whether the ES 3.1 path may run, before ANGLE's instance is made. Draws
+   a)'s triangle quietly in a Metal pass as MoltenVK sets it up, once without and once with both of Apple's calls.
+   Returns 1 when the first vertex provokes without them and the last with them; 0 otherwise with the reason in
+   `reason` (`size` bytes), and also when `forced` asks it to fail, as the App's Debug override does (test 2). */
+int minato_graphics_angle_vulkan_check(int forced, char *reason, size_t size);
+
+/* For tests: the swapchains ANGLE's Vulkan backend made through graphics/host since the program started. */
+unsigned minato_graphics_angle_vulkan_swapchains(void);
 
 /* ADR-0041 decision 11 c)'s probe of the drawables' pool, host code only: whether Core Animation takes a drawable's
    surface back into the layer's pool only once the drawable is let go, as MoltenVK lets an image's drawable go when it

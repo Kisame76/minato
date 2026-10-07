@@ -83,6 +83,14 @@ static void left(void) {
     atomic_fetch_sub(&in_flight, 1);
 }
 
+int minato_graphics_vulkan_enter(void) {
+    return entered();
+}
+
+void minato_graphics_vulkan_leave(void) {
+    left();
+}
+
 static VkResult submitted(VkQueue queue, uint32_t count, const VkSubmitInfo *batches, VkFence fence) {
     if (!entered()) {
         return MINATO_VK_BACKGROUND;
@@ -462,7 +470,7 @@ static void swapchain_destroyed(VkDevice device, VkSwapchainKHR swapchain, const
     [CATransaction flush];
 }
 
-/* A device libvulkan made, with its queues' MTLCommandQueues, retained. */
+/* A device libvulkan or ANGLE made, with its queues' MTLCommandQueues, retained. */
 struct device {
     struct device *next;
     VkDevice device;
@@ -472,37 +480,32 @@ struct device {
 static struct device *devices;
 static pthread_mutex_t devices_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
-                               const VkAllocationCallbacks *allocator, VkDevice *device) {
-    VkResult result = create_device(physical, info, allocator, device);
-    if (result != VK_SUCCESS) {
-        return result;
-    }
+int minato_graphics_vulkan_keep_device(VkDevice device, const VkDeviceCreateInfo *info, PFN_vkGetDeviceQueue2 queue_of,
+                                       PFN_vkGetDeviceProcAddr function_of) {
     uint32_t count = 0;
     for (uint32_t family = 0; family < info->queueCreateInfoCount; family++) {
         count += info->pQueueCreateInfos[family].queueCount;
     }
     struct device *entry = calloc(1, sizeof *entry + count * sizeof entry->queues[0]);
     if (entry == NULL) {
-        destroy_device(*device, allocator);
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
+        return -1;
     }
-    entry->device = *device;
+    entry->device = device;
     const PFN_vkExportMetalObjectsEXT export_objects =
-        (PFN_vkExportMetalObjectsEXT)device_function(*device, "vkExportMetalObjectsEXT");
+        (PFN_vkExportMetalObjectsEXT)function_of(device, "vkExportMetalObjectsEXT");
     for (uint32_t family = 0; family < info->queueCreateInfoCount; family++) {
         const VkDeviceQueueCreateInfo *created = &info->pQueueCreateInfos[family];
         for (uint32_t index = 0; index < created->queueCount; index++) {
             const VkDeviceQueueInfo2 which = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2, .flags = created->flags,
                                               .queueFamilyIndex = created->queueFamilyIndex, .queueIndex = index};
             VkQueue queue = VK_NULL_HANDLE;
-            get_queue(*device, &which, &queue);
+            queue_of(device, &which, &queue);
             VkExportMetalCommandQueueInfoEXT exported = {.sType = VK_STRUCTURE_TYPE_EXPORT_METAL_COMMAND_QUEUE_INFO_EXT,
                                                          .queue = queue};
             VkExportMetalObjectsInfoEXT objects = {.sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECTS_INFO_EXT,
                                                    .pNext = &exported};
             if (export_objects != NULL) {
-                export_objects(*device, &objects);
+                export_objects(device, &objects);
             }
             if (exported.mtlCommandQueue != nil) {
                 entry->queues[entry->count++] = [exported.mtlCommandQueue retain];
@@ -513,10 +516,23 @@ static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateIn
     entry->next = devices;
     devices = entry;
     pthread_mutex_unlock(&devices_lock);
+    return 0;
+}
+
+static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
+                               const VkAllocationCallbacks *allocator, VkDevice *device) {
+    VkResult result = create_device(physical, info, allocator, device);
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+    if (minato_graphics_vulkan_keep_device(*device, info, get_queue, device_function) != 0) {
+        destroy_device(*device, allocator);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
     return VK_SUCCESS;
 }
 
-static void device_destroyed(VkDevice device, const VkAllocationCallbacks *allocator) {
+void minato_graphics_vulkan_forget_device(VkDevice device) {
     struct device *gone = NULL;
     /* The lock waits while "scheduled" commits and waits on these queues. */
     pthread_mutex_lock(&devices_lock);
@@ -532,6 +548,10 @@ static void device_destroyed(VkDevice device, const VkAllocationCallbacks *alloc
         [gone->queues[index] release];
     }
     free(gone);
+}
+
+static void device_destroyed(VkDevice device, const VkAllocationCallbacks *allocator) {
+    minato_graphics_vulkan_forget_device(device);
     destroy_device(device, allocator);
 }
 

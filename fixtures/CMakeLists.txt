@@ -238,6 +238,7 @@ target_link_options(island-bench PRIVATE -Wl,--no-relax)
 
 # The Grafik chat's test apps (ADR-0029 B2, ADR-0030 V5), each with its own CMakeLists.txt.
 add_subdirectory(apps/gles-test)
+add_subdirectory(apps/gles31-test)
 add_subdirectory(apps/vulkan-test)
 # The Grafik chat's present-test for Swappy's frame pacing (ADR-0041 test 3).
 add_subdirectory(apps/present-test)

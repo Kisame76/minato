@@ -1,0 +1,6 @@
+open: 3 swaps, each EGL_TRUE: yes; presents counted: 3
+closed: the frame flushed before the wait: 1 commit; a signal's handler ran during the wait: yes; the swap still waited 50 ms after it: yes; once the gate opened: EGL_TRUE; presents counted: 4
+gone: EGL_FALSE, EGL_BAD_NATIVE_WINDOW, at once: yes, commits: 1
+background: after 100 ms glFlush returned: yes, glReadPixels returned: no, commits: 0; "scheduled": 1
+foreground: both returned: yes; glReadPixels read 255 128 64 255; commits since the background: fewer
+"scheduled" with an event of the host's: the display has no EGL_ANGLE_metal_shared_event_sync

@@ -15,7 +15,10 @@
    - ANGLE's commit gate (patch 0003): a commit counts itself, then reads the background flag and backs out
      and waits for the foreground if it is set; the count drops once ANGLE counted the command buffer. The
      app sets the flag, then "scheduled" waits until the count is 0 and then until ANGLE's committed command
-     buffers are scheduled: either the commit sees the flag or "scheduled" sees the commit (decision 15).
+     buffers are scheduled: either the commit sees the flag or "scheduled" sees the commit (decision 15);
+   - the ES 3.1 path (ADR-0044, decision 4): when the session chose ANGLE's Vulkan backend, ANGLE gets
+     graphics/host's vkGetInstanceProcAddr (patch 0009, angle_vulkan.m), and libEGL's display, which asks for
+     ANGLE's Metal display, becomes ANGLE's Vulkan display.
    Manual reference counting, as vulkan.m. ANGLE's C types are written out here, as ANGLE's headers are not
    among graphics/host's. */
 #import <Foundation/Foundation.h>
@@ -43,6 +46,13 @@ typedef unsigned int egl_boolean;
 typedef int32_t egl_int;
 typedef intptr_t egl_attrib;
 typedef unsigned int gl_enum;
+typedef unsigned int egl_enum;
+#define EGL_NONE 0x3038
+#define EGL_PLATFORM_ANGLE_ANGLE 0x3202
+#define EGL_PLATFORM_ANGLE_TYPE_ANGLE 0x3203
+#define EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE 0x3450
+#define EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE 0x3489
+#define EGL_FEATURE_OVERRIDES_DISABLED_ANGLE 0x3467
 #define GL_DEBUG_CALLBACK_FUNCTION 0x8244
 #define GL_DEBUG_CALLBACK_USER_PARAM 0x8245
 
@@ -53,6 +63,7 @@ typedef egl_boolean (*destroy_surface_function)(void *display, void *surface);
 typedef egl_boolean (*swap_buffers_function)(void *display, void *surface);
 typedef egl_boolean (*presentation_time_function)(void *display, void *surface, int64_t time);
 typedef egl_boolean (*terminate_function)(void *display);
+typedef void *(*get_platform_display_function)(egl_enum platform, void *native, const egl_attrib *attributes);
 typedef void (*debug_function)(unsigned source, unsigned type, unsigned id, unsigned severity, int length,
                                const char *text, const void *user);
 typedef void (*debug_callback_function)(debug_function callback, const void *user);
@@ -65,6 +76,7 @@ static destroy_surface_function destroy_surface;
 static swap_buffers_function swap_buffers;
 static presentation_time_function presentation_time;
 static terminate_function terminate;
+static get_platform_display_function get_platform_display;
 static debug_callback_function debug_callback, debug_callback_khr;
 static get_pointerv_function get_pointerv, get_pointerv_khr;
 
@@ -314,6 +326,37 @@ static void pointer_given_khr(gl_enum pname, void **params) {
 
 /* ANGLE's commits between its gate and its count (patch 0003), and its wait until they are scheduled. */
 static atomic_uint committing;
+/* The ES 3.1 path (ADR-0044, decision 4): libEGL asks for ANGLE's Metal display, which becomes its Vulkan display once
+   the session chose that backend and ANGLE took graphics/host's vkGetInstanceProcAddr (patch 0009). That display goes
+   without ANGLE's usePrimitiveTopologyDynamicState (EGL_ANGLE_feature_control): MoltenVK draws a triangle fan as
+   triangles only for a pipeline made with that topology (MVKCmdDraw.mm), and with the topology as dynamic state it
+   draws a fan's vertices as a list of triangles. */
+static atomic_int vulkan_ready;
+static const char *const vulkan_features_off[] = {"usePrimitiveTopologyDynamicState", NULL};
+
+static void *platform_display_asked(egl_enum platform, void *native, const egl_attrib *attributes) {
+    if (platform != EGL_PLATFORM_ANGLE_ANGLE || attributes == NULL || !atomic_load(&vulkan_ready) ||
+        !minato_graphics_angle_vulkan_backend()) {
+        return get_platform_display(platform, native, attributes);
+    }
+    size_t length = 0;
+    while (attributes[length] != EGL_NONE) {
+        length += 2;
+    }
+    egl_attrib ours[length + 3];
+    for (size_t index = 0; index < length; index += 2) {
+        ours[index] = attributes[index];
+        ours[index + 1] = attributes[index] == EGL_PLATFORM_ANGLE_TYPE_ANGLE &&
+                                  attributes[index + 1] == EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE
+                              ? EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE
+                              : attributes[index + 1];
+    }
+    ours[length] = EGL_FEATURE_OVERRIDES_DISABLED_ANGLE;
+    ours[length + 1] = (egl_attrib)vulkan_features_off;
+    ours[length + 2] = EGL_NONE;
+    return get_platform_display(platform, native, ours);
+}
+
 static int (*_Atomic wait_until_scheduled)(double seconds);
 
 static void commit_entered(void) {
@@ -338,6 +381,17 @@ static void gates(void *library) {
         set(commit_entered, commit_counted);
     }
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
+    if (minato_graphics_angle_vulkan_backend() && !atomic_load(&vulkan_ready)) {
+        void (*set_loader)(void *) = (void (*)(void *))dlsym(library, "ANGLEVulkanSetGetInstanceProcAddr");
+        void *loader = minato_graphics_angle_vulkan_loader();
+        if (set_loader != NULL && loader != NULL) {
+            set_loader(loader);
+            atomic_store(&vulkan_ready, 1);
+        } else {
+            fprintf(stderr, "minato graphics: ANGLE %s, so the ES 3.1 path stays on Metal\n",
+                    set_loader == NULL ? "lacks ANGLEVulkanSetGetInstanceProcAddr (patch 0009)" : "has no MoltenVK");
+        }
+    }
 }
 
 int minato_graphics_angle_provider(void *context, uint64_t deadline) {
@@ -367,6 +421,7 @@ void minato_graphics_egl_wrap(void **table, void *library) {
     WRAP(EGL, eglSwapBuffers, swap_buffers, swapped)
     WRAP(EGL, eglPresentationTimeANDROID, presentation_time, presentation_time_set)
     WRAP(EGL, eglTerminate, terminate, terminated)
+    WRAP(EGL, eglGetPlatformDisplay, get_platform_display, platform_display_asked)
     gates(library);
 }
 

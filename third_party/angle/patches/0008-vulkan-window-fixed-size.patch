@@ -1,0 +1,101 @@
+EGL_ANGLE_window_fixed_size on the Vulkan backend (Minato's ADR-0044, decision 3; ADR-0029, decision 8).
+
+Why: Android apps choose their buffer size with ANativeWindow_setBuffersGeometry, and Minato's libEGL makes every
+window surface with EGL_FIXED_SIZE_ANGLE to follow it (patch 0001 does it for Metal). The Vulkan display does not
+offer the extension, so EGL refuses EGL_WIDTH and EGL_HEIGHT for its surfaces (validationEGL.cpp), and the swapchain
+takes the surface's current extent (SurfaceVk.cpp). With this patch DisplayVk announces the extension,
+WindowSurfaceVk keeps the surface's fixed size, which eglSurfaceAttrib(EGL_WIDTH/EGL_HEIGHT) changes, and the
+swapchain takes it instead of the current extent: the check before each acquire keeps the swapchain while the size
+stays and makes it again once the size changed. Core Animation scales the drawables onto the layer.
+Upstream: could go upstream; the extension exists for other backends.
+Remove: when upstream implements EGL_ANGLE_window_fixed_size for Vulkan.
+
+diff --git a/src/libANGLE/renderer/vulkan/DisplayVk.cpp b/src/libANGLE/renderer/vulkan/DisplayVk.cpp
+index e9d4443..ff675d0 100644
+--- a/src/libANGLE/renderer/vulkan/DisplayVk.cpp
++++ b/src/libANGLE/renderer/vulkan/DisplayVk.cpp
+@@ -538,6 +538,8 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
+     outExtensions->glRenderbufferImage = true;
+     outExtensions->imageNativeBuffer     = getFeatures().supportsAndroidHardwareBuffer.enabled;
+     outExtensions->surfacelessContext = true;
++    // Minato (patch 0008): EGL_ANGLE_window_fixed_size, which WindowSurfaceVk keeps.
++    outExtensions->windowFixedSize = true;
+     outExtensions->glColorspace       = true;
+     outExtensions->imageGlColorspace =
+         outExtensions->glColorspace && getFeatures().supportsImageFormatList.enabled;
+diff --git a/src/libANGLE/renderer/vulkan/SurfaceVk.cpp b/src/libANGLE/renderer/vulkan/SurfaceVk.cpp
+index 7be4489..4bf084e 100644
+--- a/src/libANGLE/renderer/vulkan/SurfaceVk.cpp
++++ b/src/libANGLE/renderer/vulkan/SurfaceVk.cpp
+@@ -1046,6 +1046,9 @@ WindowSurfaceVk::WindowSurfaceVk(const egl::SurfaceState &surfaceState, EGLNativ
+       mSurface(VK_NULL_HANDLE),
+       mSupportsProtectedSwapchain(false),
+       mIsSurfaceSizedBySwapchain(false),
++      mFixedSize(surfaceState.attributes.get(EGL_FIXED_SIZE_ANGLE, EGL_FALSE) == EGL_TRUE),
++      mFixedWidth(static_cast<uint32_t>(surfaceState.attributes.get(EGL_WIDTH, 0))),
++      mFixedHeight(static_cast<uint32_t>(surfaceState.attributes.get(EGL_HEIGHT, 0))),
+       mSizeState(SurfaceSizeState::InvalidSwapchain),
+       mSwapchain(VK_NULL_HANDLE),
+       mLastSwapchain(VK_NULL_HANDLE),
+@@ -2107,11 +2110,33 @@ angle::Result WindowSurfaceVk::queryAndAdjustSurfaceCaps(
+         surfaceCapsOut->currentExtent.height = windowExtents.height;
+     }
+ 
++    // Minato (patch 0008): EGL_FIXED_SIZE_ANGLE: the swapchain takes the surface's fixed size, within the extents the
++    // surface allows, so the swapchain stays while the size stays and is made again once eglSurfaceAttrib changed it.
++    if (mFixedSize)
++    {
++        surfaceCapsOut->currentExtent.width =
++            std::clamp(mFixedWidth.load(std::memory_order_relaxed), surfaceCapsOut->minImageExtent.width,
++                       surfaceCapsOut->maxImageExtent.width);
++        surfaceCapsOut->currentExtent.height =
++            std::clamp(mFixedHeight.load(std::memory_order_relaxed), surfaceCapsOut->minImageExtent.height,
++                       surfaceCapsOut->maxImageExtent.height);
++    }
++
+     adjustSurfaceExtent(&surfaceCapsOut->currentExtent);
+ 
+     return angle::Result::Continue;
+ }
+ 
++void WindowSurfaceVk::setFixedWidth(EGLint width)
++{
++    mFixedWidth.store(static_cast<uint32_t>(width), std::memory_order_relaxed);
++}
++
++void WindowSurfaceVk::setFixedHeight(EGLint height)
++{
++    mFixedHeight.store(static_cast<uint32_t>(height), std::memory_order_relaxed);
++}
++
+ void WindowSurfaceVk::adjustSurfaceExtent(VkExtent2D *extent) const
+ {
+     ASSERT(extent->width != kSurfaceSizedBySwapchain);
+diff --git a/src/libANGLE/renderer/vulkan/SurfaceVk.h b/src/libANGLE/renderer/vulkan/SurfaceVk.h
+index f22260e..8462337 100644
+--- a/src/libANGLE/renderer/vulkan/SurfaceVk.h
++++ b/src/libANGLE/renderer/vulkan/SurfaceVk.h
+@@ -318,6 +318,10 @@ class WindowSurfaceVk : public SurfaceVk
+     egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) override;
+     egl::Error getMscRate(EGLint *numerator, EGLint *denominator) override;
+     void setSwapInterval(const egl::Display *display, EGLint interval) override;
++
++    // Minato (patch 0008): EGL_ANGLE_window_fixed_size; a new size takes effect with the next acquire.
++    void setFixedWidth(EGLint width) override;
++    void setFixedHeight(EGLint height) override;
+     void setSwapBehavior(EGLenum behavior) override;
+ 
+     // Explicitly resolves surface size to use before state synchronization (e.g. validation).
+@@ -499,6 +503,12 @@ class WindowSurfaceVk : public SurfaceVk
+ 
+     bool mIsSurfaceSizedBySwapchain;
+ 
++    // Minato (patch 0008): EGL_FIXED_SIZE_ANGLE: the swapchain keeps this extent instead of the surface's current
++    // one, and Core Animation scales it onto the layer.
++    const bool mFixedSize;
++    std::atomic<uint32_t> mFixedWidth;
++    std::atomic<uint32_t> mFixedHeight;
++
+     // Atomic is to allow update state without necessarily locking the mSizeMutex.
+     std::atomic<impl::SurfaceSizeState> mSizeState;
+     // Protects mWidth and mHeight against getUserSize() call.

@@ -16,4 +16,11 @@ void minato_graphics_gles_wrap(void **table, void *library);
    ANGLEMetalWaitUntilScheduled); 1 at once while no front lib opened ANGLE. */
 int minato_graphics_angle_provider(void *context, uint64_t deadline);
 
+/* The session's choice (angle_vulkan.m): 1 when ANGLE runs on its Vulkan backend, the ES 3.1 path. */
+int minato_graphics_angle_vulkan_backend(void);
+
+/* graphics/host's vkGetInstanceProcAddr for ANGLE's Vulkan backend (patch 0009), as a plain pointer, since angle.m
+   has no Vulkan types; NULL without MoltenVK. */
+void *minato_graphics_angle_vulkan_loader(void);
+
 #endif

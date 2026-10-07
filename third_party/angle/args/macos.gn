@@ -2,3 +2,13 @@
 
 target_os = "mac"
 target_cpu = "arm64"
+
+# ANGLE's Vulkan backend on MoltenVK beside Metal (ADR-0044, decision 3). On the Mac ANGLE builds the Vulkan
+# loader and links it statically unless told otherwise; with neither, it goes through volk, which takes
+# graphics/host's vkGetInstanceProcAddr (patch 0009) and never opens a loader.
+angle_enable_vulkan = true
+angle_shared_libvulkan = true
+angle_use_custom_libvulkan = false
+# The backend reads drivers' versions through the system info's Vulkan sources, which are built for that but
+# not used for the system info itself (angle_enable_vulkan_system_info stays false).
+angle_build_vulkan_system_info = true

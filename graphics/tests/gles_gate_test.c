@@ -8,7 +8,12 @@
    - background: glFlush and glReadPixels on two other threads wait inside ANGLE and commit nothing,
      "scheduled" says yes meanwhile, and both go on once the process is in the foreground again;
    - "scheduled" through the runtime waits for ANGLE's command buffers: not while one waits for an event of
-     the host's (EGL_ANGLE_metal_shared_event_sync), once the host set the event. */
+     the host's (EGL_ANGLE_metal_shared_event_sync), once the host set the event.
+   On ANGLE's Vulkan display, the ES 3.1 path (graphics.gles_gate_vulkan, ADR-0044 c)), three lines differ for its
+   backend's reasons, and the last says the display has no such events: "gone" counts the commit of MoltenVK's
+   acquire, which ANGLE makes at the frame's first draw (nothing is presented); a glFlush with nothing but a clear
+   submits nothing there, so in the background it returns while glReadPixels waits, with no commit either way; and
+   after the background only glReadPixels commits. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -19,6 +24,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -187,6 +193,16 @@ int main(void) {
            reading.pixel[2], reading.pixel[3], minato_test(MINATO_TEST_COMMITS, 0, 0, 0) >= 2 ? "2 or more" : "fewer");
 
     eglMakeCurrent(display, flushing.pbuffer, flushing.pbuffer, flushing.context);
+    const char *extensions = eglQueryString(display, EGL_EXTENSIONS);
+    if (extensions == NULL || strstr(extensions, "EGL_ANGLE_metal_shared_event_sync") == NULL) {
+        printf("\"scheduled\" with an event of the host's: the display has no EGL_ANGLE_metal_shared_event_sync\n");
+        glFinish();
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(display, surface);
+        ANativeWindow_release(window);
+        eglTerminate(display);
+        return 0;
+    }
     const uint64_t event = minato_test(MINATO_TEST_EVENT, 0, 0, 0);
     const EGLAttrib gpu_wait[] = {EGL_SYNC_METAL_SHARED_EVENT_OBJECT_ANGLE, (EGLAttrib)event,
                                   EGL_SYNC_METAL_SHARED_EVENT_SIGNAL_VALUE_LO_ANGLE, 1,

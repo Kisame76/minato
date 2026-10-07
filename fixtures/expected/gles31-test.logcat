@@ -1,0 +1,12 @@
+I/gles31-test: android_main
+I/gles31-test: config: RGBA 8 8 8 8, depth 24, stencil 8
+I/gles31-test: window surface: 256 x 256
+I/gles31-test: context: ES 3.1
+I/gles31-test: scene 1 compute: buffer 4096 of 4096, image 4096 of 4096 as expected
+I/gles31-test: scene 2 draw from buffer and image: 4096 of 4096 as expected, crc d230ea61
+I/gles31-test: scene 3 flat: triangle 1 gives 13, triangle 2 gives 23
+I/gles31-test: scene 4 fan: bottom 3, right 4, top 5, left 6
+I/gles31-test: swaps: 124 of 124 succeeded
+I/gles31-test: ANativeActivity_finish
+I/gles31-test: APP_CMD_TERM_WINDOW: EGL released: yes
+I/gles31-test: android_main returns

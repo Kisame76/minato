@@ -8,14 +8,12 @@ symbol_level = 1
 # New SDKs bring new warnings in code that is not ours.
 treat_warnings_as_errors = false
 
-# Only the Metal backend.
+# The Metal backend, and Vulkan where a slice turns it on (ADR-0044, decision 3).
 angle_enable_metal = true
 angle_enable_gl = false
-angle_enable_vulkan = false
 angle_enable_swiftshader = false
 angle_enable_null = false
 angle_enable_wgpu = false
-angle_build_vulkan_system_info = false
 angle_enable_perfetto = false
 
 # No tests, samples or frame capture, so gn gen needs none of their dependencies.

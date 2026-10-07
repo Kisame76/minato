@@ -49,6 +49,10 @@
 // - The same with <mode> record:<load> (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the window's
 //   layer records, and a nextDrawable of the test's own before and after the recording. It passes as above with 120
 //   presents, and when the recording holds every drawable once and in order (recording_check.h).
+// - With MINATO_ANGLE_BACKEND=vulkan (ADR-0044 c)), any of the above runs on the ES 3.1 path, ANGLE's Vulkan backend on
+//   MoltenVK, once graphics/host's run-time check passed, as the session runs an app whose manifest requires ES 3.1.
+//   It passes as above, and with gles-test's and gles31-test's <presents> when ANGLE made one swapchain and its layer's
+//   drawables have the app's buffer size, 256 x 256.
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
 //                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib>
 //                     <presents | live | present | bench:<load> | record:<load>>
@@ -99,6 +103,7 @@ constexpr std::int32_t width = 1290, height = 2796;
 
 int failures = 0;
 int report = 2;  // the real stderr, also once descriptor 2 is the capture's pipe
+bool vulkan = false;  // MINATO_ANGLE_BACKEND=vulkan: the ES 3.1 path (ADR-0044 c))
 
 void fail(const std::string &what) {
     ::dprintf(report, "FAIL: %s\n", what.c_str());
@@ -486,6 +491,20 @@ void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t
     };
     if (!wait_for(finished, 120s)) fail("no FINISH within 120 s: " + requests_text());
     const std::uint64_t counted = apkrt_window_presents(window);
+    if (vulkan) {
+        // ANGLE's Vulkan surface draws into a CAMetalLayer of its own on the window's layer (WindowSurfaceVkMac), whose
+        // drawables keep the size of the apps' buffers, 256 x 256, as patch 0008 keeps the swapchain's extent.
+        CAMetalLayer *drawn = nil;
+        for (CALayer *sublayer in last_layer.sublayers) {
+            if ([sublayer isKindOfClass:[CAMetalLayer class]]) drawn = (CAMetalLayer *)sublayer;
+        }
+        const CGSize size = drawn != nil ? drawn.drawableSize : CGSizeZero;
+        ::dprintf(report, "host: ANGLE's Vulkan layer: drawables of %.0f x %.0f\n", size.width, size.height);
+        if (size.width != 256 || size.height != 256) {
+            fail("ANGLE's Vulkan layer has drawables of " + std::to_string(static_cast<int>(size.width)) + " x " +
+                 std::to_string(static_cast<int>(size.height)) + ", not the app's 256 x 256");
+        }
+    }
     focus_lost(window, nullptr);
     apkrt_window_remove(window);
     post(APKRT_EVENT_PAUSE);
@@ -893,6 +912,17 @@ int main(int argc, char **argv) {
         fail(error);
     }
     if (minato_graphics_set_providers(moltenvk.c_str(), angle.c_str()) != 0) fail("the runtime refused the providers");
+    // ADR-0044 c): MINATO_ANGLE_BACKEND=vulkan puts the app on the ES 3.1 path, ANGLE's Vulkan backend on MoltenVK,
+    // after the run-time check, as the session does for an app whose manifest requires ES 3.1.
+    const char *backend = std::getenv("MINATO_ANGLE_BACKEND");
+    vulkan = backend != nullptr && std::strcmp(backend, "vulkan") == 0;
+    if (vulkan) {
+        char reason[256] = "";
+        if (minato_graphics_angle_vulkan_check(0, reason, sizeof reason) != 1) {
+            fail(std::string("the run-time check refuses the ES 3.1 path: ") + reason);
+        }
+        if (minato_graphics_set_angle_backend(1) != 0) fail("graphics/host took no Vulkan backend for ANGLE");
+    }
 
     Capture capture;
     if (!capture.start()) {
@@ -934,6 +964,14 @@ int main(int argc, char **argv) {
             fail("activity-host did not end");
         } else if (seen.status != 0) {
             fail("activity-host ended with status " + std::to_string(seen.status));
+        }
+    }
+    if (vulkan) {
+        const unsigned swapchains = minato_graphics_angle_vulkan_swapchains();
+        ::dprintf(report, "ANGLE's Vulkan swapchains: %u\n", swapchains);
+        // A window that keeps its size keeps its swapchain (patch 0008, and SUBOPTIMAL answered as SUCCESS).
+        if (!live && !bench && !present && swapchains != 1) {
+            fail("ANGLE made " + std::to_string(swapchains) + " swapchains for one window of one size, not 1");
         }
     }
     if (failures == 0) {

@@ -1,5 +1,6 @@
-/* ADR-0044 a)'s probe; see minato_graphics.h. Host code only: one triangle in an offscreen Metal pass, set up as
-   MoltenVK 1.4.2 sets up its passes with the private API (MVKRenderPass.mm, MVKCommandEncoderState.mm). */
+/* ADR-0044 a)'s probe and the run-time check before the ES 3.1 path (decision 1, c)); see minato_graphics.h. Host
+   code only: one triangle in an offscreen Metal pass, set up as MoltenVK 1.4.2 sets up its passes with the private
+   API (MVKRenderPass.mm, MVKCommandEncoderState.mm). */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <stdio.h>
@@ -108,6 +109,59 @@ static int failed(const char *what, NSError *error) {
     return 1;
 }
 
+/* The triangle's pipeline, nil with `failure` naming the step that failed. */
+static id<MTLRenderPipelineState> pipeline_of(id<MTLDevice> device, const char **failure, NSError **error) {
+    id<MTLLibrary> library = [device newLibraryWithSource:kSource options:nil error:error];
+    if (library == nil) {
+        *failure = "compiling the shaders";
+        return nil;
+    }
+    MTLRenderPipelineDescriptor *description = [[MTLRenderPipelineDescriptor alloc] init];
+    description.vertexFunction = [library newFunctionWithName:@"probe_vertex"];
+    description.fragmentFunction = [library newFunctionWithName:@"probe_fragment"];
+    description.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+    id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:description error:error];
+    if (pipeline == nil) {
+        *failure = "making the pipeline";
+    }
+    return pipeline;
+}
+
+int minato_graphics_angle_vulkan_check(int forced, char *reason, size_t size) {
+    if (forced) {
+        snprintf(reason, size, "the run-time check was forced to fail");
+        return 0;
+    }
+    @autoreleasepool {
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        if (device == nil) {
+            snprintf(reason, size, "no Metal device");
+            return 0;
+        }
+        const char *failure = NULL;
+        NSError *error = nil;
+        id<MTLRenderPipelineState> pipeline = pipeline_of(device, &failure, &error);
+        if (pipeline == nil) {
+            snprintf(reason, size, "the check's triangle: %s failed: %s", failure, described(error));
+            return 0;
+        }
+        id<MTLCommandQueue> queue = [device newCommandQueue];
+        const Drawn without = draw(device, queue, pipeline, NO, NO);
+        const Drawn with = draw(device, queue, pipeline, YES, YES);
+        if (without.vertex != 0) {
+            snprintf(reason, size, "without Apple's calls the first vertex does not provoke: %s",
+                     without.vertex >= 0 ? "another vertex does" : without.detail);
+            return 0;
+        }
+        if (with.vertex != 2) {
+            snprintf(reason, size, "the last vertex does not provoke in a pass as MoltenVK sets it up: %s",
+                     with.vertex >= 0 ? "another vertex does" : with.detail);
+            return 0;
+        }
+        return 1;
+    }
+}
+
 int minato_provoking_probe(void) {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -116,18 +170,11 @@ int minato_provoking_probe(void) {
             return 1;
         }
         printf("provoking probe: GPU %s\n", device.name.UTF8String);
+        const char *failure = NULL;
         NSError *error = nil;
-        id<MTLLibrary> library = [device newLibraryWithSource:kSource options:nil error:&error];
-        if (library == nil) {
-            return failed("compiling the shaders", error);
-        }
-        MTLRenderPipelineDescriptor *description = [[MTLRenderPipelineDescriptor alloc] init];
-        description.vertexFunction = [library newFunctionWithName:@"probe_vertex"];
-        description.fragmentFunction = [library newFunctionWithName:@"probe_fragment"];
-        description.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-        id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:description error:&error];
+        id<MTLRenderPipelineState> pipeline = pipeline_of(device, &failure, &error);
         if (pipeline == nil) {
-            return failed("making the pipeline", error);
+            return failed(failure, error);
         }
         id<MTLCommandQueue> queue = [device newCommandQueue];
 

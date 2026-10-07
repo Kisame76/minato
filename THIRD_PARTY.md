@@ -39,7 +39,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 
 ## Graphics: ANGLE (ADR-0029)
 
-ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend only. The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
+ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend. The Mac's test library also has the Vulkan backend (ADR-0044 c), not in the app until its iOS slices get it), with Volk from ANGLE's tree (MIT) and four more of the dependencies it keeps: Vulkan-Headers (`31386378`, Apache-2.0 or MIT), SPIRV-Headers (`49654312`, MIT), SPIRV-Tools (`b40380bf`, Apache-2.0) and VulkanMemoryAllocator (`7e55b011`, MIT). The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
 
 | Part in `libGLESv2` | Version | License |
 |---|---|---|

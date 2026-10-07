@@ -562,7 +562,7 @@
     }
   ],
   "angle": {
-    "comment": "ANGLE for GLES through Metal (ADR-0029), fetched and built by tools/build-angle.sh into build/angle/. The repositories are pinned by commit (ANGLE's DEPS pins the others), the files the script fetches itself by SHA-256 or Git blob ID. tools/fetch-sources.py does not read this entry.",
+    "comment": "ANGLE for GLES through Metal (ADR-0029), and on the Mac also through Vulkan on MoltenVK for ES 3.1 (ADR-0044 c), whose four dependencies the kept list names last), fetched and built by tools/build-angle.sh into build/angle/. The repositories are pinned by commit (ANGLE's DEPS pins the others), the files the script fetches itself by SHA-256 or Git blob ID. tools/fetch-sources.py does not read this entry.",
     "project": "https://chromium.googlesource.com/angle/angle",
     "branch": "chromium/8037",
     "commit": "b4cbb0a8e0aa39ec9088a9d26e8ce42bf7e5b2e6",
@@ -590,7 +590,11 @@
         "third_party/jsoncpp/source",
         "third_party/libc++/src",
         "third_party/libc++abi/src",
-        "third_party/llvm-libc/src"
+        "third_party/llvm-libc/src",
+        "third_party/vulkan-headers/src",
+        "third_party/spirv-headers/src",
+        "third_party/spirv-tools/src",
+        "third_party/vulkan_memory_allocator"
       ],
       "left_out_recursed": [
         "buildtools/win-format",

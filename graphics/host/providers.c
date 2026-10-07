@@ -131,6 +131,10 @@ static int provide(void *context, void **table, size_t length, uint64_t hash) {
     return 0;
 }
 
+const char *minato_graphics_moltenvk_path(void) {
+    return libs[0].path;
+}
+
 int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     const char *paths[] = {moltenvk, angle, angle};
     for (size_t index = 0; index < sizeof libs / sizeof *libs; index++) {

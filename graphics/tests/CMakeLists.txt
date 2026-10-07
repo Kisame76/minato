@@ -335,6 +335,17 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW=set:64x48")
     add_guest_test(gles_front gles-front-test gles_front_test "${gles_system_libraries}" ${with_angle})
     add_guest_test(gles_gate gles-gate-test gles_gate_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0044 c): the same gates on the ES 3.1 path, ANGLE's Vulkan backend on MoltenVK, whose submits wait in the
+    # background in graphics/host's functions (angle_vulkan.m); its display has no Metal events.
+    if(EXISTS "${moltenvk}")
+      add_guest_test(gles_gate_vulkan gles-gate-test gles_gate_vulkan_test "${gles_system_libraries}"
+        "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=set:${angle}" "MINATO_METAL_HOOK=set:count"
+        "MINATO_WINDOW=set:64x48" "MINATO_ANGLE_BACKEND=set:vulkan")
+    else()
+      add_test(NAME graphics.gles_gate_vulkan COMMAND ${CMAKE_COMMAND} -E echo
+        "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/build-moltenvk.sh")
+      set_tests_properties(graphics.gles_gate_vulkan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    endif()
     add_guest_test(gles_glue gles-glue-test gles_glue_test "${gles_system_libraries}" ${with_angle}
       "MINATO_WINDOW_SCRIPT=set:glue")
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
@@ -342,7 +353,7 @@ if(TARGET minato_graphics_host)
     # ADR-0041 a1: libGLESv1_CM on ANGLE's ES 1.x, as an app linked against the NDK's stub reaches it.
     add_guest_test(gles1_front gles1-front-test gles1_front_test "${gles_system_libraries}" ${with_angle})
   else()
-    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front)
+    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front gles_gate_vulkan)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -391,6 +402,22 @@ if(TARGET minato_graphics_host)
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" live)
     set_tests_properties(graphics.${app}_live PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120
       ENVIRONMENT "MINATO_METAL_HOOK=count")
+  endforeach()
+  # ADR-0044 c), tests 2 and 3 on the Mac: the ES 3.1 path, ANGLE's Vulkan backend on MoltenVK, which the session
+  # chooses after the run-time check (MINATO_ANGLE_BACKEND=vulkan). gles31-test's exact values (fixtures/expected/
+  # gles31-test.logcat; Android 15's emulator stops at ES 3.0) and its 124 presents; gles-test's Android 15 lines and
+  # 132 presents; each through one swapchain for its window of one size. gles-live as above, Metal's hook counting
+  # MoltenVK's commits.
+  foreach(case IN ITEMS gles31_app:gles31-test:124 gles_app_vulkan:gles-test:132 gles_live_vulkan:gles-live:live)
+    string(REPLACE ":" ";" case "${case}")
+    list(GET case 0 name)
+    list(GET case 1 app)
+    list(GET case 2 mode)
+    add_test(NAME graphics.${name} COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" ${app}
+      "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+      "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" ${mode})
+    set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180
+      ENVIRONMENT "MINATO_ANGLE_BACKEND=vulkan;MINATO_METAL_HOOK=count")
   endforeach()
   # ADR-0041 test 3 on the Mac: present-gles and present-vulkan, which ask for their presents' times at 60 and 120
   # frames a second until they finish by themselves. The Mac checks the calls, the app's lines against Android 15's
@@ -453,6 +480,7 @@ if(TARGET minato_graphics_host)
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
     graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
+    graphics.gles31_app graphics.gles_app_vulkan graphics.gles_live_vulkan graphics.gles_gate_vulkan
     PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
   # logs to stderr in between, so the probe's lines are matched, not the whole output.
@@ -471,7 +499,8 @@ else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock window_buffers
       window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop probe
       gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
-      gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class)
+      gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
+      gles_live_vulkan gles_gate_vulkan)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -485,6 +514,11 @@ if(TARGET minato_graphics_host)
   target_link_libraries(graphics-provoking-probe PRIVATE minato_graphics_host apk_defaults)
   add_test(NAME graphics.provoking_probe COMMAND graphics-provoking-probe)
   set_tests_properties(graphics.provoking_probe PROPERTIES TIMEOUT 60)
+  # ADR-0044 c): the same triangle as the run-time check before the ES 3.1 path, quietly; forced, it refuses.
+  add_executable(graphics-angle-vulkan-check angle_vulkan_check.c)
+  target_link_libraries(graphics-angle-vulkan-check PRIVATE minato_graphics_host apk_defaults)
+  add_test(NAME graphics.angle_vulkan_check COMMAND graphics-angle-vulkan-check)
+  set_tests_properties(graphics.angle_vulkan_check PROPERTIES TIMEOUT 60)
 else()
   add_test(NAME graphics.provoking_probe COMMAND ${CMAKE_COMMAND} -E echo
     "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")
