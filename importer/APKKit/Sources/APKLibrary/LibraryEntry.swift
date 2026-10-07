@@ -45,6 +45,9 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// its APKs and OBBs, and OBBs Minato does not install. nil where nothing was left out, so an import without a
     /// container clears it.
     public var ignoredFiles: [IgnoredFile]? = nil
+    /// The asset packs Play fetches after the install, fast-follow and on-demand, kept in the version folder's packs/
+    /// under bundletool's names (ADR-0049 decision 2, format 6); nil where the version has none.
+    public var packs: [PackageFile]? = nil
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

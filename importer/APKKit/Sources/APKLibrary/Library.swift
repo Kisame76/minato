@@ -252,6 +252,9 @@ public actor Library {
     /// to `url` with its digest, its checked name and its path in the container, and what it leaves out.
     private struct Extras {
         var obbs: [(url: URL, file: PackageFile, name: OBBName, path: String)] = []
+        /// A bundletool set's later pack slices for the version's packs/, each checked against the set and named as
+        /// bundletool names it (ADR-0049 decision 2).
+        var packs: [(url: URL, file: PackageFile)] = []
         var leftOut = LeftOut()
     }
 
@@ -351,13 +354,15 @@ public actor Library {
         }
         switch (decision, installed) {
         case (.unchanged, let installed?)
-            where installed.state != .incompatible && (!new.extras.obbs.isEmpty || new.extras.leftOut.named != nil):
+            where installed.state != .incompatible
+                && (!new.extras.obbs.isEmpty || !new.extras.packs.isEmpty || new.extras.leftOut.named != nil):
             // The same version from a container: its OBBs go in through the installed version's folder (ADR-0049 c2),
-            // unless it cannot run, as an incompatible version installs none. The OBB folder is checked first, so a
-            // refusal changes nothing.
+            // and its later packs replace that folder's packs/ (decision 2), unless it cannot run, as an incompatible
+            // version installs none. The OBB folder is checked first, so a refusal changes nothing.
             var entry = installed
             try paths.prepareData(for: package)
             let staging = try stageOBBs(plan, from: new.extras, in: paths.versionDirectory(for: installed))
+            if let packs = try placePacks(new.extras.packs, in: paths.versionDirectory(for: installed)) { entry.packs = packs }
             entry.obbs = plan.obbs
             entry.ignoredFiles = plan.leftOut.named
             try store(entry)
@@ -402,8 +407,9 @@ public actor Library {
         }
         var base: PackageFile?
         var splits: [PackageFile] = []
-        // A container's OBBs are staged with the version and move in after the switch (ADR-0049 c2); an incompatible
-        // version installs none.
+        var packs: [PackageFile]?
+        // A container's OBBs are staged with the version and move in after the switch (ADR-0049 c2), and its later
+        // packs stay in the version's packs/ (decision 2); an incompatible version installs neither.
         if state == .incompatible { plan = OBBPlan(leftOut: new.extras.leftOut, obbs: installed?.obbs ?? []) }
         var staging: URL?
         if state != .incompatible {
@@ -417,6 +423,7 @@ public actor Library {
             }
             base = new.files.first?.file
             splits = new.files.dropFirst().map(\.file)
+            packs = try placePacks(new.extras.packs, in: versionDirectory)
             // Who signed it, for the guest's PackageManager (ADR-0034 decision 2): what the check proved, so an
             // unsigned or unverified APK has none.
             if report.signature.check == .verified, let proof = report.signature.proof {
@@ -456,6 +463,7 @@ public actor Library {
         entry.signedWith = signedWith
         entry.updatedAt = installed == nil ? nil : Date()
         entry.obbs = plan.obbs
+        entry.packs = packs
         entry.ignoredFiles = plan.leftOut.named
         try store(entry)
         removeEverything(in: appDirectory, except: folder)
@@ -553,6 +561,36 @@ public actor Library {
         return (try? hash(url, size: size) { _ in }) == file.sha256
     }
 
+    /// Puts a version's later pack slices into its packs/ under their names (ADR-0049 decision 2): APFS clones,
+    /// read-only as the version's APKs are, in a folder left out of backups as the OBB folder is (decision 9). They are
+    /// written into packs.partial first and come in whole, swapped with the packs/ there, so the packs an entry names
+    /// never lie half written (App's review); the same version's packs are replaced by those its container brings.
+    /// Returns what it put there, nil for none.
+    private func placePacks(_ packs: [(url: URL, file: PackageFile)], in version: URL) throws -> [PackageFile]? {
+        guard !packs.isEmpty else { return nil }
+        let folder = version.appendingPathComponent("packs", isDirectory: true)
+        var staging = version.appendingPathComponent("packs.partial", isDirectory: true)
+        try? FileManager.default.removeItem(at: staging)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        var excluded = URLResourceValues()
+        excluded.isExcludedFromBackup = true
+        try staging.setResourceValues(excluded)
+        for pack in packs {
+            let copy = staging.appendingPathComponent(pack.file.fileName)
+            try FileManager.default.copyItem(at: pack.url, to: copy)
+            try LibraryPaths.makeReadOnly(copy)
+        }
+        if FileManager.default.fileExists(atPath: folder.path) {
+            guard renamex_np(staging.path, folder.path, UInt32(RENAME_SWAP)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            try? FileManager.default.removeItem(at: staging) // the packs it replaced
+        } else {
+            try FileManager.default.moveItem(at: staging, to: folder)
+        }
+        return packs.map(\.file)
+    }
+
     /// Stages the OBBs `plan` moves in as APFS clones in `version`'s obb/, after whatever a crash left there (App's
     /// review), excluded from backups as the OBB folder is (the lead's reviewer). Returns the staging folder.
     private func stageOBBs(_ plan: OBBPlan, from extras: Extras, in version: URL) throws -> URL {
@@ -627,6 +665,7 @@ public actor Library {
         _ = FileManager.default.fileExists(atPath: unit.path, isDirectory: &isFolder)
         var urls: [URL] = []
         var obbs: [(url: URL, name: OBBName, path: String, container: URL)] = []
+        var packs: [(url: URL, pack: String, path: String, container: URL)] = []
         var leftOut: [URL: LeftOut] = [:]
         var refused: [(file: URL, error: ContainerError)] = []
         var taken: [URL] = []
@@ -642,13 +681,14 @@ public actor Library {
                 switch try expand(file, in: unit) {
                 case .apk:
                     urls.append(file)
-                case .container(let apks, let containerOBBs, let named, let folders):
+                case .container(let apks, let containerOBBs, let containerPacks, let named, let folders):
                     let source = try Self.sourceFile(for: file)
                     for (url, name) in apks {
                         urls.append(url)
                         fromContainers[url] = ("\(file.lastPathComponent)/\(name)", source, file)
                     }
                     obbs += containerOBBs.map { ($0.url, $0.name, $0.path, file) }
+                    packs += containerPacks.map { ($0.url, $0.pack, $0.path, file) }
                     leftOut[file] = named
                     // The folders go before their container (App's review): a crash between them leaves a container
                     // to take out again, never a hidden folder no unit lists.
@@ -663,8 +703,10 @@ public actor Library {
         }
         let sizes = try urls.map { try Self.sourceFile(for: $0).size }
         let obbSizes = try obbs.map { try Self.sourceFile(for: $0.url).size }
+        let packSizes = try packs.map { try Self.sourceFile(for: $0.url).size }
         let pickedSizes = try picked.map { try Self.sourceFile(for: $0).size }
-        let total = Double(max(sizes.reduce(0, +) + obbSizes.reduce(0, +) + pickedSizes.reduce(0, +), 1))
+        let bytes: UInt64 = (sizes + obbSizes + packSizes + pickedSizes).reduce(0, +)
+        let total = Double(max(bytes, 1))
         var read: UInt64 = 0
         var digests: [URL: String] = [:]
         var unreadable: [URL] = []
@@ -691,6 +733,14 @@ public actor Library {
             obbFiles.append((obb.url, PackageFile(fileName: obb.name.fileName, splitName: nil, size: size, sha256: sha256),
                              obb.name, obb.path, obb.container))
         }
+        // Each later pack slice is read as an APK, so that its set can check it (ADR-0049 decision 2).
+        var packSlices: [(url: URL, slice: SetMember?, size: UInt64, pack: String, path: String, container: URL)] = []
+        for (pack, size) in zip(packs, packSizes) {
+            let sha256 = try hash(pack.url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
+            read += size
+            let slice = (try? ZipArchive(url: pack.url)).flatMap { try? SetMember.read($0, fileName: pack.path, sha256: sha256) }
+            packSlices.append((pack.url, slice, size, pack.pack, pack.path, pack.container))
+        }
         var pickedFiles: [(url: URL, size: UInt64, sha256: String)] = []
         for (url, size) in zip(picked, pickedSizes) {
             let sha256 = try hash(url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
@@ -714,6 +764,18 @@ public actor Library {
                 extras[index].obbs.append((obb.url, obb.file, obb.name, obb.path))
             } else {
                 leftOut[obb.container, default: LeftOut()].byImport.append(IgnoredFile(path: obb.path, reason: Self.noAPK(for: package)))
+            }
+        }
+        // Each later pack slice goes with the set from its own container, checked against it and named as bundletool
+        // names it (ADR-0049 decision 2); one it refuses is named there.
+        for slice in packSlices {
+            guard let index = groups.indices.first(where: { containers[$0] == slice.container }) else { continue }
+            let checked = Self.packFile(slice.slice, pack: slice.pack, size: slice.size, of: groups[index],
+                                        taken: extras[index].packs.map(\.file.fileName))
+            if let file = checked.file {
+                extras[index].packs.append((slice.url, file))
+            } else {
+                leftOut[slice.container, default: LeftOut()].byImport.append(IgnoredFile(path: slice.path, reason: checked.reason))
             }
         }
         // What a container leaves out goes on the first of its entries only, never copied onto each (the lead's
@@ -866,9 +928,10 @@ public actor Library {
     private enum Expanded {
         case apk
         /// The APKs taken out, each with its name, an XAPK's OBBs taken out, each with its checked name and its path in
-        /// the container, what the container leaves out, and the folders they went into.
-        case container(apks: [(url: URL, name: String)], obbs: [(url: URL, name: OBBName, path: String)], leftOut: LeftOut,
-                       folders: [URL])
+        /// the container, a bundletool set's later pack slices taken out, each with its pack and its path, what the
+        /// container leaves out, and the folders they went into.
+        case container(apks: [(url: URL, name: String)], obbs: [(url: URL, name: OBBName, path: String)],
+                       packs: [(url: URL, pack: String, path: String)], leftOut: LeftOut, folders: [URL])
         case refused(ContainerError)
     }
 
@@ -886,42 +949,90 @@ public actor Library {
         } catch let error as ContainerError {
             return Self.isAPK(file) ? .apk : .refused(error)
         }
-        let (folder, obbFolder) = Self.takenOutFolders(of: file)
+        let folders = Self.takenOutFolders(of: file)
         do {
             let items: [Container.Item]
             var contents: XAPKContents?
+            var packItems: [Container.PackItem] = []
             switch container.kind {
             case .apk: return .apk
             case .xapk:
                 contents = try container.xapkContents()
                 items = contents?.apks ?? []
-            case .bundletool: items = try container.bundletoolItems(for: BundletoolDevice(device)).items
+            case .bundletool:
+                let picked = try container.bundletoolItems(for: BundletoolDevice(device))
+                items = picked.items
+                packItems = try container.bundletoolPackItems(of: picked.choice)
             case .apkm, .looseSet: items = try container.looseSetItems()
             }
-            let apks = try takeOut(items, of: container, into: folder)
-            guard let contents else { return .container(apks: apks, obbs: [], leftOut: LeftOut(), folders: [folder]) }
+            let apks = try takeOut(items, of: container, into: folders.contents)
+            let packs = try takeOut(packItems.map(\.item), of: container, into: folders.packs)
+            guard let contents else {
+                return .container(apks: apks, obbs: [], packs: zip(packs, packItems).map { ($0.url, $1.pack, $1.path) },
+                                  leftOut: LeftOut(), folders: [folders.contents, folders.packs])
+            }
             let packages = Set(apks.compactMap { Self.packageName(of: $0.url) })
             let kept = contents.obbs.filter { packages.contains($0.name.package) }
             var leftOut = LeftOut(byContainer: contents.ignored)
             for obb in contents.obbs where !packages.contains(obb.name.package) {
                 leftOut.byImport.append(IgnoredFile(path: obb.item.entry.name, reason: Self.noAPK(for: obb.name.package)))
             }
-            let obbs = try takeOut(kept.map(\.item), of: container, into: obbFolder)
-            return .container(apks: apks, obbs: zip(obbs, kept).map { ($0.url, $1.name, $1.item.entry.name) },
-                              leftOut: leftOut, folders: [folder, obbFolder])
+            let obbs = try takeOut(kept.map(\.item), of: container, into: folders.obbs)
+            return .container(apks: apks, obbs: zip(obbs, kept).map { ($0.url, $1.name, $1.item.entry.name) }, packs: [],
+                              leftOut: leftOut, folders: [folders.contents, folders.obbs])
         } catch let error as ContainerError {
             // A container refused after its APKs were taken out, as for a damaged OBB, keeps none of them.
-            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: folders.contents)
             return .refused(error)
         }
     }
 
-    /// The folders next to a unit's container that its APKs and its OBBs are taken out into (ADR-0049 a3 and c2): hidden,
-    /// so the unit's files never list them and no picked file shares their names.
-    private static func takenOutFolders(of container: URL) -> (contents: URL, obbs: URL) {
+    /// A later pack slice as its set keeps it in packs/ (ADR-0049 decision 2), under bundletool's name for it,
+    /// `<pack>-master.apk` or `<pack>-<suffix>.apk` (`ApkPathManager.java:31-150`, 1.18.3), which Play's libraries read
+    /// a slice's split from; or why the set leaves it out. It must be its app's, of the app's version and signers, and a
+    /// slice of its pack whose name is a module's, as bundletool allows one, and not one the set took already. Its
+    /// signers must be proven as the base's are: a slice Minato cannot verify passes only beside a base it cannot
+    /// verify either, as the set then counts as one such APK (App's review), since a certificate's name is easy to copy.
+    private static func packFile(_ slice: SetMember?, pack: String, size: UInt64, of group: [SetMember],
+                                 taken: [String]) -> (file: PackageFile?, reason: String) {
+        guard let slice, let app = group.first(where: \.isBase) ?? group.first else {
+            return (nil, "it is no APK Minato can read")
+        }
+        if slice.packageName != app.packageName { return (nil, "it belongs to \(slice.packageName)") }
+        if slice.versionCode != app.versionCode {
+            return (nil, "its versionCode \(slice.versionCode) is not the app’s \(app.versionCode)")
+        }
+        if slice.certificates.isEmpty || slice.certificates != app.certificates || slice.signature.check.isFailure {
+            return (nil, "it is signed by another key than the app")
+        }
+        if app.signature.check == .verified, slice.signature.check != .verified {
+            return (nil, "its signature cannot be verified")
+        }
+        let isName = { (name: Substring) in
+            !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+        }
+        let config = "\(pack).config."
+        let name: String
+        if isName(Substring(pack)), slice.splitName == pack {
+            name = "\(pack)-master.apk"
+        } else if isName(Substring(pack)), let split = slice.splitName, split.hasPrefix(config),
+                  isName(split.dropFirst(config.count)) {
+            name = "\(pack)-\(split.dropFirst(config.count)).apk"
+        } else {
+            return (nil, "it is no slice of the pack \(pack)")
+        }
+        guard !taken.contains(name) else { return (nil, "the set has another \(name)") }
+        return (PackageFile(fileName: name, splitName: slice.splitName, size: size, sha256: slice.sha256), "")
+    }
+
+    /// The folders next to a unit's container that its APKs, its OBBs and its later pack slices are taken out into
+    /// (ADR-0049 a3, c2 and decision 2): hidden, so the unit's files never list them and no picked file shares their
+    /// names.
+    private static func takenOutFolders(of container: URL) -> (contents: URL, obbs: URL, packs: URL) {
         let unit = container.deletingLastPathComponent(), name = container.lastPathComponent
         return (unit.appendingPathComponent(".\(name).contents", isDirectory: true),
-                unit.appendingPathComponent(".\(name).obbs", isDirectory: true))
+                unit.appendingPathComponent(".\(name).obbs", isDirectory: true),
+                unit.appendingPathComponent(".\(name).packs", isDirectory: true))
     }
 
     /// `items` taken out of `container` into `folder` by ADR-0049's extraction, each with its name. A folder an earlier
@@ -1110,6 +1221,7 @@ public actor Library {
             let folders = Self.takenOutFolders(of: file)
             try? FileManager.default.removeItem(at: folders.contents)
             try? FileManager.default.removeItem(at: folders.obbs)
+            try? FileManager.default.removeItem(at: folders.packs)
             try? FileManager.default.removeItem(at: file)
         }
         rmdir(url.path) // only once nothing else waits in it

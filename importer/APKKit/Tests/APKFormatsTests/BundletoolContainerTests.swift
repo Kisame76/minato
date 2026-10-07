@@ -50,6 +50,25 @@ struct BundletoolContainerTests {
         #expect(try files.map { try Data(contentsOf: $0) } == [Self.apks[0].1, Self.apks[1].1, Self.apks[3].1])
     }
 
+    @Test func laterPackSlicesCountTowardTheCapWithTheAPKs() throws {
+        // ADR-0049 decision 7: the slices of the packs Play fetches later are taken out with the APKs (decision 2).
+        let slices = (0..<Container.maxAPKs).map { "asset-slices/p\($0).apk" }
+        let (_, container) = try Self.container([("toc.json", Data(TocWriter.json(Self.toc).utf8))] + Self.apks
+                                                + slices.dropLast().map { ($0, Data("slice".utf8)) })
+        func choice(_ count: Int) -> BundletoolChoice {
+            BundletoolChoice(apks: [.init(path: "splits/base-master.apk", module: "base")],
+                             packs: [.init(name: "p", deliveryType: Toc.DeliveryType.onDemand, paths: Array(slices.prefix(count)))])
+        }
+
+        let items = try container.bundletoolPackItems(of: choice(Container.maxAPKs - 1))
+        #expect(items.count == Container.maxAPKs - 1)
+        #expect(items.first?.pack == "p" && items.first?.path == "asset-slices/p0.apk" && items.first?.item.fileName == "p1.apk")
+        #expect(throws: ContainerError.overCap("it holds 513 APKs and pack slices for this iPhone, more than the 512 Minato "
+                                               + "takes from a container")) {
+            try container.bundletoolPackItems(of: choice(Container.maxAPKs))
+        }
+    }
+
     @Test func aContainerWithBothTocsIsRefused() throws {
         // ResultUtils.java:111-125.
         let (_, container) = try Self.container([("toc.pb", TocWriter.toc(Self.toc)), ("toc.json", Data("{}".utf8))] + Self.apks)
