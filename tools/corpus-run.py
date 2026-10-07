@@ -16,10 +16,11 @@ Apps run on apk-run's headless host for now; --graphics runs them on graphics-ru
 session layers, as tools/surface-check.sh does, where GLES works but no first post is logged yet. Each app runs in a
 child of this script under sandbox-exec with tools/corpus.sb: it reads the repo, the toolchain and the system, writes
 only its run's folder and networks only on loopback, and the child refuses to run an APK when it can read the user's
-home folder. --check-sandbox shows that the profile holds: no home folder, no address beyond the host, loopback yes.
+home folder. An app's run folder goes once its child has ended, unless --keep-work keeps it. --check-sandbox shows
+that the profile holds: no home folder, no address beyond the host, loopback yes.
 Python 3.9.
 
-Usage: corpus-run.py [--seconds <n>] [--native <build dir>] [--graphics] <list.json> <out folder>
+Usage: corpus-run.py [--seconds <n>] [--native <build dir>] [--graphics] [--keep-work] <list.json> <out folder>
        corpus-run.py --check-sandbox [--without-profile]
 A list: {"apks": [{"apk": <path from the repo>, "package"?, "version"?, "url"?, "sha256"?, "license"?}, ...]}.
 """
@@ -271,10 +272,13 @@ def main():
         run_one(entry, out, seconds, native, arguments[5:] == ["--graphics"])
         return
     # build/native/macos: Runtime's rollout folder, with apk-run, graphics-run and apk-convert of main's HEAD.
-    seconds, native, graphics = 120.0, os.path.join("build", "native", "macos"), False
-    while arguments[:1] in (["--seconds"], ["--native"], ["--graphics"]):
+    seconds, native, graphics, keep_work = 120.0, os.path.join("build", "native", "macos"), False, False
+    while arguments[:1] in (["--seconds"], ["--native"], ["--graphics"], ["--keep-work"]):
         if arguments[0] == "--graphics":
             graphics, arguments = True, arguments[1:]
+            continue
+        if arguments[0] == "--keep-work":
+            keep_work, arguments = True, arguments[1:]
             continue
         if arguments[0] == "--seconds":
             seconds = float(arguments[1])
@@ -303,6 +307,9 @@ def main():
                                    str(seconds), native] + (["--graphics"] if graphics else []), out)
         child = subprocess.run(command, env=environment, capture_output=True, text=True)
         name = os.path.splitext(os.path.basename(entry["apk"]))[0]
+        if not keep_work:
+            # The run's converted libraries and folders, about 70 MB an app, also after a child that died.
+            shutil.rmtree(os.path.join(out, "work", name), ignore_errors=True)
         try:
             with open(os.path.join(out, f"{name}.json")) as handle:
                 levels = json.load(handle)["levels"]
