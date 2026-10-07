@@ -72,7 +72,7 @@ struct BenchmarkView: View {
             case .waiting:
                 EmptyView()
             case .native:
-                MetalLayerView(onLayer: { runner.nativeLayer($0) }, onTopEdgeSwipe: {},
+                MetalLayerView(onLayer: { layer, _ in runner.nativeLayer(layer) }, onTopEdgeSwipe: {},
                                onLayout: { runner.nativeLaidOut($0) }, onTouches: { _, _, _ in })
             case .apk(let session):
                 GameModeView(session: session)
