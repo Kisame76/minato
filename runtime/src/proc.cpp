@@ -14,8 +14,12 @@
 #include "threads.h"
 #include "vfs.h"
 
+#include <TargetConditionals.h>
 #include <fcntl.h>
 #include <mach/mach.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 #include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/resource.h>
@@ -27,6 +31,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -127,6 +133,58 @@ std::string cpu_list(const char *sysctl_name) {
     std::size_t length = sizeof cpus;
     if (::sysctlbyname(sysctl_name, &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
     return cpus == 1 ? std::string("0\n") : std::format("0-{}\n", cpus - 1);
+}
+
+// --- Memory: /proc/meminfo and sysinfo ---------------------------------------------------------------------------
+
+/// The memory the guest is told of, in bytes: the device's, what is free, and what the process may still use. On the
+/// iPhone that is iOS's budget for the app (os_proc_available_memory), on the Mac the free and reclaimable pages.
+/// free <= available <= total.
+struct Memory {
+    std::uint64_t total = 0, free = 0, available = 0;
+};
+
+Memory memory() {
+    Memory memory;
+    std::size_t length = sizeof memory.total;
+    if (::sysctlbyname("hw.memsize", &memory.total, &length, nullptr, 0) != 0) memory.total = 0;
+    vm_statistics64_data_t pages{};
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (::host_statistics64(mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&pages), &count) ==
+        KERN_SUCCESS) {
+        memory.free = std::uint64_t{pages.free_count} * vm_page_size;
+        memory.available = memory.free + (std::uint64_t{pages.inactive_count} + pages.purgeable_count) * vm_page_size;
+    }
+#if TARGET_OS_IPHONE
+    memory.available = ::os_proc_available_memory();
+#endif
+    memory.available = std::min(memory.available, memory.total);
+    memory.free = std::min(memory.free, memory.available);
+    return memory;
+}
+
+/// Android 15's /proc/meminfo (Linux 6.6's meminfo_proc_show on the emulator): its lines in its order, each name
+/// with its colon padded to 16 characters and the value in kB right-aligned in 8. Cached is what may be used beyond
+/// the free memory, so that ActivityManager's availMem (free plus cached) is MemAvailable; Buffers, swap and the
+/// kernel's own counts are 0, and VmallocTotal is arm64's with 48-bit addresses.
+std::string meminfo() {
+    const auto host = memory();
+    const std::uint64_t total = host.total / 1024, free = host.free / 1024, available = host.available / 1024;
+    const std::pair<std::string_view, std::uint64_t> lines[] = {
+        {"MemTotal", total}, {"MemFree", free}, {"MemAvailable", available}, {"Buffers", 0},
+        {"Cached", available - free}, {"SwapCached", 0}, {"Active", 0}, {"Inactive", 0}, {"Active(anon)", 0},
+        {"Inactive(anon)", 0}, {"Active(file)", 0}, {"Inactive(file)", 0}, {"Unevictable", 0}, {"Mlocked", 0},
+        {"SwapTotal", 0}, {"SwapFree", 0}, {"Dirty", 0}, {"Writeback", 0}, {"AnonPages", 0}, {"Mapped", 0},
+        {"Shmem", 0}, {"KReclaimable", 0}, {"Slab", 0}, {"SReclaimable", 0}, {"SUnreclaim", 0}, {"KernelStack", 0},
+        {"ShadowCallStack", 0}, {"PageTables", 0}, {"SecPageTables", 0}, {"NFS_Unstable", 0}, {"Bounce", 0},
+        {"WritebackTmp", 0}, {"CommitLimit", 0}, {"Committed_AS", 0}, {"VmallocTotal", 257687552},
+        {"VmallocUsed", 0}, {"VmallocChunk", 0}, {"Percpu", 0}, {"AnonHugePages", 0}, {"ShmemHugePages", 0},
+        {"ShmemPmdMapped", 0}, {"FileHugePages", 0}, {"FilePmdMapped", 0}, {"CmaTotal", 0}, {"CmaFree", 0}};
+    std::string text;
+    for (const auto &[name, kilobytes] : lines) {
+        text += std::format("{:<16}{:>8} kB\n", std::string(name) + ":", kilobytes);
+    }
+    return text;
 }
 
 // --- /proc/cpuinfo -------------------------------------------------------------------------------------
@@ -649,6 +707,8 @@ std::optional<long> open(std::string_view path, int linux_flags) {
         contents = cpu_list("hw.activecpu");  // as sched_getaffinity
     } else if (path == "/proc/cpuinfo") {
         contents = cpuinfo();
+    } else if (path == "/proc/meminfo") {
+        contents = meminfo();
     } else if (path == "/linkerconfig/apex.libraries.config.txt") {
         contents = dl::apex_libraries_config();
     } else if (const auto entry = own_entry(path)) {
@@ -681,6 +741,49 @@ std::optional<long> read_link(std::string_view path, char *buffer, std::size_t s
     const auto length = std::min(size, target->size());
     std::memcpy(buffer, target->data(), length);
     return static_cast<long>(length);
+}
+
+long sysinfo(std::uint64_t address) {
+    // Linux's struct sysinfo on 64 bits, as do_sysinfo fills it: memory in bytes (mem_unit 1), as /proc/meminfo has
+    // it, the loads in 1/65536 (SI_LOAD_SHIFT), the time since boot (CLOCK_BOOTTIME: Darwin's CLOCK_MONOTONIC counts
+    // the time asleep too), and the threads, here the process's.
+    struct LinuxSysinfo {
+        std::int64_t uptime;
+        std::uint64_t loads[3];
+        std::uint64_t totalram, freeram, sharedram, bufferram, totalswap, freeswap;
+        std::uint16_t procs, pad;
+        std::uint64_t totalhigh, freehigh;
+        std::uint32_t mem_unit;
+        char rest[4];
+    };
+    static_assert(sizeof(LinuxSysinfo) == 112 && offsetof(LinuxSysinfo, totalhigh) == 88 &&
+                  offsetof(LinuxSysinfo, mem_unit) == 104);
+    if (address == 0) return -sys::linux_errno::efault;
+    LinuxSysinfo info{};
+    const auto host = memory();
+    info.totalram = host.total;
+    info.freeram = host.free;
+    info.mem_unit = 1;
+    timespec now{};
+    ::clock_gettime(CLOCK_MONOTONIC, &now);
+    info.uptime = now.tv_sec;
+    double loads[3] = {};
+    if (::getloadavg(loads, 3) == 3) {
+        for (std::size_t index = 0; index < 3; ++index) {
+            info.loads[index] = static_cast<std::uint64_t>(loads[index] * 65536);
+        }
+    }
+    thread_act_array_t threads = nullptr;
+    mach_msg_type_number_t thread_count = 0;
+    if (::task_threads(mach_task_self(), &threads, &thread_count) == KERN_SUCCESS) {
+        for (mach_msg_type_number_t index = 0; index < thread_count; ++index) {
+            ::mach_port_deallocate(mach_task_self(), threads[index]);
+        }
+        ::vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads), thread_count * sizeof *threads);
+    }
+    info.procs = static_cast<std::uint16_t>(std::clamp<mach_msg_type_number_t>(thread_count, 1, 0xffff));
+    std::memcpy(sys::as_pointer<void>(address), &info, sizeof info);
+    return 0;
 }
 
 }  // namespace apkrt::proc

@@ -2382,6 +2382,76 @@ TEST(proc_self_smaps_counts_the_pages_another_task_shares) {
     CHECK(flags == "VmFlags: rd wr mr mw me ac ");
 }
 
+// --- Memory (the compatibility plan's gap 1: ActivityManager.getMemoryInfo, sysconf, engines) -----------------------
+
+/// Android 15's /proc/meminfo on the emulator (kernel 6.6, arm64): these lines in this order, each name with its colon
+/// padded to 16 characters, the value right-aligned in 8 or more, then " kB" [verified: cat on the emulator,
+/// 2026-10-07].
+constexpr const char *meminfo_names[] = {
+    "MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapCached", "Active", "Inactive", "Active(anon)",
+    "Inactive(anon)", "Active(file)", "Inactive(file)", "Unevictable", "Mlocked", "SwapTotal", "SwapFree", "Dirty",
+    "Writeback", "AnonPages", "Mapped", "Shmem", "KReclaimable", "Slab", "SReclaimable", "SUnreclaim", "KernelStack",
+    "ShadowCallStack", "PageTables", "SecPageTables", "NFS_Unstable", "Bounce", "WritebackTmp", "CommitLimit",
+    "Committed_AS", "VmallocTotal", "VmallocUsed", "VmallocChunk", "Percpu", "AnonHugePages", "ShmemHugePages",
+    "ShmemPmdMapped", "FileHugePages", "FilePmdMapped", "CmaTotal", "CmaFree"};
+
+std::uint64_t host_memory() {
+    std::uint64_t bytes = 0;
+    std::size_t size = sizeof bytes;
+    return ::sysctlbyname("hw.memsize", &bytes, &size, nullptr, 0) == 0 ? bytes : 0;
+}
+
+TEST(proc_meminfo_has_android_15s_lines_with_the_hosts_memory) {
+    // ActivityManager's MemInfoReader takes MemTotal, MemFree and Cached (availMem is free plus cached), Unity and
+    // others MemAvailable: the host's memory, with free <= available <= total.
+    const auto lines = lines_of(read_guest_file("/proc/meminfo"));
+    CHECK(lines.size() == std::size(meminfo_names));
+    std::map<std::string, std::uint64_t> values;
+    for (std::size_t index = 0; index < lines.size() && index < std::size(meminfo_names); ++index) {
+        const std::string &line = lines[index];
+        const std::string name = std::string(meminfo_names[index]) + ":";
+        // The value's field: spaces, then digits, at least 8 characters from column 16 to " kB".
+        const std::string field = line.size() > 19 ? line.substr(16, line.size() - 19) : std::string();
+        const auto digits = field.find_first_not_of(' ');
+        CHECK(line.starts_with(name) && line.find_first_not_of(' ', name.size()) >= 16 && line.ends_with(" kB") &&
+              field.size() >= 8 && digits != std::string::npos &&
+              field.find_first_not_of("0123456789", digits) == std::string::npos);
+        values[meminfo_names[index]] = std::strtoull(line.c_str() + 16, nullptr, 10);
+    }
+    CHECK(values["MemTotal"] == host_memory() / 1024);
+    CHECK(values["MemFree"] > 0 && values["MemFree"] <= values["MemAvailable"]);
+    CHECK(values["MemAvailable"] <= values["MemTotal"]);
+    CHECK(values["Cached"] == values["MemAvailable"] - values["MemFree"]);
+    CHECK(values["Buffers"] == 0 && values["SwapTotal"] == 0 && values["SwapFree"] == 0);
+    CHECK(values["VmallocTotal"] == 257687552);  // arm64's with 48-bit addresses
+    CHECK(open_guest(at_fdcwd, "/proc/meminfo", o_wronly) == -eacces);  // 0444, also for root
+}
+
+TEST(sysinfo_gives_linuxs_struct_with_the_memory_of_proc_meminfo) {
+    // bionic's sysconf(_SC_PHYS_PAGES) and (_SC_AVPHYS_PAGES) read sysinfo. On 64 bits Linux gives bytes: mem_unit 1.
+    struct LinuxSysinfo {
+        std::int64_t uptime;
+        std::uint64_t loads[3];
+        std::uint64_t totalram, freeram, sharedram, bufferram, totalswap, freeswap;
+        std::uint16_t procs, pad;
+        std::uint64_t totalhigh, freehigh;
+        std::uint32_t mem_unit;
+        char rest[4];
+    };
+    static_assert(sizeof(LinuxSysinfo) == 112 && offsetof(LinuxSysinfo, totalhigh) == 88 &&
+                  offsetof(LinuxSysinfo, mem_unit) == 104);
+    constexpr std::uint64_t nr_sysinfo = 179;
+    LinuxSysinfo info;
+    std::memset(&info, 0xff, sizeof info);
+    CHECK(call(nr_sysinfo, {address(&info)}) == 0);
+    CHECK(info.mem_unit == 1 && info.totalram == host_memory());
+    CHECK(info.freeram > 0 && info.freeram <= info.totalram);
+    CHECK(info.uptime > 0 && info.procs >= 1);
+    CHECK(info.sharedram == 0 && info.bufferram == 0 && info.totalswap == 0 && info.freeswap == 0);
+    CHECK(info.totalhigh == 0 && info.freehigh == 0);
+    CHECK(call(nr_sysinfo, {0}) == -efault);
+}
+
 TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {
     // bionic's realpath opens the path and asks readlink of /proc/self/fd/<n>; the guest sees its own
     // paths there, and for what has none Linux's names.

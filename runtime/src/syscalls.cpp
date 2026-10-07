@@ -13,6 +13,7 @@
 #include "host_calls.h"
 #include "identity.h"
 #include "loader_syscalls.h"
+#include "proc.h"
 #include "process_exit.h"
 #include "session.h"
 #include "signals.h"
@@ -226,6 +227,7 @@ constexpr std::uint64_t geteuid = 175;
 constexpr std::uint64_t getgid = 176;
 constexpr std::uint64_t getegid = 177;
 constexpr std::uint64_t gettid = 178;
+constexpr std::uint64_t sysinfo = 179;
 constexpr std::uint64_t socket = 198;
 constexpr std::uint64_t socketpair = 199;
 constexpr std::uint64_t bind = 200;
@@ -647,6 +649,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_prctl(as_int(x[0]), x[1]);
         case nr::uname:
             return sys_uname(x[0]);
+        case nr::sysinfo:
+            return ::apkrt::proc::sysinfo(x[0]);  // Darwin has a struct proc
         case nr::capget:
             return sys_capget(x[0], x[1]);
         case nr::capset:

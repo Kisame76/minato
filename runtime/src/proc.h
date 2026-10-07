@@ -44,4 +44,7 @@ std::optional<long> open(std::string_view path, int linux_flags);
 /// nullopt for every other path.
 std::optional<long> read_link(std::string_view path, char *buffer, std::size_t size);
 
+/// sysinfo(2): Linux's struct sysinfo at `address`, with the memory /proc/meminfo shows. 0, or -EFAULT for NULL.
+long sysinfo(std::uint64_t address);
+
 }  // namespace apkrt::proc
