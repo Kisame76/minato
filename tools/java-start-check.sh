@@ -33,6 +33,7 @@
 # the app's one task, the session's window going to the top one, and the host's layer is not opaque under
 # the windows of Second and Third, which have alpha, and opaque again each time Main has the window back.
 # result-flow-test (step b3.5b2-2a's) is one too: its activities return results to the ones that started them.
+# launch-mode-test (step b3.5b2-2b's) is one too: its starts follow the launch modes and the task's flags.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -82,7 +83,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "surface-test io.github.kisame76.minato.test.surface" "palette-test io.github.kisame76.minato.test.palette"
       "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode"
       "activity-flow-test io.github.kisame76.minato.test.activityflow"
-      "result-flow-test io.github.kisame76.minato.test.resultflow")
+      "result-flow-test io.github.kisame76.minato.test.resultflow"
+      "launch-mode-test io.github.kisame76.minato.test.launchmode")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -610,6 +612,9 @@ if wanted activity-flow-test; then
 fi
 # Results between the app's activities (step b3.5b2-2a), with finishActivity, finishAffinity and finishAndRemoveTask.
 run_one result-flow-test io.github.kisame76.minato.test.resultflow
+# Launch modes and the task's flags (step b3.5b2-2b): singleTop, CLEAR_TOP, REORDER_TO_FRONT, singleTask, noHistory,
+# navigateUpTo and CLEAR_TASK.
+run_one launch-mode-test io.github.kisame76.minato.test.launchmode
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   # Its OBB must be in its OBB folder before the tap.
   obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"

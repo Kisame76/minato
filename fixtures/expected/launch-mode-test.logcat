@@ -1,0 +1,156 @@
+I/launch-mode-test: Main onCreate, saved state false
+I/launch-mode-test: Main onStart
+I/launch-mode-test: Main onResume
+I/launch-mode-test: Main onTopResumedActivityChanged true
+I/launch-mode-test: Main starts Top
+I/launch-mode-test: Main onTopResumedActivityChanged false
+I/launch-mode-test: Main onUserLeaveHint
+I/launch-mode-test: Main onPause
+I/launch-mode-test: Top onCreate, saved state false, flags 0x0, n first
+I/launch-mode-test: Top onStart
+I/launch-mode-test: Top onResume
+I/launch-mode-test: Top onTopResumedActivityChanged true
+I/launch-mode-test: Main onStop
+I/launch-mode-test: Main onSaveInstanceState
+I/launch-mode-test: Top starts Top for result 7
+I/launch-mode-test: Top onTopResumedActivityChanged false
+I/launch-mode-test: Top onPause
+I/launch-mode-test: Top onActivityResult 7, result 0
+I/launch-mode-test: Top onResume
+I/launch-mode-test: Top onTopResumedActivityChanged true
+I/launch-mode-test: Top onTopResumedActivityChanged false
+I/launch-mode-test: Top onPause
+I/launch-mode-test: Top onNewIntent, flags 0x0, n again
+I/launch-mode-test: Top onResume
+I/launch-mode-test: Top onTopResumedActivityChanged true
+I/launch-mode-test: Top starts Plain
+I/launch-mode-test: Top onTopResumedActivityChanged false
+I/launch-mode-test: Top onUserLeaveHint
+I/launch-mode-test: Top onPause
+I/launch-mode-test: Plain onCreate, saved state false, flags 0x0, n first
+I/launch-mode-test: Plain onStart
+I/launch-mode-test: Plain onResume
+I/launch-mode-test: Plain onTopResumedActivityChanged true
+I/launch-mode-test: Top onStop
+I/launch-mode-test: Top onSaveInstanceState
+I/launch-mode-test: Plain starts Top with CLEAR_TOP and SINGLE_TOP
+I/launch-mode-test: Plain onTopResumedActivityChanged false
+I/launch-mode-test: Plain onPause
+I/launch-mode-test: Top onRestart
+I/launch-mode-test: Top onStart
+I/launch-mode-test: Top onNewIntent, flags 0x24000000, n clear top
+I/launch-mode-test: Top onResume
+I/launch-mode-test: Top onTopResumedActivityChanged true
+I/launch-mode-test: Plain onStop
+I/launch-mode-test: Plain onDestroy, finishing true
+I/launch-mode-test: Top starts Plain again
+I/launch-mode-test: Top onTopResumedActivityChanged false
+I/launch-mode-test: Top onUserLeaveHint
+I/launch-mode-test: Top onPause
+I/launch-mode-test: Plain onCreate, saved state false, flags 0x0, n second
+I/launch-mode-test: Plain onStart
+I/launch-mode-test: Plain onResume
+I/launch-mode-test: Plain onTopResumedActivityChanged true
+I/launch-mode-test: Top onStop
+I/launch-mode-test: Top onSaveInstanceState
+I/launch-mode-test: Plain starts Top with REORDER_TO_FRONT
+I/launch-mode-test: Plain onTopResumedActivityChanged false
+I/launch-mode-test: Plain onUserLeaveHint
+I/launch-mode-test: Plain onPause
+I/launch-mode-test: Top onRestart
+I/launch-mode-test: Top onStart
+I/launch-mode-test: Top onNewIntent, flags 0x20000, n reorder
+I/launch-mode-test: Top onResume
+I/launch-mode-test: Top onTopResumedActivityChanged true
+I/launch-mode-test: Plain onStop
+I/launch-mode-test: Plain onSaveInstanceState
+I/launch-mode-test: Top starts Main with CLEAR_TOP
+I/launch-mode-test: Top onTopResumedActivityChanged false
+I/launch-mode-test: Top onPause
+I/launch-mode-test: Plain onDestroy, finishing true
+I/launch-mode-test: Main onDestroy, finishing true
+I/launch-mode-test: Main onCreate, saved state false, flags 0x4000000, n clear top
+I/launch-mode-test: Main onStart
+I/launch-mode-test: Main onResume
+I/launch-mode-test: Main onTopResumedActivityChanged true
+I/launch-mode-test: Top onStop
+I/launch-mode-test: Top onDestroy, finishing true
+I/launch-mode-test: Main starts Task
+I/launch-mode-test: Main onTopResumedActivityChanged false
+I/launch-mode-test: Main onUserLeaveHint
+I/launch-mode-test: Main onPause
+I/launch-mode-test: Task onCreate, saved state false, flags 0x10000000, n first
+I/launch-mode-test: Task onStart
+I/launch-mode-test: Task onResume
+I/launch-mode-test: Task onTopResumedActivityChanged true
+I/launch-mode-test: Main onStop
+I/launch-mode-test: Main onSaveInstanceState
+I/launch-mode-test: Task starts NoHist
+I/launch-mode-test: Task onTopResumedActivityChanged false
+I/launch-mode-test: Task onUserLeaveHint
+I/launch-mode-test: Task onPause
+I/launch-mode-test: NoHist onCreate, saved state false, flags 0x0, n first
+I/launch-mode-test: NoHist onStart
+I/launch-mode-test: NoHist onResume
+I/launch-mode-test: NoHist onTopResumedActivityChanged true
+I/launch-mode-test: Task onStop
+I/launch-mode-test: Task onSaveInstanceState
+I/launch-mode-test: NoHist starts Plain
+I/launch-mode-test: NoHist onTopResumedActivityChanged false
+I/launch-mode-test: NoHist onUserLeaveHint
+I/launch-mode-test: NoHist onPause
+I/launch-mode-test: Plain onCreate, saved state false, flags 0x0, n third
+I/launch-mode-test: Plain onStart
+I/launch-mode-test: Plain onResume
+I/launch-mode-test: Plain onTopResumedActivityChanged true
+I/launch-mode-test: NoHist onStop
+I/launch-mode-test: NoHist onSaveInstanceState
+I/launch-mode-test: NoHist onDestroy, finishing true
+I/launch-mode-test: Plain starts Task
+I/launch-mode-test: Plain onTopResumedActivityChanged false
+I/launch-mode-test: Plain onPause
+I/launch-mode-test: Task onRestart
+I/launch-mode-test: Task onStart
+I/launch-mode-test: Task onNewIntent, flags 0x10000000, n again
+I/launch-mode-test: Task onResume
+I/launch-mode-test: Task onTopResumedActivityChanged true
+I/launch-mode-test: Plain onStop
+I/launch-mode-test: Plain onDestroy, finishing true
+I/launch-mode-test: Task starts Up
+I/launch-mode-test: Task onTopResumedActivityChanged false
+I/launch-mode-test: Task onUserLeaveHint
+I/launch-mode-test: Task onPause
+I/launch-mode-test: Up onCreate, saved state false, flags 0x0, n first
+I/launch-mode-test: Up onStart
+I/launch-mode-test: Up onResume
+I/launch-mode-test: Up onTopResumedActivityChanged true
+I/launch-mode-test: Task onStop
+I/launch-mode-test: Task onSaveInstanceState
+I/launch-mode-test: Up should recreate the task for Main: false
+I/launch-mode-test: Up navigates up to Main: true
+I/launch-mode-test: Up onTopResumedActivityChanged false
+I/launch-mode-test: Up onPause
+I/launch-mode-test: Task onDestroy, finishing true
+I/launch-mode-test: Main onDestroy, finishing true
+I/launch-mode-test: Main onCreate, saved state false, flags 0x0, n up
+I/launch-mode-test: Main onStart
+I/launch-mode-test: Main onResume
+I/launch-mode-test: Main onTopResumedActivityChanged true
+I/launch-mode-test: Up onStop
+I/launch-mode-test: Up onDestroy, finishing true
+I/launch-mode-test: Main starts Clear with NEW_TASK and CLEAR_TASK
+I/launch-mode-test: Main onTopResumedActivityChanged false
+I/launch-mode-test: Main onPause
+I/launch-mode-test: Clear onCreate, saved state false, flags 0x10008000, n first
+I/launch-mode-test: Clear onStart
+I/launch-mode-test: Clear onResume
+I/launch-mode-test: Clear onTopResumedActivityChanged true
+I/launch-mode-test: Main onStop
+I/launch-mode-test: Main onDestroy, finishing true
+I/launch-mode-test: Clear is the task's root: true
+I/launch-mode-test: Clear finishes
+I/launch-mode-test: Clear onTopResumedActivityChanged false
+I/launch-mode-test: Clear onPause
+I/launch-mode-test: Clear onStop
+I/launch-mode-test: Clear onDestroy, finishing true
+I/launch-mode-test: done

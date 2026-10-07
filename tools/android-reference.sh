@@ -177,12 +177,12 @@ fi
 # middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
 # activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too, and so does
 # key-test (ADR-0045 step 7c), which injects its keys once its window has focus, gesture-flow-test
-# (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a),
-# whose steps wait for its windows' focus as activity-flow-test's.
+# (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a)
+# and launch-mode-test (step b3.5b2-2b), whose steps wait for their windows' focus as activity-flow-test's.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
-  "$app" == result-flow-test ]]; then
+  "$app" == result-flow-test || "$app" == launch-mode-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -505,6 +505,11 @@ run_app() {
     # its log ends with "done" at the destroy of Last, whose finishAndRemoveTask finishes it alone, as it is not the
     # task's root.
     result-flow-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MainActivity
+      ;;
+    # launch-mode-test (ADR-0039 step b3.5b2-2b): its launcher, MainActivity, starts activities of every launch mode and
+    # with the task's flags, and its log ends with "done" at the destroy of Clear, the last activity of its task.
+    launch-mode-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MainActivity
       ;;
     # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with

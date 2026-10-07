@@ -181,6 +181,8 @@ public final class ActivityThread {
         int requestCode;
         /** The results that came while it was not resumed, which its next resume delivers before onResume. */
         ArrayList<Result> pendingResults;
+        /** The intents that came while it was stopped, which its next resume delivers after its results (b3.5b2-2b). */
+        ArrayList<Intent> pendingIntents;
         /** Whether its finish ran, as system_server's ActivityRecord.finishing. */
         boolean finishRequested;
     }
@@ -950,7 +952,7 @@ public final class ActivityThread {
             case EVENT_RESUME:
                 mSessionResumed = true;
                 if (r != null && r.state == ON_START) {
-                    deliverPendingResults(r);
+                    deliverPending(r);
                     handleResumeActivity(r);
                     handleTopResumedActivityChanged(r, true);
                     moveHostTo(r);
@@ -1061,7 +1063,8 @@ public final class ActivityThread {
     // main thread, run in the order asked while the session has the app resumed: the top activity pauses, the next one
     // comes up to its resume and takes the session's window, and once the main thread is idle the activities below the
     // top stop and the finished ones go, as Android stops them once the new top reports idle. Since step b3.5b2-2a an
-    // activity started for a result returns it to the one that waits for it.
+    // activity started for a result returns it to the one that waits for it; since step b3.5b2-2b a start follows the
+    // launch modes and the task's flags, which can finish activities in the task and give one of them the intent.
 
     /** The task's activities, its root first and its top last; a launch adds one, a destroy removes it. */
     private final ArrayList<ActivityClientRecord> mTask = new ArrayList<>();
@@ -1071,6 +1074,8 @@ public final class ActivityThread {
     private final AtomicInteger mPendingStarts = new AtomicInteger();
     /** Whether an idle pass over the activities below the top is due. */
     private boolean mIdleScheduled;
+    /** The results of a transaction's finishes for resumed activities, sent at its end, as finishActivityResults posts. */
+    private final ArrayList<Runnable> mResultsToResumed = new ArrayList<>();
 
     /**
      * LocalActivityTaskManager's start, from any thread: Android's answer for the intent at once, the launch on the
@@ -1097,7 +1102,7 @@ public final class ActivityThread {
         }
         final Intent started = new Intent(intent);
         sMainThreadHandler.post(() -> addTransaction(
-                () -> handleStartTransaction(started, info, source, resultWho, requestCode)));
+                () -> handleStartTransaction(started, info, source, resultWho, requestCode, null)));
         return result;
     }
 
@@ -1183,6 +1188,81 @@ public final class ActivityThread {
         return caller != null ? caller.activityInfo.packageName : null;
     }
 
+    /**
+     * Activity.navigateUpTo's, through LocalActivityClientController, as Task.navigateUpTo (step b3.5b2-2b): the answer
+     * at once, whether the destination is in the task below the activity and of the manifest, as the start that
+     * follows succeeds then; the finishes and the start as a transaction.
+     */
+    boolean navigateUpTo(IBinder token, Intent destIntent, int resultCode, Intent resultData) {
+        final ActivityClientRecord srec = mActivities.get(token);
+        if (srec == null || !mTask.contains(srec)) {
+            return false;
+        }
+        final ComponentName dest = destIntent.getComponent();
+        final ActivityInfo info = upParent(srec, dest) != null
+                ? mPackage.activityInfo(dest, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
+        if (info != null) {
+            mPendingStarts.incrementAndGet();
+        }
+        final Intent up = new Intent(destIntent);
+        final Intent data = resultData != null ? new Intent(resultData) : null;
+        sMainThreadHandler.post(() -> addTransaction(
+                () -> handleNavigateUpTransaction(srec, up, info, resultCode, data)));
+        return info != null;
+    }
+
+    /**
+     * ActivityClientController.shouldUpRecreateTask's, as Task.shouldUpRecreateTaskLocked: whether the destination's
+     * affinity is not the task's, which its root's is in the one task; there are no document tasks.
+     */
+    boolean shouldUpRecreateTask(IBinder token, String destAffinity) {
+        if (mActivities.get(token) == null) {
+            return false;
+        }
+        final String affinity = mTask.isEmpty() ? null : mTask.get(0).activityInfo.taskAffinity;
+        return affinity == null || !affinity.equals(destAffinity);
+    }
+
+    /** As Task.navigateUpTo's search: the top activity below `srec` with the destination's package and class, or null. */
+    private ActivityClientRecord upParent(ActivityClientRecord srec, ComponentName dest) {
+        if (dest == null) {
+            return null;
+        }
+        for (int i = mTask.indexOf(srec) - 1; i >= 0; i--) {
+            final ActivityInfo below = mTask.get(i).activityInfo;
+            if (below.packageName.equals(dest.getPackageName()) && below.name.equals(dest.getClassName())) {
+                return mTask.get(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * As Task.navigateUpTo: the activities from `srec` down to the parent finish, top down, the first with the result
+     * and the others with RESULT_CANCELED; then the destination starts as from the parent, which waits for its
+     * result with navigateUpTo's request code 0, and a new instance has the parent finish before its launch, as
+     * START_SUCCESS has it finish once the start is made. Without the parent in the task, `srec` alone finishes.
+     */
+    private void handleNavigateUpTransaction(ActivityClientRecord srec, Intent destIntent, ActivityInfo info,
+            int resultCode, Intent resultData) {
+        final ActivityClientRecord parent = mTask.contains(srec) ? upParent(srec, destIntent.getComponent()) : null;
+        if (parent == null || info == null) {
+            if (info != null) {
+                mPendingStarts.decrementAndGet();
+            }
+            finishRecords(Collections.singletonList(srec), resultCode, resultData);
+            return;
+        }
+        final ArrayList<ActivityClientRecord> above = new ArrayList<>();
+        for (int i = mTask.indexOf(srec); mTask.get(i) != parent; i--) {
+            above.add(mTask.get(i));
+        }
+        finishEach(above.subList(0, 1), resultCode, resultData, true);
+        finishEach(above.subList(1, above.size()), Activity.RESULT_CANCELED, null, true);
+        handleStartTransaction(destIntent, info, parent, null, 0,
+                () -> finishEach(Collections.singletonList(parent), Activity.RESULT_CANCELED, null, true));
+    }
+
     private void addTransaction(Runnable transaction) {
         mTransactions.add(transaction);
         runTransactions();
@@ -1196,14 +1276,21 @@ public final class ActivityThread {
     }
 
     /**
-     * As Android's start of an activity on top of the task. First who gets its result, as executeRequest decides it: a
-     * start that failed returns RESULT_CANCELED at once, and so does one into a new task, as setInitialState's
-     * sendNewTaskResultRequestIfNeeded has it (step b3.5b2-2a). Then the top one's top resumed state goes and it
-     * pauses, the user leaving it unless the intent has FLAG_ACTIVITY_NO_USER_ACTION; then the new one's launch up to
-     * its resume, the top resumed state and the session's window. One that finished in onCreate goes without them.
+     * As Android's start of an activity in the task (ActivityStarter.startActivityInner). First who gets its result, as
+     * executeRequest decides it: a start that failed returns RESULT_CANCELED at once, and so does one into a new task,
+     * as setInitialState's sendNewTaskResultRequestIfNeeded has it (step b3.5b2-2a). Then the launch mode's
+     * FLAG_ACTIVITY_NEW_TASK, as computeLaunchingTaskFlags adds it to the intent, and the task's flags, as
+     * complyActivityFlags applies them (step b3.5b2-2b): NEW_TASK with CLEAR_TASK finishes the task's activities,
+     * bottom up, as removeActivities goes; CLEAR_TOP, singleTask and singleInstance(PerTask) finish those above the
+     * target's newest instance, top down, and a standard target without SINGLE_TOP too; REORDER_TO_FRONT moves that
+     * instance to the top. Then, as deliverToCurrentTopIfNeeded, a singleTop target or SINGLE_TOP finds the top one of
+     * its class, whose start's result is cancelled. Such an activity gets the intent and comes to the top: the resumed
+     * one pauses, the user leaving it unless the intent has FLAG_ACTIVITY_NO_USER_ACTION, and it resumes. Otherwise
+     * the resumed one pauses so, `beforeLaunch` runs, and the new one's launch goes up to its resume, the top resumed
+     * state and the session's window. One that finished in onCreate goes without them.
      */
     private void handleStartTransaction(Intent intent, ActivityInfo info, ActivityClientRecord source,
-            String resultWho, int requestCode) {
+            String resultWho, int requestCode, Runnable beforeLaunch) {
         ActivityClientRecord resultRecord = null;
         if (source != null && mTask.contains(source)) {
             if (requestCode >= 0 && !source.finishRequested) {
@@ -1223,14 +1310,77 @@ public final class ActivityThread {
             return;
         }
         mPendingStarts.decrementAndGet();
+        final int mode = info.launchMode;
+        if (mode == ActivityInfo.LAUNCH_SINGLE_INSTANCE_PER_TASK) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
         if (resultRecord != null && (intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0) {
             sendResult(resultRecord, resultWho, requestCode, Activity.RESULT_CANCELED, null);
             resultRecord = null;
         }
-        ActivityClientRecord top = topRecord();
-        if (top != null && top.state == ON_RESUME) {
-            handleTopResumedActivityChanged(top, false);
-            handlePauseActivity(top, (intent.getFlags() & Intent.FLAG_ACTIVITY_NO_USER_ACTION) == 0);
+        if (mode == ActivityInfo.LAUNCH_SINGLE_TASK || mode == ActivityInfo.LAUNCH_SINGLE_INSTANCE
+                || (source != null && source.activityInfo.launchMode == ActivityInfo.LAUNCH_SINGLE_INSTANCE)) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+        final int flags = intent.getFlags();
+        final boolean userLeaving = (flags & Intent.FLAG_ACTIVITY_NO_USER_ACTION) == 0;
+        final ComponentName component = componentOf(info);
+        ActivityClientRecord target = null;
+        if ((flags & (Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                == (Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)) {
+            finishEach(new ArrayList<>(mTask), Activity.RESULT_CANCELED, null, true);
+        } else if ((flags & Intent.FLAG_ACTIVITY_CLEAR_TOP) != 0 || mode == ActivityInfo.LAUNCH_SINGLE_TASK
+                || mode == ActivityInfo.LAUNCH_SINGLE_INSTANCE || mode == ActivityInfo.LAUNCH_SINGLE_INSTANCE_PER_TASK) {
+            final ActivityClientRecord found = findInTask(component);
+            if (found != null) {
+                final ArrayList<ActivityClientRecord> above =
+                        new ArrayList<>(mTask.subList(mTask.indexOf(found) + 1, mTask.size()));
+                Collections.reverse(above);
+                finishEach(above, Activity.RESULT_CANCELED, null, true);
+                if (found.activityInfo.launchMode == ActivityInfo.LAUNCH_MULTIPLE
+                        && (flags & Intent.FLAG_ACTIVITY_SINGLE_TOP) == 0) {
+                    finishEach(Collections.singletonList(found), Activity.RESULT_CANCELED, null, true);
+                } else {
+                    target = found;
+                }
+            }
+        } else if ((flags & Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) != 0) {
+            target = findInTask(component);
+            if (target != null) {
+                mTask.remove(target);
+                mTask.add(target);
+            }
+        }
+        if (target == null) {
+            final ActivityClientRecord top = topLiveRecord();
+            if (top != null && component.equals(componentOf(top.activityInfo))
+                    && ((flags & Intent.FLAG_ACTIVITY_SINGLE_TOP) != 0 || mode == ActivityInfo.LAUNCH_SINGLE_TOP)) {
+                if (resultRecord != null) {
+                    sendResult(resultRecord, resultWho, requestCode, Activity.RESULT_CANCELED, null);
+                }
+                target = top;
+            }
+        }
+        final ActivityClientRecord resumed = resumedRecord();
+        if (target != null) {
+            deliverNewIntent(target, intent);
+            if (target.state != ON_RESUME) {
+                if (resumed != null && resumed != target) {
+                    handleTopResumedActivityChanged(resumed, false);
+                    handlePauseActivity(resumed, userLeaving);
+                }
+                resumeRecord(target);
+            }
+            sendResultsToResumed();
+            scheduleIdle();
+            return;
+        }
+        if (resumed != null) {
+            handleTopResumedActivityChanged(resumed, false);
+            handlePauseActivity(resumed, userLeaving);
+        }
+        if (beforeLaunch != null) {
+            beforeLaunch.run();
         }
         ActivityClientRecord r = newRecord(intent, info);
         r.resultTo = resultRecord;
@@ -1238,8 +1388,9 @@ public final class ActivityThread {
         r.requestCode = requestCode;
         if (performLaunchActivity(r) == null) {
             removeRecord(r);
-            if (top != null && !finishing(top)) {
-                resumeRecord(top);
+            ActivityClientRecord next = topLiveRecord();
+            if (next != null) {
+                resumeRecord(next);
             }
         } else if (!finishing(r)) {
             handleStartActivity(r);
@@ -1247,52 +1398,80 @@ public final class ActivityThread {
             handleTopResumedActivityChanged(r, true);
             moveHostTo(r);
         }
+        sendResultsToResumed();
         scheduleIdle();
     }
 
-    /**
-     * As Android's finishIfPossible for each of `records` in their order (step b3.5b2-2a). Each sends its result to the
-     * activity that waits for it, which gets it at its next resume, or, when that one is resumed, after the finishes,
-     * as finishActivityResults posts it. The top one's top resumed state goes and it pauses, and one that had stopped
-     * goes at once, as Android destroys an activity that is no longer visible; then the activity below the top comes
-     * back, unless a start asked for is still to run, which then takes the top. A finished activity that is still
-     * paused stops and goes once the main thread is idle. The task's last finish asks the host, which answers with the
-     * quit (ADR-0043 step c1).
-     */
-    private void finishRecords(List<ActivityClientRecord> records, int resultCode, Intent resultData) {
-        final ActivityClientRecord top = topRecord();
-        final ArrayList<Runnable> toResumed = new ArrayList<>();
-        boolean topFinished = false;
-        for (ActivityClientRecord r : records) {
-            if (!mTask.contains(r) || r.finishRequested) {
-                continue;
-            }
-            r.finishRequested = true;
-            if (r.activity != null) {
-                r.activity.mFinished = true;
-            }
-            final ActivityClientRecord to = r.resultTo;
-            r.resultTo = null;
-            if (to != null && mTask.contains(to)) {
-                final String who = r.resultWho;
-                final int code = r.requestCode;
-                if (to.state == ON_RESUME) {
-                    toResumed.add(() -> sendResult(to, who, code, resultCode, resultData));
-                } else {
-                    sendResult(to, who, code, resultCode, resultData);
-                }
-            }
-            if (r == top) {
-                topFinished = true;
-                if (r.state == ON_RESUME && (topLiveRecord() != null || mPendingStarts.get() > 0)) {
-                    handleTopResumedActivityChanged(r, false);
-                    handlePauseActivity(r, false);
-                }
-            } else if (r.state == ON_STOP) {
-                handleDestroyActivity(r);
+    /** As ActivityRecord.mActivityComponent: an alias stands for its target activity. */
+    private static ComponentName componentOf(ActivityInfo info) {
+        return new ComponentName(info.packageName, info.targetActivity != null ? info.targetActivity : info.name);
+    }
+
+    /** As Task.findActivityInHistory: the task's newest activity of the component that is not finishing, or null. */
+    private ActivityClientRecord findInTask(ComponentName component) {
+        for (int i = mTask.size() - 1; i >= 0; i--) {
+            final ActivityClientRecord r = mTask.get(i);
+            if (!finishing(r) && component.equals(componentOf(r.activityInfo))) {
+                return r;
             }
         }
+        return null;
+    }
+
+    /** The task's resumed activity, or null. */
+    private ActivityClientRecord resumedRecord() {
+        for (int i = mTask.size() - 1; i >= 0; i--) {
+            if (mTask.get(i).state == ON_RESUME) {
+                return mTask.get(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * As ActivityRecord.deliverNewIntentLocked (step b3.5b2-2b): a resumed activity gets the intent at once, paused for
+     * it and resumed again, as NewIntentItem with its resume has it; a paused one at once and stays paused; any other
+     * at its next resume, after its results. The intent is a copy, as Binder's parcel gives the activity one.
+     */
+    private void deliverNewIntent(ActivityClientRecord r, Intent intent) {
+        final Intent copy = new Intent(intent);
+        if (r.state == ON_RESUME) {
+            handlePauseActivity(r, false);
+            deliverNewIntents(r, Collections.singletonList(copy));
+            handleResumeActivity(r);
+        } else if (r.state == ON_PAUSE) {
+            deliverNewIntents(r, Collections.singletonList(copy));
+        } else {
+            if (r.pendingIntents == null) {
+                r.pendingIntents = new ArrayList<>();
+            }
+            r.pendingIntents.add(copy);
+        }
+    }
+
+    /**
+     * As AOSP's deliverNewIntents: each intent with the activity's class loader, then onNewIntent through
+     * Instrumentation. Minato's activities have no referrer (performLaunchActivity's), so ReferrerIntent's is not set.
+     */
+    private void deliverNewIntents(ActivityClientRecord r, List<Intent> intents) {
+        for (Intent intent : intents) {
+            intent.setExtrasClassLoader(r.activity.getClassLoader());
+            intent.prepareToEnterProcess(false, null);
+            r.activity.mFragments.noteStateNotSaved();
+            mInstrumentation.callActivityOnNewIntent(r.activity, intent);
+        }
+    }
+
+    /**
+     * As Android's finishIfPossible for each of `records` in their order (step b3.5b2-2a), as finishEach has it; then
+     * the activity below the top comes back, unless a start asked for is still to run, which then takes the top, and
+     * the results for resumed activities go. The task's last finish asks the host, which answers with the quit
+     * (ADR-0043 step c1).
+     */
+    private void finishRecords(List<ActivityClientRecord> records, int resultCode, Intent resultData) {
+        final boolean topFinished = finishEach(records, resultCode, resultData, false);
         if (topLiveRecord() == null && mPendingStarts.get() == 0) {
+            mResultsToResumed.clear();
             requestSessionFinish();
             return;
         }
@@ -1302,10 +1481,60 @@ public final class ActivityThread {
                 resumeRecord(next);
             }
         }
-        for (Runnable send : toResumed) {
-            send.run();
-        }
+        sendResultsToResumed();
         scheduleIdle();
+    }
+
+    /**
+     * As finishIfPossible for each of `records` in their order, without what comes after it. Each sends its result to
+     * the activity that waits for it, which gets it at its next resume or, when that one is resumed, at the
+     * transaction's end, as finishActivityResults posts it. The top one, when resumed, is finishing from then on, as
+     * PauseActivityItem's `finished` makes it, and its top resumed state goes and it pauses when an activity is left
+     * or a start comes after it (`startFollows`, step b3.5b2-2b). One that had stopped goes at once, as Android destroys
+     * an activity that is no longer visible; a paused one stops and goes once the main thread is idle. Returns
+     * whether the top one finished.
+     */
+    private boolean finishEach(List<ActivityClientRecord> records, int resultCode, Intent resultData,
+            boolean startFollows) {
+        final ActivityClientRecord top = topRecord();
+        boolean topFinished = false;
+        for (ActivityClientRecord r : records) {
+            if (!mTask.contains(r) || r.finishRequested) {
+                continue;
+            }
+            r.finishRequested = true;
+            final ActivityClientRecord to = r.resultTo;
+            r.resultTo = null;
+            if (to != null && mTask.contains(to)) {
+                final String who = r.resultWho;
+                final int code = r.requestCode;
+                if (to.state == ON_RESUME) {
+                    mResultsToResumed.add(() -> sendResult(to, who, code, resultCode, resultData));
+                } else {
+                    sendResult(to, who, code, resultCode, resultData);
+                }
+            }
+            if (r == top) {
+                topFinished = true;
+                if (r.state == ON_RESUME) {
+                    r.activity.mFinished = true;
+                    if (startFollows || topLiveRecord() != null || mPendingStarts.get() > 0) {
+                        handleTopResumedActivityChanged(r, false);
+                        handlePauseActivity(r, false);
+                    }
+                }
+            } else if (r.state == ON_STOP) {
+                handleDestroyActivity(r);
+            }
+        }
+        return topFinished;
+    }
+
+    /** The results that waited for the transaction's end, in their order. */
+    private void sendResultsToResumed() {
+        while (!mResultsToResumed.isEmpty()) {
+            mResultsToResumed.remove(0).run();
+        }
     }
 
     /**
@@ -1330,12 +1559,20 @@ public final class ActivityThread {
         }
     }
 
-    /** The results that waited for the activity's resume, before its onResume. */
-    private void deliverPendingResults(ActivityClientRecord r) {
+    /**
+     * What waited for the activity's resume, before its onResume: its results, then its new intents, as
+     * resumeTopActivity schedules ActivityResultItem before NewIntentItem.
+     */
+    private void deliverPending(ActivityClientRecord r) {
         if (r.pendingResults != null) {
             final ArrayList<Result> results = r.pendingResults;
             r.pendingResults = null;
             deliverResults(r, results);
+        }
+        if (r.pendingIntents != null) {
+            final ArrayList<Intent> intents = r.pendingIntents;
+            r.pendingIntents = null;
+            deliverNewIntents(r, intents);
         }
     }
 
@@ -1353,7 +1590,8 @@ public final class ActivityThread {
 
     /**
      * As Android's resume of an activity that comes back to the top: onRestart and onStart after its stop, the results
-     * that waited for it (step b3.5b2-2a), onResume, the top resumed state and the session's window.
+     * (step b3.5b2-2a) and new intents (step b3.5b2-2b) that waited for it, onResume, the top resumed state and the
+     * session's window.
      */
     private void resumeRecord(ActivityClientRecord r) {
         if (r.state == ON_STOP) {
@@ -1362,7 +1600,7 @@ public final class ActivityThread {
             handleStartActivity(r);
         }
         if (r.state == ON_START || r.state == ON_PAUSE) {
-            deliverPendingResults(r);
+            deliverPending(r);
             handleResumeActivity(r);
             handleTopResumedActivityChanged(r, true);
             moveHostTo(r);
@@ -1382,7 +1620,10 @@ public final class ActivityThread {
 
     /**
      * As Android's activityIdle, once the main thread has nothing left to do: the activities below the live top stop,
-     * and the finished ones go. While transactions wait for the session, their own pass follows them.
+     * and the finished ones go. A finished one that is still paused stops first with its state saved unless the app
+     * finished it, as DestroyActivityItem passes ON_STOP; a no-history one finishes instead of stopping, as
+     * stopIfPossible has it, its result RESULT_CANCELED (step b3.5b2-2b). While transactions wait for the session,
+     * their own pass follows them.
      */
     private void scheduleIdle() {
         if (mIdleScheduled) {
@@ -1394,18 +1635,31 @@ public final class ActivityThread {
             if (mTransactions.isEmpty()) {
                 ActivityClientRecord top = topLiveRecord();
                 for (ActivityClientRecord r : reversedTask()) {
-                    if (r == top) {
+                    if (r == top || !mTask.contains(r)) {
                         continue;
                     }
+                    if (!finishing(r) && r.state == ON_PAUSE && noHistory(r)) {
+                        finishEach(Collections.singletonList(r), Activity.RESULT_CANCELED, null, false);
+                    }
                     if (finishing(r)) {
+                        if (r.state == ON_PAUSE && !r.activity.mFinished) {
+                            handleStopActivity(r);
+                        }
                         handleDestroyActivity(r);
                     } else if (r.state == ON_PAUSE) {
                         handleStopActivity(r);
                     }
                 }
+                sendResultsToResumed();
             }
             return false;
         });
+    }
+
+    /** As ActivityRecord.isNoHistory: FLAG_ACTIVITY_NO_HISTORY in its intent or noHistory in its manifest. */
+    private static boolean noHistory(ActivityClientRecord r) {
+        return (r.intent.getFlags() & Intent.FLAG_ACTIVITY_NO_HISTORY) != 0
+                || (r.activityInfo.flags & ActivityInfo.FLAG_NO_HISTORY) != 0;
     }
 
     /**
@@ -1482,8 +1736,9 @@ public final class ActivityThread {
         return null;
     }
 
+    /** Whether the activity is finishing: the app finished it, or the system did (finishRequested). */
     private static boolean finishing(ActivityClientRecord r) {
-        return r.activity == null || r.activity.mFinished;
+        return r.activity == null || r.activity.mFinished || r.finishRequested;
     }
 
     /**

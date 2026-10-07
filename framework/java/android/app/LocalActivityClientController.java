@@ -19,7 +19,9 @@
  *     answers;
  *   - results (step b3.5b2-2a): a finish's result goes to the activity that waits for it, which getCallingActivity
  *     and getCallingPackage name; finishActivity(requestCode) and finishAffinity finish the activities they name,
- *     and finishAndRemoveTask from the task's root ends the task.
+ *     and finishAndRemoveTask from the task's root ends the task;
+ *   - up navigation (step b3.5b2-2b): navigateUpTo finishes up to the destination in the task and starts it there,
+ *     and shouldUpRecreateTask compares the destination's affinity with the task's.
  */
 package android.app;
 
@@ -63,6 +65,16 @@ final class LocalActivityClientController extends IActivityClientController.Defa
     @Override
     public String getCallingPackage(IBinder token) {
         return mThread.callingPackage(token);
+    }
+
+    @Override
+    public boolean navigateUpTo(IBinder token, Intent target, String resolvedType, int resultCode, Intent resultData) {
+        return mThread.navigateUpTo(token, target, resultCode, resultData);
+    }
+
+    @Override
+    public boolean shouldUpRecreateTask(IBinder token, String destAffinity) {
+        return mThread.shouldUpRecreateTask(token, destAffinity);
     }
 
     @Override

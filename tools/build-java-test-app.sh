@@ -23,8 +23,9 @@
 # also packs as a bundletool set with a fast-follow and an on-demand pack; its twin packs-test-own, from its sources,
 # names its own local_testing_dir.
 # activity-flow-test (ADR-0039 step b3.5b2-1) is one more, whose activities start one another, and so are
-# gesture-flow-test (step b3.5b2-1b), whose touch goes on while its second activity starts, and result-flow-test
-# (step b3.5b2-2a), whose activities return results to the ones that started them.
+# gesture-flow-test (step b3.5b2-1b), whose touch goes on while its second activity starts, result-flow-test
+# (step b3.5b2-2a), whose activities return results to the ones that started them, and launch-mode-test
+# (step b3.5b2-2b), whose starts follow the launch modes and the task's flags.
 # key-test (ADR-0045 step 7c) is one more, whose keys it injects into its own window.
 # broadcast-test (ADR-0045 decision 5) is one more, whose activity sends its own broadcasts to its own receivers.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,

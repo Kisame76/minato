@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0039 step b3.5b2-2b's test (launch-mode-test): launch modes and flags in the app's task. Main, the launcher,
+     starts Top (singleTop), which starts itself for a result, then Plain; Plain goes back to Top with CLEAR_TOP and
+     SINGLE_TOP. A second Plain brings Top to the front with REORDER_TO_FRONT, and Top goes to Main with CLEAR_TOP
+     alone, which makes a new Main. That one starts Task (singleTask), Task starts NoHist (noHistory), NoHist starts a
+     third Plain, which goes back to Task. Task starts Up, which should not recreate the task for Main, its parent, and
+     whose navigateUpTo goes there; the last Main starts Clear with NEW_TASK and CLEAR_TASK. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.launchmode" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+      android:name="io.github.kisame76.minato.test.launchmode.ModeApplication">
+    <activity android:name="io.github.kisame76.minato.test.launchmode.MainActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.TopActivity" android:exported="false"
+        android:launchMode="singleTop"/>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.PlainActivity" android:exported="false"/>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.TaskActivity" android:exported="false"
+        android:launchMode="singleTask"/>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.NoHistActivity" android:exported="false"
+        android:noHistory="true"/>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.UpActivity" android:exported="false"
+        android:parentActivityName="io.github.kisame76.minato.test.launchmode.MainActivity"/>
+    <activity android:name="io.github.kisame76.minato.test.launchmode.ClearActivity" android:exported="false"/>
+  </application>
+</manifest>
