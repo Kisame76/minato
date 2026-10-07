@@ -141,7 +141,7 @@ apk_bionic_unit(apk_liblog SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/liblog.cpp" 
 apk_bionic_library(liblog UNITS apk_liblog NEEDED libc)
 
 # libnetd_client.so: Minato's own (runtime/bionic/src/libnetd_client.cpp). bionic's libc.so opens
-# it at start; without netd its functions leave the socket functions as they are.
+# it at start; as Android's, it refuses AF_INET sockets without networking and opens the resolver's proxy.
 apk_bionic_unit(apk_netd_client SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/libnetd_client.cpp" INCLUDES ${bionic_include}
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libnetd_client UNITS apk_netd_client NEEDED libc)
@@ -279,5 +279,13 @@ add_custom_command(OUTPUT "${public_libraries}"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" "${public_libraries}"
   DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/public.libraries.txt" VERBATIM)
 add_custom_target(guest_public_libraries ALL DEPENDS "${public_libraries}")
+
+# The guest's /system/etc/hosts, Android's two lines (system/core/rootdir/etc/hosts), which the resolver reads before
+# DNS: the runtime's /dev/socket/dnsproxyd, and bionic itself in a process without networking (ADR-0054 step b).
+set(guest_hosts "${CMAKE_BINARY_DIR}/system/etc/hosts")
+add_custom_command(OUTPUT "${guest_hosts}"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/hosts" "${guest_hosts}"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/system/etc/hosts" VERBATIM)
+add_custom_target(guest_hosts ALL DEPENDS "${guest_hosts}")
 
 include("${APK_ROOT}/graphics/fonts/fonts.cmake")

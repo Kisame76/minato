@@ -2605,6 +2605,62 @@ TEST(a_datagram_names_its_sender_by_the_guests_path) {
     call(nr_close, {unsigned_of(receiver)});
 }
 
+TEST(a_connection_closed_before_its_accept_is_accepted) {
+    // Linux keeps the connection with its data: accept gives it, then read the data and the end. (Darwin refuses
+    // setsockopt on a socket that can neither send nor receive any more, which such a connection is at its accept.)
+    const Scratch scratch;
+    const auto name = unix_name("/data/local/tmp/early.sock");
+    const auto server = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(server), address(&name.first), name.second}) == 0);
+    CHECK(call(nr_listen, {unsigned_of(server), 4}) == 0);
+    const auto client = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(client), address(&name.first), name.second}) == 0);
+    CHECK(call(nr_write, {unsigned_of(client), address("early"), 5}) == 5);
+    call(nr_close, {unsigned_of(client)});
+    const auto accepted = call(nr_accept4, {unsigned_of(server), 0, 0, 0});
+    CHECK(accepted >= 0);
+    char buffer[8];
+    CHECK(call(nr_read, {unsigned_of(accepted), address(buffer), sizeof buffer}) == 5);
+    CHECK(call(nr_read, {unsigned_of(accepted), address(buffer), sizeof buffer}) == 0);
+    call(nr_close, {unsigned_of(accepted)});
+    call(nr_close, {unsigned_of(server)});
+}
+
+TEST(the_guests_dnsproxyd_is_the_runtimes_resolver) {
+    // ADR-0054 step b: libnetd_client's dns_open_proxy connects to /dev/socket/dnsproxyd, which a runtime thread
+    // serves with DnsProxyListener's bytes; getpeername names it. Nothing else is there to bind.
+    const Scratch scratch;
+    CHECK(::mkdir((scratch.host + "/etc").c_str(), 0755) == 0);
+    std::FILE *hosts = std::fopen((scratch.host + "/etc/hosts").c_str(), "w");
+    CHECK(hosts != nullptr && std::fputs("127.0.0.1 localhost\n", hosts) >= 0 && std::fclose(hosts) == 0);
+    apkrt::vfs::mount("/system", scratch.host);
+    const auto name = unix_name("/dev/socket/dnsproxyd");
+    const auto client = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(client), address(&name.first), name.second}) == 0);
+    CHECK(name_of(nr_getpeername, client) == bytes_of(name));
+    const std::string command("getaddrinfo localhost ^ 0 0 1 0 0", 34);  // with its NUL
+    CHECK(call(nr_write, {unsigned_of(client), address(command.data()), command.size()}) ==
+          static_cast<std::int64_t>(command.size()));
+    std::string reply;
+    char buffer[64];
+    while (reply.size() < 52) {  // "222", one entry of 16 bytes of address, the end
+        const auto got = call(nr_read, {unsigned_of(client), address(buffer), sizeof buffer});
+        if (got <= 0) break;
+        reply.append(buffer, static_cast<std::size_t>(got));
+    }
+    CHECK(reply.size() == 52 && reply.starts_with(std::string("222", 4)) &&
+          reply.substr(32, 4) == std::string("\x7f\0\0\x01", 4));
+    call(nr_close, {unsigned_of(client)});
+    const auto walked = unix_name("/dev//socket/./dnsproxyd");  // the same socket by the path walk
+    const auto again = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(again), address(&walked.first), walked.second}) == 0);
+    call(nr_close, {unsigned_of(again)});
+    const auto other = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(other), address(&name.first), name.second}) == -enoent);
+    call(nr_close, {unsigned_of(other)});
+}
+
+
 TEST(an_af_unix_datagram_may_be_as_long_as_on_linux) {
     // Linux takes a datagram of up to its default send buffer less 32 bytes (212960), Darwin one of 2048.
     const Scratch scratch;

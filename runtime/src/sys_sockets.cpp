@@ -9,9 +9,11 @@
 #include "sockets.h"
 
 #include "descriptors.h"
+#include "dns_proxy.h"
 #include "identity.h"
 #include "signals.h"
 #include "syscalls.h"
+#include "vfs.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -250,6 +252,47 @@ socklen_t host_unix_name(std::string_view name, sockaddr_un &out) {
     return out.sun_len;
 }
 
+/// The proxy's listener's host name while it serves; empty before its first use and after its end. Under names.mutex.
+std::string proxy_host_name;
+
+/// The host name, in the folder of abstract names, of the runtime's socket that serves dns_proxy::guest_name (ADR-0054
+/// step b): bound under an unguessable name, listened on and served at its first use, and again after its listener
+/// ends; empty when it cannot be made. Under `names.mutex`.
+std::string proxy_name(UnixNames &names) {
+    if (!proxy_host_name.empty()) return proxy_host_name;
+    const int folder = abstract_folder(names);
+    if (folder < 0) return {};
+    const int listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (listener < 0) return {};
+    ::fcntl(listener, F_SETFD, FD_CLOEXEC);
+    const std::string host_name = unguessable_name("d");
+    sockaddr_un host{};
+    const socklen_t length = host_unix_name(host_name, host);
+    const long bound = in_folder(folder, [&] {
+        return ::bind(listener, reinterpret_cast<const sockaddr *>(&host), length) == 0 ? 0L : -1L;
+    });
+    struct stat status{};
+    if (bound != 0 || ::fstatat(folder, host_name.c_str(), &status, AT_SYMLINK_NOFOLLOW) != 0 ||
+        !S_ISSOCK(status.st_mode) || ::listen(listener, SOMAXCONN) != 0) {
+        ::close(listener);
+        return {};
+    }
+    // getpeername gives the name the guest connected to (sys_connect keeps it). Once the listener is gone, its name
+    // goes, and the next connect makes another.
+    const bool serving = dns_proxy::serve(listener, [folder, host_name] {
+        auto &all = unix_names();
+        const std::lock_guard lock(all.mutex);
+        ::unlinkat(folder, host_name.c_str(), 0);
+        if (proxy_host_name == host_name) proxy_host_name.clear();
+    });
+    if (!serving) {
+        ::unlinkat(folder, host_name.c_str(), 0);
+        return {};
+    }
+    proxy_host_name = host_name;
+    return proxy_host_name;
+}
+
 // --- Descriptors in flight ---------------------------------------------------------------------------------------
 
 /// The descriptions this process sent with SCM_RIGHTS and has not received yet. Each goes as a token, one end of a
@@ -309,10 +352,15 @@ descriptors::Handle take_in_flight(int host) {
 // --- Host sockets ------------------------------------------------------------------------------------------------
 
 /// Makes a new host socket the runtime's way: close-on-exec, non-blocking and without SIGPIPE; closes it on failure.
+/// An accepted socket has SO_NOSIGPIPE from its listener already: Darwin refuses setsockopt on a socket that can
+/// neither send nor receive any more, as a connection is whose client closed it before the accept.
 long prepare(int host) {
     const int on = 1;
+    int nosigpipe = 0;
+    socklen_t length = sizeof nosigpipe;
+    if (::getsockopt(host, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, &length) != 0) nosigpipe = 0;
     if (::fcntl(host, F_SETFD, FD_CLOEXEC) != 0 || ::fcntl(host, F_SETFL, ::fcntl(host, F_GETFL) | O_NONBLOCK) != 0 ||
-        ::setsockopt(host, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on) != 0) {
+        (nosigpipe == 0 && ::setsockopt(host, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on) != 0)) {
         const int error = errno;
         ::close(host);
         return -sys::to_linux_errno(error);
@@ -519,11 +567,21 @@ long unix_name(const unsigned char *bytes, std::uint64_t length, Use use, HostNa
         const std::string guest_path(path, ::strnlen(path, size));
         out.guest = unnamed + guest_path;
         out.guest += '\0';
-        out.place = place_of(guest_path, use == Use::bind);
-        if (out.place.error != 0) return out.place.error;
-        if (use == Use::bind) return 0;  // bind_unix binds a name of its own and moves it there
-        out.folder = out.place.folder;
-        out.length = host_unix_name(out.place.name, host);
+        if (use != Use::bind && vfs::absolute(guest_path, vfs::working_directory()) == dns_proxy::guest_name) {
+            // The runtime's resolver (ADR-0054 step b); nothing else of /dev/socket is there.
+            auto &names = unix_names();
+            const std::lock_guard lock(names.mutex);
+            const auto name = proxy_name(names);
+            if (name.empty()) return -linux_errno::econnrefused;
+            out.folder = names.folder;
+            out.length = host_unix_name(name, host);
+        } else {
+            out.place = place_of(guest_path, use == Use::bind);
+            if (out.place.error != 0) return out.place.error;
+            if (use == Use::bind) return 0;  // bind_unix binds a name of its own and moves it there
+            out.folder = out.place.folder;
+            out.length = host_unix_name(out.place.name, host);
+        }
     }
     if (out.length == 0) return -linux_errno::enametoolong;
     std::memcpy(&out.storage, &host, sizeof host);

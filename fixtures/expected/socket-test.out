@@ -265,4 +265,43 @@ epoll_wait after the peer's close: 1
 without SA_RESTART: handler ran 1, recv -1 errno 4 (Interrupted system call)
 with SA_RESTART: handler ran 1, recv 4
 with SA_RESTART and SO_RCVTIMEO: handler ran 1, recv -1 errno 4 (Interrupted system call)
+getaddrinfo localhost without hints: 2
+  inet dgram protocol 17 flags 0 length 16 127.0.0.1 port 0
+  inet stream protocol 6 flags 0 length 16 127.0.0.1 port 0
+getaddrinfo localhost, service 80: 2
+  inet dgram protocol 17 flags 0 length 16 127.0.0.1 port 80
+  inet stream protocol 6 flags 0 length 16 127.0.0.1 port 80
+getaddrinfo localhost, service http, stream: 1
+  inet stream protocol 6 flags 0 length 16 127.0.0.1 port 80
+getaddrinfo LocalHost, canonical name, inet, dgram: 1
+  inet dgram protocol 17 flags 0x2 length 16 127.0.0.1 port 0 canonical localhost
+getaddrinfo ip6-localhost, stream: 1
+  inet6 stream protocol 6 flags 0 length 28 ::1 port 0
+getaddrinfo localhost, numeric host: EAI_NONAME
+getaddrinfo 127.0.0.1 without hints: 2
+  inet dgram protocol 17 flags 0 length 16 127.0.0.1 port 0
+  inet stream protocol 6 flags 0 length 16 127.0.0.1 port 0
+getaddrinfo ::1, service https, stream: 1
+  inet6 stream protocol 6 flags 0 length 28 ::1 port 443
+getaddrinfo nothing.invalid, stream: EAI_NODATA
+gethostbyname localhost: localhost, 0 aliases, inet length 4, 1 addresses, the first 127.0.0.1
+gethostbyname 127.0.0.1: 127.0.0.1, 0 aliases, inet length 4, 1 addresses, the first 127.0.0.1
+gethostbyname2 ip6-localhost inet6: ip6-localhost, 0 aliases, inet6 length 16, 1 addresses, the first ::1
+gethostbyname nothing.invalid: none, h_errno 1
+gethostbyaddr 127.0.0.1: localhost, 0 aliases, inet length 4, 1 addresses, the first 127.0.0.1
+gethostbyaddr ::1: ip6-localhost, 0 aliases, inet6 length 16, 1 addresses, the first ::1
+getnameinfo 127.0.0.1:80: localhost http
+getnameinfo 127.0.0.1:80, numeric: 127.0.0.1 80
+getnameinfo [::1]:443, name required: ip6-localhost https
+setAllowNetworkingForProcess: found
+without networking: socket inet stream: EPERM
+without networking: socket inet6 dgram: EPERM
+without networking: socket unix stream: works
+without networking: getaddrinfo localhost, stream: 1
+  inet stream protocol 6 flags 0 length 16 127.0.0.1 port 0
+without networking: getaddrinfo nothing.invalid, stream: EAI_NODATA
+without networking: gethostbyname localhost: localhost, 0 aliases, inet length 4, 1 addresses, the first 127.0.0.1
+without networking: gethostbyname nothing.invalid: none, h_errno 2
+networking again: socket inet stream works
+ANDROID_DNS_MODE local: gethostbyname nothing.invalid: none, h_errno 2
 done

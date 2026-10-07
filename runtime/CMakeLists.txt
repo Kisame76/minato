@@ -8,7 +8,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
   src/proc.cpp src/properties.cpp src/sys_sockets.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
-  src/environment.cpp src/vfs.cpp src/hwcap.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
+  src/environment.cpp src/vfs.cpp src/hwcap.cpp src/dns_proxy.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(apkrt PRIVATE apk_defaults)
@@ -55,6 +55,12 @@ if(APK_HOST_BUILD)
   target_include_directories(vfs_test PRIVATE src)
   target_link_libraries(vfs_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.vfs COMMAND vfs_test)
+
+  # The guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies in DnsProxyListener's bytes.
+  add_executable(dns_proxy_test tests/dns_proxy_test.cpp)
+  target_include_directories(dns_proxy_test PRIVATE src)
+  target_link_libraries(dns_proxy_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.dns_proxy COMMAND dns_proxy_test)
 
   add_executable(exit_test tests/exit_test.cpp)
   target_include_directories(exit_test PRIVATE src)

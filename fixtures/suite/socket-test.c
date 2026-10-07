@@ -1,17 +1,21 @@
 // socket-test: sockets as apps and libcore use them (ADR-0054 step a): socket's checks and flags, socketpairs,
 // SCM_RIGHTS and SO_PEERCRED, AF_UNIX's abstract names and its errors for names in the file system, TCP and UDP on
 // 127.0.0.1 and ::1 with v4-mapped addresses, the MSG flags, timeouts, EPIPE with SIGPIPE, options read back,
-// sendmmsg and recvmmsg, epoll on sockets, and a blocked call that a signal interrupts. Nothing it prints depends
-// on a port, an address or a process ID. Expected output: fixtures/expected/socket-test.out
+// sendmmsg and recvmmsg, epoll on sockets, and a blocked call that a signal interrupts; the resolver's answers for
+// the names of /system/etc/hosts, and a process without networking (step b). Nothing it prints depends on a port,
+// an address or a process ID. Expected output: fixtures/expected/socket-test.out
 #define _GNU_SOURCE
 #include <arpa/inet.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -786,6 +790,194 @@ static void test_signals(void) {
     install(SIGUSR1, SIG_DFL, 0);
 }
 
+// --- Names (ADR-0054 step b) -------------------------------------------------------------------------------
+// The names of /system/etc/hosts, which the resolver reads before DNS, and a name of the reserved .invalid, which
+// none resolves; numeric hosts never leave the process.
+
+static const char *gai_name(int error) {
+    switch (error) {
+        case EAI_AGAIN: return "EAI_AGAIN";
+        case EAI_BADFLAGS: return "EAI_BADFLAGS";
+        case EAI_FAIL: return "EAI_FAIL";
+        case EAI_FAMILY: return "EAI_FAMILY";
+        case EAI_MEMORY: return "EAI_MEMORY";
+        case EAI_NODATA: return "EAI_NODATA";
+        case EAI_NONAME: return "EAI_NONAME";
+        case EAI_SERVICE: return "EAI_SERVICE";
+        case EAI_SOCKTYPE: return "EAI_SOCKTYPE";
+        case EAI_SYSTEM: return "EAI_SYSTEM";
+        default: return "another error";
+    }
+}
+
+static const char *family_name(int family) {
+    return family == AF_INET ? "inet" : family == AF_INET6 ? "inet6" : family == AF_UNSPEC ? "unspec" : "other";
+}
+
+static const char *socktype_name(int type) {
+    return type == SOCK_STREAM ? "stream" : type == SOCK_DGRAM ? "dgram" : type == SOCK_RAW ? "raw" : "other";
+}
+
+// An address and its port, as text.
+static void address_text(const struct sockaddr *address, char *text, size_t size, unsigned *port) {
+    if (address->sa_family == AF_INET) {
+        const struct sockaddr_in *in = (const struct sockaddr_in *)address;
+        inet_ntop(AF_INET, &in->sin_addr, text, size);
+        *port = ntohs(in->sin_port);
+    } else if (address->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *in6 = (const struct sockaddr_in6 *)address;
+        inet_ntop(AF_INET6, &in6->sin6_addr, text, size);
+        *port = ntohs(in6->sin6_port);
+    } else {
+        snprintf(text, size, "family %d", address->sa_family);
+        *port = 0;
+    }
+}
+
+// getaddrinfo's answer, every entry in its order.
+static void lookup(const char *what, const char *host, const char *service, const struct addrinfo *hints) {
+    struct addrinfo *result = NULL;
+    const int error = getaddrinfo(host, service, hints, &result);
+    if (error != 0) {
+        printf("%s: %s\n", what, gai_name(error));
+        return;
+    }
+    int count = 0;
+    for (const struct addrinfo *entry = result; entry != NULL; entry = entry->ai_next) ++count;
+    printf("%s: %d\n", what, count);
+    for (const struct addrinfo *entry = result; entry != NULL; entry = entry->ai_next) {
+        char text[INET6_ADDRSTRLEN];
+        unsigned port;
+        address_text(entry->ai_addr, text, sizeof text, &port);
+        printf("  %s %s protocol %d flags %#x length %u %s port %u%s%s\n", family_name(entry->ai_family),
+               socktype_name(entry->ai_socktype), entry->ai_protocol, (unsigned)entry->ai_flags,
+               (unsigned)entry->ai_addrlen, text, port, entry->ai_canonname != NULL ? " canonical " : "",
+               entry->ai_canonname != NULL ? entry->ai_canonname : "");
+    }
+    freeaddrinfo(result);
+}
+
+static struct addrinfo hints_of(int flags, int family, int type) {
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_flags = flags;
+    hints.ai_family = family;
+    hints.ai_socktype = type;
+    return hints;
+}
+
+static void print_host(const char *what, const struct hostent *host) {
+    if (host == NULL) {
+        printf("%s: none, h_errno %d\n", what, h_errno);
+        return;
+    }
+    int aliases = 0, addresses = 0;
+    while (host->h_aliases[aliases] != NULL) ++aliases;
+    while (host->h_addr_list[addresses] != NULL) ++addresses;
+    char text[INET6_ADDRSTRLEN] = "";
+    if (addresses > 0) inet_ntop(host->h_addrtype, host->h_addr_list[0], text, sizeof text);
+    printf("%s: %s, %d aliases, %s length %d, %d addresses, the first %s\n", what, host->h_name, aliases,
+           family_name(host->h_addrtype), host->h_length, addresses, text);
+}
+
+static void name_of(const char *what, int family, const char *address, uint16_t port, int flags) {
+    struct sockaddr_storage storage;
+    memset(&storage, 0, sizeof storage);
+    socklen_t length;
+    if (family == AF_INET) {
+        struct sockaddr_in *in = (struct sockaddr_in *)&storage;
+        in->sin_family = AF_INET;
+        in->sin_port = htons(port);
+        inet_pton(AF_INET, address, &in->sin_addr);
+        length = sizeof *in;
+    } else {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)&storage;
+        in6->sin6_family = AF_INET6;
+        in6->sin6_port = htons(port);
+        inet_pton(AF_INET6, address, &in6->sin6_addr);
+        length = sizeof *in6;
+    }
+    char host[NI_MAXHOST] = "", service[NI_MAXSERV] = "";
+    const int error = getnameinfo((const struct sockaddr *)&storage, length, host, sizeof host, service,
+                                  sizeof service, flags);
+    if (error != 0) {
+        printf("%s: %s\n", what, gai_name(error));
+    } else {
+        printf("%s: %s %s\n", what, host, service);
+    }
+}
+
+static void test_names(void) {
+    lookup("getaddrinfo localhost without hints", "localhost", NULL, NULL);
+    struct addrinfo hints = hints_of(0, AF_UNSPEC, 0);
+    lookup("getaddrinfo localhost, service 80", "localhost", "80", &hints);
+    hints = hints_of(0, AF_UNSPEC, SOCK_STREAM);
+    lookup("getaddrinfo localhost, service http, stream", "localhost", "http", &hints);
+    hints = hints_of(AI_CANONNAME, AF_INET, SOCK_DGRAM);
+    lookup("getaddrinfo LocalHost, canonical name, inet, dgram", "LocalHost", NULL, &hints);
+    hints = hints_of(0, AF_UNSPEC, SOCK_STREAM);
+    lookup("getaddrinfo ip6-localhost, stream", "ip6-localhost", NULL, &hints);
+    hints = hints_of(AI_NUMERICHOST, AF_UNSPEC, 0);
+    lookup("getaddrinfo localhost, numeric host", "localhost", NULL, &hints);
+    lookup("getaddrinfo 127.0.0.1 without hints", "127.0.0.1", NULL, NULL);
+    hints = hints_of(0, AF_UNSPEC, SOCK_STREAM);
+    lookup("getaddrinfo ::1, service https, stream", "::1", "https", &hints);
+    lookup("getaddrinfo nothing.invalid, stream", "nothing.invalid", NULL, &hints);
+
+    print_host("gethostbyname localhost", gethostbyname("localhost"));
+    print_host("gethostbyname 127.0.0.1", gethostbyname("127.0.0.1"));
+    print_host("gethostbyname2 ip6-localhost inet6", gethostbyname2("ip6-localhost", AF_INET6));
+    print_host("gethostbyname nothing.invalid", gethostbyname("nothing.invalid"));
+    struct in_addr loopback4;
+    inet_pton(AF_INET, "127.0.0.1", &loopback4);
+    print_host("gethostbyaddr 127.0.0.1", gethostbyaddr(&loopback4, sizeof loopback4, AF_INET));
+    struct in6_addr loopback6;
+    inet_pton(AF_INET6, "::1", &loopback6);
+    print_host("gethostbyaddr ::1", gethostbyaddr(&loopback6, sizeof loopback6, AF_INET6));
+
+    name_of("getnameinfo 127.0.0.1:80", AF_INET, "127.0.0.1", 80, 0);
+    name_of("getnameinfo 127.0.0.1:80, numeric", AF_INET, "127.0.0.1", 80, NI_NUMERICHOST | NI_NUMERICSERV);
+    name_of("getnameinfo [::1]:443, name required", AF_INET6, "::1", 443, NI_NAMEREQD);
+}
+
+// What a process without networking gets, as an app without INTERNET (libnetd_client's switch, which Zygote sets):
+// no AF_INET or AF_INET6 socket, and names only from bionic's own reading of /system/etc/hosts.
+static void test_networking_off(void) {
+    void *netd = dlopen("libnetd_client.so", RTLD_NOW);
+    void (*allow)(bool) = netd != NULL ? (void (*)(bool))dlsym(netd, "setAllowNetworkingForProcess") : NULL;
+    printf("setAllowNetworkingForProcess: %s\n", allow != NULL ? "found" : "missing");
+    if (allow == NULL) return;
+    allow(false);
+    const int domains[] = {AF_INET, AF_INET6, AF_UNIX};
+    const int types[] = {SOCK_STREAM, SOCK_DGRAM, SOCK_STREAM};
+    for (int index = 0; index < 3; ++index) {
+        errno = 0;
+        const int fd = socket(domains[index], types[index], 0);
+        printf("without networking: socket %s %s: ", domains[index] == AF_UNIX ? "unix" : family_name(domains[index]),
+               socktype_name(types[index]));
+        if (fd >= 0) {
+            printf("works\n");
+            close(fd);
+        } else {
+            printf("%s\n", errno == EPERM ? "EPERM" : strerror(errno));
+        }
+    }
+    struct addrinfo hints = hints_of(0, AF_UNSPEC, SOCK_STREAM);
+    lookup("without networking: getaddrinfo localhost, stream", "localhost", NULL, &hints);
+    lookup("without networking: getaddrinfo nothing.invalid, stream", "nothing.invalid", NULL, &hints);
+    print_host("without networking: gethostbyname localhost", gethostbyname("localhost"));
+    // bionic's own lookup, not the proxy's: its failure differs (h_errno).
+    print_host("without networking: gethostbyname nothing.invalid", gethostbyname("nothing.invalid"));
+    allow(true);
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    printf("networking again: socket inet stream %s\n", fd >= 0 ? "works" : strerror(errno));
+    if (fd >= 0) close(fd);
+    // ANDROID_DNS_MODE=local keeps the proxy out as well.
+    setenv("ANDROID_DNS_MODE", "local", 1);
+    print_host("ANDROID_DNS_MODE local: gethostbyname nothing.invalid", gethostbyname("nothing.invalid"));
+    unsetenv("ANDROID_DNS_MODE");
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     if (chdir("/data/local/tmp") != 0) printf("chdir failed\n");
@@ -803,6 +995,8 @@ int main(void) {
     udp_round(AF_INET6);
     test_epoll();
     test_signals();
+    test_names();
+    test_networking_off();
     printf("done\n");
     return 0;
 }
