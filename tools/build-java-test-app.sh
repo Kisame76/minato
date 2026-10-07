@@ -22,7 +22,8 @@
 # palette-test (ADR-0043 step f)) is one more, and so is packs-test (ADR-0050 test 2), which tools/build-packs-test.sh
 # also packs as a bundletool set with a fast-follow and an on-demand pack; its twin packs-test-own, from its sources,
 # names its own local_testing_dir.
-# activity-flow-test (ADR-0039 step b3.5b2-1) is one more, whose activities start one another.
+# activity-flow-test (ADR-0039 step b3.5b2-1) is one more, whose activities start one another, and so is
+# gesture-flow-test (step b3.5b2-1b), whose touch goes on while its second activity starts.
 # key-test (ADR-0045 step 7c) is one more, whose keys it injects into its own window.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the

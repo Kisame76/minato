@@ -1,0 +1,7 @@
+I/gesture-flow-test: First ready
+I/gesture-flow-test: First DOWN, starts Second
+I/gesture-flow-test: First ACTION_CANCEL
+I/gesture-flow-test: Second ready
+I/gesture-flow-test: Second's first event ACTION_DOWN
+I/gesture-flow-test: Second UP
+I/gesture-flow-test: done

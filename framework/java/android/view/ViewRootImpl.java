@@ -144,6 +144,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     // the frame's CALLBACK_INPUT unless a view asked for unbuffered dispatch, as AOSP's.
     private InputChannel mInputChannel;
     private WindowInputEventReceiver mInputEventReceiver;
+    /** The open touch gesture's last event, a copy, from its DOWN until its UP or CANCEL (step b3.5b2-1b), or null. */
+    private MotionEvent mOpenTouch;
+    /** Whether touches go unhandled until a DOWN: the window took the session's channel at an activity switch. */
+    private boolean mTouchesFromDown;
     private boolean mConsumeBatchedInputScheduled;
     private boolean mConsumeBatchedInputImmediatelyScheduled;
     private boolean mUnbufferedInputDispatch;
@@ -1135,6 +1139,50 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
     }
 
+    /**
+     * @hide ActivityThread's at an activity switch (step b3.5b2-1b): the session's channel for the window that comes to
+     * the top, whose views get no touch until a DOWN, as Android's dispatcher gives a new window nothing of a gesture
+     * that began in another.
+     */
+    public void takeInputChannelAtSwitch(InputChannel inputChannel) {
+        setInputChannel(inputChannel);
+        mTouchesFromDown = true;
+    }
+
+    /**
+     * @hide ActivityThread's at an activity switch (step b3.5b2-1b), as the window gives up the session's channel: an
+     * open gesture ends with a CANCEL through the window's input stages, as Android's dispatcher sends one to the
+     * window that took the gesture's DOWN once that window goes; Android's comes at the window's stop, ours at the
+     * switch.
+     */
+    public void cancelTouch() {
+        final MotionEvent open = mOpenTouch;
+        if (open == null) {
+            return;
+        }
+        mOpenTouch = null;
+        open.cancel();
+        if (!shouldDropInputEvent(open)) {
+            processPointerEvent(open);
+        }
+        open.recycle();
+    }
+
+    /** The open gesture's last touch, as Android's dispatcher keeps a window's touch state (step b3.5b2-1b). */
+    private void trackTouch(MotionEvent event) {
+        if (!event.isTouchEvent()) {
+            return;
+        }
+        if (mOpenTouch != null) {
+            mOpenTouch.recycle();
+            mOpenTouch = null;
+        }
+        final int action = event.getActionMasked();
+        if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) {
+            mOpenTouch = MotionEvent.obtain(event);
+        }
+    }
+
     /** As AOSP's dispatchDetachedFromWindow: the receiver, then the channel. */
     private void disposeInput() {
         if (mInputEventReceiver != null) {
@@ -1159,6 +1207,13 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
         @Override
         public void onInputEvent(InputEvent event) {
+            if (mTouchesFromDown && event instanceof MotionEvent && ((MotionEvent) event).isTouchEvent()) {
+                if (((MotionEvent) event).getActionMasked() != MotionEvent.ACTION_DOWN) {
+                    finishInputEvent(event, false);
+                    return;
+                }
+                mTouchesFromDown = false;
+            }
             deliverInputEvent(event, this, false);
         }
 
@@ -1257,6 +1312,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             handled = processKeyEvent((KeyEvent) event, postIme);
         } else if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
             final MotionEvent motion = (MotionEvent) event;
+            trackTouch(motion);
             if (!shouldDropInputEvent(motion)) {
                 handled = processPointerEvent(motion);
             }

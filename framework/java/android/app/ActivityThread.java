@@ -1205,10 +1205,11 @@ public final class ActivityThread {
 
     /**
      * The session's window, input channel and focus go to the activity that came to the top (step b3.5b2-1), as
-     * Android's window manager gives them to the top window. The window before loses its focus and its surface, so its
-     * SurfaceViews' surfaces go; it keeps no share of the input channel. The new one gets the window, which its next
-     * traversal draws whole, a share of the channel, whose queue the host connects once, and the focus, which it takes
-     * once it drew. The screen keeps the old window's last frame until the new one's first.
+     * Android's window manager gives them to the top window. The window before loses its focus, its open touch gesture
+     * with a CANCEL (step b3.5b2-1b) and its surface, so its SurfaceViews' surfaces go; it keeps no share of the input
+     * channel. The new one gets the window, which its next traversal draws whole, a share of the channel, whose queue
+     * the host connects once, with touches from their next DOWN, and the focus, which it takes once it drew. The screen
+     * keeps the old window's last frame until the new one's first.
      */
     private void moveHostTo(ActivityClientRecord r) {
         final ViewRootImpl to = rootOf(r);
@@ -1223,6 +1224,9 @@ public final class ActivityThread {
                 from.windowFocusChanged(false);
             }
             if (input != null) {
+                // A finger that is down stays the old window's: its gesture ends there with a CANCEL, and the new
+                // window gets touches from their next DOWN (step b3.5b2-1b).
+                from.cancelTouch();
                 input = input.dup();
                 from.setInputChannel(null);
             }
@@ -1232,7 +1236,9 @@ public final class ActivityThread {
         if (mHostWindow != 0) {
             to.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
         }
-        if (input != null) {
+        if (input != null && from != null) {
+            to.takeInputChannelAtSwitch(input);
+        } else if (input != null) {
             to.setInputChannel(input);
         }
         if (mHostFocus) {

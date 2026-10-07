@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0039 step b3.5b2-1b's test (gesture-flow-test): a finger stays down while an activity starts. The launcher,
+     First, starts Second at the gesture's DOWN; the gesture stays First's and ends for it with a CANCEL once its window
+     goes, and Second sees nothing of it, only its own touch, a tap that begins with a DOWN. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.gestureflow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+      android:name="io.github.kisame76.minato.test.gestureflow.GestureApplication">
+    <activity android:name="io.github.kisame76.minato.test.gestureflow.FirstActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.gestureflow.SecondActivity" android:exported="false"/>
+  </application>
+</manifest>

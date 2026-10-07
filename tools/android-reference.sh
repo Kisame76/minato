@@ -175,10 +175,11 @@ fi
 # fills the window between the bars. touch-test (ADR-0045 step 7b2) runs there too: the script taps its window's
 # middle and swipes through it with adb shell input, as apk-run's touch steps do in tools/touch-check.sh.
 # activity-flow-test (ADR-0039 step b3.5b2-1), whose steps wait for its windows' focus, runs there too, and so does
-# key-test (ADR-0045 step 7c), which injects its keys once its window has focus.
+# key-test (ADR-0045 step 7c), which injects its keys once its window has focus, and gesture-flow-test
+# (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
-  "$app" == activity-flow-test || "$app" == key-test ]]; then
+  "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -487,6 +488,11 @@ run_app() {
     activity-flow-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SplashActivity
       ;;
+    # gesture-flow-test (ADR-0039 step b3.5b2-1b): its launcher, FirstActivity, starts Second at a swipe's DOWN, and its
+    # log ends with "done" at the UP of a tap in Second's window.
+    gesture-flow-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FirstActivity
+      ;;
     # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with
     # "done" at the click of the swipe that the script plays.
     touch-test)
@@ -585,6 +591,13 @@ run_app() {
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its
     # window once it is done brings the display back, so that the runs after it start in touch mode as before.
     { wait_for "$app" done && run input tap 645 1398; } || return 1
+  fi
+  if [[ "$app" == gesture-flow-test ]]; then
+    # Step b3.5b2-1b: a 3 s swipe down the window's middle from First's focus on, whose DOWN starts Second, so that the
+    # finger is still down after First stops; then a tap in Second's window, a second after it is ready, as apk-run's
+    # lifecycle plays them in tools/gesture-flow-check.sh.
+    { wait_for "$app" "First ready" && sleep 1 && run input swipe 645 1000 645 2200 3000 &&
+      wait_for "$app" "Second ready" && sleep 1 && run input tap 645 1398; } || return 1
   fi
   if [[ "$app" == activity-test ]]; then
     wait_for "$app" APP_CMD_GAINED_FOCUS || return 1
