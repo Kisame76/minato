@@ -31,7 +31,13 @@
 #              <app>-<start>.png of a start that failed, which shows an alert's text
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
-#              alone; java-test among them runs in the Simulator too
+#              alone; java-test or a Godot APK among them runs in the Simulator too
+#   GODOT_TEST set: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
+#              run too: their "godot-bench: " lines must be Android 15's (fixtures/expected/godot-bench-*.logcat) and
+#              their run must have frames and no failures, as tools/godot-java-check.sh checks them on the Mac,
+#              which also taps the bench for its touch line; this check plays no touches, so it leaves that line out.
+#              godot-bench-vulkan runs on the iPhone only: MoltenVK has no Simulator slice (ADR-0030, decision 8), and
+#              Godot draws with GLES there, which its bench counts as a failure. Opt-in until they are green.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -67,6 +73,11 @@ ONLY=${ONLY:-}
 # obb-test's OBB comes as a unit folder of its own, which this check makes in the Simulator only.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("obb-test io.github.kisame76.minato.test.obb")
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
+GODOT_TEST=${GODOT_TEST:-}
+[[ " $ONLY " != *" godot-bench-"* ]] || GODOT_TEST=yes
+# The Vulkan APK on the iPhone only: the Simulator has no MoltenVK (ADR-0030, decision 8).
+[[ -z "$GODOT_TEST" || "$ON_DEVICE" == no ]] || APPS+=("godot-bench-vulkan io.github.kisame76.minato.godotbench.vulkan")
+[[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -86,11 +97,28 @@ fi
 last_line() {
   case "$1" in
     app-start-test) echo "guest-out ^app-start-test: MessageDigest " ;; # app_process_run.LAST
+    # Godot's run line, with its padded tag (framework/tests/godot_java_run.py's LAST).
+    godot-bench-*) echo "guest-log ^I/godot *: run [^:]+: [0-9]+ frames, [0-9]+ failures$" ;;
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
+# The APK of app $1: the Godot APKs are tools/build-godot.sh's, which this check does not make.
+apk() {
+  case "$1" in
+    godot-bench-*) echo "build/godot/$1.apk" ;;
+    *) echo "build/$1/$1.apk" ;;
+  esac
+}
 for app in "${APPS[@]}"; do
-  tools/build-java-test-app.sh "${app%% *}" >/dev/null
+  case "${app%% *}" in
+    godot-bench-*)
+      if [[ ! -f "$(apk "${app%% *}")" ]]; then
+        echo "No $(apk "${app%% *}"): run tools/build-godot.sh first." >&2
+        exit 1
+      fi
+      ;;
+    *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
+  esac
 done
 now() { python3 -c 'import time; print(time.time())'; }
 seconds() { python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$1" "$2"; }
@@ -382,7 +410,11 @@ run_start() {
 # java-test's $1st start, as on the AVD (ADR-0043 step c1): the tap, its window's focus, Home, the return and its own
 # finish. The time to its first onResume comes from the app's own "onResume at" line when it has one.
 run_lifecycle() {
-  local round=$1 package=${APPS[${#APPS[@]} - 1]#* } resumed at
+  local round=$1 package="" resumed at app
+  # java-test's package by its name: the Godot APKs come after it in APPS.
+  for app in "${APPS[@]}"; do
+    [[ "${app%% *}" != java-test ]] || package=${app#* }
+  done
   if begin_start java-test "$package" "$round"; then
     if ! await_line guest-log "^I/java-test: onResume$" 300; then
       failed_line "no onResume" "java-test-$round"
@@ -426,9 +458,9 @@ mkdir -p "$CHECK"
 : > "$EVENTS"
 for app in "${APPS[@]}"; do
   if [[ "$ON_DEVICE" == yes ]]; then
-    devicectl_copy to --source "build/${app%% *}/${app%% *}.apk" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
+    devicectl_copy to --source "$(apk "${app%% *}")" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
   else
-    cp "build/${app%% *}/${app%% *}.apk" "$SUPPORT/incoming/"
+    cp "$(apk "${app%% *}")" "$SUPPORT/incoming/"
   fi
 done
 # obb-test's main OBB (ADR-0049 test 8): a unit of its own after the APKs, a folder that appears whole, as "+" leaves a
@@ -589,6 +621,48 @@ with open(ours, "w", encoding="utf-8") as handle:
 compare_log("surface-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
 fi
+
+# Test 2's Godot APKs (ADR-0042 b)): their "godot-bench: " lines with Godot's padded tag must be Android 15's, and their
+# run line must have frames and no failures, as tools/godot-java-check.sh checks them on the Mac.
+for flavor in vulkan gles; do
+  [[ -n "$GODOT_TEST" ]] && wanted "godot-bench-$flavor" || continue
+  [[ "$flavor" == gles || "$ON_DEVICE" == yes ]] || continue
+  run_start "godot-bench-$flavor" "io.github.kisame76.minato.godotbench.$flavor" 1
+  python3 - "$WORK/godot-bench-$flavor-1.log" "fixtures/expected/godot-bench-$flavor.logcat" "godot-bench-$flavor" \
+    <<'EOF' || failures=$((failures + 1))
+import re
+import sys
+
+log, expected, app = sys.argv[1:]
+tag = r"^[VDIWEF]/godot *: "
+lines = open(log, encoding="utf-8", errors="replace").read().splitlines()
+godot = [line for line in lines if re.match(tag, line)]
+got = [line for line in godot if re.match(tag + "godot-bench: ", line)]
+wanted = open(expected, encoding="utf-8").read().splitlines()
+# No touches are played here: the bench's touch line is the Mac's (tools/godot-java-check.sh), on both sides.
+touch = re.compile(tag + "godot-bench: first touch ")
+got = [line for line in got if not touch.match(line)]
+wanted = [line for line in wanted if not touch.match(line)]
+ran = any(re.match(tag + r"run [^:]+: [1-9][0-9]* frames, 0 failures$", line) for line in godot)
+if got == wanted and ran:
+    print(f"ok      {app} logged what Android 15 logs, {len(got)} lines, and its run had no failures")
+    for line in godot:
+        if line not in got:
+            print(f"        device: {line}")
+    sys.exit(0)
+print(f"FAIL    {app}" + ("" if ran else ': no line "run <name>: N frames, 0 failures"'))
+for line in wanted:
+    if line not in got:
+        print(f"      | only Android's: {line}")
+for line in got:
+    if line not in wanted:
+        print(f"      | only ours:      {line}")
+print("      | its guest log, last 40 lines:")
+for line in lines[-40:]:
+    print(f"      | {line}")
+sys.exit(1)
+EOF
+done
 
 echo "java start check: $failures failed"
 exit $((failures > 0))
