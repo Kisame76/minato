@@ -29,6 +29,7 @@
 #include <cstring>
 #include <format>
 #include <initializer_list>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -2256,6 +2257,130 @@ TEST(proc_self_maps_shows_the_main_stack_and_no_host_path) {
     }
     CHECK(stacks == 1);
     CHECK(code_found);  // the test's own code is in an anonymous mapping
+}
+
+// ART's run-test 071-dexfile-map-clean (ADR-0033 c1) reads /proc/self/smaps: a file the guest maps is named in maps
+// and smaps by its guest path, with its offset, and smaps follows each line with Linux 6.6's sizes, as Android 15's
+// emulator writes them. A page read through a private mapping of a written-back file stays clean and one written
+// there is dirty; one never touched counts while the file's page is cached, as Linux's fault-around maps it. An unmap
+// forgets the name, also where the host maps next, and mremap moves it with the pages it moves, at their offsets.
+TEST(proc_self_smaps_names_a_files_mapping_and_counts_its_dirty_pages) {
+    const Scratch scratch;
+    const auto file = open_guest(at_fdcwd, "./mapped", o_rdwr | o_creat | o_cloexec, 0600);
+    CHECK(file >= 0);
+    CHECK(write_text(file, std::string(4 * page, 'm')) == static_cast<long>(4 * page));
+    CHECK(call(nr_fsync, {unsigned_of(file)}) == 0);  // written back, as the run-test's sync does
+    const auto mapped = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, 3 * page, prot_read | prot_write, map_private, unsigned_of(file), page}));
+    CHECK(mapped % page == 0);
+    CHECK(*reinterpret_cast<volatile char *>(mapped) == 'm');        // read: clean
+    *reinterpret_cast<volatile char *>(mapped + page) = 'w';         // written: a private copy, dirty
+    const auto header = std::format("{:08x}-{:08x} rw-p {:08x} ", mapped, mapped + 3 * page, page);
+    const auto find = [&](const std::vector<std::string> &lines, const std::string &start) {
+        return std::find_if(lines.begin(), lines.end(), [&](const std::string &line) { return line.starts_with(start); });
+    };
+    const auto maps = lines_of(read_guest_file("/proc/self/maps"));
+    const auto line = find(maps, header);
+    CHECK(line != maps.end() && line->ends_with(" /data/local/tmp/mapped") && line->size() > 73 &&
+          line->substr(73) == "/data/local/tmp/mapped");
+    const auto smaps = lines_of(read_guest_file("/proc/self/smaps"));
+    auto at = find(smaps, header);
+    CHECK(at != smaps.end());
+    const char *const names[] = {"Size", "KernelPageSize", "MMUPageSize", "Rss", "Pss", "Pss_Dirty", "Shared_Clean",
+                                 "Shared_Dirty", "Private_Clean", "Private_Dirty", "Referenced", "Anonymous", "KSM",
+                                 "LazyFree", "AnonHugePages", "ShmemPmdMapped", "FilePmdMapped", "Shared_Hugetlb",
+                                 "Private_Hugetlb", "Swap", "SwapPss", "Locked"};
+    std::map<std::string, std::uint64_t> sizes;
+    for (const char *name : names) {
+        if (at == smaps.end() || ++at == smaps.end()) break;
+        // The name, then the number in kB, right-aligned to column 24, as SEQ_PUT_DEC writes it.
+        CHECK(at->starts_with(std::string(name) + ":") && at->size() == 27 && at->ends_with(" kB") &&
+              (*at)[23] != ' ');
+        sizes[name] = std::stoull(at->substr(std::string(name).size() + 1, 23 - std::string(name).size()));
+    }
+    CHECK(at != smaps.end() && ++at != smaps.end() && *at == "THPeligible:           0");
+    CHECK(at != smaps.end() && ++at != smaps.end() && *at == "VmFlags: rd wr mr mw me ac ");
+    const std::uint64_t kb = page / 1024;
+    CHECK(sizes["Size"] == 3 * kb && sizes["KernelPageSize"] == kb && sizes["MMUPageSize"] == kb);
+    CHECK(sizes["Rss"] >= 2 * kb && sizes["Rss"] <= 3 * kb && sizes["Pss"] == sizes["Rss"]);
+    CHECK(sizes["Private_Clean"] == sizes["Rss"] - kb && sizes["Private_Dirty"] == kb && sizes["Pss_Dirty"] == kb);
+    CHECK(sizes["Shared_Clean"] == 0 && sizes["Shared_Dirty"] == 0 && sizes["Swap"] == 0);
+    const auto named = [&](std::uint64_t begin, std::uint64_t end, std::uint64_t offset) {
+        const auto lines = lines_of(read_guest_file("/proc/self/maps"));
+        const auto found = find(lines, std::format("{:08x}-{:08x} rw-p {:08x} ", begin, end, offset));
+        return found != lines.end() && found->ends_with(" /data/local/tmp/mapped");
+    };
+    // mremap moves the name with the pages: all three, then the last one alone, at its own offset.
+    const auto target = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, 3 * page, prot_read, map_private | map_anonymous, ~std::uint64_t{0}, 0}));
+    const auto last = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, page, prot_read, map_private | map_anonymous, ~std::uint64_t{0}, 0}));
+    CHECK(call(nr_mremap, {mapped, 3 * page, 3 * page, mremap_maymove | mremap_fixed, target}) ==
+          static_cast<long>(target));
+    CHECK(read_guest_file("/proc/self/maps").find(header) == std::string::npos);
+    CHECK(named(target, target + 3 * page, page));
+    CHECK(call(nr_mremap, {target + 2 * page, page, page, mremap_maymove | mremap_fixed, last}) ==
+          static_cast<long>(last));
+    CHECK(named(target, target + 2 * page, page) && named(last, last + page, 3 * page));
+    // An unmap forgets it: of the first page, the rest keeps the name at the file's next offset; then all of it, so
+    // that what the host maps there next, as the runtime's own memory, is no file of the guest's.
+    CHECK(call(nr_munmap, {target, page}) == 0);
+    CHECK(named(target + page, target + 2 * page, 2 * page));
+    CHECK(call(nr_munmap, {last, page}) == 0);
+    CHECK(call(nr_munmap, {target + page, page}) == 0);
+    void *const host = ::mmap(reinterpret_cast<void *>(target), 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON,
+                              -1, 0);  // a hint, which Darwin keeps while the range is free
+    CHECK(host == reinterpret_cast<void *>(target));
+    CHECK(read_guest_file("/proc/self/maps").find("/data/local/tmp/mapped") == std::string::npos);
+    ::munmap(host, 2 * page);
+    call(nr_close, {unsigned_of(file)});
+}
+
+// A region the host shares with another task, here a child after fork, holds shared pages in smaps, as Linux counts a
+// page that more than one process maps. Its line says "p" like every line, so its VmFlags are a private mapping's.
+TEST(proc_self_smaps_counts_the_pages_another_task_shares) {
+    const Scratch scratch;
+    auto *const region = static_cast<char *>(
+        ::mmap(nullptr, 4 * page, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0));
+    CHECK(region != MAP_FAILED);
+    CHECK(::mprotect(region, page, PROT_NONE) == 0 && ::mprotect(region + 3 * page, page, PROT_NONE) == 0);
+    region[page] = 1;
+    region[2 * page] = 1;
+    int ends[2];
+    CHECK(::pipe(ends) == 0);
+    const pid_t child = ::fork();
+    if (child == 0) {
+        ::close(ends[1]);
+        char byte;
+        ::_exit(static_cast<int>(::read(ends[0], &byte, 1)));  // shares the region until the parent closes the pipe
+    }
+    CHECK(child > 0);
+    const auto begin = reinterpret_cast<std::uint64_t>(region + page);
+    const auto smaps = lines_of(read_guest_file("/proc/self/smaps"));
+    ::close(ends[1]);
+    ::close(ends[0]);
+    int status = 0;
+    CHECK(::waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    ::munmap(region, 4 * page);
+    const auto at = std::find_if(smaps.begin(), smaps.end(), [&](const std::string &line) {
+        return line.starts_with(std::format("{:08x}-{:08x} rw-p ", begin, begin + 2 * page));
+    });
+    CHECK(at != smaps.end());
+    std::map<std::string, std::uint64_t> sizes;
+    std::string flags;
+    for (auto line = at == smaps.end() ? at : std::next(at); line != smaps.end(); ++line) {
+        if (line->starts_with("VmFlags:")) {
+            flags = *line;
+            break;
+        }
+        if (const auto colon = line->find(':'); colon != std::string::npos && line->ends_with(" kB")) {
+            sizes[line->substr(0, colon)] = std::stoull(line->substr(colon + 1));
+        }
+    }
+    const std::uint64_t kb = page / 1024;
+    CHECK(sizes["Rss"] == 2 * kb && sizes["Shared_Dirty"] == 2 * kb);
+    CHECK(sizes["Shared_Clean"] == 0 && sizes["Private_Clean"] == 0 && sizes["Private_Dirty"] == 0);
+    CHECK(flags == "VmFlags: rd wr mr mw me ac ");
 }
 
 TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {

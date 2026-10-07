@@ -59,7 +59,14 @@ def run_test(test, reference, setting):
     os.makedirs(os.path.join(host_location, "dalvik-cache", "arm64"))
     for name in run_tests.jar_names(tests, test):
         # Read-only, as on the device (art_run.py says why).
-        os.chmod(shutil.copy(os.path.join(work, "jars", test, name), host_location), 0o444)
+        copied = shutil.copy(os.path.join(work, "jars", test, name), host_location)
+        os.chmod(copied, 0o444)
+        # The run's sync (run.py): the jar written back before the guest maps it, so its pages are clean
+        # (/proc/self/smaps, 071-dexfile-map-clean). fsync, since the host's sync may return before the writes end.
+        if run_tests.run_options(tests, test).get("sync"):
+            descriptor = os.open(copied, os.O_RDONLY)
+            os.fsync(descriptor)
+            os.close(descriptor)
     boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
     command = art_run.apk_run_command(
         setting["apk_run"], setting["art"], setting["bionic_system"], work, setting["art_lib64"], run,

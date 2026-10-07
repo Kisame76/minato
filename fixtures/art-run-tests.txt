@@ -62,7 +62,7 @@
 068-classloader aosp
 069-field-type aosp sample
 070-nio-buffer aosp
-071-dexfile-map-clean out the guest has no /proc/self/smaps, which the test reads (ADR-0033 decision 8 gave it maps)
+071-dexfile-map-clean aosp
 072-precise-gc aosp
 072-reachability-fence aosp
 073-mismatched-field aosp

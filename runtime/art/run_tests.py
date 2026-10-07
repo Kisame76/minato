@@ -511,8 +511,11 @@ def device_script(tests, device):
         location = dex_location(test)
         arguments = " ".join(dalvikvm_arguments(tests, test, DEVICE_BOOT_CLASS_PATH))
         lines += [f"rm -rf {location} && mkdir -p {location}/dalvik-cache/arm64 && cp {device}/jars/{test}/*.jar "
-                  f"{location}/ && chmod 444 {location}/*.jar && cd {location}",
-                  f"ANDROID_DATA={location} DEX_LOCATION={location} timeout {TIMEOUT} dalvikvm64 {arguments} "
+                  f"{location}/ && chmod 444 {location}/*.jar && cd {location}"]
+        # The run's sync, so that the copied jars are written back before dalvikvm maps them (071's run.py).
+        if run_options(tests, test).get("sync"):
+            lines.append("sync")
+        lines += [f"ANDROID_DATA={location} DEX_LOCATION={location} timeout {TIMEOUT} dalvikvm64 {arguments} "
                   f">{device}/results/{test}.out 2>{device}/results/{test}.err </dev/null",
                   f"echo $? >{device}/results/{test}.status; cd / && rm -rf {location}"]
     return "\n".join(lines) + "\n"

@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <mach/mach.h>
+#include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -38,6 +39,16 @@
 namespace apkrt::proc {
 namespace {
 
+/// A file the guest mapped (map_file): its range, its guest path, the file offset at `begin`, and the device and
+/// inode its container's stat gives, split in Linux's way.
+struct FileMapping {
+    std::uint64_t begin = 0, end = 0;
+    std::string path;
+    std::uint64_t offset = 0;
+    std::uint32_t major = 0, minor = 0;
+    std::uint64_t inode = 0;
+};
+
 struct State {
     std::mutex mutex;
     std::uint64_t stack_low = 0, stack_high = 0, stack_start = 0;
@@ -46,7 +57,37 @@ struct State {
     bool has_main_thread = false;
     pthread_t main_thread{};
     std::string program;
+    std::vector<FileMapping> files;  // in address order, apart from one another
 };
+
+/// The names in [begin, end) go; a mapping that reaches past either end keeps its rest, with its offset.
+void forget(State &current, std::uint64_t begin, std::uint64_t end) {
+    std::vector<FileMapping> kept;
+    for (auto &mapping : current.files) {
+        if (mapping.end <= begin || mapping.begin >= end) {
+            kept.push_back(std::move(mapping));
+            continue;
+        }
+        if (mapping.begin < begin) {
+            auto left = mapping;
+            left.end = begin;
+            kept.push_back(std::move(left));
+        }
+        if (mapping.end > end) {
+            auto right = mapping;
+            right.offset += end - mapping.begin;
+            right.begin = end;
+            kept.push_back(std::move(right));
+        }
+    }
+    current.files = std::move(kept);
+}
+
+void insert(State &current, FileMapping mapping) {
+    const auto at = std::lower_bound(current.files.begin(), current.files.end(), mapping.begin,
+                                     [](const FileMapping &a, std::uint64_t begin) { return a.begin < begin; });
+    current.files.insert(at, std::move(mapping));
+}
 
 State &state() {
     static auto *instance = new State;  // as long as the process
@@ -224,10 +265,12 @@ std::string cmdline() {
 
 // --- /proc/self/maps -----------------------------------------------------------------------------------
 
-/// A range of the host's address space with its protection, as the host's VM map has it.
+/// A range of the host's address space with its protection, and whether another task shares it (as after a fork),
+/// as the host's VM map has it.
 struct Region {
     std::uint64_t begin, end;
     int protection;
+    bool shared;
 };
 
 std::vector<Region> host_regions() {
@@ -244,7 +287,7 @@ std::vector<Region> host_regions() {
         }
         if (object != MACH_PORT_NULL) ::mach_port_deallocate(::mach_task_self(), object);
         // The host program's page zero is no mapping on Linux, where nothing lies at address 0.
-        if (address != 0) regions.push_back({address, address + size, info.protection});
+        if (address != 0) regions.push_back({address, address + size, info.protection, info.shared != 0});
         if (address + size <= address) break;
         address += size;
     }
@@ -269,6 +312,11 @@ std::vector<Label> guest_labels() {
         const std::lock_guard lock(current.mutex);
         if (current.stack_high > current.stack_low) {
             labels.push_back({.begin = current.stack_low, .end = current.stack_high, .name = "[stack]"});
+        }
+        for (const auto &mapping : current.files) {
+            labels.push_back({.begin = mapping.begin, .end = mapping.end, .name = mapping.path, .file = true,
+                              .offset = mapping.offset, .major = mapping.major, .minor = mapping.minor,
+                              .inode = mapping.inode});
         }
     }
     for (const auto &object : dl::mapped_objects()) {
@@ -333,17 +381,19 @@ void append_line(std::string &text, std::uint64_t begin, std::uint64_t end, int 
     text += '\n';
 }
 
-/// /proc/self/maps: the host's mappings, each cut where the guest knows a name for a part of it.
-/// Whatever only the host maps stays anonymous, so that no host path reaches the guest. Neighbours with
-/// the same protection and name, a file's at following offsets, are one line, as Linux merges them.
-std::string maps() {
-    const auto labels = guest_labels();
-    struct Piece {
-        std::uint64_t begin, end;
-        int protection;
-        const Label *label;
-        std::uint64_t offset;
-    };
+/// A line of /proc/self/maps: part of one host mapping, with one name or none.
+struct Piece {
+    std::uint64_t begin, end;
+    int protection;
+    bool shared;
+    const Label *label;
+    std::uint64_t offset;
+};
+
+/// The host's mappings, each cut where the guest knows a name for a part of it (`labels`, into which the pieces
+/// point). Whatever only the host maps stays anonymous, so that no host path reaches the guest. Neighbours with the
+/// same protection and name, a file's at following offsets, are one piece, as Linux merges them.
+std::vector<Piece> pieces_of(const std::vector<Label> &labels) {
     std::vector<Piece> pieces;
     const auto add = [&](const Piece &piece) {
         if (!pieces.empty()) {
@@ -352,7 +402,8 @@ std::string maps() {
                                                                  last.label->name == piece.label->name);
             const bool following = last.label == nullptr || !last.label->file ||
                                    last.offset + (last.end - last.begin) == piece.offset;
-            if (last.end == piece.begin && last.protection == piece.protection && same_name && following) {
+            if (last.end == piece.begin && last.protection == piece.protection && last.shared == piece.shared &&
+                same_name && following) {
                 last.end = piece.end;
                 return;
             }
@@ -366,19 +417,88 @@ std::string maps() {
             if (next_label < labels.size() && labels[next_label].begin <= at) {
                 const auto &label = labels[next_label];
                 const auto end = std::min(region.end, label.end);
-                add({at, end, region.protection, &label, label.offset + (at - label.begin)});
+                add({at, end, region.protection, region.shared, &label, label.offset + (at - label.begin)});
                 at = end;
             } else {
                 const auto end =
                     next_label < labels.size() ? std::min(region.end, labels[next_label].begin) : region.end;
-                add({at, end, region.protection, nullptr, 0});
+                add({at, end, region.protection, region.shared, nullptr, 0});
                 at = end;
             }
         }
     }
+    return pieces;
+}
+
+/// /proc/self/maps: a line for each piece.
+std::string maps() {
+    const auto labels = guest_labels();
     std::string text;
-    for (const auto &piece : pieces) {
+    for (const auto &piece : pieces_of(labels)) {
         append_line(text, piece.begin, piece.end, piece.protection, piece.label, piece.offset);
+    }
+    return text;
+}
+
+/// show_smap's sizes of a piece (Linux 6.6), in the form Android 15's emulator writes them [verified, 2026-10-07]:
+/// each name, then its value in kB right-aligned to column 24. The host's pages say what is resident, dirty,
+/// referenced and anonymous (mincore): a page dirty in the file cache counts, as Linux's PageDirty does, so a
+/// freshly written file reads dirty until it is written back. A region the host shares with another task holds
+/// shared pages, as Linux counts a page mapped by more than one process; Pss stays Rss, since the number of sharers
+/// is unknown. Nothing is swapped or huge, so the rest is 0.
+void append_sizes(std::string &text, const Piece &piece) {
+    const std::uint64_t page = page_size(), length = piece.end - piece.begin;
+    std::uint64_t resident = 0, dirty = 0, referenced = 0, anonymous = 0;
+    std::vector<char> pages(static_cast<std::size_t>(length / page));
+    if (!pages.empty() && ::mincore(reinterpret_cast<void *>(piece.begin), length, pages.data()) == 0) {
+        for (const char flags : pages) {
+            if ((flags & MINCORE_INCORE) == 0) continue;
+            ++resident;
+            if (flags & (MINCORE_MODIFIED | MINCORE_MODIFIED_OTHER)) ++dirty;
+            if (flags & (MINCORE_REFERENCED | MINCORE_REFERENCED_OTHER)) ++referenced;
+            if (flags & MINCORE_ANONYMOUS) ++anonymous;
+        }
+    }
+    const auto field = [&](std::string_view name, std::uint64_t kilobytes) {
+        text += std::format("{:<16}{:>8} kB\n", std::string(name) + ":", kilobytes);
+    };
+    const auto kb = [page](std::uint64_t pages_count) { return pages_count * page / 1024; };
+    field("Size", length / 1024);
+    field("KernelPageSize", page / 1024);
+    field("MMUPageSize", page / 1024);
+    field("Rss", kb(resident));
+    field("Pss", kb(resident));
+    field("Pss_Dirty", kb(dirty));
+    field("Shared_Clean", piece.shared ? kb(resident - dirty) : 0);
+    field("Shared_Dirty", piece.shared ? kb(dirty) : 0);
+    field("Private_Clean", piece.shared ? 0 : kb(resident - dirty));
+    field("Private_Dirty", piece.shared ? 0 : kb(dirty));
+    field("Referenced", kb(referenced));
+    field("Anonymous", kb(anonymous));
+    for (const std::string_view name : {"KSM", "LazyFree", "AnonHugePages", "ShmemPmdMapped", "FilePmdMapped",
+                                        "Shared_Hugetlb", "Private_Hugetlb", "Swap", "SwapPss", "Locked"}) {
+        field(name, 0);
+    }
+    text += std::format("{:<16}{:>8}\n", "THPeligible:", 0);
+    // show_smap_vma_flags: the mnemonics in the order of their bits, each with a space after it. Every line is a
+    // private mapping ("p"), so none says "sh" or "ms", and a writable one is accounted (VM_ACCOUNT, "ac").
+    const bool writable = (piece.protection & VM_PROT_WRITE) != 0;
+    text += "VmFlags: ";
+    if (piece.protection & VM_PROT_READ) text += "rd ";
+    if (writable) text += "wr ";
+    if (piece.protection & VM_PROT_EXECUTE) text += "ex ";
+    text += "mr mw me ";
+    if (writable) text += "ac ";
+    text += '\n';
+}
+
+/// /proc/self/smaps: each line of maps, then its sizes.
+std::string smaps() {
+    const auto labels = guest_labels();
+    std::string text;
+    for (const auto &piece : pieces_of(labels)) {
+        append_line(text, piece.begin, piece.end, piece.protection, piece.label, piece.offset);
+        append_sizes(text, piece);
     }
     return text;
 }
@@ -469,6 +589,45 @@ void set_main_thread(pthread_t thread, std::string_view program) {
     current.program = program;
 }
 
+void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset) {
+    const auto description = descriptors::get(fd);
+    const auto path = descriptor_target(fd);
+    if (!description || !path) return;  // a file outside every mount stays anonymous, as the host's own do
+    struct stat status{};
+    ::fstat(description->host(), &status);
+    const auto device = static_cast<std::uint32_t>(status.st_dev);
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    forget(current, begin, end);
+    insert(current, {.begin = begin, .end = end, .path = *path, .offset = offset, .major = (device >> 24) & 0xff,
+                     .minor = device & 0xff'ffff, .inode = status.st_ino});
+}
+
+void unmap(std::uint64_t begin, std::uint64_t end) {
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    forget(current, begin, end);
+}
+
+void remap(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length) {
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    const std::uint64_t kept = std::min(old_length, new_length);
+    std::vector<FileMapping> moved;
+    for (const auto &mapping : current.files) {
+        const auto begin = std::max(mapping.begin, from), end = std::min(mapping.end, from + kept);
+        if (begin >= end) continue;
+        auto part = mapping;
+        part.offset += begin - mapping.begin;
+        part.begin = to + (begin - from);
+        part.end = to + (end - from);
+        moved.push_back(std::move(part));
+    }
+    forget(current, from, from + old_length);
+    forget(current, to, to + new_length);
+    for (auto &part : moved) insert(current, std::move(part));
+}
+
 std::optional<long> open(std::string_view path, int linux_flags) {
     std::optional<std::string> contents;
     std::string name(path);
@@ -485,6 +644,7 @@ std::optional<long> open(std::string_view path, int linux_flags) {
     } else if (const auto entry = own_entry(path)) {
         if (*entry == "stat") contents = stat_line();
         if (*entry == "maps") contents = maps();
+        if (*entry == "smaps") contents = smaps();
         if (*entry == "cmdline") contents = cmdline();
         name = std::format("/proc/{}/{}", ::getpid(), *entry);  // /proc/self is a link to it
     }

@@ -1,6 +1,7 @@
 // Memory syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): mmap, mprotect and
 // madvise with Linux flags on Darwin's virtual memory. Executable memory is never handed out.
 #include "descriptors.h"
+#include "proc.h"
 #include "syscalls.h"
 #include "threads.h"
 
@@ -85,7 +86,12 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
         ::munmap(result, length);
         return -linux_errno::eexist;
     }
-    return static_cast<long>(reinterpret_cast<std::uintptr_t>(result));
+    // /proc/self/maps: what lay there loses its name, and a file's mapping takes the file's (proc.h).
+    const auto begin = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(result));
+    const auto end = begin + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
+    proc::unmap(begin, end);
+    if (description) proc::map_file(begin, end, fd, offset);
+    return static_cast<long>(begin);
 }
 
 long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::uint64_t length) {
@@ -99,7 +105,9 @@ long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         thread->deferred_unmap_length = length;
         return 0;
     }
-    return result_or_error(::munmap(as_pointer<void>(address), length));
+    const long result = result_or_error(::munmap(as_pointer<void>(address), length));
+    if (result == 0) proc::unmap(address, address + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1}));
+    return result;
 }
 
 namespace memory {
@@ -109,6 +117,7 @@ void (*test_pause)() = nullptr;
 void unmap_deferred(std::uint64_t start, std::uint64_t length) {
     const std::lock_guard lock(memory_lock);
     ::munmap(as_pointer<void>(start), length);
+    proc::unmap(start, start + length);
 }
 
 }  // namespace memory
@@ -276,6 +285,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         if (result >= 0 && old_length > new_length) {
             ::munmap(as_pointer<void>(address + new_length), old_length - new_length);
         }
+        if (result >= 0) proc::remap(address, old_length, new_address, new_length);
         return result;
     }
 
@@ -284,6 +294,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         if (old_length > new_length && ::munmap(as_pointer<void>(address + new_length), old_length - new_length) != 0) {
             return -to_linux_errno(errno);
         }
+        proc::remap(address, old_length, address, new_length);
         return static_cast<long>(address);
     }
 
@@ -310,6 +321,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     const long result =
         move_pages(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length, old.protection, true);
     if (result < 0) ::munmap(target, new_length);
+    if (result >= 0) proc::remap(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length);
     return result;
 }
 
