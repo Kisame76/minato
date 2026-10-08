@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOL = os.path.join(ROOT, "tools", "api-coverage.py")
@@ -56,6 +57,15 @@ package a.b {
   public class Parceled {
   }
 
+  public class UsesModule {
+  }
+
+  public class UsesStub {
+  }
+
+  public class Dumper {
+  }
+
   public class UsesElsewhere {
   }
 
@@ -86,6 +96,12 @@ SOURCES = {
     "a/b/Parceled.java": ("package a.b;\nimport android.os.IBinder;\n"
                           "public class Parceled { Box box; IBinder token; }\n"),
     "a/b/Box.java": "package a.b;\nclass Box { }\n",
+    "a/b/UsesModule.java": ("package a.b;\nimport java.util.List;\nimport android.hardware.thing.V1_0.Strength;\n"
+                           "public class UsesModule { }\n"),
+    "a/b/Dumper.java": ("package a.b;\nimport java.io.IOException;\n"
+                       "public class Dumper { IRemote remote; IOException e; Integer i; }\n"),
+    "a/b/UsesStub.java": ("package a.b;\nimport x.y.Known;\nimport com.android.internal.R;\n"
+                         "import android.compat.annotation.UnsupportedAppUsage;\npublic class UsesStub { }\n"),
     "a/b/UsesHidden.java": "package a.b;\nimport a.b.internal.Helper;\npublic class UsesHidden { Helper h; }\n",
     "a/b/internal/Helper.java": "package a.b.internal;\npublic class Helper { native void x(); }\n",
     "a/b/Cycle1.java": "package a.b;\npublic class Cycle1 { Cycle2 c; }\n",
@@ -94,8 +110,11 @@ SOURCES = {
     "c/d/Other.java": "package c.d;\npublic abstract class Other { public interface Callback { } }\n",
 }
 
-# framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API.
-CLASSES = ["a/b/Present.class", "x/y/Ours.class"]
+# framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API; and the hidden R.
+CLASSES = ["a/b/Present.class", "x/y/Ours.class", "com/android/internal/R.class", "android/os/IBinder.class",
+           "android/os/ServiceManager.class"]
+# A module's API, of which the build makes compile-only stubs too.
+STUB_API = "package x.y {\n\n  public class Known {\n  }\n\n}\n"
 
 
 def check(condition, what):
@@ -124,14 +143,21 @@ with tempfile.TemporaryDirectory() as work:
     taken = os.path.join(work, "taken.txt")
     with open(taken, "w") as handle:
         handle.write("# Other steps\na.b.Cycle2\tgap 7 (Formate)\na\tno package of this name has types\n")
+    jmod = os.path.join(work, "java.base.jmod")
+    with zipfile.ZipFile(jmod, "w") as archive:
+        archive.writestr("classes/android/compat/annotation/UnsupportedAppUsage.class", b"")
+    stub_api = os.path.join(work, "module-current.txt")
+    with open(stub_api, "w") as handle:
+        handle.write(STUB_API)
     first = os.path.join(work, "first.txt")
     with open(first, "w") as handle:
         handle.write("# the Unity test APK's blockers\nc.d.Other\n")
     table = os.path.join(work, "api-coverage.md")
     data = os.path.join(work, "api-coverage.json")
     result = subprocess.run([sys.executable, TOOL, "--api", api, "--classes", classes, "--sources", sources,
-                             "--ours", ours, "--first", first, "--taken", taken, "--batch", "3", "--table", table,
-                             "--json", data],
+                             "--stub-api", stub_api, "--known", jmod, "--ours", ours, "--first", first,
+                             "--taken", taken, "--batch", "3",
+                             "--table", table, "--json", data],
                             capture_output=True, text=True)
     check(result.returncode == 0, f"exit status {result.returncode}: {result.stderr.strip()[-400:]}")
     report = json.load(open(data)) if os.path.exists(data) else {"types": {}, "batches": [], "ours": []}
@@ -145,6 +171,12 @@ with tempfile.TemporaryDirectory() as work:
     check(groups.get("a.b.Served") == "service", "Served reaches ServiceManager")
     check(groups.get("a.b.Aidl") == "service", "Aidl uses an AIDL interface of its package")
     check(groups.get("a.b.Parceled") == "pure Java", "a parcelable's .aidl and an IBinder are no service")
+    check(groups.get("a.b.UsesModule") == "module", "UsesModule imports an android type nothing defines")
+    check(groups.get("a.b.Dumper") == "service", "Dumper names an AIDL interface its package lacks")
+    check(report["types"].get("a.b.UsesModule", {}).get("needs") == ["android.hardware.thing.V1_0.Strength"],
+          "UsesModule needs the HAL's type")
+    check(groups.get("a.b.UsesStub") == "pure Java",
+          "a module API's stub, framework.jar's R and a boot class are known")
     check(groups.get("a.b.UsesHidden") == "native", "UsesHidden pulls in a hidden type with a native method")
     check(report["types"].get("a.b.UsesHidden", {}).get("pulls") == ["a.b.internal.Helper"],
           "UsesHidden pulls in a.b.internal.Helper")
@@ -159,12 +191,13 @@ with tempfile.TemporaryDirectory() as work:
     batches = report["batches"]
     check(batches[:1] == [["c.d.Other"]], f"the first batch is --first's package: {batches[:1]}")
     check(batches[1:] == [["a.b.Cycle1", "a.b.Parceled", "a.b.Plain"], ["a.b.UsesElsewhere", "a.b.UsesNative",
-                                                                         "a.b.UsesPlain"]],
+                                                                         "a.b.UsesPlain"], ["a.b.UsesStub"]],
           f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses: {batches[1:]}")
     check(report["types"].get("a.b.Cycle2", {}).get("taken") == "gap 7 (Formate)", "Cycle2 is taken by gap 7")
     check(report["types"].get("a.b.Parceled", {}).get("pulls") == ["a.b.Box"], "Parceled pulls in the hidden Box")
     text = open(table).read() if os.path.exists(table) else ""
-    check("| a.b | 1 | 12 | 7 | 2 | 2 | 1 |" in text, "the table's row for a.b")
+    check("| a.b | 1 | 15 | 8 | 3 | 2 | 1 | 1 |" in text, "the table's row for a.b")
+    check("- a.b.UsesModule: android.hardware.thing.V1_0.Strength" in text, "the table lists what a type needs")
     check("Do not edit by hand." in text, "the table says it is generated")
     check("- gap 7 (Formate): 1 (Cycle2)" in text, "the table lists the taken type with its step")
     check("- a.b: Elsewhere" in text, "the table lists the type without a source")

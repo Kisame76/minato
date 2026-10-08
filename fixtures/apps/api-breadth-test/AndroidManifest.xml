@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The framework breadth's test (the compatibility plan's entry 22, api-breadth-test): the Application class loads
+     each public type of assets/types.txt by name, first without and then with its initialization, and logs whether it
+     loads, without a window. The launcher activity is the framework's own android.app.Activity, as in
+     strictmode-test; the driver loads only the Application class. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.apibreadth" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="API Breadth Test"
+      android:name="io.github.kisame76.minato.test.apibreadth.BreadthApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

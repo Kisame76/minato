@@ -78,7 +78,6 @@ com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: Strict
 
 # The app model, activities and views.
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
-android.content.ContextParams$Builder <- android.content.Context  # gap: attribution contexts (Context.createAttributionContext)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
 android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
@@ -120,22 +119,15 @@ com.android.modules.utils.BinaryXmlSerializer <- android.util.Xml  # stays: bina
 
 # The app's components (step c2c1): Intent, Uri, ContentProvider with its transport, Service, BroadcastReceiver and
 # ContentCaptureManager. Providers install and start; calls into them come with ADR-0045's ContentResolver (gap 13a).
-android.content.ContentProviderOperation <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.BulkCursorDescriptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.CursorToBulkCursorAdaptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
-android.content.ContentProviderOperation <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.BulkCursorDescriptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.BulkCursorToCursorAdaptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
-android.content.ClipDescription <- android.content.ContentProvider  # gap: ContentResolver.openTypedAssetFile on the app's own provider (ClipDescription)
-android.content.ContentProviderOperation <- android.content.ContentProvider  # gap: ContentResolver.applyBatch on the app's own provider
-android.content.OperationApplicationException <- android.content.ContentProvider  # gap: ContentResolver.applyBatch on the app's own provider
 android.content.PermissionChecker <- android.content.ContentProvider  # stays: a provider's permission checks for another app, which never calls the app's providers on Minato
 android.os.UserManager <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.content.ClipData <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
-android.content.ClipData$Item <- android.content.Intent  # gap: an intent's clip data and the clipboard (ClipData)
 android.content.pm.ResolveInfo <- android.content.Intent  # gap: intent resolution (Intent.resolveActivity, ResolveInfo), with ADR-0045's package queries
 android.os.BundleMerger <- android.content.Intent  # gap: Intent.mergeExtras with a BundleMerger (API 34)
 android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Minato has no MediaProvider
@@ -214,13 +206,10 @@ android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill 
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
 com.google.android.collect.Lists <- android.view.View  # stays: View.dumpFlags, a debugging dump
 com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
-android.content.ClipData <- android.view.View  # gap: drag and drop
-android.content.ClipData$Item <- android.view.View  # gap: drag and drop
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
-android.os.OutcomeReceiver <- android.view.View  # gap: Credential Manager requests
 android.os.Vibrator <- android.view.View  # gap: haptic feedback
 android.view.ContentInfo$Builder <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
 android.view.DragAndDropPermissions <- android.view.View  # gap: drag and drop
@@ -266,7 +255,6 @@ android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityMana
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
-android.os.TestLooperManager <- android.app.Instrumentation  # stays: an instrumentation test's looper control, and no test instrumentation runs on Minato
 android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
@@ -368,14 +356,8 @@ android.accounts.Account <- android.content.IContentService  # stays: IContentSe
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
 android.app.IUriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions (take, release and list), which ask the URI grants service
 android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
-android.content.OperationApplicationException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.content.PeriodicSync <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
-android.content.SyncAdapterType <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.content.SyncInfo <- android.content.ContentResolver  # gap: syncs, as for Account (getCurrentSync)
 android.content.SyncInfo <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
-android.content.SyncRequest <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
-android.content.SyncRequest$Builder <- android.content.ContentResolver  # gap: syncs, as for Account (requestSyncAsUser)
-android.content.SyncStatusObserver <- android.content.ContentResolver  # stays: a sync status listener's callback, which the local content service never calls
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.content.pm.ParceledListSlice <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
 android.content.pm.ResolveInfo <- android.provider.Settings  # stays: Settings.Bookmarks, the launcher's hidden table of bookmarks
@@ -408,9 +390,6 @@ android.app.ActivityOptions <- android.app.PendingIntent  # gap: sending an acti
 android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.getIntentSender, with ADR-0045 step d3's intent senders
 android.content.pm.ParceledListSlice <- android.app.PendingIntent  # stays: queryIntentComponents, a system and test API, whose list the local activity manager answers with none (ADR-0045 step d2)
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
-android.content.ClipData <- android.view.inputmethod.BaseInputConnection, android.widget.Editor, android.widget.TextView, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
-android.content.ClipData$Item <- android.view.inputmethod.BaseInputConnection, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
-android.content.ClipDescription <- android.view.inputmethod.InputContentInfo, android.widget.TextView, android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
 android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
 android.content.pm.ResolveInfo <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.graphics.drawable.Icon <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
@@ -471,3 +450,11 @@ android.view.ViewHierarchyEncoder <- android.widget.CompoundButton  # stays: the
 android.view.ViewStructure <- android.widget.CompoundButton  # stays: the assist and autofill structure, which only those services ask for
 android.view.accessibility.AccessibilityNodeInfo <- android.widget.CompoundButton  # stays: accessibility, off (ADR-0041): node infos only for an accessibility service
 android.view.autofill.AutofillValue <- android.widget.CompoundButton  # stays: autofill, off (step c2c3), which alone asks a CompoundButton for its value or fills it
+
+# The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
+android.content.IntentSender <- android.content.ClipData  # gap: a clip item's intent sender (PendingIntent, gap 9)
+android.text.Html <- android.content.ClipData  # gap: a clip item's HTML text (android.text.Html, a later breadth batch)
+android.view.textclassifier.TextLinks <- android.content.ClipData  # gap: a clip's text links (the text classifier, a later breadth batch)
+android.accounts.Account <- android.content.PeriodicSync, android.content.SyncRequest  # gap: syncs, as for Account
+android.net.ParseException <- android.net.MailTo  # gap: a malformed mailto: URI (connectivity's ParseException)
+android.os.Debug <- android.os.RemoteCallbackList  # gap: the log of a list with more than 3,000 callbacks (android.os.Debug)

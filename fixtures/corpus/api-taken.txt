@@ -35,3 +35,14 @@ android.hardware.Sensor	gap 17, device features
 android.hardware.SensorManager	gap 17, device features
 android.hardware.SensorEvent	gap 17, device features
 android.hardware.SensorEventListener	gap 17, device features
+android.os.Vibrator	gap 1 batch 2 (App), the vibrator
+android.os.VibratorManager	gap 1 batch 2 (App), the vibrator
+android.os.VibrationEffect	gap 1 batch 2 (App), the vibrator
+android.os.VibrationAttributes	gap 1 batch 2 (App), the vibrator
+android.os.CombinedVibration	gap 1 batch 2 (App), the vibrator
+android.database.AbstractWindowedCursor	gap 7, SQLite (Formate)
+android.database.CursorWindowAllocationException	gap 7, SQLite (Formate)
+android.database.DatabaseErrorHandler	gap 7, SQLite (Formate)
+android.database.DefaultDatabaseErrorHandler	gap 7, SQLite (Formate)
+android.content.SearchRecentSuggestionsProvider	waits for gap 7's SQLiteOpenHelper, then a breadth batch
+android.content.SyncInfo	waits for android.accounts.Account, which its static initializer makes (a service type)

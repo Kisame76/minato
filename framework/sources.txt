@@ -1120,3 +1120,60 @@ frameworks_base/core/java/android/view/SoundEffectConstants.java
 # ADR-0039 step b3.5b2-1, App: the app's own starts. ActivityNotFoundException, which Instrumentation's
 # checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.
 frameworks_base/core/java/android/content/ActivityNotFoundException.java
+
+# The framework breadth's batch 1 (the compatibility plan's entry 22, docs/corpus/api-coverage.md): the pure-Java
+# public types of android.content, android.database, android.net and android.os, the Unity test APK's packages first, with
+# the hidden types they pull in, which have no stub.
+frameworks_base/core/java/android/content/AsyncQueryHandler.java
+frameworks_base/core/java/android/content/AsyncTaskLoader.java
+frameworks_base/core/java/android/content/ClipData.java
+frameworks_base/core/java/android/content/ClipDescription.java
+frameworks_base/core/java/android/content/ContentProviderOperation.java
+frameworks_base/core/java/android/content/ContentQueryMap.java
+frameworks_base/core/java/android/content/ContentUris.java
+frameworks_base/core/java/android/content/ContextParams.java
+frameworks_base/core/java/android/content/CursorLoader.java
+frameworks_base/core/java/android/content/DialogInterface.java
+frameworks_base/core/java/android/content/Entity.java
+frameworks_base/core/java/android/content/EntityIterator.java
+frameworks_base/core/java/android/content/LocusId.java
+frameworks_base/core/java/android/content/MutableContextWrapper.java
+frameworks_base/core/java/android/content/OperationApplicationException.java
+frameworks_base/core/java/android/content/PeriodicSync.java
+frameworks_base/core/java/android/content/QuickViewConstants.java
+frameworks_base/core/java/android/content/ReceiverCallNotAllowedException.java
+frameworks_base/core/java/android/content/RestrictionEntry.java
+frameworks_base/core/java/android/content/SyncAdapterType.java
+frameworks_base/core/java/android/content/SyncRequest.java
+frameworks_base/core/java/android/content/SyncResult.java
+frameworks_base/core/java/android/content/SyncStats.java
+frameworks_base/core/java/android/content/SyncStatusObserver.java
+frameworks_base/core/java/android/content/UriMatcher.java
+frameworks_base/core/java/android/content/UriPermission.java
+frameworks_base/core/java/android/database/CursorJoiner.java
+frameworks_base/core/java/android/database/MergeCursor.java
+frameworks_base/core/java/android/database/StaleDataException.java
+frameworks_base/core/java/android/net/Credentials.java
+frameworks_base/core/java/android/net/LocalSocketAddress.java
+frameworks_base/core/java/android/net/MailTo.java
+frameworks_base/core/java/android/net/NetworkSpecifier.java
+frameworks_base/core/java/android/net/SSLSessionCache.java
+frameworks_base/core/java/android/net/TelephonyNetworkSpecifier.java
+frameworks_base/core/java/android/net/UrlQuerySanitizer.java
+frameworks_base/core/java/android/net/VpnProfileState.java
+frameworks_base/core/java/android/os/CountDownTimer.java
+frameworks_base/core/java/android/os/CpuUsageInfo.java
+frameworks_base/core/java/android/os/LimitExceededException.java
+frameworks_base/core/java/android/os/OutcomeReceiver.java
+frameworks_base/core/java/android/os/ParcelUuid.java
+frameworks_base/core/java/android/os/PowerMonitor.java
+frameworks_base/core/java/android/os/PowerMonitorReadings.java
+frameworks_base/core/java/android/os/ProxyFileDescriptorCallback.java
+frameworks_base/core/java/android/os/RemoteCallbackList.java
+frameworks_base/core/java/android/os/StatFs.java
+frameworks_base/core/java/android/os/TestLooperManager.java
+frameworks_base/core/java/android/os/TokenWatcher.java
+frameworks_base/core/java/android/os/TransactionTooLargeException.java
+frameworks_base/core/java/android/os/WorkDuration.java
+frameworks_base/core/java/android/os/WorkSource.java
+frameworks_base/core/java/android/net/MatchAllNetworkSpecifier.java

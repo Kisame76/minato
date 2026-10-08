@@ -28,6 +28,8 @@
 # (step b3.5b2-2b), whose starts follow the launch modes and the task's flags.
 # key-test (ADR-0045 step 7c) is one more, whose keys it injects into its own window.
 # broadcast-test (ADR-0045 decision 5) is one more, whose activity sends its own broadcasts to its own receivers.
+# api-breadth-test (the compatibility plan's entry 22) is one more, whose assets/types.txt names the public types it
+# loads.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).
