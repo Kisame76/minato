@@ -26,6 +26,9 @@ import java.util.zip.GZIPOutputStream;
  * <li>base64: Base64OutputStream and Base64InputStream with Base64's flags, written in pieces, a long input's lines,
  * the URL-safe, unwrapped and unpadded chain over GZIP that Firebase's heartbeat header writes, and a bad input's
  * exception, after a character outside the alphabet that it skips.
+ * <li>debug natives (batch 3b): Debug's public memory numbers as relations that hold on any device (an app uses some
+ * heap, the heap sizes add up, a MemoryInfo has its parts and Pss), and that none of its hidden natives lacks its
+ * implementation, with their values only shown.
  * </ul>
  * A failing part logs "failed" and its stack under breadth-test-device, which differs by device and is only shown.
  * tools/android-reference.sh takes the log from Android 15, and tools/breadth-check.sh compares Minato's with it.
@@ -43,6 +46,8 @@ public class BreadthApplication extends Application {
         super.onCreate();
         part("debug", BreadthApplication::debug);
         part("base64", BreadthApplication::base64);
+        part("debug natives", BreadthApplication::debugNatives);
+        part("hidden natives", BreadthApplication::hiddenNatives);
         Log.i(TAG, "done");
     }
 
@@ -119,6 +124,78 @@ public class BreadthApplication extends Application {
         } catch (Base64DataException e) {
             Log.i(TAG, "base64: a bad input: " + e.getClass().getName() + ": " + e.getMessage());
         }
+    }
+
+    /** The natives of Debug's public API: relations between the numbers that hold on any device. */
+    private static void debugNatives() throws Exception {
+        long size = Debug.getNativeHeapSize();
+        long allocated = Debug.getNativeHeapAllocatedSize();
+        long free = Debug.getNativeHeapFreeSize();
+        Log.i(TAG, "debug natives: native heap in use " + (allocated > 0) + ", in use within size "
+                + (allocated <= size) + ", free within size " + (free >= 0 && free <= size));
+        Debug.MemoryInfo info = new Debug.MemoryInfo();
+        Debug.getMemoryInfo(info);
+        Log.i(TAG, "debug natives: MemoryInfo native " + (info.nativePss > 0) + ", Java heap " + (info.dalvikPss > 0)
+                + ", total " + (info.getTotalPss() > 0) + ", total holds the parts "
+                + (info.getTotalPss() >= info.dalvikPss + info.nativePss + info.otherPss) + ", private dirty "
+                + (info.getTotalPrivateDirty() > 0));
+        Log.i(TAG, "debug natives: own Pss " + (Debug.getPss() > 0));
+        // The binder statistics differ by device and are only shown, but each native must run.
+        Log.i(TAG + "-device", "debug natives: binder " + Debug.getBinderSentTransactions() + " "
+                + Debug.getBinderReceivedTransactions() + " " + Debug.getBinderLocalObjectCount() + " "
+                + Debug.getBinderProxyObjectCount() + " " + Debug.getBinderDeathObjectCount());
+    }
+
+    /**
+     * The natives that only the hidden API has. Android 15 refuses an app a hidden method (NoSuchMethodError), so the
+     * reference only shows that none of them lacks its native; Minato's answers are shown.
+     */
+    private static void hiddenNatives() {
+        int linked = 0;
+        int unlinked = 0;
+        String[] names = {"getRss", "getZramFreeKb", "getIonHeapsSizeKb", "getIonPoolsSizeKb",
+                "getDmabufTotalExportedKb",
+                "getDmabufHeapTotalExportedKb", "getDmabufHeapPoolsSizeKb", "getDmabufMappedSizeKb",
+                "getGpuPrivateMemoryKb", "getGpuTotalUsageKb"};
+        StringBuilder shown = new StringBuilder();
+        for (String name : names) {
+            try {
+                shown.append(' ').append(name).append(' ').append(Debug.class.getMethod(name).invoke(null));
+                linked++;
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                if (e.getCause() instanceof UnsatisfiedLinkError) {
+                    unlinked++;
+                } else {
+                    linked++;
+                }
+            } catch (ReflectiveOperationException e) {
+                // Android 15's hidden API refusal.
+                linked++;
+            }
+        }
+        try {
+            long[] system = new long[26];
+            Object[] arguments = {system};
+            Debug.class.getMethod("getMemInfo", long[].class).invoke(null, arguments);
+            shown.append(" total ").append(system[0]).append(" free ").append(system[1]);
+            Debug.MemoryInfo other = new Debug.MemoryInfo();
+            shown.append(" other process ").append(Debug.class.getMethod("getMemoryInfo", int.class,
+                    Debug.MemoryInfo.class).invoke(null, 1, other));
+            shown.append(" pss ").append(Debug.class.getMethod("getPss", int.class, long[].class, long[].class)
+                    .invoke(null, android.os.Process.myPid(), new long[3], new long[4]));
+            shown.append(" vmap ").append(Debug.class.getMethod("isVmapStack").invoke(null));
+            shown.append(" unreachable ").append(Debug.class.getMethod("getUnreachableMemory", int.class,
+                    boolean.class).invoke(null, 1, false));
+            linked++;
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof UnsatisfiedLinkError) {
+                unlinked++;
+            }
+        } catch (ReflectiveOperationException e) {
+            linked++;
+        }
+        Log.i(TAG, "debug natives: every hidden native is linked " + (unlinked == 0));
+        Log.i(TAG + "-device", "debug natives: hidden" + shown);
     }
 
     private static byte[] readAll(InputStream in) throws IOException {

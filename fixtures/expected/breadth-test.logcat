@@ -9,4 +9,8 @@ I/breadth-test: base64: 100 bytes: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gI
 I/breadth-test: base64: Firebase's header URL-safe true, back {"heartbeats":[{"agent":"fire-core/20.3.0","dates":["2026-10-08"]}]}
 I/breadth-test: base64: a character outside the alphabet skipped: Min
 I/breadth-test: base64: a bad input: android.util.Base64DataException: bad base-64
+I/breadth-test: debug natives: native heap in use true, in use within size true, free within size true
+I/breadth-test: debug natives: MemoryInfo native true, Java heap true, total true, total holds the parts true, private dirty true
+I/breadth-test: debug natives: own Pss true
+I/breadth-test: debug natives: every hidden native is linked true
 I/breadth-test: done
