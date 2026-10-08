@@ -528,3 +528,92 @@ python3 tools/bench-summary.py build/benchmark
 `tools/benchmark.sh` builds the Release benchmark build, installs it and runs the series in bench-plan's order. A
 stopped series goes on where it stopped. The results land in `build/benchmark/<run>/` (`run.csv`, `frames.csv`,
 `scene.csv`), and the summary in `build/benchmark/summary/`.
+
+## ADR-0044: ES 3.1 on ANGLE's Vulkan backend (reported, not judged)
+
+ADR-0044 runs apps that require ES 3.1 on ANGLE's Vulkan backend over our MoltenVK (decision 4, d1). Decision 5 asks
+for `bench-gles` on both backends on the iPhone, reported and not judged. d2 made `bench-gles31`: bench-gles's library
+under a manifest that requires ES 3.1, so that its session takes the Vulkan path by its manifest, as an ES 3.1 app's
+does. It runs as an APK alone, since there is no native ES 3.1 build, beside bench-gles's native runs of the same rate
+and load.
+
+**Result: with the light load the Vulkan path holds the rate at 60 and 120 Hz, as the native build does. With the
+heavy load at 120 Hz it draws 54.07 FPS against the native build's 96.20 (56.2 %), with a p99 of 20.838 ms against
+12.503 ms, where bench-gles on ANGLE-Metal draws 96.07 FPS.** Its render thread needs 6.89 ms of CPU time per frame
+against 4.60 ms, well below the 18.5 ms its frames take, so the gap lies in the GPU's work [inferred], which this
+benchmark does not split. Measured 2026-10-08 from 09:00 to 11:02 on the iPhone 15 Pro Max, in one build.
+
+| Configuration | FPS: native / Metal / Vulkan | Vulkan / native | p99: native / Metal / Vulkan | Vulkan / native |
+|---|---:|---:|---:|---:|
+| 60-light | 60.00 / 60.00 / 60.00 | 1.0000 | 16.671 / 16.671 / 16.670 ms | 1.0000 |
+| 120-light | 119.97 / 119.97 / 119.97 | 1.0000 | 8.335 / 8.335 / 8.335 ms | 1.0000 |
+| 120-heavy | 96.20 / 96.07 / 54.07 | 0.5620 | 12.503 / 12.503 / 20.838 ms | 1.6667 |
+
+- *Native:* `MinatoBench.framework` on ANGLE-Metal, the gles series' native runs. *Metal:* the APK `bench-gles`.
+  *Vulkan:* the APK `bench-gles31`.
+- Medians by nearest rank over the warm windows (20 s to 50 s after the first present) of 5 valid runs each, as in M3.
+  `tools/bench-summary.py` gives the Vulkan rows as "reported", beside gles's native runs.
+- bench-gles's own verdicts in this sitting, the Metal APK against the native build: all three pass.
+
+### Where the heavy load goes
+
+- *Intervals in the warm window,* one run each (number 03): the native build 50.6 % at 8.33 ms and 49.4 % at 12.5 ms,
+  the Metal APK 50.0 and 50.0 %, the Vulkan APK 56.0 % at 16.67 ms and 44.0 % at 20.83 ms.
+- *Steady:* the Vulkan APK's five runs drew 54.03 to 54.30 FPS.
+- *CPU time per frame* of the render thread, p50 and p99: native 4.60 and 5.28 ms, Metal APK 4.61 and 5.20 ms, Vulkan
+  APK 6.89 and 7.54 ms.
+- *Not measured:* which part of the GPU's work costs it. ADR-0044's risks name candidates [guess]: Metal's OpenGL
+  mode, which MoltenVK's private API turns on in every render pass of ANGLE's instance; shaders that reach Metal
+  through SPIR-V and SPIRV-Cross instead of ANGLE's own MSL; MoltenVK's handling of render passes.
+
+### Cold windows and CPU time (reported)
+
+| Configuration | Side | Cold FPS | Cold p99 | Cold drops | First frame | Warm CPU p50 |
+|---|---|---:|---:|---:|---:|---:|
+| 60-light | native | 57.42 | 16.671 ms | 22 | 430 ms | 5.89 ms |
+| 60-light | Metal APK | 57.19 | 16.671 ms | 2 | 456 ms | 5.91 ms |
+| 60-light | Vulkan APK | 57.12 | 16.671 ms | 2 | 469 ms | 6.53 ms |
+| 120-light | native | 113.84 | 12.503 ms | 21 | 421 ms | 3.35 ms |
+| 120-light | Metal APK | 113.33 | 16.670 ms | 2 | 447 ms | 4.54 ms |
+| 120-light | Vulkan APK | 114.04 | 8.335 ms | 1 | 452 ms | 3.67 ms |
+| 120-heavy | native | 94.65 | 12.503 ms | 1 | 132 ms | 4.60 ms |
+| 120-heavy | Metal APK | 94.56 | 12.503 ms | 1 | 153 ms | 4.61 ms |
+| 120-heavy | Vulkan APK | 53.32 | 20.838 ms | 1 | 153 ms | 6.89 ms |
+
+Medians over the valid runs, as M3's table above. The first frame, which ADR-0044 feared for the Vulkan path's shader
+translation, comes as soon as on ANGLE-Metal: within 13 ms of bench-gles's at each configuration.
+
+### How it was measured
+
+- *Build:* one Release benchmark build that `tools/benchmark.sh` made from tree `5f0a5008` (ad4281e with d2's 15
+  files, the content d2 committed as 119182c). It ran in a clone detached at ad4281e with the tree's files read in, so
+  every run's `run.csv` names ad4281e-dirty.
+- *Series,* in bench-plan's order (ADR-0044 d2): `tools/benchmark.sh --api gles`, the native build and bench-gles
+  interleaved as in M3, then `--api gles31`, bench-gles31 alone with a warm-up and 5 valid runs per configuration.
+- *Validity:* decision 6's rules, as in M3. Two gles runs were invalid from heat (thermal_above_fair) and ran again:
+  gles-120-heavy-native-01 and gles-120-heavy-apk-05. No gles31 run was invalid.
+- *Conditions* of all 50 runs: Release, no debugger, Low Power Mode off, started nominal, the layer 1290 × 2796 in
+  `bgra8Unorm` with 3 drawables, the battery charging at 80 %. The thermal state at the end: for gles nominal ×21,
+  fair ×11 and serious ×2 (the two invalid runs), for gles31 nominal ×7 and fair ×9. No pauses besides the app's own
+  wait for nominal before each run, and no fan.
+- *An interruption:* about 10:00 the phone was in use for another app while gles-120-heavy-native-06 waited to draw.
+  The run stayed open in the background until `devicectl`'s 900 s timeout ended it at 10:12 without a result. On the
+  user's word the series went on at 10:15 where it had stopped; the run was made again and was valid.
+- *Order:* the gles31 runs came after the whole gles series, on a phone that had just run the heavy load; each began
+  nominal.
+
+### Limits
+
+- One sitting and one build, 5 valid runs per configuration and side.
+- The Vulkan rows stand beside native runs made earlier in the same sitting, not interleaved with them.
+- bench-gles is an ES 3.0 scene: it uses none of what ES 3.1 adds, such as compute shaders, storage buffers and
+  indirect draws.
+- The cause of the heavy load's gap is not measured (see above).
+
+### Reproduce
+
+```bash
+tools/benchmark.sh --api gles
+tools/benchmark.sh --api gles31
+python3 tools/bench-summary.py build/benchmark
+```
