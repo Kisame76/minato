@@ -163,6 +163,9 @@ add_executable(kernel-test suite/kernel-test.c)
 add_executable(priority-test suite/priority-test.c)
 # memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
 add_executable(memfd-test suite/memfd-test.c)
+# sharedmem-test: the NDK's ASharedMemory, on ashmem on Android 15 and on memfd_create in Minato.
+add_executable(sharedmem-test suite/sharedmem-test.c)
+target_link_libraries(sharedmem-test PRIVATE android)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

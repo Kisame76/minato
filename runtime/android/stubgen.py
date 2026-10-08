@@ -55,6 +55,8 @@ LIBRARIES = {
             "ANativeWindow_unlockAndPost",
             # a Java Surface's window, through libandroid_runtime (native_window_jni.cpp, ADR-0043 c2)
             "ANativeWindow_fromSurface", "ANativeWindow_toSurface",
+            # shared memory on memfd_create, as libcutils' memfd path makes it (sharedmem.cpp)
+            "ASharedMemory_*",
         ],
         # M3 has no resource matching. libandroid's own AHardwareBuffer functions stay stubs; they would
         # forward once libnativewindow has buffers. Input's Java side waits for Java (M4).
@@ -151,9 +153,6 @@ VALUES = {
     "ASensor_getReportingMode": "-1",  # AREPORTING_MODE_INVALID
     "ASensor_getType": "-1",  # ASENSOR_TYPE_INVALID
     "ASensor_isDirectChannelTypeSupported": "0", "ASensor_isWakeUpSensor": "0",
-    # Shared memory
-    "ASharedMemory_create": _ERRNO, "ASharedMemory_dupFromJava": "-1", "ASharedMemory_getSize": "0",
-    "ASharedMemory_setProt": "(errno = EINVAL, -1)",
     # Surface textures and transactions: none exists
     "ASurfaceTexture_attachToGLContext": "-EINVAL", "ASurfaceTexture_detachFromGLContext": "-EINVAL",
     "ASurfaceTexture_getTimestamp": "0", "ASurfaceTexture_updateTexImage": "-EINVAL",

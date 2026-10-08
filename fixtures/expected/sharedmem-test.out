@@ -1,0 +1,21 @@
+a size of 0: -22
+create: ok
+close-on-exec: 1
+its size: 65536
+a pipe's size: 0
+the size of -1: 0
+a shared writable mapping: ok
+a shared read-only mapping: ok
+the other mapping sees its write: a
+a read: 1 a
+setProt to read and write: 0
+setProt to read-only: 0
+a new shared writable mapping: -1 EPERM
+a new shared read-only mapping: ok
+it reads: a
+mprotect to writable: -1 EACCES
+the old writable mapping still writes: b
+setProt to read and write again: -1 EINVAL
+its size then: 65536
+a second one without a name: ok, size 16384
+the size after close: 0

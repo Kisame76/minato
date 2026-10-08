@@ -155,7 +155,7 @@ set(android_sources "${CMAKE_CURRENT_SOURCE_DIR}/../android")
 set(android_generated "${APK_BIONIC_GENERATED}/android")
 file(MAKE_DIRECTORY "${android_generated}")
 foreach(header IN ITEMS asset_manager choreographer configuration data_space hardware_buffer input keycodes looper
-    native_activity native_window native_window_jni rect window)
+    native_activity native_window native_window_jni rect sharedmem sharedmem_jni window)
   file(COPY "${ndk_sysroot_include}/android/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/android")
 endforeach()
 foreach(header IN ITEMS jni zconf zlib)
@@ -202,8 +202,8 @@ apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp" 
 apk_bionic_library(libnativewindow UNITS apk_nativewindow NEEDED libc liblog VERSION_SCRIPTS "${nativewindow_map}")
 
 # libandroid.so: ALooper, AConfiguration, the asset manager, ANativeActivity's requests, the input queue and
-# its motion events, AChoreographer, the forwards to libnativewindow and a Java Surface's window, through
-# libandroid_runtime (runtime/android).
+# its motion events, AChoreographer, the forwards to libnativewindow, a Java Surface's window through
+# libandroid_runtime, and ASharedMemory on memfd_create (runtime/android).
 set(android_map "${android_generated}/libandroid.map")
 set(android_stubs "${android_generated}/libandroid_stubs.c")
 add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
@@ -212,7 +212,7 @@ add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
 apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
   "${android_sources}/asset_manager.cpp" "${android_sources}/native_activity.cpp" "${android_sources}/input_queue.cpp"
   "${android_sources}/input.cpp" "${android_sources}/choreographer.cpp" "${android_sources}/window_forwards.cpp"
-  "${android_sources}/native_window_jni.cpp" "${android_stubs}"
+  "${android_sources}/native_window_jni.cpp" "${android_sources}/sharedmem.cpp" "${android_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libandroid UNITS apk_android NEEDED libc libdl liblog libnativewindow libz
   VERSION_SCRIPTS "${android_map}")

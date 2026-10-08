@@ -26,6 +26,9 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 **Derived from Bionic in the runtime** (host code, ADR-0039 a):
 - `runtime/src/properties.cpp`: the system property area that the runtime writes for `/dev/__properties__`, in Bionic's pre-split format. It follows `libc/system_properties/prop_area.cpp` (`prop_area::add` and the trie functions) and the layouts of `prop_area.h` and `prop_info.h` at `361ba86734fb`. License as in the original: AOSP's BSD header, kept in the file.
 
+**Derived from AOSP in libandroid** (`runtime/android/`, the guest's `lib64/libandroid.so`):
+- `runtime/android/sharedmem.cpp`: the NDK's ASharedMemory, from frameworks/base's `native/android/sharedmem.cpp` and the memfd path of system/core's `libcutils/ashmem-dev.cpp` at android-15.0.0_r1, merged into one file in place of libcutils, which the guest system lacks. License as in the originals: AOSP's Apache-2.0 header, kept in the file.
+
 **From the Android NDK r30** (`30.0.16248370`) in the guest libraries:
 
 | Part | License | What for |

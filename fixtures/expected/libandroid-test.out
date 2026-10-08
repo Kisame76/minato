@@ -48,3 +48,6 @@ ASensorManager_getInstanceForPackage: null
 ASensor_getResolution: 0
 ATrace_isEnabled: 0
 ATrace_beginSection and ATrace_endSection: done
+ASharedMemory's seals: 6
+  a resize: -1
+ASharedMemory_getSize of a file: 0

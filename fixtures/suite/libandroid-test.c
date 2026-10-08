@@ -1,18 +1,23 @@
 // libandroid-test: what only Minato's libnativewindow.so and libandroid.so have (ADR-0028, decisions 7 and
 // 9): the window as activity-host makes it, with minato_ANativeWindow_create, its getters before and
 // after ANativeWindow_setBuffersGeometry, minato_ANativeWindow_getInfo for the front libs, what changes
-// nothing and what answers an error, libandroid's forwards to libnativewindow, and the generated stubs,
-// which log their name once. A test of the runtime: Android has none of it.
+// nothing and what answers an error, libandroid's forwards to libnativewindow, the generated stubs,
+// which log their name once, and what ASharedMemory on memfd_create answers where Android 15's ashmem answers
+// otherwise (sharedmem-test has what both answer). A test of the runtime: Android has none of it.
 // Expected output: fixtures/expected/libandroid-test.out and .err
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
 #include <android/performance_hint.h>
 #include <android/sensor.h>
+#include <android/sharedmem.h>
 #include <android/thermal.h>
 #include <android/trace.h>
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "APKRuntime/guest_interface.h"
 
@@ -138,5 +143,17 @@ int main(void) {
     ATrace_beginSection("minato");
     ATrace_endSection();
     printf("ATrace_beginSection and ATrace_endSection: done\n");
+    // A region's size is sealed, as libcutils' memfd path seals it; a file that is no region has size 0.
+    const int region = ASharedMemory_create("minato-sealed", 16384);
+    printf("ASharedMemory's seals: %d\n", fcntl(region, F_GET_SEALS));
+    printf("  a resize: %d\n", ftruncate(region, 32768) == -1 ? -errno : 0);
+    close(region);
+    FILE *file = fopen("libandroid-test.tmp", "w");
+    fputs("12345", file);
+    fclose(file);
+    const int plain = open("libandroid-test.tmp", O_RDONLY);
+    printf("ASharedMemory_getSize of a file: %zu\n", ASharedMemory_getSize(plain));
+    close(plain);
+    unlink("libandroid-test.tmp");
     return 0;
 }
