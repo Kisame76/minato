@@ -40,7 +40,8 @@ std::recursive_mutex &lock();
 std::string apex_libraries_config();
 
 /// The library containers in `host_directory` (<file name>.dylib, as apk-convert writes them) are the
-/// library files the guest finds in `guest_directory`, an absolute guest path, e.g. /system/lib64.
+/// library files the guest finds in `guest_directory`, an absolute guest path, e.g. /system/lib64. A path through
+/// one of the guest's links (/data/user/0) names the folder at the link's target, which both names reach.
 void add_library_directory(std::string_view guest_directory, const std::filesystem::path &host_directory);
 
 /// Loads the libraries the program in `container` needs, breadth first, and links them, as linker64

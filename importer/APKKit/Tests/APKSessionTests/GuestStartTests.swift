@@ -45,12 +45,9 @@ struct GuestStartTests {
         let app = Self.codePath
         #expect(Self.start()?.mounts == [
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
-            .init(guest: "/data/user/0/\(Self.package)", host: "/v/data/p/data"),
             .init(guest: "/data/data/\(Self.package)", host: "/v/data/p/data"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
-            .init(guest: "/sdcard/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
-            .init(guest: "/sdcard/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
         ])
     }
@@ -123,12 +120,9 @@ struct GuestStartTests {
             .init(guest: "/data/resource-cache", host: "/b/Minato.app/Guest/resource-cache"),
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "\(app)/signers.json", host: "/v/apps/p/1/signers.json"),
-            .init(guest: "/data/user/0/\(Self.package)", host: "/v/data/p/data"),
             .init(guest: "/data/data/\(Self.package)", host: "/v/data/p/data"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
-            .init(guest: "/sdcard/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
-            .init(guest: "/sdcard/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
             .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
         ])

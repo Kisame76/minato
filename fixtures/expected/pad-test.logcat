@@ -1,0 +1,19 @@
+I/pad-test: filesDir /data/user/0/io.github.kisame76.minato.test.pad/files, canonical /data/data/io.github.kisame76.minato.test.pad/files
+I/pad-test: dataDir /data/user/0/io.github.kisame76.minato.test.pad, applicationInfo dataDir /data/user/0/io.github.kisame76.minato.test.pad
+I/pad-test: /data/data's folder of the app exists true, canonical /data/data/io.github.kisame76.minato.test.pad
+I/pad-test: fastfollow before: status NOT_INSTALLED, errorCode NO_ERROR, location none
+I/pad-test: ondemand before: status NOT_INSTALLED, errorCode NO_ERROR, location none
+I/pad-test: fastfollow fetch: status PENDING, errorCode NO_ERROR
+I/pad-test: fastfollow states: in order true, an error false, last status COMPLETED, errorCode NO_ERROR
+I/pad-test: fastfollow location storage STORAGE_FILES, assetsPath /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/fastfollow/1/1/assets, path /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/fastfollow/1/1
+I/pad-test: fastfollow assets [fastfollow.txt], fastfollow.txt: Minato pad-test, the fastfollow pack.
+I/pad-test: ondemand fetch: status PENDING, errorCode NO_ERROR
+I/pad-test: ondemand states: in order true, an error false, last status COMPLETED, errorCode NO_ERROR
+I/pad-test: ondemand location storage STORAGE_FILES, assetsPath /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/ondemand/1/1/assets, path /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/ondemand/1/1
+I/pad-test: ondemand assets [ondemand.txt], ondemand.txt: Minato pad-test, the ondemand pack.
+I/pad-test: fastfollow after: status COMPLETED, errorCode NO_ERROR
+I/pad-test: ondemand after: status COMPLETED, errorCode NO_ERROR
+I/pad-test: nopack fetch: failed, com.google.android.play.core.common.LocalTestingException
+I/pad-test: locations [fastfollow, ondemand]
+I/pad-test: installed modules []
+I/pad-test: done

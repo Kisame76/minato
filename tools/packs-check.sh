@@ -8,6 +8,11 @@
 # GuestStart passes it, its log must be fixtures/expected/<app>-packs.logcat: packs-test finds local_testing_dir from
 # Minato, packs-test-own keeps its own value. The slices are made up, as only their names and sizes count here; test 3
 # gives real ones to Google's library.
+# Then test 3 (ADR-0050 c)): pad-test, built with Google's Play libraries by tools/build-pad-test.sh, starts in a session
+# on the M4 plan's display with its default set's base and its two packs' slices in local_testing, and its log must be
+# Android 15's with the slices bundletool's install-apks put there (fixtures/expected/pad-test.logcat, from
+# tools/android-reference.sh --app pad-test). Without the libraries, which tools/fetch-play-libraries.py fetches only
+# on the user's go, it is skipped.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-aapt2.sh and
 # tools/build-framework-res.sh first.
 # Usage: tools/packs-check.sh
@@ -52,4 +57,22 @@ for app in packs-test packs-test-own; do
       build/framework/framework.jar build/framework-res/framework-res "build/$app/$app.apk" "$expected" || status=1
   done
 done
+
+# Test 3: pad-test asks Google's asset-delivery for its two packs, whose slices from its default set lie in
+# local_testing, from its activity in a session, as fetch() wants the app in the foreground.
+if libraries=$(/usr/bin/python3 tools/fetch-play-libraries.py 2>&1); then
+  tools/build-pad-test.sh >/dev/null
+  slices=()
+  for slice in build/pad-test/slices/*.apk; do slices+=(--packs "$slice"); done
+  echo "pad-test, packs:"
+  python3 framework/tests/java_app_run.py "${slices[@]}" pad-test io.github.kisame76.minato.test.pad \
+    android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
+    build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
+    "$NATIVE/runtime/apk-run" build/packs-check/pad-test build/framework-native/app_process64 \
+    build/framework/framework.jar build/framework-res/framework-res build/pad-test/base-master.apk \
+    fixtures/expected/pad-test.logcat 1290x2796@3,en-US || status=1
+else
+  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go):"
+  echo "$libraries" | sed 's/^/  /'
+fi
 exit "$status"

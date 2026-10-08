@@ -274,9 +274,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     --configuration (<width>x<height>@<scale>[,<language>[-<country>]]) before app_process starts, whose host then
     plays `lifecycle`, apk-run's --lifecycle steps (ADR-0043 step c1), "start" when it is None. `signers`, the APK's
     signers.json (apk-inspect --signers), lies beside base.apk and is read-only like it, as the library keeps it in
-    the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder,
-    /data/user/0/<package>, is a mount of its own, also as /data/data/<package> after it, and its external data and
-    OBB folders are mounted as GuestStart mounts them (decision 6): a rename or link between them and the rest of
+    the version's folder, and ActivityThread gets it with --signers (b3.5b1). The app's data folder is a mount of its
+    own at /data/data/<package>, which the runtime's link /data/user/0 names too, and its external data and OBB
+    folders are mounted below /storage/emulated/0, where the runtime's links lead /sdcard, as GuestStart mounts them
+    (decision 6, and ADR-0050 c1's d4 for the paths): a rename or link between them and the rest of
     /data answers EXDEV, as on Android 15 (ADR-0039 decision 3). The run's /data holds /data/data, which the guest
     stats with Android 15's owner, root's 0751 (ADR-0052); /data/local stays absent, as the owner model counts
     /data/local/tmp as the app's. With framework-res's folder among `mounts`, /data/resource-cache holds Monet's
@@ -315,11 +316,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     run = os.path.join(work, "run")
     app = code_path(apk, package)
     data = f"/data/user/0/{package}"
-    # The app's external data and OBB folders, each under both of Android's names.
+    # The app's external data and OBB folders at the paths Android 15's realpath gives them, where /sdcard leads.
     external = {f"/storage/emulated/0/Android/data/{package}": "external-data",
-                f"/sdcard/Android/data/{package}": "external-data",
-                f"/storage/emulated/0/Android/obb/{package}": "external-obb",
-                f"/sdcard/Android/obb/{package}": "external-obb"}
+                f"/storage/emulated/0/Android/obb/{package}": "external-obb"}
     if not again or not os.path.isdir(run):
         shutil.rmtree(run, ignore_errors=True)
         for folder in ("data/dalvik-cache/arm64", "data/data", app.lstrip("/"), f"{data}/cache".lstrip("/"),
@@ -358,10 +357,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
                "--mount", f"/system={bionic_system}",
                "--mount", f"/system/framework={os.path.join(run, 'framework')}",
-               # The data folder a mount of its own, as GuestStart mounts /data/user/0/<package> and Android 15 its
+               # The data folder a mount of its own, as GuestStart mounts /data/data/<package> and Android 15 its
                # app's data folder, so that a rename or link from the rest of /data answers EXDEV (ADR-0039 decision 3);
-               # first, as in GuestStart, so that a descriptor's guest path names /data/user/0 (vfs::guest_path).
-               "--mount", f"{data}={os.path.join(run, data.lstrip('/'))}",
+               # /data/user/0/<package>, the --data-dir, leads there through the runtime's link, as on Android 15.
                "--mount", f"/data/data/{package}={os.path.join(run, data.lstrip('/'))}"]
     for guest, host in external.items():
         command += ["--mount", f"{guest}={os.path.join(run, host)}"]

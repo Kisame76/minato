@@ -378,6 +378,10 @@ struct Located {
 /// linked namespace (find_library_in_linked_namespace). `requester` needs the library or calls dlopen for it.
 Located locate_path(State &state, Namespace &space, std::string_view name, const Library *requester, bool needed,
                     bool &missed) {
+    if (name.size() >= vfs::path_max) {  // linker64's open() of it answers ENAMETOOLONG: not found
+        missed = true;
+        return {};
+    }
     auto found = library_at(state, vfs::absolute(name, vfs::working_directory()));
     if (!found) {
         missed = true;
@@ -1074,7 +1078,8 @@ std::string apex_libraries_config() {
 void add_library_directory(std::string_view guest_directory, const std::filesystem::path &host_directory) {
     auto &state = ::apkrt::dl::state();
     const std::lock_guard lock(state.mutex);
-    state.directories.push_back({vfs::normalize(guest_directory), host_directory});
+    // Where the guest's links lead, as a mount's path: the search meets the folder by that name (vfs::absolute).
+    state.directories.push_back({vfs::absolute(guest_directory, "/"), host_directory});
 }
 
 void load_program(const std::filesystem::path &container, const loader::Image &image, const char *const argv[],

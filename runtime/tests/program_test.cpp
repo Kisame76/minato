@@ -567,6 +567,20 @@ void exit_group_once_inside(void *) {
     finish_case();
 }
 
+/// A library folder named through one of Android's links is the folder at the link's target, as a mount is: raw-dyn's
+/// library in a folder given as /data/user/0/io.example/lib, which LD_LIBRARY_PATH names /data/data/io.example/lib.
+[[noreturn]] void run_linked_library_folder(const char *container) {
+    begin_session();
+    const auto libraries = std::filesystem::path(container).parent_path().parent_path() / "lib";
+    char error[512] = "";
+    CHECK(apkrt_add_library_directory("/data/user/0/io.example/lib", libraries.c_str(), error, sizeof error) == 0);
+    const char *const argv[] = {"./raw-dyn", nullptr};
+    const char *const envp[] = {"LD_LIBRARY_PATH=/data/data/io.example/lib", nullptr};
+    CHECK(apkrt_start_program(container, argv, envp, error, sizeof error) == 0);
+    check_end(0);
+    finish_case();
+}
+
 /// Without a session the program's end ends the process, as before: exit_group(9), reported on
 /// descriptor 3.
 [[noreturn]] void run_no_session() {
@@ -612,6 +626,7 @@ void exit_group_once_inside(void *) {
     if (mode == "--resume-never") run_resume_never();
     if (mode == "--cannot-link") run_cannot_link(argument);
     if (mode == "--apex-program") run_apex_program(argument);
+    if (mode == "--linked-library-folder") run_linked_library_folder(argument);
     if (mode == "--no-session") run_no_session();
     if (mode == "--measures") run_measures(argument);
     std::fprintf(stderr, "unknown case %.*s\n", static_cast<int>(mode.size()), mode.data());
@@ -918,6 +933,17 @@ TEST(a_program_in_an_apex_finds_the_apex_s_libraries) {
     write_container("libraw-dyn.so", *library, scratch / "apex" / "lib64");
     const auto ended = run_child("--apex-program", write_container("raw-dyn", *elf, scratch / "apex" / "bin"));
     CHECK(succeeded(ended));
+}
+
+// An app's files folder is /data/user/0/<package>/files by Context and /data/data/<package>/files after the link; a
+// library there is the same file by both names.
+TEST(a_library_folder_named_through_a_link_is_its_target) {
+    const auto elf = raw_dyn();
+    const auto library = fixture_elf("libraw-dyn.so");
+    if (!elf || !library) return;
+    write_container("libraw-dyn.so", *library, scratch / "linked" / "lib");
+    const auto container = write_container("raw-dyn", *elf, scratch / "linked" / "bin");
+    CHECK(succeeded(run_child("--linked-library-folder", container)));
 }
 
 // Decision 5: without a session the program's end ends the process as before, after the report.

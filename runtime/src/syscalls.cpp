@@ -774,7 +774,7 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case nr::symlinkat:
             return sys_symlinkat(x[0], as_int(x[1]), x[2]);
         case nr::readlinkat:
-            return sys_readlinkat(as_int(x[0]), x[1], x[2], static_cast<std::int64_t>(x[3]));
+            return sys_readlinkat(as_int(x[0]), x[1], x[2], as_int(x[3]));  // int bufsiz
         case nr::fchmodat:
             return sys_fchmodat(as_int(x[0]), x[1], as_int(x[2]));
         case nr::fchmod:

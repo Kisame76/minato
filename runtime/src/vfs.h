@@ -3,18 +3,27 @@
 // not exist for the guest. The file syscalls (sys_files.cpp) resolve every path through here.
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
 
 namespace apkrt::vfs {
 
+/// Linux's PATH_MAX: a guest path of this many bytes or more, with its NUL past them, is ENAMETOOLONG (getname).
+constexpr std::size_t path_max = 4096;
+
 /// The normal form of an absolute guest path, as the Linux kernel resolves it without symlinks: no
 /// "." or ".." components, no repeated or trailing slashes. ".." of the root is the root.
 std::string normalize(std::string_view absolute_path);
 
-/// `path` in normal form; a relative path is taken relative to `base`, an absolute guest path.
-std::string absolute(std::string_view path, std::string_view base);
+/// `path` in normal form; a relative path is taken relative to `base`, an absolute guest path. The guest's links
+/// (link_target) are followed where the walk meets them, as Linux's are, the last one only when `follow_last`; a
+/// link with "/" or "." after it is not the last.
+std::string absolute(std::string_view path, std::string_view base, bool follow_last = true);
+
+/// The text of the link at guest path `guest`, in normal form, or nullopt when it is none.
+std::optional<std::string> link_target(std::string_view guest);
 
 /// Guest paths at and below `guest` are the host path `host`, a directory or a file. The deepest
 /// mount covering a path wins; mounting the same guest path again replaces the earlier mount.

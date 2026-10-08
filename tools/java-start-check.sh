@@ -9,11 +9,13 @@
 # (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache), binder-test
 # (ADR-0043 d2b)'s, whose Binder, AIDL-style stub, IBinder and ResultReceivers are its own), strictmode-test (ADR-0039
 # step c2d3's, StrictMode's defaults at the bind and Build.getSerial) and, in the Simulator, obb-test (ADR-0049 test
-# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name) and
+# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name),
 # packs-test (ADR-0050 test 2's, a bundletool .apks of tools/build-packs-test.sh with a fast-follow and an on-demand
 # pack, whose slices the library keeps and the start lays out in local_testing, read-only, with the meta-data
-# local_testing_dir; its lines are the Mac's, fixtures/expected/packs-test-packs.logcat, with that set's sizes) are
-# imported and tapped in the library,
+# local_testing_dir; its lines are the Mac's, fixtures/expected/packs-test-packs.logcat, with that set's sizes) and
+# pad-test (ADR-0050 test 3's, the default set of tools/build-pad-test.sh, built with Google's Play libraries, whose
+# asset-delivery serves both packs from those slices; skipped without the libraries, which only the user's go fetches)
+# are imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request
 # sends to tmp/session-check/guest-out, with ART's line in its guest log that names its collector, CMS (ADR-0033
@@ -93,6 +95,14 @@ ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == yes ]] || APPS+=("obb-test io.github.kisame76.minato.test.obb")
 # packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
+# pad-test too, when Google's Play libraries are there to build it with (ADR-0050 c)).
+if [[ "$ON_DEVICE" == no ]]; then
+  if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
+    APPS+=("pad-test io.github.kisame76.minato.test.pad")
+  else
+    echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go)"
+  fi
+fi
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
 GODOT_TEST=${GODOT_TEST-yes}
 [[ "$GODOT_TEST" != no ]] || GODOT_TEST=""
@@ -125,14 +135,17 @@ last_line() {
   esac
 }
 # The APK of app $1: the Godot APKs are tools/build-godot.sh's, which this check does not make; packs-test's set is
-# tools/build-packs-test.sh's.
+# tools/build-packs-test.sh's, pad-test's tools/build-pad-test.sh's.
 apk() {
   case "$1" in
     godot-bench-*) echo "build/godot/$1.apk" ;;
     packs-test) echo "build/packs-test/packs-test.apks" ;;
+    pad-test) echo "build/pad-test/pad-test.apks" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
+# Whether app $1 is one of this run's.
+listed() { [[ " ${APPS[*]%% *} " == *" $1 "* ]]; }
 for app in "${APPS[@]}"; do
   case "${app%% *}" in
     godot-bench-*)
@@ -142,6 +155,7 @@ for app in "${APPS[@]}"; do
       fi
       ;;
     packs-test) tools/build-packs-test.sh >/dev/null ;;
+    pad-test) tools/build-pad-test.sh >/dev/null ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -256,10 +270,11 @@ screenshot() {
 # the index still names one.
 remove_test_apps() {
   terminate
-  # obb-test's OBB unit (pick_obb) and packs-test's set (pick_set), which a run that ended before the library took
-  # them leaves, and the launch would import.
+  # obb-test's OBB unit (pick_obb) and packs-test's and pad-test's sets (pick_set), which a run that ended before the
+  # library took them leaves, and the launch would import.
   [[ "$ON_DEVICE" == yes ]] || rm -rf "${SUPPORT:?}/incoming/obb-test-obb" "${SUPPORT:?}/incoming/obb-test-obb.partial" \
-    "${SUPPORT:?}/incoming/packs-test-apks" "${SUPPORT:?}/incoming/packs-test-apks.partial"
+    "${SUPPORT:?}/incoming/packs-test-apks" "${SUPPORT:?}/incoming/packs-test-apks.partial" \
+    "${SUPPORT:?}/incoming/pad-test-apks" "${SUPPORT:?}/incoming/pad-test-apks.partial"
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   for app in "${APPS[@]}"; do echo "${app#* }"; done > "$CHECK/end"
@@ -483,8 +498,9 @@ mkdir -p "$CHECK"
 [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
 : > "$EVENTS"
 for app in "${APPS[@]}"; do
-  # packs-test's set comes as a unit folder of its own (pick_set), as the library takes only APKs lying flat here.
-  [[ "${app%% *}" != packs-test ]] || continue
+  # packs-test's and pad-test's sets come as unit folders of their own (pick_set), as the library takes only APKs
+  # lying flat here.
+  [[ "${app%% *}" != packs-test && "${app%% *}" != pad-test ]] || continue
   if [[ "$ON_DEVICE" == yes ]]; then
     devicectl_copy to --source "$(apk "${app%% *}")" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
   else
@@ -500,14 +516,16 @@ pick_obb() {
   mv "$unit.partial" "$unit"
 }
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then pick_obb io.github.kisame76.minato.test.obb; fi
-# packs-test's set (ADR-0050 test 2), a unit folder that appears whole, as "+" leaves a pick.
+# packs-test's and pad-test's sets (ADR-0050 tests 2 and 3), each a unit folder that appears whole, as "+" leaves a
+# pick.
 pick_set() {
-  local unit="${SUPPORT:?}/incoming/packs-test-apks"
+  local unit="${SUPPORT:?}/incoming/$1-apks"
   mkdir "$unit.partial"
-  cp "$(apk packs-test)" "$unit.partial/"
+  cp "$(apk "$1")" "$unit.partial/"
   mv "$unit.partial" "$unit"
 }
-if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then pick_set; fi
+if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then pick_set packs-test; fi
+if listed pad-test; then pick_set pad-test; fi
 send_requests
 launch
 for app in "${APPS[@]}"; do
@@ -642,6 +660,11 @@ for line in open(mac).read().splitlines():
 open(out, "w").write("\n".join(lines) + "\n")
 EOF
   run_one packs-test io.github.kisame76.minato.test.packs "$WORK/packs-test-apks.logcat"
+fi
+# Google's asset-delivery serves both packs from the slices the start lays out, through its local-testing path
+# (ADR-0050 test 3): Android 15's lines, as install-apks lays them out there.
+if listed pad-test; then
+  run_one pad-test io.github.kisame76.minato.test.pad
 fi
 
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then

@@ -44,6 +44,29 @@ std::vector<Mount> devices() {
             {"/dev/urandom", "/dev/urandom"}};
 }
 
+/// A link of Android's that the guest finds where Android 15 puts it in an app's mount namespace, though no mount
+/// holds it; both paths absolute and normal.
+struct Link {
+    std::string guest, target;
+};
+
+/// /data/user/0 is /data/data (app data isolation, Zygote.cpp), and /sdcard is /storage/self/primary, which is
+/// /storage/emulated/0.
+const std::vector<Link> &links() {
+    static const auto *table = new std::vector<Link>{{"/data/user/0", "/data/data"},
+                                                     {"/sdcard", "/storage/self/primary"},
+                                                     {"/storage/self/primary", "/storage/emulated/0"}};
+    return *table;
+}
+
+/// The link at `guest`, a path in normal form, or null.
+const Link *link_at(std::string_view guest) {
+    for (const auto &link : links()) {
+        if (link.guest == guest) return &link;
+    }
+    return nullptr;
+}
+
 std::mutex mutex;
 std::vector<Mount> mounts = devices();  // guarded by mutex
 std::string cwd = "/";                  // guarded by mutex
@@ -87,17 +110,61 @@ std::string normalize(std::string_view absolute_path) {
     return result;
 }
 
-std::string absolute(std::string_view path, std::string_view base) {
-    if (path.starts_with('/')) return normalize(path);
-    std::string joined(base);
-    joined += '/';
-    joined += path;
-    return normalize(joined);
+std::string absolute(std::string_view path, std::string_view base, bool follow_last) {
+    // Linux's path walk over the runtime's links: the components in turn, a link replaced by its target where the
+    // walk meets it, so that ".." after a link goes up from its target. The base takes the same walk. The path walked
+    // so far is one string, cut back at a "..": one pass over the text, however many components it has.
+    std::string text;
+    if (!path.starts_with('/')) {
+        text = base;
+        text += '/';
+    }
+    text += path;
+    std::string walked;               // empty for the root
+    std::vector<std::size_t> starts;  // where each component of `walked` starts, at its slash
+    for (std::size_t position = 0; position < text.size();) {
+        const auto end = std::min(text.find('/', position), text.size());
+        const auto part = std::string_view(text).substr(position, end - position);
+        position = end + 1;
+        if (part.empty() || part == ".") continue;
+        if (part == "..") {
+            if (!starts.empty()) {
+                walked.resize(starts.back());
+                starts.pop_back();
+            }
+            continue;
+        }
+        starts.push_back(walked.size());
+        walked += '/';
+        walked += part;
+        // The last component has nothing after it: a trailing "/" or "." makes a link one to follow (LOOKUP_FOLLOW).
+        const bool last = end == text.size();
+        // The table's links neither loop nor lead to one another but forward, so a few rounds end the chain.
+        for (int round = 0; round < 8 && (!last || follow_last); ++round) {
+            const Link *link = link_at(walked);
+            if (link == nullptr) break;
+            walked.clear();
+            starts.clear();
+            for (std::size_t at = 1; at < link->target.size();) {
+                const auto stop = std::min(link->target.find('/', at), link->target.size());
+                starts.push_back(walked.size());
+                walked += '/';
+                walked.append(link->target, at, stop - at);
+                at = stop + 1;
+            }
+        }
+    }
+    return walked.empty() ? std::string("/") : walked;
+}
+
+std::optional<std::string> link_target(std::string_view guest) {
+    if (const Link *link = link_at(guest)) return link->target;
+    return std::nullopt;
 }
 
 void mount(std::string_view guest, std::string_view host) {
+    const auto normal = absolute(guest, "/");  // as Linux's mount follows the links of its target
     const std::lock_guard lock(mutex);
-    const auto normal = normalize(guest);
     for (auto &existing : mounts) {
         if (existing.guest == normal) {
             close_folder(existing);
@@ -181,8 +248,9 @@ std::string working_directory() {
 }
 
 void set_working_directory(std::string_view guest) {
+    auto resolved = absolute(guest, "/");  // getcwd names the folder after the links, as Linux's d_path does
     const std::lock_guard lock(mutex);
-    cwd = normalize(guest);
+    cwd = std::move(resolved);
 }
 
 }  // namespace apkrt::vfs

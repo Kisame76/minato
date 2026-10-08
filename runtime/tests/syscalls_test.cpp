@@ -1116,7 +1116,8 @@ struct WholeData : Scratch {
 
     WholeData() {
         CHECK(std::system(("cd '" + host + "' && mkdir -p data/app/~~AAAA/io.example-BBBB/lib/arm64 data/local/tmp "
-                           "data/dalvik-cache/arm64 data/user/0/io.example && touch data/app/~~AAAA/io.example-BBBB/base.apk "
+                           "data/dalvik-cache/arm64 data/data data/user/0/io.example && touch "
+                           "data/app/~~AAAA/io.example-BBBB/base.apk "
                            "data/app/~~AAAA/io.example-BBBB/lib/arm64/libfoo.so")
                               .c_str()) == 0);
         apkrt::vfs::reset();
@@ -2380,6 +2381,63 @@ TEST(proc_self_smaps_counts_the_pages_another_task_shares) {
     CHECK(sizes["Rss"] == 2 * kb && sizes["Shared_Dirty"] == 2 * kb);
     CHECK(sizes["Shared_Clean"] == 0 && sizes["Private_Clean"] == 0 && sizes["Private_Dirty"] == 0);
     CHECK(flags == "VmFlags: rd wr mr mw me ac ");
+}
+
+TEST(androids_links_show_as_links_and_name_their_targets) {
+    // getCanonicalPath of an app's files folder is /data/data/<package>/files on Android 15 (Formate's pad-test
+    // probe): bionic's realpath reads /proc/self/fd of an O_PATH descriptor, which names the file after the link.
+    const Scratch scratch;
+    CHECK(::mkdir((scratch.host + "/app").c_str(), 0700) == 0);
+    apkrt::vfs::mount("/data/user/0/io.example", scratch.host + "/app");  // as GuestStart mounts it
+    const auto file = open_guest(at_fdcwd, "/data/user/0/io.example/a", o_creat | o_wronly, 0600);
+    CHECK(file >= 0);
+    char text[64] = {};
+    const auto fd_path = std::format("/proc/self/fd/{}", file);
+    const auto length = call(nr_readlinkat, {at_fdcwd, address(fd_path.c_str()), address(text), sizeof text});
+    CHECK(length > 0 && std::string(text, static_cast<std::size_t>(length)) == "/data/data/io.example/a");
+    call(nr_close, {unsigned_of(file)});
+    const auto target = [&](const char *link) {
+        const auto got = call(nr_readlinkat, {at_fdcwd, address(link), address(text), sizeof text});
+        return got < 0 ? std::string("error") : std::string(text, static_cast<std::size_t>(got));
+    };
+    CHECK(target("/data/user/0") == "/data/data");
+    CHECK(target("/sdcard") == "/storage/self/primary");
+    CHECK(target("/storage/self/primary") == "/storage/emulated/0");
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, address("/sdcard"), address(&status), at_symlink_nofollow}) == 0);
+    CHECK((status.mode & 0170000) == 0120000 && status.size == 21);
+    CHECK(::mkdir((scratch.host + "/external").c_str(), 0700) == 0);
+    apkrt::vfs::mount("/storage/emulated/0", scratch.host + "/external");
+    CHECK(call(nr_newfstatat, {at_fdcwd, address("/sdcard"), address(&status), 0}) == 0);
+    CHECK((status.mode & 0170000) == 0040000);  // stat follows both links to the folder
+    CHECK(call(nr_readlinkat, {at_fdcwd, address("/sdcard"), address(text), 4}) == 4 && std::string(text, 4) == "/sto");
+    // readlinkat's size is an int: the bits above it are not part of it.
+    CHECK(call(nr_readlinkat, {at_fdcwd, address("/sdcard"), address(text), 0x1'0000'0004}) == 4);
+    // A trailing "/" or "." follows the link, which lstat and readlink then do not see (EINVAL: a folder).
+    for (const char *folder : {"/sdcard/", "/sdcard/."}) {
+        CHECK(call(nr_newfstatat, {at_fdcwd, address(folder), address(&status), at_symlink_nofollow}) == 0);
+        CHECK((status.mode & 0170000) == 0040000);
+        CHECK(call(nr_readlinkat, {at_fdcwd, address(folder), address(text), sizeof text}) == -einval);
+    }
+}
+
+TEST(a_path_of_path_max_bytes_is_too_long) {
+    // getname: PATH_MAX (4096) bytes with the NUL; one byte fewer is a path, here of folders that are not there.
+    constexpr std::int64_t enametoolong = 36;
+    const Scratch scratch;
+    std::string path;
+    while (path.size() < 4095) path += "/x";
+    path.resize(4095);
+    LinuxStat status{};
+    CHECK(call(nr_newfstatat, {at_fdcwd, address(path.c_str()), address(&status), 0}) == -enoent);
+    path += 'x';
+    CHECK(call(nr_newfstatat, {at_fdcwd, address(path.c_str()), address(&status), 0}) == -enametoolong);
+    CHECK(open_guest(at_fdcwd, path.c_str(), o_rdonly) == -enametoolong);
+    char text[16];
+    CHECK(call(nr_readlinkat, {at_fdcwd, address(path.c_str()), address(text), sizeof text}) == -enametoolong);
+    std::string proc = "/proc/self/stat";  // a file the runtime writes itself, then slashes past PATH_MAX
+    proc.resize(4096, '/');
+    CHECK(open_guest(at_fdcwd, proc.c_str(), o_rdonly) == -enametoolong);
 }
 
 // --- Memory (the compatibility plan's gap 1: ActivityManager.getMemoryInfo, sysconf, engines) -----------------------

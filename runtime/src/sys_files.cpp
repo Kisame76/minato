@@ -341,14 +341,19 @@ struct HostPath {
     int directory = -1;
     std::string path;
     std::string guest;
+    std::optional<std::string> link;  // the text of one of the guest's links (vfs::link_target) the path names
 };
 
 /// Resolves a path argument of openat and its relatives through the path table: an absolute path, one relative to
 /// the working directory, or one relative to a directory descriptor, below the guest path of that descriptor's
-/// folder, which the guest can only have opened through the table.
-HostPath resolve(int directory, std::uint64_t address) {
+/// folder, which the guest can only have opened through the table. The guest's links are followed on the way, and
+/// the last one too unless `follow_last` is false: a path that then names a link has its text in `link` and no host
+/// place.
+HostPath resolve(int directory, std::uint64_t address, bool follow_last = true) {
     if (address == 0) return {.error = -linux_errno::efault};
-    const std::string_view text(as_pointer<const char>(address));
+    const auto *start = as_pointer<const char>(address);
+    const std::string_view text(start, ::strnlen(start, vfs::path_max));
+    if (text.size() == vfs::path_max) return {.error = -linux_errno::enametoolong};  // no NUL within PATH_MAX
     if (text.empty()) return {.error = -linux_errno::enoent};
     std::string base = "/";
     if (!text.starts_with('/')) {
@@ -365,7 +370,10 @@ HostPath resolve(int directory, std::uint64_t address) {
             base = *guest;
         }
     }
-    auto guest = vfs::absolute(text, base);
+    auto guest = vfs::absolute(text, base, follow_last);
+    if (auto link = follow_last ? std::nullopt : vfs::link_target(guest)) {
+        return {.guest = std::move(guest), .link = std::move(link)};
+    }
     auto location = vfs::locate(guest);
     if (!location) return {.error = -linux_errno::enoent};
     if (location->below_a_file) return {.error = -linux_errno::enotdir};
@@ -378,8 +386,11 @@ HostPath resolve(int directory, std::uint64_t address) {
 /// descriptor: how the files the runtime writes itself are found (proc.h). Nullopt for the others.
 std::optional<std::string> guest_absolute(int directory, std::uint64_t address) {
     if (address == 0) return std::nullopt;
-    const std::string_view guest(as_pointer<const char>(address));
-    if (guest.empty() || (!guest.starts_with('/') && directory != linux_at_fdcwd)) return std::nullopt;
+    const auto *start = as_pointer<const char>(address);
+    const std::string_view guest(start, ::strnlen(start, vfs::path_max));
+    if (guest.empty() || guest.size() == vfs::path_max || (!guest.starts_with('/') && directory != linux_at_fdcwd)) {
+        return std::nullopt;  // resolve answers a path that is too long
+    }
     return vfs::absolute(guest, guest.starts_with('/') ? "/" : vfs::working_directory());
 }
 
@@ -669,8 +680,17 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     // Since Linux 6.11 the path may be NULL along with AT_EMPTY_PATH.
     const bool empty = path == 0 || *as_pointer<const char>(path) == '\0';
     if (empty && (flags & linux_at_empty_path)) return sys_fstat(directory, buffer);
-    const auto host = resolve(directory, path);
+    const auto host = resolve(directory, path, (flags & linux_at_symlink_nofollow) == 0);
     if (host.error != 0) return host.error;
+    if (host.link) {  // one of the guest's links, root's in an app's namespace on Android
+        LinuxStat link{};
+        link.mode = S_IFLNK | 0777;
+        link.nlink = 1;
+        link.size = static_cast<std::int64_t>(host.link->size());
+        link.blksize = 4096;
+        *as_pointer<LinuxStat>(buffer) = link;
+        return 0;
+    }
     struct stat status;
     if (::fstatat(host.directory, host.path.c_str(), &status,
                   host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH)) != 0) {
@@ -781,8 +801,13 @@ long sys_readlinkat(int directory, std::uint64_t path, std::uint64_t buffer, std
             return *link;
         }
     }
-    const auto host = resolve(directory, path);
+    const auto host = resolve(directory, path, false);
     if (host.error != 0) return host.error;
+    if (host.link) {  // one of the guest's links: its text, cut to the buffer as readlink cuts it
+        const auto length = std::min(host.link->size(), static_cast<std::size_t>(size));
+        std::memcpy(as_pointer<char>(buffer), host.link->data(), length);
+        return static_cast<long>(length);
+    }
     const LastFolder folder(host);
     if (folder.error() != 0) return folder.error();
     return result_or_error(::readlinkat(folder.descriptor(), folder.name().c_str(), as_pointer<char>(buffer),

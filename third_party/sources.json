@@ -1153,6 +1153,42 @@
       }
     ]
   },
+  "play-libraries": {
+    "comment": "Google's Play libraries for ADR-0050's pad-test (test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with the libraries their POMs name, without AndroidX, as AARs from Google's Maven, fetched by tools/fetch-play-libraries.py on the user's go of 2026-10-07, with the terms the user accepted, into ~/.android/minato-play-libraries/, outside the repository, and checked against the SHA-256 that Google's Maven states beside each AAR. They only build pad-test on this Mac: never committed and never in the app (Non-Goals), and a black box, as nothing reads their classes. tools/fetch-sources.py does not read this entry.",
+    "license": "Play Core Software Development Kit Terms of Service, with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks)",
+    "assets": [
+      {
+        "name": "asset-delivery-2.2.2.aar",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/play/asset-delivery/2.2.2/asset-delivery-2.2.2.aar",
+        "bytes": 318909,
+        "sha256": "23a60c530cb9bab676a4535c207cb31d3256fab8847c796b607310457835bc72"
+      },
+      {
+        "name": "feature-delivery-2.1.0.aar",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/play/feature-delivery/2.1.0/feature-delivery-2.1.0.aar",
+        "bytes": 312128,
+        "sha256": "085bd4632ccf96ceafcbfb10219ae57d604c5f680a2ea3bf860fe2b289afe5ad"
+      },
+      {
+        "name": "core-common-2.0.3.aar",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/play/core-common/2.0.3/core-common-2.0.3.aar",
+        "bytes": 137891,
+        "sha256": "4303255f152c59b954919bb471d14ee5fed2df783565dea8528b08083ba7342b"
+      },
+      {
+        "name": "play-services-basement-18.3.0.aar",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-basement/18.3.0/play-services-basement-18.3.0.aar",
+        "bytes": 403997,
+        "sha256": "6c11ae3eb2dd7f17373f919c4c557a70e4cf891bc0c9b66926a0a6445d654352"
+      },
+      {
+        "name": "play-services-tasks-18.1.0.aar",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-tasks/18.1.0/play-services-tasks-18.1.0.aar",
+        "bytes": 96788,
+        "sha256": "d60575eae39350e6234858bc9d7d775375707ae82a684e6caf7f3e41a12e25a2"
+      }
+    ]
+  },
   "moltenvk-src": [
     {
       "name": "moltenvk",

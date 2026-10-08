@@ -46,7 +46,9 @@
 # too.
 # strictmode-test (ADR-0039 step c2d3) is one too.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
-# local_testing_dir only from a manifest.
+# local_testing_dir only from a manifest. pad-test (ADR-0050 test 3), built with Google's Play libraries by
+# tools/build-pad-test.sh, is a Java app with its own activity: bundletool's install-apks puts its local-testing set on
+# apk-runner-35, the base with local_testing_dir and the packs' slices in local_testing of its external files folder.
 # broadcast-test (ADR-0045 decision 5), whose activity sends its own broadcasts to its own receivers, is one too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
@@ -481,6 +483,10 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
+    # pad-test (ADR-0050 test 3): its activity asks for its two packs, each within 30 s, and ends with "done".
+    pad-test)
+      apk="build/$app/$app-local.apks" build=tools/build-pad-test.sh last=done activity_class=.PadActivity limit=90
+      ;;
     # broadcast-test (ADR-0045 decision 5): its activity's parts, each within 5 s, end with "done".
     broadcast-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BroadcastActivity
@@ -568,7 +574,17 @@ run_app() {
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
   activity="$package/$activity_class"
   device uninstall "$package" >/dev/null 2>&1 || true
-  device install "$apk" >/dev/null
+  if [[ "$app" == pad-test ]]; then
+    # A local-testing set: install-apks installs the base and pushes the base's language splits and the packs' slices
+    # into local_testing; it lists each push, so its output goes to a file, shown when it fails.
+    local java bundletool
+    java=$(find build/tools/jdk-17 -mindepth 3 -maxdepth 3 -name Home -path '*/Contents/Home' 2>/dev/null | sort | tail -n 1)
+    bundletool=$(/usr/bin/python3 tools/fetch-bundletool.py) || return 1
+    "$java/bin/java" -jar "$bundletool" install-apks --apks="$apk" --adb="$ADB" --device-id="$serial" \
+      >"$RESULTS/$app-install.log" 2>&1 || { sed 's/^/  /' "$RESULTS/$app-install.log" >&2; return 1; }
+  else
+    device install "$apk" >/dev/null
+  fi
   run logcat -c
   if [[ "$AVD" == apk-runner-35-iphone-gesture ]]; then
     # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.

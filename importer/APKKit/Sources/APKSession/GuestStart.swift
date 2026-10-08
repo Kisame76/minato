@@ -89,15 +89,14 @@ public struct GuestStart: Sendable, Equatable {
         environment = extra
     }
 
-    /// The app's data, external data and OBB folders, each under both of Android's names (decision 14).
+    /// The app's data, external data and OBB folders at the paths that Android 15's realpath gives them, /data/data and
+    /// /storage/emulated/0 (decision 14 as changed by ADR-0050 c1's d4): the runtime's links lead /data/user/0 and
+    /// /sdcard there, as Android 15's zygote and its storage links do.
     private static func dataMounts(package: String, data: String, external: String, obb: String) -> [Path] {
         [
-            Path(guest: "/data/user/0/\(package)", host: data),
             Path(guest: "/data/data/\(package)", host: data),
             Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
-            Path(guest: "/sdcard/Android/data/\(package)", host: external),
             Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
-            Path(guest: "/sdcard/Android/obb/\(package)", host: obb),
         ]
     }
 

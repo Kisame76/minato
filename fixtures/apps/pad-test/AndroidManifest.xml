@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0050's test 3 (pad-test): an app built with Google's Play libraries by tools/build-pad-test.sh, with a
+     fast-follow and an on-demand asset pack, asks asset-delivery for both, which the libraries' local-testing path
+     serves from the slices in local_testing of its external files folder. Its manifest has no local_testing_dir: on
+     Android 15 bundletool's build-apks local-testing mode adds it, in Minato the framework (ADR-0050 decision 2). What
+     the libraries' own manifests declare is merged in by hand below, as an app's build merges it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.pad" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <!-- asset-delivery 2.2.2's, for its foreground extraction service. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+  <application android:label="pad-test">
+    <activity android:name="io.github.kisame76.minato.test.pad.PadActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <!-- asset-delivery 2.2.2's services, which only Play's own service enables. -->
+    <service android:name="com.google.android.play.core.assetpacks.AssetPackExtractionService"
+        android:enabled="false" android:exported="true">
+      <meta-data android:name="com.google.android.play.core.assetpacks.versionCode" android:value="20202"/>
+    </service>
+    <service android:name="com.google.android.play.core.assetpacks.ExtractionForegroundService"
+        android:enabled="false" android:exported="false" android:foregroundServiceType="dataSync"/>
+    <!-- core-common 2.0.3's dialog activity, on its theme from its resources. -->
+    <activity android:name="com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
+        android:exported="false" android:stateNotNeeded="true" android:theme="@style/Theme.PlayCore.Transparent"/>
+    <!-- play-services-basement 18.3.0's, from its resources. -->
+    <meta-data android:name="com.google.android.gms.version"
+        android:value="@integer/google_play_services_version"/>
+  </application>
+</manifest>

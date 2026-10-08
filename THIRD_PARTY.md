@@ -257,6 +257,7 @@ Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the
 | Tool | Version | License |
 |---|---|---|
 | bundletool (`bundletool-all-1.18.3.jar`) in `build/tools/bundletool/`, run with the JDK above and our aapt2 (`--aapt2 build/aapt2/aapt2`); the aapt2 binaries inside the jar are never run | `1.18.3` (`586a43a45071`), SHA-256 `a099cfa1543f` | Apache-2.0 |
+| Google's Play libraries for pad-test (ADR-0050 test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with core-common 2.0.3, play-services-basement 18.3.0 and play-services-tasks 18.1.0, as AARs in `~/.android/minato-play-libraries/` (`tools/fetch-play-libraries.py`), outside the repository and never in the app; only pad-test's APK, built on this Mac, carries their code, which nothing here reads | pinned in `third_party/sources.json` (`play-libraries`), each AAR by its SHA-256 | Play Core Software Development Kit Terms of Service with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks); both accepted by you on 2026-10-07 in the chat Formate |
 
 ## References without adopted code
 
