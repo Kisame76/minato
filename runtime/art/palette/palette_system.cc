@@ -1,12 +1,13 @@
 // libartpalette-system.so for the guest (ADR-0033 a): the system half of ART's palette, which libartpalette opens
-// at start and aborts without. After AOSP's palette_fake.cc: a thread's Java priority is kept in a table, as the
-// guest has no scheduler priorities to set (ADR-0033 decision 8); there is no tracing, no ashmem and nobody to
-// notify of compilations or JNI calls. Crash stacks go to the log.
+// at start and aborts without. After AOSP's palette_fake.cc, but for thread priorities: a Java thread's priority
+// sets its nice value, as Android 15's system palette does at Thread.setPriority and at each Java thread's start
+// (the Unity test APK probe's blocker 7), over the runtime's nice value per thread (ADR-0033 decision 8, changed
+// 2026-10-08), which iOS's scheduling does not see. There is no tracing, no ashmem and nobody to notify of
+// compilations or JNI calls. Crash stacks go to the log.
 #include <android/log.h>
+#include <errno.h>
 #include <stdbool.h>
-
-#include <map>
-#include <mutex>
+#include <sys/resource.h>
 
 #include "palette/palette.h"
 
@@ -17,22 +18,37 @@ constexpr int32_t kMinPriority = 1;
 constexpr int32_t kNormalPriority = 5;
 constexpr int32_t kMaxPriority = 10;
 
-std::mutex priorities_lock;
-std::map<int32_t, int32_t> priorities;
+// The nice value of each Java priority from MIN_PRIORITY up, Android 15's: the lowest, background + 6, + 3, the
+// background's, the default, -2, -4, urgent display + 3, + 2, and urgent display's
+// [verified: system/libartpalette's palette_android.cc at android-15.0.0_r1].
+constexpr int kNiceValues[] = {19, 16, 13, 10, 0, -2, -4, -5, -6, -8};
 
 }  // namespace
 
+// The priority's nice value for the thread, unless it has it already, as Android 15's; neither sets task profiles.
 palette_status_t PaletteSchedSetPriority(int32_t tid, int32_t java_priority) {
     if (java_priority < kMinPriority || java_priority > kMaxPriority) return PALETTE_STATUS_INVALID_ARGUMENT;
-    const std::lock_guard<std::mutex> hold(priorities_lock);
-    priorities[tid] = java_priority;
-    return PALETTE_STATUS_OK;
+    const int nice = kNiceValues[java_priority - kMinPriority];
+    if (getpriority(PRIO_PROCESS, tid) == nice) return PALETTE_STATUS_OK;
+    return setpriority(PRIO_PROCESS, tid, nice) == 0 ? PALETTE_STATUS_OK : PALETTE_STATUS_CHECK_ERRNO;
 }
 
+// The Java priority of the thread's nice value: the lowest whose nice value the thread's reaches, MAX_PRIORITY above
+// them all, as Android 15's; NORM_PRIORITY when the thread is not there.
 palette_status_t PaletteSchedGetPriority(int32_t tid, int32_t* java_priority) {
-    const std::lock_guard<std::mutex> hold(priorities_lock);
-    const auto found = priorities.try_emplace(tid, kNormalPriority).first;
-    *java_priority = found->second;
+    errno = 0;
+    const int nice = getpriority(PRIO_PROCESS, tid);
+    if (nice == -1 && errno != 0) {
+        *java_priority = kNormalPriority;
+        return PALETTE_STATUS_CHECK_ERRNO;
+    }
+    for (int32_t priority = kMinPriority; priority <= kMaxPriority; priority++) {
+        if (nice >= kNiceValues[priority - kMinPriority]) {
+            *java_priority = priority;
+            return PALETTE_STATUS_OK;
+        }
+    }
+    *java_priority = kMaxPriority;
     return PALETTE_STATUS_OK;
 }
 

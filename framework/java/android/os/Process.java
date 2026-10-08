@@ -3,7 +3,8 @@
  * framework's own build, with their signatures from the tag's class; is64Bit for b3.1's Build. AOSP's Process replaces
  * it when framework.jar is built from the tag's sources (step b3/c): its sources pull in most of the framework, 80,799
  * javac errors on their own. Step c1 adds what UserHandle, HandlerThread, StrictMode and ContextImpl call, step c2c3
- * what Instrumentation calls, and the corpus harness's Displayed line the start times, which apps read too.
+ * what Instrumentation calls, and the corpus harness's Displayed line the start times, which apps read too. The
+ * The Unity test APK probe's blocker 7 adds the thread priorities, the tag's natives in libandroid_runtime.
  */
 package android.os;
 
@@ -65,13 +66,30 @@ public class Process {
     /** @hide */
     public static final int LAST_ISOLATED_UID = 99999;
 
-    /** The tag's priorities that HandlerThread and QueuedWork's thread take (step c1). */
+    /** The tag's thread priorities, Linux nice values: an app thread's default, which HandlerThread takes. */
     public static final int THREAD_PRIORITY_DEFAULT = 0;
+
+    public static final int THREAD_PRIORITY_LOWEST = 19;
+
+    /** A background thread's priority, which AsyncTask's workers take. */
+    public static final int THREAD_PRIORITY_BACKGROUND = 10;
 
     public static final int THREAD_PRIORITY_FOREGROUND = -2;
 
-    /** As AOSP's: a background thread's priority, which AsyncTask's workers take. */
-    public static final int THREAD_PRIORITY_BACKGROUND = 10;
+    public static final int THREAD_PRIORITY_DISPLAY = -4;
+
+    /** The priority of a thread that shows the display's frames (Instrumentation's helper threads). */
+    public static final int THREAD_PRIORITY_URGENT_DISPLAY = -8;
+
+    public static final int THREAD_PRIORITY_VIDEO = -10;
+
+    public static final int THREAD_PRIORITY_AUDIO = -16;
+
+    public static final int THREAD_PRIORITY_URGENT_AUDIO = -19;
+
+    public static final int THREAD_PRIORITY_MORE_FAVORABLE = -1;
+
+    public static final int THREAD_PRIORITY_LESS_FAVORABLE = +1;
 
     /** The app's process ID, as getpid() answers. */
     public static final int myPid() {
@@ -107,11 +125,20 @@ public class Process {
     }
 
     /**
-     * Android's sets the calling thread's nice value (android_util_Process.cpp). Minato leaves its threads at the
-     * priority iOS gives them, so HandlerThread's call changes nothing.
+     * As the tag's (android_util_Process.cpp): a thread's nice value, from -20 to 19, by libutils'
+     * androidSetThreadPriority, which leaves a thread alone whose getpriority already gives the value. The runtime
+     * keeps a nice value per thread; iOS's scheduling does not see it, and there are no task profiles (a named
+     * difference). IllegalArgumentException for an unknown thread, SecurityException without permission.
      */
-    public static final void setThreadPriority(int priority) {
-    }
+    public static final native void setThreadPriority(int tid, int priority)
+            throws IllegalArgumentException, SecurityException;
+
+    /** As the tag's: the calling thread's nice value, as setThreadPriority(myTid(), priority). */
+    public static final native void setThreadPriority(int priority)
+            throws IllegalArgumentException, SecurityException;
+
+    /** As the tag's: a thread's nice value, the caller's for 0; IllegalArgumentException for an unknown thread. */
+    public static final native int getThreadPriority(int tid) throws IllegalArgumentException;
 
     /** Sends SIGKILL to the process, as the tag's sendSignal does, with its log line. */
     public static final void killProcess(int pid) {
@@ -132,9 +159,6 @@ public class Process {
 
     /** As AOSP's: no uid; BroadcastReceiver's pending result starts with it. */
     public static final int INVALID_UID = -1;
-
-    /** As AOSP's: the priority of a thread that shows the display's frames (Instrumentation's helper threads). */
-    public static final int THREAD_PRIORITY_URGENT_DISPLAY = -8;
 
     /** Whether this is an SDK sandbox's process, whose activities Instrumentation checks: never on Minato. */
     public static boolean isSdkSandbox() {

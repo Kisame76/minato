@@ -1,0 +1,20 @@
+I/priorities-test: a new thread: 0, by its tid 0
+I/priorities-test: THREAD_PRIORITY_BACKGROUND: 10
+I/priorities-test: THREAD_PRIORITY_URGENT_AUDIO: -19
+I/priorities-test: 25: 19
+I/priorities-test: -25: -20
+I/priorities-test: by its tid, THREAD_PRIORITY_DEFAULT: 0
+I/priorities-test: another thread, set to 5 from here: 5
+I/priorities-test: and as it sees itself: 5
+I/priorities-test: an unknown thread's priority: java.lang.IllegalArgumentException: Given thread 2147483647 does not exist
+I/priorities-test: an unknown thread set to 0: java.lang.IllegalArgumentException: Given thread 2147483647 does not exist
+I/priorities-test: an unknown thread set to -1: fine
+I/priorities-test: a HandlerThread at THREAD_PRIORITY_BACKGROUND: 10, from outside 10
+I/priorities-test: Thread.setPriority(MAX_PRIORITY): -8
+I/priorities-test: Thread.setPriority(MIN_PRIORITY): 19
+I/priorities-test: Thread.setPriority(NORM_PRIORITY): 0
+I/priorities-test: a thread started by one at 10: 0
+I/priorities-test: a thread started at Java priority 1: 19
+I/priorities-test: a thread started at Java priority 7: -4
+I/priorities-test: this thread's Java priority, after Process.setThreadPriority: 5
+I/priorities-test: done

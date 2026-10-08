@@ -322,6 +322,7 @@ endforeach()
 add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${input_jni_sources}
             ${database_jni_sources} native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
+            native/android_runtime/android_util_Process.cpp
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp native/android_runtime/android_view_Surface.cpp
             native/android_runtime/android_hardware_display_DisplayService.cpp

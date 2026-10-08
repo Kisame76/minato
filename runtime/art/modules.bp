@@ -32,7 +32,7 @@ cc_library_shared {
 }
 
 // The palette's system half (libartpalette opens it at start and aborts without it), after AOSP's
-// palette_fake.cc: thread priorities kept in a table, no tracing, no ashmem.
+// palette_fake.cc: thread priorities as Android 15's nice values, no tracing, no ashmem.
 cc_library_shared {
     name: "libartpalette-system",
     srcs: ["palette/palette_system.cc"],
