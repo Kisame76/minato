@@ -51,6 +51,8 @@
 # tools/build-pad-test.sh, is a Java app with its own activity: bundletool's install-apks puts its local-testing set on
 # apk-runner-35, the base with local_testing_dir and the packs' slices in local_testing of its external files folder.
 # broadcast-test (ADR-0045 decision 5), whose activity sends its own broadcasts to its own receivers, is one too.
+# crash-test (ADR-0039, the main thread's uncaught exception), whose own handler logs the exception that ends it, is
+# one too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -518,6 +520,12 @@ run_app() {
     # with the task's flags, and its log ends with "done" at the destroy of Clear, the last activity of its task.
     launch-mode-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MainActivity
+      ;;
+    # crash-test (ADR-0039, the main thread's uncaught exception): its launcher, CrashActivity, throws on the main
+    # thread, and its own default handler logs "done" before it hands the exception on to Android's, which ends the
+    # process.
+    crash-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CrashActivity
       ;;
     # touch-test (ADR-0045 step 7b): its own launcher activity since step 7b2, TouchActivity, which ends with
     # "done" at the click of the swipe that the script plays.

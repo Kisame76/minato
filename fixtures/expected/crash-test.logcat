@@ -1,0 +1,5 @@
+I/crash-test: a default handler before ours: true
+I/crash-test: onCreate
+I/crash-test: throws on the main thread
+I/crash-test: uncaught on main: java.lang.IllegalStateException: thrown on the main thread
+I/crash-test: done

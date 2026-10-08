@@ -34,7 +34,11 @@
 // libandroid_runtime.so's register_framework_natives, our stand-in for the private AndroidRuntime::startReg
 // (decision 10); their FindClass goes to the boot class path.
 // Then it calls android.app.ActivityThread.main(String[]) with the arguments after argv[0] and the process name.
-// It ends with 0 when main returns, and with 1 and a line on stderr when the VM, the class or main fails.
+// Afterwards it goes on as AndroidRuntime::start does: "Shutting down VM", then the main thread's detach, which hands
+// an exception that left main to the thread's uncaught exception handlers, as on Android, whose default ends the
+// process with SIGKILL (ADR-0039, the main thread's uncaught exception).
+// It ends with 0 when main returns, and with 1 and a line on stderr when the VM or the class fails, or when main
+// threw and no handler ended the process.
 //
 // It links libsigchain ahead of libc, as Android's app_process and dalvikvm do (ADR-0033 decision 6), so that ART's
 // signal handlers come first.
@@ -163,10 +167,13 @@ int main(int argc, char **argv) {
     env->SetObjectArrayElement(arguments, count + 1, env->NewStringUTF(process_name.c_str()));
 
     env->CallStaticVoidMethod(driver, main_method, arguments);
-    if (env->ExceptionCheck()) {
-        env->ExceptionDescribe();
-        return fail("ActivityThread.main ended with an exception");
-    }
+    // An exception that left main stays pending, as in AndroidRuntime::start, whose threadExitUncaughtException is
+    // under #if 0 at the tag: the detach below hands it to the thread's uncaught exception handlers (ART's
+    // Thread::HandleUncaughtExceptions), RuntimeInit's that ActivityThread.main installs or an app's that hands it on
+    // to them, and their default logs FATAL EXCEPTION and kills the process. Returning instead ran exit's destructors
+    // while the app's other threads still locked their mutexes. As dalvikvm, it checks first, as the detach clears it.
+    const bool threw = env->ExceptionCheck();
+    __android_log_print(ANDROID_LOG_DEBUG, "AndroidRuntime", "Shutting down VM\n");
     // As dalvikvm in a release build: detach, then let the VM go.
     if (vm->DetachCurrentThread() != JNI_OK) {
         return fail("cannot detach the main thread");
@@ -174,5 +181,7 @@ int main(int argc, char **argv) {
     if (vm->DestroyJavaVM() != JNI_OK) {
         return fail("the VM did not shut down cleanly");
     }
-    return EXIT_SUCCESS;
+    // An app's handler that kept the process: it ends once its other threads have, with dalvikvm's status.
+    return threw ? fail("ActivityThread.main ended with an exception that no handler ended the process for")
+                 : EXIT_SUCCESS;
 }

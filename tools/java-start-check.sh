@@ -36,6 +36,8 @@
 # the windows of Second and Third, which have alpha, and opaque again each time Main has the window back.
 # result-flow-test (step b3.5b2-2a's) is one too: its activities return results to the ones that started them.
 # launch-mode-test (step b3.5b2-2b's) is one too: its starts follow the launch modes and the task's flags.
+# crash-test (ADR-0039, the main thread's uncaught exception) is one too: Android's handlers end it after its "done",
+# and the program must end with 137, the kill of itself, and Minato go back to the library without a notice.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -86,7 +88,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode"
       "activity-flow-test io.github.kisame76.minato.test.activityflow"
       "result-flow-test io.github.kisame76.minato.test.resultflow"
-      "launch-mode-test io.github.kisame76.minato.test.launchmode")
+      "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -633,6 +635,45 @@ run_one result-flow-test io.github.kisame76.minato.test.resultflow
 # Launch modes and the task's flags (step b3.5b2-2b): singleTop, CLEAR_TOP, REORDER_TO_FRONT, singleTask, noHistory,
 # navigateUpTo and CLEAR_TASK.
 run_one launch-mode-test io.github.kisame76.minato.test.launchmode
+# An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
+# RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
+# 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.
+if wanted crash-test; then
+  if begin_start crash-test io.github.kisame76.minato.test.crash 1; then
+    if ! await_line guest-log "^I/crash-test: done$" 300; then
+      failed_line "no last line" crash-test-1
+    elif ! await_event "program ended .*" 30; then
+      failed_line "no end of the program after its last line" crash-test-1
+    else
+      [[ "${EVENT#* * }" == "program ended 137" ]] && ok "  the program ended with 137, the kill of itself" \
+        || fail "  the program did not end with 137: ${EVENT#* * }"
+      if await_event "process library( [0-9.]+)?$" 60; then
+        ok "  back in the library without a notice"
+      else
+        failed_line "not back in the library without a notice" crash-test-1
+      fi
+    fi
+  fi
+  end_start crash-test 1
+  python3 - crash-test "$WORK/crash-test-1.log" fixtures/expected/crash-test.logcat <<'PY' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log, in_order_found
+
+app, log, expected = sys.argv[1:]
+text = open(log, encoding="utf-8", errors="replace").read()
+wanted = ["D/AndroidRuntime: Shutting down VM", "E/AndroidRuntime: FATAL EXCEPTION: main",
+          "E/AndroidRuntime: Process: io.github.kisame76.minato.test.crash, PID: ",
+          "E/AndroidRuntime: java.lang.IllegalStateException: thrown on the main thread",
+          "I/crash-test: uncaught on main: java.lang.IllegalStateException: thrown on the main thread",
+          "I/Process : Sending signal. PID: "]
+if in_order_found(text.splitlines(), wanted) < len(wanted):
+    print("FAIL: the guest log lacks Android's lines around the exception, in their order")
+    sys.exit(1)
+compare_log(app, subprocess.CompletedProcess([], 0, "", text), expected, {})
+PY
+fi
 if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
   # Its OBB must be in its OBB folder before the tap.
   obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"

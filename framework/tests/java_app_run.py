@@ -27,6 +27,10 @@ With --drawn, the run must have drawn its window: apk-run's headless buffers log
 With --in-order <text>, once or more, lines of the process's log must start with these texts in this order, among
 its other lines: a host's lines among the app's, such as graphics-run's window host's (ADR-0043 c4 (c)).
 
+With --status <n>, the run must end by itself with status n, where every other run ends with 0: an app whose exception
+no thread catches ends with SIGKILL from Android's handler, 137 (128 + 9) through apk-run's session (ADR-0039,
+crash-test).
+
 With --android-id, the app starts with ActivityThread's --android-id, the value its settings provider gives as
 android_id, as the host gives it (ADR-0045, gap 13a).
 
@@ -45,6 +49,7 @@ starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
+                       [--status <n>]
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -74,8 +79,9 @@ def main():
     in_order = []
     obbs = []
     packs = []
+    status = 0
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"], ["--packs"]):
+                       ["--in-order"], ["--obb"], ["--packs"], ["--status"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -84,6 +90,8 @@ def main():
             obbs, args = obbs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--packs":
             packs, args = packs + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--status":
+            status, args = int(args[1]), args[2:]
         elif args[0] == "--drawn":
             drawn, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--in-order":
@@ -147,7 +155,7 @@ def main():
         sys.exit(1)
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
-        compare_log(app, result, expected, marks, until)
+        compare_log(app, result, expected, marks, until, status)
         return
 
     with open(expected, encoding="utf-8") as handle:
@@ -158,7 +166,7 @@ def main():
     got = [line[len(prefix):] for line in result.stdout.splitlines() if line.startswith(prefix)]
     log = result.stderr.splitlines()
     missing_log = [line for line in wanted_log if line not in log]
-    if result.returncode == 0 and got == wanted and not missing_log:
+    if result.returncode == status and got == wanted and not missing_log:
         print(f"{app} read its resources as their sources say, {len(got)} lines and {len(wanted_log)} log lines")
         return
     print(f"FAIL: exit status {result.returncode}")
@@ -194,17 +202,17 @@ def until_line(lines, app, until):
     return lines
 
 
-def compare_log(app, result, expected, marks, until=None):
+def compare_log(app, result, expected, marks, until=None, status=0):
     """The process's log lines with the app's tag against Android's, in order, with the APK's proven certificates
     marked (certificate_mask's marks); the device's lines are shown. With `until`, both up to their first line
-    "<app>: <until>"."""
+    "<app>: <until>". The run must have ended with `status`."""
     with open(expected, encoding="utf-8") as handle:
         wanted = until_line(handle.read().splitlines(), app, until)
     log = certificate_mask.mask(result.stderr, marks).splitlines()
     got = until_line([line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}: ", line)], app, until)
     device = [line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}-device: ", line)]
-    if result.returncode == 0 and got == wanted:
-        print(f"{app} logged what Android 15 logs, {len(got)} lines")
+    if result.returncode == status and got == wanted:
+        print(f"{app} logged what Android 15 logs, {len(got)} lines" + (f", and ended with status {status}" if status else ""))
         for line in device:
             print(f"  device: {line}")
         return
