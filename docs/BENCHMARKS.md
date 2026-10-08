@@ -566,6 +566,46 @@ benchmark does not split. Measured 2026-10-08 from 09:00 to 11:02 on the iPhone 
   mode, which MoltenVK's private API turns on in every render pass of ANGLE's instance; shaders that reach Metal
   through SPIR-V and SPIRV-Cross instead of ANGLE's own MSL; MoltenVK's handling of render passes.
 
+### Follow-up: the GPU's time per frame (reported)
+
+**Result: on the Mac both paths need about the same GPU time per frame. On the iPhone both keep the GPU saturated,
+and the Vulkan path's frame period, 18.6 ms against ANGLE-Metal's 10.4 ms, fits more GPU time per frame better than a
+stall in presenting or pacing [inferred].** Which part of the GPU's work costs it is still not measured. Measured
+2026-10-08, time-boxed, with a scratch hook that adds up the GPU span (`GPUEndTime - GPUStartTime`) of each Metal
+command buffer that a guest thread commits. The hook stays out of the tree.
+
+- *The Mac* (Apple M4 Pro, macOS 27, the lead's OK): `bench-gles` at the heavy load through `graphics-app-test`'s
+  bench mode, at 1290 × 2796 and 120 Hz, on ANGLE-Metal and on ANGLE's Vulkan backend
+  (`MINATO_ANGLE_BACKEND=vulkan`), three runs each of 1,081 presents. Both hold 120 Hz, 8.33 ms between ticks. The
+  GPU's time per frame: ANGLE-Metal 5.35, 5.43 and 5.50 ms in one command buffer a frame, ANGLE-Vulkan 5.04, 5.54 and
+  6.00 ms in 3.4 to 3.6. The process's CPU time (`time -p`), two runs each: ANGLE-Metal 7.5 and 7.6 s, ANGLE-Vulkan
+  5.4 and 5.7 s for the same frames.
+- *The iPhone* (11:33 to 11:44, the user's OK): a Release benchmark build of 05c7026 with the hook (run.csv names
+  05c7026-gputime), two heavy runs per APK at 120 Hz, all valid, their FPS within 1.2 % of the sitting's medians:
+
+| 120-heavy | FPS | Command buffers a frame | Spans a frame | A span in frame periods | Drawable to present |
+|---|---:|---:|---:|---:|---:|
+| Metal APK | 96.50 / 96.13 | 1.00 / 0.99 | 14.96 / 14.93 ms | 1.44 / 1.45 | 20.49 / 20.50 ms |
+| Vulkan APK | 53.43 / 53.90 | 3.67 / 3.61 | 100.74 / 90.09 ms | 1.47 / 1.34 | 37.15 / 37.14 ms |
+
+- *Spans* of command buffers in flight together overlap, so where the GPU is saturated a frame's spans add up to more
+  than its period. On the Mac they add up to less.
+- *The same shape:* on both APKs a span lasts about 1.4 frame periods and a drawable is presented 2.0 periods after it
+  was taken; only the period differs. The render thread's CPU time p50: 4.59 and 4.61 ms against 6.94 and 6.88 ms, as
+  in the sitting.
+- *Reading* [inferred]: both APKs keep the iPhone's GPU saturated, and the Vulkan path needs about 18.6 ms of its time
+  per frame against 10.4 ms. A stall in presenting or pacing would leave the GPU idle and shorten the spans instead.
+  The sums cannot rule out command buffers that wait on events inside their spans.
+- *The Mac against the iPhone:* from the Mac to the iPhone, ANGLE-Metal's frame grows 1.9 times (5.4 to 10.4 ms) and
+  the Vulkan path's 3.4 times (5.5 to 18.6 ms) [inferred: both GPU-bound on the iPhone]. Both GPUs are of one
+  generation (Metal's driver classes AGXG16X and AGXG16P; the M4 Pro is of family Apple9), so a cost in the shaders'
+  arithmetic would show on the Mac too. The iPhone has far less memory bandwidth [unverified: about 51 against
+  273 GB/s], so the first suspect is the memory traffic per frame [guess]: the render passes' loads and stores,
+  storage modes and compression, the tiler's geometry for 8,192 meshes.
+- *Not measured yet:* which part of the GPU's work costs it. Next, when there is room: a census of each frame's render
+  passes on both paths on the Mac (their load and store actions, storage modes and sample counts), and only if that
+  leaves it open, Metal System Trace on the iPhone.
+
 ### Cold windows and CPU time (reported)
 
 | Configuration | Side | Cold FPS | Cold p99 | Cold drops | First frame | Warm CPU p50 |
