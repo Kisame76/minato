@@ -488,7 +488,7 @@ run_app() {
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
-      | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test)
+      | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

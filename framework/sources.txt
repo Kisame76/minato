@@ -1500,3 +1500,11 @@ frameworks_base/core/java/com/android/internal/util/NotificationBigTextNormalize
 frameworks_base_graphics/graphics/java/android/graphics/drawable/Icon.java
 frameworks_base_types/media/java/android/media/AudioAttributes.java
 modules_utils/java/com/android/internal/logging/InstanceId.java
+
+# android.util's JSON reader and writer (the Unity test APK probe: Firebase Crashlytics and Installations), json-test.
+frameworks_base/core/java/android/util/JsonReader.java
+frameworks_base/core/java/android/util/JsonScope.java
+frameworks_base/core/java/android/util/JsonToken.java
+frameworks_base/core/java/android/util/JsonWriter.java
+frameworks_base/core/java/android/util/MalformedJsonException.java
+frameworks_base/core/java/com/android/internal/util/StringPool.java

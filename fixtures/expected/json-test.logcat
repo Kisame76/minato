@@ -1,0 +1,59 @@
+I/json-test: compact: {"name":"Minato","kanji":"<6e2f>","count":3,"ratio":0.5,"big":1.0E10,"max":9223372036854775807,"ok":true,"nothing":null,"list":[1,2.5,"x",null,{"deep":[]}],"empty":{},"number":12345678901234567890.5}
+I/json-test: indented: {\n  "name": "Minato",\n  "kanji": "<6e2f>",\n  "count": 3,\n  "ratio": 0.5,\n  "big": 1.0E10,\n  "max": 9223372036854775807,\n  "ok": true,\n  "nothing": null,\n  "list": [\n    1,\n    2.5,\n    "x",\n    null,\n    {\n      "deep": []\n    }\n  ],\n  "empty": {},\n  "number": 12345678901234567890.5\n}
+I/json-test: escapes: ["quote \" back \\ nl \n tab \t cr \r bs \b ff \f nul \u0000 us \u001f del <007f> ls \u2028 ps \u2029 html <&>=' slash / kanji <6e2f>"]
+I/json-test: a name's escapes: {"a\"b\n":1}
+I/json-test: NaN strict: [ then java.lang.IllegalArgumentException: Numeric values must be finite, but was NaN
+I/json-test: NaN lenient: [NaN,-Infinity]
+I/json-test: a Number's text: [7,1.5,null]
+I/json-test: name without an object: [ then java.lang.IllegalStateException: Nesting problem: [NONEMPTY_DOCUMENT, EMPTY_ARRAY]
+I/json-test: name twice: {"a" then java.lang.IllegalStateException: Nesting problem: [NONEMPTY_DOCUMENT, DANGLING_NAME]
+I/json-test: value without a name: { then java.lang.IllegalStateException: Nesting problem: [NONEMPTY_DOCUMENT, EMPTY_OBJECT]
+I/json-test: end of the wrong kind: [ then java.lang.IllegalStateException: Nesting problem: [NONEMPTY_DOCUMENT, EMPTY_ARRAY]
+I/json-test: a null name: { then java.lang.NullPointerException: name == null
+I/json-test: two top-level values: [] then java.lang.IllegalStateException: JSON must have only one top-level value.
+I/json-test: two top-level values, lenient: [] then java.lang.IllegalStateException: JSON must have only one top-level value.
+I/json-test: a top-level null:  then java.lang.IllegalStateException: JSON must start with an array or an object.
+I/json-test: closed while open: [1 then java.io.IOException: Incomplete document
+I/json-test: nothing written:  then java.io.IOException: Incomplete document
+I/json-test: after close: [] then java.lang.IllegalStateException: JSON must have only one top-level value.
+I/json-test: a lenient indent: {\n<0009>"a": [\n<0009><0009>1,\n<0009><0009>2\n<0009>]\n}
+I/json-test: tokens: BEGIN_OBJECT NAME=a BEGIN_ARRAY NUMBER=1 NUMBER=2.5 STRING=x BOOLEAN=true NULL BEGIN_OBJECT NAME=b NUMBER=-0 END_OBJECT END_ARRAY NAME=c STRING=d<6e2f>\n END_OBJECT END_DOCUMENT
+I/json-test: typed: 1 -2 3000000000 1 100 7 1.5 1.2345678901234567E19 true
+I/json-test: an int too large: java.lang.NumberFormatException: 3000000000
+I/json-test: an int from 1.5: java.lang.NumberFormatException: 1.5
+I/json-test: a long from a string: java.lang.NumberFormatException: For input string: "x"
+I/json-test: a string where an array is: java.lang.IllegalStateException: Expected a string but was BEGIN_ARRAY
+I/json-test: a name where a value is: java.lang.IllegalStateException: Expected a name but was NUMBER
+I/json-test: a boolean from a string: java.lang.IllegalStateException: Expected a boolean but was STRING
+I/json-test: skipValue: NUMBER 4 false END_ARRAY
+I/json-test: hasNext: truefalsefalsefalseEND_DOCUMENT
+I/json-test: unicode: <6e2f><d83d><de00> / <0008><000c>
+I/json-test: a short escape: java.lang.NumberFormatException: For input string: "12"]" under radix 16
+I/json-test: a bad escape: q
+I/json-test: a raw newline in a string: a\nb
+I/json-test: unterminated: android.util.MalformedJsonException: Unterminated string at line 1 column 6
+I/json-test: strict, unquoted: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 3
+I/json-test: lenient, unquoted: android.util.MalformedJsonException: Unterminated object at line 1 column 25
+I/json-test: lenient, comments: BEGIN_ARRAY NUMBER=1 NUMBER=3 NUMBER=5 END_ARRAY END_DOCUMENT
+I/json-test: lenient, a prefix: android.util.MalformedJsonException: Expected literal value at line 1 column 2
+I/json-test: strict, a prefix: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 2
+I/json-test: lenient, several values: NUMBER=1 NUMBER=2 STRING=three END_DOCUMENT
+I/json-test: strict, several values: java.io.IOException: Expected JSON document to start with '[' or '{' but was NUMBER
+I/json-test: strict, a single quote: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 3
+I/json-test: strict, a trailing comma: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 5
+I/json-test: lenient, a trailing comma: BEGIN_ARRAY NUMBER=1 NULL END_ARRAY END_DOCUMENT
+I/json-test: strict, NaN: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 5
+I/json-test: lenient, NaN: NaN Infinity
+I/json-test: empty input: java.io.EOFException: End of input
+I/json-test: input cut off: java.io.EOFException: End of input
+I/json-test: input cut off in an object: java.io.EOFException: End of input
+I/json-test: a second line: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 3 column 7
+I/json-test: a leading plus and zeros: BEGIN_ARRAY STRING=+1 STRING=007 NUMBER=-0.0e0 STRING=.5 END_ARRAY END_DOCUMENT
+I/json-test: a malformed number: android.util.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 7
+I/json-test: close and read: java.lang.IllegalStateException: JsonReader is closed
+I/json-test: deep: 200 END_ARRAY
+I/json-test: toString: JsonReader near [1, 2, 3]
+I/json-test: lenient flags: false false
+I/json-test: a written document read back: BEGIN_OBJECT NAME=name STRING=Minato NAME=kanji STRING=<6e2f> NAME=count NUMBER=3 NAME=ratio NUMBER=0.5 NAME=big NUMBER=1.0E10 NAME=max NUMBER=9223372036854775807 NAME=ok BOOLEAN=true NAME=nothing NULL NAME=list BEGIN_ARRAY NUMBER=1 NUMBER=2.5 STRING=x NULL BEGIN_OBJECT NAME=deep BEGIN_ARRAY END_ARRAY END_OBJECT END_ARRAY NAME=empty BEGIN_OBJECT END_OBJECT NAME=number NUMBER=12345678901234567890.5 END_OBJECT END_DOCUMENT
+I/json-test: a malformed exception: true
+I/json-test: done
