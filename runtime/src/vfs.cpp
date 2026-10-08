@@ -45,17 +45,22 @@ std::vector<Mount> devices() {
 }
 
 /// A link of Android's that the guest finds where Android 15 puts it in an app's mount namespace, though no mount
-/// holds it; both paths absolute and normal.
+/// holds it, or the runtime's in place of a folder of Android 15's with another's files; both paths absolute and
+/// normal.
 struct Link {
     std::string guest, target;
 };
 
 /// /data/user/0 is /data/data (app data isolation, Zygote.cpp), and /sdcard is /storage/self/primary, which is
-/// /storage/emulated/0.
+/// /storage/emulated/0. /system/etc/security/cacerts is a folder on Android 15 with the CA certificates of Conscrypt's
+/// APEX folder, which TrustedCertificateStore reads from SDK 34 on: the guest has them once, in Conscrypt's folder,
+/// and lstat and readlink show a link at the other name (ADR-0046 decision 4).
 const std::vector<Link> &links() {
-    static const auto *table = new std::vector<Link>{{"/data/user/0", "/data/data"},
-                                                     {"/sdcard", "/storage/self/primary"},
-                                                     {"/storage/self/primary", "/storage/emulated/0"}};
+    static const auto *table =
+        new std::vector<Link>{{"/data/user/0", "/data/data"},
+                              {"/sdcard", "/storage/self/primary"},
+                              {"/storage/self/primary", "/storage/emulated/0"},
+                              {"/system/etc/security/cacerts", "/apex/com.android.conscrypt/cacerts"}};
     return *table;
 }
 

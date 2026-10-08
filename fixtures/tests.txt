@@ -72,6 +72,8 @@ memfd-test system
 sharedmem-test system
 # The network interfaces an app sees: getifaddrs, the names and indexes, and the ifreq ioctls.
 ifaddrs-test system
+# The CA certificates of the trust store, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
+cacerts-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
 # emulator's differ (its AVD's heap, a userdebug build).
 property-test system runtime-only

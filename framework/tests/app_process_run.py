@@ -8,7 +8,9 @@ runtime/tests/art_run.py lays them out for dalvikvm:
   - ART's libraries in /apex/com.android.art/lib64, the boot jars in /apex/com.android.art/javalib, and our
     framework.jar in /system/framework;
   - Conscrypt's jar and libjavacrypto in their own APEX, /apex/com.android.conscrypt, as BOOTCLASSPATH names the jar
-    (ADR-0046 c, decision 6): without it libcore's JCA providers fail to load;
+    (ADR-0046 c, decision 6): without it libcore's JCA providers fail to load; and its CA certificates
+    (build/sources/ca-certificates) in its cacerts, where the runtime's link /system/etc/security/cacerts leads
+    (ADR-0046 decision 4);
   - bionic's libraries and libandroid_runtime.so (ADR-0039 decision 10) in /system/lib64, bionic's /system, ICU's
     data and the time zone file in their APEXes;
   - libhwui.so and its set (tools/build-hwui.sh) in /system/lib64, with ART's build's copies of libbase,
@@ -76,6 +78,9 @@ LAST = r"^app-start-test: MessageDigest "
 COLLECTOR = "CMS"
 # Monet's overlays for /data/resource-cache (ADR-0043 f)).
 MONET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "monet-overlays.py")
+# Conscrypt's CA certificates (ADR-0046 decision 4), the guest's /apex/com.android.conscrypt/cacerts.
+CA_CERTIFICATES = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build",
+                                               "sources", "ca-certificates", "files"))
 
 
 def collector_type(stderr):
@@ -214,6 +219,7 @@ def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
                         (os.path.join(art, "lib", "libart.so"), "tools/build-art.sh"),
                         (os.path.join(art, "lib", CONSCRYPT_LIBRARY), "tools/build-art.sh"),
                         (os.path.join(art, "javalib", "conscrypt.jar"), "tools/build-art.sh"),
+                        (CA_CERTIFICATES, "tools/fetch-sources.py --set art"),
                         (app_process, "tools/build-framework-native.sh"),
                         (framework_jar, "tools/build-framework.sh"),
                         (apk, f"tools/build-java-test-app.sh {app}"),
@@ -333,7 +339,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                        f"{device_data}/code_cache".lstrip("/"), "apex/com.android.art/javalib",
                        "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
                        "apex/com.android.tzdata/etc/tz", "apex/com.android.conscrypt/javalib",
-                       "apex/com.android.conscrypt/lib64", "framework", *sorted(set(external.values()))):
+                       "apex/com.android.conscrypt/lib64", "apex/com.android.conscrypt/cacerts", "framework",
+                       *sorted(set(external.values()))):
             os.makedirs(os.path.join(run, folder))
         for obb in obbs:
             shutil.copy(obb, os.path.join(run, "external-obb", os.path.basename(obb)))
@@ -363,6 +370,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                "--mount", f"/data={os.path.join(run, 'data')}",
                "--mount", f"/apex={os.path.join(run, 'apex')}",
                "--mount", f"{ART_ROOT}/javalib={os.path.join(art, 'javalib')}",
+               "--mount", f"{CONSCRYPT_ROOT}/cacerts={CA_CERTIFICATES}",
                "--mount", f"/system={bionic_system}",
                "--mount", f"/system/framework={os.path.join(run, 'framework')}",
                # The data folder a mount of its own, as GuestStart mounts /data/data/<package> and Android 15 its

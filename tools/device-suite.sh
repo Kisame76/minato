@@ -88,6 +88,9 @@ TIMEOUT=120
 
 # The fields of a test in fixtures/tests.txt, as in tools/android-reference.sh.
 test_names() { awk '!/^#/ && NF { print $1 }' fixtures/tests.txt; }
+# The tests the suite leaves out unless they are named: cacerts-test reads Conscrypt's APEX, which FixtureRunner does
+# not mount for a fixture yet (ADR-0046 decision 4).
+NOT_ON_DEVICE=(cacerts-test)
 field() {
   local item
   for item in $(awk -v name="$1" '$1 == name { $1 = ""; print; exit }' fixtures/tests.txt); do
@@ -103,7 +106,7 @@ if [[ $# -gt 0 ]]; then
 elif [[ -z "$ART" ]]; then
   tests=()
   for name in $(test_names); do
-    tests+=("$name")
+    [[ " ${NOT_ON_DEVICE[*]} " == *" $name "* ]] || tests+=("$name")
   done
 fi
 

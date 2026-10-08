@@ -151,6 +151,10 @@ TEST(androids_links_lead_where_android_s_do) {
     CHECK(apkrt::vfs::link_target("/data/user/0") == "/data/data");
     CHECK(apkrt::vfs::link_target("/sdcard") == "/storage/self/primary");
     CHECK(apkrt::vfs::link_target("/storage/self/primary") == "/storage/emulated/0");
+    // Conscrypt's CA certificates (ADR-0046 decision 4): on Android 15 a folder of the same files, here a link.
+    CHECK(apkrt::vfs::link_target("/system/etc/security/cacerts") == "/apex/com.android.conscrypt/cacerts");
+    CHECK(absolute("/system/etc/security/cacerts/6187b673.0", "/") == "/apex/com.android.conscrypt/cacerts/6187b673.0");
+    CHECK(!apkrt::vfs::link_target("/system/etc/security"));
     CHECK(!apkrt::vfs::link_target("/data/data"));
     CHECK(!apkrt::vfs::link_target("/data/user/0/io.example"));
 }

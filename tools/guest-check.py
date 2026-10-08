@@ -8,9 +8,11 @@ every container in Guest/ passes `codesign -v`.
                     compatibility plan's gap 7), hwui's set with libjnigraphics (ADR-0041 a5) and ART's copies for it
                     (graphics/tests/hwui_load_run.py's PLATFORM_COPIES)
   system/           /system's files: framework.jar and the framework-res folder in framework/ (ADR-0039, decision 8),
-                    platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts
-  apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data
-                    and the time zones
+                    platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts, and an
+                    empty etc/security/cacerts, a name the runtime links to Conscrypt's certificates
+  apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data,
+                    the time zones, and Conscrypt's CA certificates in its cacerts/, the files of
+                    build/sources/ca-certificates (ADR-0046 decision 4)
   apex-lib64/       the APEXes' lib64: libart.so and libandroidicu.so (libsqlite's ICU) in ART's, libjavacrypto.so in
                     Conscrypt's
   resource-cache/   /data/resource-cache for a Java app (ADR-0043 f)): each overlay of
@@ -21,11 +23,12 @@ resolves every guest path below its mount's folder with O_RESOLVE_BENEATH: a lin
 (ADR-0052), even one that comes back or names a file inside by an absolute text. So a link there must stay in its
 folder at every step; the folder itself may be a link, as apkrt_mount takes the host path's realpath.
 
-A missing path, an empty file, a container that fails `codesign -v` and a link that leaves its mounted folder are
-named; the run ends with 1 then.
+A missing path, an empty file, CA certificates other than build/sources/ca-certificates/files, a container that
+fails `codesign -v` and a link that leaves its mounted folder are named; the run ends with 1 then.
 Runs on /usr/bin/python3 (3.9).
 Usage: tools/guest-check.py <Minato.app>
 """
+import filecmp
 import os
 import subprocess
 import sys
@@ -60,6 +63,10 @@ REQUIRED = (
     + [f"resource-cache/{name}" for name in monet_files()]
 )
 
+# The CA certificates that Guest/apex/com.android.conscrypt/cacerts must hold (ADR-0046 decision 4).
+CERTIFICATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "sources", "ca-certificates",
+                            "files")
+
 # The folders of Guest/ that the guest's file system mounts, as /system, /apex and /data/resource-cache.
 MOUNTED = ["system", "apex", "resource-cache"]
 LINK_LIMIT = 32  # Darwin's MAXSYMLINKS: a longer chain answers ELOOP
@@ -93,6 +100,29 @@ def walk(root, below, text, links):
     return below, links
 
 
+def certificate_problems(guest):
+    """Conscrypt's CA certificates: the files of CERTIFICATES in Guest/apex/com.android.conscrypt/cacerts, the same
+    names and bytes, and Guest/system/etc/security/cacerts an empty folder, as the runtime links that name to them."""
+    if not os.path.isdir(CERTIFICATES):
+        return [f"missing: {os.path.normpath(CERTIFICATES)} (tools/fetch-sources.py --set art)"]
+    problems = []
+    folder = os.path.join(guest, "apex", "com.android.conscrypt", "cacerts")
+    wanted = sorted(os.listdir(CERTIFICATES))
+    there = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+    missing = [name for name in wanted if name not in there]
+    extra = [name for name in there if name not in wanted]
+    changed = [name for name in wanted if name in there
+               and not filecmp.cmp(os.path.join(CERTIFICATES, name), os.path.join(folder, name), shallow=False)]
+    for names, what in ((missing, "missing"), (extra, "not of build/sources/ca-certificates"), (changed, "changed")):
+        if names:
+            problems.append(f"certificates: {len(names)} {what} in Guest/apex/com.android.conscrypt/cacerts, "
+                            f"{names[0]} first")
+    empty = os.path.join(guest, "system", "etc", "security", "cacerts")
+    if not os.path.isdir(empty) or os.path.islink(empty) or os.listdir(empty):
+        problems.append("certificates: Guest/system/etc/security/cacerts is not an empty folder")
+    return problems
+
+
 def link_problems(guest):
     """The links in the mounted folders of `guest` whose walk leaves their folder or never ends, each named with its
     text. The mounted folder itself may be a link: apkrt_mount takes its realpath."""
@@ -124,6 +154,7 @@ def main():
             problems.append(f"missing: Guest/{path}")
         elif os.path.getsize(full) == 0:
             problems.append(f"empty: Guest/{path}")
+    problems += certificate_problems(guest)
     containers = sorted(os.path.join(folder, name) for folder, _, names in os.walk(guest) for name in names
                         if name.endswith(".dylib"))
     for container in containers:

@@ -4,8 +4,9 @@
 // okhttp's URL handlers, since javax.crypto's JceSecurity makes an http URL first. It prints the provider list;
 // digests, a MAC and two ciphers with known answers and the provider that serves each; the default SecureRandom and a
 // random UUID's form; RSA and EC signatures that verify; the default key store type with empty BKS and PKCS12 stores;
-// the default SSLContext's protocols and cipher suites; and an https URL's parts and the class of its connection,
-// which openConnection() makes without connecting.
+// the default SSLContext's protocols and cipher suites; an https URL's parts and the class of its connection, which
+// openConnection() makes without connecting; and the system's CA certificates (ADR-0046, decision 4) as the default
+// trust manager and the AndroidCAStore key store have them, with ISRG Root X1 among them.
 import java.net.URL;
 import java.net.URLConnection;
 import java.security.KeyPair;
@@ -16,7 +17,9 @@ import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.security.Signature;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.UUID;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -25,6 +28,8 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -88,6 +93,24 @@ public class Main {
                 + url.getQuery());
         URLConnection connection = url.openConnection();
         System.out.println("openConnection(): " + connection.getClass().getName());
+        TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        factory.init((KeyStore) null);
+        X509TrustManager trust = (X509TrustManager) factory.getTrustManagers()[0];
+        boolean isrg = false;
+        for (X509Certificate issuer : trust.getAcceptedIssuers()) {
+            isrg |= issuer.getSubjectX500Principal().getName().contains("CN=ISRG Root X1");
+        }
+        System.out.println("default trust manager (" + factory.getAlgorithm() + " from "
+                + factory.getProvider().getName() + "): " + trust.getAcceptedIssuers().length
+                + " issuers, ISRG Root X1 among them: " + yes(isrg));
+        KeyStore system = KeyStore.getInstance("AndroidCAStore");
+        system.load(null);
+        int roots = 0;
+        for (String alias : Collections.list(system.aliases())) {
+            if (alias.startsWith("system:")) roots++;
+        }
+        System.out.println("AndroidCAStore from " + system.getProvider().getName() + ": " + roots
+                + " system certificates, system:6187b673.0 there: " + yes(system.containsAlias("system:6187b673.0")));
     }
 
     static void signature(String keyAlgorithm, int size, String signatureAlgorithm) throws Exception {

@@ -20,9 +20,10 @@ the last MiB below the window's last page, which is never mapped. It also checks
 once, with all 4 GiB. --upper-half sets APKRT_HEAP_WINDOW_UPPER_HALF, the test switch of patch 0002, so that ART
 reserves only the window's upper 2 GiB, as without increased-memory-limit on iOS, and the log must name those.
 --conscrypt adds Conscrypt's APEX as Android 15 has it (ADR-0046 c): conscrypt.jar (<art>/javalib) in
-/apex/com.android.conscrypt/javalib, after the boot jars, and libjavacrypto.so (<art>/lib) in its lib64, never in
-ART's. --okhttp and --bouncycastle add okhttp.jar and bouncycastle.jar from ART's javalib after core-libart, in
-that order, as Android 15 has them (ADR-0046 d).
+/apex/com.android.conscrypt/javalib, after the boot jars, libjavacrypto.so (<art>/lib) in its lib64, never in ART's,
+and the CA certificates of build/sources/ca-certificates in its cacerts, where the runtime's link
+/system/etc/security/cacerts leads (ADR-0046 decision 4). --okhttp and --bouncycastle add okhttp.jar and
+bouncycastle.jar from ART's javalib after core-libart, in that order, as Android 15 has them (ADR-0046 d).
 --nativeloader checks libnativeloader's lines that name a namespace, where it loads each JNI library and which
 namespace it configures for a class loader: they must be Android 15's lines of logcat in <reference>, which
 tools/android-reference.sh --art writes (ADR-0040 test 4).
@@ -51,6 +52,9 @@ ART_ROOT = "/apex/com.android.art"
 BOOT_JARS = ["core-oj", "core-libart", "core-icu4j"]
 CONSCRYPT_ROOT = "/apex/com.android.conscrypt"
 CONSCRYPT_LIBRARY = "libjavacrypto.so"
+# Conscrypt's CA certificates (ADR-0046 decision 4), the guest's /apex/com.android.conscrypt/cacerts.
+CA_CERTIFICATES = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build",
+                                               "sources", "ca-certificates", "files"))
 # The heap window of runtime/art/patches/0002-heap-window.patch: 4 GiB, whose last 16 KiB page is never mapped.
 WINDOW_TOP = (1 << 32) - 16 * 1024
 # libnativeloader's lines that name a namespace, as logcat -v tag shows them: which namespace a JNI library loads
@@ -135,8 +139,8 @@ def convert_guest(art, bionic_lib, apk_convert, work, debug, library=None):
 def make_run_folder(run, icu_data, bionic_system, conscrypt_jar=None):
     """A new folder `run` for the files a run sees: /data with an empty dalvik-cache for arm64 and /data/local/tmp,
     and /apex as Android has it, down to the APEXes' own folders, which ART and ICU look for. ART's javalib is a
-    mount of its own, its lib64 and bin are the loader's; so is Conscrypt's lib64, and `conscrypt_jar`, if given,
-    lies in Conscrypt's javalib."""
+    mount of its own, its lib64 and bin are the loader's; so is Conscrypt's lib64, its cacerts a mount of the CA
+    certificates, and `conscrypt_jar`, if given, lies in Conscrypt's javalib."""
     shutil.rmtree(run, ignore_errors=True)
     folders = ["data/dalvik-cache/arm64", "data/local/tmp", "apex/com.android.art/javalib",
                "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
@@ -144,7 +148,8 @@ def make_run_folder(run, icu_data, bionic_system, conscrypt_jar=None):
     files = [(icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
              (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"), "apex/com.android.tzdata/etc/tz/tzdata")]
     if conscrypt_jar is not None:
-        folders += ["apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64"]
+        folders += ["apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64",
+                    "apex/com.android.conscrypt/cacerts"]
         files.append((conscrypt_jar, "apex/com.android.conscrypt/javalib/conscrypt.jar"))
     for folder in folders:
         os.makedirs(os.path.join(run, folder))
@@ -156,8 +161,9 @@ def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments
                     conscrypt=False, art_lib64_first=None, measures=None):
     """apk-run's command that runs dalvikvm64 with `arguments` in the files of the run folder `run`, the working
     directory `cwd` and the entries "<name>=<value>" of `environment` on top of init's; with `conscrypt`, Conscrypt's
-    lib64 holds its library. `art_lib64_first`, if given, is a folder of containers that ART's lib64 looks in before
-    `art_lib64`; `measures`, if given, the file that gets what the run measured (apk-run --measures)."""
+    lib64 holds its library and its cacerts the CA certificates. `art_lib64_first`, if given, is a folder of
+    containers that ART's lib64 looks in before `art_lib64`; `measures`, if given, the file that gets what the run
+    measured (apk-run --measures)."""
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
                "--mount", f"/apex={os.path.join(run, 'apex')}",
@@ -168,7 +174,8 @@ def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments
         command += ["--libraries", f"{ART_ROOT}/lib64={art_lib64_first}"]
     command += ["--libraries", f"{ART_ROOT}/lib64={art_lib64}"]
     if conscrypt:
-        command += ["--libraries", f"{CONSCRYPT_ROOT}/lib64={os.path.join(work, 'conscrypt-lib64')}"]
+        command += ["--libraries", f"{CONSCRYPT_ROOT}/lib64={os.path.join(work, 'conscrypt-lib64')}",
+                    "--mount", f"{CONSCRYPT_ROOT}/cacerts={CA_CERTIFICATES}"]
     command += list(jni) + ["--cwd", cwd] + (["--measures", measures] if measures is not None else [])
     for entry in environment:
         command += ["--env", entry]
@@ -298,6 +305,9 @@ def main():
             if not os.path.exists(needed):
                 print(f"skipped: {needed} is not built (tools/build-art.sh)")
                 return
+        if not os.path.isdir(CA_CERTIFICATES):
+            print(f"skipped: {CA_CERTIFICATES} is not fetched (tools/fetch-sources.py --set art)")
+            return
     public_libraries = os.path.join(bionic_system, "etc", "public.libraries.txt")
     if not os.path.exists(public_libraries):
         print(f"skipped: {public_libraries} is not built (tools/build-bionic.sh)")

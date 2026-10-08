@@ -168,6 +168,8 @@ add_executable(sharedmem-test suite/sharedmem-test.c)
 target_link_libraries(sharedmem-test PRIVATE android)
 # ifaddrs-test: the network interfaces an app sees, loopback's lines only (ADR-0054 c).
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
+# cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
+add_executable(cacerts-test suite/cacerts-test.c)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

@@ -2443,6 +2443,8 @@ TEST(androids_links_show_as_links_and_name_their_targets) {
     CHECK(target("/data/user/0") == "/data/data");
     CHECK(target("/sdcard") == "/storage/self/primary");
     CHECK(target("/storage/self/primary") == "/storage/emulated/0");
+    // Conscrypt's CA certificates (ADR-0046 decision 4): a folder on Android 15, a link to its APEX folder here.
+    CHECK(target("/system/etc/security/cacerts") == "/apex/com.android.conscrypt/cacerts");
     LinuxStat status{};
     CHECK(call(nr_newfstatat, {at_fdcwd, address("/sdcard"), address(&status), at_symlink_nofollow}) == 0);
     CHECK((status.mode & 0170000) == 0120000 && status.size == 21);

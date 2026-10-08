@@ -5,7 +5,9 @@
 #   cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>
 # The program and its own libraries lie in /data/local/tmp for the linker (<name>.dylib next to
 # the program's container), the system's libraries in /system/lib64. For files, /data/local/tmp is
-# an empty host directory for each run, and SYSTEM, when it exists, is /system.
+# an empty host directory for each run, SYSTEM, when it exists, is /system, and the CA certificates
+# of build/sources/ca-certificates, when fetched, are Conscrypt's /apex/com.android.conscrypt/cacerts,
+# where the runtime's link /system/etc/security/cacerts leads (ADR-0046 decision 4).
 # Passes when the program prints exactly the contents of EXPECTED_OUTPUT on stdout and of
 # EXPECTED_ERROR on stderr (nothing when not given), and exits with EXPECTED_STATUS (0 if not given).
 # NO_LIBRARY_PATH leaves LD_LIBRARY_PATH out; TEST names the run when it is not the program's name.
@@ -73,6 +75,10 @@ if(NOT NO_LIBRARY_PATH)
 endif()
 if(DEFINED SYSTEM AND IS_DIRECTORY "${SYSTEM}")
   list(APPEND options --mount "/system=${SYSTEM}")
+endif()
+set(certificates "${CMAKE_CURRENT_LIST_DIR}/../build/sources/ca-certificates/files")
+if(IS_DIRECTORY "${certificates}")
+  list(APPEND options --mount "/apex/com.android.conscrypt/cacerts=${certificates}")
 endif()
 execute_process(COMMAND "${RUN}" ${options} "${container}"
   RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)

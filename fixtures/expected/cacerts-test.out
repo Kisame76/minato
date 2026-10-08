@@ -1,0 +1,6 @@
+/apex/com.android.conscrypt/cacerts: 145 files
+/system/etc/security/cacerts: 145 files
+the same names: yes
+digests of names and contents: 39bf96dc, 39bf96dc
+/apex/com.android.conscrypt/cacerts/6187b673.0: -----BEGIN CERTIFICATE-----, C=US, O=Internet Security Research Group, CN=ISRG Root X1
+/system/etc/security/cacerts/6187b673.0: -----BEGIN CERTIFICATE-----, C=US, O=Internet Security Research Group, CN=ISRG Root X1

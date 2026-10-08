@@ -11,11 +11,13 @@
 #                             and libc++_shared that it links
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
 #                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2); framework.jar and
-#                             the framework-res folder in framework/ (ADR-0039, decision 8), and platform.xml in
-#                             etc/permissions/
+#                             the framework-res folder in framework/ (ADR-0039, decision 8), platform.xml in
+#                             etc/permissions/, and etc/security/cacerts empty: the runtime links that name to
+#                             Conscrypt's certificates (ADR-0046 decision 4)
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
 #                             zones' APEX folders as ART and ICU look for them, with the boot jars in javalib/, ICU's
-#                             data and the time zone file
+#                             data, the time zone file, and Conscrypt's CA certificates in its cacerts/ (ADR-0046
+#                             decision 4)
 #   apex-lib64/<APEX>/        the APEXes' lib64: ART's release flavor in com.android.art, libjavacrypto in
 #                             com.android.conscrypt
 #   resource-cache/           Monet's overlays (ADR-0043 f)), the fabricated overlays of
@@ -26,7 +28,7 @@
 # tools/build-front-libs.sh the front libs in build/graphics/guest/bin, tools/build-art.sh ART in build/art,
 # tools/build-framework-native.sh app_process64, libandroid_runtime.so and libsqlite.so, tools/build-framework.sh
 # framework.jar, tools/build-framework-res.sh the framework-res folder and tools/build-hwui.sh hwui's set;
-# platform.xml comes with tools/fetch-sources.py --set framework.
+# platform.xml comes with tools/fetch-sources.py --set framework, the CA certificates with --set art.
 set -euo pipefail
 
 OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Guest"
@@ -37,6 +39,7 @@ FRONT_LIBS=(libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libvulkan.so)
 # ART's build: build/art, or the build setting APK_ART_DIR, which tools/device-suite.sh --art-dir passes.
 ART="${APK_ART_DIR:-$SRCROOT/build/art}"
 ICU_DATA="$SRCROOT/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+CA_CERTIFICATES="$SRCROOT/build/sources/ca-certificates/files"
 # ART's debug flavor, which only fixture builds carry (tools/embed-fixtures.sh), and Conscrypt's library.
 ART_DEBUG_LIBS=(libartd.so libartbased.so libdexfiled.so libopenjdkd.so libopenjdkjvmd.so libprofiled.so)
 CONSCRYPT_LIB=libjavacrypto.so
@@ -69,6 +72,10 @@ for needed in "$ART/lib/libart.so" "$ART/lib/$CONSCRYPT_LIB" "$ART/javalib/core-
 done
 if [[ ! -f "$ICU_DATA" ]]; then
   echo "error: $ICU_DATA is missing; tools/fetch-sources.py --set art fetches it" >&2
+  exit 1
+fi
+if [[ ! -d "$CA_CERTIFICATES" ]]; then
+  echo "error: $CA_CERTIFICATES is missing; tools/fetch-sources.py --set art fetches it" >&2
   exit 1
 fi
 for needed in "$FRAMEWORK_NATIVE/app_process64:tools/build-framework-native.sh" \
@@ -153,4 +160,8 @@ for library in "$ART"/lib/*.so; do
     contain "$library" "$OUT/apex-lib64/com.android.art"
   fi
 done
+# Conscrypt's CA certificates, once (ADR-0046 decision 4): /system/etc/security/cacerts is the runtime's link to
+# them, and its empty folder keeps that name in /system/etc/security's listing.
+mkdir -p "$APEX/com.android.conscrypt/cacerts" "$OUT/system/etc/security/cacerts"
+cp "$CA_CERTIFICATES"/* "$APEX/com.android.conscrypt/cacerts/"
 echo "Embedded the guest system: $(find "$OUT" -name '*.dylib' | wc -l | tr -d ' ') signed containers for $PLATFORM"
