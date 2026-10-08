@@ -1,5 +1,3 @@
-W/libnativewindow: AHardwareBuffer_isSupported: not implemented
-W/libnativewindow: AHardwareBuffer_allocate: not implemented
 W/libandroid: AThermal_acquireManager: not implemented
 W/libandroid: AThermal_getCurrentThermalStatus: not implemented
 W/libandroid: AThermal_getThermalHeadroom: not implemented

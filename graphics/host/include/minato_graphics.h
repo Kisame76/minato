@@ -22,7 +22,8 @@ extern "C" {
    "scheduled". With ANGLE, its own functions stand in front of the ANGLE functions that libEGL's window
    surfaces, swaps and presentation times and libGLES's debug callbacks reach, ANGLE's commit gate holds commits in the background (ADR-0029, decisions 14 to 16), and
    ANGLE's wait until its commits are scheduled becomes a provider of "scheduled" too. The windows' buffers for
-   drawing by the CPU come with them (minato_graphics_set_window_buffers below).
+   drawing by the CPU come with them (minato_graphics_set_window_buffers below), and the guest's hardware buffers
+   (minato_graphics_set_hardware_buffers).
    Returns 0, or -1 when a path is longer than 1023 bytes or the runtime refused a provider. */
 int minato_graphics_set_providers(const char *moltenvk, const char *angle);
 
@@ -97,6 +98,21 @@ int minato_graphics_window_scheduled(uint64_t deadline);
    nanoseconds of the uptime clock, is not shown, as one the rule drops. Returns 0 once noted, -1 when the window's
    layer is no MinatoMetalLayer or 8 presents are noted already. */
 int minato_graphics_drop_present(uint64_t window, int64_t asked);
+
+/* ADR-0058 a): graphics/host's hardware buffers (hardware_buffer.m), the memory of the guest's AHardwareBuffers as
+   IOSurfaces in the process, which the guest reads and writes at a lock's address: gives them to the runtime
+   (apkrt_set_hardware_buffers). minato_graphics_set_providers calls it. Returns 0, or -1 when the runtime refused
+   them. */
+int minato_graphics_set_hardware_buffers(void);
+
+struct apkrt_hardware_buffers;
+
+/* For tests: the functions minato_graphics_set_hardware_buffers gives the runtime. */
+const struct apkrt_hardware_buffers *minato_graphics_hardware_buffers(void);
+
+/* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
+   caller, who releases it, or NULL for a handle they do not have. */
+void *minato_graphics_hardware_buffer_surface(uint64_t handle);
 
 #ifdef __cplusplus
 }

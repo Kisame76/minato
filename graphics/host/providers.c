@@ -167,5 +167,9 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     if (minato_graphics_set_window_buffers() != 0) {
         result = -1;
     }
+    /* The guest's AHardwareBuffers (ADR-0058 a)), whatever the drivers. */
+    if (minato_graphics_set_hardware_buffers() != 0) {
+        result = -1;
+    }
     return result;
 }

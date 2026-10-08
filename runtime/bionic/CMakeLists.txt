@@ -191,13 +191,15 @@ apk_bionic_library(libz NEEDED libc LDFLAGS -Wl,-Bsymbolic VERSION_SCRIPTS "${li
 add_dependencies(guest_libz libz_exported)
 target_link_libraries(guest_libz PRIVATE "-Wl,--whole-archive" "${libz_exported}" "-Wl,--no-whole-archive")
 
-# libnativewindow.so: the window (runtime/android/native_window.cpp), version LIBNATIVEWINDOW.
+# libnativewindow.so: the window (runtime/android/native_window.cpp) and AHardwareBuffer (hardware_buffer.cpp,
+# ADR-0058 a)), version LIBNATIVEWINDOW.
 set(nativewindow_map "${android_generated}/libnativewindow.map")
 set(nativewindow_stubs "${android_generated}/libnativewindow_stubs.c")
 add_custom_command(OUTPUT "${nativewindow_map}" "${nativewindow_stubs}"
   COMMAND ${stubgen} libnativewindow ${stubgen_tools} --map "${nativewindow_map}" --stubs "${nativewindow_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libnativewindow.so" VERBATIM)
-apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp" "${nativewindow_stubs}"
+apk_bionic_unit(apk_nativewindow SOURCES "${android_sources}/native_window.cpp"
+  "${android_sources}/hardware_buffer.cpp" "${nativewindow_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libnativewindow UNITS apk_nativewindow NEEDED libc liblog VERSION_SCRIPTS "${nativewindow_map}")
 
@@ -212,6 +214,7 @@ add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
 apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
   "${android_sources}/asset_manager.cpp" "${android_sources}/native_activity.cpp" "${android_sources}/input_queue.cpp"
   "${android_sources}/input.cpp" "${android_sources}/choreographer.cpp" "${android_sources}/window_forwards.cpp"
+  "${android_sources}/hardware_buffer_forwards.cpp"
   "${android_sources}/native_window_jni.cpp" "${android_sources}/sharedmem.cpp" "${android_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libandroid UNITS apk_android NEEDED libc libdl liblog libnativewindow libz

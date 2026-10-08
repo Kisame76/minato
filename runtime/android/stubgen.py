@@ -57,9 +57,14 @@ LIBRARIES = {
             "ANativeWindow_fromSurface", "ANativeWindow_toSurface",
             # shared memory on memfd_create, as libcutils' memfd path makes it (sharedmem.cpp)
             "ASharedMemory_*",
+            # forwarded to libnativewindow (hardware_buffer_forwards.cpp, ADR-0058 a)); the Java ones wait for
+            # HardwareBuffer's JNI
+            "AHardwareBuffer_acquire", "AHardwareBuffer_allocate", "AHardwareBuffer_describe", "AHardwareBuffer_getId",
+            "AHardwareBuffer_isSupported", "AHardwareBuffer_lock", "AHardwareBuffer_lockAndGetInfo",
+            "AHardwareBuffer_lockPlanes", "AHardwareBuffer_recvHandleFromUnixSocket", "AHardwareBuffer_release",
+            "AHardwareBuffer_sendHandleToUnixSocket", "AHardwareBuffer_unlock",
         ],
-        # M3 has no resource matching. libandroid's own AHardwareBuffer functions stay stubs; they would
-        # forward once libnativewindow has buffers. Input's Java side waits for Java (M4).
+        # M3 has no resource matching. Input's Java side waits for Java (M4).
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
                     "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava"],
         "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete",
@@ -75,6 +80,11 @@ LIBRARIES = {
             "ANativeWindow_getBuffersDefaultDataSpace", "ANativeWindow_tryAllocateBuffers",
             # drawing by the CPU, on the host's buffers (ADR-0043, decision 3)
             "ANativeWindow_lock", "ANativeWindow_unlockAndPost",
+            # AHardwareBuffer on the runtime's buffers (hardware_buffer.cpp, ADR-0058 a)); its parcels stay stubs
+            "AHardwareBuffer_acquire", "AHardwareBuffer_allocate", "AHardwareBuffer_describe", "AHardwareBuffer_getId",
+            "AHardwareBuffer_isSupported", "AHardwareBuffer_lock", "AHardwareBuffer_lockAndGetInfo",
+            "AHardwareBuffer_lockPlanes", "AHardwareBuffer_recvHandleFromUnixSocket", "AHardwareBuffer_release",
+            "AHardwareBuffer_sendHandleToUnixSocket", "AHardwareBuffer_unlock",
         ],
         "stubbed": [],
         "private": ["minato_ANativeWindow_create", "minato_ANativeWindow_getInfo"],
@@ -121,11 +131,7 @@ VALUES = {
     # Fonts: no font exists
     "AFont_getAxisCount": "0", "AFont_getAxisTag": "0", "AFont_getCollectionIndex": "0", "AFont_getWeight": "0",
     "AFont_isItalic": "0",
-    # Hardware buffers: none can be made (decision 7)
-    "AHardwareBuffer_allocate": "-EINVAL", "AHardwareBuffer_getId": "-EINVAL", "AHardwareBuffer_isSupported": "0",
-    "AHardwareBuffer_lock": "-EINVAL", "AHardwareBuffer_lockAndGetInfo": "-EINVAL",
-    "AHardwareBuffer_lockPlanes": "-EINVAL", "AHardwareBuffer_recvHandleFromUnixSocket": "-EINVAL",
-    "AHardwareBuffer_sendHandleToUnixSocket": "-EINVAL", "AHardwareBuffer_unlock": "-EINVAL",
+    # Hardware buffers in parcels, which need Binder: INVALID_OPERATION (ADR-0058 a) writes the rest)
     "AHardwareBuffer_readFromParcel": "-ENOSYS", "AHardwareBuffer_writeToParcel": "-ENOSYS",  # STATUS_INVALID_OPERATION
     # Key events: M3 has none (ADR-0036, decision 3)
     "AKeyEvent_getAction": "0", "AKeyEvent_getDownTime": "0", "AKeyEvent_getEventTime": "0", "AKeyEvent_getFlags": "0",

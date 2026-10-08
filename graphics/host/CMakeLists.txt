@@ -1,7 +1,7 @@
 # graphics/host (ADR-0029, decisions 14 to 16; ADR-0030, decisions 3, 5 and 13): the providers of the front
 # libs' host tables and graphics/host's functions in front of MoltenVK's and ANGLE's, the game view's layer with
-# the benchmark's recorder (ADR-0037, decision 2), and the windows' buffers for drawing by the CPU (ADR-0043,
-# decision 3), for the app and the tests on the Mac. They need
+# the benchmark's recorder (ADR-0037, decision 2), the windows' buffers for drawing by the CPU (ADR-0043, decision 3)
+# and the guest's hardware buffers (ADR-0058 a)), for the app and the tests on the Mac. They need
 # tools/frontgen's lists from tools/build-front-libs.sh and MoltenVK's headers from tools/fetch-moltenvk.sh and are
 # left out while those are missing. tools/build-graphics-host.sh packs this library for the app.
 set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
@@ -9,7 +9,7 @@ set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
 if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
   add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m angle_vulkan.m probe.m
-    provoking.m drawable_probe.m layer.m window.m)
+    provoking.m drawable_probe.m layer.m window.m hardware_buffer.m)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
     "${PROJECT_SOURCE_DIR}/graphics/vulkan")
@@ -37,4 +37,7 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   # The windows' buffers for drawing by the CPU (ADR-0043, decision 3), with ARC: their lock and post run on the
   # guest's thread inside its syscall, and name IOSurface for the link as well.
   set_source_files_properties(window.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
+  # The guest's hardware buffers (ADR-0058 a)), IOSurfaces, with ARC: their functions run on the guest's thread inside
+  # its syscall.
+  set_source_files_properties(hardware_buffer.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
 endif()

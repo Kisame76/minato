@@ -1,0 +1,41 @@
+isSupported R8G8B8A8_UNORM: CPU 1, CPU and GPU sampled 1
+isSupported R8G8B8X8_UNORM: CPU 1, CPU and GPU sampled 1
+isSupported R5G6B5_UNORM: CPU 1, CPU and GPU sampled 1
+isSupported R16G16B16A16_FLOAT: CPU 1, CPU and GPU sampled 1
+isSupported R10G10B10A2_UNORM: CPU 1, CPU and GPU sampled 1
+isSupported BLOB: 1
+width 0: isSupported 0, allocate -22, no buffer
+height 0: isSupported 0, allocate -22, no buffer
+layers 0: isSupported 0, allocate -22, no buffer
+rfu0 1: isSupported 0, allocate -22, no buffer
+format 0x99: isSupported 0, allocate 7, no buffer
+BLOB of height 2: isSupported 0, allocate -22, no buffer
+BLOB of 2 layers: isSupported 0, allocate -22, no buffer
+BLOB sampled: isSupported 0, allocate -22, no buffer
+protected with the CPU: isSupported 0, allocate -22, no buffer
+sensor data on RGBA: isSupported 0, allocate -22, no buffer
+cube map 64 x 48: isSupported 0, allocate -22, no buffer
+cube map of 5 layers: isSupported 0, allocate -22, no buffer
+isSupported NULL: 0, allocate NULL: -22
+allocate: 0
+describe: 64 x 48 x 1, format 1, usage 0x133, stride at least the width 1, rfu 0 0
+getId: 0, not 0 1, another buffer's differs 1
+getId with no out: -22
+lockAndGetInfo: 0, 4 bytes a pixel, bytes a stride the stride's 1
+unlock: 0
+unlock without a lock: 0
+lock with a rectangle: 0, the buffer's address 1
+lock outside the buffer: -22
+lock for the GPU: -22
+lockPlanes: 0, 1 plane, pixel stride 4, row stride the stride's 1, the buffer's address 1
+after acquire and release: describe 64 x 48
+R8G8B8A8_UNORM: 4 bytes a pixel, the pattern back 1
+R8G8B8X8_UNORM: 4 bytes a pixel, the pattern back 1
+R5G6B5_UNORM: 2 bytes a pixel, the pattern back 1
+R16G16B16A16_FLOAT: 8 bytes a pixel, the pattern back 1
+R10G10B10A2_UNORM: 4 bytes a pixel, the pattern back 1
+BLOB of 100000: allocate 0, stride 100000, lockAndGetInfo 0 with 1 and 100000, the pattern back 1
+send: 0
+receive: 0
+received: the same ID 1, 16 x 16
+the received one after the sent one's release: the pattern back 1

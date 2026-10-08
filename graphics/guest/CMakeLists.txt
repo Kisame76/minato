@@ -118,6 +118,14 @@ foreach(test IN ITEMS window_lock_test window_buffers_test window_background_tes
   target_link_libraries(${program} PRIVATE nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# ADR-0058 a): ahb-test, libnativewindow's AHardwareBuffer against graphics/host's hardware buffers, and as a shell
+# program on the emulator for Android 15's answers.
+add_executable(ahb-test "${tests}/ahb_test.c")
+# getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato both resolve. Its calls with
+# NULL ask for Android's answers to them.
+target_link_libraries(ahb-test PRIVATE nativewindow)
+target_compile_definitions(ahb-test PRIVATE __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
+target_compile_options(ahb-test PRIVATE -Wall -Wextra -Wno-nonnull -Wno-unguarded-availability)
 
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM

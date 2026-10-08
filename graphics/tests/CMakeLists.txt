@@ -197,6 +197,14 @@ if(TARGET minato_graphics_host)
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   add_test(NAME graphics.session_layers COMMAND graphics-session-layers-test)
   set_tests_properties(graphics.session_layers PROPERTIES TIMEOUT 60)
+  # ADR-0058 a): graphics/host's hardware buffers (hardware_buffer.m), the IOSurfaces of the guest's AHardwareBuffers,
+  # through their functions without the runtime.
+  add_executable(graphics-hardware-buffers-test hardware_buffers_test.m)
+  target_link_libraries(graphics-hardware-buffers-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework IOSurface" "-framework Metal")
+  set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
+  set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
   add_library(fake-driver MODULE fake_driver.c)
   target_link_libraries(fake-driver PRIVATE apk_defaults)
   # Test 6's MoltenVK stand-in, with MoltenVK's Vulkan headers.
@@ -279,6 +287,9 @@ if(TARGET minato_graphics_host)
   add_guest_test(window_buffers window-buffers-test window_buffers_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_METAL_HOOK=set:present:6")
+  # ADR-0058 a): libnativewindow's AHardwareBuffer on graphics/host's hardware buffers, with Android 15's answers.
+  add_guest_test(ahb ahb-test ahb_test "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so"
+    "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
   # And the same buffers through the window host's background script, with the Metal hook counting guest commits.
   add_guest_test(window_background window-background-test window_background_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"

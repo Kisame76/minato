@@ -8,7 +8,7 @@
 // its last reference, also after the host's window is gone. Drawing by the CPU goes to the host's buffers
 // (ADR-0043, decision 3): lock takes one of the geometry's size and format, and unlockAndPost posts it after
 // the window's present gate. A window released while it is locked leaves its buffer with the host. Hardware
-// buffers are generated stubs (stubgen.py).
+// buffers are hardware_buffer.cpp's (ADR-0058 a)).
 #include <android/native_window.h>
 #include <errno.h>
 #include <pthread.h>

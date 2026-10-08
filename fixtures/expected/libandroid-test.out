@@ -35,7 +35,7 @@ lock: -38
 lock again: -38
 unlockAndPost: -38
 AHardwareBuffer_isSupported: 0
-AHardwareBuffer_allocate: -22
+AHardwareBuffer_allocate: 7
 libandroid's ANativeWindow_getWidth: its own
   answers: 1080
 after libandroid's acquire and release: 0, id 7, size 1080 x 2340, buffers 0 x 0, format 0
