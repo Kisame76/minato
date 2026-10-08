@@ -159,6 +159,8 @@ add_executable(atexit-test suite/atexit-test.c)
 add_executable(start-test suite/start-test.c)
 # kernel-test: what ART's start asks of the kernel, /proc and /sys (ADR-0033, decision 8).
 add_executable(kernel-test suite/kernel-test.c)
+# priority-test: per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
+add_executable(priority-test suite/priority-test.c)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

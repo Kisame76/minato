@@ -314,7 +314,8 @@ bool names_own_thread(int id) {
 }
 
 /// Unity pins its threads to cores and sets their priorities (ADR-0033, decision 8). Both succeed
-/// as on Android and are kept nowhere: guest threads run where and as the host schedules them.
+/// as on Android, and guest threads run where and as the host schedules them: the cores are kept
+/// nowhere, a nice value only for getpriority.
 long sys_sched_setaffinity(int pid, std::uint64_t size, std::uint64_t mask) {
     if (!names_own_thread(pid)) return -linux_errno::esrch;
     std::uint64_t wanted = 0;
@@ -322,18 +323,57 @@ long sys_sched_setaffinity(int pid, std::uint64_t size, std::uint64_t mask) {
     return (wanted & active_cpu_mask()) != 0 ? 0 : -linux_errno::einval;  // no CPU it could run on
 }
 
-long sys_setpriority(int which, int who) {
-    constexpr int prio_process = 0, prio_user = 2;  // PRIO_PGRP is 1
+/// The first thread's nice value where no guest thread has the process's ID: in tests, and for host
+/// threads, which answer as the first thread (sys_gettid).
+std::atomic<int> first_thread_nice{0};
+
+/// Calls `use` with the nice value of every thread that setpriority's `which` and `who` name, while
+/// none can end: PRIO_PROCESS a thread (0 the caller, the process's ID the first thread), PRIO_PGRP
+/// and PRIO_USER (0, or the process's own group or the app's uid) all of them. 0, or Linux's errno.
+template <typename Use>
+long with_nice_values(int which, int who, Use use) {
+    constexpr int prio_process = 0, prio_pgrp = 1, prio_user = 2;
     if (which < prio_process || which > prio_user) return -linux_errno::einval;
-    if (which == prio_process && !names_own_thread(who)) return -linux_errno::esrch;
+    const int pid = ::getpid();
+    if (which == prio_process) {
+        const int tid = who == 0 ? static_cast<int>(sys_gettid()) : who;
+        bool found = false;
+        apkrt::threads::find(tid, [&](apkrt::threads::GuestThread &thread) {
+            found = true;
+            use(thread.nice);
+        });
+        if (!found && tid == pid) {
+            found = true;
+            use(first_thread_nice);
+        }
+        return found ? 0 : -linux_errno::esrch;
+    }
+    const int own = which == prio_pgrp ? pid : static_cast<int>(::apkrt::app_uid);
+    if (who != 0 && who != own) return -linux_errno::esrch;
+    bool first = false;
+    apkrt::threads::for_each([&](apkrt::threads::GuestThread &thread) {
+        first = first || thread.tid == pid;
+        use(thread.nice);
+    });
+    if (!first) use(first_thread_nice);
     return 0;
 }
 
-/// With setpriority keeping nothing, every guest thread runs at the nice value 0, which the kernel answers as
-/// 20 - nice, so that no answer is negative. ART's thread dumps ask for it.
+/// Linux's per-thread nice values (setpriority(2)), clamped to -20..19. Android's init gives every
+/// process RLIMIT_NICE 40, so an app may set any of them, below its own as well.
+long sys_setpriority(int which, int who, int nice) {
+    const int value = std::clamp(nice, -20, 19);
+    return with_nice_values(which, who, [&](std::atomic<int> &each) { each.store(value); });
+}
+
+/// The nice value, as the kernel answers it: 20 - nice, so that no answer is negative (bionic's
+/// getpriority turns it back); for several threads, the highest priority among them. ART's thread
+/// dumps and Process.getThreadPriority ask for it.
 long sys_getpriority(int which, int who) {
-    const long checked = sys_setpriority(which, who);
-    return checked < 0 ? checked : 20;
+    int lowest = 19;
+    const long checked =
+        with_nice_values(which, who, [&](std::atomic<int> &each) { lowest = std::min(lowest, each.load()); });
+    return checked < 0 ? checked : 20 - lowest;
 }
 
 // --- Time -------------------------------------------------------------------------------------------
@@ -822,7 +862,7 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case nr::sched_setaffinity:
             return sys_sched_setaffinity(as_int(x[0]), x[1], x[2]);
         case nr::setpriority:
-            return sys_setpriority(as_int(x[0]), as_int(x[1]));
+            return sys_setpriority(as_int(x[0]), as_int(x[1]), as_int(x[2]));
         case nr::getpriority:
             return sys_getpriority(as_int(x[0]), as_int(x[1]));
         case nr::sched_getscheduler:

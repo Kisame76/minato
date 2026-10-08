@@ -1963,14 +1963,28 @@ TEST(userfaultfd_and_membarrier_are_refused_quietly) {
     }));
 }
 
-TEST(getpriority_answers_the_nice_value_of_every_guest_thread) {
-    // ART's thread dumps ask for it (ADR-0033 test 3). setpriority keeps nothing, so every guest thread runs at the
-    // nice value 0, which the kernel answers as 20 - nice, so that no answer is negative.
-    constexpr std::uint64_t nr_getpriority = 141;
+TEST(getpriority_answers_the_nice_value_that_setpriority_kept) {
+    // ART's thread dumps ask for it (ADR-0033 test 3), Process.getThreadPriority too. setpriority keeps a thread's
+    // nice value, clamped to -20..19, as Linux keeps one per thread; the raw getpriority answers 20 - nice, so that no
+    // answer is negative (bionic turns it back). A host thread answers as the first thread, which the process ID names.
+    constexpr std::uint64_t nr_getpriority = 141, prio_pgrp = 1, prio_user = 2;
+    const auto pid = unsigned_of(::getpid());
     CHECK(call(nr_getpriority, {0, 0}) == 20);  // PRIO_PROCESS, the calling thread
     CHECK(call(nr_setpriority, {0, 0, 10}) == 0);
-    CHECK(call(nr_getpriority, {0, unsigned_of(::getpid())}) == 20);
+    CHECK(call(nr_getpriority, {0, pid}) == 10);
+    CHECK(call(nr_setpriority, {0, pid, static_cast<std::uint64_t>(-16)}) == 0);  // THREAD_PRIORITY_URGENT_AUDIO
+    CHECK(call(nr_getpriority, {0, 0}) == 36);
+    CHECK(call(nr_setpriority, {0, 0, 100}) == 0);
+    CHECK(call(nr_getpriority, {0, 0}) == 1);  // clamped to 19
+    CHECK(call(nr_setpriority, {0, 0, static_cast<std::uint64_t>(-100)}) == 0);
+    CHECK(call(nr_getpriority, {0, 0}) == 40);  // clamped to -20
+    CHECK(call(nr_setpriority, {prio_user, 0, 5}) == 0);  // every thread of the app's uid, all of this process
+    CHECK(call(nr_getpriority, {prio_user, 10100}) == 15);
+    CHECK(call(nr_getpriority, {prio_pgrp, 0}) == 15);
+    CHECK(call(nr_getpriority, {prio_user, 4242}) == -esrch);  // no process of that uid
+    CHECK(call(nr_setpriority, {0, 999'999, 0}) == -esrch);    // no such thread
     CHECK(call(nr_getpriority, {3, 0}) == -einval);  // which is PRIO_PROCESS, PRIO_PGRP or PRIO_USER
+    CHECK(call(nr_setpriority, {0, 0, 0}) == 0);     // back to 0 for the tests after
 }
 
 TEST(getsockopt_finds_no_socket) {
@@ -2029,8 +2043,8 @@ TEST(uname_answers_as_android_15_s_kernel_in_the_emulator) {
 }
 
 TEST(priorities_affinity_and_capabilities_succeed_without_effect) {
-    // Unity sets thread priorities and cores; libcap asks for capabilities. Accepted and kept nowhere:
-    // nothing on the host changes, and an app has no capabilities to get or to set.
+    // Unity sets thread priorities and cores; libcap asks for capabilities. Accepted, and nothing on the host
+    // changes: a nice value is only kept (getpriority), cores are kept nowhere, and an app has no capabilities.
     CHECK(call(nr_setpriority, {0, 0, 10}) == 0);  // PRIO_PROCESS, this process, nice 10
     CHECK(call(nr_setpriority, {0, unsigned_of(::getpid()), 0}) == 0);
     CHECK(call(nr_setpriority, {3, 0, 0}) == -einval);  // which is PRIO_PROCESS, PRIO_PGRP or PRIO_USER
@@ -2537,6 +2551,198 @@ TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {
     for (const auto fd : {file, std::int64_t{ends[0]}, std::int64_t{ends[1]}, counter, epoll, stat}) {
         call(nr_close, {unsigned_of(fd)});
     }
+}
+
+// --- Record locks (fcntl F_GETLK, F_SETLK and F_SETLKW) ---------------------------------------------------------
+// SQLite's unix VFS locks a database's bytes with them (os_unix.c), FileChannel.lock waits with F_SETLKW. A process's
+// own locks never conflict, as on Linux, so a host child process holds or looks at the other side here.
+
+constexpr std::uint64_t f_getlk = 5, f_setlk = 6, f_setlkw = 7;
+constexpr std::int16_t f_rdlck = 0, f_wrlck = 1, f_unlck = 2;
+
+/// Linux's struct flock on arm64 (include/uapi/asm-generic/fcntl.h).
+struct LinuxFlock {
+    std::int16_t type = 0;
+    std::int16_t whence = 0;
+    std::int64_t start = 0;
+    std::int64_t length = 0;
+    std::int32_t pid = 0;
+};
+static_assert(sizeof(LinuxFlock) == 32 && offsetof(LinuxFlock, start) == 8 && offsetof(LinuxFlock, pid) == 24);
+
+LinuxFlock flock_of(std::int16_t type, std::int64_t start, std::int64_t length, std::int16_t whence = 0) {
+    LinuxFlock lock;
+    lock.type = type;
+    lock.whence = whence;
+    lock.start = start;
+    lock.length = length;
+    return lock;
+}
+
+/// What a host child process's F_GETLK sees for an exclusive lock on `length` bytes at `start` of the host file
+/// `path`: Darwin's struct flock, which names the lock in the way.
+struct flock seen_from_outside(const std::string &path, off_t start, off_t length) {
+    int answer[2];
+    CHECK(::pipe(answer) == 0);
+    const pid_t child = ::fork();
+    if (child == 0) {
+        struct flock lock{};
+        lock.l_type = F_WRLCK;
+        lock.l_whence = SEEK_SET;
+        lock.l_start = start;
+        lock.l_len = length;
+        const int fd = ::open(path.c_str(), O_RDWR);
+        if (fd < 0 || ::fcntl(fd, F_GETLK, &lock) != 0) lock.l_type = -1;
+        static_cast<void>(::write(answer[1], &lock, sizeof lock));
+        ::_exit(0);
+    }
+    struct flock lock{};
+    CHECK(::read(answer[0], &lock, sizeof lock) == static_cast<ssize_t>(sizeof lock));
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    ::close(answer[0]);
+    ::close(answer[1]);
+    return lock;
+}
+
+/// A host child process that holds an exclusive lock on `length` bytes at `start` of the host file `path` until
+/// release().
+class Holder {
+public:
+    Holder(const std::string &path, off_t start, off_t length) {
+        int ready[2];
+        CHECK(::pipe(ready) == 0 && ::pipe(control_) == 0);
+        pid_ = ::fork();
+        if (pid_ == 0) {
+            struct flock lock{};
+            lock.l_type = F_WRLCK;
+            lock.l_whence = SEEK_SET;
+            lock.l_start = start;
+            lock.l_len = length;
+            const int fd = ::open(path.c_str(), O_RDWR);
+            const char held = fd >= 0 && ::fcntl(fd, F_SETLK, &lock) == 0 ? 'y' : 'n';
+            static_cast<void>(::write(ready[1], &held, 1));
+            char byte;
+            static_cast<void>(::read(control_[0], &byte, 1));
+            ::_exit(0);
+        }
+        char held = 0;
+        CHECK(::read(ready[0], &held, 1) == 1 && held == 'y');
+        ::close(ready[0]);
+        ::close(ready[1]);
+    }
+    ~Holder() {
+        release();
+        ::close(control_[0]);
+        ::close(control_[1]);
+    }
+    Holder(const Holder &) = delete;
+    Holder &operator=(const Holder &) = delete;
+
+    pid_t pid() const { return pid_; }
+
+    void release() {
+        if (pid_ <= 0) return;
+        static_cast<void>(::write(control_[1], "x", 1));
+        int status = 0;
+        ::waitpid(pid_, &status, 0);
+        pid_ = -1;
+    }
+
+private:
+    pid_t pid_ = -1;
+    int control_[2] = {-1, -1};
+};
+
+TEST(record_locks_take_linuxs_struct_flock) {
+    // SQLite's pending byte at 1 GiB, its reserved byte and its shared range: other processes see the guest's locks
+    // where it put them, and the guest's own never get in its way.
+    const Scratch scratch;
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/database", o_creat | o_rdwr, 0600);
+    auto pending = flock_of(f_wrlck, 0x40000000, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlk, address(&pending)}) == 0);
+    auto shared = flock_of(f_rdlck, 2, 510, 1 /* SEEK_CUR */);  // at offset 0, so bytes 2 to 511
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlk, address(&shared)}) == 0);
+    auto own = flock_of(f_wrlck, 0, 0);  // the whole file: only the process's own locks are there
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_getlk, address(&own)}) == 0);
+    CHECK(own.type == f_unlck && own.start == 0 && own.length == 0);
+    const std::string path = scratch.host + "/database";
+    const auto exclusive = seen_from_outside(path, 0x40000000, 1);
+    CHECK(exclusive.l_type == F_WRLCK && exclusive.l_start == 0x40000000 && exclusive.l_len == 1 &&
+          exclusive.l_pid == ::getpid());
+    const auto read_lock = seen_from_outside(path, 0, 100);
+    CHECK(read_lock.l_type == F_RDLCK && read_lock.l_start == 2 && read_lock.l_len == 510);
+    auto unlock = flock_of(f_unlck, 0, 0);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlk, address(&unlock)}) == 0);
+    CHECK(seen_from_outside(path, 0, 0).l_type == F_UNLCK);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(another_processs_record_lock_answers_as_on_linux) {
+    // F_GETLK names it in Linux's struct flock; F_SETLK in its way fails with EAGAIN.
+    const Scratch scratch;
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/shm", o_creat | o_rdwr, 0600);
+    Holder holder(scratch.host + "/shm", 120, 8);
+    auto probe = flock_of(f_rdlck, 0, 0);
+    probe.pid = -1;
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_getlk, address(&probe)}) == 0);
+    CHECK(probe.type == f_wrlck && probe.whence == 0 && probe.start == 120 && probe.length == 8 &&
+          probe.pid == holder.pid());
+    auto taken = flock_of(f_rdlck, 127, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlk, address(&taken)}) == -eagain);
+    auto beside = flock_of(f_wrlck, 128, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlk, address(&beside)}) == 0);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(f_setlkw_waits_until_the_lock_is_let_go) {
+    const Scratch scratch;
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/channel", o_creat | o_rdwr, 0600);
+    Holder holder(scratch.host + "/channel", 0, 1);
+    std::thread releaser([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        holder.release();
+    });
+    const auto started = std::chrono::steady_clock::now();
+    auto lock = flock_of(f_wrlck, 0, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_setlkw, address(&lock)}) == 0);
+    CHECK(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(90));
+    releaser.join();
+    CHECK(seen_from_outside(scratch.host + "/channel", 0, 1).l_type == F_WRLCK);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(record_locks_check_their_arguments_as_linux) {
+    // flock_to_posix_lock and fcntl_getlk: a type or whence Linux does not have is EINVAL, as is F_GETLK of F_UNLCK;
+    // a read lock needs a descriptor open for reading, a write lock one open for writing (EBADF).
+    const Scratch scratch;
+    const auto writer = open_guest(at_fdcwd, "/data/local/tmp/locked", o_creat | o_wronly, 0600);
+    const auto reader = open_guest(at_fdcwd, "/data/local/tmp/locked", o_rdonly);
+    auto odd_type = flock_of(3, 0, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(writer), f_setlk, address(&odd_type)}) == -einval);
+    auto odd_whence = flock_of(f_wrlck, 0, 1, 3);
+    CHECK(call(nr_fcntl, {unsigned_of(writer), f_setlk, address(&odd_whence)}) == -einval);
+    CHECK(call(nr_fcntl, {unsigned_of(reader), f_setlk, address(&odd_whence)}) == -einval);  // before EBADF
+    auto unlocked = flock_of(f_unlck, 0, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(writer), f_getlk, address(&unlocked)}) == -einval);
+    auto reading = flock_of(f_rdlck, 0, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(writer), f_setlk, address(&reading)}) == -ebadf);
+    auto writing = flock_of(f_wrlck, 0, 1);
+    CHECK(call(nr_fcntl, {unsigned_of(reader), f_setlk, address(&writing)}) == -ebadf);
+    CHECK(call(nr_fcntl, {unsigned_of(writer), f_setlk, 0}) == -efault);
+    for (const auto fd : {writer, reader}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(f2fs_ioctls_answer_enotty_without_a_report) {
+    // SQLite asks a database's file for F2FS's atomic writes (F2FS_IOC_GET_FEATURES, SQLITE_ENABLE_BATCH_ATOMIC_WRITE)
+    // and takes any error as none. Linux answers ENOTTY for a file on another file system, as for ext4's /data.
+    const Scratch scratch;
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/journal", o_creat | o_rdwr, 0600);
+    std::uint32_t features = 0;
+    std::int64_t result = 0;
+    CHECK(stderr_of([&] { result = call(nr_ioctl, {unsigned_of(fd), 0x8004f50c, address(&features)}); }).empty());
+    CHECK(result == -enotty);
+    call(nr_close, {unsigned_of(fd)});
 }
 
 // --- Sockets (ADR-0054 step a) ------------------------------------------------------------------------------

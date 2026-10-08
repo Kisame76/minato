@@ -1,0 +1,17 @@
+main at its start: 0
+main sets 5: 0
+main after its 5: 5
+worker at its start: 5
+worker sets 10: 0
+worker after its 10: 10
+main still: 5
+worker seen from main: 10
+main sets the worker's -8: 0
+worker after main's -8: -8
+main by the process ID: 5
+the process group's highest: -8
+100 clamped: 0, 19
+-100 clamped: 0, -20
+an unknown thread: -1, No such process
+which 7: -1, Invalid argument
+done

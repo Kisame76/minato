@@ -30,6 +30,7 @@ struct GuestThread {
     std::uint64_t deferred_unmap_length = 0;
     void *host_signal_stack = nullptr;  // where the runtime's signal handlers run for this thread
     std::atomic<bool> stopped{false};   // for good, at the program's end (ADR-0028, decision 5)
+    std::atomic<int> nice{0};           // setpriority's, kept per thread as Linux keeps it; its creator's at first
 };
 static_assert(offsetof(GuestThread, signals) == 0, "syscall_entry.S");
 

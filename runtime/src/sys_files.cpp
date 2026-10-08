@@ -45,6 +45,9 @@ constexpr int getfd = 1;
 constexpr int setfd = 2;
 constexpr int getfl = 3;
 constexpr int setfl = 4;
+constexpr int getlk = 5;
+constexpr int setlk = 6;
+constexpr int setlkw = 7;
 constexpr int dupfd_cloexec = 1030;
 constexpr int append = 02000;
 constexpr int nonblock = 04000;
@@ -83,6 +86,71 @@ int to_linux_status_flags(int flags) {
     return result;
 }
 
+/// Linux's struct flock on arm64 (include/uapi/asm-generic/fcntl.h). Darwin's has its fields in another order and
+/// numbers its lock types otherwise.
+struct LinuxFlock {
+    std::int16_t type;
+    std::int16_t whence;
+    std::int64_t start;
+    std::int64_t length;
+    std::int32_t pid;
+};
+static_assert(sizeof(LinuxFlock) == 32);
+
+constexpr std::int16_t linux_rdlck = 0, linux_wrlck = 1, linux_unlck = 2;
+
+/// F_GETLK, F_SETLK and F_SETLKW (`command`) on Darwin's record locks, POSIX's as Linux's are: a process's own never
+/// conflict, and all of a file's go when the process closes any descriptor of it. Linux's checks first
+/// (flock_to_posix_lock, fcntl_getlk). F_SETLKW tries again after a pause that a signal ends (EINTR, which SA_RESTART
+/// restarts), as no host event tells when another process lets go; Linux's EDEADLK between waiting processes does not
+/// come.
+long record_lock(int fd, int command, std::uint64_t argument) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (argument == 0) return -linux_errno::efault;
+    LinuxFlock guest;
+    std::memcpy(&guest, as_pointer<const void>(argument), sizeof guest);
+    struct flock host{};
+    switch (guest.type) {
+        case linux_rdlck: host.l_type = F_RDLCK; break;
+        case linux_wrlck: host.l_type = F_WRLCK; break;
+        case linux_unlck: host.l_type = F_UNLCK; break;
+        default: return -linux_errno::einval;
+    }
+    if (guest.whence != SEEK_SET && guest.whence != SEEK_CUR && guest.whence != SEEK_END) return -linux_errno::einval;
+    host.l_whence = guest.whence;  // the same numbers
+    host.l_start = guest.start;
+    host.l_len = guest.length;
+    const int file = description->host();
+    if (command == linux_fcntl::getlk) {
+        if (guest.type == linux_unlck) return -linux_errno::einval;
+        if (::fcntl(file, F_GETLK, &host) != 0) return -to_linux_errno(errno);
+        // Nothing in the way: F_UNLCK, the rest as it was. Else the lock in the way, from the file's start.
+        guest.type = host.l_type == F_RDLCK ? linux_rdlck : host.l_type == F_WRLCK ? linux_wrlck : linux_unlck;
+        if (guest.type != linux_unlck) {
+            guest.whence = SEEK_SET;
+            guest.start = host.l_start;
+            guest.length = host.l_len;
+            guest.pid = host.l_pid;
+        }
+        std::memcpy(as_pointer<void>(argument), &guest, sizeof guest);
+        return 0;
+    }
+    const auto conflict = [] { return errno == EAGAIN || errno == EACCES; };
+    if (::fcntl(file, F_SETLK, &host) == 0) return 0;
+    if (command == linux_fcntl::setlk || !conflict()) return -to_linux_errno(errno);
+    auto &state = signals::current();
+    std::int64_t pause = 1'000'000;  // 1 ms, then twice as long each time, up to 64 ms
+    while (true) {
+        if (wait_until(state, [] { return false; }, monotonic_now() + pause) == WaitEnd::signal) {
+            return -linux_errno::eintr;
+        }
+        if (::fcntl(file, F_SETLK, &host) == 0) return 0;
+        if (!conflict()) return -to_linux_errno(errno);
+        pause = std::min<std::int64_t>(2 * pause, 64'000'000);
+    }
+}
+
 }  // namespace
 
 long sys_fcntl(int fd, int command, std::uint64_t argument) {
@@ -119,6 +187,9 @@ long sys_fcntl(int fd, int command, std::uint64_t argument) {
             description->set_nonblocking((requested & linux_fcntl::nonblock) != 0);
             return 0;
         }
+        case linux_fcntl::getlk:
+        case linux_fcntl::setlk:
+        case linux_fcntl::setlkw: return record_lock(fd, command, argument);
         default: {
             char message[80];
             const int length =
@@ -1309,6 +1380,8 @@ long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument) {
         case fioclex: return descriptors::set_close_on_exec(fd, true);
         case fionclex: return descriptors::set_close_on_exec(fd, false);
         default: {
+            // F2FS's (type 0xf5), which SQLite asks for atomic writes: no guest file lies on F2FS (Linux's ENOTTY).
+            if (((request >> 8) & 0xff) == 0xf5) return -linux_errno::enotty;
             char message[80];
             std::snprintf(message, sizeof message, "apkrt: ioctl request %#x is not supported yet\n", request);
             report(message);
