@@ -206,4 +206,8 @@ I/api-breadth-test: android.widget.ViewSwitcher: loads
 I/api-breadth-test: android.widget.WrapperListAdapter: loads
 I/api-breadth-test: android.widget.ZoomButton: loads
 I/api-breadth-test: android.widget.ZoomControls: loads
+I/api-breadth-test: android.os.Debug: loads
+I/api-breadth-test: android.util.Base64DataException: loads
+I/api-breadth-test: android.util.Base64InputStream: loads
+I/api-breadth-test: android.util.Base64OutputStream: loads
 I/api-breadth-test: done

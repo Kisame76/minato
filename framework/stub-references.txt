@@ -215,7 +215,6 @@ android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # 
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
 android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityManager  # gap: a task description's icon (TaskDescription with a Bitmap or a resource icon), as Icon is compile-only
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
-android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
@@ -370,7 +369,6 @@ android.text.Html <- android.content.ClipData  # gap: a clip item's HTML text (a
 android.view.textclassifier.TextLinks <- android.content.ClipData  # gap: a clip's text links (the text classifier, a later breadth batch)
 android.accounts.Account <- android.content.PeriodicSync, android.content.SyncRequest  # gap: syncs, as for Account
 android.net.ParseException <- android.net.MailTo  # gap: a malformed mailto: URI (connectivity's ParseException)
-android.os.Debug <- android.os.RemoteCallbackList  # gap: the log of a list with more than 3,000 callbacks (android.os.Debug)
 
 # The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
 android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, which framework.jar has none of yet (SqliteWrapper.checkSQLiteException's message on a full disk)
@@ -382,7 +380,6 @@ android.graphics.HardwareRenderer <- android.view.PixelCopy  # M4 step 10: Pixel
 android.graphics.HardwareRenderer$CopyRequest <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
 android.graphics.HardwareRenderer <- android.view.ViewDebug  # M4 step 10: the capture of rendering commands (the hidden startRenderingCommandsCapture, for Android Studio), which hwui's GPU pipeline gives
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.TouchDelegate  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.os.Debug <- android.view.ViewDebug  # stays: the view counts (the hidden getViewInstanceCount and getViewRootImplCount) and the view server's profiles, which only a debugger asks
 
 # ADR-0045 gap 1, batch 1 (App): DisplayManager and PowerManager in framework.jar, over the local display, power and
 # thermal services, which never run the AIDL interfaces' Stub and Proxy and parcel nothing.

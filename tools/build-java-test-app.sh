@@ -30,6 +30,7 @@
 # broadcast-test (ADR-0045 decision 5) is one more, whose activity sends its own broadcasts to its own receivers.
 # api-breadth-test (the compatibility plan's entry 22) is one more, whose assets/types.txt names the public types it
 # loads, and so is widgets-test (gap 5), with layouts of widgets in res/layout and a shape in res/drawable.
+# breadth-test, the framework breadth's behavior test, is one too.
 # sqlite-test (the compatibility plan's gap 7) is one more, whose activity makes, changes and deletes its own SQLite
 # database.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,

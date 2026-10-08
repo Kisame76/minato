@@ -1455,3 +1455,11 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/PathShap
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RoundRectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/Shape.java
+# The framework breadth's batch 3a (docs/corpus/api-coverage.md), the Unity test APK probe's: android.os.Debug, which
+# Crashlytics asks whether a debugger is attached, with the hidden TypedProperties it pulls in, and android.util's
+# Base64 streams, with which Firebase writes its heartbeat header.
+frameworks_base/core/java/android/os/Debug.java
+frameworks_base/core/java/android/util/Base64DataException.java
+frameworks_base/core/java/android/util/Base64InputStream.java
+frameworks_base/core/java/android/util/Base64OutputStream.java
+frameworks_base/core/java/com/android/internal/util/TypedProperties.java

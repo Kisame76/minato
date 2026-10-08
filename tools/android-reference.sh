@@ -47,6 +47,7 @@
 # strictmode-test (ADR-0039 step c2d3) is one too.
 # api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test (gap 5), whose widgets are
 # laid out in px on the M4 plan's display.
+# breadth-test (the framework breadth's behavior test) is one too.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
 # local_testing_dir only from a manifest. pad-test (ADR-0050 test 3), built with Google's Play libraries by
 # tools/build-pad-test.sh, is a Java app with its own activity: bundletool's install-apks puts its local-testing set on
@@ -487,7 +488,7 @@ run_app() {
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
-      | contexts-test | traffic-test | widgets-test)
+      | contexts-test | traffic-test | widgets-test | breadth-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

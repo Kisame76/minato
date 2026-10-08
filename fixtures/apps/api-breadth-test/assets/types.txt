@@ -210,3 +210,8 @@ android.widget.ViewSwitcher
 android.widget.WrapperListAdapter
 android.widget.ZoomButton
 android.widget.ZoomControls
+# Batch 3a: the Unity test APK probe's android.os.Debug and android.util's Base64 streams.
+android.os.Debug
+android.util.Base64DataException
+android.util.Base64InputStream
+android.util.Base64OutputStream
