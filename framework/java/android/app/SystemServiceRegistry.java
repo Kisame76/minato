@@ -3,7 +3,8 @@
  * class, each made once per context as the tag's CachedServiceFetcher keeps them in ContextImpl's mServiceCache, or
  * once per call where the tag's fetcher is static (the input method manager's forContext). It replaces ContextImpl's
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
- * power, audio and connectivity services, with power exemptions, which PowerManager asks. A name or class without an
+ * power, audio and connectivity services, with power exemptions, which PowerManager asks, and the notification service
+ * (batch 2). A name or class without an
  * entry is logged once and gives null, as the tag's onServiceNotFound does; so does a service whose local binder the
  * table lacks (ServiceNotFoundException). AOSP's registry would load the mainline modules' classes and register 141
  * services; batches 2 and 3 add the rest.
@@ -11,6 +12,7 @@
 package android.app;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.hardware.SystemSensorManager;
 import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
@@ -29,6 +31,7 @@ import android.os.ServiceManager.ServiceNotFoundException;
 import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.util.ArrayMap;
+import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
@@ -90,9 +93,22 @@ final class SystemServiceRegistry {
         cached(Context.AUDIO_SERVICE, AudioManager.class, ctx -> new AudioManager((Context) (Object) ctx));
         cached(Context.CONNECTIVITY_SERVICE, ConnectivityManager.class,
                 ctx -> new ConnectivityManager(ctx.getOuterContext()));
+        // Gap 1, batch 2: as the tag's, over the dialog theme of the app's target SDK.
+        cached(Context.NOTIFICATION_SERVICE, NotificationManager.class, ctx -> new NotificationManager(
+                new ContextThemeWrapper(ctx.getOuterContext(), dialogTheme(ctx.getOuterContext())),
+                ctx.mMainThread.getHandler()));
     }
 
     private SystemServiceRegistry() {
+    }
+
+    /** The tag's theme of NotificationManager's context: the dialog theme of the app's target SDK. */
+    @SuppressWarnings("deprecation") // Holo's dialog theme, which the tag picks for targets 11 to 13.
+    private static int dialogTheme(Context outer) {
+        return Resources.selectSystemTheme(0, outer.getApplicationInfo().targetSdkVersion,
+                com.android.internal.R.style.Theme_Dialog, com.android.internal.R.style.Theme_Holo_Dialog,
+                com.android.internal.R.style.Theme_DeviceDefault_Dialog,
+                com.android.internal.R.style.Theme_DeviceDefault_Light_Dialog);
     }
 
     private static void cached(String name, Class<?> type, Maker maker) {

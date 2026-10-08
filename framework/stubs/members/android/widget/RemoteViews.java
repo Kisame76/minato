@@ -1,13 +1,18 @@
 // Hidden members of the public API's compile-only stub (the compatibility plan's gap 5, widgets, batch 1), which
 // tools/managergen joins with it: the collection views' remote adapter (RemoteViewsAdapter), which only an app widget
-// host fills.
+// host fills; and Notification.Builder's content views (ADR-0045 gap 1, batch 2).
 import android.app.PendingIntent;
+import android.app.RemoteInput;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.content.res.ColorStateList;
+import android.graphics.PorterDuff;
+import android.net.Uri;
 import android.os.CancellationSignal;
 import android.view.View;
 import android.view.ViewGroup;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 class RemoteViews {
     /** @hide */
@@ -18,6 +23,89 @@ class RemoteViews {
 
     /** @hide */
     public ApplicationInfo mApplication;
+
+    /** @hide */
+    public static final int FLAG_REAPPLY_DISALLOWED = 1;
+
+    /** @hide */
+    protected RemoteViews(ApplicationInfo application, int layoutId) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void addFlags(int flags) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    protected boolean shouldUseStaticFilter() {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void addView(int viewId, RemoteViews nestedView, int index) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void removeAllViewsExceptId(int viewId, int viewIdToKeep) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void removeFromParent(int viewId) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setIntTag(int viewId, int key, int tag) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setDrawableTint(int viewId, boolean targetBackground, int colorFilter, PorterDuff.Mode mode) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setRippleDrawableColor(int viewId, ColorStateList colorStateList) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setProgressTintList(int viewId, ColorStateList tint) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setProgressBackgroundTintList(int viewId, ColorStateList tint) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setProgressIndeterminateTintList(int viewId, ColorStateList tint) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setRemoteInputs(int viewId, RemoteInput[] remoteInputs) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void reduceImageSizes(int maxWidth, int maxHeight) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void visitUris(Consumer<Uri> visitor) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public int getSequenceNumber() {
+        throw new RuntimeException("stub");
+    }
 
     /** @hide */
     public boolean prefersAsyncApply() {

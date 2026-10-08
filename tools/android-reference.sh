@@ -623,6 +623,12 @@ run_app() {
     run mkdir -p "/sdcard/Android/obb/${package:?}"
     device push "fixtures/apps/$app/main.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
   fi
+  if [[ "$app" == services-test ]]; then
+    # Gap 1's batch 2: the notification service keeps an uninstalled app's channels in its policy file when the
+    # emulator stops before it writes the removal, and gives them back at the next install, which gets the same uid;
+    # the package's data cleared drops them, so that each run starts as a first install does.
+    run pm clear "${package:?}" >/dev/null
+  fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   if [[ "$app" == rotation-test ]]; then
     local turned=yes

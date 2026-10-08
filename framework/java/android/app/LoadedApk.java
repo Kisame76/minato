@@ -467,4 +467,13 @@ public final class LoadedApk {
             }
         }
     }
+
+    /**
+     * AOSP's check that the package cache's paths are still the app info's, which RemoteViews makes before it
+     * inflates views (ADR-0045 gap 1, batch 2): Minato's process has its one package, whose paths stay while it runs.
+     *
+     * @hide
+     */
+    public static void checkAndUpdateApkPaths(ApplicationInfo expectedAppInfo) {
+    }
 }

@@ -183,6 +183,19 @@ class ApplicationPackageManager {
     }
 
     /** The app's own grants; any other package holds nothing, as Android answers for a package it does not know. */
+    // The installer (gap 1's batch 2, the Unity test APK's start asks it): Minato installs the app, no store does, so the app's own
+    // package has none, as Android 15 answers for an app that adb installed [verified: package-manager-test on
+    // apk-runner-35]; any other package is unknown, for which PackageManagerService throws.
+
+    public String getInstallerPackageName(String packageName) {
+        try {
+            own(packageName);
+        } catch (NameNotFoundException e) {
+            throw new IllegalArgumentException("Unknown package: " + packageName);
+        }
+        return null;
+    }
+
     public int checkPermission(String permName, String packageName) {
         ManifestPackage pkg = mThread.getManifestPackage();
         return pkg != null && pkg.packageName.equals(packageName) && pkg.granted(permName)

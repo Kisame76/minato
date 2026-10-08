@@ -3,6 +3,10 @@ package io.github.kisame76.minato.test.services;
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.Application;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationChannelGroup;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.display.DisplayManager;
@@ -55,6 +59,11 @@ import java.util.TreeSet;
  * answers: unlocked, the system user, no profile, no restriction on installing apps, running; the calls that need a
  * system permission, refused. The user's restrictions and multi-user support, which the device's build sets, go to
  * the device tag.
+ * Part 4, gap 1's batch 2 (the notification service): its class and answers for an app without POST_NOTIFICATIONS,
+ * which Android 15 does not let post; channel groups and channels, each kept as a copy, created again with a new
+ * name, a higher and a lower importance, refused for a group that does not exist, the reserved ID and an importance
+ * out of range, deleted and created again; a notification built for a channel, posted and gone, one without a small
+ * icon refused before it is posted, and the cancels.
  * apk-runner-35-bare has no sensors, as Minato has none, so every line is the same on both; an exception's message,
  * which names the app's uid, is left out. What differs by device (memory, the display's name and rate, the audio
  * output's rate and buffer, the network) goes to the device tag, which is shown, not compared.
@@ -81,6 +90,7 @@ public class ServicesApplication extends Application {
         guarded("audio service", this::audio);
         guarded("connectivity service", this::connectivity);
         guarded("user service", this::user);
+        guarded("notification service", this::notifications);
         Log.i(TAG, "done");
     }
 
@@ -375,6 +385,105 @@ public class ServicesApplication extends Application {
             Log.i(TAG, "user count: " + e.getClass().getName());
         }
         Log.i(DEVICE, "creation time " + users.getUserCreationTime(me));
+    }
+
+    private void notifications() {
+        NotificationManager notes = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        Log.i(TAG, "notification service: " + notes.getClass().getName() + ", the same by class "
+                + (notes == getSystemService(NotificationManager.class)));
+        Log.i(TAG, "notifications enabled " + notes.areNotificationsEnabled() + ", importance " + notes.getImportance()
+                + ", paused " + notes.areNotificationsPaused() + ", policy access "
+                + notes.isNotificationPolicyAccessGranted() + ", interruption filter "
+                + notes.getCurrentInterruptionFilter());
+        notes.createNotificationChannelGroup(new NotificationChannelGroup("news", "News"));
+        NotificationChannel updates = new NotificationChannel("updates", "Updates",
+                NotificationManager.IMPORTANCE_HIGH);
+        updates.setDescription("What changed");
+        updates.setGroup("news");
+        notes.createNotificationChannel(updates);
+        // The service keeps a copy: what the app changes afterwards stays with the app's object.
+        updates.setName("Changed here only");
+        Log.i(TAG, "channel " + channel(notes.getNotificationChannel("updates")));
+        Log.i(TAG, "the app's object: " + updates.getName() + ", lock screen " + updates.getLockscreenVisibility());
+        NotificationChannel higher = new NotificationChannel("updates", "Updates 2",
+                NotificationManager.IMPORTANCE_MAX);
+        higher.setDescription("Changed");
+        notes.createNotificationChannel(higher);
+        Log.i(TAG, "created again, higher: " + channel(notes.getNotificationChannel("updates")));
+        notes.createNotificationChannel(new NotificationChannel("updates", "Updates 3",
+                NotificationManager.IMPORTANCE_LOW));
+        Log.i(TAG, "created again, lower: " + channel(notes.getNotificationChannel("updates")));
+        notes.createNotificationChannel(new NotificationChannel("other", "Other",
+                NotificationManager.IMPORTANCE_DEFAULT));
+        Log.i(TAG, "channels " + ids(notes.getNotificationChannels()) + ", unknown "
+                + notes.getNotificationChannel("none"));
+        for (NotificationChannelGroup group : notes.getNotificationChannelGroups()) {
+            Log.i(TAG, "group " + group.getId() + " \"" + group.getName() + "\", blocked " + group.isBlocked()
+                    + ", channels " + ids(group.getChannels()));
+        }
+        NotificationChannelGroup news = notes.getNotificationChannelGroup("news");
+        Log.i(TAG, "group news by its ID: channels " + ids(news.getChannels()));
+        Log.i(TAG, "in a group that does not exist: " + refusal(() -> {
+            NotificationChannel lost = new NotificationChannel("lost", "Lost", NotificationManager.IMPORTANCE_LOW);
+            lost.setGroup("none");
+            notes.createNotificationChannel(lost);
+        }));
+        Log.i(TAG, "the reserved ID: " + refusal(() -> notes.createNotificationChannel(new NotificationChannel(
+                NotificationChannel.DEFAULT_CHANNEL_ID, "Default", NotificationManager.IMPORTANCE_LOW))));
+        Log.i(TAG, "importance 6: " + refusal(() -> notes.createNotificationChannel(
+                new NotificationChannel("loud", "Loud", 6))));
+        notes.deleteNotificationChannel("other");
+        Log.i(TAG, "deleted: other " + notes.getNotificationChannel("other") + ", channels "
+                + ids(notes.getNotificationChannels()));
+        notes.createNotificationChannel(new NotificationChannel("other", "Other again",
+                NotificationManager.IMPORTANCE_HIGH));
+        Log.i(TAG, "created after its deletion: " + channel(notes.getNotificationChannel("other")));
+        notes.deleteNotificationChannelGroup("news");
+        Log.i(TAG, "group news deleted: groups " + notes.getNotificationChannelGroups().size() + ", updates "
+                + notes.getNotificationChannel("updates") + ", channels " + ids(notes.getNotificationChannels()));
+        Notification note = new Notification.Builder(this, "other").setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Hello").setContentText("World").build();
+        Log.i(TAG, "notification: channel " + note.getChannelId() + ", title "
+                + note.extras.getCharSequence(Notification.EXTRA_TITLE) + ", text "
+                + note.extras.getCharSequence(Notification.EXTRA_TEXT) + ", small icon type "
+                + note.getSmallIcon().getType() + ", priority " + note.priority + ", visibility " + note.visibility
+                + ", flags " + note.flags);
+        notes.notify(1, note);
+        notes.notify("tagged", 2, note);
+        Log.i(TAG, "posted: active " + notes.getActiveNotifications().length);
+        Log.i(TAG, "without a small icon: " + refusal(() -> notes.notify(3,
+                new Notification.Builder(this, "other").setContentTitle("No icon").build())));
+        notes.cancel(1);
+        notes.cancel("tagged", 2);
+        notes.cancelAll();
+        Log.i(TAG, "cancelled: active " + notes.getActiveNotifications().length);
+    }
+
+    private static String channel(NotificationChannel channel) {
+        return channel.getId() + " \"" + channel.getName() + "\" (" + channel.getDescription() + "), importance "
+                + channel.getImportance() + ", group " + channel.getGroup() + ", sound " + channel.getSound()
+                + ", usage " + channel.getAudioAttributes().getUsage() + ", vibration " + channel.shouldVibrate()
+                + ", lights " + channel.shouldShowLights() + ", badge " + channel.canShowBadge() + ", bypass DND "
+                + channel.canBypassDnd() + ", lock screen " + channel.getLockscreenVisibility() + ", bubbles "
+                + channel.canBubble() + ", user set " + channel.hasUserSetImportance();
+    }
+
+    private static TreeSet<String> ids(List<NotificationChannel> channels) {
+        TreeSet<String> ids = new TreeSet<>();
+        for (NotificationChannel channel : channels) {
+            ids.add(channel.getId());
+        }
+        return ids;
+    }
+
+    /** What a call throws, its class and message, or "fine". */
+    private static String refusal(Section section) {
+        try {
+            section.run();
+            return "fine";
+        } catch (Exception e) {
+            return e.getClass().getName() + ": " + e.getMessage();
+        }
     }
 
     /** Runs a section; what it throws is logged with its name. */

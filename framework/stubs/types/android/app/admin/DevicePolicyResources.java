@@ -2,8 +2,9 @@ package android.app.admin;
 
 /**
  * Compile-only stub (ADR-0045 gap 1, batch 1b), never in framework.jar: the keys of the device policy's updatable
- * resources, which UserManager's badges and labels of a work profile look up through DevicePolicyManager; javac
- * inlines them, with their values at android-15.0.0_r1. Minato has no work profile, so no lookup runs.
+ * resources, which UserManager's badges and labels of a work profile and Notification.Builder's profile badge (gap 1,
+ * batch 2) look up through DevicePolicyManager; javac inlines them, with their values at android-15.0.0_r1. Minato
+ * has no work profile, so no lookup runs.
  */
 public final class DevicePolicyResources {
     public static final String UNDEFINED = "UNDEFINED";
@@ -11,8 +12,14 @@ public final class DevicePolicyResources {
     public static final class Drawables {
         public static final String WORK_PROFILE_ICON_BADGE = "WORK_PROFILE_ICON_BADGE";
 
+        public static final String WORK_PROFILE_ICON = "WORK_PROFILE_ICON";
+
         public static final class Style {
             public static final String SOLID_COLORED = "SOLID_COLORED";
+        }
+
+        public static final class Source {
+            public static final String NOTIFICATION = "NOTIFICATION";
         }
     }
 

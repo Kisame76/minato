@@ -67,4 +67,5 @@ I/package-manager-test: hasSystemFeature android.software.app_enumeration true
 I/package-manager-test: hasSystemFeature io.github.kisame76.minato.test.none false
 I/package-manager-test: hasSystemFeature touchscreen in version 1 false
 I/package-manager-test: getActivityInfo Missing: NameNotFoundException ComponentInfo{io.github.kisame76.minato.test.packagemanager/io.github.kisame76.minato.test.packagemanager.Missing}
+I/package-manager-test: installer null, of an unknown package IllegalArgumentException Unknown package: io.github.kisame76.minato.test.packagemanager.none
 I/package-manager-test: done

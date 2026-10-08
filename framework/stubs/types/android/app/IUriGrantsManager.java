@@ -6,7 +6,8 @@ import android.os.RemoteException;
 
 /**
  * Compile-only stub (ADR-0045, gap 13a), never in framework.jar: the URI grants service's AIDL interface, with the
- * three methods ContentResolver's persisted URI permissions call.
+ * three methods ContentResolver's persisted URI permissions call, and the check Icon's loadDrawable makes for a URI of
+ * another app (gap 1, batch 2).
  */
 public interface IUriGrantsManager {
     void takePersistableUriPermission(Uri uri, int modeFlags, String toPackage, int userId) throws RemoteException;
@@ -14,5 +15,8 @@ public interface IUriGrantsManager {
     void releasePersistableUriPermission(Uri uri, int modeFlags, String toPackage, int userId) throws RemoteException;
 
     ParceledListSlice getUriPermissions(String packageName, boolean incoming, boolean persistedOnly)
+            throws RemoteException;
+
+    int checkGrantUriPermission_ignoreNonSystem(int sourceUid, String targetPkg, Uri uri, int modeFlags, int userId)
             throws RemoteException;
 }

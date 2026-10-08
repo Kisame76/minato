@@ -43,12 +43,10 @@ android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo
 
 # The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
 # (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
-android.content.pm.ParceledListSlice <- android.hardware.display.DisplayManagerGlobal  # stays: the brightness statistics, system APIs whose signature permission the display service refuses first
 android.hardware.display.Curve <- android.hardware.display.DisplayManagerGlobal  # gap: DisplayManager.getMinimumBrightnessCurve, a system API that the display service does not answer
 android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
-android.content.pm.ParceledListSlice <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.OverlayProperties <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.display.BrightnessConfiguration <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.display.BrightnessInfo <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
@@ -94,7 +92,6 @@ android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  
 com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
 
 # Text layout: TextView's step (M4 step 10).
-android.text.BidiFormatter <- android.text.TextUtils  # M4 step 10: TextUtils.listEllipsize
 android.text.Html <- android.text.TextUtils  # M4 step 10: TextUtils.makeSafeForPresentation
 android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils.getReverse, on AndroidCharacter's natives
 
@@ -213,7 +210,6 @@ android.graphics.BLASTBufferQueue <- android.view.Surface  # ADR-0041 a): a wind
 android.graphics.HardwareRenderer <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
 android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
-android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityManager  # gap: a task description's icon (TaskDescription with a Bitmap or a resource icon), as Icon is compile-only
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
@@ -274,7 +270,6 @@ android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlob
 android.os.CombinedVibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vibrator (InputDevice.getVibrator), which a device without one, as Minato's are, gets as NullVibrator; it comes with haptic feedback's Vibrator
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.os.VibrationEffect <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
@@ -299,8 +294,6 @@ android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persiste
 android.content.SyncInfo <- android.content.ContentResolver  # gap: syncs, as for Account (getCurrentSync)
 android.content.SyncInfo <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
-android.content.pm.ParceledListSlice <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
-android.graphics.drawable.Icon <- android.content.ContentResolver  # gap: a MIME type's icon (getTypeInfo and its MimeTypeInfo)
 android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
 android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager
 android.os.PermissionEnforcer <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
@@ -316,10 +309,8 @@ android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeec
 android.app.Dialog <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
 android.app.ActivityOptions <- android.app.PendingIntent  # gap: sending an activity's PendingIntent, which names its caller's display, with ADR-0045 step d3's intent senders
 android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.getIntentSender, with ADR-0045 step d3's intent senders
-android.content.pm.ParceledListSlice <- android.app.PendingIntent  # stays: queryIntentComponents, a system and test API, whose list the local activity manager answers with none (ADR-0045 step d2)
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
 android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
-android.graphics.drawable.Icon <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.graphics.drawable.ShapeDrawable <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
@@ -360,7 +351,6 @@ com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a 
 
 # ADR-0043 step e1), CompoundButton and CheckBox (App): their autofill, assist, accessibility and debug answers, which
 # only those services and tools ask for, and a button drawable from an Icon.
-android.graphics.drawable.Icon <- android.widget.CompoundButton  # gap: setButtonIcon and setButtonIconAsync, a button drawable from an Icon, as Icon is compile-only
 android.view.accessibility.AccessibilityNodeInfo <- android.widget.CompoundButton  # stays: accessibility, off (ADR-0041): node infos only for an accessibility service
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
@@ -375,7 +365,6 @@ android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, whi
 
 # The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
 android.view.DragAndDropPermissions <- android.view.ContentInfo  # gap: drag and drop (a dropped content's permissions)
-android.graphics.drawable.Icon <- android.view.KeyboardShortcutInfo  # gap: a keyboard shortcut's icon, as Icon is compile-only
 android.graphics.HardwareRenderer <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
 android.graphics.HardwareRenderer$CopyRequest <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
 android.graphics.HardwareRenderer <- android.view.ViewDebug  # M4 step 10: the capture of rendering commands (the hidden startRenderingCommandsCapture, for Android Studio), which hwui's GPU pipeline gives
@@ -411,7 +400,6 @@ android.view.accessibility.AccessibilityNodeInfo$CollectionItemInfo <- android.w
 android.view.accessibility.AccessibilityNodeInfo$RangeInfo <- android.widget.ProgressBar  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.contentcapture.ContentCaptureSession <- android.widget.AbsListView  # stays: content capture is off (step c2c1), so a list reports no views to it
 android.widget.PopupWindow <- android.widget.AbsListView  # gap: a list's text filter popup (setTextFilterEnabled), a second window (gap 4)
-android.graphics.drawable.Icon <- android.widget.AnalogClock, android.widget.ImageView, android.widget.Switch  # gap: an image from an Icon (ImageView.setImageIcon, the clock's hands, the switch's thumb and track), as Icon is compile-only
 android.provider.ContactsContract$CommonDataKinds$Email <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
@@ -419,5 +407,39 @@ android.provider.ContactsContract$QuickContact <- android.widget.QuickContactBad
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
 android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
 android.appwidget.AppWidgetManager <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
-android.widget.RemoteViews <- android.widget.RemoteViewsAdapter, com.android.internal.widget.IRemoteViewsFactory  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
-android.widget.RemoteViews$RemoteCollectionItems <- com.android.internal.widget.IRemoteViewsFactory  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
+
+# ADR-0045 gap 1, batch 2 (App): NotificationManager over the local notification service, with Notification, its
+# channels, RemoteViews, VibrationEffect and AudioAttributes. What they reach only on the system's side, in a host of
+# RemoteViews, or in a style or call that a later piece brings.
+android.app.AutomaticZenRule <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.app.NotificationHistory <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.Adjustment <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.Condition <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.INotificationListener$Stub <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.NotificationListenerFilter <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.ZenDeviceEffects <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.ZenModeConfig <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.ZenModeConfig$ZenRule <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.service.notification.ZenPolicy <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
+android.app.AutomaticZenRule <- android.app.NotificationManager  # gap: Do Not Disturb's automatic rules (getAutomaticZenRules), which the local notification service does not keep yet
+android.service.notification.ZenModeConfig$ZenRule <- android.app.NotificationManager  # stays: getAutomaticZenRules' path without the modes API, which Android 15's flags turn on
+android.app.admin.DevicePolicyManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
+android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
+android.media.PlayerBase <- android.app.Notification  # gap: Notification.Builder.setSound(Uri, int), deprecated since API 26, whose stream type check is PlayerBase's
+android.media.session.MediaSession$Token <- android.app.Notification  # gap: a media notification's session (MediaStyle, isMediaNotification), as MediaSession is compile-only
+android.media.RingtoneManager <- android.app.NotificationChannel  # stays: a channel's sound restored from the system's backup (getUncanonicalizedSoundUri)
+android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
+android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
+android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
+android.app.IUriGrantsManager <- android.graphics.drawable.Icon  # stays: Icon.loadDrawableCheckingUriGrant, which only the system calls for another app's URI icon
+android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
+android.os.VibratorInfo <- android.os.vibrator.PrebakedSegment, android.os.vibrator.PrimitiveSegment, android.os.vibrator.RampSegment, android.os.vibrator.StepSegment  # gap: Vibrator.areVibrationFeaturesSupported, which comes with the vibrator
+android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
+android.appwidget.AppWidgetHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
+android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
+android.app.ActivityOptions <- android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
+android.content.IntentSender$SendIntentException <- android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
+com.android.internal.widget.remotecompose.player.RemoteComposeDocument <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
+com.android.internal.widget.remotecompose.player.RemoteComposePlayer$ClickCallbacks <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
+com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: an app's own apply of RemoteViews (apply, reapply), whose performApply asks for RemoteCompose's player

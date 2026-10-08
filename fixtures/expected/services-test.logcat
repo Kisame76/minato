@@ -49,4 +49,23 @@ I/services-test: installing apps restricted false, application restrictions 0
 I/services-test: running true, quiet mode false
 I/services-test: user name: java.lang.SecurityException
 I/services-test: user count: java.lang.SecurityException
+I/services-test: notification service: android.app.NotificationManager, the same by class true
+I/services-test: notifications enabled false, importance 0, paused false, policy access false, interruption filter 1
+I/services-test: channel updates "Updates" (What changed), importance 4, group news, sound content://settings/system/notification_sound, usage 5, vibration false, lights false, badge true, bypass DND false, lock screen -1000, bubbles false, user set false
+I/services-test: the app's object: Changed here only, lock screen -1000
+I/services-test: created again, higher: updates "Updates 2" (Changed), importance 4, group news, sound content://settings/system/notification_sound, usage 5, vibration false, lights false, badge true, bypass DND false, lock screen -1000, bubbles false, user set false
+I/services-test: created again, lower: updates "Updates 3" (null), importance 2, group news, sound content://settings/system/notification_sound, usage 5, vibration false, lights false, badge true, bypass DND false, lock screen -1000, bubbles false, user set false
+I/services-test: channels [other, updates], unknown null
+I/services-test: group news "News", blocked false, channels [updates]
+I/services-test: group news by its ID: channels [updates]
+I/services-test: in a group that does not exist: java.lang.IllegalArgumentException: NotificationChannelGroup doesn't exist
+I/services-test: the reserved ID: java.lang.IllegalArgumentException: Reserved id
+I/services-test: importance 6: java.lang.IllegalArgumentException: Invalid importance level
+I/services-test: deleted: other null, channels [updates]
+I/services-test: created after its deletion: other "Other again" (null), importance 3, group null, sound content://settings/system/notification_sound, usage 5, vibration false, lights false, badge true, bypass DND false, lock screen -1000, bubbles false, user set false
+I/services-test: group news deleted: groups 0, updates null, channels [other]
+I/services-test: notification: channel other, title Hello, text World, small icon type 2, priority 0, visibility 0, flags 0
+I/services-test: posted: active 0
+I/services-test: without a small icon: java.lang.IllegalArgumentException: Invalid notification (no valid small icon): Notification(channel=other shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=0 color=0x00000000 vis=PRIVATE)
+I/services-test: cancelled: active 0
 I/services-test: done

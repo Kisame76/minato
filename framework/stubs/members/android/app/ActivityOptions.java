@@ -1,7 +1,7 @@
 // Hidden members of the public API's compile-only stub (ADR-0039 step c2c3), which tools/managergen joins with it:
 // Activity names the scene transition info. (ADR-0039 step c2c3) Activity's scene transitions. (ADR-0039 step c2c3)
 // ActivityTransitionState reads a scene transition's info. (ADR-0045 step d2) PendingIntent's activities name their
-// caller's display.
+// caller's display. (ADR-0045 gap 1, batch 2) RemoteViews' clicks set a pending intent's launch.
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.ResultReceiver;
@@ -43,6 +43,16 @@ class ActivityOptions {
 
     /** @hide */
     public ActivityOptions setCallerDisplayId(int callerDisplayId) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setPendingIntentLaunchFlags(int flags) {
+        throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public void setPendingIntentBackgroundActivityLaunchAllowedByPermission(boolean allowed) {
         throw new RuntimeException("stub");
     }
 }

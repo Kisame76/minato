@@ -1463,3 +1463,40 @@ frameworks_base/core/java/android/util/Base64DataException.java
 frameworks_base/core/java/android/util/Base64InputStream.java
 frameworks_base/core/java/android/util/Base64OutputStream.java
 frameworks_base/core/java/com/android/internal/util/TypedProperties.java
+# Gap 1's batch 2 (ADR-0045 decisions 3 and 4): NotificationManager over the local notification service
+# (android.app.NotificationService, ServiceManager's "notification"), with the channels, groups and notifications it
+# names; AudioAttributes, which Notification's default sound attributes build at class init; ParceledListSlice, which
+# carries the service's lists; Icon, a notification's small icon; RemoteViews, a notification's content views, which
+# NotificationManager.notify asks about at every post; StatusBarNotification, an active notification; VibrationEffect
+# and its segments, which NotificationChannel.setVibrationPattern makes at Android 15's flags; Person, RemoteInput and
+# BidiFormatter, which the messaging, call and inbox styles and reply actions take.
+frameworks_base/core/java/android/app/ICallNotificationEventCallback.aidl
+frameworks_base/core/java/android/app/INotificationManager.aidl
+frameworks_base/core/java/android/app/ITransientNotification.aidl
+frameworks_base/core/java/android/app/ITransientNotificationCallback.aidl
+frameworks_base/core/java/android/app/Notification.java
+frameworks_base/core/java/android/app/NotificationChannel.java
+frameworks_base/core/java/android/app/NotificationChannelGroup.java
+frameworks_base/core/java/android/app/NotificationManager.java
+frameworks_base/core/java/android/app/Person.java
+frameworks_base/core/java/android/app/RemoteInput.java
+frameworks_base/core/java/android/app/RemoteInputHistoryItem.java
+frameworks_base/core/java/android/content/pm/BaseParceledListSlice.java
+frameworks_base/core/java/android/content/pm/ParceledListSlice.java
+frameworks_base/core/java/android/os/VibrationEffect.java
+frameworks_base/core/java/android/os/vibrator/PrebakedSegment.java
+frameworks_base/core/java/android/os/vibrator/PrimitiveSegment.java
+frameworks_base/core/java/android/os/vibrator/RampSegment.java
+frameworks_base/core/java/android/os/vibrator/StepSegment.java
+frameworks_base/core/java/android/os/vibrator/VibrationEffectSegment.java
+frameworks_base/core/java/android/service/notification/IConditionProvider.aidl
+frameworks_base/core/java/android/service/notification/StatusBarNotification.java
+frameworks_base/core/java/android/text/BidiFormatter.java
+frameworks_base/core/java/android/widget/RemoteCollectionItemsAdapter.java
+frameworks_base/core/java/android/widget/RemoteViews.java
+frameworks_base/core/java/com/android/internal/util/ContrastColorUtil.java
+frameworks_base/core/java/com/android/internal/util/ImageUtils.java
+frameworks_base/core/java/com/android/internal/util/NotificationBigTextNormalizer.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/Icon.java
+frameworks_base_types/media/java/android/media/AudioAttributes.java
+modules_utils/java/com/android/internal/logging/InstanceId.java
