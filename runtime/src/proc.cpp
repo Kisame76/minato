@@ -9,6 +9,7 @@
 #include "descriptors.h"
 #include "dl.h"
 #include "hwcap.h"
+#include "memfd.h"
 #include "properties.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -53,6 +54,7 @@ struct FileMapping {
     std::uint64_t offset = 0;
     std::uint32_t major = 0, minor = 0;
     std::uint64_t inode = 0;
+    bool shared = false;  // MAP_SHARED
 };
 
 struct State {
@@ -362,6 +364,7 @@ struct Label {
     std::uint64_t offset = 0;
     std::uint32_t major = 0, minor = 0;
     std::uint64_t inode = 0;
+    bool shared = false;  // a MAP_SHARED file's
 };
 
 std::vector<Label> guest_labels() {
@@ -375,7 +378,7 @@ std::vector<Label> guest_labels() {
         for (const auto &mapping : current.files) {
             labels.push_back({.begin = mapping.begin, .end = mapping.end, .name = mapping.path, .file = true,
                               .offset = mapping.offset, .major = mapping.major, .minor = mapping.minor,
-                              .inode = mapping.inode});
+                              .inode = mapping.inode, .shared = mapping.shared});
         }
     }
     for (const auto &object : dl::mapped_objects()) {
@@ -435,9 +438,10 @@ std::vector<Label> guest_labels() {
 void append_line(std::string &text, std::uint64_t begin, std::uint64_t end, int protection, const Label *label,
                  std::uint64_t offset) {
     const std::size_t line_start = text.size();
-    text += std::format("{:08x}-{:08x} {}{}{}p {:08x} {:02x}:{:02x} {} ", begin, end,
+    text += std::format("{:08x}-{:08x} {}{}{}{} {:08x} {:02x}:{:02x} {} ", begin, end,
                         (protection & VM_PROT_READ) ? 'r' : '-', (protection & VM_PROT_WRITE) ? 'w' : '-',
-                        (protection & VM_PROT_EXECUTE) ? 'x' : '-', label != nullptr && label->file ? offset : 0,
+                        (protection & VM_PROT_EXECUTE) ? 'x' : '-', label != nullptr && label->shared ? 's' : 'p',
+                        label != nullptr && label->file ? offset : 0,
                         label != nullptr ? label->major : 0, label != nullptr ? label->minor : 0,
                         label != nullptr ? label->inode : 0);
     if (label != nullptr) {
@@ -466,8 +470,9 @@ std::vector<Piece> pieces_of(const std::vector<Label> &labels) {
     const auto add = [&](const Piece &piece) {
         if (!pieces.empty()) {
             auto &last = pieces.back();
-            const bool same_name = last.label == piece.label || (last.label != nullptr && piece.label != nullptr &&
-                                                                 last.label->name == piece.label->name);
+            const bool same_name = last.label == piece.label ||
+                                   (last.label != nullptr && piece.label != nullptr &&
+                                    last.label->name == piece.label->name && last.label->shared == piece.label->shared);
             const bool following = last.label == nullptr || !last.label->file ||
                                    last.offset + (last.end - last.begin) == piece.offset;
             if (last.end == piece.begin && last.protection == piece.protection && last.shared == piece.shared &&
@@ -548,15 +553,18 @@ void append_sizes(std::string &text, const Piece &piece) {
         field(name, 0);
     }
     text += std::format("{:<16}{:>8}\n", "THPeligible:", 0);
-    // show_smap_vma_flags: the mnemonics in the order of their bits, each with a space after it. Every line is a
-    // private mapping ("p"), so none says "sh" or "ms", and a writable one is accounted (VM_ACCOUNT, "ac").
+    // show_smap_vma_flags: the mnemonics in the order of their bits, each with a space after it. A private mapping
+    // that is writable is accounted (VM_ACCOUNT, "ac"); a MAP_SHARED file's says "sh" and "ms" instead, as for a
+    // file open for writing.
     const bool writable = (piece.protection & VM_PROT_WRITE) != 0;
+    const bool shared = piece.label != nullptr && piece.label->shared;
     text += "VmFlags: ";
     if (piece.protection & VM_PROT_READ) text += "rd ";
     if (writable) text += "wr ";
     if (piece.protection & VM_PROT_EXECUTE) text += "ex ";
-    text += "mr mw me ";
-    if (writable) text += "ac ";
+    if (shared) text += "sh ";
+    text += shared ? "mr mw me ms " : "mr mw me ";
+    if (writable && !shared) text += "ac ";
     text += '\n';
 }
 
@@ -616,6 +624,7 @@ int file_with(const std::string &contents) {
 std::optional<std::string> descriptor_target(int fd) {
     const auto description = descriptors::get(fd);
     if (!description) return std::nullopt;
+    if (const auto *file = memfd::as_file(*description)) return memfd::link_text(*file);
     if (!description->written_path.empty()) return description->written_path;
     using Kind = descriptors::Description::Kind;
     if (description->kind() == Kind::eventfd) return "anon_inode:[eventfd]";
@@ -657,7 +666,7 @@ void set_main_thread(pthread_t thread, std::string_view program) {
     current.program = program;
 }
 
-void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset) {
+void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset, bool shared) {
     const auto description = descriptors::get(fd);
     const auto path = descriptor_target(fd);
     if (!description || !path) return;  // a file outside every mount stays anonymous, as the host's own do
@@ -668,7 +677,7 @@ void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offs
     const std::lock_guard lock(current.mutex);
     forget(current, begin, end);
     insert(current, {.begin = begin, .end = end, .path = *path, .offset = offset, .major = (device >> 24) & 0xff,
-                     .minor = device & 0xff'ffff, .inode = status.st_ino});
+                     .minor = device & 0xff'ffff, .inode = status.st_ino, .shared = shared});
 }
 
 void unmap(std::uint64_t begin, std::uint64_t end) {
@@ -741,6 +750,16 @@ std::optional<long> read_link(std::string_view path, char *buffer, std::size_t s
     const auto length = std::min(size, target->size());
     std::memcpy(buffer, target->data(), length);
     return static_cast<long>(length);
+}
+
+std::optional<int> descriptor_entry(std::string_view path) {
+    const auto entry = own_entry(path);
+    if (!entry || !entry->starts_with("fd/")) return std::nullopt;
+    const auto digits = entry->substr(3);
+    int fd = -1;
+    const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), fd);
+    if (error != std::errc{} || end != digits.data() + digits.size() || fd < 0) return std::nullopt;
+    return fd;
 }
 
 long sysinfo(std::uint64_t address) {

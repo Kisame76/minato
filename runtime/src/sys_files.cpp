@@ -3,6 +3,7 @@
 // descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
 #include "descriptors.h"
 #include "identity.h"
+#include "memfd.h"
 #include "proc.h"
 #include "sockets.h"
 #include "syscalls.h"
@@ -49,6 +50,8 @@ constexpr int getlk = 5;
 constexpr int setlk = 6;
 constexpr int setlkw = 7;
 constexpr int dupfd_cloexec = 1030;
+constexpr int add_seals = 1033;
+constexpr int get_seals = 1034;
 constexpr int append = 02000;
 constexpr int nonblock = 04000;
 constexpr int dsync = 010000;
@@ -190,7 +193,15 @@ long sys_fcntl(int fd, int command, std::uint64_t argument) {
         case linux_fcntl::getlk:
         case linux_fcntl::setlk:
         case linux_fcntl::setlkw: return record_lock(fd, command, argument);
+        case linux_fcntl::add_seals:
+        case linux_fcntl::get_seals: {
+            const auto description = descriptors::get(fd);
+            if (!description) return -linux_errno::ebadf;
+            if (command == linux_fcntl::get_seals) return memfd::get_seals(*description);
+            return memfd::add_seals(*description, static_cast<unsigned>(argument));
+        }
         default: {
+            if (!descriptors::get(fd)) return -linux_errno::ebadf;  // Linux's fcntl takes the file first
             char message[80];
             const int length =
                 std::snprintf(message, sizeof message, "apkrt: fcntl command %d is not supported yet\n", command);
@@ -310,6 +321,8 @@ mode_t mode_of(mode_t host, const Owner &owner) {
 /// host file. A pipe, which has no path, belongs to the process, as on Linux; a host file outside the guest's
 /// paths belongs to root.
 Owner owner_of(const Description &description) {
+    // A memfd is the app's, as Linux makes it with the caller's ids, with its own mode (memfd.h).
+    if (const auto *file = memfd::as_file(description)) return {app_uid, app_uid, memfd::mode_of(*file)};
     if (!description.written_path.empty()) return android_owner(description.written_path);
     char host[MAXPATHLEN];
     if (::fcntl(description.host(), F_GETPATH, host) != 0) return {app_uid, app_uid};
@@ -371,7 +384,9 @@ long sys_fstat(int fd, std::uint64_t buffer) {
     }
     struct stat status;
     if (::fstat(description->host(), &status) != 0) return -to_linux_errno(errno);
-    *as_pointer<LinuxStat>(buffer) = to_linux_stat(status, owner_of(*description));
+    LinuxStat result = to_linux_stat(status, owner_of(*description));
+    if (memfd::as_file(*description) != nullptr) result.nlink = 0;  // unlinked, as Linux's memfd is
+    *as_pointer<LinuxStat>(buffer) = result;
     return 0;
 }
 
@@ -682,6 +697,10 @@ std::optional<long> seek_stream(descriptors::Description &description, std::int6
 long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     if (flags & linux_open::tmpfile) return -linux_errno::eopnotsupp;
     if (const auto absolute = guest_absolute(directory, path)) {
+        // A memfd's link in /proc/self/fd opens another open file of it (memfd.h).
+        if (const auto fd = proc::descriptor_entry(*absolute)) {
+            if (const auto reopened = memfd::reopen(*fd, flags)) return *reopened;
+        }
         if (const auto written = proc::open(*absolute, flags)) return *written;
     }
     const auto host = resolve(directory, path);
@@ -1228,10 +1247,22 @@ long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain 
         return -linux_errno::einval;
     }
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors
+    if (writing) {
+        if (auto *file = memfd::as_file(*description)) return memfd::write(*file, vectors, count, -1);
+    }
     if (description->kind() == Description::Kind::eventfd) return transfer_count(*description, writing, vectors, count);
     if (!description->can_block()) return result_or_error(plain(description->host()));
     if (sockets::takes_messages(*description)) return sockets::transfer_message(*description, writing, vectors, count);
     return transfer(*description, writing, Buffers(vectors, count), sockets::deadline_of(*description, writing));
+}
+
+/// pwrite and pwritev of a memfd, through its seals (memfd.h); nullopt for every other descriptor.
+std::optional<long> memfd_pwrite(int fd, const iovec *vectors, int count, std::int64_t offset) {
+    const auto description = descriptors::get(fd);
+    memfd::File *const file = description ? memfd::as_file(*description) : nullptr;
+    if (file == nullptr) return std::nullopt;
+    if (offset < 0) return -linux_errno::einval;
+    return memfd::write(*file, vectors, count, offset);
 }
 
 }  // namespace
@@ -1265,6 +1296,8 @@ long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t 
 }
 
 long sys_pwrite64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset) {
+    const iovec one{as_pointer<void>(buffer), size};
+    if (const auto sealed = memfd_pwrite(fd, &one, 1, offset)) return *sealed;
     return with_host(fd, [&](int host) {
         return result_or_error(::pwrite(host, as_pointer<const void>(buffer), size, offset));
     });
@@ -1277,6 +1310,7 @@ long sys_preadv(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
 }
 
 long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
+    if (const auto sealed = memfd_pwrite(fd, as_pointer<const iovec>(vectors), count, offset)) return *sealed;
     return with_host(fd, [&](int host) {
         return result_or_error(::pwritev(host, as_pointer<const iovec>(vectors), count, offset));
     });
@@ -1285,6 +1319,8 @@ long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) 
 long sys_fchmod(int fd, int mode) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    // SELinux refuses setattr on a memfd, labelled appdomain_tmpfs [verified: the emulator, 2026-10-08].
+    if (memfd::as_file(*description) != nullptr) return -linux_errno::eacces;
     if (read_only(*description)) return -linux_errno::erofs;  // chmod_common's mnt_want_write
     if (const long refused = may_set_attributes(owner_of(*description))) return refused;
     return result_or_error(::fchmod(description->host(), static_cast<mode_t>(mode & 07777)));
@@ -1293,12 +1329,113 @@ long sys_fchmod(int fd, int mode) {
 long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
+    if (memfd::as_file(*description) != nullptr) return -linux_errno::eacces;  // as sys_fchmod's
     if (read_only(*description)) return -linux_errno::erofs;  // vfs_fchown's mnt_want_write_file
     return chown_answer(owner_of(*description), owner, group);
 }
 
 long sys_ftruncate(int fd, std::int64_t length) {
+    if (const auto description = descriptors::get(fd)) {
+        if (auto *file = memfd::as_file(*description)) return memfd::truncate(*file, length);
+    }
     return with_file(fd, [&](int host) { return result_or_error(::ftruncate(host, length)); });
+}
+
+namespace {
+
+// fallocate's modes (include/uapi/linux/falloc.h).
+namespace linux_falloc {
+constexpr int keep_size = 0x01;
+constexpr int punch_hole = 0x02;
+constexpr int collapse_range = 0x08;
+constexpr int zero_range = 0x10;
+constexpr int insert_range = 0x20;
+constexpr int unshare_range = 0x40;
+constexpr int known = keep_size | punch_hole | collapse_range | zero_range | insert_range | unshare_range;
+}  // namespace linux_falloc
+
+/// Zeros [offset, offset + length) of the host file `host` inside its size, as a hole reads: Darwin's F_PUNCHHOLE for
+/// the file system's whole blocks, written zeros for the parts of blocks at either end and where it has no holes.
+long punch_hole(int host, std::int64_t offset, std::int64_t length) {
+    struct stat status{};
+    if (::fstat(host, &status) != 0) return -to_linux_errno(errno);
+    const std::int64_t end = std::min<std::int64_t>(offset + length, status.st_size);
+    if (offset >= end) return 0;
+    const auto zero = [host](std::int64_t from, std::int64_t to) -> long {
+        static const char zeros[4096] = {};
+        while (from < to) {
+            const auto part = static_cast<std::size_t>(std::min<std::int64_t>(to - from, sizeof zeros));
+            const ssize_t written = ::pwrite(host, zeros, part, from);
+            if (written < 0 && errno == EINTR) continue;
+            if (written < 0) return -to_linux_errno(errno);
+            from += written;
+        }
+        return 0;
+    };
+    const std::int64_t block = status.st_blksize > 0 ? status.st_blksize : 4096;
+    const std::int64_t first = (offset + block - 1) / block * block, last = end / block * block;
+    if (first >= last) return zero(offset, end);
+    if (const long result = zero(offset, first)) return result;
+    fpunchhole_t hole{};
+    hole.fp_offset = first;
+    hole.fp_length = last - first;
+    if (::fcntl(host, F_PUNCHHOLE, &hole) != 0) {
+        if (const long result = zero(first, last)) return result;
+    }
+    return zero(last, end);
+}
+
+/// An allocation of [offset, offset + length): Darwin's F_PREALLOCATE for the blocks past the file's, then the size
+/// unless FALLOC_FL_KEEP_SIZE. A file system that cannot preallocate leaves the blocks to the first writes.
+long allocate(int host, int mode, std::int64_t offset, std::int64_t length) {
+    struct stat status{};
+    if (::fstat(host, &status) != 0) return -to_linux_errno(errno);
+    const std::int64_t end = offset + length;
+    if (end <= status.st_size) return 0;
+    fstore_t store{};
+    store.fst_flags = F_ALLOCATEALL;
+    store.fst_posmode = F_PEOFPOSMODE;
+    store.fst_length = end - status.st_size;
+    if (::fcntl(host, F_PREALLOCATE, &store) != 0 && errno == ENOSPC) return -linux_errno::enospc;
+    if (!(mode & linux_falloc::keep_size) && ::ftruncate(host, end) != 0) return -to_linux_errno(errno);
+    return 0;
+}
+
+}  // namespace
+
+long sys_fallocate(int fd, int mode, std::int64_t offset, std::int64_t length) {
+    // vfs_fallocate's order, once the number names a file.
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (offset < 0 || length <= 0) return -linux_errno::einval;
+    if (mode & ~linux_falloc::known) return -linux_errno::eopnotsupp;
+    const int hole_or_zeros = linux_falloc::punch_hole | linux_falloc::zero_range;
+    if ((mode & hole_or_zeros) == hole_or_zeros) return -linux_errno::eopnotsupp;
+    if ((mode & linux_falloc::punch_hole) && !(mode & linux_falloc::keep_size)) return -linux_errno::eopnotsupp;
+    if ((mode & linux_falloc::collapse_range) && (mode & ~linux_falloc::collapse_range)) return -linux_errno::einval;
+    if ((mode & linux_falloc::insert_range) && (mode & ~linux_falloc::insert_range)) return -linux_errno::einval;
+    if ((mode & linux_falloc::unshare_range) && (mode & ~(linux_falloc::unshare_range | linux_falloc::keep_size))) {
+        return -linux_errno::einval;
+    }
+    // An eventfd, an epoll or a channel is open for writing and no regular file.
+    if (description->kind() != Description::Kind::file) return -linux_errno::enodev;
+    const int host = description->host();
+    const int status_flags = ::fcntl(host, F_GETFL);
+    if (status_flags >= 0 && (status_flags & O_ACCMODE) == O_RDONLY) return -linux_errno::ebadf;
+    struct stat status{};
+    if (::fstat(host, &status) != 0) return -to_linux_errno(errno);
+    if (S_ISFIFO(status.st_mode)) return -linux_errno::espipe;
+    if (S_ISDIR(status.st_mode)) return -linux_errno::eisdir;
+    if (!S_ISREG(status.st_mode)) return -linux_errno::enodev;
+    if (offset > std::numeric_limits<std::int64_t>::max() - length) return -linux_errno::efbig;
+    if (mode & ~(linux_falloc::keep_size | linux_falloc::punch_hole)) return -linux_errno::eopnotsupp;
+    const auto run = [&]() -> long {
+        return (mode & linux_falloc::punch_hole) ? punch_hole(host, offset, length) : allocate(host, mode, offset, length);
+    };
+    if (auto *file = memfd::as_file(*description)) {
+        return memfd::fallocate(*file, (mode & linux_falloc::punch_hole) != 0, offset + length, run);
+    }
+    return run();
 }
 
 long sys_fsync(int fd) {

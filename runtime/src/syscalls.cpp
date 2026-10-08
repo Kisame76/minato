@@ -13,6 +13,7 @@
 #include "host_calls.h"
 #include "identity.h"
 #include "loader_syscalls.h"
+#include "memfd.h"
 #include "proc.h"
 #include "process_exit.h"
 #include "session.h"
@@ -155,6 +156,7 @@ constexpr std::uint64_t statfs = 43;
 constexpr std::uint64_t fstatfs = 44;
 constexpr std::uint64_t truncate = 45;
 constexpr std::uint64_t ftruncate = 46;
+constexpr std::uint64_t fallocate = 47;
 constexpr std::uint64_t faccessat = 48;
 constexpr std::uint64_t chdir = 49;
 constexpr std::uint64_t fchdir = 50;
@@ -257,6 +259,7 @@ constexpr std::uint64_t sendmmsg = 269;
 constexpr std::uint64_t process_vm_readv = 270;
 constexpr std::uint64_t renameat2 = 276;
 constexpr std::uint64_t getrandom = 278;
+constexpr std::uint64_t memfd_create = 279;
 constexpr std::uint64_t userfaultfd = 282;
 constexpr std::uint64_t membarrier = 283;
 constexpr std::uint64_t faccessat2 = 439;
@@ -703,6 +706,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_prlimit64(as_int(x[0]), as_int(x[1]), x[2], x[3]);
         case nr::getrandom:
             return sys_getrandom(x[0], x[1], static_cast<unsigned>(x[2]));
+        case nr::memfd_create:
+            return apkrt::memfd::create(x[0], static_cast<unsigned>(x[1]));
         // As a kernel built without them answers, without a report (ADR-0033 decision 8): ART asks for both at
         // every start, userfaultfd for its CMC collector, which our build leaves out, and membarrier for its fault
         // handler, which then only warns.
@@ -828,6 +833,9 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_truncate(x[0], static_cast<std::int64_t>(x[1]));
         case nr::ftruncate:
             return sys_ftruncate(as_int(x[0]), static_cast<std::int64_t>(x[1]));
+        case nr::fallocate:
+            return sys_fallocate(as_int(x[0]), as_int(x[1]), static_cast<std::int64_t>(x[2]),
+                                 static_cast<std::int64_t>(x[3]));
         case nr::fsync:
         case nr::fdatasync:
             return sys_fsync(as_int(x[0]));

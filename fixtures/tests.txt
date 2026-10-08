@@ -66,6 +66,8 @@ start-test system
 kernel-test system
 # Per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 priority-test system
+# memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
+memfd-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
 # emulator's differ (its AVD's heap, a userdebug build).
 property-test system runtime-only

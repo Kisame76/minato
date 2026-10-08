@@ -13,7 +13,7 @@ get ro.debuggable: 1 "0"
 read_callback: ro.build.version.sdk = 35
 get missing.property: 0
 find missing.property: none
-foreach: 30 properties
+foreach: 32 properties
 build ro.build.id: "AE3A.240806.019"
 build ro.build.type: "user"
 build ro.build.tags: "release-keys"

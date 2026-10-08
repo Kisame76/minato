@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 namespace apkrt::sockets {
 
@@ -129,6 +130,13 @@ inline void (*place_pinned)(int folder, const std::string &name) = nullptr;
 /// Takes away the folders of abstract names in the folder `parent` that runtimes left whose processes are gone, with
 /// their files and pins: the runtime's first use of its own does it in the user's temporary folder (sys_sockets.cpp).
 void sweep_folders(int parent);
+
+/// The runtime's own folder, the folder of abstract names, made at its first use; -1 when it cannot be made. It stays
+/// open at the same descriptor for the process's life. memfd.h keeps its memfds' files there too.
+int own_folder();
+
+/// An unguessable name with `prefix` for one of the runtime's files in its own folder.
+std::string own_file_name(std::string_view prefix);
 
 }  // namespace apkrt::sockets
 

@@ -103,6 +103,11 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"ro.product.cpu.abilist32", ""},
     {"ro.product.cpu.abilist64", "arm64-v8a"},
     {"ro.sf.lcd_density", "480"},
+    // libcutils' ashmem takes memfd_create only with both (ashmem-dev.cpp, __has_memfd_support): ro.treble.enabled as
+    // on every Android 15 device, and sys.use_memfd, which Android 15 keeps off for vendor processes that make ashmem's
+    // ioctls themselves. Minato has no /dev/ashmem (the memfd step, the lead's decision).
+    {"ro.treble.enabled", "true"},
+    {"sys.use_memfd", "true"},
 };
 
 /// apkrt_set_opengles_version's, ES 3.0 until graphics/host puts ANGLE on its Vulkan backend.

@@ -161,6 +161,8 @@ add_executable(start-test suite/start-test.c)
 add_executable(kernel-test suite/kernel-test.c)
 # priority-test: per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 add_executable(priority-test suite/priority-test.c)
+# memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
+add_executable(memfd-test suite/memfd-test.c)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

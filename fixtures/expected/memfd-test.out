@@ -1,0 +1,110 @@
+a name of 249 bytes: 0
+a name of 250 bytes: -1 EINVAL
+no name: -1 EFAULT
+an unknown flag: -1 EINVAL
+MFD_EXEC with MFD_NOEXEC_SEAL: -1 EINVAL
+MFD_HUGETLB: -1 ENOSYS
+MFD_HUGETLB of 2 MB: -1 ENOSYS
+a size without MFD_HUGETLB: -1 EINVAL
+a name with a slash: /memfd:with/slash (deleted)
+memfd_create: 0
+close-on-exec: 1
+access mode: 2
+its file: regular 1, mode 777, links 0, size 0, the process's uid 1
+its link: /memfd:minato-memfd (deleted)
+its seals: 0
+ftruncate to 64 KiB: 0
+pwrite at 0: 5
+pread at 0: 5
+read: hello
+lseek to the end: 65536
+write at the end: 1
+after it: regular 1, mode 777, links 0, size 65537, the process's uid 1
+ftruncate back: 0
+a shared writable mapping: ok
+a shared read-only mapping: ok
+the other mapping sees its write: x
+pread sees it: x
+both see a pwrite: y y
+maps, the writable one: rw-s /memfd:minato-memfd (deleted)
+maps, the read-only one: r--s /memfd:minato-memfd (deleted)
+MADV_DONTNEED: 0
+kept after it: x x
+an unknown seal: -1 EINVAL
+F_SEAL_SHRINK: 0
+shrinking: -1 EPERM
+growing: 0
+F_SEAL_GROW: 0
+growing then: -1 EPERM
+the same size: 0
+pwrite past the end: -1 EPERM
+pwrite across the end: 1
+pwrite inside: 1
+fallocate inside: 0
+fallocate past the end: -1 EPERM
+fallocate past the end, keeping the size: -1 EPERM
+seals: 6
+F_SEAL_FUTURE_WRITE: 0
+write: -1 EPERM
+pwrite: -1 EPERM
+fallocate: 0
+punching a hole: -1 EPERM
+a new shared read-only mapping: ok
+mprotect to writable: -1 EACCES
+a new shared writable mapping: -1 EPERM
+a new private writable mapping: ok
+a private write stays private: q h
+the old writable mapping still writes: w
+F_SEAL_SEAL: 0
+F_SEAL_WRITE after it: -1 EPERM
+seals: 23
+reopened read-only: 0
+its seals: 23
+a seal through it: -1 EPERM
+the same file: 1
+its link: /memfd:minato-memfd (deleted)
+lseek of the first to 10: 10
+the reopened one's offset: 0
+pread through it: 5
+read: hello
+write through it: -1 EBADF
+a shared read-only mapping of it: ok
+mprotect to writable: -1 EACCES
+a shared writable mapping of it: -1 EACCES
+a dup's seals: 23
+a dup's offset: 10
+reopened writable: 0
+write through that: -1 EPERM
+pread after the first one's close: 5
+read: hello
+seals after it: 23
+another memfd: 0
+a shared writable mapping: ok
+F_SEAL_WRITE with it: -1 EBUSY
+a shared read-only mapping: ok
+F_SEAL_WRITE with that: -1 EBUSY
+a private writable mapping: ok
+F_SEAL_WRITE with that: 0
+pwrite then: -1 EPERM
+a new shared read-only mapping: -1 EPERM
+a new shared writable mapping: -1 EPERM
+a new private writable mapping: ok
+growing: 0
+a shared read-only mapping of a read-only reopen: ok
+seals: 8
+without MFD_ALLOW_SEALING: seals: 1
+a seal there: -1 EPERM
+its file: regular 1, mode 777, links 0, size 0, the process's uid 1
+MFD_NOEXEC_SEAL: seals: 32
+its file: regular 1, mode 666, links 0, size 0, the process's uid 1
+a seal there: 0
+MFD_EXEC: seals: 0
+its file: regular 1, mode 777, links 0, size 0, the process's uid 1
+F_SEAL_EXEC: 0
+seals then: 62
+a file's seals: -1 EINVAL
+a seal on a file: -1 EINVAL
+a pipe's seals: -1 EINVAL
+a seal on its read end: -1 EPERM
+a seal on its write end: -1 EINVAL
+the seals of a closed number: -1 EBADF

@@ -1,6 +1,7 @@
 // Memory syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): mmap, mprotect and
 // madvise with Linux flags on Darwin's virtual memory. Executable memory is never handed out.
 #include "descriptors.h"
+#include "memfd.h"
 #include "proc.h"
 #include "syscalls.h"
 #include "threads.h"
@@ -9,8 +10,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <functional>
+#include <memory>
 #include <mutex>
+#include <vector>
 
 namespace apkrt::sys {
 namespace {
@@ -20,6 +25,43 @@ namespace {
 /// are one step for the others. Not recursive: none of them calls another. No guest signal handler runs on a thread
 /// that holds it, as guest signals wait for the syscall's exit (signals.h).
 std::mutex memory_lock;
+
+/// The shared mappings of memfds' writable open files, which Linux counts in i_mmap_writable, each with its memfd:
+/// F_SEAL_WRITE waits for none to be left (memfd.h). Apart from one another; under memory_lock.
+struct SharedMapping {
+    std::uint64_t begin, end;
+    std::weak_ptr<memfd::Inode> inode;
+};
+std::vector<SharedMapping> shared_mappings;
+
+/// The shared mappings' parts in [begin, end) go, as proc::unmap's names do.
+void forget_shared(std::uint64_t begin, std::uint64_t end) {
+    std::vector<SharedMapping> kept;
+    for (auto &mapping : shared_mappings) {
+        if (mapping.inode.expired()) continue;
+        if (mapping.end <= begin || mapping.begin >= end) {
+            kept.push_back(std::move(mapping));
+            continue;
+        }
+        if (mapping.begin < begin) kept.push_back({mapping.begin, begin, mapping.inode});
+        if (mapping.end > end) kept.push_back({end, mapping.end, mapping.inode});
+    }
+    shared_mappings = std::move(kept);
+}
+
+/// mremap moved [from, from + old_length) to `to` with `new_length`: the shared mappings go with their pages, as
+/// proc::remap's names do.
+void move_shared(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length) {
+    const std::uint64_t kept = std::min(old_length, new_length);
+    std::vector<SharedMapping> moved;
+    for (const auto &mapping : shared_mappings) {
+        const auto begin = std::max(mapping.begin, from), end = std::min(mapping.end, from + kept);
+        if (begin < end) moved.push_back({to + (begin - from), to + (end - from), mapping.inode});
+    }
+    forget_shared(from, from + old_length);
+    forget_shared(to, to + new_length);
+    shared_mappings.insert(shared_mappings.end(), moved.begin(), moved.end());
+}
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -75,11 +117,29 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
         }
     }
     const int host_fd = description ? description->host() : -1;
+    // A shared mapping of a memfd's writable open file, which Linux 6.6 counts and checks: mmap_region refuses it after
+    // F_SEAL_WRITE (mapping_map_writable), shmem_mmap a writable one after F_SEAL_FUTURE_WRITE, and keeps a read-only
+    // one from becoming writable (VM_MAYWRITE, so that mprotect answers EACCES).
+    memfd::File *const memfd_file = description ? memfd::as_file(*description) : nullptr;
+    const bool counted = memfd_file != nullptr && type != linux_map::private_ && memfd_file->writable;
 
     const std::lock_guard lock(memory_lock);
+    bool read_only_at_most = false;
+    if (counted) {
+        const std::lock_guard seals(memfd_file->inode->mutex);
+        if (memfd_file->inode->writes_denied) return -linux_errno::eperm;
+        if (memfd_file->inode->seals & memfd::seal_future_write) {
+            if (protection & PROT_WRITE) return -linux_errno::eperm;
+            read_only_at_most = true;
+        }
+    }
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));
     if (result == MAP_FAILED) return -to_linux_errno(errno);
+    if (read_only_at_most) {
+        ::vm_protect(::mach_task_self(), reinterpret_cast<vm_address_t>(result), static_cast<vm_size_t>(length), TRUE,
+                     VM_PROT_READ);
+    }
     // MAP_FIXED_NOREPLACE: at exactly this address or not at all. Darwin takes the address as a hint
     // and places the mapping elsewhere when something is there already.
     if ((flags & linux_map::fixed_noreplace) && !(flags & linux_map::fixed) && result != wanted) {
@@ -90,7 +150,9 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     const auto begin = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(result));
     const auto end = begin + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
     proc::unmap(begin, end);
-    if (description) proc::map_file(begin, end, fd, offset);
+    forget_shared(begin, end);
+    if (description) proc::map_file(begin, end, fd, offset, type != linux_map::private_);
+    if (counted) shared_mappings.push_back({begin, end, memfd_file->inode});
     return static_cast<long>(begin);
 }
 
@@ -106,7 +168,11 @@ long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         return 0;
     }
     const long result = result_or_error(::munmap(as_pointer<void>(address), length));
-    if (result == 0) proc::unmap(address, address + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1}));
+    if (result == 0) {
+        const auto end = address + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
+        proc::unmap(address, end);
+        forget_shared(address, end);
+    }
     return result;
 }
 
@@ -118,6 +184,14 @@ void unmap_deferred(std::uint64_t start, std::uint64_t length) {
     const std::lock_guard lock(memory_lock);
     ::munmap(as_pointer<void>(start), length);
     proc::unmap(start, start + length);
+    forget_shared(start, start + length);
+}
+
+long with_shared_mappings_of(const memfd::Inode &inode, const std::function<long(bool mapped)> &call) {
+    const std::lock_guard lock(memory_lock);
+    const bool mapped = std::any_of(shared_mappings.begin(), shared_mappings.end(),
+                                    [&](const SharedMapping &mapping) { return mapping.inode.lock().get() == &inode; });
+    return call(mapped);
 }
 
 }  // namespace memory
@@ -285,7 +359,10 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         if (result >= 0 && old_length > new_length) {
             ::munmap(as_pointer<void>(address + new_length), old_length - new_length);
         }
-        if (result >= 0) proc::remap(address, old_length, new_address, new_length);
+        if (result >= 0) {
+            proc::remap(address, old_length, new_address, new_length);
+            move_shared(address, old_length, new_address, new_length);
+        }
         return result;
     }
 
@@ -295,6 +372,7 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
             return -to_linux_errno(errno);
         }
         proc::remap(address, old_length, address, new_length);
+        move_shared(address, old_length, address, new_length);
         return static_cast<long>(address);
     }
 
@@ -321,7 +399,10 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     const long result =
         move_pages(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length, old.protection, true);
     if (result < 0) ::munmap(target, new_length);
-    if (result >= 0) proc::remap(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length);
+    if (result >= 0) {
+        proc::remap(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length);
+        move_shared(address, old_length, reinterpret_cast<std::uint64_t>(target), new_length);
+    }
     return result;
 }
 
@@ -349,6 +430,33 @@ constexpr int populate_read = 22;
 constexpr int populate_write = 23;
 }  // namespace linux_madv
 
+/// MADV_DONTNEED over [begin, end) one region of the VM map at a time: MADV_ZERO for private anonymous memory, and
+/// Darwin's MADV_DONTNEED, which keeps the contents, where MADV_ZERO refuses (a file's or a shared mapping's pages).
+/// ENOMEM at a hole, as Linux answers for a part that is not mapped. Under memory_lock.
+long dont_need_by_region(std::uint64_t begin, std::uint64_t end) {
+    for (std::uint64_t at = begin; at < end;) {
+        vm_address_t region = static_cast<vm_address_t>(at);
+        vm_size_t size = 0;
+        vm_region_basic_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+        mach_port_t object = MACH_PORT_NULL;
+        if (::vm_region_64(::mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                           reinterpret_cast<vm_region_info_t>(&info), &count, &object) != KERN_SUCCESS ||
+            region > at) {
+            return -linux_errno::enomem;
+        }
+        const std::uint64_t stop = std::min<std::uint64_t>(end, region + size);
+        void *const piece = as_pointer<void>(at);
+        const auto piece_length = static_cast<std::size_t>(stop - at);
+        if (::madvise(piece, piece_length, MADV_ZERO) != 0 &&
+            ((errno != EPERM && errno != ENOTSUP) || ::madvise(piece, piece_length, MADV_DONTNEED) != 0)) {
+            return -to_linux_errno(errno);
+        }
+        at = stop;
+    }
+    return 0;
+}
+
 }  // namespace
 
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
@@ -362,9 +470,13 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
 
         case linux_madv::dontneed: {
             // Linux: private anonymous pages read back as zero afterwards, and allocators (Scudo)
-            // rely on that. Darwin's MADV_DONTNEED keeps the contents; MADV_ZERO clears them.
+            // rely on that. Darwin's MADV_DONTNEED keeps the contents; MADV_ZERO clears them. A file's or
+            // a shared mapping's pages keep theirs on Linux, which reads them again, and Darwin's MADV_ZERO
+            // refuses those (EPERM, ENOTSUP): its MADV_DONTNEED is Linux's answer there.
             const std::lock_guard lock(memory_lock);
-            return result_or_error(::madvise(start, length, MADV_ZERO));
+            if (::madvise(start, length, MADV_ZERO) == 0) return 0;
+            if (errno != EPERM && errno != ENOTSUP) return -to_linux_errno(errno);
+            return dont_need_by_region(address, address + length);
         }
 
         case linux_madv::free: {

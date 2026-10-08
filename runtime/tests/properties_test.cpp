@@ -133,6 +133,12 @@ TEST(the_earlier_values_stay) {
     CHECK(get("dalvik.vm.heapsize") == "512m");
 }
 
+TEST(libcutils_ashmem_takes_memfd_create) {
+    // ashmem-dev.cpp's __has_memfd_support wants both before it tries memfd_create; Minato has no /dev/ashmem.
+    CHECK(get("ro.treble.enabled") == "true");
+    CHECK(get("sys.use_memfd") == "true");
+}
+
 TEST(the_vulkan_driver_is_named_only_while_graphics_host_provides_vulkan) {
     // ro.hardware.vulkan names the driver that Android 15's libvulkan loads, vulkan.<value>.so (driver.cpp), and the
     // framework reports the vulkan.* features only with it (ADR-0045). graphics/host provides Vulkan with MoltenVK

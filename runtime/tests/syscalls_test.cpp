@@ -3786,6 +3786,183 @@ TEST(an_abstract_name_goes_with_its_socket) {
     pair_check();
 }
 
+// --- memfd (memfd_create, F_ADD_SEALS and F_GET_SEALS) ---------------------------------------------------------------
+
+constexpr std::uint64_t nr_memfd_create = 279, nr_fallocate = 47;
+constexpr std::uint64_t mfd_allow_sealing = 2;
+constexpr std::uint64_t f_add_seals = 1033, f_get_seals = 1034;
+constexpr std::uint64_t f_seal_shrink = 2, f_seal_grow = 4, f_seal_write = 8;
+constexpr std::uint64_t map_shared = 0x01;
+constexpr std::uint64_t falloc_keep_size = 1, falloc_punch_hole = 2, falloc_zero_range = 0x10;
+constexpr std::int64_t ebusy = 16, enodev = 19, eopnotsupp = 95;
+
+/// The memfds' files in the runtime's own folder, apkrt-unix-<pid> in the user's temporary folder.
+std::set<std::string> memfd_files() {
+    char temporary[MAXPATHLEN] = "";
+    ::confstr(_CS_DARWIN_USER_TEMP_DIR, temporary, sizeof temporary);
+    std::set<std::string> names;
+    if (DIR *directory = ::opendir((std::string(temporary) + "apkrt-unix-" + std::to_string(::getpid())).c_str())) {
+        while (const dirent *entry = ::readdir(directory)) {
+            if (std::string_view(entry->d_name).starts_with("memfd-")) names.insert(entry->d_name);
+        }
+        ::closedir(directory);
+    }
+    return names;
+}
+
+std::string link_of(std::int64_t fd) {
+    return "/proc/self/fd/" + std::to_string(fd);
+}
+
+TEST(a_memfds_seals_and_size_are_shared_by_its_dups_and_reopens) {
+    // The seals live in Linux's shmem inode: every open file of the memfd has them, a dup the same open file, a reopen
+    // through /proc/self/fd another one with its own offset.
+    const Scratch scratch;
+    const auto fd = call(nr_memfd_create, {address("shared"), mfd_allow_sealing});
+    CHECK(fd >= 0);
+    const auto duplicate = call(nr_dup, {unsigned_of(fd)});
+    const auto reopened = open_guest(at_fdcwd, link_of(fd).c_str(), o_rdwr);
+    CHECK(duplicate >= 0 && reopened >= 0 && host_of(reopened) != host_of(fd));
+    CHECK(call(nr_fcntl, {unsigned_of(reopened), f_add_seals, f_seal_grow}) == 0);
+    for (const auto each : {fd, duplicate, reopened}) {
+        CHECK(call(nr_fcntl, {unsigned_of(each), f_get_seals}) == static_cast<std::int64_t>(f_seal_grow));
+    }
+    CHECK(write_text(fd, "abc") == -eperm);  // past the end, which F_SEAL_GROW keeps where it is
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, 0}) == 0);
+    CHECK(call(nr_ftruncate, {unsigned_of(duplicate), 0}) == 0);
+    for (const auto each : {fd, duplicate, reopened}) call(nr_close, {unsigned_of(each)});
+
+    const auto second = call(nr_memfd_create, {address("offsets"), 0});
+    CHECK(write_text(second, "abc") == 3);
+    const auto again = open_guest(at_fdcwd, link_of(second).c_str(), o_rdonly);
+    const auto copy = call(nr_dup, {unsigned_of(second)});
+    CHECK(call(nr_lseek, {unsigned_of(again), 0, 1}) == 0 && call(nr_lseek, {unsigned_of(copy), 0, 1}) == 3);
+    CHECK(read_text(again, 8) == "abc");
+    for (const auto each : {second, again, copy}) call(nr_close, {unsigned_of(each)});
+}
+
+TEST(a_memfds_file_goes_with_its_last_open_file) {
+    const Scratch scratch;
+    const auto before = memfd_files();
+    const auto fd = call(nr_memfd_create, {address("kept"), 0});
+    CHECK(fd >= 0 && memfd_files().size() == before.size() + 1);
+    CHECK(call(nr_ftruncate, {unsigned_of(fd), page}) == 0);
+    const auto reopened = open_guest(at_fdcwd, link_of(fd).c_str(), o_rdonly);
+    CHECK(reopened >= 0);
+    const auto mapped = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, page, prot_read | prot_write, map_shared, unsigned_of(fd), 0}));
+    call(nr_close, {unsigned_of(fd)});
+    CHECK(memfd_files().size() == before.size() + 1);  // the reopen still has it
+    call(nr_close, {unsigned_of(reopened)});
+    CHECK(memfd_files() == before);
+    // A mapping outlives every open file of it, as on Linux.
+    auto *bytes = reinterpret_cast<volatile char *>(mapped);
+    bytes[7] = 'm';
+    CHECK(bytes[7] == 'm');
+    CHECK(call(nr_munmap, {mapped, page}) == 0);
+}
+
+TEST(a_reopen_through_proc_self_fd_takes_linuxs_open_flags) {
+    const Scratch scratch;
+    const auto fd = call(nr_memfd_create, {address("flags"), mfd_allow_sealing});
+    CHECK(write_text(fd, "abc") == 3);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, f_seal_shrink}) == 0);
+    CHECK(open_guest(at_fdcwd, link_of(fd).c_str(), o_rdwr | o_trunc) == -eperm);  // do_truncate under F_SEAL_SHRINK
+    CHECK(open_guest(at_fdcwd, link_of(fd).c_str(), o_rdonly | o_directory) == -enotdir);
+    CHECK(open_guest(at_fdcwd, link_of(fd).c_str(), o_rdwr | o_creat | o_excl, 0600) == -eexist);
+    const auto appending = open_guest(at_fdcwd, link_of(fd).c_str(), o_wronly | o_append | o_cloexec);
+    CHECK(appending >= 0 && write_text(appending, "d") == 1);
+    CHECK(call(nr_fcntl, {unsigned_of(appending), 1 /* F_GETFD */}) == 1);
+    char text[8] = {};
+    CHECK(call(nr_pread64, {unsigned_of(fd), address(text), sizeof text, 0}) == 4 && std::string(text) == "abcd");
+    for (const auto each : {fd, appending}) call(nr_close, {unsigned_of(each)});
+}
+
+TEST(f_seal_write_waits_for_every_part_of_a_shared_mapping) {
+    // Linux counts the shared mappings of a writable open file (i_mmap_writable): F_SEAL_WRITE is EBUSY while any part
+    // of one stays mapped, wherever mremap moved it, and a mapping that MAP_FIXED replaced counts no more.
+    const Scratch scratch;
+    const auto fd = call(nr_memfd_create, {address("busy"), mfd_allow_sealing});
+    CHECK(call(nr_ftruncate, {unsigned_of(fd), 4 * page}) == 0);
+    const auto mapped =
+        static_cast<std::uint64_t>(call(nr_mmap, {0, 4 * page, prot_read, map_shared, unsigned_of(fd), 0}));
+    CHECK(mapped % page == 0);
+    CHECK(call(nr_munmap, {mapped, 2 * page}) == 0);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, f_seal_write}) == -ebusy);
+    const auto target = map_anonymous_pages(2);
+    CHECK(call(nr_mremap, {mapped + 2 * page, 2 * page, 2 * page, mremap_maymove | mremap_fixed, target}) ==
+          static_cast<std::int64_t>(target));
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, f_seal_write}) == -ebusy);
+    CHECK(call(nr_munmap, {target, page}) == 0);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, f_seal_write}) == -ebusy);
+    CHECK(call(nr_munmap, {target + page, page}) == 0);
+    CHECK(call(nr_fcntl, {unsigned_of(fd), f_add_seals, f_seal_write}) == 0);
+    call(nr_close, {unsigned_of(fd)});
+
+    const auto other = call(nr_memfd_create, {address("replaced"), mfd_allow_sealing});
+    CHECK(call(nr_ftruncate, {unsigned_of(other), page}) == 0);
+    const auto shared = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, page, prot_read | prot_write, map_shared, unsigned_of(other), 0}));
+    CHECK(call(nr_fcntl, {unsigned_of(other), f_add_seals, f_seal_write}) == -ebusy);
+    CHECK(call(nr_mmap, {shared, page, prot_read | prot_write, map_private | map_anonymous | map_fixed, ~0ull, 0}) ==
+          static_cast<std::int64_t>(shared));
+    CHECK(call(nr_fcntl, {unsigned_of(other), f_add_seals, f_seal_write}) == 0);
+    CHECK(call(nr_munmap, {shared, page}) == 0);
+    call(nr_close, {unsigned_of(other)});
+}
+
+TEST(a_memfds_mode_and_owner_are_set_by_nobody) {
+    // SELinux refuses setattr on a memfd's label, appdomain_tmpfs [verified: the emulator, 2026-10-08]; fstat
+    // shows the app's ids, the mode memfd_create gave and no link.
+    const Scratch scratch;
+    const auto fd = call(nr_memfd_create, {address("attributes"), 0});
+    CHECK(call(nr_fchmod, {unsigned_of(fd), 0600}) == -eacces);
+    CHECK(call(nr_fchown, {unsigned_of(fd), 10100, 10100}) == -eacces);
+    LinuxStat status{};
+    CHECK(call(nr_fstat, {unsigned_of(fd), address(&status)}) == 0);
+    CHECK((status.mode & 0170000) == 0100000 && (status.mode & 07777) == 0777 && status.nlink == 0);
+    CHECK(status.uid == 10100 && status.gid == 10100);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(fcntl_looks_at_the_number_before_the_command) {
+    CHECK(call(nr_fcntl, {999, f_get_seals}) == -ebadf);
+    CHECK(call(nr_fcntl, {999, 9999}) == -ebadf);
+}
+
+TEST(fallocate_answers_as_linux_for_files_and_for_what_is_none) {
+    // vfs_fallocate's checks, then the file's: an allocation that grows the file, one that keeps its size, and a hole,
+    // which reads as zeros. ZERO_RANGE, COLLAPSE_RANGE and INSERT_RANGE are EOPNOTSUPP, as on tmpfs.
+    const Scratch scratch;
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/sized", o_creat | o_rdwr, 0600);
+    CHECK(write_text(fd, "0123456789") == 10);
+    LinuxStat status{};
+    const auto size = [&] {
+        call(nr_fstat, {unsigned_of(fd), address(&status)});
+        return status.size;
+    };
+    CHECK(call(nr_fallocate, {unsigned_of(fd), 0, 0, 100}) == 0 && size() == 100);
+    CHECK(call(nr_fallocate, {unsigned_of(fd), falloc_keep_size, 0, 200}) == 0 && size() == 100);
+    CHECK(call(nr_fallocate, {unsigned_of(fd), falloc_punch_hole | falloc_keep_size, 2, 3}) == 0 && size() == 100);
+    CHECK(scratch.contents("sized").substr(0, 10) == std::string("01\0\0\0" "56789", 10));
+    CHECK(call(nr_fallocate, {unsigned_of(fd), falloc_punch_hole, 0, 1}) == -eopnotsupp);  // without KEEP_SIZE
+    CHECK(call(nr_fallocate, {unsigned_of(fd), falloc_zero_range, 0, 1}) == -eopnotsupp);
+    CHECK(call(nr_fallocate, {unsigned_of(fd), 0x100, 0, 1}) == -eopnotsupp);
+    CHECK(call(nr_fallocate, {unsigned_of(fd), 0, unsigned_of(-1), 1}) == -einval);
+    CHECK(call(nr_fallocate, {unsigned_of(fd), 0, 0, 0}) == -einval);
+    const auto reader = open_guest(at_fdcwd, "/data/local/tmp/sized", o_rdonly);
+    CHECK(call(nr_fallocate, {unsigned_of(reader), 0, 0, 1}) == -ebadf);
+    int ends[2];
+    guest_pipe(ends);
+    CHECK(call(nr_fallocate, {unsigned_of(ends[1]), 0, 0, 1}) == -espipe);
+    const auto socket = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_fallocate, {unsigned_of(socket), 0, 0, 1}) == -enodev);
+    CHECK(call(nr_fallocate, {999, 0, 0, 1}) == -ebadf);
+    for (const auto each : {fd, reader, std::int64_t{ends[0]}, std::int64_t{ends[1]}, socket}) {
+        call(nr_close, {unsigned_of(each)});
+    }
+}
+
 }  // namespace
 
 int main() {

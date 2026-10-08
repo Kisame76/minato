@@ -1896,6 +1896,16 @@ long transfer_message(descriptors::Description &description, bool writing, const
     return receive_message(socket, message, 0, &from);
 }
 
+int own_folder() {
+    auto &names = unix_names();
+    const std::lock_guard lock(names.mutex);
+    return abstract_folder(names);
+}
+
+std::string own_file_name(std::string_view prefix) {
+    return unguessable_name(prefix);
+}
+
 }  // namespace apkrt::sockets
 
 // --- The syscalls ------------------------------------------------------------------------------------------------

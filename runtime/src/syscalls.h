@@ -11,7 +11,12 @@
 #include <time.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
+
+namespace apkrt::memfd {
+struct Inode;
+}  // namespace apkrt::memfd
 
 namespace apkrt::sys {
 
@@ -36,6 +41,7 @@ constexpr long enotdir = 20;
 constexpr long eisdir = 21;
 constexpr long einval = 22;
 constexpr long enotty = 25;
+constexpr long efbig = 27;
 constexpr long enospc = 28;
 constexpr long espipe = 29;
 constexpr long erofs = 30;
@@ -254,6 +260,10 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice);
 namespace memory {
 /// The munmap that sys_munmap deferred for a guest thread's own stack, once the thread is off it (threads.cpp).
 void unmap_deferred(std::uint64_t start, std::uint64_t length);
+/// Runs `call` with the VM map's lock held, so that no mapping comes or goes meanwhile, and tells it whether a shared
+/// mapping of a writable open file of the memfd `inode` is mapped anywhere, which Linux's i_mmap_writable counts:
+/// F_SEAL_WRITE waits for none (memfd.h).
+long with_shared_mappings_of(const memfd::Inode &inode, const std::function<long(bool mapped)> &call);
 /// Tests only: sys_mremap calls it between its look at the VM map and its change.
 extern void (*test_pause)();
 /// Copies `length` bytes of the process's memory from `source` to `target` as the kernel copies between user
@@ -328,6 +338,10 @@ long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset);
 long sys_fchmod(int fd, int mode);
 long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group);
 long sys_ftruncate(int fd, std::int64_t length);
+/// fallocate with vfs_fallocate's checks: an allocation that grows the file or keeps its size, and a hole
+/// (FALLOC_FL_PUNCH_HOLE with FALLOC_FL_KEEP_SIZE) that reads as zeros; the other modes are EOPNOTSUPP, as on tmpfs
+/// (f2fs and ext4 have ZERO_RANGE, COLLAPSE_RANGE and INSERT_RANGE). A memfd's seals apply (memfd.h).
+long sys_fallocate(int fd, int mode, std::int64_t offset, std::int64_t length);
 /// fsync and fdatasync: Darwin's fsync is what Linux's fdatasync promises and more.
 long sys_fsync(int fd);
 long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument);

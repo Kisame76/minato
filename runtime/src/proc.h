@@ -25,8 +25,9 @@ void set_main_thread(pthread_t thread, std::string_view program);
 
 /// A file the guest maps with sys_mmap through its descriptor `fd`, at [begin, end) from file offset `offset`:
 /// /proc/self/maps and smaps name that range by the file's guest path, with its device and inode, as Linux shows
-/// a file's mapping, until an unmap, a mapping over it or mremap changes the range.
-void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset);
+/// a file's mapping, until an unmap, a mapping over it or mremap changes the range. A `shared` one (MAP_SHARED)
+/// shows "s" where a private one shows "p" (VM_MAYSHARE).
+void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset, bool shared = false);
 
 /// [begin, end) is unmapped, or another mapping replaces it: the names of files there go.
 void unmap(std::uint64_t begin, std::uint64_t end);
@@ -43,6 +44,10 @@ std::optional<long> open(std::string_view path, int linux_flags);
 /// the target written to `buffer`, cut at `size` and not terminated, as readlink writes it, or -errno;
 /// nullopt for every other path.
 std::optional<long> read_link(std::string_view path, char *buffer, std::size_t size);
+
+/// The descriptor that `path`, an absolute guest path in normal form, names as /proc/self/fd/<n> or /proc/<pid>/fd/<n>;
+/// nullopt for every other path.
+std::optional<int> descriptor_entry(std::string_view path);
 
 /// sysinfo(2): Linux's struct sysinfo at `address`, with the memory /proc/meminfo shows. 0, or -EFAULT for NULL.
 long sysinfo(std::uint64_t address);
