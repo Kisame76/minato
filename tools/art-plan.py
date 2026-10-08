@@ -65,11 +65,12 @@ TREE = {
 GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog", "libz"]
 
 # What the plan builds: the libraries ART loads at start or links, in its release and its debug flavor, and the
-# launcher (ADR-0033 decisions 2, 10 and 11); and Conscrypt's JNI library, which runtime/art/modules.bp links with
-# BoringSSL (ADR-0046 c). What they link comes with them.
+# launcher (ADR-0033 decisions 2, 10 and 11); Conscrypt's JNI library, which runtime/art/modules.bp links with
+# BoringSSL (ADR-0046 c); and ICU's shim libandroidicu, which libsqlite and other platform libraries link instead of
+# libicuuc and libicui18n, as on Android (the compatibility plan's gap 7). What they link comes with them.
 LIBRARIES = ["libart", "libartd", "libopenjdkjvm", "libopenjdkjvmd", "libjavacore", "libopenjdk", "libopenjdkd",
              "libicu_jni", "libartpalette-system", "libsigchain", "libnativehelper", "libnativeloader",
-             "libjavacrypto"]
+             "libjavacrypto", "libandroidicu"]
 # dalvikvm, and boringssl-test of runtime/art/modules.bp (ADR-0046 b).
 PROGRAMS = ["dalvikvm", "boringssl-test"]
 

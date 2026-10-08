@@ -32,6 +32,9 @@ RELEASE = ["libart", "libopenjdkjvm", "libjavacore", "libopenjdk", "libicu_jni",
 DEBUG = ["libartd", "libopenjdkjvmd", "libopenjdkd"]
 # Conscrypt's JNI library, which conscrypt.jar loads (ADR-0046 c).
 CONSCRYPT = ["libjavacrypto"]
+# ICU's shim with the *_android names, which libsqlite and other platform libraries link instead of libicuuc and
+# libicui18n, as on Android (the compatibility plan's gap 7).
+ICU_SHIM = ["libandroidicu"]
 PROGRAMS = ["dalvikvm"]
 # The guest system's libraries that ART links. Minato's bionic build makes them and ART's build none, so that the
 # guest has one of each (ADR-0033 decision 2).
@@ -199,8 +202,16 @@ def main():
         by_soname.setdefault("libc++_shared.so", Library(libcxx, toolchain))
     own = [library for library in by_soname.values() if library.path.startswith(os.path.join(art, "lib"))]
 
-    for name in RELEASE + DEBUG + CONSCRYPT:
+    for name in RELEASE + DEBUG + CONSCRYPT + ICU_SHIM:
         check(f"{name}.so" in by_soname and by_soname[f"{name}.so"] in own, f"{name}.so is not in {art}/lib")
+    shim = by_soname.get("libandroidicu.so")
+    if shim is not None:
+        # Every name of its map, at its version (LIBANDROIDICU_EXTERNAL_1).
+        with open(os.path.join(sources, "icu", "libandroidicu", "libandroidicu.map.txt")) as handle:
+            names = set(re.findall(r"^\s+(\w+_android);", handle.read(), re.MULTILINE))
+        lacking = sorted(name for name in names if name not in shim.provides)
+        check(names and not lacking, f"libandroidicu.so lacks {len(lacking)} of its map's {len(names)} names: "
+                                     f"{', '.join(lacking[:8])}")
     for name in SYSTEM:
         check(os.path.exists(os.path.join(bionic, f"{name}.so")), f"{name}.so is not in {bionic}")
         check(not os.path.exists(os.path.join(art, "lib", f"{name}.so")),
