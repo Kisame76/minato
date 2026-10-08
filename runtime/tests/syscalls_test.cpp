@@ -3985,6 +3985,545 @@ TEST(fallocate_answers_as_linux_for_files_and_for_what_is_none) {
     }
 }
 
+// --- Netlink and the interfaces (ADR-0054 step c) --------------------------------------------------------------------
+// netlink_test checks the names and the kernel's bytes, fixtures/suite/ifaddrs-test bionic's getifaddrs and the ioctls
+// against Android 15. Here: the socket around them, and what SELinux refuses an app, which the shell that runs the
+// fixtures on Android may do.
+
+constexpr std::uint64_t nr_setsockopt = 208, nr_getsockopt = 209, nr_shutdown = 210;
+constexpr std::uint64_t af_inet = 2, af_inet6 = 10, af_netlink = 16, sock_raw = 3;
+constexpr std::uint64_t sol_socket = 1, so_type = 3, so_protocol = 38, so_domain = 39, sol_netlink = 270;
+constexpr std::uint64_t netlink_add_membership = 1, netlink_drop_membership = 2, netlink_listen_all_nsid = 8,
+                        netlink_list_memberships = 9, netlink_ext_ack = 11;
+constexpr std::uint64_t msg_peek = 2, msg_trunc = 0x20;
+constexpr std::uint64_t siocgifname = 0x8910, siocgifconf = 0x8912, siocgifflags = 0x8913, siocgifaddr = 0x8915,
+                        siocgifdstaddr = 0x8917, siocgifbrdaddr = 0x8919, siocgifnetmask = 0x891b,
+                        siocgifmtu = 0x8921, siocgifhwaddr = 0x8927, siocgifindex = 0x8933;
+constexpr std::uint64_t fionread = 0x541b, fionbio = 0x5421;
+constexpr std::int64_t enoprotoopt = 92, esocktnosupport = 94;
+
+/// Linux's sockaddr_nl.
+struct LinuxNetlinkName {
+    std::uint16_t family = af_netlink, pad = 0;
+    std::uint32_t port = 0, groups = 0;
+};
+static_assert(sizeof(LinuxNetlinkName) == 12);
+
+/// RTM_GETADDR's dump as bionic's NetlinkConnection asks for it (or `type` with its flags).
+struct NetlinkRequest {
+    std::uint32_t length = 20;
+    std::uint16_t type = 22, flags = 0x301;  // NLM_F_REQUEST | NLM_F_DUMP
+    std::uint32_t sequence = 1, port = 0;
+    unsigned char family = 0, pad[3] = {};
+};
+static_assert(sizeof(NetlinkRequest) == 20);
+
+/// Linux's sockaddr_in.
+struct LinuxInetName {
+    std::uint16_t family, port;
+    std::uint32_t address;
+    unsigned char zero[8];
+};
+
+/// Linux's struct ifreq on arm64: the name, then a union of 24 bytes.
+struct LinuxIfreq {
+    char name[16] = {};
+    union {
+        LinuxInetName in;
+        std::int16_t flags;
+        std::int32_t value;  // ifr_ifindex, ifr_mtu
+        unsigned char raw[24];
+    };
+};
+static_assert(sizeof(LinuxIfreq) == 40);
+
+LinuxIfreq ifreq_of(const char *name) {
+    LinuxIfreq request{};
+    std::memset(request.raw, 0, sizeof request.raw);
+    std::strncpy(request.name, name, sizeof request.name - 1);
+    return request;
+}
+
+std::int64_t netlink_socket(std::uint64_t type = sock_raw) {
+    return call(nr_socket, {af_netlink, type | sock_cloexec, 0});
+}
+
+std::uint32_t port_of(std::int64_t fd) {
+    LinuxNetlinkName name;
+    std::uint32_t length = sizeof name;
+    CHECK(call(nr_getsockname, {unsigned_of(fd), address(&name), address(&length)}) == 0);
+    CHECK(length == 12 && name.family == af_netlink && name.groups == 0);
+    return name.port;
+}
+
+std::int64_t send_request(std::int64_t fd, const NetlinkRequest &request) {
+    return call(nr_sendto, {unsigned_of(fd), address(&request), sizeof request, 0, 0, 0});
+}
+
+/// The messages of the datagrams that answer a dump, up to NLMSG_DONE, which must be there already.
+std::vector<std::string> dump_messages(std::int64_t fd, std::uint32_t sequence) {
+    std::vector<std::string> messages;
+    for (int datagram = 0; datagram < 64; ++datagram) {
+        std::string buffer(16384, '\0');
+        LinuxNetlinkName from;
+        from.family = 0;
+        std::uint32_t from_length = sizeof from;
+        const auto got = call(nr_recvfrom, {unsigned_of(fd), address(buffer.data()), buffer.size(), msg_dontwait,
+                                            address(&from), address(&from_length)});
+        CHECK(got > 0);
+        if (got <= 0) return messages;
+        CHECK(from_length == 12 && from.family == af_netlink && from.port == 0 && from.groups == 0);  // the kernel
+        std::size_t at = 0;
+        while (at + 16 <= static_cast<std::size_t>(got)) {
+            std::uint32_t length, seq, pid;
+            std::uint16_t type;
+            std::memcpy(&length, buffer.data() + at, 4);
+            std::memcpy(&type, buffer.data() + at + 4, 2);
+            std::memcpy(&seq, buffer.data() + at + 8, 4);
+            std::memcpy(&pid, buffer.data() + at + 12, 4);
+            CHECK(length >= 16 && at + length <= static_cast<std::size_t>(got) && seq == sequence);
+            CHECK(pid == port_of(fd));
+            if (length < 16 || at + length > static_cast<std::size_t>(got)) return messages;
+            if (type == 3) return messages;  // NLMSG_DONE
+            messages.push_back(buffer.substr(at, length));
+            at += (length + 3) & ~3u;
+        }
+    }
+    CHECK(false);  // no NLMSG_DONE
+    return messages;
+}
+
+/// An RTM_NEWADDR message's family, prefix, scope and index, and its attributes by type.
+struct NewAddress {
+    int family = 0, prefix = 0, scope = 0;
+    std::uint32_t index = 0;
+    std::map<int, std::string> attributes;
+};
+
+NewAddress parse_new_address(const std::string &message) {
+    NewAddress result;
+    std::uint16_t type;
+    std::memcpy(&type, message.data() + 4, 2);
+    CHECK(type == 20 && message.size() >= 24);
+    if (type != 20 || message.size() < 24) return result;
+    result.family = static_cast<unsigned char>(message[16]);
+    result.prefix = static_cast<unsigned char>(message[17]);
+    result.scope = static_cast<unsigned char>(message[19]);
+    std::memcpy(&result.index, message.data() + 20, 4);
+    for (std::size_t at = 24; at + 4 <= message.size();) {
+        std::uint16_t length, kind;
+        std::memcpy(&length, message.data() + at, 2);
+        std::memcpy(&kind, message.data() + at + 2, 2);
+        if (length < 4 || at + length > message.size()) break;
+        result.attributes[kind] = message.substr(at + 4, length - 4);
+        at += (length + 3u) & ~3u;
+    }
+    return result;
+}
+
+TEST(an_app_may_open_netlink_route_alone) {
+    CHECK(stderr_of([] {
+              for (const std::uint64_t type : {sock_raw, sock_dgram, sock_dgram | sock_nonblock}) {
+                  const auto fd = netlink_socket(type);
+                  CHECK(fd >= 0);
+                  call(nr_close, {unsigned_of(fd)});
+              }
+              CHECK(call(nr_socket, {af_netlink, sock_stream, 0}) == -esocktnosupport);
+              CHECK(call(nr_socket, {af_netlink, sock_seqpacket, 0}) == -esocktnosupport);
+              // SELinux lets an app create no other netlink socket (app_neverallows.te), before the kernel's checks.
+              for (const std::uint64_t protocol : {4ull, 7ull, 9ull, 15ull, 16ull, 31ull, 99ull}) {
+                  CHECK(call(nr_socket, {af_netlink, sock_dgram, protocol}) == -eacces);
+              }
+              CHECK(call(nr_socket, {af_netlink, sock_stream, 15}) == -eacces);
+              CHECK(call(nr_socketpair, {af_netlink, sock_raw, 0, address(nullptr)}) == -eopnotsupp);
+              CHECK(call(nr_socketpair, {af_netlink, sock_stream, 0, address(nullptr)}) == -esocktnosupport);
+              CHECK(call(nr_socketpair, {af_netlink, sock_raw, 15, address(nullptr)}) == -eacces);
+          }).empty());
+}
+
+TEST(netlink_bind_is_refused_and_the_port_comes_with_the_first_send) {
+    CHECK(in_child([] {
+        const auto fd = netlink_socket();
+        CHECK(port_of(fd) == 0);
+        LinuxNetlinkName name;
+        CHECK(call(nr_bind, {unsigned_of(fd), address(&name), sizeof name}) == -eacces);  // SELinux: no bind for apps
+        name.groups = 1;
+        CHECK(call(nr_bind, {unsigned_of(fd), address(&name), sizeof name}) == -eacces);
+        CHECK(call(nr_bind, {unsigned_of(fd), address(&name), 4}) == -eacces);
+        CHECK(send_request(fd, NetlinkRequest{}) == 20);
+        CHECK(port_of(fd) == static_cast<std::uint32_t>(::getpid()));  // netlink_autobind: the process's ID first
+        LinuxNetlinkName peer;
+        peer.family = 0;
+        std::uint32_t length = sizeof peer;
+        CHECK(call(nr_getpeername, {unsigned_of(fd), address(&peer), address(&length)}) == 0);
+        CHECK(length == 12 && peer.family == af_netlink && peer.port == 0);
+        const auto second = netlink_socket();
+        CHECK(send_request(second, NetlinkRequest{}) == 20);
+        CHECK(static_cast<std::int32_t>(port_of(second)) <= -4097);  // then a random negative one
+        for (const auto each : {fd, second}) call(nr_close, {unsigned_of(each)});
+        // The process's ID is free again once its socket is gone.
+        const auto third = netlink_socket();
+        CHECK(send_request(third, NetlinkRequest{}) == 20 && port_of(third) == static_cast<std::uint32_t>(::getpid()));
+        call(nr_close, {unsigned_of(third)});
+    }));
+}
+
+TEST(an_address_dump_answers_los_two_addresses_through_recv) {
+    const auto fd = netlink_socket();
+    NetlinkRequest request;
+    request.sequence = 42;
+    const LinuxNetlinkName kernel;
+    CHECK(call(nr_sendto, {unsigned_of(fd), address(&request), sizeof request, 0, address(&kernel), sizeof kernel}) ==
+          20);
+    bool inet = false, inet6 = false;
+    for (const auto &message : dump_messages(fd, 42)) {
+        const auto parsed = parse_new_address(message);
+        if (parsed.index != 1) continue;
+        if (parsed.family == af_inet) {
+            CHECK(!inet && parsed.prefix == 8 && parsed.scope == 254);
+            CHECK(parsed.attributes.at(2) == std::string("\x7f\0\0\x01", 4));  // IFA_LOCAL
+            CHECK(parsed.attributes.at(3) == std::string("lo\0", 3));  // IFA_LABEL
+            inet = true;
+        } else if (parsed.family == af_inet6) {
+            CHECK(!inet6 && parsed.prefix == 128 && parsed.scope == 254);
+            CHECK(parsed.attributes.at(1) == std::string(15, '\0') + '\x01');
+            inet6 = true;
+        }
+    }
+    CHECK(inet && inet6);
+    std::string rest(64, '\0');
+    CHECK(call(nr_recvfrom, {unsigned_of(fd), address(rest.data()), rest.size(), msg_dontwait, 0, 0}) == -eagain);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_netlink_datagram_is_read_whole_or_cut_as_linux_cuts_it) {
+    const auto fd = netlink_socket(sock_raw | sock_nonblock);  // a read that finds nothing fails at once
+    const NetlinkRequest request;
+    CHECK(write_text(fd, std::string(reinterpret_cast<const char *>(&request), 20)) == 20);  // write is send
+    char small[16];
+    const auto whole =
+        call(nr_recvfrom, {unsigned_of(fd), address(small), sizeof small, msg_peek | msg_trunc | msg_dontwait, 0, 0});
+    CHECK(whole > 16);
+    iovec vector{small, sizeof small};
+    struct {
+        std::uint64_t name = 0;
+        std::uint32_t name_length = 0, pad = 0;
+        std::uint64_t vectors, vector_count = 1, control = 0, control_length = 0;
+        std::int32_t flags = 0;
+        std::uint32_t pad2 = 0;
+    } header;
+    header.vectors = address(&vector);
+    CHECK(call(nr_recvmsg, {unsigned_of(fd), address(&header), msg_dontwait}) == 16);
+    CHECK((header.flags & 0x20) != 0);  // MSG_TRUNC
+    std::string next(16384, '\0');
+    const auto read = call(nr_read, {unsigned_of(fd), address(next.data()), next.size()});  // read is recv
+    CHECK(read > 0 && read != whole);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(selinux_refuses_an_app_the_link_dump_on_its_socket) {
+    const auto fd = netlink_socket();
+    NetlinkRequest request;
+    request.type = 18;  // RTM_GETLINK
+    CHECK(send_request(fd, request) == -eacces);
+    char buffer[64];
+    CHECK(call(nr_recvfrom, {unsigned_of(fd), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == -eagain);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(netlink_connect_and_sendto_take_the_kernel_alone) {
+    const auto fd = netlink_socket();
+    LinuxNetlinkName name;
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&name), sizeof name}) == 0);
+    CHECK(port_of(fd) != 0);  // a connect binds, as a send does
+    name.port = 1234;
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&name), sizeof name}) == -eperm);  // no NL_CFG_F_NONROOT_SEND
+    name.port = 0;
+    name.groups = 1;
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&name), sizeof name}) == -eperm);
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&name), 4}) == -einval);
+    const std::uint16_t unspecified = 0;
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&unspecified), sizeof unspecified}) == 0);
+    const std::uint16_t inet_family = af_inet;
+    CHECK(call(nr_connect, {unsigned_of(fd), address(&inet_family), sizeof inet_family}) == -einval);
+    const NetlinkRequest request;
+    name.groups = 0;
+    name.port = 5;
+    CHECK(call(nr_sendto, {unsigned_of(fd), address(&request), sizeof request, 0, address(&name), sizeof name}) ==
+          -eperm);
+    name.port = 0;
+    CHECK(call(nr_sendto, {unsigned_of(fd), address(&request), sizeof request, 0, address(&name), 8}) == -einval);
+    name.family = af_inet;
+    CHECK(call(nr_sendto, {unsigned_of(fd), address(&request), sizeof request, 0, address(&name), sizeof name}) ==
+          -einval);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(netlink_options_are_linuxs) {
+    const auto fd = netlink_socket();
+    std::int32_t value = 0;
+    std::uint32_t length = sizeof value;
+    const auto get = [&](std::uint64_t level, std::uint64_t name) {
+        value = -1;
+        length = sizeof value;
+        return call(nr_getsockopt, {unsigned_of(fd), level, name, address(&value), address(&length)});
+    };
+    const auto set = [&](std::uint64_t level, std::uint64_t name, std::int32_t to) {
+        return call(nr_setsockopt, {unsigned_of(fd), level, name, address(&to), sizeof to});
+    };
+    CHECK(get(sol_socket, so_type) == 0 && value == sock_raw);
+    CHECK(get(sol_socket, so_protocol) == 0 && value == 0);  // NETLINK_ROUTE
+    CHECK(get(sol_socket, so_domain) == 0 && value == af_netlink);
+    CHECK(set(sol_netlink, netlink_add_membership, 5) == 0);  // RTNLGRP_IPV4_IFADDR
+    CHECK(set(sol_netlink, netlink_add_membership, 0) == -einval);
+    CHECK(set(sol_netlink, netlink_add_membership, 37) == -einval);  // past RTNLGRP_MAX
+    CHECK(set(sol_netlink, netlink_add_membership, 30) == -eperm);  // RTNLGRP_IPV4_MROUTE_R needs CAP_NET_ADMIN
+    std::uint32_t groups[2] = {};
+    std::uint32_t groups_length = sizeof groups;
+    CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_netlink, netlink_list_memberships, address(groups),
+                               address(&groups_length)}) == 0);
+    CHECK(groups_length == 8 && groups[0] == 1u << 4 && groups[1] == 0);  // 36 groups in two words
+    CHECK(set(sol_netlink, netlink_drop_membership, 5) == 0);
+    CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_netlink, netlink_list_memberships, address(groups),
+                               address(&groups_length)}) == 0 && groups[0] == 0);
+    CHECK(set(sol_netlink, netlink_ext_ack, 1) == 0 && get(sol_netlink, netlink_ext_ack) == 0 && value == 1);
+    CHECK(set(sol_netlink, netlink_listen_all_nsid, 1) == -eperm);
+    CHECK(set(sol_netlink, 99, 1) == -enoprotoopt);
+    CHECK(set(0 /* IPPROTO_IP */, 1, 1) == -enoprotoopt);
+    CHECK(get(0, 1) == -enoprotoopt);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(netlink_sockets_refuse_ioctls_listen_accept_and_shutdown) {
+    const auto fd = netlink_socket();
+    auto lo = ifreq_of("lo");
+    CHECK(stderr_of([&] {
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, address(&lo)}) == -eacces);  // no ioctl for apps
+              std::int32_t available = 0;
+              CHECK(call(nr_ioctl, {unsigned_of(fd), fionread, address(&available)}) == -enotty);
+              std::int32_t on = 1;
+              CHECK(call(nr_ioctl, {unsigned_of(fd), fionbio, address(&on)}) == 0);
+          }).empty());
+    CHECK(call(nr_listen, {unsigned_of(fd), 1}) == -eopnotsupp);
+    CHECK(call(nr_accept4, {unsigned_of(fd), 0, 0, 0}) == -eopnotsupp);
+    CHECK(call(nr_shutdown, {unsigned_of(fd), 2}) == -eopnotsupp);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(ifreq_ioctls_answer_for_lo_on_an_inet_socket) {
+    const auto fd = call(nr_socket, {af_inet, sock_dgram | sock_cloexec, 0});
+    CHECK(stderr_of([&] {
+              auto request = ifreq_of("lo");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, address(&request)}) == 0 && request.value == 1);
+              request = ifreq_of("");
+              request.value = 1;
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifname, address(&request)}) == 0 &&
+                    std::string(request.name) == "lo");
+              request = ifreq_of("lo");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifflags, address(&request)}) == 0 && request.flags == 0x49);
+              request = ifreq_of("lo");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifmtu, address(&request)}) == 0 && request.value == 65536);
+              const std::pair<std::uint64_t, std::uint32_t> addresses[] = {
+                  {siocgifaddr, 0x0100007f}, {siocgifnetmask, 0x000000ff}, {siocgifbrdaddr, 0},
+                  {siocgifdstaddr, 0x0100007f}};
+              for (const auto &[number, expected] : addresses) {
+                  request = ifreq_of("lo");
+                  CHECK(call(nr_ioctl, {unsigned_of(fd), number, address(&request)}) == 0);
+                  CHECK(request.in.family == af_inet && request.in.address == expected);
+              }
+              for (const char *none : {"minato0", "lo0", "en0"}) {  // the host's names are none of the guest's
+                  for (const auto number : {siocgifindex, siocgifflags, siocgifmtu, siocgifaddr}) {
+                      request = ifreq_of(none);
+                      CHECK(call(nr_ioctl, {unsigned_of(fd), number, address(&request)}) == -enodev);
+                  }
+              }
+              // An alias's label: dev_ioctl looks up what comes before the colon, devinet_ioctl the whole label.
+              request = ifreq_of("lo:9");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, address(&request)}) == 0 && request.value == 1);
+              request = ifreq_of("lo:9");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifaddr, address(&request)}) == -99);  // EADDRNOTAVAIL
+              request = ifreq_of("");
+              request.value = 999;
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifname, address(&request)}) == -enodev);
+              request = ifreq_of("lo");
+              CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifhwaddr, address(&request)}) == -eacces);  // SELinux
+          }).empty());
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(siocgifconf_lists_the_ipv4_addresses_lo_first) {
+    const auto fd = call(nr_socket, {af_inet6, sock_dgram | sock_cloexec, 0});
+    struct {
+        std::int32_t length, pad;
+        std::uint64_t buffer;
+    } conf{0, 0, 0};
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == 0);
+    const std::int32_t needed = conf.length;  // the size it needs: one ifreq per address
+    std::vector<LinuxIfreq> all(64);
+    conf.length = static_cast<std::int32_t>(all.size() * sizeof(LinuxIfreq));
+    conf.buffer = address(all.data());
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == 0);
+    CHECK(needed >= 40 && conf.length == needed);
+    LinuxIfreq first[2];
+    conf.length = 40;
+    conf.buffer = address(first);
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == 0);
+    CHECK(conf.length == 40 && std::string(first[0].name) == "lo" && first[0].in.family == af_inet &&
+          first[0].in.address == 0x0100007f);
+    auto request = ifreq_of("lo");
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, address(&request)}) == 0 && request.value == 1);
+    request = ifreq_of("lo");
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifaddr, address(&request)}) == -enotty);  // AF_INET's alone
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(ifreq_ioctls_on_an_af_unix_socket_are_refused) {
+    const auto fd = call(nr_socket, {af_unix, sock_dgram | sock_cloexec, 0});
+    auto request = ifreq_of("lo");
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, address(&request)}) == -eacces);
+    struct {
+        std::int32_t length, pad;
+        std::uint64_t buffer;
+    } conf{0, 0, 0};
+    CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == -eacces);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+// The lead's review of c1 (a reviewer subagent's findings, 2026-10-08).
+
+constexpr std::int64_t emsgsize = 90;
+
+/// Two pages of the guest's, the second unmapped: an address `before` bytes ahead of the hole.
+std::uint64_t ahead_of_a_hole(std::uint64_t before) {
+    const auto start = map_anonymous_pages(2);
+    CHECK(call(nr_munmap, {start + page, page}) == 0);
+    return start + page - before;
+}
+
+TEST(a_netlink_send_checks_its_length_before_reading_and_faults_for_what_it_cannot_read) {
+    // In a child, so that a read into the hole ends there.
+    CHECK(in_child([] {
+        const auto fd = netlink_socket();
+        const auto edge = ahead_of_a_hole(64);
+        const NetlinkRequest request;
+        std::memcpy(reinterpret_cast<void *>(edge), &request, sizeof request);
+        // Longer than the send buffer: EMSGSIZE before a byte is read, the hole included; SIZE_MAX is cut to
+        // MAX_RW_COUNT.
+        CHECK(call(nr_sendto, {unsigned_of(fd), edge, 1 << 20, 0, 0, 0}) == -emsgsize);
+        CHECK(call(nr_sendto, {unsigned_of(fd), edge, ~std::uint64_t{0}, 0, 0, 0}) == -emsgsize);
+        CHECK(call(nr_write, {unsigned_of(fd), edge, ~std::uint64_t{0}}) == -emsgsize);
+        // Within it, but into the hole: EFAULT, and nothing answered.
+        CHECK(call(nr_sendto, {unsigned_of(fd), edge, 100, 0, 0, 0}) == -efault);
+        char nothing[64];
+        CHECK(call(nr_recvfrom, {unsigned_of(fd), address(nothing), sizeof nothing, msg_dontwait, 0, 0}) == -eagain);
+        // A name in the hole: EFAULT.
+        CHECK(call(nr_sendto, {unsigned_of(fd), edge, 20, 0, edge + 60, 12}) == -efault);
+        // The request whole before the hole is answered.
+        CHECK(call(nr_sendto, {unsigned_of(fd), edge, 20, 0, 0, 0}) == 20);
+        call(nr_close, {unsigned_of(fd)});
+    }));
+}
+
+TEST(a_netlink_receive_buffer_is_linuxs_number_and_the_dump_comes_whole) {
+    const auto fd = netlink_socket();
+    const std::int32_t small = 256;
+    CHECK(call(nr_setsockopt, {unsigned_of(fd), sol_socket, 8 /* SO_RCVBUF */, address(&small), sizeof small}) == 0);
+    std::int32_t kept = 0;
+    std::uint32_t length = sizeof kept;
+    CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_socket, 8, address(&kept), address(&length)}) == 0 && kept == 2304);
+    NetlinkRequest request;
+    request.sequence = 9;
+    CHECK(send_request(fd, request) == 20);
+    bool lo = false;
+    for (const auto &message : dump_messages(fd, 9)) lo = lo || parse_new_address(message).index == 1;
+    CHECK(lo);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+/// Requests that fill `fd`'s queue unread, then what its receives give until EAGAIN: the number of ENOBUFS answers
+/// and the dumps' ends that came.
+std::pair<int, int> flood(std::int64_t fd) {
+    NetlinkRequest request;
+    for (int each = 0; each < 5000; ++each) {
+        request.sequence = static_cast<std::uint32_t>(each);
+        if (send_request(fd, request) != 20) break;
+    }
+    int nobufs = 0, ends = 0;
+    std::string buffer(16384, '\0');
+    while (true) {
+        const auto got =
+            call(nr_recvfrom, {unsigned_of(fd), address(buffer.data()), buffer.size(), msg_dontwait, 0, 0});
+        if (got == -105) {  // ENOBUFS
+            if (++nobufs > 3) break;  // never more than once in a row
+            continue;
+        }
+        if (got <= 0) break;
+        for (std::size_t at = 0; at + 16 <= static_cast<std::size_t>(got);) {
+            std::uint32_t message_length;
+            std::uint16_t type;
+            std::memcpy(&message_length, buffer.data() + at, 4);
+            std::memcpy(&type, buffer.data() + at + 4, 2);
+            if (type == 3) ++ends;
+            if (message_length < 16) break;
+            at += (message_length + 3) & ~3u;
+        }
+    }
+    return {nobufs, ends};
+}
+
+TEST(answers_that_no_longer_fit_give_enobufs_once_as_an_overrun_does) {
+    const auto fd = netlink_socket();
+    const auto [nobufs, ends] = flood(fd);
+    CHECK(nobufs == 1 && ends > 0 && ends < 5000);  // the queue filled: the rest went, and the next receive said so
+    call(nr_close, {unsigned_of(fd)});
+    // NETLINK_NO_ENOBUFS: the answers still go, quietly.
+    const auto quiet = netlink_socket();
+    const std::int32_t on = 1;
+    CHECK(call(nr_setsockopt, {unsigned_of(quiet), sol_netlink, 5 /* NETLINK_NO_ENOBUFS */, address(&on), sizeof on}) ==
+          0);
+    const auto [quiet_nobufs, quiet_ends] = flood(quiet);
+    CHECK(quiet_nobufs == 0 && quiet_ends > 0 && quiet_ends < 5000);
+    call(nr_close, {unsigned_of(quiet)});
+}
+
+TEST(memberships_with_no_buffer_fault_as_linux_does) {
+    const auto fd = netlink_socket();
+    std::uint32_t length = 8;
+    CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_netlink, netlink_list_memberships, 0, address(&length)}) ==
+          -efault);
+    length = 0;
+    CHECK(call(nr_getsockopt, {unsigned_of(fd), sol_netlink, netlink_list_memberships, 0, address(&length)}) == 0);
+    call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(ifreq_ioctls_fault_for_memory_the_guest_does_not_have) {
+    CHECK(in_child([] {  // a read or write into the hole ends there
+        const auto fd = call(nr_socket, {af_inet, sock_dgram | sock_cloexec, 0});
+        for (const auto number : {siocgifindex, siocgifname, siocgifflags, siocgifmtu, siocgifaddr, siocgifconf}) {
+            CHECK(call(nr_ioctl, {unsigned_of(fd), number, 0}) == -efault);
+        }
+        // An ifreq that runs into the hole.
+        const auto edge = ahead_of_a_hole(20);
+        std::memcpy(reinterpret_cast<void *>(edge), "lo", 3);
+        CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, edge}) == -efault);
+        // An ifreq the guest can read but not write: the answer cannot go back.
+        const auto read_only = map_anonymous_pages(1);
+        std::memcpy(reinterpret_cast<void *>(read_only), "lo", 3);
+        CHECK(call(nr_mprotect, {read_only, page, prot_read}) == 0);
+        CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifindex, read_only}) == -efault);
+        // SIOCGIFCONF's entries into the hole, and a negative length.
+        struct {
+            std::int32_t length, pad;
+            std::uint64_t buffer;
+        } conf{40, 0, ahead_of_a_hole(20)};
+        CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == -efault);
+        LinuxIfreq one[1];
+        conf = {-5, 0, address(one)};
+        CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == 0 && conf.length == 0);
+        call(nr_close, {unsigned_of(fd)});
+    }));
+}
+
 }  // namespace
 
 int main() {

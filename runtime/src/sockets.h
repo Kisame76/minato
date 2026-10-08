@@ -36,6 +36,17 @@ struct SeqpacketPair {
     std::weak_ptr<Socket> ends[2];
 };
 
+/// What an AF_NETLINK socket keeps (ADR-0054 step c): its host is one end of a Darwin datagram pair, and the
+/// runtime writes the kernel's answers into the other end, `replies`. Guarded by the socket's mutex.
+struct NetlinkEnd {
+    int replies = -1;           // closed with the socket
+    std::uint32_t port = 0;     // its port once a send or connect bound it, 0 before
+    std::uint64_t groups = 0;   // the multicast groups NETLINK_ADD_MEMBERSHIP joined: bit n - 1 for group n
+    bool joined = false;        // a membership was asked for: NETLINK_LIST_MEMBERSHIPS counts 36 groups since
+    std::uint32_t options = 0;  // SOL_NETLINK's flags that are set: bit n for option n
+    bool overrun = false;       // answers did not fit the queue: the next receive answers ENOBUFS (netlink_overrun)
+};
+
 class Socket final : public descriptors::Description {
 public:
     /// Takes `host`, a Darwin socket, as one of Linux's `family`, `type` and `protocol`, the one getsockopt reports:
@@ -65,6 +76,8 @@ public:
 
     std::shared_ptr<SeqpacketPair> pair;  // a SOCK_SEQPACKET socketpair's, else none; set before the socket is shared
     int side = 0;
+
+    std::unique_ptr<NetlinkEnd> netlink;  // an AF_NETLINK socket's, else none; set before the socket is shared
 };
 
 /// The socket behind `description`, or null.
@@ -91,8 +104,12 @@ constexpr std::uint32_t pollrdhup = 0x2000, pollerr = 0x8;
 /// never raises it on Linux (unix_dgram_sendmsg).
 bool raises_sigpipe(int fd);
 
+/// The socket ioctls of the runtime's own (sys_files.cpp's ioctl asks first): the interfaces' ifreq ioctls
+/// (netlink.h), and SELinux's refusals for an app on a netlink or AF_UNIX socket. `handled` is false for the rest.
+long socket_ioctl(Socket &socket, std::uint32_t request, std::uint64_t argument, bool &handled);
+
 /// Whether read and write on `description` go as messages through the socket's own receive and send: a
-/// SOCK_SEQPACKET socket's (transfer_message).
+/// SOCK_SEQPACKET or AF_NETLINK socket's (transfer_message).
 bool takes_messages(const descriptors::Description &description);
 
 /// read, readv, write or writev of `vectors` on such a socket, as recv and send without flags.

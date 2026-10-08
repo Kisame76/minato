@@ -1500,6 +1500,11 @@ long sys_ioctl(int fd, std::uint32_t request, std::uint64_t argument) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
     const int host = description->host();
+    if (auto *socket = sockets::as_socket(*description)) {
+        bool handled = false;
+        const long answer = sockets::socket_ioctl(*socket, request, argument, handled);
+        if (handled) return answer;
+    }
     switch (request) {
         case tcgets: {
             termios attributes;

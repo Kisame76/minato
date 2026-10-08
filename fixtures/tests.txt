@@ -70,6 +70,8 @@ priority-test system
 memfd-test system
 # The NDK's ASharedMemory, on ashmem on Android 15 and on memfd_create in Minato.
 sharedmem-test system
+# The network interfaces an app sees: getifaddrs, the names and indexes, and the ifreq ioctls.
+ifaddrs-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
 # emulator's differ (its AVD's heap, a userdebug build).
 property-test system runtime-only

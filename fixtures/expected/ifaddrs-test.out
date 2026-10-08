@@ -1,0 +1,43 @@
+getifaddrs: 0
+lo inet6: ::1, netmask ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff, flags 0x49
+lo inet: 127.0.0.1, netmask 255.0.0.0, flags 0x49
+if_nametoindex lo: 1
+if_indextoname 1: lo
+if_nametoindex of none: 0
+if_indextoname of 999: ENODEV
+inet socket: SIOCGIFINDEX lo: 1
+SIOCGIFFLAGS lo: 0x49
+SIOCGIFMTU lo: 65536
+SIOCGIFNAME 1: lo
+SIOCGIFFLAGS of none: -1 ENODEV
+SIOCGIFINDEX of none: -1 ENODEV
+SIOCGIFNAME 999: -1 ENODEV
+SIOCGIFADDR lo: family 2, 127.0.0.1
+SIOCGIFNETMASK lo: family 2, 255.0.0.0
+SIOCGIFBRDADDR lo: family 2, 0.0.0.0
+SIOCGIFDSTADDR lo: family 2, 127.0.0.1
+SIOCGIFINDEX lo:9: 1
+SIOCGIFADDR lo:9: -1 EADDRNOTAVAIL
+SIOCGIFCONF without a buffer: whole entries yes
+SIOCGIFCONF: length 40, lo 127.0.0.1
+inet6 socket: SIOCGIFINDEX lo: 1
+inet6 socket: SIOCGIFADDR lo: -1 ENOTTY
+netlink stream: ESOCKTNOSUPPORT
+netlink socketpair: EOPNOTSUPP
+netlink before a send: length 12, family 16, port 0
+connect to port 1234: EPERM
+sendto port 5: EPERM
+send: 20
+netlink port is the process ID: yes
+first datagram longer than 16 bytes: yes
+FIONREAD: ENOTTY
+lo in the dump: 127.0.0.1/8, scope 254, label lo, flags 0x80, multi yes
+NLMSG_DONE: length 20, flags 0x2, error 0
+lo addresses: 1, each answer with the request's sequence and the socket's port: yes
+join RTNLGRP_IPV4_IFADDR: 0
+memberships: length 8, 0x10 0x0
+getsockname's groups: 0x10
+join group 37: EINVAL
+join RTNLGRP_IPV4_MROUTE_R: EPERM
+NETLINK_LISTEN_ALL_NSID: EPERM
+shutdown: EOPNOTSUPP

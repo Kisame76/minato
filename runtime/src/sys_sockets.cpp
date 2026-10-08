@@ -11,6 +11,7 @@
 #include "descriptors.h"
 #include "dns_proxy.h"
 #include "identity.h"
+#include "netlink.h"
 #include "signals.h"
 #include "syscalls.h"
 #include "vfs.h"
@@ -36,6 +37,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -82,6 +84,9 @@ constexpr int tcp_nodelay = 1, tcp_maxseg = 2, tcp_cork = 3, tcp_keepidle = 4, t
 constexpr int msg_oob = 1, msg_peek = 2, msg_dontroute = 4, msg_ctrunc = 8, msg_trunc = 0x20, msg_dontwait = 0x40,
               msg_eor = 0x80, msg_waitall = 0x100, msg_errqueue = 0x2000, msg_nosignal = 0x4000,
               msg_waitforone = 0x10000, msg_cmsg_cloexec = 0x40000000;
+constexpr int sol_netlink = 270, netlink_add_membership = 1, netlink_drop_membership = 2, netlink_pktinfo = 3,
+              netlink_broadcast_error = 4, netlink_no_enobufs = 5, netlink_listen_all_nsid = 8,
+              netlink_list_memberships = 9, netlink_cap_ack = 10, netlink_ext_ack = 11, netlink_get_strict_chk = 12;
 }  // namespace linux_net
 
 using namespace linux_net;
@@ -1098,7 +1103,145 @@ long seqpacket_received(Socket &socket, long result) {
 }
 
 /// sendmsg's work for the guest's `message` on `socket`.
+// --- AF_NETLINK (ADR-0054 step c) --------------------------------------------------------------------------------
+
+/// The ports of the process's netlink sockets, as netlink_autobind hands them out: the process's ID first, then
+/// random ones from INT32_MIN to -4097.
+struct Ports {
+    std::mutex mutex;
+    std::set<std::uint32_t> taken;
+};
+
+Ports &ports() {
+    static auto *all = new Ports;  // as long as the process
+    return *all;
+}
+
+/// Binds `end` to a port once, at its first send or connect; under its socket's mutex.
+void autobind(NetlinkEnd &end) {
+    if (end.port != 0) return;
+    auto &all = ports();
+    const std::lock_guard lock(all.mutex);
+    auto port = static_cast<std::uint32_t>(::getpid());
+    while (all.taken.count(port) != 0) {
+        port = static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::min() +
+                                          static_cast<std::int32_t>(::arc4random_uniform(0x7fff'f000)));
+    }
+    all.taken.insert(port);
+    end.port = port;
+}
+
+void release_port(std::uint32_t port) {
+    if (port == 0) return;
+    auto &all = ports();
+    const std::lock_guard lock(all.mutex);
+    all.taken.erase(port);
+}
+
+/// A netlink socket: the guest's end of a Darwin datagram pair whose other end the runtime keeps, to write the
+/// kernel's answers into.
+long open_netlink(int type, bool nonblocking, bool close_on_exec) {
+    int ends[2];
+    if (::socketpair(AF_UNIX, SOCK_DGRAM, 0, ends) != 0) return -sys::to_linux_errno(errno);
+    if (const long error = prepare(ends[0])) {
+        ::close(ends[1]);
+        return error;
+    }
+    if (const long error = prepare(ends[1])) {
+        ::close(ends[0]);
+        return error;
+    }
+    for (const int end : ends) hold_datagrams(end, linux_buffer);
+    auto socket = std::make_shared<Socket>(ends[0], nonblocking, af_netlink, type, netlink::netlink_route);
+    socket->netlink = std::make_unique<NetlinkEnd>();
+    socket->netlink->replies = ends[1];
+    return descriptors::add(std::move(socket), close_on_exec);
+}
+
+/// Copies `length` bytes of the guest's at `source` to `target`: false where the guest's memory cannot be read.
+bool copy_in(void *target, std::uint64_t source, std::size_t length) {
+    return sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(target), source, length);
+}
+
+/// A netlink name of the guest's: its port and groups, or EINVAL for another family or length, EFAULT for one the
+/// guest cannot read.
+long read_netlink_name(std::uint64_t address, std::uint64_t length, std::uint32_t &port, std::uint32_t &groups) {
+    unsigned char name[linux_storage_size];
+    if (length > sizeof name) return -linux_errno::einval;
+    if (!copy_in(name, address, static_cast<std::size_t>(length))) return -linux_errno::efault;
+    if (length < 12 || read_u16(name) != af_netlink) return -linux_errno::einval;
+    std::memcpy(&port, name + 4, sizeof port);
+    std::memcpy(&groups, name + 8, sizeof groups);
+    return 0;
+}
+
+/// Puts `replies` into the socket's queue, under its mutex, up to the first that does not fit: those that do not are
+/// gone, and the next receive answers ENOBUFS once, as netlink_overrun has it, unless NETLINK_NO_ENOBUFS is set.
+void queue_answers(Socket &socket, const std::vector<std::string> &replies) {
+    for (const auto &reply : replies) {
+        if (::send(socket.netlink->replies, reply.data(), reply.size(), 0) == static_cast<ssize_t>(reply.size())) {
+            continue;
+        }
+        if ((socket.netlink->options & (1u << netlink_no_enobufs)) == 0) socket.netlink->overrun = true;
+        return;
+    }
+}
+
+/// sendmsg on a netlink socket, in netlink_sendmsg's order: the vectors and the name as the kernel takes them in
+/// (EFAULT for what the guest cannot read), the port, the length against the send buffer before a byte of the data
+/// is read, the data, then the kernel's answers at once, in the socket's queue.
+long netlink_send(Socket &socket, const LinuxMsghdr &message, int flags) {
+    constexpr std::uint64_t max_rw_count = 0x7fff'f000;  // what the kernel takes of one transfer at most
+    if (message.vector_count > 1024) return -linux_errno::emsgsize;  // UIO_MAXIOV
+    std::vector<iovec> vectors(message.vector_count);
+    if (!copy_in(vectors.data(), message.vectors, vectors.size() * sizeof(iovec))) return -linux_errno::efault;
+    std::uint64_t total = 0;
+    for (const auto &vector : vectors) {
+        total = std::min<std::uint64_t>(total + std::min<std::uint64_t>(vector.iov_len, max_rw_count), max_rw_count);
+    }
+    std::uint32_t port = 0, groups = 0;
+    const bool named = message.name != 0 && message.name_length > 0;
+    if (named) {
+        if (const long error = read_netlink_name(message.name, message.name_length, port, groups)) return error;
+    }
+    if ((flags & msg_oob) != 0) return -linux_errno::eopnotsupp;
+    if (port != 0 || groups != 0) return -linux_errno::eperm;  // NETLINK_ROUTE lacks NL_CFG_F_NONROOT_SEND
+    const std::lock_guard lock(socket.mutex);  // a send's answers stay together in the queue
+    autobind(*socket.netlink);
+    if (total + 32 > static_cast<std::uint64_t>(socket.send_buffer)) return -linux_errno::emsgsize;
+    std::string request(static_cast<std::size_t>(total), '\0');
+    std::size_t at = 0;
+    for (const auto &vector : vectors) {
+        const std::size_t part = static_cast<std::size_t>(std::min<std::uint64_t>(vector.iov_len, request.size() - at));
+        if (!copy_in(request.data() + at, reinterpret_cast<std::uint64_t>(vector.iov_base), part)) {
+            return -linux_errno::efault;
+        }
+        at += part;
+    }
+    std::vector<std::string> replies;
+    if (const long refused = netlink::answer(request, socket.netlink->port, netlink::interfaces, replies)) {
+        return refused;
+    }
+    queue_answers(socket, replies);
+    return static_cast<long>(request.size());
+}
+
+/// connect on a netlink socket (netlink_connect): AF_UNSPEC, or the kernel, which binds the socket as a send does.
+long netlink_connect(Socket &socket, std::uint64_t address, std::uint64_t length) {
+    if (length > linux_storage_size || length < 2) return -linux_errno::einval;
+    unsigned char family[2];
+    if (!copy_in(family, address, sizeof family)) return -linux_errno::efault;
+    if (read_u16(family) == af_unspec) return 0;  // the kernel stays the peer: no other can be named
+    std::uint32_t port = 0, groups = 0;
+    if (const long error = read_netlink_name(address, length, port, groups)) return error;
+    if (port != 0 || groups != 0) return -linux_errno::eperm;
+    const std::lock_guard lock(socket.mutex);
+    autobind(*socket.netlink);
+    return 0;
+}
+
 long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
+    if (socket.netlink) return netlink_send(socket, message, flags);
     if (message.vector_count > 1024) return -linux_errno::emsgsize;  // UIO_MAXIOV
     const bool stream = socket.type == sock_stream, seqpacket = socket.pair != nullptr;
     if (seqpacket) {
@@ -1180,6 +1323,14 @@ long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
 /// the sender's guest name, empty for none.
 long receive_message(Socket &socket, LinuxMsghdr &message, int flags, std::string *from) {
     if (flags & msg_errqueue) return -linux_errno::eagain;  // no error queue is kept
+    if (socket.netlink) {
+        if ((flags & msg_oob) != 0) return -linux_errno::eopnotsupp;
+        const std::lock_guard lock(socket.mutex);
+        if (socket.netlink->overrun) {  // sock_error, before what is queued
+            socket.netlink->overrun = false;
+            return -linux_errno::enobufs;
+        }
+    }
     if (message.vector_count > 1024) return -linux_errno::emsgsize;
     const bool stream = socket.type == sock_stream, seqpacket = socket.pair != nullptr;
     const bool dont_wait = socket.nonblocking() || (flags & msg_dontwait) != 0;
@@ -1265,6 +1416,7 @@ long receive_message(Socket &socket, LinuxMsghdr &message, int flags, std::strin
     }
     // The sender's name: a datagram's; a stream's none (tcp_recvmsg gives none, unix_stream_recvmsg a bound sender's).
     if (stream && socket.family != af_unix) from_name.clear();
+    if (socket.netlink) from_name = netlink::kernel_name();  // every answer is the kernel's
     *from = std::move(from_name);
     message.control_length = guest_control.used();
     message.flags = out_flags;
@@ -1412,7 +1564,9 @@ long set_socket_level(Socket &socket, int name, std::uint64_t value, std::uint32
             const int doubled = std::max(kept * 2, name == so_sndbuf ? 4608 : 2304);
             const std::lock_guard lock(socket.mutex);
             (name == so_sndbuf ? socket.send_buffer : socket.receive_buffer) = doubled;
-            if (socket.family == af_unix && socket.type == sock_dgram) {
+            if (socket.netlink) {
+                // A number alone: the pair keeps room for the answers, as Linux queues one into an empty queue.
+            } else if (socket.family == af_unix && socket.type == sock_dgram) {
                 if (name == so_sndbuf) limit_datagrams(socket.host(), doubled);  // the receiver's does not count
             } else {
                 ::setsockopt(socket.host(), SOL_SOCKET, name == so_sndbuf ? SO_SNDBUF : SO_RCVBUF, &kept, sizeof kept);
@@ -1441,6 +1595,11 @@ long get_socket_level(Socket &socket, int name, std::uint64_t value, std::uint64
         case so_domain: return put_int(socket.family, value, length_address);
         case so_protocol: return put_int(socket.protocol, value, length_address);
         case so_error: {
+            if (socket.netlink) {  // an overrun's ENOBUFS, taken as sock_error takes it
+                const std::lock_guard lock(socket.mutex);
+                const bool overrun = std::exchange(socket.netlink->overrun, false);
+                return put_int(overrun ? static_cast<int>(linux_errno::enobufs) : 0, value, length_address);
+            }
             const int error = host_int(socket, SOL_SOCKET, SO_ERROR, false);
             return put_int(error == 0 ? 0 : static_cast<int>(sys::to_linux_errno(error)), value, length_address);
         }
@@ -1774,6 +1933,67 @@ long get_ipv6_level(Socket &socket, int name, std::uint64_t value, std::uint64_t
     }
 }
 
+// rtnetlink's multicast groups, RTNLGRP_MAX of them; the two that rtnetlink_bind lets only CAP_NET_ADMIN join.
+constexpr int rtnetlink_groups = 36, rtnlgrp_ipv4_mroute_r = 30, rtnlgrp_ipv6_mroute_r = 31;
+
+/// Whether SOL_NETLINK's option `name` is a flag, kept as bit `name` of NetlinkEnd::options.
+bool netlink_flag(int name) {
+    switch (name) {
+        case netlink_pktinfo:
+        case netlink_broadcast_error:
+        case netlink_no_enobufs:
+        case netlink_cap_ack:
+        case netlink_ext_ack:
+        case netlink_get_strict_chk: return true;
+        default: return false;
+    }
+}
+
+/// netlink_setsockopt. The groups an app joins hear nothing: the guest's interfaces never change for it.
+long set_netlink_level(Socket &socket, int name, std::uint64_t value, std::uint32_t length) {
+    const int number = length >= sizeof(int) ? read_int(value) : 0;
+    NetlinkEnd &end = *socket.netlink;
+    const std::lock_guard lock(socket.mutex);
+    if (name == netlink_add_membership || name == netlink_drop_membership) {
+        end.joined = true;  // netlink_realloc_groups comes before the checks
+        const auto group = static_cast<unsigned>(number);
+        if (group == 0 || group > rtnetlink_groups) return -linux_errno::einval;
+        if (name == netlink_add_membership && (number == rtnlgrp_ipv4_mroute_r || number == rtnlgrp_ipv6_mroute_r)) {
+            return -linux_errno::eperm;
+        }
+        const std::uint64_t bit = std::uint64_t{1} << (group - 1);
+        end.groups = name == netlink_add_membership ? end.groups | bit : end.groups & ~bit;
+        return 0;
+    }
+    if (name == netlink_listen_all_nsid) return -linux_errno::eperm;  // CAP_NET_BROADCAST
+    if (!netlink_flag(name)) return -linux_errno::enoprotoopt;
+    end.options = number != 0 ? end.options | (1u << name) : end.options & ~(1u << name);
+    return 0;
+}
+
+/// netlink_getsockopt.
+long get_netlink_level(Socket &socket, int name, std::uint64_t value, std::uint64_t length_address) {
+    std::int32_t room;
+    std::memcpy(&room, sys::as_pointer<const void>(length_address), sizeof room);
+    if (room < 0) return -linux_errno::einval;
+    if (room >= 4 && value == 0) return -linux_errno::efault;  // this read's room, which another thread may change
+    NetlinkEnd &end = *socket.netlink;
+    const std::lock_guard lock(socket.mutex);
+    if (name == netlink_list_memberships) {
+        // The 36 groups in two 32-bit words once the socket asked for a group, none before.
+        const std::int32_t whole = end.joined ? 8 : 0;
+        for (std::int32_t at = 0; at < whole && room - at >= 4; at += 4) {
+            const auto word = static_cast<std::uint32_t>(end.groups >> (8 * at));
+            std::memcpy(sys::as_pointer<char>(value) + at, &word, sizeof word);
+        }
+        std::memcpy(sys::as_pointer<void>(length_address), &whole, sizeof whole);
+        return 0;
+    }
+    if (!netlink_flag(name)) return -linux_errno::enoprotoopt;
+    if (room < static_cast<std::int32_t>(sizeof(int))) return -linux_errno::einval;
+    return put_int(static_cast<int>((end.options >> name) & 1), value, length_address);
+}
+
 }  // namespace
 
 // --- The socket --------------------------------------------------------------------------------------------------
@@ -1788,6 +2008,10 @@ Socket::Socket(int host, bool nonblocking, int family_number, int type_number, i
 }
 
 Socket::~Socket() {
+    if (netlink) {
+        if (netlink->replies >= 0) ::close(netlink->replies);
+        release_port(netlink->port);
+    }
     if (pair) {
         // unix_release_sock: the other end receives and sends no more, and gets ECONNRESET first if this one
         // leaves messages it never read.
@@ -1883,7 +2107,31 @@ bool raises_sigpipe(int fd) {
 
 bool takes_messages(const descriptors::Description &description) {
     const auto *socket = as_socket(description);
-    return socket != nullptr && socket->pair != nullptr;
+    return socket != nullptr && (socket->pair != nullptr || socket->netlink != nullptr);
+}
+
+long socket_ioctl(Socket &socket, std::uint32_t request, std::uint64_t argument, bool &handled) {
+    constexpr std::uint32_t fionread = 0x541b, fionbio = 0x5421, fionclex = 0x5450, fioclex = 0x5451,
+                            fioasync = 0x5452, siocgifhwaddr = 0x8927;
+    handled = true;
+    if (socket.netlink) {
+        // SELinux gives an app no ioctl on a netlink socket (app_neverallows.te). FIONREAD asks for getattr alone,
+        // and netlink answers none; FIONBIO and its kind are the descriptor's, not the socket's.
+        if (request == fionread) return -linux_errno::enotty;
+        if (request == fionbio || request == fioasync || request == fioclex || request == fionclex) {
+            handled = false;
+            return 0;
+        }
+        return -linux_errno::eacces;
+    }
+    if (!netlink::is_interface_ioctl(request)) {
+        handled = false;
+        return 0;
+    }
+    // unpriv_sock_ioctls on an app's IP socket: no MAC address, and none of them on an AF_UNIX socket
+    // (unpriv_unix_sock_ioctls).
+    if (socket.family == af_unix || request == siocgifhwaddr) return -linux_errno::eacces;
+    return netlink::interface_ioctl(request, argument, socket.family == af_inet, handled);
 }
 
 long transfer_message(descriptors::Description &description, bool writing, const iovec *vectors, int count) {
@@ -1949,11 +2197,12 @@ long sys_socket(int domain, int type, int protocol) {
                 return -linux_errno::esocktnosupport;
             }
             break;
-        case af_netlink: {
-            static std::once_flag once;
-            std::call_once(once, [] { report("apkrt: netlink sockets are not supported yet (ADR-0054 step c)\n"); });
-            return -linux_errno::eafnosupport;
-        }
+        case af_netlink:
+            // SELinux lets an app create a NETLINK_ROUTE socket alone (app_neverallows.te), before netlink_create
+            // looks at the type.
+            if (protocol != netlink::netlink_route) return -linux_errno::eacces;
+            if (base != sock_raw && base != sock_dgram) return -linux_errno::esocktnosupport;
+            return sockets::open_netlink(base, (type & sock_nonblock) != 0, (type & sock_cloexec) != 0);
         case af_packet: return -linux_errno::eperm;  // CAP_NET_RAW
         default: return -linux_errno::eafnosupport;
     }
@@ -1968,6 +2217,10 @@ long sys_socketpair(int domain, int type, int protocol, std::uint64_t vector) {
     if (((type & ~type_mask) & ~(sock_nonblock | sock_cloexec)) != 0) return -linux_errno::einval;
     int base = type & type_mask;
     if (domain < 0 || domain >= af_max) return -linux_errno::eafnosupport;
+    if (domain == af_netlink) {  // as socket's checks, then netlink's sock_no_socketpair
+        if (protocol != netlink::netlink_route) return -linux_errno::eacces;
+        return base == sock_raw || base == sock_dgram ? -linux_errno::eopnotsupp : -linux_errno::esocktnosupport;
+    }
     if (domain != af_unix) return domain == af_inet || domain == af_inet6 ? -linux_errno::eopnotsupp : -linux_errno::eafnosupport;
     if (protocol != 0 && protocol != af_unix) return -linux_errno::eprotonosupport;
     if (base == sock_raw) base = sock_dgram;
@@ -2086,6 +2339,7 @@ long sys_bind(int fd, std::uint64_t address, std::uint64_t length) {
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
+    if (socket.netlink) return -linux_errno::eacces;  // SELinux: no bind on an app's netlink socket (net.te)
     sockets::HostName name;
     if (const long error = sockets::host_name_of(socket, address, length, sockets::Use::bind, name)) return error;
     if (socket.family == af_unix) return bind_unix(socket, name);
@@ -2096,7 +2350,7 @@ long sys_listen(int fd, int backlog) {
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
-    if (socket.type == sock_dgram) return -linux_errno::eopnotsupp;
+    if (socket.type == sock_dgram || socket.netlink) return -linux_errno::eopnotsupp;
     if (socket.family == af_unix) {
         const std::lock_guard lock(socket.mutex);
         if (socket.name.empty()) return -linux_errno::einval;  // unix_listen: no listens on an unbound socket
@@ -2114,7 +2368,7 @@ long sys_accept4(int fd, std::uint64_t address, std::uint64_t length_address, in
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
-    if (socket.type == sock_dgram) return -linux_errno::eopnotsupp;
+    if (socket.type == sock_dgram || socket.netlink) return -linux_errno::eopnotsupp;
     sockaddr_storage peer{};
     socklen_t peer_length = 0;
     int accepted = -1;
@@ -2148,6 +2402,7 @@ long sys_connect(int fd, std::uint64_t address, std::uint64_t length) {
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
+    if (socket.netlink) return sockets::netlink_connect(socket, address, length);
     if (socket.family == af_unix && socket.type == sock_dgram && length >= 2 && address != 0 &&
         sockets::read_u16(as_pointer<const unsigned char>(address)) == af_unspec) {
         // unix_dgram_connect: AF_UNSPEC ends the association.
@@ -2194,6 +2449,18 @@ long sys_getsockname(int fd, std::uint64_t address, std::uint64_t length_address
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
+    if (socket.netlink) {  // netlink_getname: the port, and the first 32 groups joined
+        std::uint32_t port, groups;
+        {
+            const std::lock_guard lock(socket.mutex);
+            port = socket.netlink->port;
+            groups = static_cast<std::uint32_t>(socket.netlink->groups);
+        }
+        std::string name = netlink::kernel_name();
+        std::memcpy(name.data() + 4, &port, sizeof port);
+        std::memcpy(name.data() + 8, &groups, sizeof groups);
+        return sockets::put_name(name, address, length_address);
+    }
     if (socket.family == af_unix) {
         std::string name;
         {
@@ -2213,6 +2480,7 @@ long sys_getpeername(int fd, std::uint64_t address, std::uint64_t length_address
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
     Socket &socket = *held.socket;
+    if (socket.netlink) return sockets::put_name(netlink::kernel_name(), address, length_address);
     if (socket.family == af_unix) {
         std::string name;
         {
@@ -2231,6 +2499,7 @@ long sys_getpeername(int fd, std::uint64_t address, std::uint64_t length_address
 long sys_shutdown(int fd, int how) {
     const auto held = sockets::hold(fd);
     if (held.error != 0) return held.error;
+    if (held.socket->netlink) return -linux_errno::eopnotsupp;  // sock_no_shutdown
     if (how < 0 || how > 2) return -linux_errno::einval;
     if (Socket &socket = *held.socket; socket.pair) {
         // unix_shutdown: the other end learns of it from the runtime, as Darwin does not tell a datagram's peer;
@@ -2374,6 +2643,10 @@ long sys_setsockopt(int fd, int level, int name, std::uint64_t value, std::uint3
     if (static_cast<std::int32_t>(length) < 0) return -linux_errno::einval;
     if (length > 0 && value == 0) return -linux_errno::efault;
     if (level == sol_socket) return sockets::set_socket_level(socket, name, value, length);
+    if (socket.netlink) {
+        return level == sol_netlink ? sockets::set_netlink_level(socket, name, value, length)
+                                    : -linux_errno::enoprotoopt;
+    }
     if (socket.family == af_unix) return -linux_errno::eopnotsupp;  // AF_UNIX has no options beyond SOL_SOCKET
     switch (level) {
         case ipproto_tcp:
@@ -2393,6 +2666,10 @@ long sys_getsockopt(int fd, int level, int name, std::uint64_t value, std::uint6
     std::memcpy(&room, sys::as_pointer<const void>(length_address), sizeof room);
     if (room > 0 && value == 0) return -linux_errno::efault;  // a value with no buffer for it, as setsockopt's
     if (level == sol_socket) return sockets::get_socket_level(socket, name, value, length_address);
+    if (socket.netlink) {
+        return level == sol_netlink ? sockets::get_netlink_level(socket, name, value, length_address)
+                                    : -linux_errno::enoprotoopt;
+    }
     if (socket.family == af_unix) return -linux_errno::eopnotsupp;
     switch (level) {
         case ipproto_tcp:
