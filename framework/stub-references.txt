@@ -46,10 +46,9 @@ android.content.pm.ConstrainDisplayApisConfig <- android.content.pm.ActivityInfo
 # (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
 android.content.pm.ParceledListSlice <- android.hardware.display.DisplayManagerGlobal  # stays: the brightness statistics, system APIs whose signature permission the display service refuses first
 android.hardware.display.Curve <- android.hardware.display.DisplayManagerGlobal  # gap: DisplayManager.getMinimumBrightnessCurve, a system API that the display service does not answer
-android.hardware.display.DisplayManager$DisplayListener <- android.hardware.display.DisplayManagerGlobal  # stays: no display listener is registered: DisplayManager, through which apps register one, is a compile-only stub, and Display registers its HDR/SDR ratio listener only when the display has a ratio, which the display service gives none
-android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
-android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
-android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # stays: virtual displays, which only DisplayManager and MediaProjection make, both compile-only stubs
+android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
+android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
+android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.content.pm.ParceledListSlice <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.OverlayProperties <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.display.BrightnessConfiguration <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
@@ -299,10 +298,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 
-# ADR-0045 step 7c1, typed keys (Planung): a key's focus move asks AOSP's SoundEffectConstants for its sound, which
-# Minato's ViewRootImpl does not play.
-android.media.AudioManager <- android.view.SoundEffectConstants  # stays: nextNavigationRepeatSoundEffectId, which only AOSP's ViewRootImpl.playSoundEffect asks, for a repeated focus move's sound
-
 # ADR-0042 b's start stops (Planung): android.transition names widgets, overlays and surfaces, which a transition meets
 # when it captures or runs, and the window's insets controller names its animation listener.
 android.view.GhostView <- android.transition.ChangeTransform  # M4 step 10: a transition's ghost view, drawn in an overlay
@@ -415,3 +410,16 @@ android.graphics.HardwareRenderer$CopyRequest <- android.view.PixelCopy  # M4 st
 android.graphics.HardwareRenderer <- android.view.ViewDebug  # M4 step 10: the capture of rendering commands (the hidden startRenderingCommandsCapture, for Android Studio), which hwui's GPU pipeline gives
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.TouchDelegate  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.os.Debug <- android.view.ViewDebug  # stays: the view counts (the hidden getViewInstanceCount and getViewRootImplCount) and the view server's profiles, which only a debugger asks
+
+# ADR-0045 gap 1, batch 1 (App): DisplayManager and PowerManager in framework.jar, over the local display, power and
+# thermal services, which never run the AIDL interfaces' Stub and Proxy and parcel nothing.
+android.content.pm.IPackageManager <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
+android.content.pm.IPackageManager$Stub <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
+android.hardware.display.ColorDisplayManager <- android.hardware.display.DisplayManager  # stays: setSaturationLevel, a system API that needs CONTROL_DISPLAY_SATURATION
+android.hardware.display.VirtualDisplayConfig$Builder <- android.hardware.display.DisplayManager  # gap: virtual displays, which DisplayManager.createVirtualDisplay makes (a later step)
+android.os.BatterySaverPolicyConfig <- android.os.IPowerManager  # stays: IPowerManager's Stub and Proxy, which the local power service never runs
+android.os.ParcelDuration <- android.os.IPowerManager  # stays: IPowerManager's Stub and Proxy, which the local power service never runs
+android.os.CoolingDevice <- android.os.IThermalService  # stays: IThermalService's Stub and Proxy, which the local thermal service never runs
+android.os.Temperature <- android.os.IThermalService, android.os.IThermalEventListener  # stays: the thermal interfaces' Stub and Proxy, which the local thermal service never runs and whose events it sends none of
+android.os.ParcelDuration <- android.os.PowerManager  # stays: the battery discharge prediction, which the local power service gives none of, so getBatteryDischargePrediction returns null first, and setBatteryDischargePrediction, a system API that needs DEVICE_POWER
+android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a system API that needs WRITE_DREAM_STATE

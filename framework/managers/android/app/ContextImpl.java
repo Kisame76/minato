@@ -93,13 +93,8 @@ class ContextImpl {
     /** The theme's resource, 0 until setTheme or getTheme picks one. */
     private int mThemeResource = 0;
     private Resources.Theme mTheme;
-    private LayoutInflater mLayoutInflater;
-    private WindowManager mWindowManager;
-    private SensorManager mSensorManager;
-    private WifiManager mWifiManager;
-    private InputManager mInputManager;
-    private StorageManager mStorageManager;
-    private AppOpsManager mAppOpsManager;
+    /** @hide The services made for this context, by SystemServiceRegistry's index, as the tag's mServiceCache. */
+    final Object[] mServiceCache = SystemServiceRegistry.createServiceCache();
     /** An activity context's token and its own Resources; the application's has neither. */
     private IBinder mToken;
     private boolean mIsActivityContext;
@@ -209,74 +204,11 @@ class ContextImpl {
     }
 
     /**
-     * The LayoutInflater and the sensor, Wi-Fi and input managers on the outer context, and the storage and app ops
-     * managers and the window manager on this one, each made once per context as SystemServiceRegistry's
-     * CachedServiceFetcher keeps them; every other service is still unwritten, logged once per name, so that the log
-     * says which one an app asked for.
+     * The context's service of {@code name}, from SystemServiceRegistry (ADR-0045 decision 2, gap 1), made once per
+     * context as the tag's CachedServiceFetcher keeps them; a name without one is logged once and gives null.
      */
     public Object getSystemService(String name) {
-        if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mLayoutInflater == null) {
-                    mLayoutInflater = new PhoneLayoutInflater(getOuterContext());
-                }
-                return mLayoutInflater;
-            }
-        }
-        if (Context.WINDOW_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mWindowManager == null) {
-                    mWindowManager = new WindowManagerImpl((Context) (Object) this);
-                }
-                return mWindowManager;
-            }
-        }
-        if (Context.SENSOR_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mSensorManager == null) {
-                    mSensorManager = new SystemSensorManager(getOuterContext(), Looper.getMainLooper());
-                }
-                return mSensorManager;
-            }
-        }
-        if (Context.WIFI_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mWifiManager == null) {
-                    mWifiManager = new WifiManager(getOuterContext());
-                }
-                return mWifiManager;
-            }
-        }
-        if (Context.INPUT_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mInputManager == null) {
-                    mInputManager = new InputManager(getOuterContext());
-                }
-                return mInputManager;
-            }
-        }
-        if (Context.STORAGE_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mStorageManager == null) {
-                    mStorageManager = new StorageManager((Context) (Object) this, Looper.getMainLooper());
-                }
-                return mStorageManager;
-            }
-        }
-        if (Context.APP_OPS_SERVICE.equals(name)) {
-            synchronized (mSync) {
-                if (mAppOpsManager == null) {
-                    mAppOpsManager = new AppOpsManager((Context) (Object) this);
-                }
-                return mAppOpsManager;
-            }
-        }
-        if (Context.INPUT_METHOD_SERVICE.equals(name)) {
-            // The process's manager, without an input method (ADR-0043 step d)), as SystemServiceRegistry's forContext.
-            return InputMethodManager.forContext(getOuterContext());
-        }
-        Unwritten.log("android.app.ContextImpl.getSystemService(String) for \"" + name + "\"", "null");
-        return null;
+        return SystemServiceRegistry.getSystemService(this, name);
     }
 
     /** The default device's, as an app's context on a phone has it: Minato has no virtual devices. */
@@ -326,33 +258,7 @@ class ContextImpl {
     }
 
     public String getSystemServiceName(Class<?> serviceClass) {
-        if (serviceClass == LayoutInflater.class) {
-            return Context.LAYOUT_INFLATER_SERVICE;
-        }
-        if (serviceClass == WindowManager.class) {
-            return Context.WINDOW_SERVICE;
-        }
-        if (serviceClass == InputMethodManager.class) {
-            return Context.INPUT_METHOD_SERVICE;
-        }
-        if (serviceClass == SensorManager.class) {
-            return Context.SENSOR_SERVICE;
-        }
-        if (serviceClass == WifiManager.class) {
-            return Context.WIFI_SERVICE;
-        }
-        if (serviceClass == InputManager.class) {
-            return Context.INPUT_SERVICE;
-        }
-        if (serviceClass == StorageManager.class) {
-            return Context.STORAGE_SERVICE;
-        }
-        if (serviceClass == AppOpsManager.class) {
-            return Context.APP_OPS_SERVICE;
-        }
-        Unwritten.log("android.app.ContextImpl.getSystemServiceName(Class) for "
-                + (serviceClass == null ? "null" : serviceClass.getName()), "null");
-        return null;
+        return SystemServiceRegistry.getSystemServiceName(serviceClass);
     }
 
     public PackageManager getPackageManager() {

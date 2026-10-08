@@ -23,4 +23,23 @@ I/services-test: app op modes: android:camera 1 android:record_audio 1 android:m
 I/services-test: camera noted: 1
 I/services-test: no isolated storage checked: java.lang.SecurityException
 I/services-test: an unknown op: java.lang.IllegalArgumentException: Unknown operation string: android:no_such_op
+I/services-test: activity service: android.app.ActivityManager, the same by class true
+I/services-test: low-RAM device false, background restricted false, user test harness false, monkey false
+I/services-test: memory info: available within total true, threshold below available true, low false
+I/services-test: running processes: 1, the first io.github.kisame76.minato.test.services, this one true, importance 100
+I/services-test: my memory state: importance 100, trim level 0
+I/services-test: display service: android.hardware.display.DisplayManager, the same by class true
+I/services-test: displays: 1, the first's ID 0, presentation displays 0
+I/services-test: display 0: valid true, state 2
+I/services-test: display listener registered and unregistered
+I/services-test: power service: android.os.PowerManager, the same by class true
+I/services-test: interactive true, power save false, device idle false, light idle false, ignoring battery optimizations false
+I/services-test: thermal status 0, sustained performance false, proximity wake lock false, location mode 0
+I/services-test: wake lock without WAKE_LOCK: java.lang.SecurityException, held false
+I/services-test: audio service: android.media.AudioManager, the same by class true
+I/services-test: focus request 1, abandon 1
+I/services-test: mode 0, ringer 2, music active false, speakerphone false, microphone muted false, volume fixed false
+I/services-test: music volume 5 of 15, from 0
+I/services-test: connectivity service: android.net.ConnectivityManager, the same by class true
+I/services-test: default network callback registered and unregistered
 I/services-test: done

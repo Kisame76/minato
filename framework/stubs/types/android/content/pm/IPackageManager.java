@@ -24,4 +24,11 @@ public interface IPackageManager {
     void setKeepUninstalledPackages(List<String> packageList) throws RemoteException;
 
     String[] getPackagesForUid(int uid) throws android.os.RemoteException;
+
+    /** DisplayManager's createVirtualDisplay looks the service up itself (ADR-0045 gap 1, batch 1). */
+    abstract class Stub {
+        public static IPackageManager asInterface(IBinder obj) {
+            throw new RuntimeException("stub");
+        }
+    }
 }

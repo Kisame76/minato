@@ -1307,3 +1307,15 @@ frameworks_base/core/java/com/android/internal/view/menu/MenuView.java
 frameworks_base/core/java/com/android/internal/view/menu/SubMenuBuilder.java
 frameworks_base_graphics/graphics/java/android/view/PixelCopy.java
 modules_utils/java/android/annotation/IdRes.java
+
+# ADR-0045 gap 1, batch 1, App: the services that answered null. DisplayManager over DisplayManagerGlobal's local
+# display service; PowerManager over the local power and thermal services (IPowerManager, IThermalService, with the
+# listeners and callbacks their signatures name), with PowerSaveState, which getLocationPowerSaveMode reads.
+frameworks_base/core/java/android/hardware/display/DisplayManager.java
+frameworks_base/core/java/android/os/PowerManager.java
+frameworks_base/core/java/android/os/PowerSaveState.java
+frameworks_base/core/java/android/os/IPowerManager.aidl
+frameworks_base/core/java/android/os/IWakeLockCallback.aidl
+frameworks_base/core/java/android/os/IThermalService.aidl
+frameworks_base/core/java/android/os/IThermalEventListener.aidl
+frameworks_base/core/java/android/os/IThermalStatusListener.aidl
