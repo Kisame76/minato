@@ -180,14 +180,23 @@ set_tests_properties(graphics.thunk PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped
 # MINATO_ANGLE. Three runs, each with its own expected output: with ANGLE and MoltenVK, with fake-driver
 # (one function per lib) as both, and without providers.
 if(TARGET minato_graphics_host)
-  # With test 6's Metal hook (metal_hook.m) and window (window_host.m), which do nothing unless
-  # MINATO_METAL_HOOK and MINATO_WINDOW are set.
+  # With test 6's Metal hook (metal_hook.m), window (window_host.m) and session layers (session_layers.m), which do
+  # nothing unless MINATO_METAL_HOOK, MINATO_WINDOW and MINATO_SESSION_LAYERS are set.
   add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m
-    window_host.m test_control.m)
-  # apk_run_layers.h, the hooks of apk-run's --lifecycle that window_host.m defines (ADR-0043 c4 (c)).
+    window_host.m session_layers.m test_control.m)
+  # apk_run_layers.h, the hooks of apk-run's --lifecycle that session_layers.m defines (ADR-0043 c4 (c), ADR-0041
+  # gap 4 (c)).
   target_include_directories(graphics-run PRIVATE "${PROJECT_SOURCE_DIR}/runtime/tools")
   target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
+  # ADR-0041 gap 4 (c): the session layers through apk_run_layers.h's hooks without a guest, in WindowOrderTests'
+  # cases (session_layers_test.m).
+  add_executable(graphics-session-layers-test session_layers_test.m session_layers.m)
+  target_include_directories(graphics-session-layers-test PRIVATE "${PROJECT_SOURCE_DIR}/runtime/tools")
+  target_link_libraries(graphics-session-layers-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore")
+  add_test(NAME graphics.session_layers COMMAND graphics-session-layers-test)
+  set_tests_properties(graphics.session_layers PROPERTIES TIMEOUT 60)
   add_library(fake-driver MODULE fake_driver.c)
   target_link_libraries(fake-driver PRIVATE apk_defaults)
   # Test 6's MoltenVK stand-in, with MoltenVK's Vulkan headers.
@@ -201,7 +210,8 @@ if(TARGET minato_graphics_host)
   endif()
   set(hook_options -fobjc-arc ${on_guest_stacks})
   set_source_files_properties(fake_driver.c fake_vulkan.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
-  set_source_files_properties(metal_hook.m window_host.m test_control.m PROPERTIES COMPILE_OPTIONS "${hook_options}")
+  set_source_files_properties(metal_hook.m window_host.m session_layers.m session_layers_test.m test_control.m
+    PROPERTIES COMPILE_OPTIONS "${hook_options}")
   set(moltenvk "${APK_MOLTENVK_DIR}/macos/libMoltenVK.dylib")
   set(angle "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
   # One run of a guest program from tools/build-front-libs.sh: its name, the program, its expected output

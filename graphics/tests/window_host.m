@@ -36,19 +36,9 @@
      last post's pixels outside the dirty rectangle back into the buffer, as libgui does, where the dump takes only
      the rectangle from the fake's cleared buffer: the same contents for an app that draws within the rectangle, as
      Surface.lockCanvas's canvas, cut to it, does.
-   - With MINATO_SESSION_LAYERS=1 (ADR-0043 c4 (c)), apk-run's --lifecycle gets the layers of apk_run_layers.h, as the
-     App's session view holds them: a root layer of the session's size at scale 1 with the window's MinatoMetalLayer,
-     the same at every start and return, opaque until the runtime reports otherwise (APKRT_REQUEST_WINDOW_OPAQUE), and
-     a MinatoMetalLayer per surface at its frame in the window's pixels, opaque as its request says, in one of two
-     containers beside the window's layer, the one below it for a negative z and the one above it for a positive one,
-     by z and then in the order made; a place moves it, its window's removal takes it out. The tree changes on a
-     serial queue of its own, in the order asked, as the hooks may not block; the window's opacity changes at once,
-     before its next post. With MINATO_WINDOW_WATCH=hidden, the window's layer is the one watched, and each surface's
-     layer is printed as it comes and goes: "window host: a surface below the window at <left>, <top>, <width> x
-     <height>" (or above it), "window host: a surface goes". */
+   - With MINATO_SESSION_LAYERS=1, apk-run's --lifecycle gets session_layers.m's layers (apk_run_layers.h). */
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/runtime.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -59,8 +49,8 @@
 #include <unistd.h>
 
 #include "APKRuntime/apkrt.h"
-#include "apk_run_layers.h"
 #include "minato_layer.h"
+#include "session_layers.h"
 #include "test_host.h"
 
 atomic_int minato_test_counting, minato_test_guest_commits, minato_test_asking, minato_test_asker_commits;
@@ -154,32 +144,6 @@ static void *background(void *unused) {
     fprintf(stderr, "host: in the foreground\n");
     apkrt_set_background(0);
     return NULL;
-}
-
-/* MINATO_WINDOW_WATCH=hidden: CALayer's setHidden:, which prints each change of the window layer's hidden on the
-   thread that makes it. Key-value observing never saw those changes [measured], probably as Core Animation makes
-   its setters when they are first used [inferred]. */
-static CALayer *watched;
-static IMP set_hidden;
-
-static void watched_set_hidden(id self, SEL selector, BOOL hidden) {
-    if (self == watched && ((CALayer *)self).hidden != hidden) {
-        fprintf(stderr, "window host: the layer is %s\n", hidden ? "hidden" : "shown");
-    }
-    ((void (*)(id, SEL, BOOL))set_hidden)(self, selector, hidden);
-}
-
-/* MINATO_WINDOW_WATCH=hidden: watches `layer`; NO without it. */
-static BOOL watch_hidden(CALayer *layer) {
-    const char *watch = getenv("MINATO_WINDOW_WATCH");
-    if (watch == NULL || strcmp(watch, "hidden") != 0) {
-        return NO;
-    }
-    watched = layer;
-    layer.hidden = NO;  // the setter, made
-    set_hidden = method_setImplementation(class_getInstanceMethod([layer class], @selector(setHidden:)),
-                                          (IMP)watched_set_hidden);
-    return YES;
 }
 
 /* The fake buffers of MINATO_WINDOW_BUFFERS=fake, on the program's one thread, for one window at a time: a lock and
@@ -354,7 +318,7 @@ __attribute__((constructor)) static void add_window(void) {
         layer.bounds = CGRectMake(0, 0, width, height);
         const char *opaque = getenv("MINATO_WINDOW_OPAQUE");
         layer.opaque = opaque != NULL && strcmp(opaque, "1") == 0;
-        watch_hidden(layer);
+        minato_test_watch_hidden(layer);
         minato_test_window = apkrt_window_add((__bridge void *)layer, width, height);
     }
     if (minato_test_window == 0 || apkrt_window_set_gate(minato_test_window, 1) != 0) {
@@ -385,166 +349,4 @@ __attribute__((constructor)) static void add_window(void) {
         pthread_create(&thread, NULL, play, NULL);
         pthread_detach(thread);
     }
-}
-
-/* MINATO_SESSION_LAYERS=1: the session's layers (apk_run_layers.h). The surfaces' entries live on the tree's queue. */
-@interface MinatoSurfaceEntry : NSObject {
-@public
-    CAMetalLayer *layer;
-    uint64_t token;
-    int32_t z;
-    unsigned long made;
-}
-@end
-
-@implementation MinatoSurfaceEntry
-@end
-
-static dispatch_queue_t tree;
-static CALayer *session_root, *below, *above;
-static MinatoMetalLayer *session_window;
-static BOOL printing;
-static NSMutableArray<MinatoSurfaceEntry *> *entries;  // in the order made
-static unsigned long made;
-
-static void without_actions(void (^change)(void)) {
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    change();
-    [CATransaction commit];
-}
-
-static void *window_layer(int32_t width, int32_t height) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        tree = dispatch_queue_create("window host: the session's layers", DISPATCH_QUEUE_SERIAL);
-        entries = [NSMutableArray array];
-        session_root = [CALayer layer];
-        session_window = [MinatoMetalLayer layer];
-        below = [CALayer layer];
-        above = [CALayer layer];
-        without_actions(^{
-            const CGRect bounds = CGRectMake(0, 0, width, height);
-            session_root.bounds = bounds;
-            for (CALayer *layer in @[ session_window, below, above ]) {
-                layer.contentsScale = 1;
-                layer.frame = bounds;
-            }
-            session_window.opaque = YES;
-            [session_root addSublayer:below];
-            [session_root addSublayer:session_window];
-            [session_root addSublayer:above];
-        });
-        printing = watch_hidden(session_window);
-    });
-    return (__bridge void *)session_window;
-}
-
-static void window_opaque(int opaque) {
-    without_actions(^{
-        session_window.opaque = opaque != 0;
-    });
-}
-
-/* On the tree's queue: the entry's layer goes to its side at its place by z, then in the order made. */
-static void insert(MinatoSurfaceEntry *entry) {
-    CALayer *side = entry->z < 0 ? below : above;
-    unsigned index = 0;
-    for (MinatoSurfaceEntry *other in entries) {
-        if (other != entry && other->layer.superlayer == side &&
-            (other->z < entry->z || (other->z == entry->z && other->made < entry->made))) {
-            index++;
-        }
-    }
-    without_actions(^{
-        [entry->layer removeFromSuperlayer];
-        [side insertSublayer:entry->layer atIndex:index];
-    });
-}
-
-/* With MINATO_WINDOW_WATCH=hidden: the side the entry's layer lies on and its frame, as the tree has them. */
-static void print_place(MinatoSurfaceEntry *entry) {
-    if (!printing) {
-        return;
-    }
-    const CGRect frame = entry->layer.frame;
-    fprintf(stderr, "window host: a surface %s the window at %.0f, %.0f, %.0f x %.0f\n",
-            entry->layer.superlayer == below ? "below" : "above", frame.origin.x, frame.origin.y,
-            frame.size.width, frame.size.height);
-}
-
-static void *surface_layer(const struct apkrt_surface_request *request) {
-    const struct apkrt_surface_request asked = *request;
-    MinatoMetalLayer *layer = [[MinatoMetalLayer alloc] init];
-    without_actions(^{
-        layer.contentsScale = 1;
-        layer.opaque = asked.opaque != 0;
-        layer.frame = CGRectMake(asked.left, asked.top, asked.right - asked.left, asked.bottom - asked.top);
-    });
-    dispatch_async(tree, ^{
-        MinatoSurfaceEntry *entry = [[MinatoSurfaceEntry alloc] init];
-        entry->layer = layer;
-        entry->token = asked.token;
-        entry->z = asked.z;
-        entry->made = ++made;
-        [entries addObject:entry];
-        insert(entry);
-        print_place(entry);
-    });
-    return (__bridge void *)layer;
-}
-
-/* A place: the frame, and another side or place by z when z changes; printed when either changes. */
-static void surface_placed(const struct apkrt_surface_request *request) {
-    const struct apkrt_surface_request asked = *request;
-    dispatch_async(tree, ^{
-        for (MinatoSurfaceEntry *entry in entries) {
-            if (entry->token != asked.token) {
-                continue;
-            }
-            const CGRect frame =
-                CGRectMake(asked.left, asked.top, asked.right - asked.left, asked.bottom - asked.top);
-            const BOOL moved = !CGRectEqualToRect(entry->layer.frame, frame), turned = entry->z != asked.z;
-            without_actions(^{
-                entry->layer.frame = frame;
-            });
-            if (turned) {
-                entry->z = asked.z;
-                insert(entry);
-            }
-            if (moved || turned) {
-                print_place(entry);
-            }
-            break;
-        }
-    });
-}
-
-static void surface_removed(void *layer) {
-    if (layer == NULL) {
-        return;
-    }
-    dispatch_async(tree, ^{
-        CALayer *gone = (__bridge_transfer CALayer *)layer;
-        for (MinatoSurfaceEntry *entry in entries) {
-            if (entry->layer == gone) {
-                without_actions(^{
-                    [gone removeFromSuperlayer];
-                });
-                [entries removeObject:entry];
-                if (printing) {
-                    fprintf(stderr, "window host: a surface goes\n");
-                }
-                break;
-            }
-        }
-    });
-}
-
-static const struct apk_run_layer_hooks layer_hooks = {window_layer, window_opaque, surface_layer, surface_placed,
-                                                       surface_removed};
-
-const struct apk_run_layer_hooks *apk_run_layers(void) {
-    const char *layers = getenv("MINATO_SESSION_LAYERS");
-    return layers != NULL && strcmp(layers, "1") == 0 ? &layer_hooks : NULL;
 }

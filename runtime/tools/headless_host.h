@@ -133,8 +133,9 @@ private:
 };
 
 /// What the host does with the requested windows (ADR-0041, gap 4), as Calls has it for the surfaces: in apk-run
-/// apkrt_window_add of the request's buffer size without a layer, apkrt_window_set_gate with 1, apkrt_window_set_size,
-/// apkrt_window_remove and apkrt_session_post, and nothing for a place.
+/// apkrt_window_add of the request's buffer size, on graphics-run's layer for it or none, apkrt_window_set_gate with
+/// 1, apkrt_window_set_size, apkrt_window_remove, apkrt_session_post, and graphics-run's change of the layer for each
+/// place.
 struct WindowCalls {
     std::function<std::uint64_t(const apkrt_window_request &)> add;
     std::function<void(std::uint64_t)> open;

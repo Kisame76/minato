@@ -45,8 +45,9 @@
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
 // which follow the places and the window's opacity, as the App's do (ADR-0043 c4 (c)).
 // The guest's requested windows (ADR-0041, gap 4: dialogs, popups, toasts, translucent activities, sub-windows) are
-// answered in the same way, without a layer: WINDOW_CREATED, WINDOW_RESIZED, and at the background and the end
-// WINDOW_DESTROYED, a sub-window's before its parent's.
+// answered in the same way: WINDOW_CREATED, WINDOW_RESIZED, and at the background and the end WINDOW_DESTROYED, a
+// sub-window's before its parent's; under graphics-run each has a layer in Android 15's order of windows, which
+// follows its places, alpha and dim (ADR-0041 gap 4 (c)).
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
@@ -278,17 +279,28 @@ void on_surface(void *, const apkrt_surface_request *request) {
     surfaces.request(*request);
 }
 
-/// --lifecycle's requested windows (headless_host.h, ADR-0041 gap 4): windows without a layer, opened, sized and
-/// removed in the registry, and the events posted, as for the surfaces.
+/// --lifecycle's requested windows (headless_host.h, ADR-0041 gap 4): windows on graphics-run's layers or none,
+/// opened, sized and removed in the registry, and the events posted, as for the surfaces. A removed window's layer
+/// goes to the window host after the removal.
 headless::Windows windows({
-    [](const apkrt_window_request &request) { return apkrt_window_add(nullptr, request.width, request.height); },
+    [](const apkrt_window_request &request) {
+        const auto *layers = apk_run_layers();
+        return apkrt_window_add(layers != nullptr ? layers->requested_layer(&request) : nullptr, request.width,
+                                request.height);
+    },
     [](std::uint64_t window) { apkrt_window_set_gate(window, 1); },
     [](std::uint64_t window, std::int32_t width, std::int32_t height) {
         apkrt_window_set_size(window, width, height);
     },
-    [](std::uint64_t window) { apkrt_window_remove(window); },
+    [](std::uint64_t window) {
+        void *const layer = apkrt_window_layer(window);
+        apkrt_window_remove(window);
+        if (const auto *layers = apk_run_layers()) layers->requested_removed(layer);
+    },
     [](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) { post(type, a0, a1, a2); },
-    [](std::uint64_t, const apkrt_window_request &) {},
+    [](std::uint64_t, const apkrt_window_request &request) {
+        if (const auto *layers = apk_run_layers()) layers->requested_placed(&request);
+    },
 });
 
 void on_window(void *, const apkrt_window_request *request) {
