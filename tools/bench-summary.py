@@ -16,8 +16,11 @@
   the median), else "more runs" (5 more per variant) or, from 10 native runs on, "undecided". Then "pass" when the
   APK's median FPS is at least 95 % of the native's and its median p99 at most 105 %, else "fail". Medians by
   nearest rank.
+bench-gles31's configurations (ADR-0044 d2)), its APK alone on ANGLE's Vulkan backend, get rows of verdict.csv as well:
+the APK's numbers beside gles's native runs of the same rate and load, with the same columns, "reported" and never
+judged (ADR-0044 decision 5), and the reason a verdict would give after its note.
 It prints the verdicts and then "parity: holds" (every configuration of decision 7 passed), "parity: fails" (one
-failed) or "parity: not decided".
+failed) or "parity: not decided"; bench-gles31's rows count for none of them.
 Usage: tools/bench-summary.py [<results>, default build/benchmark] [--out <folder>]"""
 import argparse
 import csv
@@ -36,7 +39,7 @@ NOISE = Fraction(5, 100)
 FPS_LEAST = Fraction(95, 100)
 P99_MOST = Fraction(105, 100)
 THERMAL = ["nominal", "fair", "serious", "critical"]
-RUN = re.compile(r"((?:gles|vulkan)-[0-9]+-(?:light|heavy))-(native|apk)-([0-9]{2})")
+RUN = re.compile(r"((?:gles31|gles|vulkan)-[0-9]+-(?:light|heavy))-(native|apk)-([0-9]{2})")
 FRAMES_HEADER = ["index", "tick_ns", "next_drawable_ns", "presented_ns", "cpu_ns"]
 WINDOW_COLUMNS = ["run", "configuration", "variant", "valid", "invalid_reasons", "window_s", "frames", "fps",
                   "p50_ms", "p99_ms", "drops", "cpu_p50_ms", "cpu_p99_ms", "first_frame_ms"]
@@ -217,6 +220,15 @@ def verdict(configuration, runs):
     return dict(row, verdict="fail" if misses else "pass", reason="; ".join(misses))
 
 
+def reported(configuration, runs):
+    """bench-gles31's row: its APK's runs beside gles's native runs of the same rate and load, not judged."""
+    reference = "gles" + configuration[len("gles31"):]
+    row = verdict(configuration, [run for run in runs if (run.configuration, run.variant)
+                                  in ((configuration, "apk"), (reference, "native"))])
+    note = f"not judged (ADR-0044 decision 5), beside {reference}'s native runs"
+    return dict(row, verdict="reported", reason=f"{note}; {row['reason']}" if row["reason"] else note)
+
+
 def write(path, columns, rows):
     with open(path, "w", newline="") as file:
         writer = csv.DictWriter(file, columns, lineterminator="\n")
@@ -237,7 +249,8 @@ def main():
         return 2
     runs = [run for run in (Run(folder) for folder in folders) if run.number != 0]
     configurations = sorted({run.configuration for run in runs})
-    verdicts = [verdict(configuration, [run for run in runs if run.configuration == configuration])
+    verdicts = [reported(configuration, runs) if configuration.startswith("gles31-")
+                else verdict(configuration, [run for run in runs if run.configuration == configuration])
                 for configuration in configurations]
     out.mkdir(parents=True, exist_ok=True)
     write(out / "cold.csv", WINDOW_COLUMNS, [run.window_row("cold") for run in runs])

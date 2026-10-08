@@ -12,6 +12,9 @@ public enum BenchVariant: String, Sendable, CaseIterable {
 public enum BenchAPI: String, Sendable, CaseIterable {
     case gles
     case vulkan
+    /// bench-gles's scene under an ES 3.1 manifest, which Minato starts on ANGLE's Vulkan backend (ADR-0044 d2)):
+    /// its APK runs alone, reported beside bench-gles and not judged (ADR-0044 decision 5).
+    case gles31
     /// The twin's Metal driver, Godot's default on iOS: reported against the Vulkan APK, not judged (ADR-0042).
     case metal
 }
@@ -21,15 +24,17 @@ public enum BenchScene: String, Sendable, CaseIterable {
     case parity
     case godot
 
-    public var apis: [BenchAPI] { self == .parity ? [.gles, .vulkan] : [.gles, .vulkan, .metal] }
+    public var apis: [BenchAPI] { self == .parity ? [.gles, .vulkan, .gles31] : [.gles, .vulkan, .metal] }
 
-    /// The variants a configuration compares, A first, then B; the Metal twin runs alone.
+    /// The variants a configuration compares, A first, then B; the Metal twin and the ES 3.1 APK run alone.
     public func variants(of api: BenchAPI) -> [BenchVariant] {
         switch (self, api) {
+        case (.parity, .gles), (.parity, .vulkan): [.native, .apk]
+        case (.parity, .gles31): [.apk]
         case (.parity, .metal): []
-        case (.parity, _): [.native, .apk]
+        case (.godot, .gles), (.godot, .vulkan): [.twin, .apk]
         case (.godot, .metal): [.twin]
-        case (.godot, _): [.twin, .apk]
+        case (.godot, .gles31): []
         }
     }
 }

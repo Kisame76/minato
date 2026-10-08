@@ -17,6 +17,8 @@ make_tree() {
   mkdir -p "$tree/tools" "$tree/fake" "$tree/bin" "$tree/container/tmp/benchmark"
   cp tools/benchmark.sh "$tree/tools/"
   printf '#!/bin/sh\nexit 0\n' >"$tree/tools/sim.sh"
+  # benchmark.sh builds the APKs and MinatoBench.framework before its series: a fake too.
+  printf '#!/bin/sh\nexit 0\n' >"$tree/tools/build-bench.sh"
   printf 'print("FAKE-UDID fake")\n' >"$tree/tools/find-simulator.py"
   cat >"$tree/fake/swift" <<EOF
 #!/bin/sh
@@ -81,25 +83,24 @@ for answer in "run " "run" "run ." "run ../build" "run *" "run gles-120-heavy-ap
   fi
 done
 
-# A run ID is launched, fetched and kept beside the earlier results.
-tree="$WORK/good"
-make_tree "$tree" "run gles-60-light-apk-02"
-mkdir -p "$tree/container/tmp/benchmark/gles-60-light-apk-02"
-cat >"$tree/container/tmp/benchmark/gles-60-light-apk-02/run.csv" <<'EOF'
-run,valid,invalid_reasons
-gles-60-light-apk-02,1,
-EOF
-status=$(run_tree "$tree")
-problems=""
-[[ "$status" == 0 ]] || problems+=" exit $status"
-grep -q -- "-runBenchmark gles-60-light-apk-02" "$tree/xcrun.log" 2>/dev/null || problems+=" not launched"
-[[ -f "$tree/build/benchmark-simulator/gles-60-light-apk-02/run.csv" ]] || problems+=" not fetched"
-[[ "$(cat "$tree/build/benchmark-simulator/notes" 2>/dev/null)" == kept ]] || problems+=" results changed"
-if [[ -z "$problems" ]]; then
-  echo "same     ran gles-60-light-apk-02"
-else
-  echo "DIFFERS  gles-60-light-apk-02:$problems"
-  sed 's/^/  /' "$tree/out"
-  failed=1
-fi
+# A run ID is launched, fetched and kept beside the earlier results; bench-gles31's too (ADR-0044 d2)).
+for run in gles-60-light-apk-02 gles31-120-heavy-apk-01; do
+  tree="$WORK/good-$run"
+  make_tree "$tree" "run $run"
+  mkdir -p "$tree/container/tmp/benchmark/$run"
+  printf 'run,valid,invalid_reasons\n%s,1,\n' "$run" >"$tree/container/tmp/benchmark/$run/run.csv"
+  status=$(run_tree "$tree")
+  problems=""
+  [[ "$status" == 0 ]] || problems+=" exit $status"
+  grep -q -- "-runBenchmark $run" "$tree/xcrun.log" 2>/dev/null || problems+=" not launched"
+  [[ -f "$tree/build/benchmark-simulator/$run/run.csv" ]] || problems+=" not fetched"
+  [[ "$(cat "$tree/build/benchmark-simulator/notes" 2>/dev/null)" == kept ]] || problems+=" results changed"
+  if [[ -z "$problems" ]]; then
+    echo "same     ran $run"
+  else
+    echo "DIFFERS  $run:$problems"
+    sed 's/^/  /' "$tree/out"
+    failed=1
+  fi
+done
 exit $failed

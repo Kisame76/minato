@@ -91,10 +91,12 @@ struct BenchPlanTests {
             "gles-60-light-native-03", "gles-60-light-apk-03", "gles-60-light-apk-04", "gles-60-light-native-04",
             "gles-60-light-native-05", "gles-60-light-apk-05",
         ])
-        try #require(runs.count == 2 * (2 + 3 * 10))
+        try #require(runs.count == 2 * (2 + 3 * 10) + (1 + 3 * 5))
         #expect(runs[12].description == "gles-120-light-native-01")
         #expect(runs[32].description == "vulkan-120-heavy-native-00")
-        #expect(runs.last?.description == "vulkan-120-heavy-apk-05")
+        #expect(runs[63].description == "vulkan-120-heavy-apk-05")
+        #expect(runs[64].description == "gles31-120-heavy-apk-00")
+        #expect(runs.last?.description == "gles31-120-heavy-apk-05")
         for api in BenchScene.parity.apis {
             for configuration in BenchConfiguration.series(of: api) {
                 for variant in BenchScene.parity.variants(of: api) {
@@ -190,5 +192,22 @@ struct BenchPlanTests {
         #expect(end == .done)
         #expect(runs.first?.description == "vulkan-120-heavy-native-00")
         #expect(runs.count == 32)
+    }
+
+    /// ADR-0044 d2): bench-gles31, bench-gles's scene on ANGLE's Vulkan backend, runs its APK alone: there is no
+    /// native ES 3.1 build, and its numbers are reported beside bench-gles's, not judged (ADR-0044 decision 5).
+    @Test func theES31TwinRunsItsAPKAlone() {
+        let (runs, end) = Self.play(BenchPlan(apis: [.gles31]))
+        #expect(end == .done)
+        #expect(runs.prefix(3).map(\.description) == [
+            "gles31-120-heavy-apk-00", "gles31-60-light-apk-01", "gles31-60-light-apk-02",
+        ])
+        #expect(runs.count == 1 + 3 * 5)
+        #expect(runs.allSatisfy { $0.configuration.api == .gles31 && $0.variant == .apk })
+        let run = BenchRun("gles31-120-heavy-apk-03")
+        #expect(run?.configuration == BenchConfiguration(api: .gles31, rate: 120, load: .heavy))
+        for bad in ["gles31-120-heavy-native-03", "gles31-120-heavy-twin-03", "godot-gles31-120-heavy-apk-03"] {
+            #expect(BenchRun(bad) == nil, "\(bad)")
+        }
     }
 }

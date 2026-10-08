@@ -32,7 +32,8 @@ case "$PLATFORM_NAME" in
   *) echo "error: no benchmark for $PLATFORM_NAME" >&2; exit 1 ;;
 esac
 BENCH="$SRCROOT/build/MinatoBench.xcframework/$SLICE/MinatoBench.framework"
-APKS=("$SRCROOT/build/graphics/bench/bench-gles.apk" "$SRCROOT/build/graphics/bench/bench-vulkan.apk")
+APKS=("$SRCROOT/build/graphics/bench/bench-gles.apk" "$SRCROOT/build/graphics/bench/bench-vulkan.apk"
+  "$SRCROOT/build/graphics/bench/bench-gles31.apk")
 GODOT=()
 if [[ "${APK_EMBED_GODOT:-NO}" == "YES" ]]; then
   GODOT=("$SRCROOT/build/godot/godot-bench-gles.apk" "$SRCROOT/build/godot/godot-bench-vulkan.apk")

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the parity benchmark (ADR-0037, decision 1).
 #   tools/build-bench.sh        the APKs: graphics/bench/android with the NDK for arm64-v8a, its libraries into
-#                               build/graphics/bench/bin, then build/graphics/bench/bench-gles.apk and
-#                               bench-vulkan.apk with tools/make-apk.sh
+#                               build/graphics/bench/bin, then build/graphics/bench/bench-gles.apk,
+#                               bench-vulkan.apk and bench-gles31.apk, bench-gles's library under an ES 3.1
+#                               manifest (ADR-0044 d2)), with tools/make-apk.sh
 #   tools/build-bench.sh --ios  the scene built for iOS: MinatoBench.framework for the device and the Simulator
 #                               (graphics/bench with the presets ios-release and ios-simulator-release, in
 #                               build/native/<preset>-bench), packed into build/MinatoBench.xcframework. It links
@@ -60,7 +61,9 @@ cmake -S graphics/bench/android -B "$out/ndk" -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
 cmake --build "$out/ndk"
 
-for app in bench-gles bench-vulkan; do
-  tools/make-apk.sh --manifest "graphics/bench/android/$app/AndroidManifest.xml" --lib "$out/bin/lib$app.so" \
+for app in bench-gles bench-vulkan bench-gles31; do
+  library=$app
+  [[ "$app" != bench-gles31 ]] || library=bench-gles
+  tools/make-apk.sh --manifest "graphics/bench/android/$app/AndroidManifest.xml" --lib "$out/bin/lib$library.so" \
     --out "$out/$app.apk"
 done

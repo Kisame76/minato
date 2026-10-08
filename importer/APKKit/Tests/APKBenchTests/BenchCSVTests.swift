@@ -62,6 +62,12 @@ struct BenchCSVTests {
         #expect(lines[2] == "")
     }
 
+    /// ADR-0044 d2): bench-gles31's run.csv names its own API, though it draws bench-gles's scene (App's review).
+    @Test func anES31RunNamesItsOwnAPI() throws {
+        let record = BenchRunRecord(run: BenchRun("gles31-120-heavy-apk-02")!)
+        #expect(try Self.row(record).hasPrefix("gles31-120-heavy-apk-02,apk,gles31,120,heavy,"))
+    }
+
     @Test func anInvalidRunCarriesItsReasons() throws {
         var record = Self.record()
         record.debugger = true

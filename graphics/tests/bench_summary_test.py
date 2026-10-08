@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """ADR-0037 b): graphics.bench_summary. tools/bench-summary.py on made-up results, run folders as tools/benchmark.sh
-fetches them (App's run.csv and frames.csv), in four sets:
+fetches them (App's run.csv and frames.csv), in five sets:
 - windows: cold from the start to 10 s after the first present, warm from 20 s to 50 s after it, each end excluded;
   FPS, p50 and p99 of the frame intervals by nearest rank, drops by their nextDrawable time, the CPU times;
 - validity: each rule of decision 6 broken once, App's own reasons kept, present times checked (after their
   drawable, in order; two drawables at one present count once, the earlier as a drop), and the pair rule;
 - a series whose configurations all pass at the limits (95 % of the FPS, 105 % of the p99): parity holds;
 - the verdicts: a failure by FPS and by p99, the noise rule at its limit, beyond it with 5 runs (more runs) and with
-  10 (undecided, the median of 10 by nearest rank), too few valid runs: parity fails.
+  10 (undecided, the median of 10 by nearest rank), too few valid runs: parity fails;
+- bench-gles31's (ADR-0044 d2)), its APK alone: rows beside gles's native runs of the same rate and load, reported
+  and not judged, which leave the parity line as it is; and alone, as tools/benchmark.sh --api gles31 runs it.
 Warm-up runs (00) are left out. Usage: bench_summary_test.py --tool <bench-summary.py> --scratch <dir>"""
 import argparse
 import csv
@@ -259,6 +261,35 @@ def check_verdicts(tool, scratch):
         fail(f"a series with failures: {tables['parity']}")
 
 
+def check_es31(tool, scratch):
+    results = scratch / "es31"
+    runs = [0]
+    for api in ("gles", "vulkan"):
+        for config in (f"{api}-60-light", f"{api}-120-light", f"{api}-120-heavy"):
+            configuration(results, runs, config, [(100, 12)] * 5, [(95, 12.6)] * 5)
+    # Below the limits at 60 Hz, which would fail a judged configuration, and at them at 120 Hz.
+    configuration(results, runs, "gles31-60-light", [], [(80, 15)] * 5)
+    configuration(results, runs, "gles31-120-light", [], [(95, 12.6)] * 5)
+    tables = summarize(tool, results, scratch / "es31-summary")
+    if tables is None:
+        return
+    for config, field, wanted in (
+            ("gles31-60-light", "verdict", "reported"), ("gles31-60-light", "native_runs", "5"),
+            ("gles31-60-light", "apk_runs", "5"), ("gles31-60-light", "native_fps", "100.00"),
+            ("gles31-60-light", "apk_fps", "80.00"), ("gles31-60-light", "fps_ratio", "0.8000"),
+            ("gles31-120-light", "verdict", "reported"), ("gles31-120-light", "p99_ratio", "1.0500")):
+        expect(tables, "verdict", config, field, wanted, "bench-gles31")
+    if tables["parity"] != "parity: holds":
+        fail(f"bench-gles31's rows beside a series that passes: {tables['parity']}")
+    alone = scratch / "es31-alone"
+    configuration(alone, [0], "gles31-120-heavy", [], [(100, 12)] * 5)
+    tables = summarize(tool, alone, scratch / "es31-alone-summary")
+    if tables is None:
+        return
+    for field, wanted in (("verdict", "reported"), ("native_runs", "0"), ("native_fps", ""), ("apk_fps", "100.00")):
+        expect(tables, "verdict", "gles31-120-heavy", field, wanted, "bench-gles31 alone")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tool", required=True)
@@ -270,7 +301,7 @@ def main():
     if not tool.exists():
         fail(f"no {tool}")
     else:
-        for check in (check_windows, check_validity, check_parity, check_verdicts):
+        for check in (check_windows, check_validity, check_parity, check_verdicts, check_es31):
             check(tool, scratch)
     print(f"{len(failures)} failures" if failures else "PASS: graphics.bench_summary")
     return 1 if failures else 0

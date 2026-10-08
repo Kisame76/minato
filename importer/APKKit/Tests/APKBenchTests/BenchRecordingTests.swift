@@ -66,4 +66,16 @@ struct BenchRecordingTests {
         #expect(BenchConfiguration("godot-gles-60-light")!.package == "io.github.kisame76.minato.godotbench.gles")
         #expect(BenchConfiguration("gles-60-light")!.package == "io.github.kisame76.minato.bench.gles")
     }
+
+    /// ADR-0044 d2): bench-gles31 is bench-gles's scene under an ES 3.1 manifest, with its own APK and package; its
+    /// runs draw bench-gles's meshes.
+    @Test func theES31TwinIsBenchGLESsScene() {
+        #expect(BenchAPI.gles31.apkFile == "bench-gles31.apk")
+        #expect(BenchAPI.gles31.package == "io.github.kisame76.minato.bench.gles31")
+        #expect(BenchConfiguration("gles31-120-heavy")?.apkFile == "bench-gles31.apk")
+        #expect(BenchAPI.gles31.sceneAPI == .gles)
+        for api in BenchAPI.allCases where api != .gles31 {
+            #expect(api.sceneAPI == api, "\(api)")
+        }
+    }
 }

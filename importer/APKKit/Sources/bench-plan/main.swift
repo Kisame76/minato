@@ -4,13 +4,13 @@ import Foundation
 // Tells tools/benchmark.sh what comes next in the parity series (ADR-0037) or test 2's (ADR-0042, --scene godot),
 // from the run.csv files in <results>/<run>/: prints "run <run>" or "done"; on a stop it prints the reason to
 // stderr and exits with 3.
-// Usage: bench-plan next <results> [--scene parity|godot] [--api gles|vulkan|metal] [--more <configuration> ...]
+// Usage: bench-plan next <results> [--scene parity|godot] [--api gles|vulkan|gles31|metal] [--more <configuration> ...]
 func fail(_ message: String, status: Int32) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(status)
 }
 
-let usage = "usage: bench-plan next <results> [--scene parity|godot] [--api gles|vulkan|metal] "
+let usage = "usage: bench-plan next <results> [--scene parity|godot] [--api gles|vulkan|gles31|metal] "
     + "[--more <configuration> ...]"
 var arguments = Array(CommandLine.arguments.dropFirst())
 guard arguments.count >= 2, arguments.removeFirst() == "next" else { fail(usage, status: 2) }

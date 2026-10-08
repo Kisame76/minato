@@ -8,7 +8,8 @@
 #   --scene godot        test 2's series instead (ADR-0042 c): the Godot APKs against the twin, Godot's iOS template in
 #                        the benchmark build, through tools/build-godot.sh and APK_EMBED_GODOT=YES; the twin runs on
 #                        the iPhone only
-#   --api gles|vulkan    only this API's series; metal too with --scene godot, the twin's own
+#   --api <api>          only this API's series: gles, vulkan, or gles31, bench-gles's scene on ANGLE's Vulkan
+#                        backend (ADR-0044 d2)); metal too with --scene godot, the twin's own
 #   --more <config>      5 more runs per variant of a configuration, e.g. gles-120-heavy (decision 8)
 #   --seconds <n>        a shorter draw time than 52 s, for the Simulator (its graphics are not judged)
 #   --build-check        checks the build setting instead: a Release build without it holds neither
@@ -66,7 +67,7 @@ check_app() {
     [[ "$mode" == 1 ]] || problems+=" no-mode"
     [[ -f "$app/Frameworks/MinatoBench.framework/MinatoBench" ]] || problems+=" no-MinatoBench.framework"
     local apk
-    for apk in bench-gles.apk bench-vulkan.apk; do
+    for apk in bench-gles.apk bench-vulkan.apk bench-gles31.apk; do
       [[ -f "$app/Benchmark/$apk" ]] || problems+=" no-$apk"
     done
     python3 tools/license-check.py "$app" >"$CHECK/license-check.txt" 2>&1 || problems+=" license-check"
@@ -94,7 +95,8 @@ embed_checks() {
       "$tree/build/godot"
     echo stand-in >"$tree/build/MinatoGodot.xcframework/ios-arm64/MinatoGodot.framework/MinatoGodot"
     touch "$tree/build/graphics/bench/bench-gles.apk" "$tree/build/graphics/bench/bench-vulkan.apk" \
-      "$tree/build/godot/godot-bench-gles.apk" "$tree/build/godot/godot-bench-vulkan.apk" "$tree/build/godot/Minato.pck"
+      "$tree/build/graphics/bench/bench-gles31.apk" "$tree/build/godot/godot-bench-gles.apk" \
+      "$tree/build/godot/godot-bench-vulkan.apk" "$tree/build/godot/Minato.pck"
     for xcframework in APKRuntime APKConvert MinatoGraphics; do
       echo "$libraries" >"$tree/build/$xcframework.xcframework.configuration"
     done
@@ -128,6 +130,7 @@ embed_checks() {
   embed_case libraries refused "the runtime's Debug build" Release Debug ""
   embed_case framework refused "no MinatoBench.framework" Release Release build/MinatoBench.xcframework
   embed_case apk refused "no bench-vulkan.apk" Release Release build/graphics/bench/bench-vulkan.apk
+  embed_case apk-es31 refused "no bench-gles31.apk" Release Release build/graphics/bench/bench-gles31.apk
   embed_case plain "embedded nothing" "a Release build without the setting" Release Release "" iphoneos NO NO
   embed_case plain-debug "embedded nothing" "a Debug build without the setting" Debug Debug "" iphonesimulator NO NO
   embed_case godot "embedded bench godot-apks twin pack" "test 2 for an iOS device" Release Release "" iphoneos YES
@@ -271,7 +274,7 @@ while true; do
   [[ "$step" != done ]] || break
   # The run names a folder that is emptied below: anything but "run <run ID>" stops the series
   # before it is used, so a wrong line cannot remove the results.
-  if [[ ! "$step" =~ ^run\ ((godot-)?(gles|vulkan|metal)-[0-9]+-(light|heavy)-(native|apk|twin)-[0-9]{2})$ ]]; then
+  if [[ ! "$step" =~ ^run\ ((godot-)?(gles(31)?|vulkan|metal)-[0-9]+-(light|heavy)-(native|apk|twin)-[0-9]{2})$ ]]; then
     echo "STOPPED  bench-plan answered neither \"done\" nor \"run <run ID>\": '$step'" >&2
     exit 1
   fi

@@ -390,7 +390,8 @@ final class BenchmarkRunner {
         if let meshes = configuration.godotMeshes {
             record.meshes = meshes
         } else if let meshes = try? bench ?? MinatoBench.open() {
-            record.meshes = Int(meshes.meshes(configuration.api.rawValue, configuration.load.rawValue))
+            // MinatoBench knows the scene's APIs: bench-gles31 draws bench-gles's meshes (ADR-0044 d2)).
+            record.meshes = Int(meshes.meshes(configuration.api.sceneAPI.rawValue, configuration.load.rawValue))
         }
         write(frames: BenchCSV.join(drawables: recording.drawables, scene: scene))
         // The CSVs are written and closed. Test 2's twin ends without exit's static destructors, which would run

@@ -67,6 +67,14 @@ extension BenchAPI {
     public var apkFile: String { "bench-\(rawValue).apk" }
     /// The package it installs as (graphics/bench/android).
     public var package: String { "io.github.kisame76.minato.bench.\(rawValue)" }
+    /// The API whose scene it draws, whose meshes MinatoBench counts: bench-gles31 draws bench-gles's (ADR-0044 d2)).
+    public var sceneAPI: BenchAPI {
+        switch self {
+        case .gles, .gles31: .gles
+        case .vulkan: .vulkan
+        case .metal: .metal
+        }
+    }
 }
 
 extension BenchConfiguration {
