@@ -22,6 +22,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/event.h>
+#include <sys/file.h>
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -173,14 +174,22 @@ void empty(int folder) {
 
 constexpr std::string_view folder_prefix = "apkrt-unix-";
 
-/// The runtime's folder of abstract names, in the user's temporary folder, made at its first use, when the folders
-/// of processes that are gone go; -1 when it cannot be made. Under `names.mutex`.
-int abstract_folder(UnixNames &names) {
-    if (names.folder >= 0) return names.folder;
-    char temporary[MAXPATHLEN];
-    if (::confstr(_CS_DARWIN_USER_TEMP_DIR, temporary, sizeof temporary) == 0) return -1;
-    const int parent = ::open(temporary, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (parent < 0) return -1;
+/// `name` in the folder `parent`, opened as a folder of this user's, never through a link; -1 for anything else.
+int open_own_folder(int parent, const std::string &name) {
+    const int folder = ::openat(parent, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat status{};
+    if (folder >= 0 && (::fstat(folder, &status) != 0 || status.st_uid != ::getuid())) {
+        ::close(folder);
+        return -1;
+    }
+    return folder;
+}
+
+}  // namespace
+
+/// A living runtime holds its folder's lock (abstract_folder), which an older one, without it, did not; so a folder
+/// goes only when nothing holds it and no process has the ID in its name.
+void sweep_folders(int parent) {
     if (const int copy = ::dup(parent); copy >= 0) {
         if (DIR *directory = ::fdopendir(copy)) {
             std::vector<std::string> stale;
@@ -194,20 +203,40 @@ int abstract_folder(UnixNames &names) {
             }
             ::closedir(directory);
             for (const auto &name : stale) {
-                const int old = ::openat(parent, name.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-                if (old >= 0) {
+                const int old = open_own_folder(parent, name);
+                if (old < 0) continue;
+                if (::flock(old, LOCK_EX | LOCK_NB) == 0) {
                     empty(old);
-                    ::close(old);
+                    ::unlinkat(parent, name.c_str(), AT_REMOVEDIR);
                 }
-                ::unlinkat(parent, name.c_str(), AT_REMOVEDIR);
+                ::close(old);  // and its lock
             }
         } else {
             ::close(copy);
         }
     }
+}
+
+namespace {
+
+/// The runtime's folder of abstract names, in the user's temporary folder, made at its first use, when the folders
+/// of processes that are gone go; -1 when it cannot be made. Under `names.mutex`.
+int abstract_folder(UnixNames &names) {
+    if (names.folder >= 0) return names.folder;
+    char temporary[MAXPATHLEN];
+    if (::confstr(_CS_DARWIN_USER_TEMP_DIR, temporary, sizeof temporary) == 0) return -1;
+    const int parent = ::open(temporary, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (parent < 0) return -1;
+    sweep_folders(parent);
     const std::string own = std::string(folder_prefix) + std::to_string(::getpid());
+    // Its lock, held for the process's life, tells another runtime's sweep_folders that it is in use. That one may
+    // hold it a moment while it looks, and takes the folder only for a process that is gone, never this one.
     ::mkdirat(parent, own.c_str(), 0700);
-    names.folder = ::openat(parent, own.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    names.folder = open_own_folder(parent, own);
+    if (names.folder >= 0 && ::flock(names.folder, LOCK_EX) != 0) {
+        ::close(names.folder);
+        names.folder = -1;
+    }
     ::close(parent);
     if (names.folder >= 0) empty(names.folder);  // left by a process that had this pid before
     return names.folder;
@@ -455,6 +484,88 @@ long put_name(std::string_view name, std::uint64_t address, std::uint64_t length
     return 0;
 }
 
+// --- Pins (ADR-0054 a3) ------------------------------------------------------------------------------------------
+
+/// A second link of a guest's socket file, in the runtime's folder of abstract names, through which the host's
+/// connect and sendto reach the socket. The host follows a final link in the path it is given, which a guest thread
+/// could put in the socket's place after place_of looked, and would take that link's text, a guest path, as a host
+/// path. A pin is the socket's node itself, as linkat makes it without following a link, in a folder that holds
+/// nothing of the guest's. Its link goes with its last user.
+struct Pin {
+    int folder;
+    std::string name;
+    dev_t device;
+    ino_t inode;
+
+    Pin(int folder, std::string name, dev_t device, ino_t inode)
+        : folder(folder), name(std::move(name)), device(device), inode(inode) {}
+    ~Pin() { ::unlinkat(folder, name.c_str(), 0); }
+    Pin(const Pin &) = delete;
+    Pin &operator=(const Pin &) = delete;
+};
+
+/// The pins kept for the next connect or send to the same node, the most recently used last: a pin costs a link and
+/// an unlink in the file system, which a socket sent to again does not pay again. Under `names.mutex`; as long as the
+/// process, so that no destructor at its exit meets a thread in pin().
+std::vector<std::shared_ptr<const Pin>> &kept_pins() {
+    static auto *pins = new std::vector<std::shared_ptr<const Pin>>;
+    return *pins;
+}
+constexpr std::size_t most_pins = 16;
+std::uint64_t pins_made = 0;
+
+/// pin's answer for a place that holds a link now, which place_of follows by its guest text.
+constexpr long place_changed = 1;
+
+/// The pin of the socket in `place`, into `out`: the one kept for the node that the place holds now, else a new one.
+/// 0, place_changed, or Linux's errno: ENOENT for a place that is gone; ECONNREFUSED for one that holds no socket, and
+/// for one whose node cannot be pinned (a folder, another volume than the runtime's folder), reported once.
+long pin(const Place &place, std::shared_ptr<const Pin> &out) {
+    auto &names = unix_names();
+    const std::lock_guard lock(names.mutex);
+    const int folder = abstract_folder(names);
+    if (folder < 0) return -linux_errno::econnrefused;
+    struct stat node{};
+    if (::fstatat(place.folder, place.name.c_str(), &node, AT_SYMLINK_NOFOLLOW) != 0) {
+        return -sys::to_linux_errno(errno);
+    }
+    auto &pins = kept_pins();
+    const auto kept = std::find_if(pins.begin(), pins.end(), [&](const std::shared_ptr<const Pin> &each) {
+        return each->device == node.st_dev && each->inode == node.st_ino;
+    });
+    if (kept != pins.end()) {
+        out = *kept;
+        pins.erase(kept);
+    } else {
+        // A link of what the place holds now, not of what a link there leads to, checked as it is pinned. Its name is
+        // this pin's alone, so that no two ever meet in the folder.
+        const std::string name = unguessable_name("p" + std::to_string(++pins_made) + "-");
+        if (::linkat(place.folder, place.name.c_str(), folder, name.c_str(), 0) != 0) {
+            const int error = errno;
+            if (error == ENOENT) return -linux_errno::enoent;  // gone since the look
+            // Linux's connect never answers what keeps the runtime from pinning (a folder's EPERM, EXDEV, ENOSPC):
+            // ECONNREFUSED, as for anything that is no socket.
+            static std::once_flag reported;
+            std::call_once(reported, [error] {
+                char message[128];
+                std::snprintf(message, sizeof message, "apkrt: an AF_UNIX name's socket cannot be pinned (%s)\n",
+                              std::strerror(error));
+                sys::report(message);
+            });
+            return -linux_errno::econnrefused;
+        }
+        struct stat pinned{};
+        const bool looked = ::fstatat(folder, name.c_str(), &pinned, AT_SYMLINK_NOFOLLOW) == 0;
+        auto made = std::make_shared<const Pin>(folder, name, pinned.st_dev, pinned.st_ino);  // its link goes with it
+        if (looked && S_ISLNK(pinned.st_mode)) return place_changed;
+        if (!looked || !S_ISSOCK(pinned.st_mode)) return -linux_errno::econnrefused;
+        out = std::move(made);
+        if (pins.size() >= most_pins) pins.erase(pins.begin());
+    }
+    pins.push_back(out);
+    return 0;
+}
+
 // --- Names from the guest ----------------------------------------------------------------------------------------
 
 enum class Use { bind, connect, send };
@@ -464,6 +575,7 @@ struct HostName {
     sockaddr_storage storage{};
     socklen_t length = 0;
     Place place;             // AF_UNIX in the file system: its folder and last component
+    std::shared_ptr<const Pin> pin;  // for connect and sendto there: what the host's call goes through
     int folder = AT_FDCWD;   // the call's working directory: the place's, or the folder of abstract names
     std::string guest;       // AF_UNIX: the guest's name, as Linux keeps it
     bool unspecified = false;  // AF_UNSPEC to connect: the end of a datagram socket's association
@@ -576,11 +688,20 @@ long unix_name(const unsigned char *bytes, std::uint64_t length, Use use, HostNa
             out.folder = names.folder;
             out.length = host_unix_name(name, host);
         } else {
-            out.place = place_of(guest_path, use == Use::bind);
-            if (out.place.error != 0) return out.place.error;
-            if (use == Use::bind) return 0;  // bind_unix binds a name of its own and moves it there
-            out.folder = out.place.folder;
-            out.length = host_unix_name(out.place.name, host);
+            for (int look = 0;; ++look) {
+                out.place = place_of(guest_path, use == Use::bind);
+                if (out.place.error != 0) return out.place.error;
+                if (use == Use::bind) return 0;  // bind_unix binds a name of its own and moves it there
+                // A link put in the socket's place since place_of looked is followed by its guest text once more, as
+                // Linux does; a place that changes again is refused.
+                const long pinned = pin(out.place, out.pin);
+                if (pinned == 0) break;
+                if (pinned != place_changed) return pinned;
+                if (look > 0) return -linux_errno::econnrefused;
+            }
+            if (place_pinned != nullptr) place_pinned(out.place.folder, out.place.name);
+            out.folder = out.pin->folder;
+            out.length = host_unix_name(out.pin->name, host);
         }
     }
     if (out.length == 0) return -linux_errno::enametoolong;

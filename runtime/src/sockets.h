@@ -117,6 +117,19 @@ struct Place {
 /// without write permission, ECONNREFUSED for no socket), with a final link followed, below the guest's file system.
 Place place_of(std::string_view path, bool creating);
 
+/// Tests only: called with a socket's folder and name once place_of has found a socket there for connect or sendto,
+/// before the runtime pins it for the host's call, as a guest thread could change the name meanwhile (ADR-0054 a3).
+/// Null otherwise.
+inline void (*place_checked)(int folder, const std::string &name) = nullptr;
+
+/// Tests only: called with the same folder and name once the runtime has pinned the socket there, before the host's
+/// call. Null otherwise.
+inline void (*place_pinned)(int folder, const std::string &name) = nullptr;
+
+/// Takes away the folders of abstract names in the folder `parent` that runtimes left whose processes are gone, with
+/// their files and pins: the runtime's first use of its own does it in the user's temporary folder (sys_sockets.cpp).
+void sweep_folders(int parent);
+
 }  // namespace apkrt::sockets
 
 namespace apkrt::sys {

@@ -4,6 +4,7 @@
 #include "descriptors.h"
 #include "hwcap.h"
 #include "proc.h"
+#include "sockets.h"
 #include "syscall_frame.h"
 #include "syscalls.h"
 #include "vfs.h"
@@ -15,6 +16,9 @@
 #include <mach/mach.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
@@ -2924,6 +2928,403 @@ TEST(the_guests_dnsproxyd_is_the_runtimes_resolver) {
     call(nr_close, {unsigned_of(other)});
 }
 
+
+// --- A link swapped in after place_of's check (ADR-0054 a3, the lead's review of b) ---------------------------------
+// The host's connect and sendto follow a final link, which a guest thread could put in a socket's place after
+// place_of looked at it, and whose text, a guest path, the host would take as a host path. The host's call goes through
+// a pin of the socket's node instead; a link found in its place is followed by its guest text, as Linux does.
+
+/// A host AF_UNIX socket outside every mount, as any host socket the process could reach: bound under `name` in a
+/// folder of its own, listening for a stream; non-blocking.
+struct Outside {
+    std::string folder, path;
+    int fd = -1;
+
+    explicit Outside(int type, const std::string &name = "s") {
+        char pattern[] = "/tmp/apkrt-outside-XXXXXX";
+        folder = ::mkdtemp(pattern);
+        path = folder + "/" + name;
+        fd = ::socket(AF_UNIX, type, 0);
+        sockaddr_un host{};
+        host.sun_family = AF_UNIX;
+        std::snprintf(host.sun_path, sizeof host.sun_path, "%s", path.c_str());
+        CHECK(::bind(fd, reinterpret_cast<const sockaddr *>(&host), sizeof host) == 0);
+        if (type == SOCK_STREAM) CHECK(::listen(fd, 4) == 0);
+        ::fcntl(fd, F_SETFL, O_NONBLOCK);
+    }
+    ~Outside() {
+        ::close(fd);
+        static_cast<void>(std::system(("rm -rf '" + folder + "'").c_str()));
+    }
+
+    /// Whether nothing came to the socket: no datagram, or for a stream no connection with data.
+    bool untouched() const {
+        char byte;
+        const int foreign = ::accept(fd, nullptr, nullptr);
+        if (foreign < 0) return errno == EAGAIN || (errno == EOPNOTSUPP && ::recv(fd, &byte, 1, MSG_DONTWAIT) < 0);
+        const bool empty = ::recv(foreign, &byte, 1, 0) == 0;  // a connection closed at once, with nothing sent
+        ::close(foreign);
+        return empty && ::accept(fd, nullptr, nullptr) < 0;
+    }
+};
+
+/// The host path the swap puts in the socket's place; the swap happens once.
+std::string swapped_to;
+
+void swap_name_for_link(int folder, const std::string &name) {
+    apkrt::sockets::place_checked = nullptr;
+    ::unlinkat(folder, name.c_str(), 0);
+    ::symlinkat(swapped_to.c_str(), folder, name.c_str());
+}
+
+/// The swap of the socket's folder: renamed away, and a link to `swapped_to`, a folder, in its place.
+void swap_folder_for_link(int folder, const std::string &) {
+    apkrt::sockets::place_checked = nullptr;
+    char path[MAXPATHLEN];
+    if (::fcntl(folder, F_GETPATH, path) != 0) return;
+    ::rename(path, (std::string(path) + "-away").c_str());
+    ::symlink(swapped_to.c_str(), path);
+}
+
+TEST(a_stream_connect_reaches_no_host_socket_through_a_swapped_link) {
+    const Scratch scratch;
+    const Outside outside(SOCK_STREAM);
+    const auto inside = unix_name("/data/local/tmp/inside.sock");
+    const auto server = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(server), address(&inside.first), inside.second}) == 0);
+    CHECK(call(nr_listen, {unsigned_of(server), 4}) == 0);
+    swapped_to = outside.path;
+    apkrt::sockets::place_checked = swap_name_for_link;
+    const auto client = call(nr_socket, {af_unix, sock_stream, 0});
+    // The link's text, the outside socket's host path, is a guest path that is not there.
+    CHECK(call(nr_connect, {unsigned_of(client), address(&inside.first), inside.second}) == -enoent);
+    apkrt::sockets::place_checked = nullptr;
+    CHECK(outside.untouched());
+    for (const auto fd : {server, client}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_datagram_reaches_no_host_socket_through_a_swapped_link) {
+    const Scratch scratch;
+    const Outside outside(SOCK_DGRAM);
+    const auto receiver = call(nr_socket, {af_unix, sock_dgram, 0});
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0});
+    for (const char *path : {"/data/local/tmp/sent.dgram", "/data/local/tmp/connected.dgram"}) {
+        const auto inside = unix_name(path);
+        const auto bound = call(nr_socket, {af_unix, sock_dgram, 0});
+        CHECK(call(nr_bind, {unsigned_of(bound), address(&inside.first), inside.second}) == 0);
+        swapped_to = outside.path;
+        apkrt::sockets::place_checked = swap_name_for_link;
+        if (std::string_view(path).ends_with("sent.dgram")) {
+            CHECK(call(nr_sendto,
+                       {unsigned_of(sender), address("leak"), 4, 0, address(&inside.first), inside.second}) == -enoent);
+        } else {
+            CHECK(call(nr_connect, {unsigned_of(sender), address(&inside.first), inside.second}) == -enoent);
+        }
+        apkrt::sockets::place_checked = nullptr;
+        CHECK(outside.untouched());
+        call(nr_close, {unsigned_of(bound)});
+    }
+    for (const auto fd : {receiver, sender}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_folder_swapped_for_a_link_leads_no_connect_outside) {
+    // The host's connect starts at the folder place_of holds open, so a link put in the folder's place is not on its
+    // way: it reaches the socket in the folder that moved, still the guest's.
+    const Scratch scratch;
+    const Outside outside(SOCK_STREAM, "inside.sock");
+    CHECK(call(nr_mkdirat, {at_fdcwd, address("/data/local/tmp/room"), 0700}) == 0);
+    const auto inside = unix_name("/data/local/tmp/room/inside.sock");
+    const auto server = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(server), address(&inside.first), inside.second}) == 0);
+    CHECK(call(nr_listen, {unsigned_of(server), 4}) == 0);
+    swapped_to = outside.folder;
+    apkrt::sockets::place_checked = swap_folder_for_link;
+    const auto client = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(client), address(&inside.first), inside.second}) == 0);
+    CHECK(apkrt::sockets::place_checked == nullptr);  // the folder was swapped
+    apkrt::sockets::place_checked = nullptr;
+    CHECK(outside.untouched());
+    for (const auto fd : {server, client}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_connect_or_send_after_an_old_error_reaches_nothing_outside) {
+    // Darwin keeps ECONNRESET on a datagram socket whose peer closed, for its next call: a connect or a send through a
+    // swapped link reaches nothing outside all the same.
+    const Scratch scratch;
+    const Outside outside(SOCK_DGRAM);
+    for (const bool sending : {false, true}) {
+        const std::string end = sending ? "-sent.dgram" : "-connected.dgram";
+        const auto first = unix_name("/data/local/tmp/first" + end), inside = unix_name("/data/local/tmp/inside" + end);
+        const auto gone = call(nr_socket, {af_unix, sock_dgram, 0});
+        CHECK(call(nr_bind, {unsigned_of(gone), address(&first.first), first.second}) == 0);
+        const auto sender = call(nr_socket, {af_unix, sock_dgram, 0});
+        CHECK(call(nr_connect, {unsigned_of(sender), address(&first.first), first.second}) == 0);
+        call(nr_close, {unsigned_of(gone)});
+        const auto bound = call(nr_socket, {af_unix, sock_dgram, 0});
+        CHECK(call(nr_bind, {unsigned_of(bound), address(&inside.first), inside.second}) == 0);
+        swapped_to = outside.path;
+        apkrt::sockets::place_checked = swap_name_for_link;
+        if (sending) {
+            CHECK(call(nr_sendto,
+                       {unsigned_of(sender), address("leak"), 4, 0, address(&inside.first), inside.second}) == -enoent);
+        } else {
+            CHECK(call(nr_connect, {unsigned_of(sender), address(&inside.first), inside.second}) == -enoent);
+            call(nr_sendto, {unsigned_of(sender), address("leak"), 4, 0, 0, 0});
+        }
+        apkrt::sockets::place_checked = nullptr;
+        CHECK(outside.untouched());
+        for (const auto fd : {sender, bound}) call(nr_close, {unsigned_of(fd)});
+    }
+}
+
+TEST(a_socket_in_the_guests_file_system_is_reached_whoever_bound_it) {
+    // As on Linux: the pin is the node at the guest's path, whatever socket that is.
+    const Scratch scratch;
+    for (const int type : {SOCK_STREAM, SOCK_DGRAM}) {
+        const std::string name = type == SOCK_STREAM ? "alien.sock" : "alien.dgram";
+        const int alien = ::socket(AF_UNIX, type, 0);
+        sockaddr_un host{};
+        host.sun_family = AF_UNIX;
+        std::snprintf(host.sun_path, sizeof host.sun_path, "%s/%s", scratch.host.c_str(), name.c_str());
+        CHECK(::bind(alien, reinterpret_cast<const sockaddr *>(&host), sizeof host) == 0);
+        if (type == SOCK_STREAM) CHECK(::listen(alien, 4) == 0);
+        ::fcntl(alien, F_SETFL, O_NONBLOCK);
+        const auto guest = unix_name("/data/local/tmp/" + name);
+        const auto fd = call(nr_socket, {af_unix, type == SOCK_STREAM ? sock_stream : sock_dgram, 0});
+        if (type == SOCK_STREAM) {
+            CHECK(call(nr_connect, {unsigned_of(fd), address(&guest.first), guest.second}) == 0);
+            const int accepted = ::accept(alien, nullptr, nullptr);
+            CHECK(accepted >= 0);
+            ::close(accepted);
+        } else {
+            char byte;
+            CHECK(call(nr_sendto, {unsigned_of(fd), address("x"), 1, 0, address(&guest.first), guest.second}) == 1);
+            CHECK(::recv(alien, &byte, 1, MSG_DONTWAIT) == 1);
+        }
+        call(nr_close, {unsigned_of(fd)});
+        ::close(alien);
+    }
+}
+
+TEST(a_send_by_path_leaves_the_socket_as_it_was) {
+    // Each send by path reaches its own receiver: Darwin joins the receiver for that send alone.
+    const Scratch scratch;
+    constexpr std::uint64_t msg_dontwait = 0x40;
+    const auto a = unix_name("/data/local/tmp/one.dgram"), b = unix_name("/data/local/tmp/two.dgram");
+    const auto one = call(nr_socket, {af_unix, sock_dgram, 0}), two = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(one), address(&a.first), a.second}) == 0);
+    CHECK(call(nr_bind, {unsigned_of(two), address(&b.first), b.second}) == 0);
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("1"), 1, 0, address(&a.first), a.second}) == 1);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("2"), 1, 0, address(&b.first), b.second}) == 1);
+    char byte = 0;
+    CHECK(call(nr_recvfrom, {unsigned_of(one), address(&byte), 1, msg_dontwait, 0, 0}) == 1 && byte == '1');
+    CHECK(call(nr_recvfrom, {unsigned_of(two), address(&byte), 1, msg_dontwait, 0, 0}) == 1 && byte == '2');
+    for (const auto fd : {sender, one, two}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_send_by_path_on_a_connected_datagram_socket_keeps_its_peer) {
+    // Darwin refuses a send by name on a connected datagram socket, and the association stays (Linux sends to the
+    // name).
+    const Scratch scratch;
+    constexpr std::uint64_t msg_dontwait = 0x40;
+    constexpr std::int64_t eisconn = 106;
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_dgram, 0, address(ends)}) == 0);
+    const auto other = unix_name("/data/local/tmp/other.dgram");
+    const auto bound = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(bound), address(&other.first), other.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(ends[0]), address("named"), 5, 0, address(&other.first), other.second}) ==
+          -eisconn);
+    CHECK(call(nr_sendto, {unsigned_of(ends[0]), address("pair"), 4, 0, 0, 0}) == 4);
+    char buffer[8];
+    CHECK(call(nr_recvfrom, {unsigned_of(ends[1]), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == 4);
+    CHECK(call(nr_recvfrom, {unsigned_of(bound), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == -eagain);
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
+    call(nr_close, {unsigned_of(bound)});
+}
+
+/// The swap of swap_name_for_link once the socket is pinned.
+void swap_pinned_name_for_link(int folder, const std::string &name) {
+    apkrt::sockets::place_pinned = nullptr;
+    ::unlinkat(folder, name.c_str(), 0);
+    ::symlinkat(swapped_to.c_str(), folder, name.c_str());
+}
+
+TEST(a_link_put_in_the_place_after_the_pin_is_not_on_the_way) {
+    // The host's call goes through the pin, the socket's node, not through the place, which may hold a link by then.
+    const Scratch scratch;
+    constexpr std::uint64_t msg_dontwait = 0x40;
+    for (const int type : {SOCK_STREAM, SOCK_DGRAM}) {
+        const Outside outside(type);
+        const auto inside = unix_name(type == SOCK_STREAM ? "/data/local/tmp/held.sock" : "/data/local/tmp/held.dgram");
+        const auto linux_type = type == SOCK_STREAM ? sock_stream : sock_dgram;
+        const auto server = call(nr_socket, {af_unix, linux_type, 0});
+        const auto client = call(nr_socket, {af_unix, linux_type, 0});
+        CHECK(call(nr_bind, {unsigned_of(server), address(&inside.first), inside.second}) == 0);
+        swapped_to = outside.path;
+        apkrt::sockets::place_pinned = swap_pinned_name_for_link;
+        if (type == SOCK_STREAM) {
+            CHECK(call(nr_listen, {unsigned_of(server), 4}) == 0);
+            CHECK(call(nr_connect, {unsigned_of(client), address(&inside.first), inside.second}) == 0);
+        } else {
+            CHECK(call(nr_sendto, {unsigned_of(client), address("in"), 2, 0, address(&inside.first), inside.second}) ==
+                  2);
+            char buffer[4];
+            CHECK(call(nr_recvfrom, {unsigned_of(server), address(buffer), sizeof buffer, msg_dontwait, 0, 0}) == 2);
+        }
+        CHECK(apkrt::sockets::place_pinned == nullptr);  // the place was swapped
+        apkrt::sockets::place_pinned = nullptr;
+        CHECK(outside.untouched());
+        for (const auto fd : {server, client}) call(nr_close, {unsigned_of(fd)});
+    }
+}
+
+/// Puts a plain file in the socket's place, once.
+void swap_name_for_file(int folder, const std::string &name) {
+    apkrt::sockets::place_checked = nullptr;
+    ::unlinkat(folder, name.c_str(), 0);
+    ::close(::openat(folder, name.c_str(), O_CREAT | O_WRONLY, 0600));
+}
+
+TEST(only_the_folders_of_gone_runtimes_are_swept) {
+    // A link planted under a gone runtime's name, a folder that a living runtime holds, and one named after a living
+    // process stay; a gone runtime's folder goes with its files (macOS's process IDs end below 100000).
+    char pattern[] = "/tmp/apkrt-sweep-XXXXXX";
+    const std::string parent_path = ::mkdtemp(pattern);
+    const int parent = ::open(parent_path.c_str(), O_RDONLY | O_DIRECTORY);
+    const std::string victim = parent_path + "/victim", living = "apkrt-unix-" + std::to_string(::getppid());
+    CHECK(::mkdir(victim.c_str(), 0700) == 0);
+    ::close(::open((victim + "/kept").c_str(), O_CREAT | O_WRONLY, 0600));
+    CHECK(::symlinkat(victim.c_str(), parent, "apkrt-unix-999999") == 0);
+    for (const char *name : {"apkrt-unix-999998", "apkrt-unix-999997", living.c_str()}) {
+        CHECK(::mkdirat(parent, name, 0700) == 0);
+        ::close(::openat(parent, (std::string(name) + "/p1-pin").c_str(), O_CREAT | O_WRONLY, 0600));
+    }
+    const int held = ::openat(parent, "apkrt-unix-999997", O_RDONLY | O_DIRECTORY);
+    CHECK(::flock(held, LOCK_EX) == 0);  // as a living runtime holds its own
+    apkrt::sockets::sweep_folders(parent);
+    struct stat status{};
+    CHECK(::lstat((victim + "/kept").c_str(), &status) == 0);
+    CHECK(::fstatat(parent, "apkrt-unix-999999", &status, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(status.st_mode));
+    CHECK(::fstatat(parent, "apkrt-unix-999998", &status, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT);
+    CHECK(::fstatat(parent, "apkrt-unix-999997/p1-pin", &status, 0) == 0);
+    CHECK(::fstatat(parent, (living + "/p1-pin").c_str(), &status, 0) == 0);
+    ::close(held);
+    ::close(parent);
+    static_cast<void>(std::system(("rm -rf '" + parent_path + "'").c_str()));
+}
+
+/// Puts a folder in the socket's place, once.
+void swap_name_for_folder(int folder, const std::string &name) {
+    apkrt::sockets::place_checked = nullptr;
+    ::unlinkat(folder, name.c_str(), 0);
+    ::mkdirat(folder, name.c_str(), 0700);
+}
+
+TEST(a_place_that_cannot_be_pinned_is_refused_as_linux_refuses_it) {
+    // linkat refuses a folder (EPERM), which Linux's connect never answers: ECONNREFUSED, as for anything that is no
+    // socket, whatever keeps the runtime from pinning.
+    const Scratch scratch;
+    const auto name = unix_name("/data/local/tmp/folded.sock");
+    const auto server = call(nr_socket, {af_unix, sock_stream, 0}), client = call(nr_socket, {af_unix, sock_stream, 0});
+    CHECK(call(nr_bind, {unsigned_of(server), address(&name.first), name.second}) == 0);
+    apkrt::sockets::place_checked = swap_name_for_folder;
+    CHECK(call(nr_connect, {unsigned_of(client), address(&name.first), name.second}) == -econnrefused);
+    CHECK(apkrt::sockets::place_checked == nullptr);
+    apkrt::sockets::place_checked = nullptr;
+    for (const auto fd : {server, client}) call(nr_close, {unsigned_of(fd)});
+}
+
+/// Takes the socket's name away, once; the socket stays open.
+void take_name_away(int folder, const std::string &name) {
+    apkrt::sockets::place_checked = nullptr;
+    ::unlinkat(folder, name.c_str(), 0);
+}
+
+TEST(a_place_that_holds_a_file_or_nothing_after_the_look_answers_as_linux) {
+    // ECONNREFUSED for a file in the socket's place, ENOENT for none, also where a pin of the socket was kept.
+    const Scratch scratch;
+    const auto name = unix_name("/data/local/tmp/kept.dgram");
+    const auto receiver = call(nr_socket, {af_unix, sock_dgram, 0}), sender = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(receiver), address(&name.first), name.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("x"), 1, 0, address(&name.first), name.second}) == 1);
+    apkrt::sockets::place_checked = take_name_away;
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("x"), 1, 0, address(&name.first), name.second}) == -enoent);
+    CHECK(apkrt::sockets::place_checked == nullptr);  // the name went in between
+    const auto other = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(other), address(&name.first), name.second}) == 0);
+    apkrt::sockets::place_checked = swap_name_for_file;
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("x"), 1, 0, address(&name.first), name.second}) ==
+          -econnrefused);
+    CHECK(apkrt::sockets::place_checked == nullptr);
+    apkrt::sockets::place_checked = nullptr;
+    for (const auto fd : {receiver, sender, other}) call(nr_close, {unsigned_of(fd)});
+}
+
+/// Puts a link to "inside2.sock" in each place that place_of finds, so that the place changes after each look.
+void swap_each_for_link(int folder, const std::string &name) {
+    ::unlinkat(folder, name.c_str(), 0);
+    ::symlinkat("inside2.sock", folder, name.c_str());
+}
+
+TEST(a_place_that_changes_after_each_look_is_refused) {
+    const Scratch scratch;
+    std::vector<std::int64_t> fds;
+    for (const char *path : {"/data/local/tmp/inside.sock", "/data/local/tmp/inside2.sock"}) {
+        const auto name = unix_name(path);
+        fds.push_back(call(nr_socket, {af_unix, sock_stream, 0}));
+        CHECK(call(nr_bind, {unsigned_of(fds.back()), address(&name.first), name.second}) == 0);
+    }
+    apkrt::sockets::place_checked = swap_each_for_link;
+    const auto inside = unix_name("/data/local/tmp/inside.sock");
+    fds.push_back(call(nr_socket, {af_unix, sock_stream, 0}));
+    CHECK(call(nr_connect, {unsigned_of(fds.back()), address(&inside.first), inside.second}) == -econnrefused);
+    apkrt::sockets::place_checked = nullptr;
+    for (const auto fd : fds) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(a_send_by_path_reaches_the_socket_that_is_there_now) {
+    // A pin kept from an earlier send serves only while the path holds its node: a path that is gone answers ENOENT,
+    // and a socket bound there anew is reached, not the earlier one, which is still open.
+    const Scratch scratch;
+    constexpr std::uint64_t msg_dontwait = 0x40;
+    const auto name = unix_name("/data/local/tmp/again.dgram");
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0}), first = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(first), address(&name.first), name.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("1"), 1, 0, address(&name.first), name.second}) == 1);
+    CHECK(call(nr_unlinkat, {at_fdcwd, address("/data/local/tmp/again.dgram"), 0}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("2"), 1, 0, address(&name.first), name.second}) == -enoent);
+    const auto second = call(nr_socket, {af_unix, sock_dgram, 0});
+    CHECK(call(nr_bind, {unsigned_of(second), address(&name.first), name.second}) == 0);
+    CHECK(call(nr_sendto, {unsigned_of(sender), address("3"), 1, 0, address(&name.first), name.second}) == 1);
+    char byte = 0;
+    CHECK(call(nr_recvfrom, {unsigned_of(first), address(&byte), 1, msg_dontwait, 0, 0}) == 1 && byte == '1');
+    CHECK(call(nr_recvfrom, {unsigned_of(first), address(&byte), 1, msg_dontwait, 0, 0}) == -eagain);
+    CHECK(call(nr_recvfrom, {unsigned_of(second), address(&byte), 1, msg_dontwait, 0, 0}) == 1 && byte == '3');
+    for (const auto fd : {sender, first, second}) call(nr_close, {unsigned_of(fd)});
+}
+
+TEST(at_most_sixteen_pins_are_kept) {
+    // A pin is a second link of the socket's node, so a kept one shows as st_nlink 2; beyond 16, the oldest goes.
+    const Scratch scratch;
+    std::vector<std::int64_t> fds;
+    const auto sender = call(nr_socket, {af_unix, sock_dgram, 0});
+    for (int index = 0; index < 20; ++index) {
+        const auto name = unix_name(std::format("/data/local/tmp/r{}.dgram", index));
+        fds.push_back(call(nr_socket, {af_unix, sock_dgram, 0}));
+        CHECK(call(nr_bind, {unsigned_of(fds.back()), address(&name.first), name.second}) == 0);
+        CHECK(call(nr_sendto, {unsigned_of(sender), address("x"), 1, 0, address(&name.first), name.second}) == 1);
+    }
+    for (int index = 0; index < 20; ++index) {
+        struct stat node{};
+        CHECK(::lstat(std::format("{}/r{}.dgram", scratch.host, index).c_str(), &node) == 0);
+        CHECK(node.st_nlink == (index < 4 ? 1 : 2));
+    }
+    fds.push_back(sender);
+    for (const auto fd : fds) call(nr_close, {unsigned_of(fd)});
+}
 
 TEST(an_af_unix_datagram_may_be_as_long_as_on_linux) {
     // Linux takes a datagram of up to its default send buffer less 32 bytes (212960), Darwin one of 2048.

@@ -1547,6 +1547,7 @@ Place place_at(std::string_view path, bool creating, int links) {
         place.error = -linux_errno::econnrefused;
     } else {
         keep();
+        if (place_checked != nullptr && place.error == 0) place_checked(place.folder, place.name);
     }
     return place;
 }

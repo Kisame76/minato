@@ -5,7 +5,8 @@
 #   elf/<test>/     the same as ELF files, which the app converts and signs itself with
 #                   -signOnDevice (M2b, ADR-0022), as it will do with the libraries of an APK
 #   system-lib64/   bionic's libraries, the guest's /system/lib64
-#   system/         the guest's /system for files: bionic's time zone file
+#   system/         the guest's /system for files: bionic's time zone file, and etc/hosts, which the runtime's
+#                   DNS proxy answers from first (ADR-0054 step b)
 #   tests.txt       the test list, for the app's FixtureRunner
 #   art/            ART's tests (ADR-0033 d2), when tools/device-suite.sh staged them in build/device-art
 #                   (runtime/tests/device_art.py): bin/dalvikvm64.dylib, whose argv[0] the commands give as
@@ -24,7 +25,8 @@ CONVERT="$SRCROOT/build/native/macos/importer/converter/apk-convert"
 FIXTURES="$SRCROOT/build/fixtures/bin"
 BIONIC="$SRCROOT/build/bionic"
 TESTS="$SRCROOT/fixtures/tests.txt"
-for needed in "$CONVERT" "$FIXTURES" "$BIONIC/lib/libc.so" "$BIONIC/system/usr/share/zoneinfo/tzdata"; do
+for needed in "$CONVERT" "$FIXTURES" "$BIONIC/lib/libc.so" "$BIONIC/system/usr/share/zoneinfo/tzdata" \
+    "$BIONIC/system/etc/hosts"; do
   if [[ ! -e "$needed" ]]; then
     echo "error: $needed is missing; tools/device-suite.sh builds it" >&2
     exit 1
@@ -50,6 +52,8 @@ for library in "$BIONIC"/lib/*.so; do
 done
 mkdir -p "$OUT/system/usr/share/zoneinfo"
 cp "$BIONIC/system/usr/share/zoneinfo/tzdata" "$OUT/system/usr/share/zoneinfo/"
+mkdir -p "$OUT/system/etc"
+cp "$BIONIC/system/etc/hosts" "$OUT/system/etc/"
 cp "$TESTS" "$OUT/tests.txt"
 
 while read -r name fields; do
