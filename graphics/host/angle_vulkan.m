@@ -246,6 +246,9 @@ int minato_graphics_set_angle_backend(int vulkan) {
         return -1;
     }
     atomic_store(&vulkan_backend, vulkan ? 1 : 0);
+    // ro.opengles.version follows the backend (ADR-0044 d)), so that reqGlEsVersion tells the app what its session
+    // gives; the runtime takes only these two versions.
+    apkrt_set_opengles_version(vulkan ? 0x30001 : 0x30000);
     return 0;
 }
 

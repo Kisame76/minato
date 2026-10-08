@@ -287,6 +287,32 @@ struct APKAnalyzerTests {
         #expect(report.compatibility.issues.contains(.requiresGLES(0x0003_0002)))
     }
 
+    /// ADR-0044 d): a set asks for the highest OpenGL ES version of any of its APKs, a split's own uses-feature too, so
+    /// that its session and its note follow the APKs Minato installs.
+    @Test func takesTheHighestGLESVersionOfASet() throws {
+        let base = TestAPK(manifestChildren: [
+            E("uses-feature", [.android("glEsVersion", 0x0101_0281, .hex(0x0003_0000))]),
+        ])
+        let split = TestAPK(manifestAttributes: [.plain("split", .string("gl_scenes"))], manifestChildren: [
+            E("uses-feature", [.android("glEsVersion", 0x0101_0281, .hex(0x0003_0001))]),
+        ])
+        let report = try APKAnalyzer.analyze(base: base.archive(), splits: [split.archive()],
+                                             preferredLanguages: []).report
+
+        #expect(report.requiredGLESVersion == 0x0003_0001)
+    }
+
+    /// ADR-0044 d): ES 3.1 runs on ANGLE's Vulkan backend, so it is no longer a note; 3.2 above stays one.
+    @Test func takesES31WithoutANote() throws {
+        let apk = TestAPK(manifestChildren: [
+            E("uses-feature", [.android("glEsVersion", 0x0101_0281, .hex(0x0003_0001))]),
+        ])
+        let report = try APKAnalyzer.analyze(apk.archive(), preferredLanguages: [])
+
+        #expect(report.requiredGLESVersion == 0x0003_0001)
+        #expect(!report.compatibility.issues.contains(.requiresGLES(0x0003_0001)))
+    }
+
     @Test func requiresManifest() throws {
         var zip = ZipBuilder()
         zip.add("classes.dex", "dex")

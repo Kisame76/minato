@@ -291,7 +291,9 @@ final class GameSession {
                 // The kept pack slices, which prepareJavaStart lays out in local_testing (ADR-0050 decision 2).
                 localTesting: entry.packs?.isEmpty == false, environment: environment)
         }
-        guard let start else { return nil }
+        guard var start else { return nil }
+        // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).
+        start.angleBackend = ANGLEBackend(requiredGLESVersion: entry.report?.requiredGLESVersion)
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(

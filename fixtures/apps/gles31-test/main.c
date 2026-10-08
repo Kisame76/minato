@@ -9,7 +9,8 @@
 // Android 15's emulator stops at ES 3.0 on this Mac (ADR-0029), so these exact values are the reference. What
 // differs by device (the renderer, the versions, the limits, times) goes to the tag "gles31-test-device", which is
 // not compared. Each scene swaps once into the window of 256 x 256 buffers; then 120 more frames and
-// ANativeActivity_finish. Without an ES 3.1 context it logs why and finishes at once.
+// ANativeActivity_finish. Without an ES 3.1 context it logs why and finishes at once. Beside the context's version
+// it logs ro.opengles.version, which follows the session's backend (ADR-0044 d)).
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl31.h>
@@ -21,7 +22,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/system_properties.h>
 #include <time.h>
 
 #include "android_native_app_glue.h"
@@ -399,6 +402,12 @@ static bool start_egl(ANativeWindow *window) {
     glGetIntegerv(GL_MAJOR_VERSION, &major);
     glGetIntegerv(GL_MINOR_VERSION, &minor);
     LOG("context: ES %d.%d", major, minor);
+    // The version that ActivityManager's reqGlEsVersion gives the app, which follows the session's backend
+    // (ADR-0044 d)): ES 3.1 on ANGLE's Vulkan backend.
+    char property[PROP_VALUE_MAX] = "";
+    __system_property_get("ro.opengles.version", property);
+    const long gles_version = strtol(property, NULL, 10);
+    LOG("ro.opengles.version: %s, ES %ld.%ld", property, gles_version >> 16, gles_version & 0xffff);
     device_lines("GL_VENDOR", (const char *)glGetString(GL_VENDOR));
     device_lines("GL_RENDERER", (const char *)glGetString(GL_RENDERER));
     device_lines("GL_VERSION", (const char *)glGetString(GL_VERSION));

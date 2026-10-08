@@ -48,8 +48,10 @@ int minato_provoking_probe(void);
    the Vulkan path libEGL's display is ANGLE's Vulkan display, and ANGLE reaches MoltenVK only through graphics/host's
    functions (angle_vulkan.m): its instances with MoltenVK's private API on (decision 2), its devices with
    VK_EXT_metal_objects and their queues in "scheduled", its submits held in the background as the commit gate holds
-   Metal's, and its acquires and presents with VK_SUBOPTIMAL_KHR as VK_SUCCESS. Returns 0, or -1 when there is no
-   MoltenVK for ANGLE (minato_graphics_set_providers without its path) or ANGLE lacks patch 0009's setter. */
+   Metal's, and its acquires and presents with VK_SUBOPTIMAL_KHR as VK_SUCCESS. ro.opengles.version follows the
+   backend, ES 3.1 on Vulkan and ES 3.0 on Metal (apkrt_set_opengles_version), so it is set before the program
+   starts. Returns 0, or -1 when there is no MoltenVK for ANGLE (minato_graphics_set_providers without its path)
+   or ANGLE lacks patch 0009's setter. */
 int minato_graphics_set_angle_backend(int vulkan);
 
 /* ADR-0044, decision 1, at run time too: whether the ES 3.1 path may run, before ANGLE's instance is made. Draws

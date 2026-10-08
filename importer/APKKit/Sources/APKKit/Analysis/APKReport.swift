@@ -102,7 +102,8 @@ public struct Compatibility: Sendable, Equatable, Codable {
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART
-        /// Requires OpenGL ES newer than 3.0, which ANGLE's Metal backend does not offer (ADR-0013).
+        /// Requires OpenGL ES newer than 3.1, which Minato offers on ANGLE's Vulkan backend (ADR-0013, ADR-0044 d));
+        /// such an app runs there with 3.1.
         case requiresGLES(UInt32)
         /// Libraries linked for 4 KB pages only (ADR-0007).
         case pageAligned4K([String])

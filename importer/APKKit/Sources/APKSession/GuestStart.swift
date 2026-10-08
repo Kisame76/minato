@@ -26,6 +26,8 @@ public struct GuestStart: Sendable, Equatable {
     public let program: String
     public let arguments: [String]
     public let environment: [String]
+    /// The backend under the session's ANGLE (ADR-0044 d)), from the installed set's glEsVersion; Metal by default.
+    public var angleBackend: ANGLEBackend = .metal
 
     /// NativeActivity's default for `android.app.func_name`.
     public static let defaultFunction = "ANativeActivity_onCreate"

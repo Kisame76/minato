@@ -34,13 +34,16 @@
 // area for every property, without property contexts or a serialized tree.
 #include "properties.h"
 
+#include "APKRuntime/apkrt.h"
 #include "host_calls.h"
 
 #include <sys/sysctl.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -90,8 +93,9 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"ro.build.tags", "release-keys"},
     {"ro.debuggable", "0"},
     // The device (decision 9): Apple's, with the model as the host names it (area()), not the emulator's; the ABI
-    // arm64-v8a alone, whose 64-bit list gives Build.CPU_ABI; the density that DisplayMetrics.DENSITY_DEVICE reads;
-    // and GLES 3.0. No ro.boot.qemu, and no ro.build.fingerprint, which Build then derives from these.
+    // arm64-v8a alone, whose 64-bit list gives Build.CPU_ABI; and the density that DisplayMetrics.DENSITY_DEVICE
+    // reads. GLES follows ANGLE's backend (area()). No ro.boot.qemu, and no ro.build.fingerprint, which Build then
+    // derives from these.
     {"ro.product.manufacturer", "Apple"},
     {"ro.product.brand", "Apple"},
     {"ro.hardware", "minato"},
@@ -99,8 +103,10 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"ro.product.cpu.abilist32", ""},
     {"ro.product.cpu.abilist64", "arm64-v8a"},
     {"ro.sf.lcd_density", "480"},
-    {"ro.opengles.version", "196608"},
 };
+
+/// apkrt_set_opengles_version's, ES 3.0 until graphics/host puts ANGLE on its Vulkan backend.
+std::atomic<std::uint32_t> opengles_version{0x30000};
 
 /// The host's hw.machine, Apple's name of the device: "iPhone16,2" for the iPhone 15 Pro Max; on the Mac, its
 /// processor's. No table turns it into a marketing name (decision 9).
@@ -241,7 +247,16 @@ std::string area() {
     // graphics/host provides Vulkan: MoltenVK, none in the Simulator. The framework reports the vulkan.* features
     // only with it (ADR-0045). The host sets its providers before the program starts, so before libc opens the area.
     if (host_calls::has_provider("vulkan")) written.add("ro.hardware.vulkan", "moltenvk");
+    // ES 3.1 on ANGLE's Vulkan backend, ES 3.0 on Metal (ADR-0044 d)), set before the program starts as the
+    // providers are.
+    written.add("ro.opengles.version", std::to_string(opengles_version.load()));
     return std::move(written).bytes();
 }
 
 }  // namespace apkrt::properties
+
+extern "C" int apkrt_set_opengles_version(uint32_t version) {
+    if (version != 0x30000 && version != 0x30001) return -1;
+    apkrt::properties::opengles_version.store(version);
+    return 0;
+}

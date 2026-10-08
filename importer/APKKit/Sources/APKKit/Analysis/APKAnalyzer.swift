@@ -10,20 +10,29 @@ public enum APKAnalyzer {
         try analyze(base: archive, splits: [], preferredLanguages: preferredLanguages).report
     }
 
-    /// A split set's report (ADR-0048, decision 5): the base's manifest, with the native code, the ELF probe, "32-bit
-    /// only" and "needs Java" judged over the base and the splits Minato installs, and the label, version name and icon
-    /// resolved over all their resource tables, the base's IDs with the best configuration in any of them. `otherABIs`
-    /// are the ABIs of APKs Minato skips, so a set whose ABI splits are 32-bit only says so; `needsSplits`, the set's own
-    /// verdict, replaces the base's. `icon` is the APK that holds the chosen icon.
+    /// A split set's report (ADR-0048, decision 5): the base's manifest, with the native code, the ELF probe,
+    /// "32-bit only" and "needs Java" judged over the base and the splits Minato installs, and the label, version
+    /// name and icon resolved over all their resource tables, the base's IDs with the best configuration in any of
+    /// them. Its OpenGL ES version is the highest of any APK of the set, a split's own uses-feature too, which
+    /// Android's PackageManager ignores (it parses only a split's <application>): Minato's choice of the session's
+    /// path (ADR-0044 d)), so that a split's code gets the version it asks for. `otherABIs` are the ABIs of APKs
+    /// Minato skips, so a set whose ABI splits are 32-bit only says so; `needsSplits`, the set's own verdict,
+    /// replaces the base's. `icon` is the APK that holds the chosen icon.
     public static func analyze(base: ZipArchive, splits: [ZipArchive], otherABIs: [String] = [], needsSplits: Bool? = nil,
                                preferredLanguages: [String]) throws -> (report: APKReport, icon: ZipArchive?) {
         func readManifest(_ archive: ZipArchive) throws -> AndroidManifest {
             try AndroidManifest(xml: BinaryXML.parse(archive.data(named: "AndroidManifest.xml", maxSize: 16 << 20)))
         }
         let manifest = try readManifest(base)
+        // The highest OpenGL ES version any APK of the set asks for, a split's own uses-feature too: Minato's choice
+        // (ADR-0044 d)), since Android's PackageManager reads the base's alone.
+        var requiredGLESVersion = manifest.requiredGLESVersion
         let apks: [(split: String?, archive: ZipArchive, hasCode: Bool)] = try [(nil, base, manifest.hasCode)]
             + splits.map { split in
                 let splitManifest = try readManifest(split)
+                if let version = splitManifest.requiredGLESVersion {
+                    requiredGLESVersion = max(requiredGLESVersion ?? 0, version)
+                }
                 return (splitManifest.splitName, split, splitManifest.hasCode)
             }
         let tables = apks.compactMap { apk in
@@ -86,7 +95,7 @@ public enum APKAnalyzer {
             selectedABI: selectedABI,
             nativeLibraries: nativeLibraries,
             extractNativeLibs: manifest.extractNativeLibs,
-            requiredGLESVersion: manifest.requiredGLESVersion,
+            requiredGLESVersion: requiredGLESVersion,
             requiredVulkanVersion: manifest.requiredVulkanVersion,
             requiredVulkanLevel: manifest.requiredVulkanLevel,
             requiresAndroidExtensionPack: manifest.requiresAndroidExtensionPack,
@@ -206,7 +215,8 @@ public enum APKAnalyzer {
         }
 
         if hasCode { issues.append(.needsART) }
-        if let gles = report.requiredGLESVersion, gles > 0x0003_0000 { issues.append(.requiresGLES(gles)) }
+        // ES 3.1 runs on ANGLE's Vulkan backend (ADR-0044 d)); a higher version gets 3.1 and this note.
+        if let gles = report.requiredGLESVersion, gles > 0x0003_0001 { issues.append(.requiresGLES(gles)) }
         let fourK = report.nativeLibraries.filter { ($0.elf?.pageAlignment ?? 16_384) < 16_384 }.map(\.name)
         if !fourK.isEmpty { issues.append(.pageAligned4K(fourK)) }
         if report.playDependencies.contains(.licenseCheck) { issues.append(.usesLicenseCheck) }

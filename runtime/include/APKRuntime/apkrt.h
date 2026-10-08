@@ -408,6 +408,11 @@ typedef int (*apkrt_host_provider)(void *context, void **table, size_t length, u
 /// than 63 bytes, or 8 providers are set already.
 int apkrt_set_host_provider(const char *name, apkrt_host_provider provider, void *context);
 
+/// Sets the OpenGL ES version that ro.opengles.version gives (ADR-0044 d)), as major << 16 | minor: 0x30001 while
+/// ANGLE draws on its Vulkan backend, 0x30000, the default, on Metal. graphics/host's minato_graphics_set_angle_backend
+/// calls it, before the program starts, as the providers are set. Returns 0, or -1 for another version.
+int apkrt_set_opengles_version(uint32_t version);
+
 #ifdef __cplusplus
 }
 #endif

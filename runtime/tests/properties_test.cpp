@@ -151,6 +151,21 @@ TEST(the_vulkan_driver_is_named_only_while_graphics_host_provides_vulkan) {
     CHECK(apkrt_set_host_provider("gles", nullptr, nullptr) == 0);
 }
 
+TEST(the_gles_version_follows_angles_backend) {
+    // ADR-0044 d): ES 3.1 while ANGLE draws on its Vulkan backend, which graphics/host sets before the program
+    // starts; ES 3.0 on Metal. ActivityManager's reqGlEsVersion reads the property (ApplicationPackageManager).
+    CHECK(apkrt_set_opengles_version(0x30001) == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.opengles.version") == "196609");
+    CHECK(apkrt_set_opengles_version(0x30002) == -1);
+    CHECK(apkrt_set_opengles_version(0x20000) == -1);
+    area = apkrt::properties::area();
+    CHECK(get("ro.opengles.version") == "196609");
+    CHECK(apkrt_set_opengles_version(0x30000) == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.opengles.version") == "196608");
+}
+
 }  // namespace
 
 int main() {

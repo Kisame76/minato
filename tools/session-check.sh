@@ -61,11 +61,12 @@
 # window-test (build/fixtures/apks/window-test.apk), which draws by the CPU on graphics/host's buffers: 18 frames in
 # three formats, then its ANativeActivity_finish; its log must be Android 15's (fixtures/expected/window-test.logcat),
 # and its strides go with its device lines. ANGLE_VULKAN=1 runs ADR-0044 c2's tests 2 and 3 on ANGLE's Vulkan
-# backend, which the Debug build takes for a session when tmp/guest-environment holds MINATO_ANGLE_BACKEND=vulkan:
-# gles31-test (build/fixtures/apks/gles31-test.apk) must log its exact values (fixtures/expected/gles31-test.logcat),
-# with the run-time check's time from the session's event; with MINATO_ANGLE_CHECK=fail too the session refuses the
-# ES 3.1 path with that reason and does not start; gles-test and gles-live must log Android 15's lines, gles-test
-# through one swapchain, and gles-live through Home and back. In the Simulator, which has no MoltenVK, each start on
+# backend, which a session takes for an app that asks for ES 3.1 (ADR-0044 d)), and a Debug build also when
+# tmp/guest-environment holds MINATO_ANGLE_BACKEND=vulkan: gles31-test (build/fixtures/apks/gles31-test.apk), which
+# asks for ES 3.1, must log its exact values (fixtures/expected/gles31-test.logcat), with the run-time check's time
+# from the session's event; with MINATO_ANGLE_CHECK=fail too the session refuses the ES 3.1 path with that reason
+# and does not start; gles-test and gles-live must log Android 15's lines, gles-test through one swapchain, and
+# gles-live through Home and back, without asking for touches. In the Simulator, which has no MoltenVK, each start on
 # that path is refused. Every other round runs game mode without a guest.
 # Usage: tools/session-check.sh [simulator name or UDID]
 #        tools/session-check.sh --device [device name or identifier]
@@ -1161,13 +1162,19 @@ put_angle_environment() {
   put_guest_environment "$WORK/guest-environment"
 }
 
-# Test app $1, whose log tag is $2, on ANGLE's Vulkan backend: the override's event with the run-time check's time,
-# the app's own end, one swapchain and its log; in the Simulator the refusal.
+# Test app $1, whose log tag is $2, on ANGLE's Vulkan backend: by its manifest's ES 3.1 (ADR-0044 d)), or by the
+# Debug override when $3 is "override". The backend's event with the run-time check's time, the app's own end, one
+# swapchain and its log; in the Simulator the refusal.
 run_angle_app() {
-  local pkg=$1 tag=$2
-  begin_round "ADR-0044 c2: $tag on ANGLE's Vulkan backend" || return 0
+  local pkg=$1 tag=$2 override=${3:-} way="by its manifest"
+  [[ -z "$override" ]] || way="by the Debug override"
+  begin_round "ADR-0044: $tag on ANGLE's Vulkan backend, $way" || return 0
   rm -f "$CHECK/no-guest"
-  put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\n'
+  if [[ -n "$override" ]]; then
+    put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\n'
+  else
+    put_angle_environment ""
+  fi
   echo "$pkg" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   send_requests
@@ -1179,7 +1186,7 @@ run_angle_app() {
     await_event "process library.*" 30 || fail "  no library after the refusal"
     return
   fi
-  await_event "angle backend (vulkan|refused) .*" 20 || { abort_round "  no event of the override"; return; }
+  await_event "angle backend (vulkan|refused) .*" 20 || { abort_round "  no event of the backend"; return; }
   [[ "$(event_of "$EVENT")" == "angle backend vulkan passed in "* ]] \
     && ok "  on the Vulkan path, the run-time check $(event_of "$EVENT" | sed 's/^angle backend vulkan //')" \
     || { abort_round "  not on the Vulkan path: $(event_of "$EVENT")"; return; }
@@ -1217,7 +1224,7 @@ run_angle_refused() {
 # gles-live's test 8 on ANGLE's Vulkan backend, through Home and back; then the override's event and the swapchains.
 run_angle_live() {
   put_angle_environment $'MINATO_ANGLE_BACKEND=vulkan\n'
-  run_live "$GLES_LIVE_PKG" gles-live
+  LIVE_WITHOUT_TOUCHES=1 run_live "$GLES_LIVE_PKG" gles-live
   fetch_events
   local backend swapchains
   backend=$(grep -E -m 1 "^[0-9.]+ [0-9]+ angle backend " "$EVENTS" | sed 's/^[0-9.]* [0-9]* //' || true)
@@ -1354,7 +1361,9 @@ run_live() {
   await_event "process gameMode $pkg .*" 60 || { abort_round "no game mode after the tap"; return; }
   pid=$(pid_of "$EVENT")
   await_event 'callback onWindowFocusChanged\(true\)' 30 || { abort_round "$tag did not gain the focus"; return; }
-  say "Touch now: tap and swipe on the picture for about 10 s, with one finger and with two."
+  # The ANGLE_VULKAN round asks for no touches (LIVE_WITHOUT_TOUCHES): its checks are the backend's.
+  [[ -n "${LIVE_WITHOUT_TOUCHES:-}" ]] \
+    || say "Touch now: tap and swipe on the picture for about 10 s, with one finger and with two."
   sleep 12
   if [[ -n "$by_hand" ]]; then
     say "Swipe up now to the Home Screen, wait about 5 s, then tap Minato."
@@ -1368,7 +1377,7 @@ run_live() {
     await_event "scene didActivate" 10 || { abort_round "Minato did not come back"; return; }
   fi
   await_event 'callback onWindowFocusChanged\(true\)' 20 && ok "  back with the focus" || fail "  no focus after the return"
-  say "Touch now again for a few seconds."
+  [[ -n "${LIVE_WITHOUT_TOUCHES:-}" ]] || say "Touch now again for a few seconds."
   if [[ -n "$by_hand" ]]; then
     sleep 8
     say "Swipe down from the top edge now, then tap Quit."
@@ -1420,14 +1429,18 @@ run_live() {
   if [[ "$ON_DEVICE" == yes ]]; then
     grep -q -E " frames [0-9]+ interval [0-9.]+/8\.[23][0-9]/" <<< "$lines" && grep -q -E " frames [0-9]+ interval [0-9.]+/16\.[67][0-9]/" <<< "$lines" \
       && ok "  the display link ran at 120 and at 60 Hz" || fail "  the display link did not run at both 120 and 60 Hz"
-    # The touches reached the guest's input channel.
+    # The touches reached the guest's input channel; the ANGLE_VULKAN round asked for none.
     local motions last
     motions=$(awk -v pid="$pid" '$2 == pid && $3 == "motion"' <<< "$lines")
     last=$(tail -n 1 <<< "$motions")
     echo "      motion events: $(grep -c . <<< "$motions" || true), the last: ${last#* * }"
-    [[ -n "$motions" ]] && ok "  touches reached the sink" || fail "  no touch reached the sink"
-    [[ -n "$last" && "$(awk '{ print $10 }' <<< "$last")" != 0 ]] && ok "  the input channel exists" || fail "  no input channel"
-    [[ -n "$last" && "$(awk '{ print $12 }' <<< "$last")" == 0 ]] && ok "  no post failed" || fail "  posts failed: $(awk '{ print $12 }' <<< "$last")"
+    if [[ -z "${LIVE_WITHOUT_TOUCHES:-}" ]]; then
+      [[ -n "$motions" ]] && ok "  touches reached the sink" || fail "  no touch reached the sink"
+      [[ -n "$last" && "$(awk '{ print $10 }' <<< "$last")" != 0 ]] \
+        && ok "  the input channel exists" || fail "  no input channel"
+      [[ -n "$last" && "$(awk '{ print $12 }' <<< "$last")" == 0 ]] \
+        && ok "  no post failed" || fail "  posts failed: $(awk '{ print $12 }' <<< "$last")"
+    fi
   fi
 
   # The app's own count, and no GPU error from it, ANGLE or MoltenVK, which all write to its log.
@@ -1526,7 +1539,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   if [[ -n "${ANGLE_VULKAN:-}" ]]; then
     run_angle_app "$GLES31_PKG" gles31-test
     run_angle_refused
-    run_angle_app "$GLES_PKG" gles-test
+    run_angle_app "$GLES_PKG" gles-test override
     # In the Simulator gles-live's start is refused as the others are, and test 8 needs it running.
     [[ "$ON_DEVICE" == no ]] || run_angle_live
     # An empty file passes nothing; on the iPhone it cannot be deleted.

@@ -158,9 +158,7 @@ final class RuntimeSessionHost: SessionHost {
     /// Nil, or why it cannot start.
     static func startProgram(_ start: GuestStart) -> String? {
         _ = graphicsProviders
-        #if DEBUG
-        if let refusal = debugANGLEBackend(start.environment) { return refusal }
-        #endif
+        if let refusal = angleBackend(start) { return refusal }
         var error = [CChar](repeating: 0, count: 1024)
         let result = withCStrings(start.arguments) { arguments in
             withCStrings(start.environment) { environment in
@@ -187,26 +185,39 @@ final class RuntimeSessionHost: SessionHost {
         }
     }()
 
-    #if DEBUG
-    /// ADR-0044 c2's override for the tests, until d) takes the backend from the manifest: MINATO_ANGLE_BACKEND=vulkan
-    /// in tmp/guest-environment puts the session's GLES on ANGLE's Vulkan backend once graphics/host's run-time check
-    /// passed, and MINATO_ANGLE_CHECK=fail makes the check fail (test 2). Nil, or why the session cannot start.
-    private static func debugANGLEBackend(_ environment: [String]) -> String? {
-        guard environment.contains("MINATO_ANGLE_BACKEND=vulkan") else { return nil }
+    /// ADR-0044 d): the session's GLES on ANGLE's Vulkan backend for an app that asks for ES 3.1 or more
+    /// (GuestStart.angleBackend), once graphics/host's run-time check passed; on Metal otherwise. A Debug build also
+    /// takes MINATO_ANGLE_BACKEND=vulkan in tmp/guest-environment for an ES 3.0 app, and MINATO_ANGLE_CHECK=fail makes
+    /// the check fail (test 2). Nil, or why the session cannot start, which the library shows.
+    private static func angleBackend(_ start: GuestStart) -> String? {
+        #if DEBUG
+        let vulkan = start.angleBackend == .vulkan || start.environment.contains("MINATO_ANGLE_BACKEND=vulkan")
+        let forced: Int32 = start.environment.contains("MINATO_ANGLE_CHECK=fail") ? 1 : 0
+        #else
+        let vulkan = start.angleBackend == .vulkan
+        let forced: Int32 = 0
+        #endif
+        guard vulkan else { return nil }
         var reason = [CChar](repeating: 0, count: 256)
-        let forced: Int32 = environment.contains("MINATO_ANGLE_CHECK=fail") ? 1 : 0
         guard minato_graphics_angle_vulkan_check(forced, &reason, reason.count) == 1 else {
-            SessionCheck.event("angle backend refused \(text(reason))")
+            note("angle backend refused \(text(reason))")
             return "the ES 3.1 path is refused: \(text(reason))"
         }
         guard minato_graphics_set_angle_backend(1) == 0 else {
-            SessionCheck.event("angle backend refused without MoltenVK or patch 0009")
+            note("angle backend refused without MoltenVK or patch 0009")
             return "the ES 3.1 path is refused: ANGLE has no MoltenVK"
         }
-        SessionCheck.event("angle backend vulkan \(text(reason))")
+        note("angle backend vulkan \(text(reason))")
         return nil
     }
-    #endif
+
+    /// The backend's line in the log, and in a Debug build the session's event for tools/session-check.sh.
+    private static func note(_ line: String) {
+        log.info("\(line, privacy: .public)")
+        #if DEBUG
+        SessionCheck.event(line)
+        #endif
+    }
 
     static func record(_ configuration: GuestConfiguration) -> apkrt_configuration {
         var record = apkrt_configuration()

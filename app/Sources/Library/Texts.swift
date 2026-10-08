@@ -286,7 +286,7 @@ enum Texts {
         case .needsART:
             "Contains Java/Kotlin code, which runs interpreted for now and may be slower"
         case .requiresGLES(let version):
-            "Requires OpenGL ES \(glesVersion(version)); ANGLE on Metal provides at most 3.0"
+            "Requires OpenGL ES \(glesVersion(version)); Minato provides at most 3.1"
         case .pageAligned4K(let libraries):
             "\(libraries.count) \(libraries.count == 1 ? "library is" : "libraries are") built for 4 KB pages only (matters in M2)"
         case .usesLicenseCheck:
