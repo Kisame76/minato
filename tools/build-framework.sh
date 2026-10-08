@@ -138,8 +138,8 @@ python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
 # Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step; gap 1's audio and
-# connectivity with the Connectivity module's network classes), logged once where framework/managers' hand files do
-# not answer.
+# connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats), logged once where
+# framework/managers' hand files do not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
   --class android.os.storage.StorageManager \
@@ -151,6 +151,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
   --class android.net.NetworkRequest --class android.net.LinkProperties \
+  --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
 # target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.

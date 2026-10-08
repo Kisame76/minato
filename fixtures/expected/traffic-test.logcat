@@ -1,0 +1,20 @@
+I/traffic-test: thread tag 0xffffffff, uid -1
+I/traffic-test: tag set: 0x1234
+I/traffic-test: getAndSet: old 0x1234, now 0x5678
+I/traffic-test: tag cleared: 0xffffffff
+I/traffic-test: uid set to the app's own: true
+I/traffic-test: uid cleared: -1
+I/traffic-test: another thread: tag 0xffffffff, uid -1; this thread's tag still 0x42
+I/traffic-test: an untagged socket: StrictMode saw 1, android.os.strictmode.UntaggedSocketViolation: Untagged socket detected; use TrafficStats.setTrafficStatsTag() to track all network usage
+I/traffic-test: a socket with tag 0x42: StrictMode saw nothing
+I/traffic-test: tag and untag a bound socket: fine
+I/traffic-test: tag and untag a datagram socket: fine
+I/traffic-test: tag and untag a socket's descriptor: fine
+I/traffic-test: the transport layer's counters of the app's own uid: -1 -1 -1 -1 -1 -1 -1 -1
+I/traffic-test: the system uid's counters: -1 -1 -1 -1
+I/traffic-test: no interface: java.lang.NullPointerException: null
+I/traffic-test: incrementOperationCount(the thread's tag 0xffffffff, 1): fine
+I/traffic-test: incrementOperationCount(tag 0x42, 3): fine
+I/traffic-test: incrementOperationCount(tag 0, 1): java.lang.IllegalArgumentException: operation count must have specific tag
+I/traffic-test: incrementOperationCount(tag 0x42, -1): java.lang.IllegalArgumentException: operation count can only be incremented
+I/traffic-test: done

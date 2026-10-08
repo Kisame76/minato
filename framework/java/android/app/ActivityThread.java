@@ -56,6 +56,7 @@ import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.hardware.display.DisplayManagerGlobal;
+import android.net.TrafficStats;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
@@ -359,10 +360,12 @@ public final class ActivityThread {
     // Looper.prepareMainLooper and AsyncTask's executors, deprecated for apps, which only this main calls.
     @SuppressWarnings("deprecation")
     public static void main(String[] args) throws ErrnoException {
-        // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1).
+        // As RuntimeInit.commonInit sets them up for every app before ActivityThread.main (step c1), with
+        // TrafficStats' socket tagger (the Unity test APK probe's blocker 9).
         LoggingHandler logging = new LoggingHandler();
         RuntimeHooks.setUncaughtExceptionPreHandler(logging);
         Thread.setDefaultUncaughtExceptionHandler(new KillApplicationHandler(logging));
+        TrafficStats.attachSocketTagger();
         String packageName = null;
         String processName = null;
         String apk = null;

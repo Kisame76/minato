@@ -7,12 +7,14 @@
 # jars'. location/api/current.txt gives the location types the Wi-Fi module names. Then:
 #   - javac 17 compiles both against the boot jars' system image (tools/build-framework.sh), as framework.jar's
 #     classes are, with every warning an error but those the API's own signatures bring: deprecated types, raw
-#     types, generic varargs, and Throwables without a serialVersionUID, which no API file lists;
+#     types, generic varargs, and Throwables without a serialVersionUID, which no API file lists. A hand file's
+#     bodies may call framework.jar's own types, as they do in its build (TrafficStats' Log, StrictMode and
+#     Process): its classes and stubs.jar stand behind the sources;
 #   - each of the three managers has the hidden ctor (android.content.Context) that SystemServiceRegistry calls.
 # The stubs never go into framework.jar; ADR-0039 b3/c's build of frameworks/base takes their place. Prints the
 # counts of classes, methods and stubs.
-# Needs the API files of tools/fetch-sources.py --set framework, libcore's of --set art, and build/framework/system
-# of tools/build-framework.sh.
+# Needs the API files of tools/fetch-sources.py --set framework, libcore's of --set art, and build/framework/system,
+# classes.jar and stubs.jar of tools/build-framework.sh.
 # Usage: tools/managers-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,7 +30,7 @@ CONNECTIVITY=$SOURCES/connectivity_api/framework/api/current.txt
 CONNECTIVITY_T=$SOURCES/connectivity_t_api/framework-t/api/current.txt
 WIFI=$SOURCES/wifi_api/framework/api/current.txt
 for needed in "$JDK/bin/javac" "$LIBCORE" "$ICU" "$LOCATION" "$CORE" "$CONNECTIVITY" "$CONNECTIVITY_T" "$WIFI" \
-    build/framework/system build/art/java/all-classes.jar; do
+    build/framework/system build/framework/classes.jar build/framework/stubs.jar build/art/java/all-classes.jar; do
   if [[ ! -e "$needed" ]]; then
     echo "$needed is missing: tools/fetch-sources.py --set framework and --set art, tools/build-art.sh and" \
       "tools/build-framework.sh make it." >&2
@@ -49,7 +51,7 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
 find "$OUT/gen" "$OUT/stubs" framework/java/com/android/minato/services -name '*.java' | sort > "$OUT/sources"
 "$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system=build/framework/system @"$OUT/exports" \
   -XDstringConcat=inline -encoding UTF-8 -Xlint:all,-deprecation,-rawtypes,-unchecked,-serial -Werror \
-  -Xmaxerrs 1000 -d "$OUT/classes" \
+  -Xmaxerrs 1000 -classpath build/framework/classes.jar:build/framework/stubs.jar -d "$OUT/classes" \
   @"$OUT/sources"
 
 failed=0
