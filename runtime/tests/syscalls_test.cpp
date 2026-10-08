@@ -1158,6 +1158,28 @@ TEST(a_link_inside_one_mount_does_not_open_the_code) {
     CHECK(::stat((whole.host + "/data" + code.substr(5) + "/lib/arm64/libfoo.so").c_str(), &host) == 0);
 }
 
+// An app's device protected data, which ContextImpl's createDeviceProtectedStorageContext names: Android 15's zygote
+// mounts a tmpfs on /data/user_de, root's with 0751, and makes /data/user_de/0 the same (app data isolation,
+// com_android_internal_os_Zygote.cpp), so that the app sees its own folder there, a mount of its own as GuestStart
+// mounts it, and makes nothing beside it, with Android's EACCES.
+TEST(the_device_protected_data_lies_in_roots_folders) {
+    WholeData whole;
+    const std::string own = "/data/user_de/0/io.example";
+    CHECK(std::system(("mkdir -p '" + whole.host + "/data" + own.substr(5) + "'").c_str()) == 0);
+    apkrt::vfs::mount(own, whole.host + "/data" + own.substr(5));
+    LinuxStat status{};
+    for (const char *folder : {"/data/user_de", "/data/user_de/0"}) {
+        CHECK(call(nr_newfstatat, {at_fdcwd, at(folder), address(&status), 0}) == 0);
+        CHECK(status.uid == 0 && status.gid == 0 && (status.mode & 07777) == 0751);
+    }
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/data/user_de/0/other"), 0700}) == -eacces);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at("/data/user_de/1"), 0700}) == -eacces);
+    // The app's own folder is the app's, and takes what it makes.
+    CHECK(call(nr_newfstatat, {at_fdcwd, at(own), address(&status), 0}) == 0);
+    CHECK(status.uid == 10100 && status.gid == 10100);
+    CHECK(call(nr_mkdirat, {at_fdcwd, at(own + "/shared_prefs"), 0771}) == 0);
+}
+
 // ADR-0052's change: iOS's sandbox lets an app open /dev/urandom but not read /dev (the iPhone's device suite,
 // 2026-10-06), so a mounted file, a device or base.apk, is reached by its host path from the mount table, with no
 // folder held open and no guest text after it: nothing lies below a file (ENOTDIR), and its folder is not the app's

@@ -267,10 +267,14 @@ Owner android_owner(std::string_view path) {
     // /data's own folders and the folders between them and the app's own, with the owners and modes an app sees on
     // Android 15, so that the app makes, renames and removes no entry there (ADR-0052 with decision 3) [verified:
     // owner-rules-test's device lines on the emulator, 2026-10-05]. /data/user, /data/user/0 and /data/data are
-    // root's with the app data isolation's 0751; files below keep the host's modes.
+    // root's with the app data isolation's 0751, and so are /data/user_de and /data/user_de/0, the parents of the
+    // device protected data, zygote's tmpfs and the user's folder in it (com_android_internal_os_Zygote.cpp); files
+    // below keep the host's modes.
     const auto depth_below = [path](std::size_t folder) { return std::count(path.begin() + folder, path.end(), '/'); };
     if (is("/data") || is("/data/app")) return {system_uid, system_uid, 0771};
-    if (is("/data/user") || is("/data/user/0") || is("/data/data")) return {0, 0, 0751};
+    if (is("/data/user") || is("/data/user/0") || is("/data/data") || is("/data/user_de") || is("/data/user_de/0")) {
+        return {0, 0, 0751};
+    }
     if (below("/data/dalvik-cache")) {
         const auto depth = depth_below(18);
         return {0, 0, depth == 0 ? mode_t{0771} : depth == 1 ? mode_t{0711} : mode_t{0}};

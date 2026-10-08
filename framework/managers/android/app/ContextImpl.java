@@ -13,6 +13,7 @@ import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.ContextParams;
 import android.content.IContentProvider;
 import android.content.IIntentReceiver;
 import android.content.Intent;
@@ -42,6 +43,7 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -65,6 +67,7 @@ import java.io.IOException;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import libcore.io.Memory;
 
 class ContextImpl {
@@ -99,12 +102,46 @@ class ContextImpl {
     private IBinder mToken;
     private boolean mIsActivityContext;
     private Resources mResources;
+    /** A context that createDisplayContext made, which is associated with display 0 without being a UI context. */
+    private boolean mIsDisplayContext;
+    /** The storage flags of the tag's mFlags: credential or device protected. */
+    private final int mFlags;
+    /** The attribution tag of createAttributionContext, null for the app's default. */
+    private String mAttributionTag;
 
     private ContextImpl(ActivityThread mainThread, LoadedApk packageInfo) {
+        this(mainThread, packageInfo, 0);
+    }
+
+    /**
+     * As the tag's constructor: a context whose flags name no storage takes the one of its package's data folder, so
+     * that an app's own context is credential protected.
+     */
+    private ContextImpl(ActivityThread mainThread, LoadedApk packageInfo, int flags) {
+        if ((flags & (Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE | Context.CONTEXT_DEVICE_PROTECTED_STORAGE)) == 0) {
+            File dataDir = packageInfo.getDataDirFile();
+            if (Objects.equals(dataDir, packageInfo.getCredentialProtectedDataDirFile())) {
+                flags |= Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE;
+            } else if (Objects.equals(dataDir, packageInfo.getDeviceProtectedDataDirFile())) {
+                flags |= Context.CONTEXT_DEVICE_PROTECTED_STORAGE;
+            }
+        }
+        mFlags = flags;
         mMainThread = mainThread;
         mPackageInfo = packageInfo;
         mOpPackageName = packageInfo.getPackageName();
         mContentResolver = new ApplicationContentResolver((Context) (Object) this, mainThread);
+    }
+
+    /** As the tag's constructor with a container: this context's token, Resources and kind, with `flags`. */
+    private ContextImpl copy(int flags) {
+        ContextImpl context = new ContextImpl(mMainThread, mPackageInfo, flags);
+        context.mToken = mToken;
+        context.mIsActivityContext = mIsActivityContext;
+        context.mIsDisplayContext = mIsDisplayContext;
+        context.mResources = mResources;
+        context.mAttributionTag = mAttributionTag;
+        return context;
     }
 
     /**
@@ -226,9 +263,9 @@ class ContextImpl {
         return ResourcesManager.getInstance().getAdjustedDisplay(getDisplayId(), getResources());
     }
 
-    /** As the tag's: only a context associated with a display, an activity's here, has one to give. */
+    /** As the tag's: only a context associated with a display, an activity's or a display context, has one to give. */
     public Display getDisplay() {
-        if (!mIsActivityContext) {
+        if (!mIsActivityContext && !mIsDisplayContext) {
             throw new UnsupportedOperationException("Tried to obtain display from a Context not associated with one."
                     + " Only visual Contexts (such as Activity or one created with Context#createWindowContext) or"
                     + " ones created with Context#createDisplayContext are associated with displays. Other types of"
@@ -239,7 +276,7 @@ class ContextImpl {
 
     /** @hide */
     public int getAssociatedDisplayId() {
-        return mIsActivityContext ? getDisplayId() : Display.INVALID_DISPLAY;
+        return mIsActivityContext || mIsDisplayContext ? getDisplayId() : Display.INVALID_DISPLAY;
     }
 
     /** @hide An activity's context is a UI context, the application's is not. */
@@ -409,6 +446,11 @@ class ContextImpl {
         mPackageInfo.removeContextRegistrations(getOuterContext(), who, what);
     }
 
+    /** As the tag's: the main thread's Looper. */
+    public Looper getMainLooper() {
+        return mMainThread.getLooper();
+    }
+
     /** The Application, once LoadedApk made it: null while its attachBaseContext runs, as on Android. */
     public Context getApplicationContext() {
         return mPackageInfo.getApplication();
@@ -444,8 +486,16 @@ class ContextImpl {
 
     // Decision 6's folders, made with the modes of the tag's ensurePrivateDirExists and getDir.
 
+    /** As the tag's: the folder of the context's storage, /data/user/0/<package> or /data/user_de/0/<package>. */
     public File getDataDir() {
-        File dataDir = mPackageInfo.getDataDirFile();
+        File dataDir;
+        if (isCredentialProtectedStorage()) {
+            dataDir = mPackageInfo.getCredentialProtectedDataDirFile();
+        } else if (isDeviceProtectedStorage()) {
+            dataDir = mPackageInfo.getDeviceProtectedDataDirFile();
+        } else {
+            dataDir = mPackageInfo.getDataDirFile();
+        }
         if (dataDir == null) {
             throw new RuntimeException("No data directory found for package " + getPackageName());
         }
@@ -606,7 +656,10 @@ class ContextImpl {
         return getSharedPreferences(file, mode);
     }
 
-    /** The tag's, without its check of credential-protected storage, which an app's context is not. */
+    /**
+     * As the tag's: a context with the credential protected storage reads its preferences once the user is unlocked,
+     * which Android's one user always is here (UserService).
+     */
     public SharedPreferences getSharedPreferences(File file, int mode) {
         SharedPreferencesImpl sp;
         synchronized (ContextImpl.class) {
@@ -614,6 +667,21 @@ class ContextImpl {
             sp = cache.get(file);
             if (sp == null) {
                 checkMode(mode);
+                if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.O) {
+                    if (isCredentialProtectedStorage()) {
+                        final UserManager um = getSystemService(UserManager.class);
+                        if (um == null) {
+                            throw new IllegalStateException("SharedPreferences cannot be accessed "
+                                    + "if UserManager is not available. "
+                                    + "(e.g. from inside an isolated process)");
+                        }
+                        if (!um.isUserUnlockingOrUnlocked(UserHandle.myUserId())) {
+                            throw new IllegalStateException("SharedPreferences in "
+                                    + "credential encrypted storage are not available until after "
+                                    + "user (id " + UserHandle.myUserId() + ") is unlocked");
+                        }
+                    }
+                }
                 sp = new SharedPreferencesImpl(file, mode);
                 cache.put(file, sp);
                 return sp;
@@ -667,13 +735,126 @@ class ContextImpl {
         }
     }
 
-    /** An app's context is neither of the two storage contexts. */
+    /** As the tag's: a move of the database's files, each copied, given the source's modes and then deleted. */
+    public boolean moveDatabaseFrom(Context sourceContext, String name) {
+        synchronized (ContextImpl.class) {
+            File source = sourceContext.getDatabasePath(name);
+            File target = getDatabasePath(name);
+            return moveFiles(source.getParentFile(), target.getParentFile(), source.getName()) != -1;
+        }
+    }
+
     public boolean isCredentialProtectedStorage() {
-        return false;
+        return (mFlags & Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE) != 0;
     }
 
     public boolean isDeviceProtectedStorage() {
-        return false;
+        return (mFlags & Context.CONTEXT_DEVICE_PROTECTED_STORAGE) != 0;
+    }
+
+    // The contexts an app makes from its own, as the tag's ContextImpl makes them.
+
+    /** As the tag's: the same package and token with the device protected storage. */
+    public Context createDeviceProtectedStorageContext() {
+        return (Context) (Object) copy((mFlags & ~Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE)
+                | Context.CONTEXT_DEVICE_PROTECTED_STORAGE);
+    }
+
+    /** As the tag's: the same package and token with the credential protected storage. */
+    public Context createCredentialProtectedStorageContext() {
+        return (Context) (Object) copy((mFlags & ~Context.CONTEXT_DEVICE_PROTECTED_STORAGE)
+                | Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE);
+    }
+
+    public Context createPackageContext(String packageName, int flags) throws PackageManager.NameNotFoundException {
+        return createPackageContextAsUser(packageName, flags, Process.myUserHandle());
+    }
+
+    /**
+     * As the tag's: "android" and "system" a copy of this context, whose Resources hold the system's too; the app's own
+     * package a context with the package's Resources and this one's token; any other package is not installed in this
+     * process.
+     */
+    public Context createPackageContextAsUser(String packageName, int flags, UserHandle user)
+            throws PackageManager.NameNotFoundException {
+        if (packageName.equals("system") || packageName.equals("android")) {
+            return (Context) (Object) copy(flags);
+        }
+        if (packageName.equals(mPackageInfo.getPackageName())) {
+            ContextImpl context = copy(flags);
+            context.mResources = mPackageInfo.getResources();
+            return (Context) (Object) context;
+        }
+        throw new PackageManager.NameNotFoundException("Application package " + packageName + " not found");
+    }
+
+    /** As the tag's for the app's own package: its context without a token; any other is not installed here. */
+    public Context createApplicationContext(ApplicationInfo application, int flags)
+            throws PackageManager.NameNotFoundException {
+        if (application.packageName.equals(mPackageInfo.getPackageName())) {
+            ContextImpl context = new ContextImpl(mMainThread, mPackageInfo, flags);
+            context.mAttributionTag = mAttributionTag;
+            return (Context) (Object) context;
+        }
+        throw new PackageManager.NameNotFoundException("Application package " + application.packageName
+                + " not found");
+    }
+
+    /** As the tag's: the attribution tag this context was made for, null for the app's default. */
+    public String getAttributionTag() {
+        return mAttributionTag;
+    }
+
+    /** As the tag's: this context with the params' attribution tag. */
+    public Context createContext(ContextParams contextParams) {
+        ContextImpl context = copy(mFlags);
+        context.mAttributionTag = contextParams.getAttributionTag();
+        return (Context) (Object) context;
+    }
+
+    /** As the tag's, which goes through createContext: this context with another attribution tag. */
+    public Context createAttributionContext(String attributionTag) {
+        ContextImpl context = copy(mFlags);
+        context.mAttributionTag = attributionTag;
+        return (Context) (Object) context;
+    }
+
+    /**
+     * As the tag's: Resources of their own with this context's configuration and the override on top, the rest as
+     * this context.
+     */
+    public Context createConfigurationContext(Configuration overrideConfiguration) {
+        if (overrideConfiguration == null) {
+            throw new IllegalArgumentException("overrideConfiguration must not be null");
+        }
+        Configuration config = new Configuration(getResources().getConfiguration());
+        config.updateFrom(overrideConfiguration);
+        ContextImpl context = copy(mFlags);
+        context.mResources = mPackageInfo.createActivityResources(config);
+        return (Context) (Object) context;
+    }
+
+    /**
+     * As the tag's: a context associated with the display, which is no UI context; Minato has display 0 only, so its
+     * Resources are the package's.
+     */
+    public Context createDisplayContext(Display display) {
+        if (display == null) {
+            throw new IllegalArgumentException("display must not be null");
+        }
+        ContextImpl context = copy(mFlags);
+        context.mIsActivityContext = false;
+        context.mIsDisplayContext = true;
+        context.mResources = mPackageInfo.getResources();
+        return (Context) (Object) context;
+    }
+
+    /**
+     * As the tag's for an app that does not load its splits in isolation: this context, as its class loader and
+     * Resources hold every split. An isolated split's own loader is not made yet (a departure, named).
+     */
+    public Context createContextForSplit(String splitName) throws PackageManager.NameNotFoundException {
+        return (Context) (Object) this;
     }
 
     // The external folders of decision 6, on Environment's one volume.

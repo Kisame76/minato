@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the Context calls and the two classes that the Unity test APK probe found missing (contexts-test): the main
+     looper; package contexts for the app's own package, "android" and one that is not installed; the device protected
+     storage context with its own data folder, preferences and moveSharedPreferencesFrom; ConditionVariable; a
+     Messenger to a Handler of the main thread through its binder. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.contexts" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.contexts.ContextsApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

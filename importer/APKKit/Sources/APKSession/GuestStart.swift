@@ -34,17 +34,17 @@ public struct GuestStart: Sendable, Equatable {
 
     /// `library` and `function` are the manifest's `android.app.lib_name` and `android.app.func_name`, the
     /// latter nil in a report from before the import read it. The host paths: the installed version's
-    /// base.apk and lib/ (its containers), the app's data, external and OBB folders, and the guest system in
-    /// the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `apkSHA256` is base.apk's
-    /// digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
+    /// base.apk and lib/ (its containers), the app's data, device protected data, external and OBB folders, and the
+    /// guest system in the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `apkSHA256` is
+    /// base.apk's digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
     /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5).
     public init?(package: String, library: String, function: String?, apk: String, apkSHA256: String,
-                 appLibraries: String, data: String, external: String, obb: String, guestSystem: String,
-                 environment extra: [String] = []) {
+                 appLibraries: String, data: String, deviceData: String, external: String, obb: String,
+                 guestSystem: String, environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "\(app)/base.apk", host: apk)]
-            + Self.dataMounts(package: package, data: data, external: external, obb: obb)
+            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
             + [Path(guest: "/system", host: "\(guestSystem)/system")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -66,15 +66,15 @@ public struct GuestStart: Sendable, Equatable {
     /// its external files folder (LibraryPaths.layOutPacks), so ActivityThread names that folder as the meta-data
     /// local_testing_dir (ADR-0050 decision 2).
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
-                 data: String, external: String, obb: String, guestData: String, guestSystem: String,
-                 localTesting: Bool = false, environment extra: [String] = []) {
+                 data: String, deviceData: String, external: String, obb: String, guestData: String,
+                 guestSystem: String, localTesting: Bool = false, environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "/data", host: guestData),
                   Path(guest: "/data/resource-cache", host: "\(guestSystem)/resource-cache"),
                   Path(guest: "\(app)/base.apk", host: apk)]
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
-            + Self.dataMounts(package: package, data: data, external: external, obb: obb)
+            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
             + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -93,10 +93,14 @@ public struct GuestStart: Sendable, Equatable {
 
     /// The app's data, external data and OBB folders at the paths that Android 15's realpath gives them, /data/data and
     /// /storage/emulated/0 (decision 14 as changed by ADR-0050 c1's d4): the runtime's links lead /data/user/0 and
-    /// /sdcard there, as Android 15's zygote and its storage links do.
-    private static func dataMounts(package: String, data: String, external: String, obb: String) -> [Path] {
+    /// /sdcard there, as Android 15's zygote and its storage links do. Its device protected data is
+    /// /data/user_de/0/<package>, where Android 15 keeps it with no link, which createDeviceProtectedStorageContext's
+    /// files and preferences name.
+    private static func dataMounts(package: String, data: String, deviceData: String, external: String,
+                                   obb: String) -> [Path] {
         [
             Path(guest: "/data/data/\(package)", host: data),
+            Path(guest: "/data/user_de/0/\(package)", host: deviceData),
             Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
             Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
         ]

@@ -8,7 +8,6 @@
 # <stub> <- <class>, <class>...  # <why>
 
 # Binder and parcels (decision 10): no parcel is written or read in an app process.
-android.os.Messenger <- android.os.Message  # stays: Message's parcel methods
 android.os.MemoryFile <- android.os.ParcelFileDescriptor  # stays: ParcelFileDescriptor.fromData, a hidden way to send bytes through Binder
 android.os.SharedMemory <- android.graphics.Bitmap, android.graphics.Typeface  # stays: ashmem between processes: the hidden Bitmap.getSharedMemory and the font map system_server sends, which ours loads from /system/etc (ActivityThread.main)
 android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, android.text.style.TypefaceSpan  # stays: the spans' parcel constructors and writeToParcel (b3.4b)

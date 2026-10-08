@@ -1327,3 +1327,8 @@ frameworks_base/core/java/android/os/IUserManager.aidl
 frameworks_base/core/java/android/os/IUserRestrictionsListener.aidl
 frameworks_base/core/java/android/content/pm/UserInfo.java
 frameworks_base/core/java/android/content/pm/UserProperties.java
+
+# The compatibility plan's Unity test APK probe, App: ConditionVariable, on which ad SDKs block their threads, and Messenger,
+# firebase-iid's channel, over Handler's IMessenger.
+frameworks_base/core/java/android/os/ConditionVariable.java
+frameworks_base/core/java/android/os/Messenger.java

@@ -17,8 +17,8 @@ struct GuestStartTests {
         GuestStart(
             package: package, library: library, function: function,
             apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, appLibraries: "/v/apps/p/1/lib",
-            data: "/v/data/p/data", external: "/v/data/p/external", obb: "/v/data/p/obb",
-            guestSystem: "/b/Minato.app/Guest", environment: environment)
+            data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
+            obb: "/v/data/p/obb", guestSystem: "/b/Minato.app/Guest", environment: environment)
     }
 
     /// ADR-0039, decision 6: Android 15's code path, /data/app/~~<a>/<package>-<b>.
@@ -46,6 +46,7 @@ struct GuestStartTests {
         #expect(Self.start()?.mounts == [
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "/data/data/\(Self.package)", host: "/v/data/p/data"),
+            .init(guest: "/data/user_de/0/\(Self.package)", host: "/v/data/p/data_de"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
@@ -88,9 +89,9 @@ struct GuestStartTests {
                           localTesting: Bool = false, environment: [String] = []) -> GuestStart? {
         GuestStart(
             javaApp: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, signers: signers,
-            appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", external: "/v/data/p/external",
-            obb: "/v/data/p/obb", guestData: "/c/guest/p/data", guestSystem: "/b/Minato.app/Guest",
-            localTesting: localTesting, environment: environment)
+            appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
+            external: "/v/data/p/external", obb: "/v/data/p/obb", guestData: "/c/guest/p/data",
+            guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, environment: environment)
     }
 
     @Test func aJavaAppHasTheSameCodePath() {
@@ -121,6 +122,7 @@ struct GuestStartTests {
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "\(app)/signers.json", host: "/v/apps/p/1/signers.json"),
             .init(guest: "/data/data/\(Self.package)", host: "/v/data/p/data"),
+            .init(guest: "/data/user_de/0/\(Self.package)", host: "/v/data/p/data_de"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),

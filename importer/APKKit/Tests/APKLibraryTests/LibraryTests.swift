@@ -153,14 +153,17 @@ struct LibraryTests {
         #expect(entry.base?.sha256.count == 64)
         let icon = try #require(entry.iconFile.map { sandbox.paths.applicationSupport.appendingPathComponent($0) })
         #expect(try Data(contentsOf: icon).prefix(8) == SampleAPK.pngSignature)
-        // installd's createAppData makes cache and code_cache in the app's data at the install (ADR-0039 d6).
-        for folder in ["data", "data/cache", "data/code_cache", "external", "obb"] {
+        // installd's createAppData makes cache and code_cache in the app's credential and device protected data at the
+        // install (ADR-0039 d6).
+        for folder in ["data", "data/cache", "data/code_cache", "data_de", "data_de/cache", "data_de/code_cache",
+                       "external", "obb"] {
             #expect(sandbox.exists(sandbox.paths.dataDirectory(for: "org.example.game").appendingPathComponent(folder)))
         }
         #expect(await library.entries.map(\.id) == ["org.example.game"])
     }
 
-    /// An app imported before ADR-0039's decision 6 gets installd's folders at its next start; its files stay.
+    /// An app imported before ADR-0039's decision 6, or before its device protected data, gets installd's folders at
+    /// its next start; its files stay.
     @Test func preparingTheDataAddsWhatIsMissingAndKeepsTheRest() throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -171,7 +174,7 @@ struct LibraryTests {
 
         try sandbox.paths.prepareData(for: "org.example.game")
 
-        for folder in ["data/cache", "data/code_cache", "external", "obb"] {
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb"] {
             #expect(sandbox.exists(data.appendingPathComponent(folder)))
         }
         #expect(try Data(contentsOf: save) == Data("kept".utf8))
@@ -204,8 +207,8 @@ struct LibraryTests {
     }
 
     /// At every start of a Java app, since iOS may empty Caches: the guest's /data with ART's dalvik-cache, user/0,
-    /// data and the code path's lib/arm64, as framework/tests/app_process_run.py makes them, and no local; and the
-    /// version's files read-only, which an app imported before ADR-0039 c5 gets then.
+    /// user_de/0, data and the code path's lib/arm64, as framework/tests/app_process_run.py makes them, and no local;
+    /// and the version's files read-only, which an app imported before ADR-0039 c5 gets then.
     @Test func preparingAJavaStartMakesTheGuestsDataAndTheFilesReadOnly() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -221,6 +224,8 @@ struct LibraryTests {
             #expect(data.path == sandbox.paths.guestDataDirectory(for: entry.id).path)
             #expect(sandbox.exists(data.appendingPathComponent("dalvik-cache/arm64")))
             #expect(sandbox.exists(data.appendingPathComponent("user/0")))
+            // The parent of the app's device protected data mount, root's 0751 too.
+            #expect(sandbox.exists(data.appendingPathComponent("user_de/0")))
             // /data/data, the parent of the app's data mount, which the guest stats as Android's root 0751 (ADR-0052's
             // owners); /data/local stays absent, as the owner model counts /data/local/tmp as the app's.
             #expect(sandbox.exists(data.appendingPathComponent("data")))

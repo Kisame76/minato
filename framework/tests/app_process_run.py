@@ -21,7 +21,8 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     graphics-run, apk-run with graphics/host's providers, they reach the Mac's ANGLE and MoltenVK (MINATO_ANGLE,
     MINATO_MOLTENVK);
   - the APK at Android 15's code path (/data/app/~~<a>/<package>-<b>/base.apk, ADR-0039 decision 6), and the data
-    folder /data/user/0/<package> with cache and code_cache, as installd creates them;
+    folders /data/user/0/<package> and /data/user_de/0/<package> with cache and code_cache, as installd creates the
+    credential and the device protected one;
   - base.apk read-only, as Android's 0644 system:system file is to the app: ART refuses a dex file the app may
     write (dalvik_system_DexFile.cc);
   - framework-res as the folder /system/framework/framework-res (decision 8), which ActivityThread reads the app's
@@ -321,16 +322,18 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     run = os.path.join(work, "run")
     app = code_path(apk, package)
     data = f"/data/user/0/{package}"
+    device_data = f"/data/user_de/0/{package}"
     # The app's external data and OBB folders at the paths Android 15's realpath gives them, where /sdcard leads.
     external = {f"/storage/emulated/0/Android/data/{package}": "external-data",
                 f"/storage/emulated/0/Android/obb/{package}": "external-obb"}
     if not again or not os.path.isdir(run):
         shutil.rmtree(run, ignore_errors=True)
         for folder in ("data/dalvik-cache/arm64", "data/data", app.lstrip("/"), f"{data}/cache".lstrip("/"),
-                       f"{data}/code_cache".lstrip("/"), "apex/com.android.art/javalib", "apex/com.android.art/lib64",
-                       "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu", "apex/com.android.tzdata/etc/tz",
-                       "apex/com.android.conscrypt/javalib", "apex/com.android.conscrypt/lib64", "framework",
-                       *sorted(set(external.values()))):
+                       f"{data}/code_cache".lstrip("/"), f"{device_data}/cache".lstrip("/"),
+                       f"{device_data}/code_cache".lstrip("/"), "apex/com.android.art/javalib",
+                       "apex/com.android.art/lib64", "apex/com.android.art/bin", "apex/com.android.i18n/etc/icu",
+                       "apex/com.android.tzdata/etc/tz", "apex/com.android.conscrypt/javalib",
+                       "apex/com.android.conscrypt/lib64", "framework", *sorted(set(external.values()))):
             os.makedirs(os.path.join(run, folder))
         for obb in obbs:
             shutil.copy(obb, os.path.join(run, "external-obb", os.path.basename(obb)))
@@ -365,7 +368,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                # The data folder a mount of its own, as GuestStart mounts /data/data/<package> and Android 15 its
                # app's data folder, so that a rename or link from the rest of /data answers EXDEV (ADR-0039 decision 3);
                # /data/user/0/<package>, the --data-dir, leads there through the runtime's link, as on Android 15.
-               "--mount", f"/data/data/{package}={os.path.join(run, data.lstrip('/'))}"]
+               "--mount", f"/data/data/{package}={os.path.join(run, data.lstrip('/'))}",
+               # The device protected one too, as GuestStart mounts it.
+               "--mount", f"{device_data}={os.path.join(run, device_data.lstrip('/'))}"]
     for guest, host in external.items():
         command += ["--mount", f"{guest}={os.path.join(run, host)}"]
     for guest, host in mounts:

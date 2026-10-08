@@ -275,9 +275,9 @@ final class GameSession {
                 package: entry.id, library: library, function: entry.report?.nativeFunction,
                 apk: version.appending(path: "base.apk").path, apkSHA256: digest,
                 appLibraries: paths.libraryDirectory(for: entry).path,
-                data: data.appending(path: "data").path, external: data.appending(path: "external").path,
-                obb: data.appending(path: "obb").path, guestSystem: bundle.appending(path: "Guest").path,
-                environment: environment)
+                data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
+                external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
+                guestSystem: bundle.appending(path: "Guest").path, environment: environment)
         case .art:
             // An unsigned APK has no signers.json.
             let signers = version.appending(path: SignersFile.fileName)
@@ -285,8 +285,9 @@ final class GameSession {
                 javaApp: entry.id, apk: version.appending(path: "base.apk").path, apkSHA256: digest,
                 signers: FileManager.default.fileExists(atPath: signers.path) ? signers.path : nil,
                 appLibraries: paths.libraryDirectory(for: entry).path,
-                data: data.appending(path: "data").path, external: data.appending(path: "external").path,
-                obb: data.appending(path: "obb").path, guestData: paths.guestDataDirectory(for: entry.id).path,
+                data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
+                external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
+                guestData: paths.guestDataDirectory(for: entry.id).path,
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices, which prepareJavaStart lays out in local_testing (ADR-0050 decision 2).
                 localTesting: entry.packs?.isEmpty == false, environment: environment)

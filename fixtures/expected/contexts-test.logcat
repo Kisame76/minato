@@ -1,0 +1,24 @@
+I/contexts-test: main looper: the main thread's true
+I/contexts-test: own package context: io.github.kisame76.minato.test.contexts, the same data folder true, the app's name contexts-test
+I/contexts-test: android package context: io.github.kisame76.minato.test.contexts, its OK OK
+I/contexts-test: own package context, device protected: /data/user_de/0/io.github.kisame76.minato.test.contexts
+I/contexts-test: application context: io.github.kisame76.minato.test.contexts, the same data folder true
+I/contexts-test: a missing package's context: android.content.pm.PackageManager$NameNotFoundException: Application package io.github.kisame76.minato.test.nosuchapp not found
+I/contexts-test: app context: device protected false, data folder /data/user/0/io.github.kisame76.minato.test.contexts
+I/contexts-test: device protected context: device protected true, data folder /data/user_de/0/io.github.kisame76.minato.test.contexts, files /data/user_de/0/io.github.kisame76.minato.test.contexts/files, cache /data/user_de/0/io.github.kisame76.minato.test.contexts/cache
+I/contexts-test: device protected again: /data/user_de/0/io.github.kisame76.minato.test.contexts
+I/contexts-test: canonical data folders: /data/data/io.github.kisame76.minato.test.contexts, device protected /data/user_de/0/io.github.kisame76.minato.test.contexts
+I/contexts-test: a preference written there: there device, in the app's own none
+I/contexts-test: moveSharedPreferencesFrom: true, there 7, left in the app's own -1
+I/contexts-test: moving a missing file: true
+I/contexts-test: moveDatabaseFrom: true, there 3 bytes, left in the app's own false
+I/contexts-test: configuration context: fr_CA, font scale 1.5, greeting Bonjour, its own Resources true; the app's greeting still Hello
+I/contexts-test: a null configuration: java.lang.IllegalArgumentException: overrideConfiguration must not be null
+I/contexts-test: display context: display 0, a UI context false, the app's density true
+I/contexts-test: a null display: java.lang.IllegalArgumentException: display must not be null
+I/contexts-test: context for a split: the base context true
+I/contexts-test: attribution context: tag contexts, the app's null, its package io.github.kisame76.minato.test.contexts, its device protected copy's tag contexts
+I/contexts-test: condition variable: closed false, opened true, closed again false, opened by a thread true
+I/contexts-test: messenger through its binder: equal true, the same binder true
+I/contexts-test: message 1, arg1 42, on the main thread true
+I/contexts-test: done

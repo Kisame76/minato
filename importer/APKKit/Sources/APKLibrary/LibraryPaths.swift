@@ -55,16 +55,18 @@ public struct LibraryPaths: Sendable {
         versionDirectory(for: entry).appendingPathComponent("lib", isDirectory: true)
     }
 
-    /// Stands in for /data/data/<package>, /sdcard/Android/data/<package> and /sdcard/Android/obb/<package>.
+    /// Stands in for /data/data/<package>, /data/user_de/0/<package>, /sdcard/Android/data/<package> and
+    /// /sdcard/Android/obb/<package>: data, data_de, external and obb.
     public func dataDirectory(for package: String) -> URL {
         applicationSupport.appendingPathComponent("data", isDirectory: true).appendingPathComponent(package, isDirectory: true)
     }
 
-    /// Makes the app's data, external and OBB folders, with the two that installd's createAppData makes at an
-    /// install in /data/user/0/<package>: cache and code_cache (ADR-0039, decision 6). What is there stays; the
-    /// app's files, shared_prefs and the rest come when Context first asks for them, as on Android. The OBB folder is
-    /// excluded from backups each time, also an app's from before, as a store gives its files again (the M5 plan's
-    /// decision 9, ADR-0049 c2).
+    /// Makes the app's data, device protected data, external and OBB folders, with the two that installd's
+    /// createAppData makes at an install in /data/user/0/<package> and in /data/user_de/0/<package>: cache and
+    /// code_cache (ADR-0039, decision 6). What is there stays, so an app installed before gets the ones it lacks at its
+    /// next start; the app's files, shared_prefs and the rest come when Context first asks for them, as on Android. The
+    /// OBB folder is excluded from backups each time, also an app's from before, as a store gives its files again (the
+    /// M5 plan's decision 9, ADR-0049 c2).
     ///
     /// The OBB folder is the root of the guest's OBB mounts, so no guest can put anything in its place. Should a link
     /// stand there all the same, it goes as a link, never followed, and anything else that is no folder stops the
@@ -81,7 +83,7 @@ public struct LibraryPaths: Sendable {
             default: throw LibraryError.obbFolderIsNoFolder(package)
             }
         }
-        for folder in ["data/cache", "data/code_cache", "external", "obb"] {
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb"] {
             try FileManager.default.createDirectory(at: data.appendingPathComponent(folder, isDirectory: true),
                                                     withIntermediateDirectories: true)
         }
@@ -98,9 +100,9 @@ public struct LibraryPaths: Sendable {
     }
 
     /// What a Java app's start needs, at every start, since iOS may empty Caches (ADR-0039 c5): the guest's /data with
-    /// ART's dalvik-cache/arm64, user/0, data (the parent of the app's data mount, which the guest stats with Android
-    /// 15's owner, root's 0751, ADR-0052; /data/local stays absent, as the owner model counts /data/local/tmp as the
-    /// app's) and the code path's lib/arm64 with the app's JNI libraries (cloneLibraries), as
+    /// ART's dalvik-cache/arm64, user/0, data and user_de/0 (the parents of the app's data mounts, which the guest
+    /// stats with Android 15's owner, root's 0751, ADR-0052; /data/local stays absent, as the owner model counts
+    /// /data/local/tmp as the app's) and the code path's lib/arm64 with the app's JNI libraries (cloneLibraries), as
     /// framework/tests/app_process_run.py makes them, and the version's files read-only, which an app imported before
     /// c5 gets then; the version's kept pack slices in local_testing of the app's external files folder (layOutPacks,
     /// ADR-0050). Another code path, an older version's, goes. `codePath` is the guest's
@@ -122,7 +124,8 @@ public struct LibraryPaths: Sendable {
         let lib = data.appendingPathComponent("\(codePath.dropFirst("/data/".count))/lib/arm64", isDirectory: true)
         for folder in [data.appendingPathComponent("dalvik-cache/arm64", isDirectory: true),
                        data.appendingPathComponent("user/0", isDirectory: true),
-                       data.appendingPathComponent("data", isDirectory: true), lib] {
+                       data.appendingPathComponent("data", isDirectory: true),
+                       data.appendingPathComponent("user_de/0", isDirectory: true), lib] {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         try cloneLibraries(of: entry, into: lib)
