@@ -2,9 +2,9 @@
  * The activity manager's interface (ADR-0045 decision 5, step d2): our class under its AIDL's name, as
  * IActivityTaskManager is (ADR-0039 step b3.5b2-1), with exactly the methods framework.jar's code calls: the receivers
  * and broadcasts of ContextImpl and LoadedApk, BroadcastReceiver's finish, PendingIntent's intent senders, and what
- * StrictMode, Service, Activity, Instrumentation and ContentResolver ask. AOSP's AIDL has about 300 methods, whose
- * parcelables framework.jar lacks for nothing else. Its Stub's asInterface is AIDL's for the one local service,
- * LocalActivityManagerService, which ServiceManager's table gives as "activity".
+ * StrictMode, Service, Activity, Instrumentation, ContentResolver and UserManager ask. AOSP's AIDL has about 300
+ * methods, whose parcelables framework.jar lacks for nothing else. Its Stub's asInterface is AIDL's for the one local
+ * service, LocalActivityManagerService, which ServiceManager's table gives as "activity".
  */
 package android.app;
 
@@ -93,6 +93,9 @@ public interface IActivityManager extends IInterface {
     void addInstrumentationResults(IApplicationThread target, Bundle results) throws RemoteException;
 
     void getMimeTypeFilterAsync(Uri uri, int userId, RemoteCallback resultCallback) throws RemoteException;
+
+    /** UserManager's isUserRunningOrStopping (gap 1, batch 1b). */
+    boolean isUserRunning(int userid, int flags) throws RemoteException;
 
     /** As AOSP's: the service carried by a Binder under the interface's descriptor. */
     abstract class Stub extends Binder implements IActivityManager {

@@ -9,8 +9,9 @@
  * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
  * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
  * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1), the seventh "activity", ActivityManager's
- * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1); App's
- * services join it. A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
+ * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1), and "user",
+ * UserManager's (gap 1, batch 1b); App's services join it. A name of ABSENT, a service Minato does not have by
+ * decision, gives null without the log line.
  */
 package android.os;
 
@@ -55,6 +56,7 @@ public final class ServiceManager {
         sMakers.put(Context.ACTIVITY_SERVICE, LocalActivityManagerService::newBinder);
         sMakers.put(Context.POWER_SERVICE, PowerService::newBinder);
         sMakers.put(Context.THERMAL_SERVICE, ThermalService::newBinder);
+        sMakers.put(Context.USER_SERVICE, UserService::newBinder);
     }
 
     private ServiceManager() {

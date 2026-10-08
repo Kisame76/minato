@@ -491,4 +491,10 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         Unwritten.log("android.app.IActivityManager.getMimeTypeFilterAsync", "no type");
         resultCallback.sendResult(new Bundle());
     }
+
+    /** As ActivityManagerService for Minato's one user, user 0, which is running; any other user does not exist. */
+    @Override
+    public boolean isUserRunning(int userid, int flags) {
+        return userid == UserHandle.USER_SYSTEM;
+    }
 }

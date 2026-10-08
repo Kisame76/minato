@@ -20,11 +20,13 @@ import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.IPowerManager;
 import android.os.IThermalService;
+import android.os.IUserManager;
 import android.os.Looper;
 import android.os.PowerExemptionManager;
 import android.os.PowerManager;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
+import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.util.ArrayMap;
 import android.view.LayoutInflater;
@@ -83,6 +85,8 @@ final class SystemServiceRegistry {
                 ctx.mMainThread.getHandler()));
         cached(Context.POWER_EXEMPTION_SERVICE, PowerExemptionManager.class,
                 ctx -> new PowerExemptionManager(ctx.getOuterContext()));
+        cached(Context.USER_SERVICE, UserManager.class, ctx -> new UserManager(ctx.getOuterContext(),
+                IUserManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USER_SERVICE))));
         cached(Context.AUDIO_SERVICE, AudioManager.class, ctx -> new AudioManager((Context) (Object) ctx));
         cached(Context.CONNECTIVITY_SERVICE, ConnectivityManager.class,
                 ctx -> new ConnectivityManager(ctx.getOuterContext()));

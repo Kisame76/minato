@@ -1319,3 +1319,11 @@ frameworks_base/core/java/android/os/IWakeLockCallback.aidl
 frameworks_base/core/java/android/os/IThermalService.aidl
 frameworks_base/core/java/android/os/IThermalEventListener.aidl
 frameworks_base/core/java/android/os/IThermalStatusListener.aidl
+
+# ADR-0045 gap 1, batch 1b, App: UserManager over the local user service (IUserManager, with the listener its
+# signatures name), and UserInfo and UserProperties, which its answers carry.
+frameworks_base/core/java/android/os/UserManager.java
+frameworks_base/core/java/android/os/IUserManager.aidl
+frameworks_base/core/java/android/os/IUserRestrictionsListener.aidl
+frameworks_base/core/java/android/content/pm/UserInfo.java
+frameworks_base/core/java/android/content/pm/UserProperties.java

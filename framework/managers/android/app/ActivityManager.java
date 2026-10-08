@@ -116,6 +116,9 @@ class ActivityManager {
         return true;
     }
 
+    /** @hide As AOSP's: isUserRunning's flag that counts a stopping user as running (UserManager, batch 1b). */
+    public static final int FLAG_OR_STOPPED = 1 << 0;
+
     /** @hide An iPhone is no low-RAM device (ro.config.low_ram), and Minato has no developer option to force it. */
     public static boolean isLowRamDeviceStatic() {
         return false;

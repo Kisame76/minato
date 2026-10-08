@@ -17,6 +17,8 @@ import android.net.wifi.WifiManager;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.os.Process;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.speech.tts.UtteranceProgressListener;
@@ -25,6 +27,7 @@ import android.view.Display;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 
 /**
  * ADR-0045's test of the local services that Godot's start asks for (gaps 11, 12 and 14 of the Godot survey), in
@@ -48,6 +51,10 @@ import java.util.List;
  * connectivity services, each with its class, the same object by its class, and its answers; a wake lock without
  * WAKE_LOCK, refused. apk-runner-35-bare has a network after all (its emulated modem's), so the network's state is
  * shown on the device tag.
+ * Part 3, gap 1's batch 1b: the user service, with its class, the same object by its class, and Android's one user's
+ * answers: unlocked, the system user, no profile, no restriction on installing apps, running; the calls that need a
+ * system permission, refused. The user's restrictions and multi-user support, which the device's build sets, go to
+ * the device tag.
  * apk-runner-35-bare has no sensors, as Minato has none, so every line is the same on both; an exception's message,
  * which names the app's uid, is left out. What differs by device (memory, the display's name and rate, the audio
  * output's rate and buffer, the network) goes to the device tag, which is shown, not compared.
@@ -73,6 +80,7 @@ public class ServicesApplication extends Application {
         guarded("power service", this::power);
         guarded("audio service", this::audio);
         guarded("connectivity service", this::connectivity);
+        guarded("user service", this::user);
         Log.i(TAG, "done");
     }
 
@@ -336,6 +344,37 @@ public class ServicesApplication extends Application {
         net.registerDefaultNetworkCallback(callback);
         net.unregisterNetworkCallback(callback);
         Log.i(TAG, "default network callback registered and unregistered");
+    }
+
+    private void user() {
+        UserManager users = (UserManager) getSystemService(Context.USER_SERVICE);
+        Log.i(TAG, "user service: " + users.getClass().getName() + ", the same by class "
+                + (users == getSystemService(UserManager.class)));
+        UserHandle me = Process.myUserHandle();
+        Log.i(TAG, "user " + me + ", unlocked " + users.isUserUnlocked() + ", for this user " + users.isUserUnlocked(me)
+                + ", system user " + users.isSystemUser() + ", demo " + users.isDemoUser() + ", managed profile "
+                + users.isManagedProfile() + ", a profile " + users.isProfile() + ", a goat " + users.isUserAGoat());
+        List<UserHandle> profiles = users.getUserProfiles();
+        Log.i(TAG, "profiles: " + profiles.size() + ", the first " + profiles.get(0) + ", serial number "
+                + users.getSerialNumberForUser(me) + ", the user of serial 0 " + users.getUserForSerialNumber(0));
+        Log.i(TAG, "installing apps restricted " + users.hasUserRestriction(UserManager.DISALLOW_INSTALL_APPS)
+                + ", application restrictions " + users.getApplicationRestrictions(getPackageName()).size());
+        Log.i(TAG, "running " + users.isUserRunning(me) + ", quiet mode " + users.isQuietModeEnabled(me));
+        // What the device's build and owner set: the user's restrictions and the multi-user support.
+        Log.i(DEVICE, "restrictions " + new TreeSet<>(users.getUserRestrictions().keySet())
+                + ", supports multiple users " + UserManager.supportsMultipleUsers());
+        // A refusal's message names the app's uid, so only its class is logged.
+        try {
+            Log.i(TAG, "user name: \"" + users.getUserName() + "\"");
+        } catch (SecurityException e) {
+            Log.i(TAG, "user name: " + e.getClass().getName());
+        }
+        try {
+            Log.i(TAG, "user count: " + users.getUserCount());
+        } catch (SecurityException e) {
+            Log.i(TAG, "user count: " + e.getClass().getName());
+        }
+        Log.i(DEVICE, "creation time " + users.getUserCreationTime(me));
     }
 
     /** Runs a section; what it throws is logged with its name. */

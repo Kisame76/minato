@@ -42,4 +42,11 @@ I/services-test: mode 0, ringer 2, music active false, speakerphone false, micro
 I/services-test: music volume 5 of 15, from 0
 I/services-test: connectivity service: android.net.ConnectivityManager, the same by class true
 I/services-test: default network callback registered and unregistered
+I/services-test: user service: android.os.UserManager, the same by class true
+I/services-test: user UserHandle{0}, unlocked true, for this user true, system user true, demo false, managed profile false, a profile false, a goat false
+I/services-test: profiles: 1, the first UserHandle{0}, serial number 0, the user of serial 0 UserHandle{0}
+I/services-test: installing apps restricted false, application restrictions 0
+I/services-test: running true, quiet mode false
+I/services-test: user name: java.lang.SecurityException
+I/services-test: user count: java.lang.SecurityException
 I/services-test: done

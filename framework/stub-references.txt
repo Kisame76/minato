@@ -117,8 +117,6 @@ android.database.CursorToBulkCursorAdaptor <- android.content.ContentProviderNat
 android.database.BulkCursorDescriptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.BulkCursorToCursorAdaptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.content.PermissionChecker <- android.content.ContentProvider  # stays: a provider's permission checks for another app, which never calls the app's providers on Minato
-android.os.UserManager <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
-android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.os.BundleMerger <- android.content.Intent  # gap: Intent.mergeExtras with a BundleMerger (API 34)
@@ -232,7 +230,6 @@ android.graphics.drawable.Icon <- android.app.Activity, android.app.ActivityMana
 android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.os.Debug <- android.app.Instrumentation  # stays: an instrumentation test's profiling and allocation counts, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
-android.os.UserManager <- android.app.Instrumentation  # step b3.5b2: the display a started activity goes to (Instrumentation.setDisplayIfNeeded)
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
 android.view.DragAndDropPermissions <- android.app.Activity  # gap: drag and drop (Activity.requestDragAndDropPermissions), not in ADR-0041
@@ -423,3 +420,12 @@ android.os.CoolingDevice <- android.os.IThermalService  # stays: IThermalService
 android.os.Temperature <- android.os.IThermalService, android.os.IThermalEventListener  # stays: the thermal interfaces' Stub and Proxy, which the local thermal service never runs and whose events it sends none of
 android.os.ParcelDuration <- android.os.PowerManager  # stays: the battery discharge prediction, which the local power service gives none of, so getBatteryDischargePrediction returns null first, and setBatteryDischargePrediction, a system API that needs DEVICE_POWER
 android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a system API that needs WRITE_DREAM_STATE
+
+# ADR-0045 gap 1, batch 1b (App): UserManager over the local user service. What it reaches only for a work profile or
+# with a system permission, which neither Minato's one user nor any app has.
+android.content.IntentSender <- android.os.IUserManager  # stays: the Stub's onTransact, which a local call never reaches
+android.accounts.AccountManager <- android.os.UserManager  # stays: createRestrictedProfile's shared accounts, a system API that needs MANAGE_USERS
+android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
+android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
+android.os.NewUserRequest <- android.os.UserManager  # stays: createUser, a system API that needs MANAGE_USERS or CREATE_USERS
+android.os.NewUserResponse <- android.os.UserManager  # stays: createUser, a system API that needs MANAGE_USERS or CREATE_USERS
