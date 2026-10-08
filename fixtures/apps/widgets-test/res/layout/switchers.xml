@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widgets-test's ViewFlipper with three texts and the platform's fades as its animations. -->
+<ViewFlipper xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/flipper"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:inAnimation="@android:anim/fade_in" android:outAnimation="@android:anim/fade_out">
+  <TextView android:id="@+id/first" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:text="@string/one"/>
+  <TextView android:id="@+id/second" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:text="@string/two"/>
+  <TextView android:id="@+id/third" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:text="@string/three"/>
+</ViewFlipper>

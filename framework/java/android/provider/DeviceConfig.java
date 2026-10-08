@@ -5,7 +5,8 @@
  * settings read it at every text change (TextClassificationConstants), and ActivityThread's core settings at the start
  * (CoreSettingsObserver's entries). Writing a flag takes WRITE_DEVICE_CONFIG, which no app holds. Settings.Config
  * takes its names from here too, which ADR-0045's gap 13a had as a compile-only stub: the sync modes, with Android 15's
- * values, BadConfigException and MonitorCallback [verified: ConfigInfrastructure at android-15.0.0_r1].
+ * values, BadConfigException and MonitorCallback [verified: ConfigInfrastructure at android-15.0.0_r1]. AbsListView
+ * listens to the content capture namespace (gap 5).
  */
 package android.provider;
 
@@ -16,6 +17,7 @@ import java.util.concurrent.Executor;
 
 /** @hide */
 public final class DeviceConfig {
+    public static final String NAMESPACE_CONTENT_CAPTURE = "content_capture";
     public static final String NAMESPACE_TEXTCLASSIFIER = "textclassifier";
     public static final String NAMESPACE_WIDGET = "widget";
 

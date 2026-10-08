@@ -45,7 +45,8 @@
 # binder-test (ADR-0043 step d2b)), whose binders and ResultReceivers are the app's own, is one of those Java apps
 # too.
 # strictmode-test (ADR-0039 step c2d3) is one too.
-# api-breadth-test (the compatibility plan's entry 22) is one too.
+# api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test (gap 5), whose widgets are
+# laid out in px on the M4 plan's display.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
 # local_testing_dir only from a manifest. pad-test (ADR-0050 test 3), built with Google's Play libraries by
 # tools/build-pad-test.sh, is a Java app with its own activity: bundletool's install-apks puts its local-testing set on
@@ -166,12 +167,13 @@ else
   done
 fi
 
-# config-test's AVD has the M4 plan's display, and view-tree-test's, animator-test's, drawables-test's and
-# checkbox-test's and pointer-insets-test's, whose sizes in dp they turn into px at that density; every other test
-# keeps apk-runner-35's, which its reference has.
+# config-test's AVD has the M4 plan's display, and view-tree-test's, animator-test's, drawables-test's,
+# checkbox-test's, pointer-insets-test's and widgets-test's, whose sizes in dp they turn into px at that density; every
+# other test keeps apk-runner-35's, which its reference has.
 avd_display=""
 if [[ "$app" == config-test || "$app" == view-tree-test || "$app" == animator-test ||
-  "$app" == drawables-test || "$app" == checkbox-test || "$app" == pointer-insets-test ]]; then
+  "$app" == drawables-test || "$app" == checkbox-test || "$app" == pointer-insets-test ||
+  "$app" == widgets-test ]]; then
   AVD=apk-runner-35-iphone
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\n'
 fi
@@ -485,7 +487,7 @@ run_app() {
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
-      | contexts-test | traffic-test)
+      | contexts-test | traffic-test | widgets-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widgets-test's two-state widgets: a RadioGroup of three, a ToggleButton with its default texts, a Switch with a
+     text and a CheckedTextView with the theme's multiple-choice mark. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+  <RadioGroup android:id="@+id/group" android:layout_width="match_parent" android:layout_height="wrap_content">
+    <RadioButton android:id="@+id/one" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="@string/one"/>
+    <RadioButton android:id="@+id/two" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="@string/two"/>
+    <RadioButton android:id="@+id/three" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="@string/three"/>
+  </RadioGroup>
+  <ToggleButton android:id="@+id/toggle" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+  <Switch android:id="@+id/switch_" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:text="@string/wifi"/>
+  <CheckedTextView android:id="@+id/checked" android:layout_width="match_parent" android:layout_height="wrap_content"
+      android:checkMark="?android:attr/listChoiceIndicatorMultiple" android:text="@string/item"/>
+</LinearLayout>

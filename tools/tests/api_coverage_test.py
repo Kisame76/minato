@@ -94,6 +94,22 @@ package e.f {
 
 }
 
+package g.h {
+
+  public class Inflating {
+  }
+
+  public class Typing {
+  }
+
+  public class Wifi {
+  }
+
+  public class Named {
+  }
+
+}
+
 """
 
 SOURCES = {
@@ -127,6 +143,14 @@ SOURCES = {
     "c/d/Other.java": "package c.d;\npublic abstract class Other { public interface Callback { } }\n",
     "e/f/Remote.java": "package e.f;\npublic class Remote { }\n",
     "e/f/Marked.java": "package e.f;\npublic @interface Marked { }\n",
+    "g/h/Inflating.java": ("package g.h;\npublic class Inflating {\n    Object of(Context c) {\n"
+                           "        return c.getSystemService(Context.LAYOUT_INFLATER_SERVICE);\n    }\n}\n"),
+    "g/h/Typing.java": ("package g.h;\npublic class Typing {\n"
+                        "    Object of(Context c) { return c.getSystemService(InputMethodManager.class); }\n}\n"),
+    "g/h/Wifi.java": ("package g.h;\npublic class Wifi {\n"
+                      "    Object of(Context c) { return c.getSystemService(Context.WIFI_SERVICE); }\n}\n"),
+    "g/h/Named.java": ("package g.h;\npublic class Named {\n"
+                       "    Object of(Context c, String name) { return c.getSystemService(name); }\n}\n"),
 }
 
 # framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API; and the hidden R.
@@ -162,6 +186,14 @@ with tempfile.TemporaryDirectory() as work:
     taken = os.path.join(work, "taken.txt")
     with open(taken, "w") as handle:
         handle.write("# Other steps\na.b.Cycle2\tgap 7 (Formate)\na\tno package of this name has types\n")
+    context_impl = os.path.join(work, "ContextImpl.java")
+    with open(context_impl, "w") as handle:
+        handle.write("class ContextImpl {\n    Object getSystemService(String name) {\n"
+                     "        if (Context.LAYOUT_INFLATER_SERVICE.equals(name)) {\n            return null;\n"
+                     "        }\n        return null;\n    }\n"
+                     "    String getSystemServiceName(Class<?> serviceClass) {\n"
+                     "        if (serviceClass == InputMethodManager.class) {\n            return null;\n"
+                     "        }\n        return null;\n    }\n}\n")
     jmod = os.path.join(work, "java.base.jmod")
     with zipfile.ZipFile(jmod, "w") as archive:
         archive.writestr("classes/android/compat/annotation/UnsupportedAppUsage.class", b"")
@@ -175,7 +207,7 @@ with tempfile.TemporaryDirectory() as work:
     data = os.path.join(work, "api-coverage.json")
     result = subprocess.run([sys.executable, TOOL, "--api", api, "--classes", classes, "--sources", sources,
                              "--stub-api", stub_api, "--known", jmod, "--ours", ours, "--first", first,
-                             "--taken", taken, "--batch", "3",
+                             "--taken", taken, "--batch", "3", "--context-impl", context_impl,
                              "--table", table, "--json", data],
                             capture_output=True, text=True)
     check(result.returncode == 0, f"exit status {result.returncode}: {result.stderr.strip()[-400:]}")
@@ -206,6 +238,12 @@ with tempfile.TemporaryDirectory() as work:
     check(groups.get("c.d.Other") == "pure Java", "Other is pure Java; its nested type comes with it")
     check(groups.get("e.f.Remote") == "pure Java" and groups.get("e.f.Marked") == "pure Java",
           "a type whose annotation has a qualified name, with or without arguments, is in the API")
+    check(groups.get("g.h.Inflating") == "pure Java" and groups.get("g.h.Typing") == "pure Java",
+          "a system service that ContextImpl answers, by its name or its class, is no service: "
+          f"{groups.get('g.h.Inflating')}, {groups.get('g.h.Typing')}")
+    check(groups.get("g.h.Wifi") == "service" and groups.get("g.h.Named") == "service",
+          "one that ContextImpl does not answer, or a name in a variable, is a service: "
+          f"{groups.get('g.h.Wifi')}, {groups.get('g.h.Named')}")
     check("a.b.Present" not in groups and "c.d.Other.Callback" not in groups,
           "only missing top-level types are listed")
     check(report["ours"] == ["a.b.Present.Nested"], f"our Present lacks its nested type: {report['ours']}")
@@ -213,9 +251,10 @@ with tempfile.TemporaryDirectory() as work:
     check(batches[:1] == [["c.d.Other"]], f"the first batch is --first's package: {batches[:1]}")
     check(batches[1:] == [["a.b.Archived", "a.b.Cycle1", "a.b.Parceled"], ["a.b.Plain", "a.b.UsesElsewhere",
                                                                            "a.b.UsesNative"],
-                          ["a.b.UsesPlain", "a.b.UsesStub"], ["e.f.Marked", "e.f.Remote"]],
-          f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses, then e.f's: "
-          f"{batches[1:]}")
+                          ["a.b.UsesPlain", "a.b.UsesStub"], ["e.f.Marked", "e.f.Remote"],
+                          ["g.h.Inflating", "g.h.Typing"]],
+          f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses, then e.f's "
+          f"and g.h's: {batches[1:]}")
     check(report["types"].get("a.b.Cycle2", {}).get("taken") == "gap 7 (Formate)", "Cycle2 is taken by gap 7")
     check(report["types"].get("a.b.Parceled", {}).get("pulls") == ["a.b.Box"], "Parceled pulls in the hidden Box")
     check(groups.get("a.b.Archived") == "pure Java", "a structured parcelable's .aidl is plain Java")

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widgets-test's clocks, whose texts do not depend on the time: a TextClock with a literal format and a Chronometer
+     that has not started; and an AnalogClock, whose size is its dial's. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+  <TextClock android:id="@+id/text_clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:format12Hour="'twelve'" android:format24Hour="'twenty-four'"/>
+  <Chronometer android:id="@+id/chronometer" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+  <AnalogClock android:id="@+id/analog" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+</LinearLayout>

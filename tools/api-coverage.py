@@ -6,9 +6,12 @@ what it needs, and the batches in which the pure-Java ones go into framework/sou
 A missing top-level type's group comes from its AOSP source and from the hidden types it pulls in; the worst wins, in
 this order:
   pure Java    its source is fetched and plain Java;
-  service      it reaches a system service: ServiceManager, a Stub's asInterface, getSystemService, or an AIDL
-               interface (a .aidl file that declares an interface, not one that declares a parcelable, or a name like
-               IDumpstate that its package lacks, as another project's .aidl makes it);
+  service      it reaches a system service: ServiceManager, a Stub's asInterface, getSystemService of a service
+               that our ContextImpl does not answer (--context-impl: the names and classes it answers, as
+               Context.SENSOR_SERVICE.equals(name) and serviceClass == SensorManager.class name them, are local; a
+               name in a variable is not), or an AIDL interface (a .aidl file that declares an interface, not one
+               that declares a parcelable, or a name like IDumpstate that its package lacks, as another project's
+               .aidl makes it);
   native       it declares native methods (JNI);
   module       it imports an android or com.android type that nothing here defines: framework.jar, the APIs the build
                makes compile-only stubs of (--stub-api: libcore's, ICU's and the modules' current.txt files), the
@@ -31,7 +34,7 @@ tools/build-framework.sh comes first. Python 3.9.
 
 Usage: api-coverage.py [--api <current.txt>] [--stub-api <current.txt>]... [--known <folder or .jmod>]...
                        [--classes <folder>] [--sources <folder>]... [--ours <folder>] [--first <file>] [--taken <file>]
-                       [--batch <n>] [--table <file>] [--json <file>]
+                       [--batch <n>] [--context-impl <file>] [--table <file>] [--json <file>]
 """
 import collections
 import json
@@ -49,7 +52,13 @@ TYPE = re.compile(r'^  (?:@[\w.]+(?:\([^)]*\))? )*(?:public|protected) (?:\w+ )*
 # Comments, strings and characters, which name nothing.
 NOISE = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.S)
 NATIVE = re.compile(r"\bnative\s+[\w<>\[\],.? ]+?\s+\w+\s*\(")
-SERVICE = re.compile(r"\bServiceManager\b|\.Stub\.asInterface\b|\bgetSystemService\s*\(")
+BINDER = re.compile(r"\bServiceManager\b|\.Stub\.asInterface\b")
+SYSTEM_SERVICE = re.compile(r"\bgetSystemService\s*\(")
+# A getSystemService argument that names a service: Context.SENSOR_SERVICE or SensorManager.class.
+SERVICE_NAME = re.compile(r"(?:[\w.]+\.)?([A-Z][A-Z0-9_]*_SERVICE)")
+SERVICE_CLASS = re.compile(r"(?:[\w.]+\.)?(\w+)\.class")
+# A parameter, as in a declaration of getSystemService itself: String name, @NonNull Class<T> serviceClass.
+PARAMETER = re.compile(r"(?:final\s+)?(?:@[\w.]+\s+)*[\w.]+(?:<[^<>]*>)?\s+\w+")
 AIDL_INTERFACE = re.compile(r"^\s*(?:oneway\s+)?interface\s+\w+", re.M)
 STRUCTURED_PARCELABLE = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*parcelable\s+\w+\s*(?:<[^>]*>)?\s*\{", re.M)
 IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+?)(\.\*)?\s*;", re.M)
@@ -86,6 +95,18 @@ def class_names(folder):
     return names
 
 
+def local_services(path):
+    """The system services our ContextImpl answers itself: their names (LAYOUT_INFLATER_SERVICE) and classes
+    (LayoutInflater)."""
+    if not os.path.exists(path):
+        return set(), set()
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        code = NOISE.sub(" ", handle.read())
+    names = set(re.findall(r"\b(?:Context\.)?([A-Z][A-Z0-9_]*_SERVICE)\.equals\(\s*name\s*\)", code))
+    classes = {name.rsplit(".", 1)[-1] for name in re.findall(r"\bserviceClass\s*==\s*([\w.]+)\.class\b", code)}
+    return names, classes
+
+
 def source_index(roots):
     """The fetched sources: {qualified name: path} of the .java files and of the structured parcelables' .aidl
     files, and the qualified names of the AIDL interfaces."""
@@ -110,8 +131,9 @@ def source_index(roots):
 
 
 class Coverage:
-    def __init__(self, api, classes, roots, ours, stub_apis=(), known=()):
+    def __init__(self, api, classes, roots, ours, stub_apis=(), known=(), local=(set(), set())):
         self.types = read_api(api)
+        self.local_names, self.local_classes = local
         # Every type the build makes a compile-only stub of, nested ones too, and every class it compiles against.
         self.stubbed = {f"{package}.{name}" for path in [api, *stub_apis] for package, name in read_api(path)}
         self.compiled = set().union(*(class_names(path) for path in known if os.path.exists(path)))
@@ -218,9 +240,28 @@ class Coverage:
             return "module", used
         if NATIVE.search(code):
             return "native", used
-        if aidl or SERVICE.search(code):
+        if aidl or self.reaches_service(code):
             return "service", used
         return "pure Java", used
+
+    def reaches_service(self, code):
+        """Whether code reaches a system service: through Binder, or getSystemService of one that ContextImpl does
+        not answer. A declaration of getSystemService, whose argument is a parameter, reaches none."""
+        if BINDER.search(code):
+            return True
+        for match in SYSTEM_SERVICE.finditer(code):
+            depth, end = 1, match.end()
+            while end < len(code) and depth:
+                depth += {"(": 1, ")": -1}.get(code[end], 0)
+                end += 1
+            argument = " ".join(code[match.end():end - 1].split())
+            name, cls = SERVICE_NAME.fullmatch(argument), SERVICE_CLASS.fullmatch(argument)
+            if name and name.group(1) in self.local_names or cls and cls.group(1) in self.local_classes:
+                continue
+            if PARAMETER.fullmatch(argument):
+                continue
+            return True
+        return False
 
     def pulls(self, qualified):
         """The hidden types a type pulls in: those it reaches through hidden ones only."""
@@ -285,6 +326,7 @@ def main():
                "--ours": os.path.join(REPO, "framework", "java"),
                "--first": os.path.join(REPO, "fixtures", "corpus", "api-first.txt"),
                "--taken": os.path.join(REPO, "fixtures", "corpus", "api-taken.txt"), "--batch": "60",
+               "--context-impl": os.path.join(REPO, "framework", "managers", "android", "app", "ContextImpl.java"),
                "--table": os.path.join(REPO, "docs", "corpus", "api-coverage.md"),
                "--json": os.path.join(REPO, "build", "api-coverage.json")}
     roots, stub_apis, known = [], [], []
@@ -331,7 +373,8 @@ def main():
         with open(options["--taken"]) as handle:
             steps = [tuple(line.rstrip("\n").split("\t", 1)) for line in handle
                      if line.strip() and not line.startswith("#")]
-    coverage = Coverage(options["--api"], options["--classes"], roots, options["--ours"], stub_apis, known)
+    coverage = Coverage(options["--api"], options["--classes"], roots, options["--ours"], stub_apis, known,
+                        local_services(options["--context-impl"]))
     taken = {}
     for qualified in coverage.missing:
         for name, step in steps:

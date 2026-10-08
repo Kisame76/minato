@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widgets-test's ImageViews: res/drawable/box.xml, 300 x 240 px, in a 600 x 300 px view at each scale type, and one
+     that adjusts its bounds under a maximum width. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+  <ImageView android:id="@+id/fit_center" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="fitCenter"/>
+  <ImageView android:id="@+id/center_crop" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="centerCrop"/>
+  <ImageView android:id="@+id/center_inside" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="centerInside"/>
+  <ImageView android:id="@+id/center" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="center"/>
+  <ImageView android:id="@+id/fit_xy" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="fitXY"/>
+  <ImageView android:id="@+id/fit_start" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="fitStart"/>
+  <ImageView android:id="@+id/fit_end" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="fitEnd"/>
+  <ImageView android:id="@+id/matrix" android:layout_width="600px" android:layout_height="300px"
+      android:src="@drawable/box" android:scaleType="matrix"/>
+  <ImageView android:id="@+id/adjusted" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:src="@drawable/box" android:adjustViewBounds="true" android:maxWidth="200px"/>
+  <ImageButton android:id="@+id/button" android:layout_width="wrap_content" android:layout_height="wrap_content"
+      android:src="@drawable/box"/>
+</LinearLayout>

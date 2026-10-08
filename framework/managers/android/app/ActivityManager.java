@@ -8,6 +8,7 @@
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ConfigurationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -18,6 +19,7 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.ServiceManager;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.util.DisplayMetrics;
 import android.util.Singleton;
 import com.android.minato.services.Unwritten;
@@ -744,5 +746,21 @@ class ActivityManager {
                         return new PendingIntentInfo[size];
                     }
                 };
+    }
+
+    /** @hide As AOSP's: the current user, for an app that holds INTERACT_ACROSS_USERS or INTERACT_ACROSS_USERS_FULL,
+     * which on Minato is the system user, the only one it runs; any other app gets the SecurityException of
+     * UserController's checkGetCurrentUserPermissions [verified: frameworks/base at android-15.0.0_r1]. TextClock asks
+     * it when it shows the current user's time (setShowCurrentUserTime). */
+    public static int getCurrentUser() {
+        Application app = ActivityThread.currentApplication();
+        for (String permission : new String[] {"android.permission.INTERACT_ACROSS_USERS",
+                "android.permission.INTERACT_ACROSS_USERS_FULL"}) {
+            if (app != null && app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+                return UserHandle.USER_SYSTEM;
+            }
+        }
+        throw new SecurityException("Permission Denial: getCurrentUser() from pid=" + Process.myPid() + ", uid="
+                + Process.myUid() + " requires android.permission.INTERACT_ACROSS_USERS");
     }
 }

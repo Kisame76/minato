@@ -46,3 +46,13 @@ android.database.DatabaseErrorHandler	gap 7, SQLite (Formate)
 android.database.DefaultDatabaseErrorHandler	gap 7, SQLite (Formate)
 android.content.SearchRecentSuggestionsProvider	waits for gap 7's SQLiteOpenHelper, then a breadth batch
 android.content.SyncInfo	waits for android.accounts.Account, which its static initializer makes (a service type)
+# The compatibility plan's gap 5, widgets, batch 1: what waits.
+android.widget.Spinner	waits for gap 4's ListPopupWindow, which its dropdown and its dialog make
+android.widget.AutoCompleteTextView	waits for gap 4's ListPopupWindow, its dropdown
+android.widget.MultiAutoCompleteTextView	waits for gap 4's ListPopupWindow, as AutoCompleteTextView
+android.widget.Toolbar	gap 5 batch 2 (Planung), with ActionMenuView's overflow popup (gap 4)
+android.widget.ActionMenuView	gap 5 batch 2 (Planung), its overflow popup (gap 4)
+android.widget.MediaController	gap 5 batch 2 (Planung), a window of its own (gap 4)
+android.widget.Magnifier	gap 5 batch 2 (Planung), a surface of its own
+android.widget.ZoomButtonsController	gap 5 batch 2 (Planung), a window of its own (gap 4)
+android.view.inspector.WindowInspector	waits for our WindowManagerGlobal's getWindowViews

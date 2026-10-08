@@ -1,0 +1,130 @@
+I/widgets-test: images: fit_center android.widget.ImageView at 0, 0, 600 x 300, scale type FIT_CENTER, drawable 300 x 240 at [0,0][300,240], matrix [1.2500 0.0000 112.5000 0.0000 1.2500 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: center_crop android.widget.ImageView at 0, 300, 600 x 300, scale type CENTER_CROP, drawable 300 x 240 at [0,0][300,240], matrix [2.0000 0.0000 0.0000 0.0000 2.0000 -90.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: center_inside android.widget.ImageView at 0, 600, 600 x 300, scale type CENTER_INSIDE, drawable 300 x 240 at [0,0][300,240], matrix [1.0000 0.0000 150.0000 0.0000 1.0000 30.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: center android.widget.ImageView at 0, 900, 600 x 300, scale type CENTER, drawable 300 x 240 at [0,0][300,240], matrix [1.0000 0.0000 150.0000 0.0000 1.0000 30.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: fit_xy android.widget.ImageView at 0, 1200, 600 x 300, scale type FIT_XY, drawable 300 x 240 at [0,0][600,300], matrix [1.0000 0.0000 0.0000 0.0000 1.0000 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: fit_start android.widget.ImageView at 0, 1500, 600 x 300, scale type FIT_START, drawable 300 x 240 at [0,0][300,240], matrix [1.2500 0.0000 0.0000 0.0000 1.2500 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: fit_end android.widget.ImageView at 0, 1800, 600 x 300, scale type FIT_END, drawable 300 x 240 at [0,0][300,240], matrix [1.2500 0.0000 225.0000 0.0000 1.2500 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: matrix android.widget.ImageView at 0, 2100, 600 x 300, scale type MATRIX, drawable 300 x 240 at [0,0][300,240], matrix [0.5000 0.0000 10.0000 0.0000 0.5000 20.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: adjusted android.widget.ImageView at 0, 2400, 200 x 160, scale type FIT_CENTER, drawable 300 x 240 at [0,0][300,240], matrix [0.6667 0.0000 0.0000 0.0000 0.6667 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: images: button android.widget.ImageButton at 0, 2560, 372 x 300, scale type CENTER, drawable 300 x 240 at [0,0][300,240], matrix [1.0000 0.0000 0.0000 0.0000 1.0000 0.0000 0.0000 0.0000 1.0000], baseline -1
+I/widgets-test: progress: bar android.widget.ProgressBar at 0, 0, 1290 x 48, indeterminate false, min 10, max 200, progress 50, secondary 75
+I/widgets-test: progress: bar drawable android.graphics.drawable.LayerDrawable, levels 0 3421 2105
+I/widgets-test: progress: spinner android.widget.ProgressBar at 0, 48, 144 x 144, indeterminate true, min 0, max 100, progress 0, secondary 0
+I/widgets-test: progress: spinner drawable com.android.internal.graphics.drawable.AnimationScaleListDrawable, levels
+I/widgets-test: progress: seek android.widget.SeekBar at 0, 192, 1290 x 54, indeterminate false, min 0, max 100, progress 30, secondary 0
+I/widgets-test: progress: seek drawable android.graphics.drawable.LayerDrawable, levels 0 0 3000
+I/widgets-test: progress: seek thumb offset 27, key increment 1, thumb at [358,0][412,54]
+I/widgets-test: progress: rating android.widget.RatingBar at 0, 246, 720 x 171, indeterminate false, min 0, max 10, progress 7, secondary 8
+I/widgets-test: progress: rating drawable android.graphics.drawable.LayerDrawable, levels 0 8000 7000
+I/widgets-test: progress: rating rating 3.5 of 5 in steps of 0.5
+I/widgets-test: progress: rating set to 2.25: rating 2.5, progress 5
+I/widgets-test: scroll: filled, its child at 0, 0, 1290 x 2000
+I/widgets-test: scroll: vertical, its child at 0, 0, 1290 x 5000, max scroll amount 1000
+I/widgets-test: scroll: vertical to 99999: 3000
+I/widgets-test: scroll: vertical to -50: 0
+I/widgets-test: scroll: vertical to 1234: 1234
+I/widgets-test: scroll: horizontal, its child at 0, 0, 4000 x 300, max scroll amount 645
+I/widgets-test: scroll: horizontal to 99999: 2710
+I/widgets-test: scrollers: fling at 1000 px/s: Scroller to 87 in 247 ms, OverScroller to 86, finished false
+I/widgets-test: scrollers: fling at 4000 px/s: Scroller to 961 in 686 ms, OverScroller to 960, finished false
+I/widgets-test: scrollers: fling at 10000 px/s: Scroller to 4715 in 1347 ms, OverScroller to 4715, finished false
+I/widgets-test: scrollers: startScroll to 300, 1000 in 250 ms
+I/widgets-test: scrollers: springBack from 150 into 0..100: true, to 100
+I/widgets-test: edges: finished true, distance 0.0000, max height 2000
+I/widgets-test: edges: pulled 0.1: consumed 0.1000, distance 0.1000, finished false
+I/widgets-test: edges: pulled back 0.04: consumed -0.0400, distance 0.0600
+I/widgets-test: edges: released: finished false
+I/widgets-test: edges: finished true, distance 0.0000
+I/widgets-test: edges: absorbed 4000: finished false
+I/widgets-test: compound: group at 0, 0, 1290 x 288, checked none
+I/widgets-test: compound: listener: two
+I/widgets-test: compound: listener: two
+I/widgets-test: compound: checked two: two, states false true false
+I/widgets-test: compound: listener: three
+I/widgets-test: compound: three set checked: three, states false false true
+I/widgets-test: compound: listener: three
+I/widgets-test: compound: listener: none
+I/widgets-test: compound: cleared: none, states false false false
+I/widgets-test: compound: one at 0, 0, 170 x 96
+I/widgets-test: compound: two at 0, 96, 176 x 96
+I/widgets-test: compound: three at 0, 192, 202 x 96
+I/widgets-test: compound: toggle at 0, 288, 264 x 144, on "ON", off "OFF", text "OFF"
+I/widgets-test: compound: toggled: checked true, text "ON"
+I/widgets-test: compound: switch at 0, 432, 232 x 81, checked false, min width 0, padding 0, thumb 81 x 81, track -1 x 42
+I/widgets-test: compound: switch set checked: true
+I/widgets-test: compound: checked text at 0, 513, 1290 x 96, checked false, mark 96 x 96
+I/widgets-test: compound: checked text toggled: true
+I/widgets-test: relative: a at 0, 0, 300 x 200
+I/widgets-test: relative: b at 300, 100, 200 x 100
+I/widgets-test: relative: c at 445, 200, 400 x 150
+I/widgets-test: relative: d at 595, 950, 100 x 100
+I/widgets-test: relative: e at 1020, 1860, 250 x 120
+I/widgets-test: relative: f at 1020, 1690, 150 x 150
+I/widgets-test: relative: g at 0, 360, 1290 x 80
+I/widgets-test: grid: grid android.widget.GridLayout at 0, 0, 600 x 320
+I/widgets-test: grid: g1 at 0, 0, 200 x 100
+I/widgets-test: grid: g2 at 200, 0, 250 x 120
+I/widgets-test: grid: g3 at 450, 0, 150 x 100
+I/widgets-test: grid: g4 at 0, 120, 300 x 80
+I/widgets-test: grid: g5 at 450, 120, 100 x 140
+I/widgets-test: grid: g6 at 80, 260, 120 x 60
+I/widgets-test: grid: table android.widget.TableLayout at 0, 320, 1290 x 130
+I/widgets-test: grid: row1 at 0, 0, 1290 x 60
+I/widgets-test: grid: t11 at 0, 0, 180 x 50
+I/widgets-test: grid: t12 at 180, 0, 960 x 60
+I/widgets-test: grid: t13 at 1140, 0, 150 x 40
+I/widgets-test: grid: row2 at 0, 60, 1290 x 70
+I/widgets-test: grid: t21 at 0, 0, 180 x 70
+I/widgets-test: grid: t22 at 180, 0, 960 x 30
+I/widgets-test: grid: space android.widget.Space at 0, 450, 123 x 45
+I/widgets-test: lists: list 7 children, first 0, last 6, divider 3
+I/widgets-test: lists: list row 0 "Item 1" at 0, 0, 1290 x 144
+I/widgets-test: lists: list row 1 "Item 2" at 0, 147, 1290 x 144
+I/widgets-test: lists: list row 2 "Item 3" at 0, 294, 1290 x 144
+I/widgets-test: lists: list row 3 "Item 4" at 0, 441, 1290 x 144
+I/widgets-test: lists: list row 4 "Item 5" at 0, 588, 1290 x 144
+I/widgets-test: lists: list row 5 "Item 6" at 0, 735, 1290 x 144
+I/widgets-test: lists: list row 6 "Item 7" at 0, 882, 1290 x 144
+I/widgets-test: lists: list at 10: first 10, last 16, first top 0
+I/widgets-test: lists: grid 10 children, columns 3, column width 420
+I/widgets-test: lists: grid row 0 "Item 1" at 0, 0, 420 x 144
+I/widgets-test: lists: grid row 1 "Item 2" at 435, 0, 420 x 144
+I/widgets-test: lists: grid row 2 "Item 3" at 870, 0, 420 x 144
+I/widgets-test: lists: grid row 3 "Item 4" at 0, 154, 420 x 144
+I/widgets-test: lists: grid row 4 "Item 5" at 435, 154, 420 x 144
+I/widgets-test: lists: grid row 5 "Item 6" at 870, 154, 420 x 144
+I/widgets-test: lists: grid row 6 "Item 7" at 0, 308, 420 x 144
+I/widgets-test: lists: grid row 7 "Item 8" at 435, 308, 420 x 144
+I/widgets-test: lists: grid row 8 "Item 9" at 870, 308, 420 x 144
+I/widgets-test: lists: grid row 9 "Item 10" at 0, 462, 420 x 144
+I/widgets-test: expandable: 4 children, group 0 expanded true, group 1 false, child 0/1 at flat position 2
+I/widgets-test: expandable row 0 "A" at 0, 0, 1290 x 192
+I/widgets-test: expandable row 1 "A1" at 0, 195, 1290 x 144
+I/widgets-test: expandable row 2 "A2" at 0, 342, 1290 x 144
+I/widgets-test: expandable row 3 "B" at 0, 489, 1290 x 192
+I/widgets-test: switchers: flipper at 0, 0, 1290 x 57, shown 0, in android.view.animation.AlphaAnimation for 500 ms, flipping false
+I/widgets-test: switchers: next: shown 1, visibilities 8 0 8
+I/widgets-test: switchers: set 5: shown 0, visibilities 0 8 8
+I/widgets-test: switchers: texts shows "second", next "first"
+I/widgets-test: switchers: images shows android.graphics.drawable.GradientDrawable 300 x 240
+I/widgets-test: clocks: text_clock android.widget.TextClock at 0, 0, 0 x 57, text ""
+I/widgets-test: clocks: chronometer android.widget.Chronometer at 0, 57, 106 x 57, text "00:00"
+I/widgets-test: clocks: analog android.widget.AnalogClock at 0, 114, 1140 x 1140
+I/widgets-test: animations: alpha at 250 ms: alpha 0.8536
+I/widgets-test: animations: translate at 400 ms: [1.0000 0.0000 150.0000 0.0000 1.0000 60.0000 0.0000 0.0000 1.0000]
+I/widgets-test: animations: scale at 500 ms: [1.5000 0.0000 -50.0000 0.0000 0.7500 12.5000 0.0000 0.0000 1.0000]
+I/widgets-test: animations: rotate at 600 ms: [0.0000 -1.0000 100.0000 1.0000 0.0000 0.0000 0.0000 0.0000 1.0000]
+I/widgets-test: animations: set at 750 ms: alpha 0.8536, [1.0000 0.0000 85.3553 0.0000 1.0000 0.0000 0.0000 0.0000 1.0000]
+I/widgets-test: animations: fade_in android.view.animation.AlphaAnimation for 500 ms, interpolator android.view.animation.DecelerateInterpolator
+I/widgets-test: animations: layout controller delay 0.5000, order 0
+I/widgets-test: interpolators: fast_out_slow_in android.view.animation.PathInterpolator: 0.0000 0.2369 0.7751 0.9591 1.0000
+I/widgets-test: interpolators: linear_out_slow_in android.view.animation.PathInterpolator: 0.0000 0.5764 0.8386 0.9636 1.0000
+I/widgets-test: interpolators: fast_out_linear_in android.view.animation.PathInterpolator: 0.0000 0.0993 0.3252 0.6306 1.0000
+I/widgets-test: interpolators: accelerate_decelerate android.view.animation.AccelerateDecelerateInterpolator: 0.0000 0.1464 0.5000 0.8536 1.0000
+I/widgets-test: interpolators: decelerate_cubic android.view.animation.DecelerateInterpolator: 0.0000 0.5781 0.8750 0.9844 1.0000
+I/widgets-test: interpolators: overshoot android.view.animation.OvershootInterpolator: 0.0000 0.8594 1.1250 1.0781 1.0000
+I/widgets-test: interpolators: anticipate_overshoot android.view.animation.AnticipateOvershootInterpolator: -0.0000 -0.1250 0.5000 1.1250 1.0000
+I/widgets-test: interpolators: bounce android.view.animation.BounceInterpolator: 0.0000 0.6301 0.7016 0.9009 1.0001
+I/widgets-test: interpolators: cycle android.view.animation.CycleInterpolator: 0.0000 1.0000 0.0000 -1.0000 -0.0000
+I/widgets-test: done

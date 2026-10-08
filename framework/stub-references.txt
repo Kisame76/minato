@@ -154,18 +154,8 @@ android.view.FrameMetricsObserver <- android.view.View  # M4 step 10: drawing's 
 android.view.GhostView <- android.view.View  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.ThreadedRenderer <- android.view.View  # M4 step 10: drawing through hwui's renderer
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
-android.view.animation.AlphaAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.Animation <- android.view.View, android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.Animation$AnimationListener <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
-android.view.animation.AnimationSet <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.GridLayoutAnimationController <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.LayoutAnimationController <- android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations; ViewGroup's constructor loads a layout's android:layoutAnimation
-android.view.animation.LayoutAnimationController$AnimationParameters <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
-android.view.animation.RotateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.ScaleAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
 android.view.RoundScrollbarRenderer <- android.view.View  # stays: scroll bars on a round screen (View.layout asks Configuration.isScreenRound), and an iPhone's is not
 android.view.ViewTraversalTracingStrings <- android.view.View  # stays: atrace's traversal sections, only while atrace traces views
@@ -174,13 +164,11 @@ android.view.accessibility.AccessibilityNodeInfo <- android.view.View, android.v
 android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.view.ViewGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.accessibility.AccessibilityNodeProvider <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays: content capture, which Minato does not run, so getSystemService answers null
 android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
 android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill structure (populateChildrenForAutofill), for a service Minato does not run
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
-com.google.android.collect.Lists <- android.view.View  # stays: View.dumpFlags, a debugging dump
 com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
@@ -242,8 +230,6 @@ android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClien
 android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.view.contentcapture.ContentCaptureSession <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.view.translation.UiTranslationController <- android.app.Activity  # stays: UI translation, which only the system's translation service starts
-android.widget.ImageView <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
-android.widget.ImageView$ScaleType <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.widget.Toast <- android.app.Activity  # gap: performStart's warning toast for an app that used a hidden API, a second window (ADR-0041 decision 2)
 android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
 android.window.SizeConfigurationBuckets <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
@@ -298,10 +284,6 @@ android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputMana
 # when it captures or runs, and the window's insets controller names its animation listener.
 android.view.GhostView <- android.transition.ChangeTransform  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidden), which asks each view whether it is a TextureView
-android.widget.ImageView <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: ChangeImageTransform, which asks each view whether it is an ImageView, and the image copy of a view that leaves its parent
-android.widget.ImageView$ScaleType <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: the same image transitions
-android.widget.ListAdapter <- android.transition.Transition  # gap: running a transition, whose capture asks each view's parent whether it is a ListView (Transition.addViewValues), a widget framework.jar lacks
-android.widget.ListView <- android.transition.Transition  # gap: running a transition, as for ListAdapter
 
 # ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.
@@ -340,7 +322,6 @@ android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActio
 android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
 android.graphics.drawable.Icon <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.graphics.drawable.ShapeDrawable <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
-android.graphics.drawable.shapes.Shape <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
@@ -366,14 +347,10 @@ android.view.translation.TranslationRequestValue <- android.widget.TextView  # s
 android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.ViewTranslationRequest$Builder <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.ViewTranslationResponse <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
-android.widget.BaseAdapter <- android.text.method.CharacterPickerDialog, android.widget.Editor  # gap: the suggestion popup's and the character picker's lists, other windows on a tap or a hardware key
-android.widget.GridView <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
-android.widget.ListView <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Magnifier <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.PopupWindow <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.PopupWindow$OnDismissListener <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
-android.widget.Scroller <- android.widget.TextView  # gap: TextView.setScroller's smooth scrolling, whose Scroller only an app makes
 android.widget.Toast <- android.widget.TextView  # gap: the toast after a process-text activity's result, a second window (ADR-0041 decision 2)
 com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
 com.android.internal.inputmethod.IInputContentUriToken <- android.view.inputmethod.InputContentInfo  # stays: the URI permission of content an input method commits, and Minato has no input method until the keyboard step
@@ -428,3 +405,22 @@ android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a mana
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 android.os.NewUserRequest <- android.os.UserManager  # stays: createUser, a system API that needs MANAGE_USERS or CREATE_USERS
 android.os.NewUserResponse <- android.os.UserManager  # stays: createUser, a system API that needs MANAGE_USERS or CREATE_USERS
+
+# The compatibility plan's gap 5, widgets, batch 1: what its types still name as stubs.
+android.view.accessibility.AccessibilityNodeInfo <- android.widget.AbsListView, android.widget.AbsSeekBar, android.widget.AdapterView, android.widget.CheckedTextView, android.widget.ExpandableListView, android.widget.Gallery, android.widget.GridView, android.widget.HorizontalScrollView, android.widget.ListView, android.widget.NumberPicker, android.widget.ProgressBar, android.widget.RadioButton, android.widget.RadioGroup, android.widget.RatingBar, android.widget.ScrollView, android.widget.SeekBar, android.widget.StackView  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.widget.AbsListView, android.widget.AbsSeekBar, android.widget.ExpandableListView, android.widget.GridView, android.widget.HorizontalScrollView, android.widget.ListView, android.widget.NumberPicker, android.widget.RatingBar, android.widget.ScrollView, android.widget.SeekBar, android.widget.StackView  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$CollectionInfo <- android.widget.GridView, android.widget.ListView, android.widget.RadioGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$CollectionItemInfo <- android.widget.GridView, android.widget.ListView, android.widget.RadioButton  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.accessibility.AccessibilityNodeInfo$RangeInfo <- android.widget.ProgressBar  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.view.contentcapture.ContentCaptureSession <- android.widget.AbsListView  # stays: content capture is off (step c2c1), so a list reports no views to it
+android.widget.PopupWindow <- android.widget.AbsListView  # gap: a list's text filter popup (setTextFilterEnabled), a second window (gap 4)
+android.graphics.drawable.Icon <- android.widget.AnalogClock, android.widget.ImageView, android.widget.Switch  # gap: an image from an Icon (ImageView.setImageIcon, the clock's hands, the switch's thumb and track), as Icon is compile-only
+android.provider.ContactsContract$CommonDataKinds$Email <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
+android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
+android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
+android.provider.ContactsContract$QuickContact <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
+android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
+android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
+android.appwidget.AppWidgetManager <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
+android.widget.RemoteViews <- android.widget.RemoteViewsAdapter, com.android.internal.widget.IRemoteViewsFactory  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
+android.widget.RemoteViews$RemoteCollectionItems <- com.android.internal.widget.IRemoteViewsFactory  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none

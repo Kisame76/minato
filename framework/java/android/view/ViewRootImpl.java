@@ -1897,6 +1897,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return null;
     }
 
+    /** As AOSP's, with accessibility off (ADR-0041): no virtual view has the focus. ListView and GridView ask it. */
+    public AccessibilityNodeInfo getAccessibilityFocusedVirtualView() {
+        return null;
+    }
+
     void setAccessibilityFocus(View view, AccessibilityNodeInfo node) {
     }
 
