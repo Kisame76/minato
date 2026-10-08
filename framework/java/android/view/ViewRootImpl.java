@@ -166,8 +166,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mDrawnSinceHostWindow;
     /** Whether its first draw went to its activity's launch, for the Displayed line: once a window. */
     private boolean mReportedDrawn;
-    private int mWidth = -1;
-    private int mHeight = -1;
+    // The window's size, package-private as AOSP's: PixelCopy reads it.
+    int mWidth = -1;
+    int mHeight = -1;
     /** Whether the host's session gives the windows, their sizes and their focus (ADR-0043 step c1). */
     private static boolean sHostWindows;
     /** The host's window, from its session's events: its ID, 0 without one, and its size, 0 before the first. */
@@ -788,6 +789,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     @Override
     public void invalidateChild(View child, Rect dirty) {
         invalidateChildInParent(null, dirty);
+    }
+
+    /** As AOSP's: ViewDebug's dump of a view's display list. */
+    void outputDisplayList(View view) {
+        view.mRenderNode.output();
     }
 
     /** As AOSP's: the whole window at the next traversal. */

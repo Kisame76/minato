@@ -11,10 +11,6 @@
 android.os.Messenger <- android.os.Message  # stays: Message's parcel methods
 android.os.MemoryFile <- android.os.ParcelFileDescriptor  # stays: ParcelFileDescriptor.fromData, a hidden way to send bytes through Binder
 android.os.SharedMemory <- android.graphics.Bitmap, android.graphics.Typeface  # stays: ashmem between processes: the hidden Bitmap.getSharedMemory and the font map system_server sends, which ours loads from /system/etc (ActivityThread.main)
-android.content.pm.Attribution <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
-android.content.pm.FeatureGroupInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
-android.content.pm.InstrumentationInfo <- android.content.pm.PackageInfo  # stays: PackageInfo's parcel constructor
-android.content.pm.SharedLibraryInfo <- android.content.pm.ApplicationInfo  # stays: ApplicationInfo's parcel constructor
 android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, android.text.style.TypefaceSpan  # stays: the spans' parcel constructors and writeToParcel (b3.4b)
 android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
@@ -79,12 +75,10 @@ com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: Strict
 # The app model, activities and views.
 android.app.BroadcastOptions <- android.content.Context  # gap: broadcasts (Context.sendBroadcastMultiplePermissions)
 android.content.AutofillOptions <- android.content.Context  # stays: getAutofillOptions is null on Minato (c1's ContextImpl), so isAutofillCompatibilityEnabled never reads the field
-android.view.autofill.AutofillId <- android.view.autofill.Helper  # stays: Helper.toArray, which only AutofillManager calls, a compile-only stub on Minato
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo.applyOverrideScaleIfNeeded, which the window manager's relayout calls
 android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
 android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
-android.view.ViewHierarchyEncoder <- android.content.res.Resources  # stays: Theme.encode, for the view server's hierarchy dump
 
 # Drawables and graphics.
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
@@ -128,7 +122,6 @@ android.os.UserManager <- android.content.ContentProvider  # stays: a caller of 
 android.content.pm.UserProperties <- android.content.ContentProvider  # stays: a caller of another user, whose media a provider shares with its parent; Minato has one user
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.content.pm.ResolveInfo <- android.content.Intent  # gap: intent resolution (Intent.resolveActivity, ResolveInfo), with ADR-0045's package queries
 android.os.BundleMerger <- android.content.Intent  # gap: Intent.mergeExtras with a BundleMerger (API 34)
 android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Minato has no MediaProvider
 android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
@@ -155,21 +148,16 @@ com.android.internal.util.SyncResultReceiver$TimeoutException <- android.view.co
 # drawables whose classes framework.jar lacks stay gaps.
 android.view.IWindowSession <- android.view.View  # gap: the window session's calls from a view (drag and drop, moving a task, getWindowId), as Minato's windows have no session (step c2c3's ViewRootImpl)
 android.view.WindowId <- android.view.View  # gap: View.getWindowId, which asks the window session that Minato's windows lack (step c2c3)
-android.view.WindowInsetsAnimationControlListener <- android.view.PendingInsetsController  # ADR-0041 a): insets animations, which the window's insets controller runs (decision 8)
-android.view.WindowMetrics <- android.view.View  # ADR-0041 a): the window manager's metrics, from which a detached view's getWindowVisibleDisplayFrame guesses (the window metrics come with the insets, decision 8)
 android.view.CutoutSpecification <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.CutoutSpecification$Parser <- android.view.DisplayCutout  # ADR-0041 a): the display's cutout (decision 8's insets)
 android.view.SurfaceControl <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
-android.view.TouchDelegate <- android.view.View  # ADR-0041 a): touch
 android.view.FrameMetricsObserver <- android.view.View  # M4 step 10: drawing's frame metrics
 android.view.GhostView <- android.view.View  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.ThreadedRenderer <- android.view.View  # M4 step 10: drawing through hwui's renderer
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
-android.view.ViewGroupOverlay <- android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
-android.view.ViewOverlay <- android.view.View, android.view.ViewGroup  # M4 step 10: overlays, which drawing shows
 android.view.animation.AlphaAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.Animation <- android.view.View, android.view.ViewGroup, android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.Animation$AnimationListener <- android.view.ViewGroup  # M4 step 10: view animations, which drawing shows
@@ -183,13 +171,7 @@ android.view.animation.RotateAnimation <- android.view.animation.AnimationUtils 
 android.view.animation.ScaleAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.TranslateAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
-android.view.HapticScrollFeedbackProvider <- android.view.View  # stays: the haptics of rotary scrolling, and an iPhone has no rotary input
 android.view.RoundScrollbarRenderer <- android.view.View  # stays: scroll bars on a round screen (View.layout asks Configuration.isScreenRound), and an iPhone's is not
-android.view.ScrollCaptureTarget <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
-android.view.ViewDebug <- android.view.View  # stays: the view server's dumps, and the message of onRestoreInstanceState's exception for a saved state of the wrong class
-android.view.ViewDebug$CanvasProvider <- android.view.View  # stays: the layout inspector's capture, which only a debugger asks
-android.view.ViewHierarchyEncoder <- android.view.View, android.view.ViewGroup, android.widget.FrameLayout  # stays: the view hierarchy dump, which only a debugger asks
-android.view.ViewStructure <- android.view.View, android.view.ViewGroup  # stays: autofill's and content capture's structure, for services Minato does not run
 android.view.ViewTraversalTracingStrings <- android.view.View  # stays: atrace's traversal sections, only while atrace traces views
 android.view.accessibility.AccessibilityInteractionClient <- android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo <- android.view.View, android.view.ViewGroup, android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
@@ -197,8 +179,6 @@ android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.
 android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.view.ViewGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeProvider <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.autofill.AutofillId <- android.view.View  # stays: autofill, which Minato does not run, so getSystemService answers null
-android.view.autofill.AutofillValue <- android.view.View  # stays: autofill, which Minato does not run, so getSystemService answers null
 android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays: content capture, which Minato does not run, so getSystemService answers null
 android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
@@ -211,14 +191,12 @@ android.credentials.CredentialOption <- android.view.View  # gap: Credential Man
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
 android.os.Vibrator <- android.view.View  # gap: haptic feedback
-android.view.ContentInfo$Builder <- android.view.View  # gap: drag and drop and paste (OnReceiveContentListener)
 android.view.DragAndDropPermissions <- android.view.View  # gap: drag and drop
 android.view.DragEvent <- android.view.View, android.view.ViewGroup  # gap: drag and drop
 android.view.ViewCredentialHandler <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 android.view.displayhash.DisplayHashResultCallback <- android.view.View  # gap: display hashes
 com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, which need a popup window
-com.android.internal.view.menu.MenuBuilder <- android.view.View  # gap: context menus
 
 # Step c2c3 (App): the activity and its window. AOSP's Activity, Instrumentation, ActivityClient, Window and their
 # helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
@@ -261,16 +239,10 @@ android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump,
 android.view.DragAndDropPermissions <- android.app.Activity  # gap: drag and drop (Activity.requestDragAndDropPermissions), not in ADR-0041
 android.view.IWindowSession <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
 android.view.InsetsFrameProvider <- android.view.WindowManager  # stays: WindowManager.LayoutParams' parcel constructor
-android.view.KeyboardShortcutGroup <- android.app.Activity  # stays: Activity.onProvideKeyboardShortcuts, which only the system's keyboard shortcuts helper calls
-android.view.KeyboardShortcutInfo <- android.app.Activity  # stays: Activity.onProvideKeyboardShortcuts, which only the system's keyboard shortcuts helper calls
-android.view.MenuInflater <- android.app.Activity  # gap: options menus (Activity.getMenuInflater), which our PhoneWindow never prepares, and which AppCompat's menu inflater extends
 android.view.RemoteAnimationDefinition <- android.app.IActivityClientController  # stays: the controller's Stub, whose parcel code never runs, as the local controller is AIDL's Default class (step c2c3)
 android.view.RemoteAnimationTarget <- android.window.BackMotionEvent  # stays: BackMotionEvent's parcel constructor
 android.view.SurfaceControl <- android.view.Surface  # ADR-0041 a): a Surface made from a layer, which Minato's surfaces give
 android.view.SurfaceControl$Transaction <- android.app.Instrumentation  # stays: an instrumentation test's synchronous start, and no test instrumentation runs on Minato
-android.view.ViewDebug <- android.view.WindowManager  # gap: WindowManager.LayoutParams.toString, through ViewDebug's flag names (M4 step 10's view debugging)
-android.view.ViewHierarchyEncoder <- android.view.WindowManager, android.widget.LinearLayout  # stays: the view server's hierarchy dump
-android.view.autofill.AutofillId <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
 android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.view.contentcapture.ContentCaptureSession <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
@@ -324,7 +296,6 @@ android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vi
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.os.VibrationEffect <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.view.VerifiedInputEvent <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 
@@ -336,9 +307,6 @@ android.media.AudioManager <- android.view.SoundEffectConstants  # stays: nextNa
 # when it captures or runs, and the window's insets controller names its animation listener.
 android.view.GhostView <- android.transition.ChangeTransform  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidden), which asks each view whether it is a TextureView
-android.view.ViewGroupOverlay <- android.transition.ChangeBounds, android.transition.TransitionUtils, android.transition.Visibility  # M4 step 10: a transition's overlay for a view that leaves its parent, which drawing shows
-android.view.ViewOverlay <- android.transition.Crossfade  # M4 step 10: Crossfade's overlay, which drawing shows
-android.view.WindowInsetsAnimationControlListener <- android.view.InsetsController  # ADR-0041 a): insets animation control, which the window's insets controller cancels until decision 8's insets
 android.widget.ImageView <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: ChangeImageTransform, which asks each view whether it is an ImageView, and the image copy of a view that leaves its parent
 android.widget.ImageView$ScaleType <- android.transition.ChangeImageTransform, android.transition.TransitionUtils  # gap: the same image transitions
 android.widget.ListAdapter <- android.transition.Transition  # gap: running a transition, whose capture asks each view's parent whether it is a ListView (Transition.addViewValues), a widget framework.jar lacks
@@ -360,7 +328,6 @@ android.content.SyncInfo <- android.content.ContentResolver  # gap: syncs, as fo
 android.content.SyncInfo <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.content.pm.ParceledListSlice <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
-android.content.pm.ResolveInfo <- android.provider.Settings  # stays: Settings.Bookmarks, the launcher's hidden table of bookmarks
 android.graphics.drawable.Icon <- android.content.ContentResolver  # gap: a MIME type's icon (getTypeInfo and its MimeTypeInfo)
 android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
 android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager
@@ -371,7 +338,6 @@ com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # ga
 # ADR-0045's text to speech (Planung, gap 13b): what only an engine or a virtual device reaches, which Minato has
 # none of.
 android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeech  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
-android.content.pm.ResolveInfo <- android.speech.tts.TtsEngines  # gap: an engine's service, which the package manager's queryIntentServices would find; it is unwritten and answers null, as for no engine
 
 # ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
@@ -381,7 +347,6 @@ android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.
 android.content.pm.ParceledListSlice <- android.app.PendingIntent  # stays: queryIntentComponents, a system and test API, whose list the local activity manager answers with none (ADR-0045 step d2)
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
 android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
-android.content.pm.ResolveInfo <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.graphics.drawable.Icon <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.graphics.drawable.ShapeDrawable <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
 android.graphics.drawable.shapes.Shape <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
@@ -389,18 +354,11 @@ android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.Cancell
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
 android.util.Range <- android.widget.SpellChecker  # stays: a spell checker session's suggestions, and text services are absent (ADR-0043 step d), decision 3)
-android.view.ContentInfo <- android.widget.TextViewOnReceiveContentListener  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
-android.view.ContentInfo$Builder <- android.view.inputmethod.BaseInputConnection, android.widget.Editor, android.widget.TextView  # gap: content an app receives as ClipData: paste, drop, autofill and an input method's commitContent (the clipboard, gap 18)
 android.view.DragAndDropPermissions <- android.widget.Editor  # gap: drag and drop
 android.view.DragEvent <- android.widget.Editor, android.widget.TextView  # gap: drag and drop
-android.view.SubMenu <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
-android.view.ViewHierarchyEncoder <- android.widget.TextView  # stays: the view hierarchy's debug encoding, which only the hierarchy viewer runs
-android.view.ViewStructure <- android.widget.TextView  # stays: the assist and autofill structure, which only those services ask for
 android.view.accessibility.AccessibilityNodeInfo <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
 android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
 android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
-android.view.autofill.AutofillId <- android.view.inputmethod.EditorInfo  # stays: an EditorInfo read from a parcel, which only an input method's side does
-android.view.autofill.AutofillValue <- android.widget.TextView  # stays: autofill, off (step c2c3), which alone asks a TextView for its value
 android.view.contentcapture.ContentCaptureSession <- android.widget.TextView  # stays: content capture, off (step c2c3), which alone hears of a laid-out TextView's changed text
 android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textclassifier.SelectionEvent <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
@@ -436,10 +394,7 @@ com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a 
 # ADR-0043 step e1), CompoundButton and CheckBox (App): their autofill, assist, accessibility and debug answers, which
 # only those services and tools ask for, and a button drawable from an Icon.
 android.graphics.drawable.Icon <- android.widget.CompoundButton  # gap: setButtonIcon and setButtonIconAsync, a button drawable from an Icon, as Icon is compile-only
-android.view.ViewHierarchyEncoder <- android.widget.CompoundButton  # stays: the view hierarchy's debug encoding, which only the hierarchy viewer runs
-android.view.ViewStructure <- android.widget.CompoundButton  # stays: the assist and autofill structure, which only those services ask for
 android.view.accessibility.AccessibilityNodeInfo <- android.widget.CompoundButton  # stays: accessibility, off (ADR-0041): node infos only for an accessibility service
-android.view.autofill.AutofillValue <- android.widget.CompoundButton  # stays: autofill, off (step c2c3), which alone asks a CompoundButton for its value or fills it
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
 android.content.IntentSender <- android.content.ClipData  # gap: a clip item's intent sender (PendingIntent, gap 9)
@@ -451,3 +406,12 @@ android.os.Debug <- android.os.RemoteCallbackList  # gap: the log of a list with
 
 # The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
 android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, which framework.jar has none of yet (SqliteWrapper.checkSQLiteException's message on a full disk)
+
+# The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
+android.view.DragAndDropPermissions <- android.view.ContentInfo  # gap: drag and drop (a dropped content's permissions)
+android.graphics.drawable.Icon <- android.view.KeyboardShortcutInfo  # gap: a keyboard shortcut's icon, as Icon is compile-only
+android.graphics.HardwareRenderer <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
+android.graphics.HardwareRenderer$CopyRequest <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
+android.graphics.HardwareRenderer <- android.view.ViewDebug  # M4 step 10: the capture of rendering commands (the hidden startRenderingCommandsCapture, for Android Studio), which hwui's GPU pipeline gives
+android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.TouchDelegate  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
+android.os.Debug <- android.view.ViewDebug  # stays: the view counts (the hidden getViewInstanceCount and getViewRootImplCount) and the view server's profiles, which only a debugger asks

@@ -69,6 +69,9 @@ package a.b {
   public class UsesElsewhere {
   }
 
+  public class Archived {
+  }
+
 }
 
 package c.d {
@@ -77,6 +80,16 @@ package c.d {
   }
 
   public static interface Other.Callback {
+  }
+
+}
+
+package e.f {
+
+  @android.widget.RemoteViews.RemoteView public class Remote {
+  }
+
+  @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME) public @interface Marked {
   }
 
 }
@@ -107,7 +120,13 @@ SOURCES = {
     "a/b/Cycle1.java": "package a.b;\npublic class Cycle1 { Cycle2 c; }\n",
     "a/b/Cycle2.java": "package a.b;\npublic class Cycle2 { Cycle1 c; }\n",
     "a/b/UsesElsewhere.java": "package a.b;\npublic class UsesElsewhere { Elsewhere e; }\n",
+    "a/b/Archived.java": "package a.b;\npublic class Archived { ArchivedParcel parcel; }\n",
+    "a/b/ArchivedParcel.aidl": ("package a.b;\nimport a.b.internal.Details;\n"
+                                "parcelable ArchivedParcel {\n    Details details;\n}\n"),
+    "a/b/internal/Details.java": "package a.b.internal;\npublic class Details { }\n",
     "c/d/Other.java": "package c.d;\npublic abstract class Other { public interface Callback { } }\n",
+    "e/f/Remote.java": "package e.f;\npublic class Remote { }\n",
+    "e/f/Marked.java": "package e.f;\npublic @interface Marked { }\n",
 }
 
 # framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API; and the hidden R.
@@ -185,18 +204,25 @@ with tempfile.TemporaryDirectory() as work:
     check(groups.get("a.b.Elsewhere") == "not fetched", "Elsewhere has no source")
     check(groups.get("a.b.UsesElsewhere") == "pure Java", "UsesElsewhere's own source is plain; Elsewhere is a stub")
     check(groups.get("c.d.Other") == "pure Java", "Other is pure Java; its nested type comes with it")
+    check(groups.get("e.f.Remote") == "pure Java" and groups.get("e.f.Marked") == "pure Java",
+          "a type whose annotation has a qualified name, with or without arguments, is in the API")
     check("a.b.Present" not in groups and "c.d.Other.Callback" not in groups,
           "only missing top-level types are listed")
     check(report["ours"] == ["a.b.Present.Nested"], f"our Present lacks its nested type: {report['ours']}")
     batches = report["batches"]
     check(batches[:1] == [["c.d.Other"]], f"the first batch is --first's package: {batches[:1]}")
-    check(batches[1:] == [["a.b.Cycle1", "a.b.Parceled", "a.b.Plain"], ["a.b.UsesElsewhere", "a.b.UsesNative",
-                                                                         "a.b.UsesPlain"], ["a.b.UsesStub"]],
-          f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses: {batches[1:]}")
+    check(batches[1:] == [["a.b.Archived", "a.b.Cycle1", "a.b.Parceled"], ["a.b.Plain", "a.b.UsesElsewhere",
+                                                                           "a.b.UsesNative"],
+                          ["a.b.UsesPlain", "a.b.UsesStub"], ["e.f.Marked", "e.f.Remote"]],
+          f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses, then e.f's: "
+          f"{batches[1:]}")
     check(report["types"].get("a.b.Cycle2", {}).get("taken") == "gap 7 (Formate)", "Cycle2 is taken by gap 7")
     check(report["types"].get("a.b.Parceled", {}).get("pulls") == ["a.b.Box"], "Parceled pulls in the hidden Box")
+    check(groups.get("a.b.Archived") == "pure Java", "a structured parcelable's .aidl is plain Java")
+    check(report["types"].get("a.b.Archived", {}).get("pulls") == ["a.b.ArchivedParcel", "a.b.internal.Details"],
+          "Archived pulls in the structured parcelable aidl makes and what it imports")
     text = open(table).read() if os.path.exists(table) else ""
-    check("| a.b | 1 | 15 | 8 | 3 | 2 | 1 | 1 |" in text, "the table's row for a.b")
+    check("| a.b | 1 | 16 | 9 | 3 | 2 | 1 | 1 |" in text, "the table's row for a.b")
     check("- a.b.UsesModule: android.hardware.thing.V1_0.Strength" in text, "the table lists what a type needs")
     check("Do not edit by hand." in text, "the table says it is generated")
     check("- gap 7 (Formate): 1 (Cycle2)" in text, "the table lists the taken type with its step")

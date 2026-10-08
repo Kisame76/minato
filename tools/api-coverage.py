@@ -15,18 +15,19 @@ this order:
                classes the build compiles against (--known: its stub classes and the boot jars' java.base.jmod), and
                the fetched sources; a module's or a HAL's, so a batch cannot compile it alone;
   not fetched  build/sources lacks its source.
-A type uses what it imports and the types of its own package that it names. A used type outside the API that
-framework.jar lacks has no compile-only stub, so it comes with the type, as do the hidden types it uses in turn: they
-are pulled in, and their groups count. A used API type that framework.jar lacks is a stub at compile time and stays one
-unless a batch takes it: a stub reference, which framework/stub-references.txt must list. A nested type that
+A type uses what it imports and the types of its own package that it names. A structured parcelable's .aidl file
+(parcelable X { ... }), which aidl turns into plain Java, is a source like a .java file. A used type outside the API
+that framework.jar lacks has no compile-only stub, so it comes with the type, as do the hidden types it uses in turn:
+they are pulled in, and their groups count. A used API type that framework.jar lacks is a stub at compile time and stays
+one unless a batch takes it: a stub reference, which framework/stub-references.txt must list. A nested type that
 framework.jar lacks while it has its top-level type counts apart: for our own types (--ours), our code has to add it.
 The pure-Java types go into batches of up to --batch types (60), whole packages where they fit: first the packages of
 --first's types (fixtures/corpus/api-first.txt: one qualified name a line, # starts a comment), then the packages whose
-types the most missing types of other packages use. Within a package a type comes after the ones it uses. A type
-that another step takes (fixtures/corpus/api-taken.txt: a package, which is its own types only, or a type, then a tab
-and the step) goes into no batch; the table lists it with its step. Writes the table (docs/corpus/api-coverage.md)
-and the JSON for the batches (build/api-coverage.json). It reads framework.jar's classes in build/framework/classes,
-so tools/build-framework.sh comes first. Python 3.9.
+types the most missing types of other packages use. Within a package a type comes after the ones it uses. A type that
+another step takes (fixtures/corpus/api-taken.txt: a package, which is its own types only, or a type, then a tab and the
+step) goes into no batch; the table lists it with its step. Writes the table (docs/corpus/api-coverage.md) and the JSON
+for the batches (build/api-coverage.json). It reads framework.jar's classes in build/framework/classes, so
+tools/build-framework.sh comes first. Python 3.9.
 
 Usage: api-coverage.py [--api <current.txt>] [--stub-api <current.txt>]... [--known <folder or .jmod>]...
                        [--classes <folder>] [--sources <folder>]... [--ours <folder>] [--first <file>] [--taken <file>]
@@ -42,13 +43,15 @@ import zipfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.environ.get("MINATO_REPO") or os.path.dirname(TOOLS)
 GROUPS = ["pure Java", "service", "native", "module", "not fetched"]
-TYPE = re.compile(r'^  (?:@\w+(?:\("[^"]*"\))? )*(?:public|protected) (?:\w+ )*?(?:class|interface|enum|@interface) '
+# Annotations may have qualified names and arguments: @android.widget.RemoteViews.RemoteView, @FlaggedApi("a.b").
+TYPE = re.compile(r'^  (?:@[\w.]+(?:\([^)]*\))? )*(?:public|protected) (?:\w+ )*?(?:class|interface|enum|@interface) '
                   r'([\w.]+)')
 # Comments, strings and characters, which name nothing.
 NOISE = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.S)
 NATIVE = re.compile(r"\bnative\s+[\w<>\[\],.? ]+?\s+\w+\s*\(")
 SERVICE = re.compile(r"\bServiceManager\b|\.Stub\.asInterface\b|\bgetSystemService\s*\(")
 AIDL_INTERFACE = re.compile(r"^\s*(?:oneway\s+)?interface\s+\w+", re.M)
+STRUCTURED_PARCELABLE = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*parcelable\s+\w+\s*(?:<[^>]*>)?\s*\{", re.M)
 IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+?)(\.\*)?\s*;", re.M)
 NAME = re.compile(r"\b[A-Z]\w*\b")
 AIDL_NAME = re.compile(r"^I[A-Z][a-z]\w*$")
@@ -84,9 +87,9 @@ def class_names(folder):
 
 
 def source_index(roots):
-    """The fetched sources: {qualified name: path} of the .java files and the qualified names of the AIDL
-    interfaces."""
-    java, aidl = {}, set()
+    """The fetched sources: {qualified name: path} of the .java files and of the structured parcelables' .aidl
+    files, and the qualified names of the AIDL interfaces."""
+    java, aidl, parcelables = {}, set(), {}
     for root in roots:
         for directory, _, files in os.walk(root):
             for name in files:
@@ -96,8 +99,13 @@ def source_index(roots):
                     java.setdefault(qualified, os.path.join(directory, name))
                 elif extension == ".aidl":
                     with open(os.path.join(directory, name), encoding="utf-8", errors="replace") as handle:
-                        if AIDL_INTERFACE.search(NOISE.sub(" ", handle.read())):
-                            aidl.add(qualified)
+                        code = NOISE.sub(" ", handle.read())
+                    if AIDL_INTERFACE.search(code):
+                        aidl.add(qualified)
+                    elif STRUCTURED_PARCELABLE.search(code):
+                        parcelables.setdefault(qualified, os.path.join(directory, name))
+    for qualified, path in parcelables.items():
+        java.setdefault(qualified, path)
     return java, aidl
 
 
