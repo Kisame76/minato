@@ -328,6 +328,46 @@ enum apkrt_gate_kind {
 /// buffers, -EINVAL for ID 0 or an ID the host never gave; else the buffers' answer, -EINVAL without a locked buffer.
 #define APKRT_NR_WINDOW_POST 4121
 
+// MARK: - Hardware buffers (ADR-0058 a))
+//
+// libnativewindow's AHardwareBuffer: the runtime keeps the process's buffers by an ID of its own, with their
+// description, references and locks; the host's buffers (apkrt_set_hardware_buffers in apkrt.h) make, lock, unlock
+// and free their memory, IOSurfaces in the process, which the guest reads and writes at a lock's address.
+
+/// What hardware_buffer does, its x0.
+enum apkrt_hardware_buffer_op {
+    APKRT_HARDWARE_BUFFER_ALLOCATE = 1,  // x1 a struct apkrt_hardware_buffer: the description in, id and stride out
+    APKRT_HARDWARE_BUFFER_SUPPORTED,     // x1 a struct apkrt_hardware_buffer: the description; answers 1 or 0
+    APKRT_HARDWARE_BUFFER_DESCRIBE,      // x1 a struct apkrt_hardware_buffer: id in, the description and stride out
+    APKRT_HARDWARE_BUFFER_ACQUIRE,       // x1 the ID: one reference more
+    APKRT_HARDWARE_BUFFER_RELEASE,       // x1 the ID: one reference less; the last frees the buffer, unlocked first
+    APKRT_HARDWARE_BUFFER_LOCK,          // x1 a struct apkrt_hardware_buffer: id and usage in, address,
+                                         // bytes_per_pixel and bytes_per_stride out
+    APKRT_HARDWARE_BUFFER_UNLOCK,        // x1 the ID: the last lock's end
+};
+
+/// AHardwareBuffer_Desc's fields with the runtime's ID, and what a lock gives (56 bytes). An operation leaves the
+/// fields it does not name alone; reserved must be 0.
+struct apkrt_hardware_buffer {
+    uint64_t id;                             // the runtime's, never 0 and never reused: AHardwareBuffer_getId
+    uint32_t width, height, layers, format;  // AHardwareBuffer_Desc's; format an AHARDWAREBUFFER_FORMAT_*
+    uint64_t usage;                          // AHARDWAREBUFFER_USAGE_*; a lock's: the CPU's bits alone
+    uint32_t stride;                         // pixels from a row's start to the next's (BLOB: its width)
+    uint32_t bytes_per_pixel, bytes_per_stride;  // a lock's, for AHardwareBuffer_lockAndGetInfo
+    uint32_t reserved;
+    uint64_t address;                        // a lock's first pixel, for the guest's reads and writes until UNLOCK
+};
+
+/// hardware_buffer, libnativewindow's AHardwareBuffer_* (ADR-0058 a)): x0 an enum apkrt_hardware_buffer_op, x1 its
+/// argument. Android's rules for a description are libnativewindow's; the runtime checks what keeps the host and its
+/// registry sound: sizes not 0, a format of Android's (for its bytes per pixel), the size within 1 GiB with every
+/// product checked, reserved 0, the IDs, and the locks. Returns 0, SUPPORTED 1 or 0; -ENOSYS for an ALLOCATE without
+/// the host's buffers (SUPPORTED: 0); -EFAULT for address 0; -EINVAL for an unknown op, ID 0 or one the runtime does
+/// not have, a size of 0, a format Android does not have, reserved not 0, a LOCK with other than the CPU's usage bits,
+/// an UNLOCK without a lock; -ENOMEM for a buffer above 1 GiB [to check: Android 15's answer, ahb-test]; else the
+/// buffers'. The number follows the loader's namespace calls (loader_syscalls.h, 4122 to 4126).
+#define APKRT_NR_HARDWARE_BUFFER 4127
+
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //
 // The host posts the ticks of its frame clock and its motion events (apkrt_vsync_post and apkrt_input_post in

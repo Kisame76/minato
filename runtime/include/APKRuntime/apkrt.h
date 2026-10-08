@@ -302,6 +302,46 @@ struct apkrt_window_buffers {
 /// or -1 when a function is NULL.
 int apkrt_set_window_buffers(const struct apkrt_window_buffers *buffers);
 
+// MARK: - Hardware buffers (ADR-0058 a))
+
+/// The largest hardware buffer, 1 GiB, a 16384-pixel square of four bytes a pixel: the runtime refuses a description
+/// whose sizes and bytes per pixel make more, and the host's buffers one whose rows, as they align them, make more.
+#define APKRT_HARDWARE_BUFFER_MAX_BYTES (UINT64_C(1) << 30)
+
+/// What the host's buffers make: AHardwareBuffer_Desc's fields (guest_interface.h's struct apkrt_hardware_buffer).
+struct apkrt_hardware_buffer_description {
+    uint32_t width, height, layers, format;
+    uint64_t usage;
+};
+
+/// For graphics/host: the memory of the guest's AHardwareBuffers (ADR-0058 a)). The runtime has checked a description
+/// (sizes not 0, a format of the NDK's or the VNDK's, at most APKRT_HARDWARE_BUFFER_MAX_BYTES) and keeps the IDs,
+/// references and locks; the buffers see a handle of theirs, never 0. Each function runs on the calling guest thread
+/// under no lock of the runtime's, and waits for nothing but the GPU's work on the buffer:
+/// - supported: 1 for a description they can make, else 0;
+/// - allocate: 0 with the handle and the stride in pixels; -EINVAL for a description they do not take, -ENOMEM;
+/// - lock: 0 with the address of the first pixel, valid until the matching unlock, and the bytes per pixel and per
+///   row, for usage's CPU read and write bits; a lock may come while the buffer is locked, each with its unlock.
+///   libnativewindow keeps the rect, and what a lock of several layers gives is between it and the buffers;
+/// - unlock: 0;
+/// - free: at the last release, after the unlocks of every lock still open.
+/// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A buffer stays with the functions that made
+/// it: setting others or NULL changes only what comes next, so the context must live as long as the process.
+struct apkrt_hardware_buffers {
+    int (*supported)(void *context, const struct apkrt_hardware_buffer_description *description);
+    int (*allocate)(void *context, const struct apkrt_hardware_buffer_description *description, uint64_t *handle,
+                    uint32_t *stride);
+    int (*lock)(void *context, uint64_t handle, uint64_t usage, void **address, uint32_t *bytes_per_pixel,
+                uint32_t *bytes_per_row);
+    int (*unlock)(void *context, uint64_t handle);
+    void (*free)(void *context, uint64_t handle);
+    void *context;
+};
+
+/// For graphics/host: sets the hardware buffers' functions, which the runtime copies, or takes them away with NULL.
+/// Returns 0, or -1 when a function is NULL.
+int apkrt_set_hardware_buffers(const struct apkrt_hardware_buffers *buffers);
+
 // MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
 //
 // For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and

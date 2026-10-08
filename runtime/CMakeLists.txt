@@ -6,7 +6,7 @@ enable_language(ASM)
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
-  src/proc.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/netlink.cpp)
+  src/proc.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp src/netlink.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/hwcap.cpp src/dns_proxy.cpp ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
@@ -61,6 +61,12 @@ if(APK_HOST_BUILD)
   target_include_directories(dns_proxy_test PRIVATE src)
   target_link_libraries(dns_proxy_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.dns_proxy COMMAND dns_proxy_test)
+
+  # The guest's hardware buffers (ADR-0058 a)): the IDs, references and locks against a fake table of host buffers.
+  add_executable(hardware_buffers_test tests/hardware_buffers_test.cpp)
+  target_include_directories(hardware_buffers_test PRIVATE src)
+  target_link_libraries(hardware_buffers_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.hardware_buffers COMMAND hardware_buffers_test)
 
   # The guest's network interfaces and its NETLINK_ROUTE sockets (ADR-0054 step c): the names, the kernel's bytes.
   add_executable(netlink_test tests/netlink_test.cpp)
