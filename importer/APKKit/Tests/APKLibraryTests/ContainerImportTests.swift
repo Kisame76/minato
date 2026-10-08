@@ -69,6 +69,34 @@ struct ContainerImportTests {
         #expect(!sandbox.exists(unit))
     }
 
+    @Test func aBundletoolSetsConditionalModuleInstallsWhereMinatoHasItsFeature() async throws {
+        // ADR-0049 decision 2's follow-up: the library's device spec holds Minato's system features, so a module that
+        // needs AR, which Minato lacks, stays out as on a device without it, and one that needs a touchscreen comes.
+        func module(_ name: String, _ feature: String) -> String {
+            """
+            {"moduleMetadata": {"name": "\(name)", "deliveryType": "INSTALL_TIME", "targeting": {
+              "deviceFeatureTargeting": [{"requiredFeature": {"featureName": "\(feature)"}}]}},
+             "apkDescription": [
+              {"path": "splits/\(name)-master.apk", "splitApkMetadata": {"splitId": "\(name)", "isMasterSplit": true}}]}
+            """
+        }
+        let modules = [module("ar", "android.hardware.camera.ar"), module("touch", "android.hardware.touchscreen")]
+        let toc = Self.toc.replacingOccurrences(of: "]}]}]}", with: "]}, \(modules.joined(separator: ", "))]}]}")
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let data = Self.zip([("toc.json", Data(toc.utf8)), ("splits/base-master.apk", Sets.base),
+                             ("splits/base-arm64_v8a.apk", Sets.arm64), ("splits/base-armeabi_v7a.apk", Self.v7a),
+                             ("splits/ar-master.apk", SplitAPK.make(split: "ar")),
+                             ("splits/touch-master.apk", SplitAPK.make(split: "touch"))])
+
+        let results = try await library.importUnit(Sets.unit(["game.apks": data], in: sandbox.paths))
+
+        let entry = try #require(results.first?.entry)
+        #expect(results.count == 1 && entry.state == .ready)
+        #expect(Set(entry.splits.compactMap(\.splitName)) == ["config.arm64_v8a", "touch"])
+    }
+
     @Test(arguments: [
         ("game.xapk", "manifest", "It holds no APK"),
         ("game.apkm", "encrypted", "Encrypted APKM files aren’t supported"),

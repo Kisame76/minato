@@ -8,9 +8,9 @@ public struct BundletoolDevice: Sendable, Equatable {
     public var sdkVersion: Int32 = 35
     /// Minato runs no SDK runtime.
     public var supportsSdkRuntime = false
-    /// bundletool's device features, `reqGlEsVersion=0x30000` among them. None means that every conditional module
-    /// fits, as `extract-apks` takes a spec without them.
-    public var features: [String] = []
+    /// bundletool's device features, `reqGlEsVersion=0x30000` among them, at first the profile's. None means that
+    /// every conditional module fits, as `extract-apks` takes a spec without them.
+    public var features: [String]
     /// nil takes the toc's default, else tier 0, no country set and the group "" (`ExtractApksCommand.java:374-413`).
     public var deviceTier: Int32?
     public var countrySet: String?
@@ -18,6 +18,7 @@ public struct BundletoolDevice: Sendable, Equatable {
 
     public init(_ profile: DeviceProfile) {
         self.profile = profile
+        features = profile.features
     }
 }
 

@@ -153,13 +153,37 @@ struct BundletoolSelectorTests {
             Self.module("new", [Self.apk("new.apk")]) { $0.targeting.sdk = .init(value: [36]) },
             Self.module("group", [Self.apk("group.apk")]) { $0.targeting.deviceGroups = ["highend"] },
         ])])
-        #expect(Self.paths(toc) == ["base.apk", "ar.apk", "gl32.apk"])
         var device = Self.iPhone
+        device.features = []
+        #expect(Self.paths(toc, on: device) == ["base.apk", "ar.apk", "gl32.apk"])
         device.features = ["reqGlEsVersion=0x30000", "android.hardware.camera.ar"]
         #expect(Self.paths(toc, on: device) == ["base.apk", "ar.apk"])
         device.features = ["reqGlEsVersion=0x30002"]
         device.deviceGroups = ["highend"]
         #expect(Self.paths(toc, on: device) == ["base.apk", "gl32.apk", "group.apk"])
+    }
+
+    @Test func minatosSpecTakesAModuleWhereItsPackageManagerHasTheFeature() {
+        // ADR-0049 decision 2's follow-up: the spec lists Minato's system features by name, so a condition holds
+        // where hasSystemFeature does, a versioned feature's too; OpenGL ES is 3.1 on the iPhone, ANGLE's Vulkan
+        // path (ADR-0044 d)), and 3.0 without Vulkan's features in the Simulator, which has no MoltenVK.
+        func module(_ name: String, _ feature: String, version: Int32 = 0) -> Toc.ApkSet {
+            Self.module(name, [Self.apk("\(name).apk")]) {
+                $0.targeting.deviceFeatures = [.init(name: feature, version: version)]
+            }
+        }
+        let toc = Self.toc([Self.variant(sdk: 21, [
+            Self.module("base", [Self.apk("base.apk")]),
+            module("ar", "android.hardware.camera.ar"),
+            module("touch", "android.hardware.touchscreen.multitouch.jazzhand"),
+            module("gl31", "android.hardware.opengles.version", version: 0x30001),
+            module("gl32", "android.hardware.opengles.version", version: 0x30002),
+            module("vulkan", "android.hardware.vulkan.version"),
+        ])])
+        let iPhone = BundletoolDevice(DeviceProfile.iPhone(nativeScale: 3, languages: ["en-US"], vulkan: true))
+        #expect(Self.paths(toc, on: iPhone) == ["base.apk", "touch.apk", "gl31.apk", "vulkan.apk"])
+        let simulator = BundletoolDevice(DeviceProfile.iPhone(nativeScale: 3, languages: ["en-US"], vulkan: false))
+        #expect(Self.paths(toc, on: simulator) == ["base.apk", "touch.apk"])
     }
 
     @Test func aBundletoolBefore0_10_2NamesOnDemandModulesByItsOldFlag() {

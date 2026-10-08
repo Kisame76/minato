@@ -14,6 +14,9 @@ public struct DeviceProfile: Sendable, Equatable {
     public var deviceTier = 0
     public var countrySet: String?
     public var deviceGroups: [String] = []
+    /// bundletool's device features, which its conditional modules go by. None means that every condition fits, as
+    /// `extract-apks` takes a spec without them.
+    public var features: [String] = []
 
     public init(abis: [String], densityDpi: Int, languages: [String], textureFormats: [String]) {
         self.abis = abis
@@ -23,11 +26,25 @@ public struct DeviceProfile: Sendable, Equatable {
     }
 
     /// An iPhone: arm64-v8a, the density the guest is told (`runtime/android/configuration.cpp:214`), its
-    /// preferred languages, and the texture formats of the GLES and Vulkan paths [inferred: ASTC and ETC2], with
-    /// ETC1, which ETC2 decoders read (the lead's decision).
-    public static func iPhone(nativeScale: Double, languages: [String]) -> DeviceProfile {
-        DeviceProfile(abis: ["arm64-v8a"], densityDpi: Int(nativeScale * 160 + 0.5), languages: languages,
-                      textureFormats: ["astc", "etc2", "etc1_rgb8"])
+    /// preferred languages, the texture formats of the GLES and Vulkan paths [inferred: ASTC and ETC2], with
+    /// ETC1, which ETC2 decoders read (the lead's decision), and the features Minato's PackageManager reports, with
+    /// the OpenGL ES version its sessions give (ADR-0049 decision 2's follow-up); `vulkan` says whether they have
+    /// a Vulkan driver.
+    public static func iPhone(nativeScale: Double, languages: [String],
+                              vulkan: Bool = sessionsHaveVulkan) -> DeviceProfile {
+        var profile = DeviceProfile(abis: ["arm64-v8a"], densityDpi: Int(nativeScale * 160 + 0.5),
+                                    languages: languages, textureFormats: ["astc", "etc2", "etc1_rgb8"])
+        profile.features = SystemFeatures.deviceSpec(vulkan: vulkan)
+        return profile
+    }
+
+    /// Whether this build's sessions have a Vulkan driver: MoltenVK has no Simulator slice (ADR-0030, decision 8).
+    public static var sessionsHaveVulkan: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 }
 
