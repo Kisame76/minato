@@ -24,6 +24,9 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
+import android.database.DatabaseErrorHandler;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.hardware.SensorManager;
 import android.hardware.SystemSensorManager;
 import android.hardware.input.InputManager;
@@ -605,6 +608,36 @@ class ContextImpl {
 
     public String[] databaseList() {
         return FileUtils.listOrEmpty(getDatabasesDir());
+    }
+
+    // The app's own databases (the compatibility plan's gap 7), as the tag's ContextImpl opens and deletes them.
+    public SQLiteDatabase openOrCreateDatabase(String name, int mode, CursorFactory factory) {
+        return openOrCreateDatabase(name, mode, factory, null);
+    }
+
+    public SQLiteDatabase openOrCreateDatabase(String name, int mode, CursorFactory factory,
+            DatabaseErrorHandler errorHandler) {
+        checkMode(mode);
+        File f = getDatabasePath(name);
+        int flags = SQLiteDatabase.CREATE_IF_NECESSARY;
+        if ((mode & MODE_ENABLE_WRITE_AHEAD_LOGGING) != 0) {
+            flags |= SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING;
+        }
+        if ((mode & MODE_NO_LOCALIZED_COLLATORS) != 0) {
+            flags |= SQLiteDatabase.NO_LOCALIZED_COLLATORS;
+        }
+        SQLiteDatabase db = SQLiteDatabase.openDatabase(f.getPath(), factory, flags, errorHandler);
+        setFilePermissionsFromMode(f.getPath(), mode, 0);
+        return db;
+    }
+
+    public boolean deleteDatabase(String name) {
+        try {
+            File f = getDatabasePath(name);
+            return SQLiteDatabase.deleteDatabase(f);
+        } catch (Exception e) {
+        }
+        return false;
     }
 
     public File getFileStreamPath(String name) {

@@ -4,14 +4,15 @@ tools/embed-guest-system.sh lays it out and game mode mounts it, beside what a N
 every container in Guest/ passes `codesign -v`.
 
   bin/              activity-host and app_process64, the programs /system/bin/activity-host and app_process64
-  lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so, hwui's set with
-                    libjnigraphics (ADR-0041 a5) and ART's copies for it (graphics/tests/hwui_load_run.py's
-                    PLATFORM_COPIES)
+  lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so with libsqlite.so (the
+                    compatibility plan's gap 7), hwui's set with libjnigraphics (ADR-0041 a5) and ART's copies for it
+                    (graphics/tests/hwui_load_run.py's PLATFORM_COPIES)
   system/           /system's files: framework.jar and the framework-res folder in framework/ (ADR-0039, decision 8),
                     platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts
   apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data
                     and the time zones
-  apex-lib64/       the APEXes' lib64: libart.so in ART's, libjavacrypto.so in Conscrypt's
+  apex-lib64/       the APEXes' lib64: libart.so and libandroidicu.so (libsqlite's ICU) in ART's, libjavacrypto.so in
+                    Conscrypt's
   resource-cache/   /data/resource-cache for a Java app (ADR-0043 f)): each overlay of
                     framework/monet-overlays.txt and its idmap
 
@@ -47,14 +48,15 @@ def monet_files():
 
 REQUIRED = (
     ["bin/activity-host.dylib", "bin/app_process64.dylib"]
-    + [f"lib64/{name}.dylib" for name in BIONIC + FRONT_LIBS + ["libandroid_runtime.so"] + HWUI + ART_COPIES]
+    + [f"lib64/{name}.dylib" for name in BIONIC + FRONT_LIBS + ["libandroid_runtime.so", "libsqlite.so"] + HWUI
+       + ART_COPIES]
     + ["system/framework/framework.jar", "system/framework/framework-res/AndroidManifest.xml",
        "system/framework/framework-res/resources.arsc", "system/etc/permissions/platform.xml",
        "system/etc/public.libraries.txt", "system/usr/share/zoneinfo/tzdata"]
     + [f"apex/com.android.art/javalib/{jar}" for jar in ART_JARS]
     + ["apex/com.android.conscrypt/javalib/conscrypt.jar", "apex/com.android.i18n/etc/icu/icudt75l.dat",
        "apex/com.android.tzdata/etc/tz/tzdata", "apex-lib64/com.android.art/libart.so.dylib",
-       "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
+       "apex-lib64/com.android.art/libandroidicu.so.dylib", "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
     + [f"resource-cache/{name}" for name in monet_files()]
 )
 

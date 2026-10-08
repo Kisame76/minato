@@ -67,6 +67,12 @@ extern int register_android_view_InputChannel(JNIEnv *env);
 extern int register_android_view_InputEventReceiver(JNIEnv *env);
 // The GLES bindings (ADR-0041 a)): AOSP's core/jni files; util.cpp's classes are in namespace android.
 extern int register_android_opengl_classes(JNIEnv *env);
+// SQLite's (the compatibility plan's gap 7): AOSP's core/jni files over libsqlite.so and libandroidfw's CursorWindow.
+extern int register_android_database_CursorWindow(JNIEnv *env);
+extern int register_android_database_SQLiteConnection(JNIEnv *env);
+extern int register_android_database_SQLiteGlobal(JNIEnv *env);
+extern int register_android_database_SQLiteDebug(JNIEnv *env);
+extern int register_android_database_SQLiteRawStatement(JNIEnv *env);
 
 namespace {
 JavaVM *gJavaVM = nullptr;
@@ -114,7 +120,10 @@ int register_framework_natives(JNIEnv *env) {
           register_android_opengl_jni_GLES10, register_android_opengl_jni_GLES10Ext, register_android_opengl_jni_GLES11,
           register_android_opengl_jni_GLES11Ext, register_android_opengl_jni_GLES20, register_android_opengl_jni_GLES30,
           register_android_opengl_jni_GLES31, register_android_opengl_jni_GLES31Ext, register_android_opengl_jni_GLES32,
-          register_android_graphics_classes, register_android_os_MessageQueue, register_android_os_Trace,
+          register_android_graphics_classes, register_android_database_CursorWindow,
+          register_android_database_SQLiteConnection, register_android_database_SQLiteGlobal,
+          register_android_database_SQLiteDebug, register_android_database_SQLiteRawStatement,
+          register_android_os_MessageQueue, register_android_os_Trace,
           register_com_android_internal_util_VirtualRefBasePtr,
           register_android_hardware_SensorManager, register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,

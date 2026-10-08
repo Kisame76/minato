@@ -151,7 +151,8 @@ Since ADR-0039 c4, every app build ships the Java start's guest system, with the
 - `system/framework/framework.jar`: frameworks/base's `core/java`, `graphics/java`, `opengl/java` and the ravenwood annotations, modules-utils' `java/`, build/release's ap3a values in the flag classes, the managers' generator's classes after the Connectivity and Wi-Fi API files, and our own classes;
 - `system/framework/framework-res/`, the folder of ADR-0039 decision 8 (8,127 files): frameworks/base's `core/res` through our aapt2;
 - `system/etc/permissions/platform.xml`, unchanged;
-- `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils, libziparchive, libincfs-utils and libpng;
+- `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils, libziparchive, libincfs-utils and libpng, and core/jni's database natives over libsqlite.so;
+- `lib64/libsqlite.so`: external/sqlite's SQLite 3.44.3 with Android's functions (the compatibility plan's gap 7), linking ICU's libandroidicu;
 - `bin/app_process64`: ours (`framework/app_process`), linking ART's libnativehelper, libsigchain and liblog.
 
 protobuf and Soong's libbuildversion stay build tools and do not ship.
@@ -193,6 +194,21 @@ The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Virtual.kcm` | 15,716 | `6356265ec24b7eb2…` |
+
+SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives (`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite` unchanged.
+
+| Project | Commit | License | File | Size | SHA-256 |
+|---|---|---|---|---|---|
+| `platform/external/sqlite` | `af6bb6a379e1` | public domain (SQLite's blessing, `dist/NOTICE`) | `dist/sqlite-autoconf-3440300/sqlite3.c` | 8,925,885 | `f191da49b70e8c5d…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | public domain | `dist/sqlite-autoconf-3440300/sqlite3.h` | 638,754 | `b68bd370cce54abb…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | public domain | `dist/sqlite-autoconf-3440300/sqlite3ext.h` | 38,149 | `b184dd1586d93513…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 (`android/NOTICE`) | `android/sqlite3_android.cpp` | 18,716 | `e5ca750bf21f06e9…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/sqlite3_android.h` | 951 | `4fddda110375d61c…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/PhoneNumberUtils.cpp` | 16,172 | `9b468e524fe2450f…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/PhoneNumberUtils.h` | 1,124 | `83e6b3f1d2506485…` |
+| `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/OldPhoneNumberUtils.cpp` | 7,782 | `0822bf88d7c957b7…` |
+
+The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `Android.bp` files, which are read, not built.
 
 ## Graphics sources (ADR-0043 a)
 

@@ -350,7 +350,7 @@ android.provider.DocumentsContract <- android.os.storage.StorageVolume  # stays:
 com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolume  # stays: StorageVolume's dump, for dumpsys
 
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
-# name syncs, URI grants, MIME type icons and SQLite, which an app's settings and queries never meet.
+# name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.accounts.Account <- android.content.ContentResolver  # gap: syncs (requestSync, startSync and the sync extras' check), which need accounts; Minato has no AccountManager yet
 android.accounts.Account <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
@@ -361,16 +361,6 @@ android.content.SyncInfo <- android.content.IContentService  # stays: IContentSe
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.content.pm.ParceledListSlice <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
 android.content.pm.ResolveInfo <- android.provider.Settings  # stays: Settings.Bookmarks, the launcher's hidden table of bookmarks
-android.database.CursorWindow <- android.database.DatabaseUtils  # stays: a cursor's window for another process (cursorFillWindow), which no other process asks for on Minato
-android.database.sqlite.SQLiteAbortException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.database.sqlite.SQLiteConstraintException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.database.sqlite.SQLiteDatabase <- android.database.DatabaseUtils  # gap: SQLite databases, which framework.jar has none of yet (DatabaseUtils' statement and query helpers)
-android.database.sqlite.SQLiteDatabaseCorruptException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.database.sqlite.SQLiteDiskIOException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.database.sqlite.SQLiteException <- android.database.DatabaseUtils  # gap: SQLite databases, which framework.jar has none of yet (DatabaseUtils' statement and query helpers), and its exceptions through a parcel
-android.database.sqlite.SQLiteFullException <- android.database.DatabaseUtils  # stays: DatabaseUtils' exceptions through a parcel, which only a provider's IPC writes and reads
-android.database.sqlite.SQLiteProgram <- android.database.DatabaseUtils  # gap: SQLite databases, which framework.jar has none of yet (DatabaseUtils' statement and query helpers)
-android.database.sqlite.SQLiteStatement <- android.database.DatabaseUtils  # gap: SQLite databases, which framework.jar has none of yet (DatabaseUtils' statement and query helpers)
 android.graphics.drawable.Icon <- android.content.ContentResolver  # gap: a MIME type's icon (getTypeInfo and its MimeTypeInfo)
 android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
 android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager
@@ -458,3 +448,6 @@ android.view.textclassifier.TextLinks <- android.content.ClipData  # gap: a clip
 android.accounts.Account <- android.content.PeriodicSync, android.content.SyncRequest  # gap: syncs, as for Account
 android.net.ParseException <- android.net.MailTo  # gap: a malformed mailto: URI (connectivity's ParseException)
 android.os.Debug <- android.os.RemoteCallbackList  # gap: the log of a list with more than 3,000 callbacks (android.os.Debug)
+
+# The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
+android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, which framework.jar has none of yet (SqliteWrapper.checkSQLiteException's message on a full disk)

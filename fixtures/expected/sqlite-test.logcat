@@ -1,0 +1,81 @@
+I/sqlite-test: path: /data/user/0/io.github.kisame76.minato.test.sqlite/databases/app.db
+I/sqlite-test: files before: []
+I/sqlite-test: configure: version 0, in transaction false
+I/sqlite-test: create: version 0, in transaction true
+I/sqlite-test: open: version 1, in transaction false
+I/sqlite-test: database: version 1, open true, read-only false, path /data/user/0/io.github.kisame76.minato.test.sqlite/databases/app.db
+I/sqlite-test: sizes: page 4096, maximum 4398046507008
+I/sqlite-test: wal enabled: false
+I/sqlite-test: pragma journal_mode: truncate
+I/sqlite-test: pragma synchronous: 2
+I/sqlite-test: pragma foreign_keys: 0
+I/sqlite-test: pragma journal_size_limit: 524288
+I/sqlite-test: pragma auto_vacuum: 1
+I/sqlite-test: pragma user_version: 1
+I/sqlite-test: pragma page_size: 4096
+I/sqlite-test: pragma secure_delete: 1
+I/sqlite-test: pragma encoding: UTF-8
+I/sqlite-test: pragma cache_size: -2000
+I/sqlite-test: pragma wal_autocheckpoint: 100
+I/sqlite-test: pragma locking_mode: normal
+I/sqlite-test: pragma recursive_triggers: 0
+I/sqlite-test: tables: android_metadata items sqlite_sequence
+I/sqlite-test: metadata: en_US
+I/sqlite-test: insert apple: 1
+I/sqlite-test: insert Äpfel: 2
+I/sqlite-test: insert zebra: 3
+I/sqlite-test: insert apple again: -1
+I/sqlite-test: replace apple: 4
+I/sqlite-test: ignore apple: -1
+I/sqlite-test: update: 2
+I/sqlite-test: delete: 0
+I/sqlite-test: columns: _id name count data, rows 3
+I/sqlite-test: row 0: 1:2 3:Äpfel 1:5 0:null
+I/sqlite-test: row 1: 1:3 3:zebra 1:5 0:null
+I/sqlite-test: row 2: 1:4 3:apple 1:9 0:null
+I/sqlite-test: unique: android.database.sqlite.SQLiteConstraintException: UNIQUE constraint failed: items.name (code 2067 SQLITE_CONSTRAINT_UNIQUE)
+I/sqlite-test: not null: android.database.sqlite.SQLiteConstraintException: NOT NULL constraint failed: items.name (code 1299 SQLITE_CONSTRAINT_NOTNULL)
+I/sqlite-test: no column: android.database.sqlite.SQLiteException: near "nothing": syntax error (code 1 SQLITE_ERROR): , while compiling: SELECT nothing FROM items
+I/sqlite-test: in transaction: true, rows 4
+I/sqlite-test: after rollback: 3
+I/sqlite-test: after commit: 4, in transaction false
+I/sqlite-test: statement insert: 7
+I/sqlite-test: statement update: 2
+I/sqlite-test: simple long: 5
+I/sqlite-test: simple string: statement
+I/sqlite-test: long for query: 12
+I/sqlite-test: string for query: Äpfel
+I/sqlite-test: no row: android.database.sqlite.SQLiteDoneException: null
+I/sqlite-test: entries: 4
+I/sqlite-test: escaped: 'it''s'
+I/sqlite-test: version: 3.44.3
+I/sqlite-test: upper: STRASSE
+I/sqlite-test: phone numbers: 1
+I/sqlite-test: binary order: apple committed statement zebra Äpfel
+I/sqlite-test: localized order: Äpfel apple committed statement zebra
+I/sqlite-test: unicode order: Äpfel apple committed statement zebra
+I/sqlite-test: fts4: 1 3
+I/sqlite-test: fts5: android.database.sqlite.SQLiteException: no such module: fts5 (code 1 SQLITE_ERROR)
+I/sqlite-test: enable wal: true, enabled true, mode wal
+I/sqlite-test: wal insert: 8
+I/sqlite-test: disable wal: enabled false, mode truncate
+I/sqlite-test: configure: version 1, in transaction false
+I/sqlite-test: upgrade: 1 to 2
+I/sqlite-test: open: version 2, in transaction false
+I/sqlite-test: upgraded: version 2, columns _id name count data note
+I/sqlite-test: readable: same true, read-only false
+I/sqlite-test: memory: path :memory:, sum 3, mode memory
+I/sqlite-test: parcel: 104 bytes 000000000600000070617263656c000002000000020000004800000000000000736576000102030404000000040000000400000000000000000000000000000000000000000000000300000000000000040000000000000001000000070000000000000000000000
+I/sqlite-test: parcel copy: start 0, rows 2, 7 sev 0 [1, 2, 3, 4]
+I/sqlite-test: big row: 20000 bytes, crc 2944668259, same true
+I/sqlite-test: big result: 40 rows, 2560000 bytes, crc 1812074920, window starts [0, 22]
+I/sqlite-test: big put: true
+I/sqlite-test: big parcel: file descriptors true
+I/sqlite-test: big parcel copy: start 0, rows 1, 20000 bytes, same true
+I/sqlite-test: opened: path /data/user/0/io.github.kisame76.minato.test.sqlite/databases/other.db, version 0, sum 5, mode truncate
+I/sqlite-test: files with other: [app.db, app.db-journal, other.db, other.db-journal]
+I/sqlite-test: delete other: true
+I/sqlite-test: files after close: [app.db, app.db-journal]
+I/sqlite-test: delete: true, again false
+I/sqlite-test: files after delete: []
+I/sqlite-test: done

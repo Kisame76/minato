@@ -38,6 +38,8 @@
 # launch-mode-test (step b3.5b2-2b's) is one too: its starts follow the launch modes and the task's flags.
 # crash-test (ADR-0039, the main thread's uncaught exception) is one too: Android's handlers end it after its "done",
 # and the program must end with 137, the kill of itself, and Minato go back to the library without a notice.
+# sqlite-test (the compatibility plan's gap 7) is one too: its own SQLite databases, whose files take the runtime's
+# locks inside the app's sandbox on the iPhone.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -88,7 +90,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "binder-test io.github.kisame76.minato.test.binder" "strictmode-test io.github.kisame76.minato.test.strictmode"
       "activity-flow-test io.github.kisame76.minato.test.activityflow"
       "result-flow-test io.github.kisame76.minato.test.resultflow"
-      "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash")
+      "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash"
+      "sqlite-test io.github.kisame76.minato.test.sqlite")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -635,6 +638,8 @@ run_one result-flow-test io.github.kisame76.minato.test.resultflow
 # Launch modes and the task's flags (step b3.5b2-2b): singleTop, CLEAR_TOP, REORDER_TO_FRONT, singleTask, noHistory,
 # navigateUpTo and CLEAR_TASK.
 run_one launch-mode-test io.github.kisame76.minato.test.launchmode
+# SQLite databases (the compatibility plan's gap 7): SQLiteOpenHelper on the main thread, cursors, WAL and the files.
+run_one sqlite-test io.github.kisame76.minato.test.sqlite
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.

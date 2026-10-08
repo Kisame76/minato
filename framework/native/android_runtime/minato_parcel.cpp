@@ -328,6 +328,10 @@ void *Parcel::writeInplace(size_t len) {
     return data;
 }
 
+status_t Parcel::writeString8(const String8 &str) {
+    return writeString8(str.c_str(), str.size());
+}
+
 // As libbinder's: write() of the string with its NUL (ADR-0045 step 7c1).
 status_t Parcel::writeCString(const char *str) {
     const size_t len = strlen(str) + 1;
@@ -531,6 +535,46 @@ int8_t Parcel::readByte() const {
 
 uint32_t Parcel::readUint32() const {
     return readAligned<uint32_t>();
+}
+
+status_t Parcel::readUint32(uint32_t *out) const {
+    return readAligned(out);
+}
+
+status_t Parcel::readBool(bool *out) const {
+    int32_t value = 0;
+    const status_t status = readInt32(&value);
+    *out = value != 0;
+    return status;
+}
+
+// As libbinder's: len bytes at the position, which moves on by them padded to 4, also when a read over an object fails.
+status_t Parcel::read(void *outData, size_t len) const {
+    if (len > INT32_MAX) return BAD_VALUE;
+    const size_t padded = padSize(len);
+    if (mDataPos + padded >= mDataPos && mDataPos + padded <= mDataSize && len <= padded) {
+        if (!mObjects.empty()) {
+            if (const status_t err = validateReadData(mDataPos + padded); err != NO_ERROR) {
+                mDataPos += padded;
+                return err;
+            }
+        }
+        memcpy(outData, mData + mDataPos, len);
+        mDataPos += padded;
+        return NO_ERROR;
+    }
+    return NOT_ENOUGH_DATA;
+}
+
+status_t Parcel::readString8(String8 *out) const {
+    size_t len;
+    const char *str = readString8Inplace(&len);
+    if (str != nullptr) {
+        out->setTo(str, len);
+        return NO_ERROR;
+    }
+    *out = String8();
+    return UNEXPECTED_NULL;
 }
 
 // As libbinder's readData for a vector of bytes: a negative length is a null vector, one beyond the data is refused.

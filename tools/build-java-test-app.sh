@@ -30,6 +30,8 @@
 # broadcast-test (ADR-0045 decision 5) is one more, whose activity sends its own broadcasts to its own receivers.
 # api-breadth-test (the compatibility plan's entry 22) is one more, whose assets/types.txt names the public types it
 # loads.
+# sqlite-test (the compatibility plan's gap 7) is one more, whose activity makes, changes and deletes its own SQLite
+# database.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).

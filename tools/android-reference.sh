@@ -53,6 +53,8 @@
 # broadcast-test (ADR-0045 decision 5), whose activity sends its own broadcasts to its own receivers, is one too.
 # crash-test (ADR-0039, the main thread's uncaught exception), whose own handler logs the exception that ends it, is
 # one too.
+# sqlite-test (the compatibility plan's gap 7), whose activity makes, changes and deletes its own SQLite database, is
+# one too.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -494,6 +496,10 @@ run_app() {
     broadcast-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BroadcastActivity
       limit=90
+      ;;
+    # sqlite-test (the compatibility plan's gap 7): its activity's parts end with "done".
+    sqlite-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SqliteActivity
       ;;
     # activity-start-test (ADR-0039 step c2c3): its own activity, behind the alias Launcher, ends with "done" once its
     # window has focus.

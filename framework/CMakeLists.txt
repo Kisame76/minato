@@ -17,7 +17,7 @@ endif()
 set(MINATO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(ART_LIB "${MINATO_ROOT}/build/art/lib" CACHE PATH "ART's guest libraries (tools/build-art.sh)")
 set(NATIVEHELPER "${MINATO_ROOT}/build/sources/libnativehelper")
-foreach(library IN ITEMS libnativehelper libsigchain)
+foreach(library IN ITEMS libnativehelper libsigchain libandroidicu)
   if(NOT EXISTS "${ART_LIB}/${library}.so")
     message(FATAL_ERROR "${ART_LIB}/${library}.so is missing: run tools/build-art.sh first")
   endif()
@@ -36,11 +36,13 @@ target_link_libraries(app_process PRIVATE art_libnativehelper art_libsigchain lo
 # --- libandroidfw and what it links (ADR-0039 b3.2), as static archives for libandroid_runtime.so (b3.3). Each
 # library takes its Android.bp's sources and flags for the android target, with Soong's global flags as for the host
 # aapt2 (tools/aapt2/soong.cmake) on top of the NDK's own; liblog and libz are the guest system's. Left out, as no
-# caller needs them before their Java comes: libandroidfw's BackupData, BackupHelpers and CursorWindow, which need
-# libbinder. libincfs is our two-function stand-in (native/incfs), and libziparchive is the default one, with
-# incfs support off, rather than libziparchive_for_incfs: Minato installs no app on incfs.
+# caller needs them before their Java comes: libandroidfw's BackupData and BackupHelpers, which need libbinder.
+# CursorWindow, which SQLite's queries fill (the compatibility plan's gap 7), takes its parcel from native/include's
+# binder/Parcel.h, Minato's parcel. libincfs is our two-function stand-in (native/incfs), and libziparchive is the
+# default one, with incfs support off, rather than libziparchive_for_incfs: Minato installs no app on incfs.
 set(SOURCES "${MINATO_ROOT}/build/sources")
-foreach(source frameworks_base system_core_framework incremental_delivery libbase fmtlib libziparchive logging libpng)
+foreach(source frameworks_base system_core_framework incremental_delivery libbase fmtlib libziparchive logging libpng
+        sqlite)
   if(NOT EXISTS "${SOURCES}/${source}")
     message(FATAL_ERROR "No ${SOURCES}/${source}: run tools/fetch-sources.py --set framework and --set art")
   endif()
@@ -146,7 +148,8 @@ if(NOT EXISTS "${androidfw_patched}")
 endif()
 sources_in(androidfw_sources "${androidfw}"
   ApkAssets.cpp ApkParsing.cpp Asset.cpp AssetDir.cpp AssetManager.cpp AssetManager2.cpp
-  AttributeResolution.cpp BigBuffer.cpp BigBufferStream.cpp ChunkIterator.cpp ConfigDescription.cpp FileStream.cpp
+  AttributeResolution.cpp BigBuffer.cpp BigBufferStream.cpp ChunkIterator.cpp ConfigDescription.cpp CursorWindow.cpp
+  FileStream.cpp
   Idmap.cpp LoadedArsc.cpp Locale.cpp LocaleData.cpp misc.cpp NinePatch.cpp ObbFile.cpp PosixUtils.cpp Png.cpp
   PngChunkFilter.cpp PngCrunch.cpp ResourceTimer.cpp ResourceTypes.cpp ResourceUtils.cpp StreamingZipInflater.cpp
   StringPool.cpp TypeWrappers.cpp Util.cpp ZipFileRO.cpp ZipUtils.cpp PathUtils.cpp)
@@ -165,6 +168,46 @@ set_target_properties(androidfw-test PROPERTIES CXX_STANDARD 23)
 target_compile_options(androidfw-test PRIVATE -Wall -Wextra -Werror)
 target_link_options(androidfw-test PRIVATE -Wl,-z,max-page-size=16384)
 target_link_libraries(androidfw-test PRIVATE androidfw)
+
+# The guest's libsqlite.so test (compatibility plan, gap 7; tools/sqlite-native-check.sh): a program that opens the
+# library with dlopen, as an app with a targetSdk below 24 may, so that it runs on Android 15's own library too.
+add_executable(sqlite-native-test tests/native/sqlite_native_test.c)
+target_include_directories(sqlite-native-test PRIVATE "${SOURCES}/sqlite/dist/sqlite-autoconf-3440300")
+target_compile_options(sqlite-native-test PRIVATE -Wall -Wextra -Werror)
+target_link_options(sqlite-native-test PRIVATE -Wl,-z,max-page-size=16384)
+target_link_libraries(sqlite-native-test PRIVATE dl)
+
+# --- libsqlite.so (compatibility plan, gap 7): SQLite 3.44.3 of external/sqlite's dist at android-15.0.0_r1, the
+# version that the tag's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with Android's functions of its android folder
+# (libsqlite3_android: the phone numbers, the LOCALIZED, UNICODE and PHONEBOOK collators and _TOKENIZE) linked in
+# whole, as Android.bp builds libsqlite for the android target: sqlite-defaults' flags and SQLITE_ENABLE_ICU. It lies
+# in the guest's /system/lib64, as on Android 15, where the database natives of libandroid_runtime and apps with a
+# targetSdk below 24 (the linker's exempt list) find it. ICU is libandroidicu, as on Android: ICU's C functions under
+# the names of libandroidicu's headers, beside ART's ICU, where the default namespace reaches it as linkerconfig's link
+# to com_android_i18n gives it.
+set(sqlite "${SOURCES}/sqlite/dist/sqlite-autoconf-3440300")
+set(icu_include "${SOURCES}/icu/libandroidicu/include")
+add_library(sqlite3_android OBJECT "${SOURCES}/sqlite/android/PhoneNumberUtils.cpp"
+            "${SOURCES}/sqlite/android/OldPhoneNumberUtils.cpp" "${SOURCES}/sqlite/android/sqlite3_android.cpp")
+target_include_directories(sqlite3_android PRIVATE "${sqlite}" ${icu_include})
+set_target_properties(sqlite3_android PROPERTIES POSITION_INDEPENDENT_CODE ON)
+soong_module(sqlite3_android EXTERNAL FLAGS -Wall -Werror -Wno-unused-function -Wno-unused-variable -DSQLITE_ENABLE_ICU
+  -DSQLITE_DEFAULT_LEGACY_ALTER_TABLE)
+target_link_libraries(sqlite3_android PRIVATE guest_log)
+add_library(sqlite SHARED "${sqlite}/sqlite3.c" $<TARGET_OBJECTS:sqlite3_android>)
+target_include_directories(sqlite PUBLIC "${sqlite}" "${SOURCES}/sqlite/android" PRIVATE ${icu_include})
+soong_module(sqlite EXTERNAL FLAGS -DNDEBUG=1 -DHAVE_USLEEP=1 -DSQLITE_HAVE_ISNAN
+  -DSQLITE_DEFAULT_JOURNAL_SIZE_LIMIT=1048576 -DSQLITE_THREADSAFE=2 -DSQLITE_TEMP_STORE=3
+  -DSQLITE_POWERSAFE_OVERWRITE=1 -DSQLITE_DEFAULT_FILE_FORMAT=4 -DSQLITE_DEFAULT_AUTOVACUUM=1
+  -DSQLITE_ENABLE_MEMORY_MANAGEMENT=1 -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_BACKWARDS -DSQLITE_ENABLE_FTS4
+  -DSQLITE_OMIT_BUILTIN_TEST -DSQLITE_OMIT_COMPILEOPTION_DIAGS -DSQLITE_OMIT_LOAD_EXTENSION
+  -DSQLITE_DEFAULT_FILE_PERMISSIONS=0600 -DSQLITE_SECURE_DELETE -DSQLITE_ENABLE_BATCH_ATOMIC_WRITE
+  -DBIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD -DSQLITE_DEFAULT_LEGACY_ALTER_TABLE -DSQLITE_ALLOW_ROWID_IN_VIEW
+  -DSQLITE_ENABLE_BYTECODE_VTAB -Wno-unused-parameter -Werror -ftrivial-auto-var-init=pattern
+  -DUSE_PREAD64 -Dfdatasync=fdatasync -DHAVE_MALLOC_H=1 -DHAVE_MALLOC_USABLE_SIZE -DSQLITE_ENABLE_DBSTAT_VTAB
+  -DSQLITE_ENABLE_ICU)
+target_link_options(sqlite PRIVATE -Wl,-z,max-page-size=16384)
+target_link_libraries(sqlite PRIVATE dl guest_log art_libandroidicu)
 
 # --- libhwui.so (ADR-0043 test 2): the natives of framework.jar's android.graphics classes, from the build of
 # tools/build-hwui.sh, which a clean copy can point elsewhere with HWUI_LIB. libandroid_runtime calls the two C
@@ -246,6 +289,11 @@ sources_in(android_runtime_sources "${jni}"
   android_util_Log.cpp android_util_AssetManager.cpp android_util_StringBlock.cpp android_util_XmlBlock.cpp
   android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp android_os_SystemClock.cpp core_jni_helpers.cpp
   android_animation_PropertyValuesHolder.cpp com_android_internal_util_VirtualRefBasePtr.cpp)
+# SQLite's natives (the compatibility plan's gap 7): AOSP's core/jni files as they stand, over libsqlite.so and
+# libandroidfw's CursorWindow.
+sources_in(database_jni_sources "${jni}"
+  android_database_CursorWindow.cpp android_database_SQLiteCommon.cpp android_database_SQLiteConnection.cpp
+  android_database_SQLiteDebug.cpp android_database_SQLiteGlobal.cpp android_database_SQLiteRawStatement.cpp)
 # ActivityThread's native (b3.4c) reads the session's configuration through libandroid, which it opens with dlopen
 # rather than linking: on Android libandroid needs libandroid_runtime, not the other way. DisplayEventReceiver's
 # natives (ADR-0041 a)) take libandroid's AChoreographer the same way.
@@ -272,7 +320,7 @@ foreach(file android_opengl_EGL14.cpp android_opengl_EGL15.cpp android_opengl_EG
   list(APPEND gles_sources "${gles_patched}/${file}")
 endforeach()
 add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${input_jni_sources}
-            native/android_runtime/AndroidRuntime.cpp
+            ${database_jni_sources} native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp native/android_runtime/android_view_Surface.cpp
@@ -294,7 +342,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
-                      GLESv2 GLESv3 nativewindow input)
+                      GLESv2 GLESv3 nativewindow input sqlite)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

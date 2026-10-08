@@ -282,7 +282,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     stats with Android 15's owner, root's 0751 (ADR-0052); /data/local stays absent, as the owner model counts
     /data/local/tmp as the app's. With framework-res's folder among `mounts`, /data/resource-cache holds Monet's
     overlays made from that build of framework-res, as SystemUI and idmap2 keep them there on Android 15 (ADR-0043
-    f)): every app's Resources take them, as its overlay paths.
+    f)): every app's Resources take them, as its overlay paths. libsqlite.so beside app_process goes to /system/lib64
+    too, for libandroid_runtime's database natives (the compatibility plan's gap 7).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
     host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
@@ -311,6 +312,10 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     runtime = os.path.join(os.path.dirname(app_process), "libandroid_runtime.so")
     if os.path.exists(runtime):
         convert(apk_convert, runtime, os.path.join(system_lib64, "libandroid_runtime.so.dylib"))
+    # Its database natives link libsqlite.so (the compatibility plan's gap 7), which Android 15 has in /system/lib64.
+    sqlite = os.path.join(os.path.dirname(app_process), "libsqlite.so")
+    if os.path.exists(sqlite):
+        convert(apk_convert, sqlite, os.path.join(system_lib64, "libsqlite.so.dylib"))
     convert(apk_convert, app_process, os.path.join(work, "bin", "app_process64.dylib"))
 
     run = os.path.join(work, "run")

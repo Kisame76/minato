@@ -1,0 +1,76 @@
+# Android 15's lines: framework/tests/native/sqlite_native_test.c run from /data/local/tmp on apk-runner-35
+# (AE3A.240806.019) against its own /system/lib64/libsqlite.so, two runs equal, 2026-10-08.
+library: 3.44.3 3044003
+source: 2024-03-24 21:15:01 d68fb8b5dbb8305e00d2dd14d8fe6b3d9f67e2459102ff160d956a6b75ddc18e
+threadsafe: 2
+memory: open 0
+limit length: 1000000000
+limit sql length: 1000000000
+limit columns: 2000
+limit expression depth: 1000
+limit compound select: 500
+limit vdbe ops: 250000000
+limit function args: 127
+limit attached: 10
+limit like pattern: 50000
+limit variables: 32766
+limit trigger depth: 1000
+limit worker threads: 0
+modules: bytecode dbstat fts1 fts2 fts3 fts3tokenize fts4 fts4aux json_each json_tree tables_used
+functions: 97
+json: 2
+math: error 1 no such function: sqrt
+fts5: error 1 no such module: fts5
+rtree: error 1 no such module: rtree
+fts4: 1
+bytecode: 1
+icu: STRASSE|äöü|1|0
+icu collation: null
+german order: _x 10 9 apfel Apfel Äpfel Ofen Öl zebra Zebra
+binary order: 10 9 Apfel Ofen Zebra _x apfel zebra Äpfel Öl
+android functions: 0
+phone numbers: 1|1|1|0|43215550561+
+unicode order: 10 9 Apfel Äpfel Ofen Öl Zebra _x apfel zebra
+localized collators: 0
+localized order: _x 10 9 Äpfel apfel Apfel Ofen Öl Zebra zebra
+phonebook order: _x 10 9 Äpfel apfel Apfel Ofen Öl Zebra zebra
+tokenize: error 1 no such function: _TOKENIZE
+memory: close 0
+file: open 0
+pragma page_size: 4096
+pragma auto_vacuum: 1
+pragma journal_mode: delete
+pragma journal_size_limit: 1048576
+pragma secure_delete: 1
+pragma legacy_alter_table: 1
+pragma synchronous: 2
+pragma cache_size: -2000
+pragma temp_store: 0
+pragma locking_mode: normal
+pragma encoding: UTF-8
+pragma mmap_size: 0
+pragma foreign_keys: 0
+pragma automatic_index: 1
+pragma wal_autocheckpoint: 1000
+pragma max_page_count: 1073741823
+pragma user_version: 0
+pragma trusted_schema: 1
+table: 1|one
+table: 2|two
+unique: error 2067 UNIQUE constraint failed: t.b
+not null: error 1299 NOT NULL constraint failed: n.x
+view rowid: 0
+alter: CREATE VIEW v AS SELECT b FROM t
+dbstat: 1
+wal: wal
+wal insert: 3
+checkpoint: 0|0|0
+delete mode: delete
+rollback: 3
+integrity: ok
+file: close 0
+left sqlite-native-test.db: yes
+left sqlite-native-test.db-journal: no
+left sqlite-native-test.db-wal: no
+left sqlite-native-test.db-shm: no
+done

@@ -6,8 +6,9 @@
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
 #                             libEGL, libGLESv1_CM (ADR-0041 a1), libGLESv2, libGLESv3 and libvulkan (ADR-0029,
-#                             ADR-0030); for the Java start libandroid_runtime.so, hwui's set (ADR-0043) and ART's
-#                             copies of libbase, libziparchive, libexpat and libc++_shared that it links
+#                             ADR-0030); for the Java start libandroid_runtime.so with libsqlite.so (the compatibility
+#                             plan's gap 7), hwui's set (ADR-0043) and ART's copies of libbase, libziparchive, libexpat
+#                             and libc++_shared that it links
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
 #                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2); framework.jar and
 #                             the framework-res folder in framework/ (ADR-0039, decision 8), and platform.xml in
@@ -23,9 +24,9 @@
 # Every container is converted at build time and signed with the app's identity and the bundle ID as
 # identifier (route 1 of ADR-0008). tools/build-bionic.sh builds what it takes from build/bionic,
 # tools/build-front-libs.sh the front libs in build/graphics/guest/bin, tools/build-art.sh ART in build/art,
-# tools/build-framework-native.sh app_process64 and libandroid_runtime.so, tools/build-framework.sh framework.jar,
-# tools/build-framework-res.sh the framework-res folder and tools/build-hwui.sh hwui's set; platform.xml comes with
-# tools/fetch-sources.py --set framework.
+# tools/build-framework-native.sh app_process64, libandroid_runtime.so and libsqlite.so, tools/build-framework.sh
+# framework.jar, tools/build-framework-res.sh the framework-res folder and tools/build-hwui.sh hwui's set;
+# platform.xml comes with tools/fetch-sources.py --set framework.
 set -euo pipefail
 
 OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Guest"
@@ -72,6 +73,7 @@ if [[ ! -f "$ICU_DATA" ]]; then
 fi
 for needed in "$FRAMEWORK_NATIVE/app_process64:tools/build-framework-native.sh" \
               "$FRAMEWORK_NATIVE/libandroid_runtime.so:tools/build-framework-native.sh" \
+              "$FRAMEWORK_NATIVE/libsqlite.so:tools/build-framework-native.sh" \
               "$FRAMEWORK_JAR:tools/build-framework.sh" "$FRAMEWORK_RES/resources.arsc:tools/build-framework-res.sh" \
               "$HWUI/libhwui.so:tools/build-hwui.sh" "$PLATFORM_XML:tools/fetch-sources.py --set framework"; do
   if [[ ! -f "${needed%%:*}" ]]; then
@@ -114,6 +116,7 @@ cp -R "$BIONIC/system/." "$OUT/system/"
 # The Java start (ADR-0039 c4), as framework/tests/app_process_run.py lays it out on the Mac.
 contain "$FRAMEWORK_NATIVE/app_process64" "$OUT/bin"
 contain "$FRAMEWORK_NATIVE/libandroid_runtime.so" "$OUT/lib64"
+contain "$FRAMEWORK_NATIVE/libsqlite.so" "$OUT/lib64"
 for library in "$HWUI"/*.so; do
   contain "$library" "$OUT/lib64"
 done

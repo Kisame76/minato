@@ -20,6 +20,8 @@
 
 namespace android {
 
+class String8;
+
 class Parcel {
 public:
     Parcel();
@@ -78,6 +80,10 @@ public:
     status_t writeByteVector(const std::vector<uint8_t> &val);
     void *writeInplace(size_t len);
     status_t writeString8(const char *str, size_t len);
+    // As libbinder's, for libandroidfw's CursorWindow (the compatibility plan's gap 7): a String8 goes in as the form
+    // above; readString8 answers UNEXPECTED_NULL and an empty string for a null one; read copies len bytes and moves on
+    // by them padded to 4, as readInplace; readUint32 and readBool give a status, as readInt32's form does.
+    status_t writeString8(const String8 &str);
     status_t writeString16(const char16_t *str, size_t len);
     // As libbinder's, for libinput's KeyCharacterMap parcel (ADR-0045 step 7c1): a C string is its bytes and NUL,
     // padded to 4; readCString finds the NUL within the data or answers null; errorCheck is the parcel's error.
@@ -96,6 +102,10 @@ public:
     bool readBool() const;
     int8_t readByte() const;
     uint32_t readUint32() const;
+    status_t readUint32(uint32_t *out) const;
+    status_t readBool(bool *out) const;
+    status_t read(void *outData, size_t len) const;
+    status_t readString8(String8 *out) const;
     status_t readByteVector(std::vector<uint8_t> *val) const;
     const void *readInplace(size_t len) const;
     const char *readString8Inplace(size_t *outLen) const;

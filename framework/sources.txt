@@ -1177,3 +1177,56 @@ frameworks_base/core/java/android/os/TransactionTooLargeException.java
 frameworks_base/core/java/android/os/WorkDuration.java
 frameworks_base/core/java/android/os/WorkSource.java
 frameworks_base/core/java/android/net/MatchAllNetworkSpecifier.java
+
+# The compatibility plan's gap 7, SQLite databases: android.database.sqlite at the tag over libsqlite.so in the
+# guest's /system/lib64 (framework/CMakeLists.txt), with the cursor window its queries fill, the error handlers
+# SQLiteOpenHelper takes and the helpers they reach; their natives are core/jni's android_database_*.cpp, which
+# libandroid_runtime registers.
+frameworks_base/core/java/android/util/KeyValueListParser.java
+frameworks_base/core/java/android/util/PrefixPrinter.java
+frameworks_base/core/java/android/database/AbstractWindowedCursor.java
+frameworks_base/core/java/android/database/CursorWindow.java
+frameworks_base/core/java/android/database/CursorWindowAllocationException.java
+frameworks_base/core/java/android/database/DatabaseErrorHandler.java
+frameworks_base/core/java/android/database/DefaultDatabaseErrorHandler.java
+frameworks_base/core/java/android/database/sqlite/DatabaseObjectNotClosedException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteAbortException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteAccessPermException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteBindOrColumnIndexOutOfRangeException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteBlobTooBigException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteCantOpenDatabaseException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteClosable.java
+frameworks_base/core/java/android/database/sqlite/SQLiteCompatibilityWalFlags.java
+frameworks_base/core/java/android/database/sqlite/SQLiteConnection.java
+frameworks_base/core/java/android/database/sqlite/SQLiteConnectionPool.java
+frameworks_base/core/java/android/database/sqlite/SQLiteConstraintException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteCursor.java
+frameworks_base/core/java/android/database/sqlite/SQLiteCursorDriver.java
+frameworks_base/core/java/android/database/sqlite/SQLiteCustomFunction.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDatabase.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDatabaseConfiguration.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDatabaseCorruptException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDatabaseLockedException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDatatypeMismatchException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDebug.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDirectCursorDriver.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDiskIOException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteDoneException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteFullException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteGlobal.java
+frameworks_base/core/java/android/database/sqlite/SQLiteMisuseException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteOpenHelper.java
+frameworks_base/core/java/android/database/sqlite/SQLiteOutOfMemoryException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteProgram.java
+frameworks_base/core/java/android/database/sqlite/SQLiteQuery.java
+frameworks_base/core/java/android/database/sqlite/SQLiteQueryBuilder.java
+frameworks_base/core/java/android/database/sqlite/SQLiteRawStatement.java
+frameworks_base/core/java/android/database/sqlite/SQLiteReadOnlyDatabaseException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteSession.java
+frameworks_base/core/java/android/database/sqlite/SQLiteStatement.java
+frameworks_base/core/java/android/database/sqlite/SQLiteStatementInfo.java
+frameworks_base/core/java/android/database/sqlite/SQLiteTableLockedException.java
+frameworks_base/core/java/android/database/sqlite/SQLiteTokenizer.java
+frameworks_base/core/java/android/database/sqlite/SQLiteTransactionListener.java
+frameworks_base/core/java/android/database/sqlite/SqliteWrapper.java
