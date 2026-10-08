@@ -26,10 +26,13 @@
 //               a channel, the window created, resized with its size, the content's rectangle (the whole window),
 //               redraw needed and the focus; the window's gate opens once these are posted, before their answers, as
 //               the App's SessionBridge opens it with the focus: a Java app draws on the thread that answers them;
-//   background  the background, "scheduled", the window and the surfaces removed, PAUSE, the focus lost, each
-//               surface destroyed, the window destroyed, STOP and SAVE_INSTANCE_STATE;
+//               once they are answered, "apk-run: the start was answered" on stderr;
+//   background  the background, "scheduled", the window, the surfaces and the requested windows removed, PAUSE,
+//               the focus lost, each surface destroyed, each requested window destroyed, the window destroyed, STOP
+//               and SAVE_INSTANCE_STATE;
 //   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
-//               rectangle, the gate opening as at the start.
+//               rectangle, the gate opening as at the start; once they are answered, "apk-run: the return was
+//               answered" on stderr.
 //   tap:<x>:<y> (ADR-0045 step 7b2) a finger's tap at <x>, <y> in the window's pixels, on the session's input
 //               channel: DOWN and UP at the same time, with the pressures 1 and 0, as Android's `input tap`;
 //   swipe:<x1>:<y1>:<x2>:<y2>:<ms>  a finger's swipe from the first place to the second: DOWN, then a MOVE every
@@ -41,6 +44,9 @@
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
 // which follow the places and the window's opacity, as the App's do (ADR-0043 c4 (c)).
+// The guest's requested windows (ADR-0041, gap 4: dialogs, popups, toasts, translucent activities, sub-windows) are
+// answered in the same way, without a layer: WINDOW_CREATED, WINDOW_RESIZED, and at the background and the end
+// WINDOW_DESTROYED, a sub-window's before its parent's.
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
@@ -49,8 +55,9 @@
 // or made since gets a line for the corpus harness's "frame" level: "apk-run: window <id> after <step>: <n> posts
 // since, <m> in all, the frame changed|the frame stayed|a new window[, removed]", where a frame changed when one
 // posted after the touch differs from the last one before it.
-// The guest's FINISH request then gets the quit: the window and the surfaces removed, PAUSE, the focus lost, each
-// surface destroyed, the window destroyed, STOP and DESTROY, or only DESTROY after a last background, as Android
+// The guest's FINISH request then gets the quit: the window, the surfaces and the requested windows removed, PAUSE,
+// the focus lost, each surface and requested window destroyed, the window destroyed, STOP and DESTROY, or only
+// DESTROY after a last background, as Android
 // destroys a stopped activity. The first step is
 // start, and background and foreground alternate, with touches in the foreground. A step waits 120 s for its answer,
 // as an app process on the interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays
@@ -271,6 +278,23 @@ void on_surface(void *, const apkrt_surface_request *request) {
     surfaces.request(*request);
 }
 
+/// --lifecycle's requested windows (headless_host.h, ADR-0041 gap 4): windows without a layer, opened, sized and
+/// removed in the registry, and the events posted, as for the surfaces.
+headless::Windows windows({
+    [](const apkrt_window_request &request) { return apkrt_window_add(nullptr, request.width, request.height); },
+    [](std::uint64_t window) { apkrt_window_set_gate(window, 1); },
+    [](std::uint64_t window, std::int32_t width, std::int32_t height) {
+        apkrt_window_set_size(window, width, height);
+    },
+    [](std::uint64_t window) { apkrt_window_remove(window); },
+    [](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) { post(type, a0, a1, a2); },
+    [](std::uint64_t, const apkrt_window_request &) {},
+});
+
+void on_window(void *, const apkrt_window_request *request) {
+    windows.request(*request);
+}
+
 /// Waits up to 120 s for the answer to `serial`, which answers the events before it too; false, after a line on
 /// stderr, when it did not come.
 bool answered(std::uint32_t serial, const char *what) {
@@ -354,14 +378,17 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window);
         return post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 1);
     };
-    // The window and the surfaces go before PAUSE; the surfaces' events come after the focus, before the window's and
-    // STOP, as Android 15 calls surfaceDestroyed from the stopped window before onStop (apkrt.h's surface handler).
+    // The window, the surfaces and the requested windows go before PAUSE; the surfaces' and the windows' events come
+    // after the focus, before the window's and STOP, as Android 15 calls surfaceDestroyed from the stopped window
+    // before onStop (apkrt.h's surface and window handlers).
     const auto hide = [&] {
         apkrt_window_remove(window);
         surfaces.take_away();
+        windows.take_away();
         post(APKRT_EVENT_PAUSE);
         post(APKRT_EVENT_WINDOW_FOCUS_CHANGED, 0);
         surfaces.post_destroyed();
+        windows.post_destroyed();
         post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
         post(APKRT_EVENT_STOP);
     };
@@ -397,6 +424,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             const std::uint32_t shown = show(true);
             apkrt_window_set_gate(window, 1);
             if (!answered(shown, "the start")) return;
+            std::fprintf(stderr, "apk-run: the start was answered\n");
         } else if (Touch touch; parse_touch(steps[index], touch)) {
             if (apk_run_sets_window_buffers() == 0) {
                 buffers.mark();
@@ -406,6 +434,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         } else if (steps[index] == "background") {
             apkrt_set_background(1);
             surfaces.set_background(true);
+            windows.set_background(true);
             if (apkrt_wait_scheduled(1.0) != 1) std::fprintf(stderr, "apk-run: \"scheduled\" did not answer yes\n");
             hide();
             if (!answered(post(APKRT_EVENT_SAVE_INSTANCE_STATE), "the background")) return;
@@ -413,12 +442,14 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         } else {
             apkrt_set_background(0);
             surfaces.set_background(false);
+            windows.set_background(false);
             window = add_window();
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
             const std::uint32_t shown = show(false);
             apkrt_window_set_gate(window, 1);
             if (!answered(shown, "the return")) return;
+            std::fprintf(stderr, "apk-run: the return was answered\n");
             stopped = false;
         }
     }
@@ -432,7 +463,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     if (!stopped) {
         hide();
     } else {
-        surfaces.take_away();  // a surface made in the background
+        surfaces.take_away();  // a surface or a window made in the background
+        windows.take_away();
     }
     answered(post(APKRT_EVENT_DESTROY), "onDestroy");
 }
@@ -528,6 +560,7 @@ int main(int argc, char **argv) {
         if (!lifecycle.empty()) {
             session.request = on_request;
             session.surface = on_surface;
+            session.window = on_window;
         }
         if (apkrt_session_begin(&session) != 0) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");

@@ -1,5 +1,6 @@
-// Checks apk-run's headless host (headless_host.h, ADR-0043 c4): its answers to the session's surfaces, recorded
-// instead of made, and its buffers, one per window, as apkrt.h's struct apkrt_window_buffers asks them to behave.
+// Checks apk-run's headless host (headless_host.h, ADR-0043 c4, ADR-0041 gap 4): its answers to the session's surfaces
+// and requested windows, recorded instead of made, and its buffers, one per window, as apkrt.h's struct
+// apkrt_window_buffers asks them to behave.
 #include "headless_host.h"
 
 #include "check.h"
@@ -175,6 +176,155 @@ TEST(a_surface_made_in_the_background_opens_its_gate_at_the_return) {
     const std::vector<std::string> again{"add 1290x726 at 0,300 z -2 -> 3", "post created 7 3 " + size(1290, 726),
                                          "gate 3 open"};
     CHECK(record.take() == again);
+}
+
+// --- Windows (ADR-0041, gap 4) -------------------------------------------------------------------
+
+/// What the host did with the requested windows, as Record has it for the surfaces: "add 1098x796 at 96,1000 type 2
+/// -> 2", "place 2 at 96,1000 alpha 1065353216", the posts with the windows' event names.
+struct WindowRecord {
+    std::vector<std::string> calls;
+    std::uint64_t next_window = 2;  // 1 is the main window's
+
+    headless::WindowCalls calls_of() {
+        return {
+            [this](const apkrt_window_request &request) {
+                calls.push_back("add " + std::to_string(request.width) + "x" + std::to_string(request.height) +
+                                " at " + std::to_string(request.left) + "," + std::to_string(request.top) + " type " +
+                                std::to_string(request.type) + " -> " + std::to_string(next_window));
+                return next_window++;
+            },
+            [this](std::uint64_t window) { calls.push_back("gate " + std::to_string(window) + " open"); },
+            [this](std::uint64_t window, std::int32_t width, std::int32_t height) {
+                calls.push_back("size " + std::to_string(window) + " " + std::to_string(width) + "x" +
+                                std::to_string(height));
+            },
+            [this](std::uint64_t window) { calls.push_back("remove " + std::to_string(window)); },
+            [this](std::uint32_t type, std::uint64_t a0, std::uint64_t a1, std::uint64_t a2) {
+                calls.push_back("post " + name(type) + " " + std::to_string(a0) + " " + std::to_string(a1) + " " +
+                                std::to_string(a2));
+            },
+            [this](std::uint64_t window, const apkrt_window_request &request) {
+                calls.push_back("place " + std::to_string(window) + " at " + std::to_string(request.left) + "," +
+                                std::to_string(request.top) + " alpha " + std::to_string(request.alpha));
+            },
+        };
+    }
+
+    static std::string name(std::uint32_t type) {
+        switch (type) {
+            case APKRT_EVENT_WINDOW_CREATED: return "created";
+            case APKRT_EVENT_WINDOW_RESIZED: return "resized";
+            case APKRT_EVENT_WINDOW_DESTROYED: return "destroyed";
+            default: return std::to_string(type);
+        }
+    }
+
+    std::vector<std::string> take() {
+        auto taken = std::move(calls);
+        calls.clear();
+        return taken;
+    }
+};
+
+/// A window request as the runtime hands it to the host: checked, with its buffer's size; a dialog by default.
+apkrt_window_request window_request(std::uint32_t op, std::uint64_t token, std::int32_t type = 2,
+                                    std::int32_t width = 1098, std::int32_t height = 796) {
+    apkrt_window_request request{};
+    request.op = op;
+    request.token = token;
+    if (op == APKRT_WINDOW_REMOVE) return request;
+    request.type = type;
+    request.left = 96;
+    request.top = 1000;
+    request.right = 1194;
+    request.bottom = 1796;
+    request.width = width;
+    request.height = height;
+    request.format = -3;
+    request.alpha = 0x3f800000;  // 1.0f
+    return request;
+}
+
+TEST(a_windows_make_gets_a_window_of_its_own_then_its_event_then_an_open_gate) {
+    WindowRecord record;
+    headless::Windows windows(record.calls_of());
+    windows.request(window_request(APKRT_WINDOW_MAKE, 7));
+    const std::vector<std::string> expected{"add 1098x796 at 96,1000 type 2 -> 2",
+                                            "post created 7 2 " + size(1098, 796), "gate 2 open"};
+    CHECK(record.take() == expected);
+}
+
+TEST(a_windows_place_reaches_its_layer_and_only_a_new_size_resizes_it_with_an_event) {
+    WindowRecord record;
+    headless::Windows windows(record.calls_of());
+    windows.request(window_request(APKRT_WINDOW_MAKE, 7));
+    record.take();
+    auto faded = window_request(APKRT_WINDOW_PLACE, 7);
+    faded.top = 0;
+    faded.alpha = 0x3f000000;  // 0.5f: the layer follows, without an event
+    windows.request(faded);
+    const std::vector<std::string> move{"place 2 at 96,0 alpha " + std::to_string(0x3f000000)};
+    CHECK(record.take() == move);
+    windows.request(window_request(APKRT_WINDOW_PLACE, 7, 2, 640, 480));
+    const std::vector<std::string> expected{"place 2 at 96,1000 alpha " + std::to_string(0x3f800000),
+                                            "size 2 640x480", "post resized 7 2 " + size(640, 480)};
+    CHECK(record.take() == expected);
+}
+
+TEST(a_windows_remove_takes_it_away_without_an_event) {
+    WindowRecord record;
+    headless::Windows windows(record.calls_of());
+    windows.request(window_request(APKRT_WINDOW_MAKE, 7));
+    record.take();
+    windows.request(window_request(APKRT_WINDOW_REMOVE, 7));
+    const std::vector<std::string> expected{"remove 2"};
+    CHECK(record.take() == expected);
+    windows.request(window_request(APKRT_WINDOW_PLACE, 7, 2, 640, 480));
+    windows.request(window_request(APKRT_WINDOW_REMOVE, 7));
+    CHECK(record.take().empty());
+}
+
+TEST(at_the_background_the_windows_go_first_and_their_events_come_later_sub_windows_first) {
+    WindowRecord record;
+    headless::Windows windows(record.calls_of());
+    windows.request(window_request(APKRT_WINDOW_MAKE, 7));         // a dialog: window 2
+    windows.request(window_request(APKRT_WINDOW_MAKE, 8, 1000));   // its panel: 3
+    windows.request(window_request(APKRT_WINDOW_MAKE, 9, 2005));   // a toast: 4
+    windows.request(window_request(APKRT_WINDOW_MAKE, 10, 1001));  // a media sub-window on the session's window: 5
+    record.take();
+    windows.set_background(true);
+    windows.take_away();  // with the main window, before PAUSE
+    const std::vector<std::string> removed{"remove 2", "remove 3", "remove 4", "remove 5"};
+    CHECK(record.take() == removed);
+    // A window the guest makes after them, in the background, stays until the next take_away: no event for it.
+    windows.request(window_request(APKRT_WINDOW_MAKE, 11));
+    const std::vector<std::string> later{"add 1098x796 at 96,1000 type 2 -> 6", "post created 11 6 " + size(1098, 796)};
+    CHECK(record.take() == later);
+    windows.request(window_request(APKRT_WINDOW_REMOVE, 9));  // the toast ends on its own before the events
+    CHECK(record.take().empty());
+    windows.post_destroyed();  // after PAUSE and the focus: the sub-windows' first, each in the order made
+    const std::vector<std::string> destroyed{"post destroyed 8 3 0", "post destroyed 10 5 0", "post destroyed 7 2 0"};
+    CHECK(record.take() == destroyed);
+    windows.post_destroyed();
+    CHECK(record.take().empty());
+    for (const std::uint64_t token : {8ull, 10ull, 7ull}) windows.request(window_request(APKRT_WINDOW_REMOVE, token));
+    windows.take_away();
+    windows.post_destroyed();
+    const std::vector<std::string> at_end{"remove 6", "post destroyed 11 6 0"};
+    CHECK(record.take() == at_end);
+}
+
+TEST(a_window_made_in_the_background_opens_its_gate_at_the_return) {
+    WindowRecord record;
+    headless::Windows windows(record.calls_of());
+    windows.set_background(true);
+    windows.request(window_request(APKRT_WINDOW_MAKE, 7));
+    const std::vector<std::string> made{"add 1098x796 at 96,1000 type 2 -> 2", "post created 7 2 " + size(1098, 796)};
+    CHECK(record.take() == made);
+    windows.set_background(false);
+    const std::vector<std::string> opened{"gate 2 open"};
+    CHECK(record.take() == opened);
 }
 
 // --- Buffers -------------------------------------------------------------------------------------

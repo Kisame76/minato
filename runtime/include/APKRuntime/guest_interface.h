@@ -145,6 +145,14 @@ enum apkrt_event_type {
                                           // window has it (apkrt_window_set_size); a place that only moves gets none
     APKRT_EVENT_SURFACE_DESTROYED,        // a0: the token; a1: the window's ID. The host took the surface away on its
                                           // own, at the background or the end; the guest still removes the token
+    // A window of the guest's own (ADR-0041, gap 4): a dialog's, a popup's, a toast's, a translucent activity's or a
+    // sub-window's, which the guest asks for with APKRT_REQUEST_WINDOW:
+    APKRT_EVENT_WINDOW_CREATED,           // the answer to a make: a0 the window's token; a1 its window's ID
+                                          // (apkrt_window_add); a2 width | height << 32 in pixels (32 bits each)
+    APKRT_EVENT_WINDOW_RESIZED,           // as WINDOW_CREATED: the answer to a place with another size
+    APKRT_EVENT_WINDOW_DESTROYED,         // a0: the token; a1: the window's ID. The host took the window away on its
+                                          // own, at the background or the end, a sub-window's before its parent's;
+                                          // the guest still removes the token
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -182,6 +190,7 @@ enum apkrt_request_type {
                                    // (ANativeActivity_setWindowFormat)
     APKRT_REQUEST_WINDOW_OPAQUE,   // host only: the argument is 1 or 0, reported when the window's opacity changes
     APKRT_REQUEST_SURFACE,         // guest only: a0 the address of a struct apkrt_surface_request (ADR-0043 c4)
+    APKRT_REQUEST_WINDOW,          // guest only: a0 the address of a struct apkrt_window_request (ADR-0041, gap 4)
 };
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.
@@ -206,6 +215,37 @@ struct apkrt_surface_request {
     int32_t height;
     int32_t format;    // a PixelFormat value, RGB_565 (4) by default
     int32_t opaque;    // the runtime's, for the host: 1 unless the format has alpha (PixelFormat.formatHasAlpha)
+};
+
+/// What a window of the guest's own asks of the host (ADR-0041, gap 4), APKRT_REQUEST_WINDOW's.
+enum apkrt_window_op {
+    APKRT_WINDOW_MAKE = 1,  // a window for a token that has none
+    APKRT_WINDOW_PLACE,     // the window's new frame, buffer size, alpha or dim; type, parent, group and format stay
+                            // the make's
+    APKRT_WINDOW_REMOVE,    // the guest is done with the window; frees the token
+};
+
+/// A window request, 72 bytes without padding. A later change takes a new request type, never a new meaning for a
+/// field. For a remove only the op and the token count.
+struct apkrt_window_request {
+    uint32_t op;        // enum apkrt_window_op
+    int32_t type;       // LayoutParams.type: 1 to 99 an application window, 1000 to 1999 a sub-window, 2005 a toast
+    uint64_t token;     // the guest's name of the window, not 0, one per live window of the session
+    uint64_t parent;    // a sub-window's window: a live requested one's token, or 0 for the session's window; 0 for
+                        // every other type
+    int32_t left;       // the frame in the session's pixels, not empty
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    int32_t width;      // the buffer's size in pixels; both 0 for the frame's size
+    int32_t height;
+    int32_t format;     // a PixelFormat value
+    int32_t opaque;     // the runtime's, for the host: 1 unless the format has alpha (PixelFormat.formatHasAlpha)
+    uint32_t group;     // an application window's activity as a sort key: 0 on the session's window, larger above;
+                        // 0 for sub-windows and toasts
+    uint32_t alpha;     // LayoutParams.alpha, a float's bits, 0 to 1
+    uint32_t dim;       // dimAmount with FLAG_DIM_BEHIND, else 0, a float's bits, 0 to 1
+    uint32_t reserved;  // 0
 };
 
 /// The kinds of the window's gate.
@@ -242,6 +282,14 @@ enum apkrt_gate_kind {
 /// and 0, outside 1 to 8192. The runtime keeps the live tokens, at most 16: a make answers -EEXIST for a live token and
 /// -ENOSPC beyond 16, a place or remove -ENOENT for a token that is not live, and the remove frees it. A token stays
 /// live until its remove, also after SURFACE_DESTROYED. The host gets a copy with the buffer's size and the opacity.
+/// APKRT_REQUEST_WINDOW (ADR-0041, gap 4) answers as APKRT_REQUEST_SURFACE for the reading, the op, the token, the
+/// frame and the size, and has no z. A make or place also answers -EINVAL for alpha or dim that is not finite or not
+/// within 0 to 1, and for reserved not 0. A make answers -EINVAL for a type outside 1 to 99, 1000 to 1999 and 2005,
+/// for a parent on another type than a sub-window, and for a group on a sub-window or a toast. A sub-window's parent
+/// is 0 for the session's window or a live window of these that is no sub-window itself: -ENOENT for one that is not
+/// live, -EINVAL for a sub-window. The live tokens, at most 16, are apart from the surfaces': -EEXIST, -ENOSPC and
+/// -ENOENT answer as there, and the remove of a window that still has live sub-windows answers -EBUSY. The host gets
+/// a copy with the buffer's size and the opacity, and a place carries the make's type, parent, group and format.
 #define APKRT_NR_SESSION_REQUEST 4104
 /// window_gate, the front libs': x0 the window's ID, x1 an enum apkrt_gate_kind. Returns 0 to go on and
 /// 1 when the window is gone, or waits:

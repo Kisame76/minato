@@ -158,6 +158,22 @@ typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument
 ///     place and remove of such a surface still come, and the host ignores them.
 typedef void (*apkrt_surface_handler)(void *context, const struct apkrt_surface_request *request);
 
+/// Called for each window request of the guest (ADR-0041, gap 4, guest_interface.h's struct apkrt_window_request), as
+/// the surface handler is for surfaces, under the runtime's window lock: per token a make, places and a remove, at
+/// most 16 tokens live; for a make and a place the buffer's size is set and so is `opaque`, and a place carries the
+/// make's type, parent, group and format; a remove carries only the op and the token, and a sub-window's comes
+/// before its parent's. The host answers, in its own order:
+///   - a make with a window of its own (apkrt_window_add) on a layer in ADR-0041's order of windows, then
+///     APKRT_EVENT_WINDOW_CREATED; its gate opens as the window's does, so not in the background;
+///   - a place with the new frame, alpha and dim, and for another size apkrt_window_set_size, then
+///     APKRT_EVENT_WINDOW_RESIZED; no event otherwise;
+///   - a remove with apkrt_window_remove, without an event;
+///   - at the background and the end it removes every requested window with the window, before APKRT_EVENT_PAUSE,
+///     and posts APKRT_EVENT_WINDOW_DESTROYED for each after PAUSE and the focus, before NATIVE_WINDOW_DESTROYED and
+///     STOP, a sub-window's before its parent's. The guest's place and remove of such a window still come, and the
+///     host ignores them.
+typedef void (*apkrt_window_handler)(void *context, const struct apkrt_window_request *request);
+
 /// How the host describes the app before the program starts (ADR-0028, decision 3).
 struct apkrt_session {
     void *context;                             // passed to the handlers
@@ -165,6 +181,7 @@ struct apkrt_session {
     apkrt_request_handler request;             // NULL: the requests go nowhere
     struct apkrt_configuration configuration;  // what activity-host gets when it connects
     apkrt_surface_handler surface;             // NULL: surface requests answer -EOPNOTSUPP (ADR-0043 c4)
+    apkrt_window_handler window;               // NULL: window requests answer -EOPNOTSUPP (ADR-0041, gap 4)
 };
 
 /// Begins the process's session: from now on the program's end calls its end handler instead of ending

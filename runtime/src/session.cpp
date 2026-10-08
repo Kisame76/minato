@@ -13,7 +13,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
+#include <cstddef>
 #include <cstring>
 #include <mutex>
 #include <utility>
@@ -157,6 +159,128 @@ long surface(std::uint64_t address) {
     return 0;
 }
 
+// The windows' live tokens (ADR-0041, gap 4), each with its make's type, parent, group and format, apart from the
+// surfaces'. As for those, a request's check, its change of the tokens and the host's call happen under one lock.
+static_assert(sizeof(apkrt_window_request) == 72);
+static_assert(offsetof(apkrt_window_request, op) == 0 && offsetof(apkrt_window_request, type) == 4 &&
+              offsetof(apkrt_window_request, token) == 8 && offsetof(apkrt_window_request, parent) == 16 &&
+              offsetof(apkrt_window_request, left) == 24 && offsetof(apkrt_window_request, top) == 28 &&
+              offsetof(apkrt_window_request, right) == 32 && offsetof(apkrt_window_request, bottom) == 36 &&
+              offsetof(apkrt_window_request, width) == 40 && offsetof(apkrt_window_request, height) == 44 &&
+              offsetof(apkrt_window_request, format) == 48 && offsetof(apkrt_window_request, opaque) == 52 &&
+              offsetof(apkrt_window_request, group) == 56 && offsetof(apkrt_window_request, alpha) == 60 &&
+              offsetof(apkrt_window_request, dim) == 64 && offsetof(apkrt_window_request, reserved) == 68);
+constexpr std::size_t window_limit = 16;
+constexpr std::int32_t type_toast = 2005;
+
+struct LiveWindow {
+    std::uint64_t token, parent;
+    std::int32_t type, format;
+    std::uint32_t group;
+};
+
+std::mutex windows_lock;
+std::vector<LiveWindow> live_windows;
+
+/// LayoutParams' sub-window types, FIRST_SUB_WINDOW to LAST_SUB_WINDOW.
+bool sub_window(std::int32_t type) {
+    return type >= 1000 && type <= 1999;
+}
+
+/// Whether a float's `bits` hold a finite value within 0 to 1, as alpha and dimAmount are.
+bool unit_interval(std::uint32_t bits) {
+    float value;
+    std::memcpy(&value, &bits, sizeof value);
+    return std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+}
+
+/// APKRT_REQUEST_WINDOW: the request at `address` checked, its buffer's size and opacity set, a place's type, parent,
+/// group and format the make's, and handed to the host's window handler. 0, or the negative errno (guest_interface.h).
+long window(std::uint64_t address) {
+    if (described.window == nullptr) return -linux_errno::eopnotsupp;
+    apkrt_window_request request;
+    if (address == 0 ||
+        !sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&request), address, sizeof request)) {
+        return -linux_errno::efault;
+    }
+    if (request.op != APKRT_WINDOW_MAKE && request.op != APKRT_WINDOW_PLACE && request.op != APKRT_WINDOW_REMOVE) {
+        return -linux_errno::einval;
+    }
+    if (request.token == 0) return -linux_errno::einval;
+    apkrt_window_request host{};
+    host.op = request.op;
+    host.token = request.token;
+    if (request.op != APKRT_WINDOW_REMOVE) {
+        // The surfaces' rules for the frame and the size.
+        const std::int64_t frame_width = std::int64_t{request.right} - request.left;
+        const std::int64_t frame_height = std::int64_t{request.bottom} - request.top;
+        if (frame_width <= 0 || frame_height <= 0 || frame_width > frame_side_limit ||
+            frame_height > frame_side_limit) {
+            return -linux_errno::einval;
+        }
+        if ((request.width == 0) != (request.height == 0)) return -linux_errno::einval;
+        const std::int64_t width = request.width == 0 ? frame_width : request.width;
+        const std::int64_t height = request.height == 0 ? frame_height : request.height;
+        if (width < 1 || height < 1 || width > buffer_side_limit || height > buffer_side_limit) {
+            return -linux_errno::einval;
+        }
+        if (!unit_interval(request.alpha) || !unit_interval(request.dim) || request.reserved != 0) {
+            return -linux_errno::einval;
+        }
+        host = request;
+        host.width = static_cast<std::int32_t>(width);
+        host.height = static_cast<std::int32_t>(height);
+    }
+    const bool sub = sub_window(request.type);
+    if (request.op == APKRT_WINDOW_MAKE) {
+        // An application window, a sub-window or a toast; a parent for a sub-window only, a group for an application
+        // window only.
+        if (!(request.type >= 1 && request.type <= 99) && !sub && request.type != type_toast) {
+            return -linux_errno::einval;
+        }
+        if (!sub && request.parent != 0) return -linux_errno::einval;
+        if ((sub || request.type == type_toast) && request.group != 0) return -linux_errno::einval;
+    }
+    const std::lock_guard<std::mutex> hold(windows_lock);
+    const auto live = [](std::uint64_t token) {
+        return std::find_if(live_windows.begin(), live_windows.end(),
+                            [token](const LiveWindow &each) { return each.token == token; });
+    };
+    const auto found = live(request.token);
+    switch (request.op) {
+        case APKRT_WINDOW_MAKE:
+            if (found != live_windows.end()) return -linux_errno::eexist;
+            if (live_windows.size() == window_limit) return -linux_errno::enospc;
+            // One level of sub-windows, as on Android 15: the parent is the session's window or a live window that is
+            // no sub-window itself.
+            if (sub && request.parent != 0) {
+                const auto parent = live(request.parent);
+                if (parent == live_windows.end()) return -linux_errno::enoent;
+                if (sub_window(parent->type)) return -linux_errno::einval;
+            }
+            live_windows.push_back({request.token, request.parent, request.type, request.format, request.group});
+            break;
+        case APKRT_WINDOW_PLACE:
+            if (found == live_windows.end()) return -linux_errno::enoent;
+            host.type = found->type;
+            host.parent = found->parent;
+            host.group = found->group;
+            host.format = found->format;
+            break;
+        default:  // remove
+            if (found == live_windows.end()) return -linux_errno::enoent;
+            if (std::any_of(live_windows.begin(), live_windows.end(),
+                            [&](const LiveWindow &each) { return each.parent == request.token; })) {
+                return -linux_errno::ebusy;  // its sub-windows go first
+            }
+            live_windows.erase(found);
+            break;
+    }
+    if (request.op != APKRT_WINDOW_REMOVE) host.opaque = has_alpha(host.format) ? 0 : 1;
+    as_host([&] { described.window(described.context, &host); });
+    return 0;
+}
+
 /// A time limit: none below 0 or for NaN, and at most 10^9 s (about 31 years), which fits every clock.
 std::chrono::steady_clock::duration limit(double seconds) {
     if (!(seconds > 0)) return {};
@@ -255,6 +379,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return 0;
         case APKRT_REQUEST_SURFACE:
             return surface(a0);
+        case APKRT_REQUEST_WINDOW:
+            return window(a0);
         default:
             return -linux_errno::einval;
     }

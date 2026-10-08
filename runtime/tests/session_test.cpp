@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -159,6 +160,68 @@ bool same(const apkrt_surface_request &a, const apkrt_surface_request &b) {
     return std::memcmp(&a, &b, sizeof a) == 0;
 }
 
+// A window request as the host's window handler saw it (ADR-0041, gap 4), with its fixed layout, which both sides
+// assert.
+static_assert(sizeof(apkrt_window_request) == 72);
+static_assert(offsetof(apkrt_window_request, op) == 0 && offsetof(apkrt_window_request, type) == 4 &&
+              offsetof(apkrt_window_request, token) == 8 && offsetof(apkrt_window_request, parent) == 16 &&
+              offsetof(apkrt_window_request, left) == 24 && offsetof(apkrt_window_request, top) == 28 &&
+              offsetof(apkrt_window_request, right) == 32 && offsetof(apkrt_window_request, bottom) == 36 &&
+              offsetof(apkrt_window_request, width) == 40 && offsetof(apkrt_window_request, height) == 44 &&
+              offsetof(apkrt_window_request, format) == 48 && offsetof(apkrt_window_request, opaque) == 52 &&
+              offsetof(apkrt_window_request, group) == 56 && offsetof(apkrt_window_request, alpha) == 60 &&
+              offsetof(apkrt_window_request, dim) == 64 && offsetof(apkrt_window_request, reserved) == 68);
+
+struct Window {
+    apkrt_window_request request;
+    pthread_t thread;
+    bool runtime_signal_blocked;
+};
+
+std::vector<Window> windows;  // under requests_lock
+
+void on_window(void *context, const apkrt_window_request *request) {
+    CHECK(context == &requests);
+    const std::lock_guard<std::mutex> hold(requests_lock);
+    windows.push_back({*request, ::pthread_self(), runtime_signal_blocked()});
+}
+
+/// The window requests seen since the last call.
+std::vector<Window> take_windows() {
+    const std::lock_guard<std::mutex> hold(requests_lock);
+    return std::exchange(windows, {});
+}
+
+/// A window request as a dialog of the session's activity makes one: TYPE_APPLICATION, PixelFormat.TRANSLUCENT, its
+/// frame's size, alpha 1 and AlertDialog's dim 0.6.
+apkrt_window_request window_of(std::uint32_t op, std::uint64_t token, std::int32_t type = 2) {
+    apkrt_window_request request{};
+    request.op = op;
+    request.type = type;
+    request.token = token;
+    request.left = 96;
+    request.top = 1000;
+    request.right = 1194;
+    request.bottom = 1796;
+    request.format = -3;
+    request.alpha = 0x3f800000;  // 1.0f
+    request.dim = 0x3f19999a;    // 0.6f
+    return request;
+}
+
+/// session_request's answer to a window request at `address`.
+long ask_window_at(std::uint64_t at) {
+    return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW, at);
+}
+
+long ask_window(const apkrt_window_request &request) {
+    return ask_window_at(address(&request));
+}
+
+bool same(const apkrt_window_request &a, const apkrt_window_request &b) {
+    return std::memcmp(&a, &b, sizeof a) == 0;
+}
+
 /// Runs `body` in a child process and returns whether its checks passed there: for a session of the child's own,
 /// as a process has one. It runs on a thread of its own, as descriptors_test.cpp's does.
 template <typename Body>
@@ -232,6 +295,7 @@ TEST(without_a_session_nothing_goes_through) {
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FRAME_RATE, window, 0x42700000) == -enoent);  // 60.0f
     apkrt_window_remove(window);
     CHECK(ask(surface(APKRT_SURFACE_MAKE, 7)) == -enoent);
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 7)) == -enoent);
 }
 
 TEST(a_host_without_a_surface_handler_refuses_every_surface_request) {
@@ -245,6 +309,18 @@ TEST(a_host_without_a_surface_handler_refuses_every_surface_request) {
     }));
 }
 
+TEST(a_host_without_a_window_handler_refuses_every_window_request) {
+    CHECK(in_child([] {
+        apkrt_session session{};
+        session.end = on_end;
+        session.surface = on_surface;
+        session.configuration = iphone();
+        CHECK(apkrt_session_begin(&session) == 0);
+        CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 7)) == -eopnotsupp);
+        CHECK(ask_window_at(0) == -eopnotsupp);
+    }));
+}
+
 // --- Events and answers -------------------------------------------------------------------------
 
 TEST(events_posted_before_the_connect_wait_in_the_pipe) {
@@ -253,6 +329,7 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     session.end = on_end;
     session.request = on_request;
     session.surface = on_surface;
+    session.window = on_window;
     session.configuration = iphone();
     CHECK(apkrt_session_begin(&session) == 0);
     session.configuration.width = 1;  // the runtime keeps its own copy
@@ -802,6 +879,202 @@ TEST(one_tokens_makes_and_removes_from_two_threads_reach_the_host_in_the_order_t
         alternating = alternating && seen[index].request.op == (index % 2 == 0 ? APKRT_SURFACE_MAKE : APKRT_SURFACE_REMOVE);
     }
     CHECK(alternating && made.load() == pairs);
+}
+
+// --- Window requests (ADR-0041, gap 4) ------------------------------------------------------------
+
+TEST(a_window_request_reaches_the_window_handler_with_its_size_and_opacity) {
+    take_requests();
+    take_windows();
+    // A dialog of the session's activity in its frame's size, 1098 x 796 pixels.
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 7)) == 0);
+    // A place with a fixed size, another frame, alpha and dim: type, parent, group and format stay the make's.
+    auto place = window_of(APKRT_WINDOW_PLACE, 7);
+    place.top = 0;
+    place.bottom = 2796;
+    place.width = 640;
+    place.height = 480;
+    place.alpha = 0x3f000000;  // 0.5f
+    place.dim = 0;
+    place.type = 99;
+    place.group = 5;
+    place.format = 4;
+    CHECK(ask_window(place) == 0);
+    // A sub-window on the dialog, a toast and a translucent activity's window, each with its format's opacity.
+    auto panel = window_of(APKRT_WINDOW_MAKE, 8, 1000);
+    panel.parent = 7;
+    panel.format = 1;  // RGBA_8888
+    CHECK(ask_window(panel) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 9, 2005)) == 0);
+    auto activity = window_of(APKRT_WINDOW_MAKE, 10, 1);
+    activity.group = 1;
+    activity.format = 4;  // RGB_565
+    CHECK(ask_window(activity) == 0);
+    apkrt_window_request remove{};  // only the op and the token count
+    remove.op = APKRT_WINDOW_REMOVE;
+    remove.token = 8;
+    remove.type = 7;
+    remove.parent = 99;
+    remove.width = 5;
+    remove.alpha = 0x7fc00000;  // NaN
+    remove.reserved = 1;
+    CHECK(ask_window(remove) == 0);
+    for (const std::uint64_t token : {7ull, 9ull, 10ull}) CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, token)) == 0);
+    const auto seen = take_windows();
+    CHECK(seen.size() == 9);
+    CHECK(take_requests().empty());
+    if (seen.size() != 9) return;
+
+    auto made = window_of(APKRT_WINDOW_MAKE, 7);
+    made.width = 1098;
+    made.height = 796;
+    made.opaque = 0;  // TRANSLUCENT has alpha
+    CHECK(same(seen[0].request, made));
+    auto placed = place;
+    placed.type = 2;
+    placed.group = 0;
+    placed.format = -3;
+    placed.opaque = 0;
+    CHECK(same(seen[1].request, placed));
+    CHECK(seen[2].request.parent == 7 && seen[2].request.type == 1000 && seen[2].request.opaque == 0);
+    CHECK(seen[3].request.type == 2005 && seen[3].request.group == 0);
+    CHECK(seen[4].request.group == 1 && seen[4].request.opaque == 1);
+    apkrt_window_request removed{};
+    removed.op = APKRT_WINDOW_REMOVE;
+    removed.token = 8;
+    CHECK(same(seen[5].request, removed));
+    for (const auto &each : seen) CHECK(each.thread == ::pthread_self() && each.runtime_signal_blocked);
+    CHECK(!runtime_signal_blocked());
+}
+
+TEST(the_runtime_refuses_a_window_request_the_host_could_not_take) {
+    take_windows();
+    CHECK(ask_window_at(0) == -efault);
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);
+    const auto made = window_of(APKRT_WINDOW_MAKE, 7);
+    std::memcpy(reinterpret_cast<void *>(first + page - 16), &made, 16);
+    CHECK(ask_window_at(first + page - 16) == -efault);
+    ::munmap(pages, page);
+
+    const auto refused = [](auto change, std::uint32_t op = APKRT_WINDOW_MAKE) {
+        auto request = window_of(op, 7);
+        change(request);
+        return ask_window(request) == -einval;
+    };
+    CHECK(refused([](auto &r) { r.op = 0; }));
+    CHECK(refused([](auto &r) { r.op = 4; }));
+    CHECK(refused([](auto &r) { r.token = 0; }));
+    CHECK(refused([](auto &r) { r.right = r.left; }));
+    CHECK(refused([](auto &r) { r.bottom = r.top - 1; }));
+    CHECK(refused([](auto &r) { r.left = -(1 << 20); r.width = 640; r.height = 480; }));  // a frame side above 2^20
+    CHECK(refused([](auto &r) { r.width = 640; }));  // a fixed size needs both sides
+    CHECK(refused([](auto &r) { r.width = 640; r.height = 8193; }));
+    CHECK(refused([](auto &r) { r.right = r.left + 8193; }));  // the frame's size is the buffer's
+    for (const std::int32_t type : {0, -1, 100, 999, 2000, 2004, 2006}) {
+        CHECK(refused([type](auto &r) { r.type = type; }));
+    }
+    for (const std::uint32_t bits : {0x7fc00000u, 0x7f800000u, 0xbf000000u, 0x3fc00000u}) {  // NaN, inf, -0.5, 1.5
+        CHECK(refused([bits](auto &r) { r.alpha = bits; }));
+        CHECK(refused([bits](auto &r) { r.dim = bits; }));
+    }
+    CHECK(refused([](auto &r) { r.reserved = 1; }));
+    CHECK(refused([](auto &r) { r.parent = 9; }));                    // a parent on a dialog
+    CHECK(refused([](auto &r) { r.type = 2005; r.group = 1; }));       // a group on a toast
+    CHECK(refused([](auto &r) { r.type = 1000; r.group = 1; }));       // and on a sub-window
+    // A place's alpha, dim and reserved are checked too; the limits themselves pass.
+    auto largest = window_of(APKRT_WINDOW_MAKE, 9);
+    largest.left = -(1 << 20) + 1194;
+    largest.width = 8192;
+    largest.height = 8192;
+    largest.alpha = 0;
+    largest.dim = 0x3f800000;  // 1.0f
+    CHECK(ask_window(largest) == 0);
+    auto place = window_of(APKRT_WINDOW_PLACE, 9);
+    place.alpha = 0x3fc00000;
+    CHECK(ask_window(place) == -einval);
+    place = window_of(APKRT_WINDOW_PLACE, 9);
+    place.reserved = 2;
+    CHECK(ask_window(place) == -einval);
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 9)) == 0);
+    CHECK(take_windows().size() == 2);
+}
+
+TEST(a_sub_windows_parent_is_the_sessions_window_or_a_live_window_that_is_no_sub_window) {
+    take_windows();
+    auto sub = [](std::uint64_t token, std::uint64_t parent) {
+        auto request = window_of(APKRT_WINDOW_MAKE, token, 1002);  // TYPE_APPLICATION_SUB_PANEL
+        request.parent = parent;
+        return request;
+    };
+    CHECK(ask_window(sub(20, 0)) == 0);            // on the session's window
+    CHECK(ask_window(sub(21, 99)) == -enoent);     // a parent that is not live
+    CHECK(ask_window(sub(22, 20)) == -einval);     // a sub-window as parent: one level, as on Android 15
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 23)) == 0);
+    CHECK(ask_window(sub(24, 23)) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 23)) == -ebusy);  // its sub-window is live
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 24)) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 23)) == 0);
+    CHECK(ask_window(sub(25, 23)) == -enoent);     // gone
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 20)) == 0);
+    CHECK(take_windows().size() == 6);  // the makes of 20, 23 and 24, and their removes
+}
+
+TEST(each_live_window_token_has_one_window_and_sixteen_are_live_at_most_beside_the_surfaces) {
+    take_windows();
+    take_surfaces();
+    for (std::uint64_t token = 1; token <= 16; ++token) CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, token)) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 17)) == -enospc);
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 5)) == -eexist);
+    CHECK(ask_window(window_of(APKRT_WINDOW_PLACE, 99)) == -enoent);
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 99)) == -enoent);
+    // The surfaces' tokens are another namespace: token 5 has a window and gets a surface too.
+    CHECK(ask(surface(APKRT_SURFACE_MAKE, 5)) == 0);
+    CHECK(ask(surface(APKRT_SURFACE_REMOVE, 5)) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, 5)) == 0);
+    CHECK(ask_window(window_of(APKRT_WINDOW_PLACE, 5)) == -enoent);
+    CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, 17)) == 0);  // its place is free again
+    for (std::uint64_t token = 1; token <= 17; ++token) {
+        if (token != 5) CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, token)) == 0);
+    }
+    CHECK(take_windows().size() == 16 + 1 + 1 + 16);
+    CHECK(take_surfaces().size() == 2);
+}
+
+TEST(window_requests_from_many_threads_reach_the_host_one_at_a_time_in_each_tokens_order) {
+    take_windows();
+    std::vector<std::thread> threads;
+    for (std::uint64_t token = 101; token <= 108; ++token) {
+        threads.emplace_back([token] {
+            for (int round = 0; round < 50; ++round) {
+                CHECK(ask_window(window_of(APKRT_WINDOW_MAKE, token)) == 0);
+                auto place = window_of(APKRT_WINDOW_PLACE, token);
+                place.width = 100 + round;
+                place.height = 100;
+                CHECK(ask_window(place) == 0);
+                CHECK(ask_window(window_of(APKRT_WINDOW_REMOVE, token)) == 0);
+            }
+        });
+    }
+    for (auto &thread : threads) thread.join();
+    const auto seen = take_windows();
+    CHECK(seen.size() == 8 * 50 * 3);
+    for (std::uint64_t token = 101; token <= 108; ++token) {
+        std::uint32_t expected = APKRT_WINDOW_MAKE;
+        int round = 0;
+        bool in_order = true;
+        for (const auto &each : seen) {
+            if (each.request.token != token) continue;
+            in_order = in_order && each.request.op == expected;
+            if (expected == APKRT_WINDOW_PLACE) in_order = in_order && each.request.width == 100 + round;
+            if (expected == APKRT_WINDOW_REMOVE) ++round;
+            expected = expected == APKRT_WINDOW_REMOVE ? APKRT_WINDOW_MAKE : expected + 1;
+        }
+        CHECK(in_order && round == 50);
+    }
 }
 
 // --- Last: the full pipe ------------------------------------------------------------------------

@@ -1,7 +1,8 @@
-// apk-run's headless host for --lifecycle (ADR-0043 c4, decision 4): the session's surfaces, each a window of its own
-// without a layer and answered with the events the iOS host posts, and the windows' buffers for drawing by the CPU,
-// one per window, as apkrt.h's struct apkrt_window_buffers asks them to behave. The calls to the runtime's registry
-// and session come in from outside, so that headless_host_test.cpp records them instead.
+// apk-run's headless host for --lifecycle (ADR-0043 c4, decision 4): the session's surfaces and requested windows
+// (ADR-0041, gap 4), each a window of its own without a layer and answered with the events the iOS host posts, and
+// the windows' buffers for drawing by the CPU, one per window, as apkrt.h's struct apkrt_window_buffers asks them to
+// behave. The calls to the runtime's registry and session come in from outside, so that headless_host_test.cpp
+// records them instead.
 #pragma once
 
 #include "APKRuntime/apkrt.h"
@@ -128,6 +129,114 @@ private:
     Calls calls_;
     std::mutex lock_;
     std::vector<Surface> surfaces_;  // in the order they were made
+    bool background_ = false;
+};
+
+/// What the host does with the requested windows (ADR-0041, gap 4), as Calls has it for the surfaces: in apk-run
+/// apkrt_window_add of the request's buffer size without a layer, apkrt_window_set_gate with 1, apkrt_window_set_size,
+/// apkrt_window_remove and apkrt_session_post, and nothing for a place.
+struct WindowCalls {
+    std::function<std::uint64_t(const apkrt_window_request &)> add;
+    std::function<void(std::uint64_t)> open;
+    std::function<void(std::uint64_t, std::int32_t, std::int32_t)> size;
+    std::function<void(std::uint64_t)> remove;
+    std::function<void(std::uint32_t, std::uint64_t, std::uint64_t, std::uint64_t)> post;
+    std::function<void(std::uint64_t, const apkrt_window_request &)> place;
+};
+
+/// The requested windows (apkrt.h's window handler), answered as Surfaces answers the surfaces: a make gets a window
+/// and WINDOW_CREATED, then its gate opens unless the session is in the background; a place goes to the window's
+/// layer, and one with another size then gets the window's new size and WINDOW_RESIZED; a remove takes the window
+/// away without an event. At the background and the end every window goes with the main window, and WINDOW_DESTROYED
+/// comes later for each one the guest has not removed, the sub-windows' first, each kind in the order made.
+class Windows {
+public:
+    explicit Windows(WindowCalls calls) : calls_(std::move(calls)) {}
+
+    void request(const apkrt_window_request &request) {
+        const std::lock_guard<std::mutex> hold(lock_);
+        const auto found = find(request.token);
+        switch (request.op) {
+            case APKRT_WINDOW_MAKE: {
+                if (found != windows_.end()) return;  // the runtime refuses it first
+                const std::uint64_t window = calls_.add(request);
+                windows_.push_back({request.token, window, request.width, request.height,
+                                    request.type >= 1000 && request.type <= 1999});
+                calls_.post(APKRT_EVENT_WINDOW_CREATED, request.token, window, pair(request.width, request.height));
+                if (!background_) calls_.open(window);
+                return;
+            }
+            case APKRT_WINDOW_PLACE:
+                if (found == windows_.end() || found->taken) return;
+                calls_.place(found->window, request);
+                if (found->width == request.width && found->height == request.height) return;
+                found->width = request.width;
+                found->height = request.height;
+                calls_.size(found->window, request.width, request.height);
+                calls_.post(APKRT_EVENT_WINDOW_RESIZED, request.token, found->window,
+                            pair(request.width, request.height));
+                return;
+            case APKRT_WINDOW_REMOVE:
+                if (found == windows_.end()) return;
+                if (!found->taken) calls_.remove(found->window);
+                windows_.erase(found);
+                return;
+            default:
+                return;
+        }
+    }
+
+    /// At the background and at the end, with the main window, before PAUSE: every window goes.
+    void take_away() {
+        const std::lock_guard<std::mutex> hold(lock_);
+        for (auto &window : windows_) {
+            if (window.taken) continue;
+            calls_.remove(window.window);
+            window.taken = true;
+        }
+    }
+
+    /// After PAUSE and the focus, before NATIVE_WINDOW_DESTROYED and STOP: WINDOW_DESTROYED for each window take_away
+    /// took that the guest has not removed meanwhile, the sub-windows' before the others', each in the order made.
+    void post_destroyed() {
+        const std::lock_guard<std::mutex> hold(lock_);
+        for (const bool subs : {true, false}) {
+            for (auto &window : windows_) {
+                if (window.sub != subs || !window.taken || window.announced) continue;
+                calls_.post(APKRT_EVENT_WINDOW_DESTROYED, window.token, window.window, 0);
+                window.announced = true;
+            }
+        }
+    }
+
+    /// The session goes into the background (true) or comes back: at the return the gates of the windows made
+    /// meanwhile open.
+    void set_background(bool background) {
+        const std::lock_guard<std::mutex> hold(lock_);
+        background_ = background;
+        if (background) return;
+        for (const auto &window : windows_) {
+            if (!window.taken) calls_.open(window.window);
+        }
+    }
+
+private:
+    struct Window {
+        std::uint64_t token = 0, window = 0;
+        std::int32_t width = 0, height = 0;
+        bool sub = false;        // a sub-window, whose WINDOW_DESTROYED comes before its parent's
+        bool taken = false;      // its window went at the background or the end
+        bool announced = false;  // with WINDOW_DESTROYED
+    };
+
+    std::vector<Window>::iterator find(std::uint64_t token) {
+        return std::find_if(windows_.begin(), windows_.end(),
+                            [token](const Window &each) { return each.token == token; });
+    }
+
+    WindowCalls calls_;
+    std::mutex lock_;
+    std::vector<Window> windows_;  // in the order they were made
     bool background_ = false;
 };
 
