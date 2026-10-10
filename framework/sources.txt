@@ -1626,3 +1626,24 @@ frameworks_base/core/java/android/accounts/ChooseAccountActivity.java
 frameworks_base/core/java/android/accounts/CantAddAccountActivity.java
 frameworks_base/core/java/android/accounts/GrantCredentialsPermissionActivity.java
 frameworks_base/core/java/android/app/admin/DevicePolicyResources.java
+
+# The package installer and the exit reasons (the Unity test APK resolve list, batch E), package-installer-test: the AOSP class
+# and its AIDL, with the installer our package manager answers with (framework/java), and ApplicationExitInfo, whose
+# list ActivityManager answers empty.
+frameworks_base/core/java/android/content/pm/PackageInstaller.java
+frameworks_base/core/java/android/content/pm/IPackageInstaller.aidl
+frameworks_base/core/java/android/content/pm/IPackageInstallerCallback.aidl
+frameworks_base/core/java/android/content/pm/IPackageInstallerSession.aidl
+frameworks_base/core/java/android/content/pm/IPackageInstallerSessionFileSystemConnector.aidl
+frameworks_base/core/java/android/app/ApplicationExitInfo.java
+frameworks_base/core/java/com/android/internal/util/function/TriConsumer.java
+frameworks_base/core/java/android/content/pm/DataLoaderParams.java
+frameworks_base/core/java/android/content/pm/DataLoaderParamsParcel.aidl
+frameworks_base/core/java/android/content/pm/InstallationFileLocation.aidl
+frameworks_base/core/java/android/content/pm/IOnChecksumsReadyListener.aidl
+frameworks_base/core/java/android/content/pm/verify/domain/DomainSet.java
+frameworks_base/core/java/android/os/FileBridge.java
+frameworks_base/core/java/android/app/IParcelFileDescriptorRetriever.aidl
+frameworks_base/core/java/android/app/IAppTraceRetriever.aidl
+frameworks_base/core/java/android/content/pm/DataLoaderType.aidl
+frameworks_base/core/java/android/content/pm/verify/domain/DomainVerificationUtils.java

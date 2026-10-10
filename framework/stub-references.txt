@@ -468,3 +468,16 @@ android.app.admin.DevicePolicyManager <- android.accounts.CantAddAccountActivity
 android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator  # stays: IAccountAuthenticator's Stub, which an app's authenticator service makes, and Minato never binds one
 android.content.IntentSender <- android.accounts.IAccountManager  # gap: Proxy's createRequestAccountAccessIntentSenderAsUser, the intent that asks the user for an account's access, which the local account service never makes (no account)
+
+# The package installer (the Unity test APK resolve list, batch E): the session service is LocalPackageInstaller's, in the process.
+android.content.IntentSender <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' onTransact, which a local call never reaches
+android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors and permission checks, which the local installer never runs
+android.content.IntentSender <- android.content.pm.PackageInstaller  # gap: Session.commit and the uninstalls hand an IntentSender over, with ADR-0045 step d3's intent senders; the local session's commit answers nothing
+android.content.pm.parsing.ApkLiteParseUtils <- android.content.pm.PackageInstaller  # stays: readInstallInfo, a system API of installer apps
+android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
+android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
+android.content.pm.parsing.result.ParseTypeImpl <- android.content.pm.PackageInstaller  # stays: readInstallInfo, a system API of installer apps
+com.android.internal.content.InstallLocationUtils <- android.content.pm.PackageInstaller  # stays: InstallInfo.calculateInstalledSize, a system API of installer apps
+com.android.internal.util.IndentingPrintWriter <- android.content.pm.PackageInstaller  # stays: SessionParams.dump, for dumpsys
+com.android.internal.util.function.pooled.PooledLambda <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3 (the local installer accepts callbacks and calls none)
+com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3

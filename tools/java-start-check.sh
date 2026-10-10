@@ -42,6 +42,8 @@
 # locks inside the app's sandbox on the iPhone.
 # timezone-test (the compatibility plan's gap 21) is one too: the tzdata module's files in the app's /apex, and the
 # zones that libcore, java.time and ICU read from them.
+# package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
+# refusal of a new one, and the exit reasons.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -94,7 +96,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "result-flow-test io.github.kisame76.minato.test.resultflow"
       "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash"
       "sqlite-test io.github.kisame76.minato.test.sqlite"
-      "timezone-test io.github.kisame76.minato.test.timezone")
+      "timezone-test io.github.kisame76.minato.test.timezone"
+      "package-installer-test io.github.kisame76.minato.test.packageinstaller")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -646,6 +649,8 @@ run_one sqlite-test io.github.kisame76.minato.test.sqlite
 # Time zones (the compatibility plan's gap 21): the tzdata module's files, and libcore's, java.time's and ICU's zones;
 # the device's zone is only shown.
 run_one timezone-test io.github.kisame76.minato.test.timezone
+# The package installer for an app without install rights, and the exit reasons (the Unity test APK resolve list, batch E).
+run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.

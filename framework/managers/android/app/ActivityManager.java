@@ -268,8 +268,12 @@ class ActivityManager {
         }
     }
 
-    /** The API's ctors, as AOSP's, which start an entry in front. */
+    /** The API's ctors, as AOSP's, which start an entry in front, and the hidden annotation of its importance. */
     public static class RunningAppProcessInfo {
+        /** @hide As AOSP's, without its IntDef: ApplicationExitInfo names the type (batch E of the Unity test APK list). */
+        @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+        public @interface Importance {}
+
         public RunningAppProcessInfo() {
             importance = IMPORTANCE_FOREGROUND;
             importanceReasonCode = REASON_UNKNOWN;

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the Unity test APK's resolve list, batch E (package-installer-test): what an app without the permission to install packages
+     meets in android.content.pm.PackageInstaller and its SessionInfo, and android.app.ApplicationExitInfo. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.packageinstaller" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="package-installer-test">
+    <activity android:name="io.github.kisame76.minato.test.packageinstaller.InstallerActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

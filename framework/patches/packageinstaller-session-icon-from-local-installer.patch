@@ -1,0 +1,27 @@
+Minato's patch to frameworks/base's core/java/android/content/pm/PackageInstaller.java at android-15.0.0_r1 (Apache-2.0),
+the Unity test APK resolve list, batch E: SessionInfo.getAppIcon asks the local installer for the session's icon.
+
+Why: a session listed in bulk (getAllSessions, getMySessions) has no icon, and getAppIcon then asks the package
+manager service for the session's own: AppGlobals.getPackageManager().getPackageInstaller(). Minato's
+AppGlobals.getPackageManager() answers no IPackageManager (framework.jar leaves the interface out, ADR-0045), so the
+call ended the app with NoClassDefFoundError. The app's sessions are LocalPackageInstaller's, which answers the same
+lookup in the process; the result is the one Android gives, the session's icon, or null for a session without one.
+
+--- a/core/java/android/content/pm/PackageInstaller.java
++++ b/core/java/android/content/pm/PackageInstaller.java
+@@ -4050,13 +4050,8 @@
+             if (appIcon == null) {
+                 // Icon may have been omitted for calls that return bulk session
+                 // lists, so try fetching the specific icon.
+-                try {
+-                    final SessionInfo info = AppGlobals.getPackageManager().getPackageInstaller()
+-                            .getSessionInfo(sessionId);
+-                    appIcon = (info != null) ? info.appIcon : null;
+-                } catch (RemoteException e) {
+-                    throw e.rethrowFromSystemServer();
+-                }
++                final SessionInfo info = LocalPackageInstaller.sessionInfo(sessionId);
++                appIcon = (info != null) ? info.appIcon : null;
+             }
+             return appIcon;
+         }

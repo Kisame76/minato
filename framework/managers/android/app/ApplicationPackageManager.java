@@ -6,7 +6,9 @@ import android.content.ComponentName;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.FeatureInfo;
+import android.content.pm.LocalPackageInstaller;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
@@ -14,9 +16,11 @@ import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
 import android.content.res.XmlResourceParser;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
 import com.android.minato.pm.SystemFeatures;
+import java.io.File;
 import java.util.Map;
 import java.util.Objects;
 
@@ -328,6 +332,24 @@ class ApplicationPackageManager {
 
     public boolean hasSystemFeature(String name, int version) {
         return SystemFeatures.has(name, version, ManifestPackage.vulkan());
+    }
+
+    private PackageInstaller mInstaller;
+
+    /**
+     * As AOSP's: the one installer of this package manager, over the app's own sessions (the Unity test APK resolve list,
+     * batch E), which LocalPackageInstaller keeps in memory, with their files below the app's cache folder.
+     */
+    public PackageInstaller getPackageInstaller() {
+        synchronized (this) {
+            if (mInstaller == null) {
+                ManifestPackage pkg = mThread.getManifestPackage();
+                File staging = new File(pkg.applicationInfo(0).dataDir, "cache/package-installer");
+                mInstaller = new PackageInstaller(new LocalPackageInstaller(pkg.packageName, staging,
+                        UserHandle.myUserId()), pkg.packageName, null, UserHandle.myUserId());
+            }
+            return mInstaller;
+        }
     }
 
     /** As the package manager service lists them: the features in an ArrayMap's order, then the OpenGL ES version. */

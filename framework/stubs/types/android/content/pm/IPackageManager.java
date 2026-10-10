@@ -25,6 +25,9 @@ public interface IPackageManager {
 
     String[] getPackagesForUid(int uid) throws android.os.RemoteException;
 
+    /** PackageInstaller.SessionInfo's icon lookup (the Unity test APK resolve list, batch E). */
+    IPackageInstaller getPackageInstaller() throws android.os.RemoteException;
+
     /** DisplayManager's createVirtualDisplay looks the service up itself (ADR-0045 gap 1, batch 1). */
     abstract class Stub {
         public static IPackageManager asInterface(IBinder obj) {

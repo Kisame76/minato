@@ -1,0 +1,129 @@
+I/package-installer-test: clean: true
+I/package-installer-test: installer: android.content.pm.PackageInstaller
+I/package-installer-test: same object: true
+I/package-installer-test: all sessions: 0
+I/package-installer-test: my sessions: 0
+I/package-installer-test: staged sessions: 0
+I/package-installer-test: active staged session: null
+I/package-installer-test: session info 1: null
+I/package-installer-test: createSession: id true
+I/package-installer-test: info: id true, installer io.github.kisame76.minato.test.packageinstaller, app io.github.kisame76.minato.test.packageinstaller, mode 1, size 1234, progress 0.0
+I/package-installer-test: info: active false, sealed false, staged false, committed false, multi false, reason 0
+I/package-installer-test: info: created true, updated false, user action 0, source 0, label null, icon null
+I/package-installer-test: all 1, mine 1
+I/package-installer-test: abandoned: gone true
+I/package-installer-test: session: names []
+I/package-installer-test: written: names [base.apk]
+I/package-installer-test: read back: 100 bytes, same true
+I/package-installer-test: two files: names [base.apk, split_config.apk]
+I/package-installer-test: after removeSplit: names [base.apk, config.removed, split_config.apk]
+I/package-installer-test: openWrite "../x": java.lang.IllegalArgumentException: Invalid name: ../x
+I/package-installer-test: openWrite "": java.lang.IllegalArgumentException: Invalid name: 
+I/package-installer-test: openWrite "a/b": java.lang.IllegalArgumentException: Invalid name: a/b
+I/package-installer-test: staging progress: 0.4
+I/package-installer-test: closed: mine 1
+I/package-installer-test: openSession of an abandoned one: java.lang.SecurityException: Caller has no access to session <id>
+I/package-installer-test: abandoned: gone true
+I/package-installer-test: abandon of an unknown session: java.lang.SecurityException: Caller has no access to session 987654321
+I/package-installer-test: open of an unknown session: java.lang.SecurityException: Caller has no access to session 987654321
+I/package-installer-test: createSession without a mode: java.lang.IllegalArgumentException: Invalid install mode: 0
+I/package-installer-test: createSession to inherit without a package: no error
+I/package-installer-test: createSession for another package: id true
+I/package-installer-test: settled: true
+I/package-installer-test: PackageInstaller constants: 55
+I/package-installer-test: PackageInstaller ACTION_CONFIRM_INSTALL=android.content.pm.action.CONFIRM_INSTALL
+I/package-installer-test: PackageInstaller ACTION_CONFIRM_PRE_APPROVAL=android.content.pm.action.CONFIRM_PRE_APPROVAL
+I/package-installer-test: PackageInstaller ACTION_SESSION_COMMITTED=android.content.pm.action.SESSION_COMMITTED
+I/package-installer-test: PackageInstaller ACTION_SESSION_DETAILS=android.content.pm.action.SESSION_DETAILS
+I/package-installer-test: PackageInstaller ACTION_SESSION_UPDATED=android.content.pm.action.SESSION_UPDATED
+I/package-installer-test: PackageInstaller DATA_LOADER_TYPE_INCREMENTAL=2
+I/package-installer-test: PackageInstaller DATA_LOADER_TYPE_NONE=0
+I/package-installer-test: PackageInstaller DATA_LOADER_TYPE_STREAMING=1
+I/package-installer-test: PackageInstaller EXTRA_CALLBACK=android.content.pm.extra.CALLBACK
+I/package-installer-test: PackageInstaller EXTRA_DATA_LOADER_TYPE=android.content.pm.extra.DATA_LOADER_TYPE
+I/package-installer-test: PackageInstaller EXTRA_DELETE_FLAGS=android.content.pm.extra.DELETE_FLAGS
+I/package-installer-test: PackageInstaller EXTRA_INSTALL_CONSTRAINTS=android.content.pm.extra.INSTALL_CONSTRAINTS
+I/package-installer-test: PackageInstaller EXTRA_INSTALL_CONSTRAINTS_RESULT=android.content.pm.extra.INSTALL_CONSTRAINTS_RESULT
+I/package-installer-test: PackageInstaller EXTRA_LEGACY_STATUS=android.content.pm.extra.LEGACY_STATUS
+I/package-installer-test: PackageInstaller EXTRA_OTHER_PACKAGE_NAME=android.content.pm.extra.OTHER_PACKAGE_NAME
+I/package-installer-test: PackageInstaller EXTRA_PACKAGE_NAME=android.content.pm.extra.PACKAGE_NAME
+I/package-installer-test: PackageInstaller EXTRA_PRE_APPROVAL=android.content.pm.extra.PRE_APPROVAL
+I/package-installer-test: PackageInstaller EXTRA_RESOLVED_BASE_PATH=android.content.pm.extra.RESOLVED_BASE_PATH
+I/package-installer-test: PackageInstaller EXTRA_SESSION=android.content.pm.extra.SESSION
+I/package-installer-test: PackageInstaller EXTRA_SESSION_ID=android.content.pm.extra.SESSION_ID
+I/package-installer-test: PackageInstaller EXTRA_STATUS=android.content.pm.extra.STATUS
+I/package-installer-test: PackageInstaller EXTRA_STATUS_MESSAGE=android.content.pm.extra.STATUS_MESSAGE
+I/package-installer-test: PackageInstaller EXTRA_STORAGE_PATH=android.content.pm.extra.STORAGE_PATH
+I/package-installer-test: PackageInstaller EXTRA_UNARCHIVE_ALL_USERS=android.content.pm.extra.UNARCHIVE_ALL_USERS
+I/package-installer-test: PackageInstaller EXTRA_UNARCHIVE_ID=android.content.pm.extra.UNARCHIVE_ID
+I/package-installer-test: PackageInstaller EXTRA_UNARCHIVE_PACKAGE_NAME=android.content.pm.extra.UNARCHIVE_PACKAGE_NAME
+I/package-installer-test: PackageInstaller EXTRA_UNARCHIVE_STATUS=android.content.pm.extra.UNARCHIVE_STATUS
+I/package-installer-test: PackageInstaller LOCATION_DATA_APP=0
+I/package-installer-test: PackageInstaller LOCATION_MEDIA_DATA=2
+I/package-installer-test: PackageInstaller LOCATION_MEDIA_OBB=1
+I/package-installer-test: PackageInstaller PACKAGE_SOURCE_DOWNLOADED_FILE=4
+I/package-installer-test: PackageInstaller PACKAGE_SOURCE_LOCAL_FILE=3
+I/package-installer-test: PackageInstaller PACKAGE_SOURCE_OTHER=1
+I/package-installer-test: PackageInstaller PACKAGE_SOURCE_STORE=2
+I/package-installer-test: PackageInstaller PACKAGE_SOURCE_UNSPECIFIED=0
+I/package-installer-test: PackageInstaller REASON_CONFIRM_PACKAGE_CHANGE=0
+I/package-installer-test: PackageInstaller REASON_OWNERSHIP_CHANGED=1
+I/package-installer-test: PackageInstaller REASON_REMIND_OWNERSHIP=2
+I/package-installer-test: PackageInstaller STATUS_FAILURE=1
+I/package-installer-test: PackageInstaller STATUS_FAILURE_ABORTED=3
+I/package-installer-test: PackageInstaller STATUS_FAILURE_BLOCKED=2
+I/package-installer-test: PackageInstaller STATUS_FAILURE_CONFLICT=5
+I/package-installer-test: PackageInstaller STATUS_FAILURE_INCOMPATIBLE=7
+I/package-installer-test: PackageInstaller STATUS_FAILURE_INVALID=4
+I/package-installer-test: PackageInstaller STATUS_FAILURE_STORAGE=6
+I/package-installer-test: PackageInstaller STATUS_FAILURE_TIMEOUT=8
+I/package-installer-test: PackageInstaller STATUS_PENDING_USER_ACTION=-1
+I/package-installer-test: PackageInstaller STATUS_SUCCESS=0
+I/package-installer-test: PackageInstaller UNARCHIVAL_ERROR_INSTALLER_DISABLED=4
+I/package-installer-test: PackageInstaller UNARCHIVAL_ERROR_INSTALLER_UNINSTALLED=5
+I/package-installer-test: PackageInstaller UNARCHIVAL_ERROR_INSUFFICIENT_STORAGE=2
+I/package-installer-test: PackageInstaller UNARCHIVAL_ERROR_NO_CONNECTIVITY=3
+I/package-installer-test: PackageInstaller UNARCHIVAL_ERROR_USER_ACTION_NEEDED=1
+I/package-installer-test: PackageInstaller UNARCHIVAL_GENERIC_ERROR=100
+I/package-installer-test: PackageInstaller UNARCHIVAL_OK=0
+I/package-installer-test: SessionParams constants: 12
+I/package-installer-test: SessionParams CONTENTS_FILE_DESCRIPTOR=1
+I/package-installer-test: SessionParams MODE_FULL_INSTALL=1
+I/package-installer-test: SessionParams MODE_INHERIT_EXISTING=2
+I/package-installer-test: SessionParams PARCELABLE_STABILITY_LOCAL=0
+I/package-installer-test: SessionParams PARCELABLE_STABILITY_VINTF=1
+I/package-installer-test: SessionParams PARCELABLE_WRITE_RETURN_VALUE=1
+I/package-installer-test: SessionParams PERMISSION_STATE_DEFAULT=0
+I/package-installer-test: SessionParams PERMISSION_STATE_DENIED=2
+I/package-installer-test: SessionParams PERMISSION_STATE_GRANTED=1
+I/package-installer-test: SessionParams USER_ACTION_NOT_REQUIRED=2
+I/package-installer-test: SessionParams USER_ACTION_REQUIRED=1
+I/package-installer-test: SessionParams USER_ACTION_UNSPECIFIED=0
+I/package-installer-test: ApplicationExitInfo constants: 21
+I/package-installer-test: ApplicationExitInfo CONTENTS_FILE_DESCRIPTOR=1
+I/package-installer-test: ApplicationExitInfo PARCELABLE_STABILITY_LOCAL=0
+I/package-installer-test: ApplicationExitInfo PARCELABLE_STABILITY_VINTF=1
+I/package-installer-test: ApplicationExitInfo PARCELABLE_WRITE_RETURN_VALUE=1
+I/package-installer-test: ApplicationExitInfo REASON_ANR=6
+I/package-installer-test: ApplicationExitInfo REASON_CRASH=4
+I/package-installer-test: ApplicationExitInfo REASON_CRASH_NATIVE=5
+I/package-installer-test: ApplicationExitInfo REASON_DEPENDENCY_DIED=12
+I/package-installer-test: ApplicationExitInfo REASON_EXCESSIVE_RESOURCE_USAGE=9
+I/package-installer-test: ApplicationExitInfo REASON_EXIT_SELF=1
+I/package-installer-test: ApplicationExitInfo REASON_FREEZER=14
+I/package-installer-test: ApplicationExitInfo REASON_INITIALIZATION_FAILURE=7
+I/package-installer-test: ApplicationExitInfo REASON_LOW_MEMORY=3
+I/package-installer-test: ApplicationExitInfo REASON_OTHER=13
+I/package-installer-test: ApplicationExitInfo REASON_PACKAGE_STATE_CHANGE=15
+I/package-installer-test: ApplicationExitInfo REASON_PACKAGE_UPDATED=16
+I/package-installer-test: ApplicationExitInfo REASON_PERMISSION_CHANGE=8
+I/package-installer-test: ApplicationExitInfo REASON_SIGNALED=2
+I/package-installer-test: ApplicationExitInfo REASON_UNKNOWN=0
+I/package-installer-test: ApplicationExitInfo REASON_USER_REQUESTED=10
+I/package-installer-test: ApplicationExitInfo REASON_USER_STOPPED=11
+I/package-installer-test: SessionInfo creator: true
+I/package-installer-test: SessionParams creator: true
+I/package-installer-test: ApplicationExitInfo creator: true
+I/package-installer-test: exit reasons: 0
+I/package-installer-test: exit reasons of 5: 0
+I/package-installer-test: done
