@@ -165,6 +165,11 @@ public class Binder implements IBinder {
     protected void dump(FileDescriptor fd, PrintWriter fout, String[] args) {
     }
 
+    /** As AOSP's hidden one, which ShellCommand's dump command calls: the dump, without AOSP's dump-disabled switch. */
+    void doDump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        dump(fd, pw, args);
+    }
+
     /**
      * No shell reaches the app, so a shell command does nothing.
      *

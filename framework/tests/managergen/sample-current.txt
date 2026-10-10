@@ -92,5 +92,16 @@ package com.android.minato.sample {
   public interface SampleListener extends java.util.EventListener java.lang.Runnable {
   }
 
+  public static final class SamplePlaceholder.Inner {
+    method public int depth();
+  }
+
+  public final class SamplePlaceholder {
+    ctor public SamplePlaceholder(int);
+    method public int size();
+    method public static void release();
+    field public static final int KIND = 3; // 0x3
+  }
+
 }
 

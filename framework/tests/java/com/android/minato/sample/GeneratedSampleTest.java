@@ -20,6 +20,32 @@ public final class GeneratedSampleTest {
         return new SampleManager("x");
     }
 
+    public void testPlaceholderThrows() {
+        Unwritten.setLogger(lines::add);
+        for (int i = 0; i < 2; i++) {
+            try {
+                new SamplePlaceholder(1);
+                fail("the placeholder's ctor returned");
+            } catch (UnsupportedOperationException expected) {
+                check(expected.getMessage().startsWith("com.android.minato.sample.SamplePlaceholder(int)"),
+                        "message: " + expected.getMessage());
+            }
+        }
+        try {
+            SamplePlaceholder.release();
+            fail("the placeholder's static method returned");
+        } catch (UnsupportedOperationException expected) {
+            // As every body of a placeholder.
+        }
+        check(SamplePlaceholder.KIND == 3, "a placeholder's constant keeps its value");
+        equal(lines, List.of(
+                "Unwritten: com.android.minato.sample.SamplePlaceholder(int) is a placeholder, throws"
+                        + " UnsupportedOperationException",
+                "Unwritten: com.android.minato.sample.SamplePlaceholder.release() is a placeholder, throws"
+                        + " UnsupportedOperationException"),
+                "log lines");
+    }
+
     public void testUnwrittenLogsOnce() {
         SampleManager manager = manager();
         manager.adjustVolume(1, 2);

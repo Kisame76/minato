@@ -206,6 +206,42 @@ class WriterTest(unittest.TestCase):
         self.assertEqual(self.files, generate())
 
 
+class PlaceholderTest(unittest.TestCase):
+    """--placeholder: a class that only has to load (a member type of a class apps reflect over), whose every ctor and
+    method logs once and throws UnsupportedOperationException, so that no half-working object exists."""
+
+    def test_bodies_throw(self):
+        files = managergen.generate(read_api(), [f"{PACKAGE}.SamplePlaceholder"], placeholders={
+            f"{PACKAGE}.SamplePlaceholder"})
+        text = files["com/android/minato/sample/SamplePlaceholder.java"]
+        self.assertIn(
+            "    public SamplePlaceholder(int p0) {\n"
+            f"        throw Unwritten.placeholder(\"{PACKAGE}.SamplePlaceholder(int)\");\n"
+            "    }\n", text)
+        self.assertIn(
+            "    public int size() {\n"
+            f"        throw Unwritten.placeholder(\"{PACKAGE}.SamplePlaceholder.size()\");\n"
+            "    }\n", text)
+        self.assertIn(f"throw Unwritten.placeholder(\"{PACKAGE}.SamplePlaceholder.release()\");", text)
+        self.assertIn("public static final int KIND = 3;", text)
+        # A nested class without a ctor in the API gets a package-private one, which throws as well.
+        self.assertIn(
+            "        Inner() {\n"
+            f"            throw Unwritten.placeholder(\"{PACKAGE}.SamplePlaceholder.Inner()\");\n"
+            "        }\n", text)
+        self.assertIn(f"throw Unwritten.placeholder(\"{PACKAGE}.SamplePlaceholder.Inner.depth()\");", text)
+        self.assertNotIn("Unwritten.log", text)
+
+    def test_others_stay_generated(self):
+        files = managergen.generate(read_api(), [f"{PACKAGE}.SamplePlaceholder", f"{PACKAGE}.SampleDevice"],
+                                    placeholders={f"{PACKAGE}.SamplePlaceholder"})
+        self.assertNotIn("placeholder", files["com/android/minato/sample/SampleDevice.java"])
+
+    def test_placeholder_must_be_written(self):
+        with self.assertRaises(managergen.GeneratorError):
+            managergen.generate(read_api(), [f"{PACKAGE}.SampleDevice"], placeholders={f"{PACKAGE}.SamplePlaceholder"})
+
+
 class ReferencesTest(unittest.TestCase):
     """The types a set of classes reaches through its signatures: the compile-only stubs beside them. A type in no
     API file is an error in a class to write, and drops the member that names it in a stub."""

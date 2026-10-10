@@ -163,6 +163,50 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
   --class android.media.session.MediaController --class android.widget.Toolbar --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
+  --class android.credentials.GetCredentialRequest \
+  --class android.credentials.GetCredentialResponse \
+  --class android.media.AudioDeviceCallback \
+  --class android.media.AudioMixerAttributes \
+  --class android.media.Spatializer \
+  --class android.net.IpSecManager \
+  --class android.net.ProxyInfo \
+  --class android.net.SocketKeepalive \
+  --class android.os.VibrationAttributes \
+  --class android.service.notification.ZenPolicy \
+  --class android.telecom.PhoneAccountHandle \
+  --class android.telephony.IccOpenLogicalChannelResponse \
+  --class android.telephony.NetworkScan \
+  --class android.telephony.NetworkScanRequest \
+  --class android.telephony.ServiceState \
+  --class android.telephony.SignalStrength \
+  --class android.telephony.SignalStrengthUpdateRequest \
+  --class android.telephony.TelephonyScanManager \
+  --class android.telephony.VisualVoicemailSmsFilterSettings \
+  --class android.view.inputmethod.InputMethodInfo \
+  --class android.view.inputmethod.InputMethodSubtype \
+  --class android.view.textclassifier.TextClassificationContext \
+  --class android.view.translation.TranslationCapability \
+  --class android.media.RemoteControlClient \
+  --class android.media.RemoteController \
+  --class android.service.notification.ZenDeviceEffects \
+  --class android.telephony.CellLocation \
+  --class android.view.inputmethod.ConnectionlessHandwritingCallback \
+  --class android.app.AutomaticZenRule \
+  --class android.service.notification.Condition \
+  --class android.view.accessibility.AccessibilityNodeInfo \
+  --class android.view.textclassifier.TextClassification \
+  --class android.view.textclassifier.TextClassifier \
+  --class android.view.textclassifier.TextLinks \
+  --class android.view.translation.ViewTranslationRequest \
+  --placeholder android.view.SurfaceControl \
+  --placeholder android.graphics.SurfaceTexture \
+  --placeholder android.graphics.Movie \
+  --placeholder android.view.WindowId \
+  --placeholder android.window.InputTransferToken \
+  --placeholder android.window.TrustedPresentationThresholds \
+  --placeholder android.os.SharedMemory \
+  --placeholder android.os.MemoryFile \
+  --placeholder android.view.displayhash.DisplayHashResultCallback \
   --class android.view.contentcapture.ContentCaptureSession \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \

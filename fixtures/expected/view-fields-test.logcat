@@ -31,4 +31,76 @@ I/view-fields-test: android.app.Fragment: fields readable
 I/view-fields-test: android.app.Fragment: declared methods readable, public methods readable
 I/view-fields-test: activity getClass found true
 I/view-fields-test: currentActivity found true, type android.app.Activity
+I/view-fields-test: content resolver fields readable, declared methods readable, public methods readable
+I/view-fields-test: package manager fields readable, declared methods readable, public methods readable
+I/view-fields-test: base context fields readable, declared methods readable, public methods readable
+I/view-fields-test: window manager fields readable, declared methods readable, public methods readable
+I/view-fields-test: shared preferences fields readable, declared methods readable, public methods readable
+I/view-fields-test: preferences editor fields readable, declared methods readable, public methods readable
+I/view-fields-test: display metrics fields readable, declared methods readable, public methods readable
+I/view-fields-test: assets fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.ContentResolver fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.pm.PackageManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.res.Resources fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.res.AssetManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.Window fields readable, declared methods readable, public methods readable
+I/view-fields-test: com.android.internal.policy.PhoneWindow fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.WindowManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.WindowManagerImpl fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.Display fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Looper fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Handler fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.SharedPreferences fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.SharedPreferences$Editor fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.provider.Settings fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.provider.Settings$Secure fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.provider.Settings$System fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.provider.Settings$Global fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Build fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Build$VERSION fields readable, no declared methods, public methods readable
+I/view-fields-test: android.content.Intent fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Bundle fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.Uri fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.Application fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.ContextImpl fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.View fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.ViewGroup fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.widget.FrameLayout fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.SurfaceView fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.SurfaceHolder fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.Surface fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.NotificationManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.media.AudioManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.ConnectivityManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.NetworkInfo fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.telephony.TelephonyManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Vibrator fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.util.DisplayMetrics fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.res.Configuration fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.pm.PackageInfo fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.pm.ApplicationInfo fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.pm.ActivityInfo fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Environment fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Process fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.SystemClock fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.Choreographer fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.inputmethod.InputMethodManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.MotionEvent fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.KeyEvent fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.AlertDialog fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.Dialog fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.widget.TextView fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.widget.EditText fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.PowerManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.ActivityManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.PendingIntent fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.ClipboardManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.hardware.SensorManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.Debug fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.StatFs fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.Display$Mode fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.WindowInsets fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.content.res.TypedArray fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.graphics.Bitmap fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.graphics.Canvas fields readable, declared methods readable, public methods readable
 I/view-fields-test: done

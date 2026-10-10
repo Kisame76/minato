@@ -13,7 +13,9 @@ import java.lang.reflect.Field;
  * activity's methods, and the Play Games plugin's fragment's, whose parameter and return types must resolve too): the
  * declared fields of the classes in the chain of a FrameLayout subclass and of other classes engines look at, each
  * readable or the error it gives, the lookup of a static field along the chain, and the declared and public methods
- * of the classes in the chain of an Activity subclass and of Fragment, with a method found through getMethods.
+ * of the classes in the chain of an Activity subclass and of Fragment, with a method found through getMethods; and
+ * (retest 11: the game's device id walks the content resolver's class) the same for the classes behind a context's
+ * own objects and about 60 classes engines and SDKs call.
  */
 public class ViewFieldsApplication extends Application {
     static final String TAG = "view-fields-test";
@@ -36,8 +38,8 @@ public class ViewFieldsApplication extends Application {
     }
 
     /**
-     * Only shown: TextView, whose fields still name a type that framework.jar lacks (its text classifier), and Dialog,
-     * which batch B3b's other part checks; the gap list of the batches takes them in.
+     * Only shown: TextView and Dialog, which batch B3b's other part checks, and the classes whose members still name
+     * types framework.jar lacks; the gap list of the batches takes them in.
      */
     private static void logDevice(String line) {
         Log.i(TAG + "-device", line);
@@ -71,6 +73,32 @@ public class ViewFieldsApplication extends Application {
             pub = "public methods " + t.getClass().getName();
         }
         return c.getName() + ": " + declared + ", " + pub;
+    }
+
+    /** A class's fields, declared methods and public methods, each readable or the error they give. */
+    private static String verdict(Class<?> c) {
+        String fields;
+        try {
+            c.getDeclaredFields();
+            fields = "fields readable";
+        } catch (Throwable t) {
+            fields = "fields " + t.getClass().getName();
+        }
+        String all = methods(c);
+        return fields + ", " + all.substring(all.indexOf(": ") + 2);
+    }
+
+    private Class<?> objectClass(String what) throws Exception {
+        switch (what) {
+            case "content resolver": return getContentResolver().getClass();
+            case "package manager": return getPackageManager().getClass();
+            case "base context": return getBaseContext().getClass();
+            case "window manager": return getSystemService(android.view.WindowManager.class).getClass();
+            case "shared preferences": return getSharedPreferences("view-fields", 0).getClass();
+            case "preferences editor": return getSharedPreferences("view-fields", 0).edit().getClass();
+            case "display metrics": return getResources().getDisplayMetrics().getClass();
+            default: return getAssets().getClass();
+        }
     }
 
     @Override
@@ -121,6 +149,57 @@ public class ViewFieldsApplication extends Application {
             log("currentActivity found " + (f != null) + ", type " + (f == null ? "" : f.getType().getName()));
         } catch (Throwable t) {
             log("currentActivity lookup: " + t.getClass().getName());
+        }
+        // The classes behind a context's own objects, which engines call methods on (retest 11: the content
+        // resolver), by what they are rather than by their class names, and the classes engines and SDKs look at.
+        String[][] objects = {
+            {"content resolver", ""}, {"package manager", ""}, {"base context", ""}, {"window manager", ""},
+            {"shared preferences", ""}, {"preferences editor", ""}, {"display metrics", ""}, {"assets", ""},
+        };
+        for (String[] object : objects) {
+            try {
+                Class<?> c = objectClass(object[0]);
+                log(object[0] + " " + verdict(c));
+            } catch (Throwable t) {
+                log(object[0] + ": " + t.getClass().getName());
+            }
+        }
+        String[] names = {
+            "android.content.ContentResolver", "android.content.pm.PackageManager", "android.content.res.Resources",
+            "android.content.res.AssetManager", "android.view.Window", "com.android.internal.policy.PhoneWindow",
+            "android.view.WindowManager", "android.view.WindowManagerImpl", "android.view.Display", "android.os.Looper",
+            "android.os.Handler", "android.content.SharedPreferences", "android.content.SharedPreferences$Editor",
+            "android.provider.Settings", "android.provider.Settings$Secure", "android.provider.Settings$System",
+            "android.provider.Settings$Global", "android.os.Build", "android.os.Build$VERSION", "android.content.Intent",
+            "android.os.Bundle", "android.net.Uri", "android.app.Application", "android.app.ContextImpl",
+            "android.view.View", "android.view.ViewGroup", "android.widget.FrameLayout", "android.view.SurfaceView",
+            "android.view.SurfaceHolder", "android.view.Surface", "android.app.NotificationManager",
+            "android.media.AudioManager", "android.net.ConnectivityManager", "android.net.NetworkInfo",
+            "android.telephony.TelephonyManager", "android.os.Vibrator", "android.util.DisplayMetrics",
+            "android.content.res.Configuration", "android.content.pm.PackageInfo", "android.content.pm.ApplicationInfo",
+            "android.content.pm.ActivityInfo", "android.os.Environment", "android.os.Process",
+            "android.os.SystemClock", "android.view.Choreographer", "android.view.inputmethod.InputMethodManager",
+            "android.view.MotionEvent", "android.view.KeyEvent", "android.app.AlertDialog", "android.app.Dialog",
+            "android.widget.TextView", "android.widget.EditText", "android.os.PowerManager",
+            "android.app.ActivityManager", "android.app.PendingIntent", "android.content.ClipboardManager",
+            "android.hardware.SensorManager", "android.os.Debug", "android.os.StatFs", "android.view.Display$Mode",
+            "android.view.WindowInsets", "android.content.res.TypedArray", "android.graphics.Bitmap",
+            "android.graphics.Canvas",
+        };
+        for (String name : names) {
+            try {
+                log(name + " " + verdict(Class.forName(name)));
+            } catch (Throwable t) {
+                log(name + ": " + t.getClass().getName());
+            }
+        }
+        // Only shown: the storage manager (its OBB listener) and WebView, a later batch's.
+        for (String name : new String[] {"android.os.storage.StorageManager", "android.webkit.WebView"}) {
+            try {
+                logDevice(name + " " + verdict(Class.forName(name)));
+            } catch (Throwable t) {
+                logDevice(name + ": " + t.getClass().getName());
+            }
         }
         log("done");
     }

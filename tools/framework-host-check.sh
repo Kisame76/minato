@@ -79,7 +79,8 @@ python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-c
   --class com.android.minato.sample.SampleFormat --class com.android.minato.sample.SampleCallback \
   --class com.android.minato.sample.SampleListener --class com.android.minato.sample.SampleBase \
   --class com.android.minato.sample.SampleChild --class com.android.minato.sample.SampleOther \
-  --class com.android.minato.sample.SampleShape --class com.android.minato.sample.SampleSquare
+  --class com.android.minato.sample.SampleShape --class com.android.minato.sample.SampleSquare \
+  --placeholder com.android.minato.sample.SamplePlaceholder
 # ADR-0039 b3.5a's --implement: SampleAppManager extends the AOSP-like abstract SampleBaseManager, as
 # ApplicationPackageManager extends PackageManager; ImplementedSampleTest runs it.
 python3 tools/managergen/managergen.py \
