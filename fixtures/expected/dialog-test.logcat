@@ -1,0 +1,33 @@
+I/dialog-test: new: owner is this false, showing false, window true, context is this true, action bar null
+I/dialog-test: window feature before content: true
+I/dialog-test: volume stream -2147483648
+I/dialog-test: content view found by id true, inflater true
+I/dialog-test: window title title-a, type 2
+I/dialog-test: show:
+I/dialog-test: a onCreate state=null
+I/dialog-test: a onStart
+I/dialog-test: after show: showing true
+I/dialog-test: second show is a no-op: true
+I/dialog-test: saved keys [android:dialogHierarchy, android:dialogShowing], showing flag true
+I/dialog-test: a show-listener
+I/dialog-test: hide/show:
+I/dialog-test: after hide: showing false
+I/dialog-test: dismiss:
+I/dialog-test: a onStop
+I/dialog-test: after dismiss: showing false
+I/dialog-test: dismissed twice
+I/dialog-test: a dismiss-listener
+I/dialog-test: b onCreate state=null
+I/dialog-test: b onStart
+I/dialog-test: cancel:
+I/dialog-test: b onStop
+I/dialog-test: after cancel: showing false
+I/dialog-test: b show-listener
+I/dialog-test: b cancel-listener
+I/dialog-test: b dismiss-listener
+I/dialog-test: managed dialog:
+I/dialog-test: onCreateDialog 7
+I/dialog-test: onPrepareDialog 7
+I/dialog-test: onPrepareDialog 7
+I/dialog-test: an unknown id: java.lang.IllegalArgumentException: no dialog with id 9 was ever shown via Activity#showDialog
+I/dialog-test: done

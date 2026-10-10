@@ -186,11 +186,11 @@ com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, wh
 # helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
 # parcel code never runs.
 android.app.ActionBar <- android.app.Activity  # stays: the action bar's calls, which Activity makes only with an action bar, and our PhoneWindow requests none, so getActionBar() is null (a listed gap)
+android.app.ActionBar <- android.app.Dialog  # stays: the action bar's calls, which Dialog makes only with an action bar, and our PhoneWindow requests none, so getActionBar() is null (a listed gap)
 android.app.ActivityOptions <- android.app.Activity, android.app.ActivityTransitionState, android.app.Instrumentation  # gap: a start with options, such as an animation or a scene transition, which step b3.5b2-1 leaves out; a start without options runs none of this
 android.app.ActivityOptions <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
 android.app.ActivityOptions$SceneTransitionInfo <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.AlertDialog$Builder <- android.app.Activity  # gap: performStart's warning dialog for a debuggable app with a linker warning, a second window (ADR-0041 decision 2)
-android.app.Dialog <- android.app.Activity  # ADR-0041 a): Activity's managed dialogs (showDialog), a second window (decision 2, step 8)
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.ExitTransitionCoordinator$ActivityExitTransitionCallbacks <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
@@ -201,6 +201,7 @@ android.app.PictureInPictureParams <- android.app.IActivityClientController  # s
 android.app.PictureInPictureParams$Builder <- android.app.Activity  # gap: the deprecated enterPictureInPictureMode(), which builds its params first; Minato has no picture-in-picture (no FEATURE_PICTURE_IN_PICTURE), where Android returns false
 android.app.ScreenCaptureCallbackHandler <- android.app.Activity  # gap: screenshot detection (API 34's registerScreenCaptureCallback), which Minato's windows report none of
 android.app.SearchManager <- android.app.Activity  # gap: the search dialog (startSearch, onSearchRequested), a system service and a second window
+android.app.SearchManager <- android.app.Dialog  # gap: the search key and onSearchRequested of a dialog, a system service and a second window
 android.app.TaskInfo <- android.app.ActivityManager  # stays: ActivityManager's task lists, which no Context's ActivityManager gives on Minato (ADR-0045's local services)
 android.app.TaskStackBuilder <- android.app.Activity  # stays: up navigation recreates the task only when ActivityClient.shouldUpRecreateTask says so, and the local controller never does
 android.app.UiAutomation <- android.app.Instrumentation  # stays: UI automation of an instrumentation test, and no test instrumentation runs on Minato
@@ -231,6 +232,7 @@ android.window.SizeConfigurationBuckets <- android.app.IActivityClientController
 android.window.SplashScreen$SplashScreenImpl <- android.app.Activity  # gap: Activity.getSplashScreen (API 31), which androidx's core-splashscreen asks on Android 12 and later
 com.android.internal.app.ToolbarActionBar <- android.app.Activity  # gap: Activity.setActionBar with a platform Toolbar, which needs the widget
 com.android.internal.app.WindowDecorActionBar <- android.app.Activity  # stays: the window's action bar, which initWindowDecorActionBar makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
+com.android.internal.app.WindowDecorActionBar <- android.app.Dialog  # stays: the window's action bar, which Dialog.show makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
 com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # step b3.5b2: a new intent delivered to a running activity (onNewIntent)
 
 # ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
@@ -305,7 +307,6 @@ android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeec
 
 # ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
-android.app.Dialog <- android.text.method.CharacterPickerDialog  # stays: the character picker, which QwertyKeyListener opens for ALT on a hardware keyboard (gap 7's step), a dialog window
 android.app.ActivityOptions <- android.app.PendingIntent  # gap: sending an activity's PendingIntent, which names its caller's display, with ADR-0045 step d3's intent senders
 android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.getIntentSender, with ADR-0045 step d3's intent senders
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility

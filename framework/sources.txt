@@ -631,6 +631,7 @@ frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.j
 # fragments and loaders (with android.content's Loader, whose listeners LoaderManager's records implement), and
 # AppDetailsActivity in place of b3.5a's interim one.
 frameworks_base/core/java/android/app/Activity.java
+frameworks_base/core/java/android/app/Dialog.java
 frameworks_base/core/java/android/app/Instrumentation.java
 frameworks_base/core/java/android/app/AppDetailsActivity.java
 frameworks_base/core/java/android/app/ActivityClient.java

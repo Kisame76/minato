@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of android.app.Dialog (dialog-test): its lifecycle callbacks, listeners, cancel and back, the window it makes and
+     the managed dialogs of Activity (the Unity test APK probe: UnityPlayerActivity.onCreate resolves the class). The test runs in its
+     launcher activity when the window first has the focus. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.dialog" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.dialog.DialogActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

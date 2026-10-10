@@ -12,10 +12,14 @@ import android.widget.SpinnerAdapter;
 
 /**
  * Compile-only stub (ADR-0039 step c2c3), never in framework.jar: Activity makes it for a window with
- * FEATURE_ACTION_BAR (initWindowDecorActionBar), with the action bar decor.
+ * FEATURE_ACTION_BAR (initWindowDecorActionBar), with the action bar decor, and Dialog for its window with that feature.
  */
 public class WindowDecorActionBar extends ActionBar {
     public WindowDecorActionBar(android.app.Activity activity) {
+        throw new RuntimeException("stub");
+    }
+
+    public WindowDecorActionBar(android.app.Dialog dialog) {
         throw new RuntimeException("stub");
     }
 
