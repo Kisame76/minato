@@ -5,6 +5,9 @@ I/surface-test: surface changed: format 4, 1290 x 2796
 I/surface-test: surface redraw needed
 I/surface-test: focus
 I/surface-test: choreographer: 5 frames, times increasing true
+I/surface-test: pixel copy: immutable: java.lang.IllegalArgumentException: Bitmap is immutable
+I/surface-test: pixel copy: request(SurfaceView): 3, on the main thread true
+I/surface-test: pixel copy: Request.ofSurface: 3, java.lang.IllegalStateException: Copy request didn't succeed, status = 3, on the main thread true
 I/surface-test: view: at 0, 0, 1290 x 2796
 I/surface-test: renderer: surface created: ES 3, config rgba 8 8 8 0
 I/surface-test: renderer: program linked true

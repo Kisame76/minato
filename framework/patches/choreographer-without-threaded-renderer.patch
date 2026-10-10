@@ -3,9 +3,9 @@ ADR-0041 a): setFPSDivisor keeps the divisor but tells no ThreadedRenderer.
 
 Why: every Choreographer's constructor calls setFPSDivisor, which hands the divisor on to hwui's render thread through
 ThreadedRenderer, a static method of HardwareRenderer, the GPU pipeline. Minato's views draw in software (ADR-0043
-decision 2), so framework.jar leaves HardwareRenderer and ThreadedRenderer out, and the call would end the app with
-NoClassDefFoundError. Without a render thread there is nothing to tell; Choreographer's own frame skipping by the
-divisor stays as it is.
+decision 2), so framework.jar leaves ThreadedRenderer out (and HardwareRenderer's render thread natives), and the call
+would end the app with NoClassDefFoundError. Without a render thread there is nothing to tell; Choreographer's own frame
+skipping by the divisor stays as it is.
 
 --- a/core/java/android/view/Choreographer.java
 +++ b/core/java/android/view/Choreographer.java

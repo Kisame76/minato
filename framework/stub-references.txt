@@ -79,6 +79,10 @@ android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: Reso
 # Drawables and graphics.
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
 android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
+android.graphics.TextureLayer <- android.graphics.HardwareRenderer  # stays: a renderer's texture layers, and no renderer is made, as its constructor's first native is not registered (PixelCopy's step)
+android.view.SurfaceControl <- android.graphics.HardwareRenderer  # stays: a renderer's surface control, and no renderer is made, as its constructor's first native is not registered (PixelCopy's step)
+android.hardware.DataSpace <- android.graphics.HardwareRenderer  # stays: the process initializer's display info, which needs the context that only ActivityThread's setContextForInit gives, and Minato's does not call it (PixelCopy's step)
+android.hardware.OverlayProperties <- android.graphics.HardwareRenderer  # stays: the process initializer's display info, which needs the context that only ActivityThread's setContextForInit gives, and Minato's does not call it (PixelCopy's step)
 android.view.ThreadedRenderer <- android.graphics.Bitmap  # M4 step 10: Bitmap.createBitmap of a Picture, drawn on hwui's render thread
 android.graphics.PostProcessor <- android.graphics.ImageDecoder  # gap: ImageDecoder.setPostProcessor (ADR-0043, Grafik)
 android.media.MediaCodecInfo <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
@@ -206,8 +210,6 @@ android.content.IntentSender <- android.app.Activity  # step b3.5b2: starting an
 android.content.IntentSender$SendIntentException <- android.app.Activity  # step b3.5b2: starting an IntentSender for a result
 android.content.IntentSender$SendIntentException <- android.view.autofill.AutofillClientController  # stays: autofill's authentication, which no AutofillManager starts, as autofill is off
 android.graphics.BLASTBufferQueue <- android.view.Surface  # ADR-0041 a): a window's buffer queue, which Minato's surfaces replace with M3's layers
-android.graphics.HardwareRenderer <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
-android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
@@ -361,9 +363,6 @@ android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, whi
 
 # The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
 android.view.DragAndDropPermissions <- android.view.ContentInfo  # gap: drag and drop (a dropped content's permissions)
-android.graphics.HardwareRenderer <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
-android.graphics.HardwareRenderer$CopyRequest <- android.view.PixelCopy  # M4 step 10: PixelCopy's copy of a surface or a window, which hwui's GPU pipeline gives
-android.graphics.HardwareRenderer <- android.view.ViewDebug  # M4 step 10: the capture of rendering commands (the hidden startRenderingCommandsCapture, for Android Studio), which hwui's GPU pipeline gives
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.TouchDelegate  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 
 # ADR-0045 gap 1, batch 1 (App): DisplayManager and PowerManager in framework.jar, over the local display, power and

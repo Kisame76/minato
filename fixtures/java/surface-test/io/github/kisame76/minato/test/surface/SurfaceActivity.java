@@ -1,15 +1,19 @@
 package io.github.kisame76.minato.test.surface;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.opengl.GLES20;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Choreographer;
 import android.view.Gravity;
+import android.view.PixelCopy;
 import android.view.SurfaceHolder;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
@@ -36,7 +40,10 @@ import javax.microedition.khronos.opengles.GL10;
  * A frame the GL thread draws again, as a redraw the system asks for, is logged once; the number of draws goes to the
  * tag surface-test-device, which the check shows and does not compare, as does the GL driver's name. Then a Button
  * comes over the GLSurfaceView, centered (ADR-0043 test 4: the window's layer, hidden over the hole, shows again):
- * its place is logged once it is laid out, and the end at its first draw.
+ * its place is logged once it is laid out, and the end at its first draw. At surfaceCreated, before the GL thread can
+ * draw (it waits for surfaceChanged's size), PixelCopy copies the surface through request(SurfaceView) and the Request
+ * API, and refuses an immutable bitmap: Android answers ERROR_SOURCE_NO_DATA for a surface without a queued frame
+ * (the Unity test APK probe, Unity's pause path); the answers, with the thread the listeners ran on, come before the view's bounds.
  */
 public class SurfaceActivity extends Activity {
     private static final String TAG = "surface-test";
@@ -53,6 +60,7 @@ public class SurfaceActivity extends Activity {
     private int mTicks;
     private long mLastTick;
     private boolean mIncreasing = true;
+    private final List<String> mCopies = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +75,7 @@ public class SurfaceActivity extends Activity {
                 Rect frame = holder.getSurfaceFrame();
                 Log.i(TAG, "surface created: valid " + holder.getSurface().isValid() + ", frame " + frame.width()
                         + " x " + frame.height());
+                copy();
             }
 
             @Override
@@ -142,6 +151,9 @@ public class SurfaceActivity extends Activity {
             mView.requestRender();
             return;
         }
+        for (String line : mCopies) {
+            Log.i(TAG, "pixel copy: " + line);
+        }
         int[] location = new int[2];
         mView.getLocationInWindow(location);
         Log.i(TAG, "view: at " + location[0] + ", " + location[1] + ", " + mView.getWidth() + " x "
@@ -151,6 +163,32 @@ public class SurfaceActivity extends Activity {
         }
         Log.i(DEVICE_TAG, "draws " + mRenderer.draws() + ", " + mRenderer.driver());
         addButton();
+    }
+
+    /** PixelCopy of the new surface, which has no frame yet: its two ways, and an immutable bitmap it refuses. */
+    private void copy() {
+        Bitmap dest = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888);
+        PixelCopy.request(mView, dest, result -> mCopies.add("request(SurfaceView): " + result + ", on the main thread "
+                + (Looper.myLooper() == Looper.getMainLooper())), new Handler(Looper.getMainLooper()));
+        PixelCopy.Request request = PixelCopy.Request.Builder.ofSurface(mView)
+                .setDestinationBitmap(Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)).build();
+        PixelCopy.request(request, getMainExecutor(), result -> {
+            String bitmap;
+            try {
+                bitmap = "a bitmap " + (result.getBitmap() != null);
+            } catch (RuntimeException e) {
+                bitmap = e.getClass().getName() + ": " + e.getMessage();
+            }
+            mCopies.add("Request.ofSurface: " + result.getStatus() + ", " + bitmap + ", on the main thread "
+                    + (Looper.myLooper() == Looper.getMainLooper()));
+        });
+        try {
+            PixelCopy.request(mView, Bitmap.createBitmap(new int[16], 4, 4, Bitmap.Config.ARGB_8888),
+                    result -> mCopies.add("immutable: " + result), new Handler(Looper.getMainLooper()));
+            mCopies.add("immutable: asked");
+        } catch (RuntimeException e) {
+            mCopies.add("immutable: " + e.getClass().getName() + ": " + e.getMessage());
+        }
     }
 
     /** A Button over the GLSurfaceView, centered: its place after its layout, and the end at its first draw. */

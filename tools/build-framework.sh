@@ -92,10 +92,12 @@ done
 # file's link, so build/sources keeps the fetched files and their digests.
 for patch in framework/patches/*.patch; do
   target=$(sed -n 's|^+++ b/||p' "$patch")
-  copy="$OUT/src/${target#core/java/}"
+  copy="$OUT/src/${target#*/java/}"
+  original="$SOURCES/frameworks_base/$target"
+  [[ "$target" == graphics/* ]] && original="$SOURCES/frameworks_base_graphics/$target"
   [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
   rm "$copy"
-  patch --quiet -o "$copy" "$SOURCES/frameworks_base/$target" "$patch"
+  patch --quiet -o "$copy" "$original" "$patch"
 done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --declarations "$SOURCES/frameworks_base_graphics" --declarations "$SOURCES/frameworks_base_hwui" \

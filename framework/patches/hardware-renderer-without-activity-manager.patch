@@ -1,0 +1,32 @@
+Minato's patch to frameworks/base's graphics/java/android/graphics/HardwareRenderer.java at android-15.0.0_r1
+(Apache-2.0), the Unity test APK probe (PixelCopy, Unity's pause path): the process initializer asks the activity manager
+neither to schedule the render thread nor whether the device has high-end graphics.
+
+Why: framework.jar takes HardwareRenderer for PixelCopy, whose listeners extend its CopyRequest, and Minato's
+IActivityManager and ActivityManager have neither setRenderThread nor isHighEndGfx, so the class would not compile.
+Neither call runs on Minato: setRenderThread came after nGetRenderThreadTid, a native libandroid_runtime does not
+register, and initUsingContext returns at once without the context that only ActivityThread's
+HardwareRenderer.setContextForInit gives, which Minato's does not call. The high-end answer falls back to the low-RAM
+one, which isHighEndGfx starts with.
+
+--- a/graphics/java/android/graphics/HardwareRenderer.java
++++ b/graphics/java/android/graphics/HardwareRenderer.java
+@@ -1324,8 +1324,7 @@
+ 
+         private void initSched(long renderProxy) {
+             try {
+-                int tid = nGetRenderThreadTid(renderProxy);
+-                ActivityManager.getService().setRenderThread(tid);
++                nGetRenderThreadTid(renderProxy);
+             } catch (Throwable t) {
+                 Log.w(LOG_TAG, "Failed to set scheduler for RenderThread", t);
+             }
+@@ -1349,7 +1348,7 @@
+ 
+             initDisplayInfo();
+ 
+-            nSetIsHighEndGfx(ActivityManager.isHighEndGfx());
++            nSetIsHighEndGfx(!ActivityManager.isLowRamDeviceStatic());
+             nSetIsLowRam(ActivityManager.isLowRamDeviceStatic());
+             // Defensively clear out the context in case we were passed a context that can leak
+             // if we live longer than it, e.g. an activity context.

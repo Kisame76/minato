@@ -185,15 +185,16 @@ frameworks_base/core/java/android/util/StateSet.java
 # ADR-0043 test 2: hwui's graphics as AOSP's Java. The classes that the 42 registrations of libhwui's LayoutlibLoader
 # (patch 0006) look up, and what they name within android.graphics (ColorMatrix lies in hwui's apex/java), of which
 # Rect, Color and LineBreakConfig came earlier: Paint, Typeface and Canvas replace b3.4b's compile-only stubs. The GPU
-# pipeline's HardwareRenderer, TextureLayer, SurfaceTexture and BLASTBufferQueue stay compile-only, since libhwui's
-# host flavor registers none of their natives (decision 2). PathParser and Size, which the registrations look up;
-# Animator and TimeInterpolator, which RenderNodeAnimator and FallbackLUTInterpolator stand on; FontConfig, which
-# Typeface's static initializer reads with SystemFonts; CompatChanges, which every new Paint asks, with the cache its
-# static initializer makes, its query and PackageOverride (the compat service's types stay compile-only stubs);
-# LruCache, Pair, SparseIntArray and Half, and FastMath for RectF.round; GraphicsOperations, which Canvas and Paint
-# test text for, and NativeVectorDrawableAnimator, which AnimatedVectorDrawable's animator implements; Property,
-# FloatProperty and IntProperty with ReflectiveProperty and NoSuchPropertyException, which VectorDrawable's paths
-# and groups stand on, and AnimatorListenerAdapter for AnimatedVectorDrawable's listener.
+# pipeline's TextureLayer, SurfaceTexture and BLASTBufferQueue stay compile-only, since libhwui's host flavor registers
+# none of their natives (decision 2); HardwareRenderer came later, for PixelCopy (the end of this list). PathParser and
+# Size, which the registrations look up; Animator and TimeInterpolator, which RenderNodeAnimator and
+# FallbackLUTInterpolator stand on; FontConfig, which Typeface's static initializer reads with SystemFonts;
+# CompatChanges, which every new Paint asks, with the cache its static initializer makes, its query and PackageOverride
+# (the compat service's types stay compile-only stubs); LruCache, Pair, SparseIntArray and Half, and FastMath for
+# RectF.round; GraphicsOperations, which Canvas and Paint test text for, and NativeVectorDrawableAnimator, which
+# AnimatedVectorDrawable's animator implements; Property, FloatProperty and IntProperty with ReflectiveProperty and
+# NoSuchPropertyException, which VectorDrawable's paths and groups stand on, and AnimatorListenerAdapter for
+# AnimatedVectorDrawable's listener.
 frameworks_base_graphics/graphics/java/android/graphics/BaseCanvas.java
 frameworks_base_graphics/graphics/java/android/graphics/BaseRecordingCanvas.java
 frameworks_base_graphics/graphics/java/android/graphics/Bitmap.java
@@ -1538,3 +1539,12 @@ frameworks_base/core/java/android/content/IOnPrimaryClipChangedListener.aidl
 # class up), a bounded start of android.location; LocationManager and the providers stay absent (ADR-0045 decision 4).
 frameworks_base/core/java/android/location/Location.java
 location_java/location/java/android/location/LocationListener.java
+
+# PixelCopy's copies (the Unity test APK probe: Unity's pause path), surface-test: hwui's HardwareRenderer, whose CopyRequest
+# PixelCopy's listeners extend, with the AIDL of the graphics stats service its process initializer asks for, which
+# ServiceManager does not give. libandroid_runtime registers only its nCopySurfaceInto, which answers as Android does
+# for a surface without a queued frame; its other natives stay unregistered, as only Surface.lockHardwareCanvas, which
+# throws UnsatisfiedLinkError, and ViewDebug's capture, for a view with a threaded renderer, reach them (M4 step 10).
+frameworks_base_graphics/graphics/java/android/graphics/HardwareRenderer.java
+frameworks_base/core/java/android/view/IGraphicsStats.aidl
+frameworks_base/core/java/android/view/IGraphicsStatsCallback.aidl
