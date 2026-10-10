@@ -168,7 +168,6 @@ android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays:
 android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
-com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
@@ -285,8 +284,6 @@ com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolu
 
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
-android.accounts.Account <- android.content.ContentResolver  # gap: syncs (requestSync, startSync and the sync extras' check), which need accounts; Minato has no AccountManager yet
-android.accounts.Account <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
 android.app.IUriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions (take, release and list), which ask the URI grants service
 android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
@@ -354,7 +351,6 @@ android.view.accessibility.AccessibilityNodeInfo <- android.widget.CompoundButto
 android.content.IntentSender <- android.content.ClipData  # gap: a clip item's intent sender (PendingIntent, gap 9)
 android.text.Html <- android.content.ClipData  # gap: a clip item's HTML text (android.text.Html, a later breadth batch)
 android.view.textclassifier.TextLinks <- android.content.ClipData  # gap: a clip's text links (the text classifier, a later breadth batch)
-android.accounts.Account <- android.content.PeriodicSync, android.content.SyncRequest  # gap: syncs, as for Account
 android.net.ParseException <- android.net.MailTo  # gap: a malformed mailto: URI (connectivity's ParseException)
 
 # The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
@@ -380,7 +376,6 @@ android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a sys
 # ADR-0045 gap 1, batch 1b (App): UserManager over the local user service. What it reaches only for a work profile or
 # with a system permission, which neither Minato's one user nor any app has.
 android.content.IntentSender <- android.os.IUserManager  # stays: the Stub's onTransact, which a local call never reaches
-android.accounts.AccountManager <- android.os.UserManager  # stays: createRestrictedProfile's shared accounts, a system API that needs MANAGE_USERS
 android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 android.os.NewUserRequest <- android.os.UserManager  # stays: createUser, a system API that needs MANAGE_USERS or CREATE_USERS
@@ -463,3 +458,13 @@ android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutte
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
 com.android.internal.app.IAppOpsService$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
 com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
+
+# Batch B1 (retest 8's resolve list): Telephony's SMS and MMS helpers.
+android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.getMessagesFromIntent decodes the PDUs of a received SMS, and Minato has no SMS
+android.telephony.SubscriptionManager <- android.provider.Telephony  # gap: Sms.addMessage's default subscription id, with the telephony provider that Minato lacks
+
+# Batch B2 (retest 8's resolve list): android.accounts.
+android.app.admin.DevicePolicyManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: the two activities read the managed profile's strings from the device policy resources, and Minato has no device policy; an account type is never added (no authenticator)
+android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager
+android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator  # stays: IAccountAuthenticator's Stub, which an app's authenticator service makes, and Minato never binds one
+android.content.IntentSender <- android.accounts.IAccountManager  # gap: Proxy's createRequestAccountAccessIntentSenderAsUser, the intent that asks the user for an account's access, which the local account service never makes (no account)

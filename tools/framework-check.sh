@@ -13,6 +13,10 @@
 #   - no code refers to a stub class at run time (new, a call or field, checkcast, instanceof, a class constant, an
 #     array, a catch type, a lambda's interface) beyond framework/stub-references.txt's lines, each line still holds,
 #     and each says why (tools/stub_references.py, step c2a).
+#   - no field type, parameter or return type of a framework.jar class names a class that neither framework.jar nor the
+#     boot jars hold, which makes getDeclaredMethods of the class throw NoClassDefFoundError, beyond
+#     framework/signature-gaps.txt's lines, each line still holds, and each says why (tools/signature_types.py, retest 8's
+#     batch B3).
 # Prints the counts of taken files, hand stubs and classes, and framework.jar's size.
 # Usage: tools/framework-check.sh   (SKIP_BUILD=1 checks the build there is)
 set -euo pipefail
@@ -76,6 +80,15 @@ if [[ -z "$references" ]]; then
   ok "no run-time reference to a stub class beyond framework/stub-references.txt's $listed lines"
 else
   fail "stub references: $(echo "$references" | tr '\n' ';')"
+fi
+
+signatures=$(sed 's|/|.|g' "$OUT/classes.txt" | xargs "$JDK/bin/javap" -p -s -cp "$OUT/classes.jar" \
+  | python3 tools/signature_types.py "$OUT/classes.txt" "$OUT/boot-classes.txt" framework/signature-gaps.txt)
+if [[ -z "$signatures" ]]; then
+  listed=$(grep -cv '^#\|^$' framework/signature-gaps.txt)
+  ok "no member signature names a missing type beyond framework/signature-gaps.txt's $listed lines"
+else
+  fail "signature types: $(echo "$signatures" | tr '\n' ';')"
 fi
 
 taken=$(grep -cv '^#\|^$' framework/sources.txt)

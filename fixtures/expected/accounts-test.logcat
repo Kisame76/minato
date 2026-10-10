@@ -1,0 +1,40 @@
+I/accounts-test: get is the same: true
+I/accounts-test: getAccounts: 0
+I/accounts-test: getAccountsByType null: 0
+I/accounts-test: getAccountsByType: 0
+I/accounts-test: getAccountsByTypeAndFeatures: 0 done true
+I/accounts-test: getAccountsByTypeAndFeatures callback: true
+I/accounts-test: getPassword: java.lang.SecurityException: uid N cannot get secrets for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: getUserData: java.lang.SecurityException: uid N cannot get user data for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: peekAuthToken: java.lang.SecurityException: uid N cannot peek the authtokens associated with accounts of type: io.github.kisame76.minato.test
+I/accounts-test: getPreviousName: null
+I/accounts-test: setUserData: java.lang.SecurityException: uid N cannot set user data for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: setPassword: java.lang.SecurityException: uid N cannot set secrets for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: clearPassword: java.lang.SecurityException: uid N cannot clear passwords for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: setAuthToken: java.lang.SecurityException: uid N cannot set auth tokens associated with accounts of type: io.github.kisame76.minato.test
+I/accounts-test: invalidateAuthToken: returned
+I/accounts-test: addAccountExplicitly: java.lang.SecurityException: uid N, package=io.github.kisame76.minato.test.accounts cannot explicitly add accounts of type: io.github.kisame76.minato.test
+I/accounts-test: removeAccountExplicitly: java.lang.SecurityException: uid N cannot explicitly remove accounts of type: io.github.kisame76.minato.test
+I/accounts-test: notifyAccountAuthenticated: java.lang.SecurityException: uid N cannot notify authentication for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: getAccountVisibility: java.lang.SecurityException: uid N cannot get secrets for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: setAccountVisibility: java.lang.SecurityException: uid N cannot get secrets for accounts of type: io.github.kisame76.minato.test
+I/accounts-test: getPackagesAndVisibilityForAccount: java.lang.SecurityException: uid N cannot get secrets for account Account {name=minato, type=io.github.kisame76.minato.test}
+I/accounts-test: getAccountsAndVisibilityForPackage: java.lang.SecurityException: getAccountsAndVisibilityForPackage() called from unauthorized uid N with packageName=io.github.kisame76.minato.test.accounts
+I/accounts-test: renameAccount: java.lang.SecurityException: uid N cannot rename accounts of type: io.github.kisame76.minato.test
+I/accounts-test: hasFeatures: java.lang.SecurityException: caller uid N cannot access io.github.kisame76.minato.test accounts
+I/accounts-test: addAccount: android.accounts.AuthenticatorException: bind failure
+I/accounts-test: getAuthToken: android.accounts.AuthenticatorException: bind failure
+I/accounts-test: removeAccount: java.lang.SecurityException: uid N cannot remove accounts of type: io.github.kisame76.minato.test
+I/accounts-test: updateCredentials: android.accounts.AuthenticatorException: bind failure
+I/accounts-test: confirmCredentials: android.accounts.AuthenticatorException: bind failure
+I/accounts-test: editProperties: java.lang.SecurityException: uid N cannot edit authenticator properites for account type: io.github.kisame76.minato.test
+I/accounts-test: blockingGetAuthToken: android.accounts.AuthenticatorException: bind failure
+I/accounts-test: listener: true 0
+I/accounts-test: listener twice: java.lang.IllegalStateException: this listener is already added
+I/accounts-test: newChooseAccountIntent: ComponentInfo{android/android.accounts.ChooseTypeAndAccountActivity} [addAccountOptions, addAccountRequiredFeatures, allowableAccountTypes, allowableAccounts, authTokenType, descriptionTextOverride, selectedAccount]
+I/accounts-test: Account: Account {name=minato, type=io.github.kisame76.minato.test} true true true
+I/accounts-test: Account null name: java.lang.IllegalArgumentException: the name must not be empty: null
+I/accounts-test: Account empty type: java.lang.IllegalArgumentException: the type must not be empty: 
+I/accounts-test: exceptions: android.accounts.AuthenticatorException: a android.accounts.OperationCanceledException: o java.lang.RuntimeException: c
+I/accounts-test: keys: authAccount accountType authtoken intent errorCode 7 3 android.accounts.LOGIN_ACCOUNTS_CHANGED
+I/accounts-test: done

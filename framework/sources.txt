@@ -1589,3 +1589,40 @@ frameworks_base_types/keystore/java/android/security/keystore/KeyProperties.java
 frameworks_base_types/keystore/java/android/security/keystore/Utils.java
 frameworks_base_types/keystore/java/android/security/keystore/ArrayUtils.java
 frameworks_base_types/keystore/java/android/security/keystore/UserAuthArgs.java
+
+# Batch B1 (retest 8's resolve list): android.provider.Telephony, whose Sms class the Unity test APK's SDKs read the default SMS app
+# and the SMS columns from.
+frameworks_base/core/java/android/provider/Telephony.java
+frameworks_base/core/java/android/telephony/Rlog.java
+frameworks_base/core/java/android/util/Patterns.java
+
+# Batch B2 (retest 8's resolve list): android.accounts, AccountManager over a local account service
+# (framework/java/android/accounts/LocalAccountManager.java), with the classes an app's authenticator extends.
+frameworks_base/core/java/android/accounts/Account.java
+frameworks_base/core/java/android/accounts/Account.aidl
+frameworks_base/core/java/android/accounts/AccountManager.java
+frameworks_base/core/java/android/accounts/AccountManagerCallback.java
+frameworks_base/core/java/android/accounts/AccountManagerFuture.java
+frameworks_base/core/java/android/accounts/AccountManagerResponse.java
+frameworks_base/core/java/android/accounts/AccountsException.java
+frameworks_base/core/java/android/accounts/AuthenticatorDescription.java
+frameworks_base/core/java/android/accounts/AuthenticatorDescription.aidl
+frameworks_base/core/java/android/accounts/AuthenticatorException.java
+frameworks_base/core/java/android/accounts/NetworkErrorException.java
+frameworks_base/core/java/android/accounts/OnAccountsUpdateListener.java
+frameworks_base/core/java/android/accounts/OperationCanceledException.java
+frameworks_base/core/java/android/accounts/IAccountManager.aidl
+frameworks_base/core/java/android/accounts/IAccountManagerResponse.aidl
+frameworks_base/core/java/android/accounts/AbstractAccountAuthenticator.java
+frameworks_base/core/java/android/accounts/AccountAuthenticatorActivity.java
+frameworks_base/core/java/android/accounts/AccountAuthenticatorResponse.java
+frameworks_base/core/java/android/accounts/IAccountAuthenticator.aidl
+frameworks_base/core/java/android/accounts/IAccountAuthenticatorResponse.aidl
+frameworks_base/core/java/android/content/pm/UserPackage.java
+frameworks_base/core/java/android/util/SparseArrayMap.java
+frameworks_base/core/java/android/accounts/ChooseTypeAndAccountActivity.java
+frameworks_base/core/java/android/accounts/ChooseAccountTypeActivity.java
+frameworks_base/core/java/android/accounts/ChooseAccountActivity.java
+frameworks_base/core/java/android/accounts/CantAddAccountActivity.java
+frameworks_base/core/java/android/accounts/GrantCredentialsPermissionActivity.java
+frameworks_base/core/java/android/app/admin/DevicePolicyResources.java

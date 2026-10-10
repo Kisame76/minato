@@ -11,6 +11,8 @@
  */
 package android.app;
 
+import android.accounts.AccountManager;
+import android.accounts.IAccountManager;
 import android.app.job.IJobScheduler;
 import android.app.job.JobScheduler;
 import android.content.ClipboardManager;
@@ -106,6 +108,9 @@ final class SystemServiceRegistry {
         // Gap 1: as the tag's, over the local clipboard.
         cached(Context.CLIPBOARD_SERVICE, ClipboardManager.class,
                 ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
+        // Retest 8's batch B2: as the tag's, over the local account service.
+        cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
+                IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));
         // Gap 9: as JobSchedulerFrameworkInitializer's, over the local scheduler.
         cached(Context.JOB_SCHEDULER_SERVICE, JobScheduler.class, ctx -> new JobSchedulerImpl(ctx.getOuterContext(),
                 IJobScheduler.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.JOB_SCHEDULER_SERVICE))));

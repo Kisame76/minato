@@ -1,0 +1,23 @@
+I/sms-test: sms: uris content://sms content://sms/inbox content://sms/sent content://sms/draft content://sms/outbox content://sms/conversations
+I/sms-test: sms: others content://mms-sms/conversations content://mms content://telephony/carriers date DESC
+I/sms-test: sms: types 0 1 2 3 4 5 6
+I/sms-test: sms: columns address body date read type thread_id sub_id
+I/sms-test: sms: actions android.provider.Telephony.SMS_RECEIVED android.provider.Telephony.SMS_DELIVER android.provider.Telephony.WAP_PUSH_DELIVER android.provider.Telephony.ACTION_CHANGE_DEFAULT 2 1
+I/sms-test: patterns: email user@example.com true
+I/sms-test: patterns: email a.b+c@sub.example.co.uk true
+I/sms-test: patterns: email no-at.example.com false
+I/sms-test: patterns: email a@b false
+I/sms-test: patterns: email x@y.z true
+I/sms-test: patterns: web https://example.com/path?query=1#frag true
+I/sms-test: patterns: web example.com true
+I/sms-test: patterns: web http://localhost:8080/ false
+I/sms-test: patterns: web ftp://x.org true
+I/sms-test: patterns: web not a url false
+I/sms-test: patterns: web www.example.org/a_b true
+I/sms-test: patterns: web http://192.168.0.1/index.html true
+I/sms-test: patterns: phone +1 (555) 123-4567 true
+I/sms-test: patterns: phone 0049 30 123456 true
+I/sms-test: patterns: phone 12 false
+I/sms-test: patterns: phone 555.123.4567 true
+I/sms-test: patterns: ip true false domain true false
+I/sms-test: done

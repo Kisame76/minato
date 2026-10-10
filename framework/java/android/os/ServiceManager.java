@@ -21,6 +21,7 @@ import android.app.LocalActivityTaskManager;
 import android.app.LocalJobScheduler;
 import android.app.NotificationService;
 import android.content.ContentResolver;
+import android.accounts.LocalAccountManager;
 import android.content.LocalClipboard;
 import android.content.ContentService;
 import android.content.Context;
@@ -64,6 +65,7 @@ public final class ServiceManager {
         sMakers.put(Context.NOTIFICATION_SERVICE, NotificationService::newBinder);
         sMakers.put(Context.JOB_SCHEDULER_SERVICE, LocalJobScheduler::newBinder);
         sMakers.put(Context.CLIPBOARD_SERVICE, LocalClipboard::newBinder);
+        sMakers.put(Context.ACCOUNT_SERVICE, LocalAccountManager::newBinder);
     }
 
     private ServiceManager() {
