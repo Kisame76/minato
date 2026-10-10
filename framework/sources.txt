@@ -1533,3 +1533,8 @@ frameworks_base/core/java/android/content/ClipboardManager.java
 frameworks_base/core/java/android/text/ClipboardManager.java
 frameworks_base/core/java/android/content/IClipboard.aidl
 frameworks_base/core/java/android/content/IOnPrimaryClipChangedListener.aidl
+
+# The location listener (the Unity test APK probe: Unity's location service class implements it, and nativeRender looks that
+# class up), a bounded start of android.location; LocationManager and the providers stay absent (ADR-0045 decision 4).
+frameworks_base/core/java/android/location/Location.java
+location_java/location/java/android/location/LocationListener.java

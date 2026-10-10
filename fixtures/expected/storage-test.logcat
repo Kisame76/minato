@@ -1,0 +1,43 @@
+I/storage-test: files dir: /data/user/0/io.github.kisame76.minato.test.storage/files (directory)
+I/storage-test: cache dir: /data/user/0/io.github.kisame76.minato.test.storage/cache (directory)
+I/storage-test: code cache dir: /data/user/0/io.github.kisame76.minato.test.storage/code_cache (directory)
+I/storage-test: no backup files dir: /data/user/0/io.github.kisame76.minato.test.storage/no_backup (directory)
+I/storage-test: data dir: /data/user/0/io.github.kisame76.minato.test.storage (directory)
+I/storage-test: external files dir: /storage/emulated/0/Android/data/io.github.kisame76.minato.test.storage/files (directory)
+I/storage-test: external files dir, pictures: /storage/emulated/0/Android/data/io.github.kisame76.minato.test.storage/files/Pictures (directory)
+I/storage-test: external files dirs: [/storage/emulated/0/Android/data/io.github.kisame76.minato.test.storage/files (directory)]
+I/storage-test: external cache dir: /storage/emulated/0/Android/data/io.github.kisame76.minato.test.storage/cache (directory)
+I/storage-test: external cache dirs: [/storage/emulated/0/Android/data/io.github.kisame76.minato.test.storage/cache (directory)]
+I/storage-test: obb dir: /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.storage (directory)
+I/storage-test: obb dirs: [/storage/emulated/0/Android/obb/io.github.kisame76.minato.test.storage (directory)]
+I/storage-test: external storage state: mounted
+I/storage-test: external storage directory: /storage/emulated/0
+I/storage-test: external storage emulated: true, removable false
+I/storage-test: data directory: /data (directory)
+I/storage-test: download cache directory: /data/cache
+I/storage-test: root directory: /system (directory)
+I/storage-test: package code path: /data/app/~~X/io.github.kisame76.minato.test.storage-Y/base.apk
+I/storage-test: package resource path: /data/app/~~X/io.github.kisame76.minato.test.storage-Y/base.apk
+I/storage-test: application info: data /data/user/0/io.github.kisame76.minato.test.storage, device protected /data/user_de/0/io.github.kisame76.minato.test.storage, credential protected /data/user/0/io.github.kisame76.minato.test.storage, source /data/app/~~X/io.github.kisame76.minato.test.storage-Y/base.apk, public source /data/app/~~X/io.github.kisame76.minato.test.storage-Y/base.apk, native libraries /data/app/~~X/io.github.kisame76.minato.test.storage-Y/lib/arm64, process io.github.kisame76.minato.test.storage, uid app true
+I/storage-test: application info 2: native libraries /data/app/~~X/io.github.kisame76.minato.test.storage-Y/lib/arm64, root /data/app/~~X/io.github.kisame76.minato.test.storage-Y/lib, secondary abi null, secondary dir null, splits null, shared libraries null, target 35, min 29, class io.github.kisame76.minato.test.storage.StorageApplication, name io.github.kisame76.minato.test.storage.StorageApplication, package io.github.kisame76.minato.test.storage, enabled true, flags 10000004
+I/storage-test: properties: tmpdir /data/user/0/io.github.kisame76.minato.test.storage/cache, user.dir /, user.home , os.name Linux, java.vm.name Dalvik
+I/storage-test: environment: TMPDIR /data/user/0/io.github.kisame76.minato.test.storage/cache, ANDROID_DATA /data, ANDROID_ROOT /system, EXTERNAL_STORAGE /sdcard, ANDROID_STORAGE /storage, HOME null, PATH /product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin
+I/storage-test: working directory: /
+I/storage-test: env ANDROID_ART_ROOT=/apex/com.android.art
+I/storage-test: env ANDROID_ASSETS=/system/app
+I/storage-test: env ANDROID_BOOTLOGO=1
+I/storage-test: env ANDROID_DATA=/data
+I/storage-test: env ANDROID_I18N_ROOT=/apex/com.android.i18n
+I/storage-test: env ANDROID_ROOT=/system
+I/storage-test: env ANDROID_STORAGE=/storage
+I/storage-test: env ANDROID_TZDATA_ROOT=/apex/com.android.tzdata
+I/storage-test: env ASEC_MOUNTPOINT=/mnt/asec
+I/storage-test: env BOOTCLASSPATH=/apex/com.android.art/javalib/core-oj.jar:/apex/com.android....
+I/storage-test: env DEX2OATBOOTCLASSPATH=/apex/com.android.art/javalib/core-oj.jar:/apex/com.android....
+I/storage-test: env DOWNLOAD_CACHE=/data/cache
+I/storage-test: env EXTERNAL_STORAGE=/sdcard
+I/storage-test: env PATH=/product/bin:/apex/com.android.runtime/bin:/apex/com.android...
+I/storage-test: env STANDALONE_SYSTEMSERVER_JARS=/apex/com.android.btservices/javalib/service-bluetooth.jar:/...
+I/storage-test: env SYSTEMSERVERCLASSPATH=/system/framework/com.android.location.provider.jar:/system/...
+I/storage-test: env TMPDIR=/data/user/0/io.github.kisame76.minato.test.storage/cache
+I/storage-test: done

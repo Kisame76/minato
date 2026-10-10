@@ -1,0 +1,14 @@
+I/location-test: a location: test 35.6762 139.6503 40.5 12.5 3.25 90.0 1700000000000
+I/location-test: which fields it has: altitude true, accuracy true, speed true, bearing true, vertical accuracy false, mock false
+I/location-test: after removing two: accuracy false 12.5, bearing false 90.0
+I/location-test: a copy: test 40.5 1700000000000
+I/location-test: distance and bearing: 393182 m, -104.89 degrees
+I/location-test: distanceBetween: 393182 m, initial -104.89, final -107.28
+I/location-test: formats: 35.6762 | 35:40.572 | -139:39:1.08
+I/location-test: parsed: 35.6762 -139.65030000000002
+I/location-test: a bad coordinate: java.lang.IllegalArgumentException: coordinate=north
+I/location-test: a latitude out of range: java.lang.IllegalArgumentException: 99 is an unrecognized format
+I/location-test: extras: 7
+I/location-test: the text: Location[test 34.693700,135.502300 et=N alt=N vel=3.25]
+I/location-test: a listener: [changed 35.6762, changed 34.6937]
+I/location-test: done
