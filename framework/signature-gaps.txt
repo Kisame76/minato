@@ -17,7 +17,6 @@ android.app.AutomaticZenRule <- android.app.INotificationManager, android.app.No
 android.app.BroadcastOptions <- android.content.Context, android.content.ContextWrapper  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.app.IAlarmManager <- android.os.SystemClock  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.IAppTask <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.IInstrumentationWatcher <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.IServiceConnection <- android.content.Context, android.content.ContextWrapper  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
@@ -275,3 +274,4 @@ com.android.internal.view.ScrollCaptureInternal <- android.view.View  # gap: not
 com.android.internal.view.TooltipPopup <- android.view.View  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 
+android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet (batch D 3: IAlarmManager's Stub, which the local alarm service never runs)

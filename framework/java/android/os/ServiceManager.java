@@ -10,14 +10,15 @@
  * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
  * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1), the seventh "activity", ActivityManager's
  * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1), "user",
- * UserManager's (gap 1, batch 1b), "notification", NotificationManager's (gap 1, batch 2), and "jobscheduler",
- * JobScheduler's (gap 9); App's services join it.
+ * UserManager's (gap 1, batch 1b), "notification", NotificationManager's (gap 1, batch 2), "jobscheduler",
+ * JobScheduler's (gap 9), and "alarm", AlarmManager's (batch D 3); App's services join it.
  * A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
 
 import android.app.LocalActivityManagerService;
 import android.app.LocalActivityTaskManager;
+import android.app.LocalAlarmManager;
 import android.app.LocalJobScheduler;
 import android.app.NotificationService;
 import android.content.ContentResolver;
@@ -64,6 +65,7 @@ public final class ServiceManager {
         sMakers.put(Context.USER_SERVICE, UserService::newBinder);
         sMakers.put(Context.NOTIFICATION_SERVICE, NotificationService::newBinder);
         sMakers.put(Context.JOB_SCHEDULER_SERVICE, LocalJobScheduler::newBinder);
+        sMakers.put(Context.ALARM_SERVICE, LocalAlarmManager::newBinder);
         sMakers.put(Context.CLIPBOARD_SERVICE, LocalClipboard::newBinder);
         sMakers.put(Context.ACCOUNT_SERVICE, LocalAccountManager::newBinder);
     }

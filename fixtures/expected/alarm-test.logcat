@@ -1,0 +1,32 @@
+I/alarm-test: service: android.app.AlarmManager
+I/alarm-test: same again: true
+I/alarm-test: can schedule exact alarms: false
+I/alarm-test: set RTC_WAKEUP: ok
+I/alarm-test: set ELAPSED_REALTIME with a listener: ok
+I/alarm-test: setWindow: ok
+I/alarm-test: setRepeating: ok
+I/alarm-test: setInexactRepeating: ok
+I/alarm-test: setAndAllowWhileIdle: ok
+I/alarm-test: a negative trigger time: ok
+I/alarm-test: an unknown type: java.lang.IllegalArgumentException: Invalid alarm type 7
+I/alarm-test: no operation and no listener: ok
+I/alarm-test: setExact: java.lang.SecurityException: Caller io.github.kisame76.minato.test.alarm needs to hold android.permission.SCHEDULE_EXACT_ALARM or android.permission.USE_EXACT_ALARM to set exact alarms.
+I/alarm-test: setExact with a listener: ok
+I/alarm-test: setExactAndAllowWhileIdle: java.lang.SecurityException: Caller io.github.kisame76.minato.test.alarm needs to hold android.permission.SCHEDULE_EXACT_ALARM or android.permission.USE_EXACT_ALARM to set exact alarms.
+I/alarm-test: setAlarmClock: java.lang.SecurityException: Caller io.github.kisame76.minato.test.alarm needs to hold android.permission.SCHEDULE_EXACT_ALARM or android.permission.USE_EXACT_ALARM to set exact alarms.
+I/alarm-test: next alarm clock: null
+I/alarm-test: cancel a null PendingIntent: java.lang.NullPointerException: cancel() called with a null PendingIntent
+I/alarm-test: cancel a null listener: java.lang.NullPointerException: cancel() called with a null OnAlarmListener
+I/alarm-test: cancel the operation: ok
+I/alarm-test: cancel the listener: ok
+I/alarm-test: cancel a listener never set: ok
+I/alarm-test: cancelAll: ok
+I/alarm-test: setTime: java.lang.SecurityException: Access denied, requires: android.permission.SET_TIME
+I/alarm-test: setTimeZone of an empty ID: ok
+I/alarm-test: setTimeZone of no Olson ID: java.lang.IllegalArgumentException: Timezone: Nowhere/Nothing is not an Olson ID
+I/alarm-test: setTimeZone: java.lang.SecurityException: Access denied, requires: android.permission.SET_TIME_ZONE
+I/alarm-test: AlarmClockInfo: trigger 1234, show intent true, copy's trigger 1234, copy's intent equal true, contents 0
+I/alarm-test: types: 0 1 2 3
+I/alarm-test: intervals: 900000 1800000 3600000 43200000 86400000
+I/alarm-test: actions: android.app.action.NEXT_ALARM_CLOCK_CHANGED android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
+I/alarm-test: done

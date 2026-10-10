@@ -1,0 +1,26 @@
+I/pendingintent-test: same request: true, same hash: true
+I/pendingintent-test: other request code: false, other action: false, as an activity: false, as a service: false
+I/pendingintent-test: kinds: broadcast true false false, activity true, service true
+I/pendingintent-test: creator: io.github.kisame76.minato.test.pendingintent, own uid true, user UserHandle{0}, immutable true
+I/pendingintent-test: no create, missing: null
+I/pendingintent-test: no create, there: true
+I/pendingintent-test: no mutability flag: java.lang.IllegalArgumentException: io.github.kisame76.minato.test.pendingintent: Targeting S+ (version 31 and above) requires that one of FLAG_IMMUTABLE or FLAG_MUTABLE be specified when creating a PendingIntent.
+I/pendingintent-test: Strongly consider using FLAG_IMMUTABLE, only use FLAG_MUTABLE if some functionality depends on the PendingIntent being mutable, e.g. if it needs to be used with inline replies or bubbles.
+I/pendingintent-test: both mutability flags: java.lang.IllegalArgumentException: Cannot set both FLAG_IMMUTABLE and FLAG_MUTABLE for PendingIntent
+I/pendingintent-test: cancel current: equal false, the old one sent: android.app.PendingIntent$CanceledException: null
+I/pendingintent-test: cancelled: sent android.app.PendingIntent$CanceledException: null, found again null
+I/pendingintent-test: cancel twice: ok
+I/pendingintent-test: send: sent
+I/pendingintent-test: update current: equal true, sent sent
+I/pendingintent-test: mutable with a fill-in: sent
+I/pendingintent-test: immutable with a fill-in: sent
+I/pendingintent-test: one shot: first sent, second android.app.PendingIntent$CanceledException: null
+I/pendingintent-test: ordered send: sent
+I/pendingintent-test: received SAME: n 1, fill-in null, ordered false
+I/pendingintent-test: received SAME: n 2, fill-in null, ordered false
+I/pendingintent-test: received MUTABLE: n 0, fill-in x, ordered false
+I/pendingintent-test: received IMMUTABLE: n 0, fill-in null, ordered false
+I/pendingintent-test: received ONCE: n 0, fill-in null, ordered false
+I/pendingintent-test: received ORDERED: n 0, fill-in null, ordered true
+I/pendingintent-test: finished: code 42, data from the receiver, same true, action ORDERED
+I/pendingintent-test: done

@@ -114,6 +114,10 @@ final class SystemServiceRegistry {
         // Gap 9: as JobSchedulerFrameworkInitializer's, over the local scheduler.
         cached(Context.JOB_SCHEDULER_SERVICE, JobScheduler.class, ctx -> new JobSchedulerImpl(ctx.getOuterContext(),
                 IJobScheduler.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.JOB_SCHEDULER_SERVICE))));
+        // Batch D 3: as JobSchedulerFrameworkInitializer's, over the local alarm service.
+        cached(Context.ALARM_SERVICE, AlarmManager.class, ctx -> new AlarmManager(
+                IAlarmManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ALARM_SERVICE)),
+                ctx.getOuterContext()));
     }
 
     private SystemServiceRegistry() {

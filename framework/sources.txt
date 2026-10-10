@@ -1710,3 +1710,9 @@ frameworks_base/core/java/android/print/PrintDocumentInfo.java
 frameworks_base/core/java/android/print/PrintJob.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/ShapeDrawable.java
 
+# The alarm manager (ADR-0045: alarms kept, none run; batch D 3), alarm-test: the apex's AlarmManager and its AIDL,
+# over the local alarm service (android.app.LocalAlarmManager) that ServiceManager gives as "alarm".
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/AlarmManager.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/IAlarmManager.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/IAlarmListener.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/IAlarmCompleteListener.aidl

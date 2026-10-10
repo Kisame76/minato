@@ -12,10 +12,11 @@
  * BroadcastReceiver.PendingResult sends it), until the end or an abort, then its final receiver, also when nothing
  * matched. Broadcasts reach the process one after the other, as Android's per-process queue delivers them: one waits
  * while an ordered one before it waits for a receiver. The one app is sender and receiver alike, so exported or not,
- * every filter matches it, and permissions are the app's own. Not yet written, each answered as the generated
- * methods are, with a line once and Android's default: sticky broadcasts, broadcast options and app ops, manifest
- * receivers (ADR-0045 decision 5), PendingIntents (step d3), and the services, StrictMode's dropbox, instrumentation
- * and locus contexts that framework.jar also asks the activity manager about.
+ * every filter matches it, and permissions are the app's own. PendingIntents (step d3) are LocalPendingIntents'. Not
+ * yet written, each answered as the generated methods are, with a line once and Android's default: sticky
+ * broadcasts, broadcast options and app ops, manifest receivers (ADR-0045 decision 5), a PendingIntent's intent, tag
+ * and target, and the services, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also asks
+ * the activity manager about.
  */
 package android.app;
 
@@ -56,6 +57,8 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     private static final int MAX_RECEIVERS_ALLOWED_PER_APP = 1000;
 
     private final Object mLock = new Object();
+    /** The process's PendingIntents (step d3). */
+    private final LocalPendingIntents mPendingIntents = new LocalPendingIntents(this);
     /** The registered receivers by their IIntentReceiver's Binder; under mLock, as the two below. */
     private final HashMap<IBinder, ReceiverList> mReceivers = new HashMap<>();
     /** Every registered filter in registration order, which ties of priority keep. */
@@ -357,45 +360,41 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         return app != null ? app.getApplicationInfo().targetSdkVersion : Build.VERSION_CODES.CUR_DEVELOPMENT;
     }
 
-    // PendingIntents come with step d3: until then, as the generated methods, a line once and Android's default.
+    // PendingIntents (step d3): LocalPendingIntents', as PendingIntentController's.
 
     @Override
     public IIntentSender getIntentSenderWithFeature(int type, String packageName, String featureId, IBinder token,
             String resultWho, int requestCode, Intent[] intents, String[] resolvedTypes, int flags, Bundle options,
             int userId) {
-        Unwritten.log("android.app.IActivityManager.getIntentSenderWithFeature (ADR-0045 step d3)", "null");
-        return null;
+        return mPendingIntents.get(type, packageName, featureId, token, resultWho, requestCode, intents, resolvedTypes,
+                flags, userId);
     }
 
     @Override
     public void cancelIntentSender(IIntentSender sender) {
-        Unwritten.log("android.app.IActivityManager.cancelIntentSender (ADR-0045 step d3)", null);
+        mPendingIntents.cancel(sender);
     }
 
     @Override
     public ActivityManager.PendingIntentInfo getInfoForIntentSender(IIntentSender sender) {
-        Unwritten.log("android.app.IActivityManager.getInfoForIntentSender (ADR-0045 step d3)", "null");
-        return null;
+        return mPendingIntents.info(sender);
     }
 
     @Override
     public boolean registerIntentSenderCancelListenerEx(IIntentSender sender, IResultReceiver receiver) {
-        Unwritten.log("android.app.IActivityManager.registerIntentSenderCancelListenerEx (ADR-0045 step d3)",
-                "false");
-        return false;
+        return mPendingIntents.registerCancelListener(sender, receiver);
     }
 
     @Override
     public void unregisterIntentSenderCancelListener(IIntentSender sender, IResultReceiver receiver) {
-        Unwritten.log("android.app.IActivityManager.unregisterIntentSenderCancelListener (ADR-0045 step d3)", null);
+        mPendingIntents.unregisterCancelListener(sender, receiver);
     }
 
     @Override
     public int sendIntentSender(IApplicationThread caller, IIntentSender target, IBinder whitelistToken, int code,
             Intent intent, String resolvedType, IIntentReceiver finishedReceiver, String requiredPermission,
             Bundle options) {
-        Unwritten.log("android.app.IActivityManager.sendIntentSender (ADR-0045 step d3)", "START_CANCELED");
-        return ActivityManager.START_CANCELED;
+        return mPendingIntents.send(target, code, intent, resolvedType, finishedReceiver, requiredPermission, options);
     }
 
     @Override
