@@ -16,8 +16,8 @@
 #                             Conscrypt's certificates (ADR-0046 decision 4)
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
 #                             zones' APEX folders as ART and ICU look for them, with the boot jars in javalib/, ICU's
-#                             data, the time zone file, and Conscrypt's CA certificates in its cacerts/ (ADR-0046
-#                             decision 4)
+#                             data, the tzdata module's files (the compatibility plan's gap 21), and Conscrypt's CA
+#                             certificates in its cacerts/ (ADR-0046 decision 4)
 #   apex-lib64/<APEX>/        the APEXes' lib64: ART's release flavor in com.android.art, libjavacrypto in
 #                             com.android.conscrypt
 #   resource-cache/           Monet's overlays (ADR-0043 f)), the fabricated overlays of
@@ -151,7 +151,28 @@ for jar in "$ART"/javalib/*.jar; do
   fi
 done
 cp "$ICU_DATA" "$APEX/com.android.i18n/etc/icu/"
-cp "$BIONIC/system/usr/share/zoneinfo/tzdata" "$APEX/com.android.tzdata/etc/tz/"
+# The tzdata module as Android 15's com.android.tzdata (the compatibility plan's gap 21): bionic's tzdata and its
+# tz_version at the top and in versioned/8, where libcore reads them; there too the tag's lookups, and ICU's time
+# zone resources of the same release in icu/: one IANA release for bionic, libcore and ICU (ADR-0033 decision 9).
+TZ_MODULE="$APEX/com.android.tzdata/etc/tz"
+TZDATA="$BIONIC/system/usr/share/zoneinfo/tzdata"
+TIMEZONE_DATA="$SRCROOT/build/sources/timezone/output_data/android"
+release=$(head -c 12 "$TZDATA" | tail -c 6 | tr -d '\0')
+ICU_TZDATA="$SRCROOT/build/sources/icu_tzdata/tzdata/icunew/$release/44/le"
+if [[ ! -d "$ICU_TZDATA" || ! -f "$TIMEZONE_DATA/tzlookup.xml" ]]; then
+  echo "error: $ICU_TZDATA or $TIMEZONE_DATA/tzlookup.xml is missing; tools/fetch-sources.py --set art fetches them." \
+    "Bionic's tzdata is of $release: a newer release needs icu-data's files pinned in third_party/sources.json" >&2
+  exit 1
+fi
+mkdir -p "$TZ_MODULE/versioned/8/icu"
+for place in "$TZ_MODULE" "$TZ_MODULE/versioned/8"; do
+  cp "$TZDATA" "$place/"
+  printf '008.001|%s|001' "$release" > "$place/tz_version"
+done
+cp "$TIMEZONE_DATA/tzlookup.xml" "$TIMEZONE_DATA/telephonylookup.xml" "$TZ_MODULE/versioned/8/"
+for name in zoneinfo64 metaZones timezoneTypes windowsZones; do
+  cp "$ICU_TZDATA/$name.res" "$TZ_MODULE/versioned/8/icu/"
+done
 for library in "$ART"/lib/*.so; do
   name=$(basename "$library")
   if [[ "$name" == "$CONSCRYPT_LIB" ]]; then

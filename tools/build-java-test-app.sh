@@ -33,6 +33,7 @@
 # breadth-test, the framework breadth's behavior test, is one too.
 # sqlite-test (the compatibility plan's gap 7) is one more, whose activity makes, changes and deletes its own SQLite
 # database.
+# timezone-test (the compatibility plan's gap 21) is one more, whose activity reads the time zone data.
 # resolve-log-test (the Unity test APK probe's log of failed resolutions) is one more, whose compile-only/ classes javac
 # compiles the app against and D8 leaves out, so that the app meets missing classes and members at run time.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,

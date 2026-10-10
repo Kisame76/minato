@@ -12,7 +12,7 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     (build/sources/ca-certificates) in its cacerts, where the runtime's link /system/etc/security/cacerts leads
     (ADR-0046 decision 4);
   - bionic's libraries and libandroid_runtime.so (ADR-0039 decision 10) in /system/lib64, bionic's /system, ICU's
-    data and the time zone file in their APEXes;
+    data and the tzdata module's files (the compatibility plan's gap 21, tzdata_module()) in their APEXes;
   - libhwui.so and its set (tools/build-hwui.sh) in /system/lib64, with ART's build's copies of libbase,
     libziparchive, libexpat and libc++_shared beside them, as graphics/tests/hwui_load_run.py lays them out:
     libandroid_runtime registers hwui's graphics natives at every start, and bionic's /system has the fonts that
@@ -81,6 +81,15 @@ MONET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "to
 # Conscrypt's CA certificates (ADR-0046 decision 4), the guest's /apex/com.android.conscrypt/cacerts.
 CA_CERTIFICATES = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build",
                                                "sources", "ca-certificates", "files"))
+# The tzdata module's files of the tag that are no IANA data (the compatibility plan's gap 21): system/timezone's
+# output_data (tools/fetch-sources.py --set art), as its APEX installs them.
+TIMEZONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "sources", "timezone",
+                        "output_data")
+# ICU's time zone resources by IANA release, icu-data's (tools/fetch-sources.py --set art icu_tzdata), in the format
+# 44 that ICU 75 reads, little-endian.
+ICU_TZDATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "sources", "icu_tzdata",
+                          "tzdata", "icunew")
+ICU_TIMEZONE_FILES = ("zoneinfo64.res", "metaZones.res", "timezoneTypes.res", "windowsZones.res")
 
 
 def collector_type(stderr):
@@ -220,6 +229,8 @@ def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
                         (os.path.join(art, "lib", CONSCRYPT_LIBRARY), "tools/build-art.sh"),
                         (os.path.join(art, "javalib", "conscrypt.jar"), "tools/build-art.sh"),
                         (CA_CERTIFICATES, "tools/fetch-sources.py --set art"),
+                        (os.path.join(TIMEZONE, "android", "tzlookup.xml"), "tools/fetch-sources.py --set art"),
+                        (ICU_TZDATA, "tools/fetch-sources.py --set art"),
                         (app_process, "tools/build-framework-native.sh"),
                         (framework_jar, "tools/build-framework.sh"),
                         (apk, f"tools/build-java-test-app.sh {app}"),
@@ -268,6 +279,31 @@ def run_app(command, last=None, grace=2.0, timeout=300):
     if status is None:
         return None
     return subprocess.CompletedProcess(command, status, "".join(output["stdout"]), "".join(output["stderr"]))
+
+
+def tzdata_module(tzdata, folder):
+    """Lays out the tzdata module's etc/tz in `folder` as Android 15's com.android.tzdata has it (the compatibility
+    plan's gap 21): bionic's `tzdata` with its tz_version at the top, for bionic, and the same two in versioned/8,
+    where libcore reads them (TimeZoneDataFiles); there too the tag's tzlookup.xml and telephonylookup.xml, and ICU's
+    time zone resources of the same release in icu/, where IcuRegistration points ICU: one IANA release for bionic,
+    libcore and ICU (ADR-0033 decision 9). tz_version is in the tag's format, "008.001|<release>|001", with the
+    release of `tzdata`'s header."""
+    with open(tzdata, "rb") as handle:
+        release = handle.read(12)[len("tzdata"):].rstrip(b"\0").decode("ascii")
+    icu = os.path.join(ICU_TZDATA, release, "44", "le")
+    if not os.path.isdir(icu):
+        raise SystemExit(f"bionic's tzdata is of {release}, and build/sources/icu_tzdata has no ICU time zone "
+                         f"resources of it: pin icu-data's files of {release} in third_party/sources.json")
+    versioned = os.path.join(folder, "versioned", "8")
+    os.makedirs(os.path.join(versioned, "icu"))
+    for place in (folder, versioned):
+        os.link(tzdata, os.path.join(place, "tzdata"))
+        with open(os.path.join(place, "tz_version"), "w", encoding="ascii") as handle:
+            handle.write(f"008.001|{release}|001")
+    for name in ("tzlookup.xml", "telephonylookup.xml"):
+        os.link(os.path.join(TIMEZONE, "android", name), os.path.join(versioned, name))
+    for name in ICU_TIMEZONE_FILES:
+        os.link(os.path.join(icu, name), os.path.join(versioned, "icu", name))
 
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
@@ -360,11 +396,11 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
             os.chmod(os.path.join(run, app.lstrip("/"), "signers.json"), 0o444)
         shutil.copy(framework_jar, os.path.join(run, "framework", "framework.jar"))
         for source, target in ((icu_data, f"apex/com.android.i18n/etc/icu/{os.path.basename(icu_data)}"),
-                               (os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
-                                "apex/com.android.tzdata/etc/tz/tzdata"),
                                (os.path.join(art, "javalib", "conscrypt.jar"),
                                 "apex/com.android.conscrypt/javalib/conscrypt.jar")):
             os.link(source, os.path.join(run, target))
+        tzdata_module(os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
+                      os.path.join(run, "apex/com.android.tzdata/etc/tz"))
     # Over the same run too, where they are already in place: the APK's JNI libraries (ADR-0042 b1).
     libraries = install_libraries(apk_convert, apk, os.path.join(run, app.lstrip("/"), "lib", "arm64"), work)
 

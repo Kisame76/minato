@@ -9,7 +9,9 @@ libraries go in as the import installs them, the ELF originals read-only in the 
 beside the run, converted again only for a changed library and gone with a removed one; an APK without libraries
 keeps start()'s command as it was. Run with stand-ins for apk-convert and apk-run. And start() with the graphics
 front libs (ADR-0041 a)), libvulkan's too, since every start preloads them as public libraries (ADR-0040 decision
-3): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder."""
+3): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder. And start()'s tzdata module
+(the compatibility plan's gap 21): bionic's tzdata at the top and in versioned/8 with a tz_version of its release,
+the tag's lookups and ICU's resources of the same release; a release without them stops the start."""
 import os
 import stat
 import sys
@@ -201,9 +203,21 @@ with tempfile.TemporaryDirectory() as scratch:
     for path in [os.path.join(inputs["art"], "lib", name) for name in
                  [app_process_run.CONSCRYPT_LIBRARY, *app_process_run.PLATFORM_COPIES]] + [
             os.path.join(inputs["art"], "javalib", "conscrypt.jar"),
-            os.path.join(inputs["bionic-system"], "usr", "share", "zoneinfo", "tzdata"),
             os.path.join(tree, "icudt75l.dat"), os.path.join(tree, "app_process64"),
             os.path.join(tree, "framework.jar")]:
+        with open(path, "w") as handle:
+            handle.write(os.path.basename(path))
+    # Bionic's tzdata, whose header names its IANA release, and the tzdata module's other sources (the compatibility
+    # plan's gap 21): the tag's lookups and icu-data's ICU resources by release.
+    bionic_tzdata = os.path.join(inputs["bionic-system"], "usr", "share", "zoneinfo", "tzdata")
+    with open(bionic_tzdata, "wb") as handle:
+        handle.write(b"tzdata2026c\0" + b"zones")
+    app_process_run.TIMEZONE = os.path.join(tree, "output_data")
+    app_process_run.ICU_TZDATA = os.path.join(tree, "icunew")
+    for path in [os.path.join(tree, "output_data", "android", name) for name in
+                 ("tzlookup.xml", "telephonylookup.xml")] + [
+            os.path.join(tree, "icunew", "2026c", "44", "le", name) for name in app_process_run.ICU_TIMEZONE_FILES]:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as handle:
             handle.write(os.path.basename(path))
     # The graphics front libs, which tools/build-front-libs.sh builds beside app_process's build.
@@ -237,6 +251,31 @@ with tempfile.TemporaryDirectory() as scratch:
     check([open(os.path.join(plain_lib64, name + ".dylib")).read() if name + ".dylib" in files(plain_lib64) else None
            for name in fronts] == [f"{name}'s ELF" for name in fronts],
           f"the graphics front libs' containers go to /system/lib64: {files(plain_lib64)}")
+    # The tzdata module as Android 15's: bionic's tzdata and its tz_version at the top and in versioned/8, where
+    # libcore reads them, with the tag's lookups and ICU's resources of the same release (ADR-0033 decision 9).
+    module = os.path.join(scratch, "plain-work", "run", "apex", "com.android.tzdata", "etc", "tz")
+    layout = sorted(os.path.relpath(os.path.join(folder, name), module) for folder, _, names in os.walk(module)
+                    for name in names)
+    check(layout == ["tz_version", "tzdata", "versioned/8/icu/metaZones.res", "versioned/8/icu/timezoneTypes.res",
+                     "versioned/8/icu/windowsZones.res", "versioned/8/icu/zoneinfo64.res",
+                     "versioned/8/telephonylookup.xml", "versioned/8/tz_version", "versioned/8/tzdata",
+                     "versioned/8/tzlookup.xml"], f"the tzdata module's files: {layout}")
+    check([open(os.path.join(module, place, "tz_version")).read() for place in (".", "versioned/8")]
+          == ["008.001|2026c|001"] * 2, "tz_version names bionic's release in the tag's format")
+    check(all(os.path.samefile(os.path.join(module, place, "tzdata"), bionic_tzdata) for place in (".", "versioned/8")),
+          "both tzdata are bionic's file")
+    check(open(os.path.join(module, "versioned/8/icu/zoneinfo64.res")).read() == "zoneinfo64.res",
+          "ICU's resources are those of bionic's release")
+    newer = os.path.join(scratch, "newer-tzdata")
+    with open(newer, "wb") as handle:
+        handle.write(b"tzdata2026d\0" + b"zones")
+    try:
+        app_process_run.tzdata_module(newer, os.path.join(scratch, "newer-module"))
+        stopped = None
+    except SystemExit as stop:
+        stopped = str(stop)
+    check(stopped is not None and "2026d" in stopped and "third_party/sources.json" in stopped,
+          f"a release without ICU's resources stops the start and names the pin to make: {stopped}")
     godot_work = os.path.join(scratch, "godot-work")
     command = started(godot, godot_work)
     app = app_process_run.code_path(godot, "io.example.app")

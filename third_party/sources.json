@@ -269,6 +269,20 @@
       "digest": "a808f86bcdf6e91e3e9fef5c7c772e1c8050f140a56910299c16aca41e42f37c"
     },
     {
+      "name": "icu_tzdata",
+      "raw": "https://raw.githubusercontent.com/unicode-org/icu-data/1c3d36e741bd648caaaba3a744267b23ca41bfc1",
+      "commit": "1c3d36e741bd648caaaba3a744267b23ca41bfc1",
+      "license": "Unicode-3.0",
+      "files": [
+        "LICENSE",
+        "tzdata/icunew/2026c/44/le/zoneinfo64.res",
+        "tzdata/icunew/2026c/44/le/metaZones.res",
+        "tzdata/icunew/2026c/44/le/timezoneTypes.res",
+        "tzdata/icunew/2026c/44/le/windowsZones.res"
+      ],
+      "digest": "6883b87a6308cb430529ce63ce7496eb34f2ed4ef58c86ecd07da28728464c74"
+    },
+    {
       "name": "unwinding",
       "project": "platform/system/unwinding",
       "commit": "63e40770259ea336f17be2ba6af791e89419169c",

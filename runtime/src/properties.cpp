@@ -37,6 +37,7 @@
 #include "APKRuntime/apkrt.h"
 #include "host_calls.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <sys/sysctl.h>
 
 #include <atomic>
@@ -120,6 +121,17 @@ std::string machine() {
     std::size_t size = sizeof name;
     if (::sysctlbyname("hw.machine", name, &size, nullptr, 0) != 0) return {};
     return name;
+}
+
+/// The host's time zone as the system names it, an IANA ID such as "Europe/Berlin": the iPhone's zone, or the Mac's.
+/// Empty when it has none.
+std::string time_zone() {
+    const CFTimeZoneRef zone = CFTimeZoneCopySystem();
+    if (zone == nullptr) return {};
+    char name[value_max] = "";
+    const bool named = CFStringGetCString(CFTimeZoneGetName(zone), name, sizeof name, kCFStringEncodingUTF8);
+    CFRelease(zone);
+    return named ? name : std::string();
 }
 
 /// The area as it is written: data_'s objects at offsets from data_, which the trie's links hold.
@@ -248,6 +260,10 @@ std::string area() {
     const std::string model = machine();
     written.add("ro.product.model", model);
     written.add("ro.product.device", model);
+    // The device's time zone, which Android keeps in persist.sys.timezone and every process reads: bionic's
+    // localtime, libcore's default time zone and ICU's through it (the compatibility plan's gap 21). Without it they
+    // take GMT, as on an Android device whose zone was never set.
+    if (const std::string zone = time_zone(); !zone.empty()) written.add("persist.sys.timezone", zone);
     // The Vulkan driver's name, which Android 15's libvulkan reads to load vulkan.<name>.so (driver.cpp), only while
     // graphics/host provides Vulkan: MoltenVK, none in the Simulator. The framework reports the vulkan.* features
     // only with it (ADR-0045). The host sets its providers before the program starts, so before libc opens the area.

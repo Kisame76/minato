@@ -1,0 +1,28 @@
+I/timezone-test: file tzdata: true
+I/timezone-test: file tz_version: true
+I/timezone-test: file versioned/8/tzdata: true
+I/timezone-test: file versioned/8/tz_version: true
+I/timezone-test: file versioned/8/tzlookup.xml: true
+I/timezone-test: file versioned/8/telephonylookup.xml: true
+I/timezone-test: file versioned/8/icu/zoneinfo64.res: true
+I/timezone-test: file versioned/8/icu/metaZones.res: true
+I/timezone-test: file versioned/8/icu/timezoneTypes.res: true
+I/timezone-test: file versioned/8/icu/windowsZones.res: true
+I/timezone-test: America/New_York: id America/New_York, raw -18000000, january -18000000, july -14400000, daylight true 3600000, in daylight in july true
+I/timezone-test: Europe/Berlin: id Europe/Berlin, raw 3600000, january 3600000, july 7200000, daylight true 3600000, in daylight in july true
+I/timezone-test: Asia/Kolkata: id Asia/Kolkata, raw 19800000, january 19800000, july 19800000, daylight false 0, in daylight in july false
+I/timezone-test: Australia/Lord_Howe: id Australia/Lord_Howe, raw 37800000, january 39600000, july 37800000, daylight true 1800000, in daylight in july false
+I/timezone-test: America/Sao_Paulo: id America/Sao_Paulo, raw -10800000, january -10800000, july -10800000, daylight false 0, in daylight in july false
+I/timezone-test: Pacific/Chatham: id Pacific/Chatham, raw 45900000, january 49500000, july 45900000, daylight true 3600000, in daylight in july false
+I/timezone-test: unknown: GMT
+I/timezone-test: custom: GMT+05:30, raw 19800000
+I/timezone-test: names: Eastern Standard Time, EDT, Mitteleuropäische Sommerzeit
+I/timezone-test: ids: more than 400 true, Europe/Berlin true
+I/timezone-test: ids at +01:00: Europe/Berlin true, Asia/Kolkata false
+I/timezone-test: format: 2024-01-15 07:00 EST, 2024-07-15 08:00 EDT
+I/timezone-test: calendar: 17:30, zone offset 19800000
+I/timezone-test: java.time: 2024-07-15T08:00-04:00[America/New_York]
+I/timezone-test: java.time: 2024-07-16T00:45+12:45[Pacific/Chatham]
+I/timezone-test: java.time ids: more than 400 true
+I/timezone-test: icu: America/New_York, january -18000000, july -14400000
+I/timezone-test: done

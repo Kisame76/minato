@@ -10,6 +10,7 @@
 #include "APKRuntime/apkrt.h"
 #include "check.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <sys/sysctl.h>
 
 #include <cstdint>
@@ -77,6 +78,16 @@ std::string machine() {
     return name;
 }
 
+/// The host's time zone, as the system names it: an IANA ID such as "Europe/Berlin".
+std::string host_time_zone() {
+    const CFTimeZoneRef zone = CFTimeZoneCopySystem();
+    CHECK(zone != nullptr);
+    char name[92] = "";
+    CHECK(CFStringGetCString(CFTimeZoneGetName(zone), name, sizeof name, kCFStringEncodingUTF8));
+    CFRelease(zone);
+    return name;
+}
+
 TEST(the_abi_lists_name_arm64_v8a_alone) {
     CHECK(get("ro.product.cpu.abilist") == "arm64-v8a");
     CHECK(get("ro.product.cpu.abilist64") == "arm64-v8a");
@@ -131,6 +142,12 @@ TEST(the_earlier_values_stay) {
     CHECK(get("ro.build.version.release") == "15");
     CHECK(get("ro.debuggable") == "0");
     CHECK(get("dalvik.vm.heapsize") == "512m");
+}
+
+TEST(the_time_zone_is_the_hosts) {
+    // Android keeps the device's zone in persist.sys.timezone, which bionic's localtime and libcore's default time
+    // zone read (the compatibility plan's gap 21): the iPhone's zone, or the Mac's.
+    CHECK(get("persist.sys.timezone") == host_time_zone());
 }
 
 TEST(libcutils_ashmem_takes_memfd_create) {

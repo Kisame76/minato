@@ -89,6 +89,22 @@ Used only to build: the NDK's `glslc` (Apache-2.0), which compiles the scene's s
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.
 
+Android's tzdata module (`com.android.tzdata`) lies in every app build as Android 15 lays it out (the compatibility
+plan's gap 21): `etc/tz/tzdata` and `etc/tz/versioned/8/tzdata` are the file above, with a `tz_version` beside each
+in the tag's format (`008.001|<release>|001`, the release of the file's header); `versioned/8/tzlookup.xml` and
+`telephonylookup.xml` are `system/timezone`'s `output_data/android` at the tag (Apache-2.0, generated from IANA's data
+and ISO country data); `versioned/8/icu/` has ICU's four time zone resources of the same release, `zoneinfo64.res`,
+`metaZones.res`, `timezoneTypes.res` and `windowsZones.res`, from the `icu-data` repository (below). ICU, libcore and
+bionic then answer from one IANA release (ADR-0033 decision 9).
+
+| Source | Pin | Licence | What ships |
+|---|---|---|---|
+| `unicode-org/icu-data` (GitHub) | commit `1c3d36e741bd648caaaba3a744267b23ca41bfc1` (2026-07-09, "ICU-23458 Manual patch"), digest `6883b87a6308cb430529ce63ce7496eb34f2ed4ef58c86ecd07da28728464c74` in `third_party/sources.json` (`icu_tzdata`, list art) | Unicode License V3 (`LICENSE` at the root, fetched with the files: its notice must go with every build that ships the data); permissive, no copyleft | `tzdata/icunew/2026c/44/le/`: `zoneinfo64.res` (147,200 bytes), `metaZones.res` (43,536), `timezoneTypes.res` (21,248), `windowsZones.res` (22,064): ICU 75's resources, format 44, little-endian, in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/icu/` |
+
+The user's go for the fetch: 2026-10-08, "Ja, laden" (4 files, 234,048 bytes plus LICENSE, in Formate's chat).
+A newer tz release needs these four files of that release pinned too (embed-guest-system.sh and
+framework/tests/app_process_run.py name the pin to make when bionic's tzdata is of a release without them).
+
 ## ART and its libraries (ADR-0033)
 
 AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of [`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK. Since step d2 every app build embeds that build's release flavor (`tools/embed-guest-system.sh`): the jars, ICU's data and the time zone files in `Guest/apex`, the libraries as signed containers in `Guest/apex-lib64`. The debug flavor (`libartd`, `libartbased`, `libdexfiled`, `libopenjdkd`, `libopenjdkjvmd`, `libprofiled`) and ART's tests go only into fixture builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
@@ -119,7 +135,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/system/unwinding` | `63e40770259e` | Apache-2.0 | `libunwindstack`, for ART's stack dumps |
 | `platform/external/dlmalloc` | `f18b9ade29f2` (dlmalloc 2.8.6) | public domain (CC0-1.0, `NOTICE`) | the allocator of ART's dlmalloc spaces, compiled into `libart` |
 | `platform/system/logging` | `54d3fa266d21` | Apache-2.0 (`liblog/NOTICE`) | only `liblog/include`: the headers ART and libcore compile against; `liblog.so` is Minato's own |
-| `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 | only read: the format of the time zone files (ADR-0033, decision 9); nothing of it ships |
+| `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 (`NOTICE` license type; the generated data follows IANA's notice) | the format of the time zone files (ADR-0033, decision 9) is only read; `output_data/android/tzlookup.xml` and `telephonylookup.xml` ship in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/` (gap 21) |
 
 **GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm` ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision (`docs/STATUS.md`). ADR-0033 also names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
 

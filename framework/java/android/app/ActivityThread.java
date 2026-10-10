@@ -69,6 +69,7 @@ import android.os.Message;
 import android.os.MessageQueue;
 import android.os.StrictMode;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.permission.IPermissionManager;
 import android.provider.DeviceConfig;
@@ -386,6 +387,9 @@ public final class ActivityThread {
         LoggingHandler logging = new LoggingHandler();
         RuntimeHooks.setUncaughtExceptionPreHandler(logging);
         Thread.setDefaultUncaughtExceptionHandler(new KillApplicationHandler(logging));
+        // The default time zone is the device's, which the runtime puts in persist.sys.timezone (the compatibility
+        // plan's gap 21).
+        RuntimeHooks.setTimeZoneIdSupplier(() -> SystemProperties.get("persist.sys.timezone"));
         TrafficStats.attachSocketTagger();
         String packageName = null;
         String processName = null;

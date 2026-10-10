@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -296,6 +297,45 @@ def main():
               f"a link keeps its target as written, so the digest does not depend on Python's version: "
               f"{os.readlink(same) if os.path.islink(same) else None}")
     del SERVED[chain]
+
+    # Single files of one commit from a host that serves them raw (ICU's time zone resources from icu-data on GitHub,
+    # the compatibility plan's gap 21): its "raw" url names the commit by all 40 hex digits, and only the content
+    # digest pins them.
+    raw_commit = "5555" * 10
+    raw = f"https://raw.example/icu-data/{raw_commit}"
+    SERVED[f"{raw}/tzdata/le/zoneinfo64.res"] = b"zones\n"
+    SERVED[f"{raw}/LICENSE"] = b"licence\n"
+    listed = dict(manifest(), raw=[{"name": "icu_tzdata", "raw": raw, "commit": raw_commit,
+                                    "files": ["tzdata/le/zoneinfo64.res", "LICENSE"], "digest": ""}])
+    with tempfile.TemporaryDirectory() as root:
+        fetched, error, after = run(module, root, listed, ["--set", "raw", "--pin"])
+        check(error is None and fetched == [f"{raw}/tzdata/le/zoneinfo64.res", f"{raw}/LICENSE"],
+              f"raw files of a commit: {fetched} {error}")
+        check(after["raw"][0]["digest"] != "", "--pin pins the raw files' content digest")
+        with open(os.path.join(root, "build/sources/icu_tzdata/tzdata/le/zoneinfo64.res"), "rb") as handle:
+            check(handle.read() == b"zones\n", "a raw file lies in build/sources as it was served, not decoded")
+        SERVED[f"{raw}/LICENSE"] = b"another licence\n"
+        shutil.rmtree(os.path.join(root, "build/sources/icu_tzdata"))
+        fetched, error, _ = run(module, root, after, ["--set", "raw"])
+        SERVED[f"{raw}/LICENSE"] = b"licence\n"
+        check(error is not None and "digest" in error, f"other raw content under a pinned digest is refused: {error}")
+        check(not os.path.exists(os.path.join(root, "build/sources/icu_tzdata")),
+              "nothing of refused raw files is kept")
+    for what, path in (("an absolute path", "/etc/hosts"), ("a path up out of the folder", "../outside")):
+        with tempfile.TemporaryDirectory() as root:
+            listed = dict(manifest(), raw=[{"name": "icu_tzdata", "raw": raw, "commit": raw_commit,
+                                            "files": [path], "digest": ""}])
+            fetched, error, _ = run(module, root, listed, ["--set", "raw", "--pin"])
+            check(error is not None and "path" in error and fetched == [],
+                  f"{what} among raw files is refused before it is fetched: {fetched} {error}")
+    for what, url, commit in (("a branch's files", "https://raw.example/icu-data/main", raw_commit),
+                              ("an abbreviated commit", raw, raw_commit[:7])):
+        with tempfile.TemporaryDirectory() as root:
+            listed = dict(manifest(), raw=[{"name": "icu_tzdata", "raw": url, "commit": commit,
+                                            "files": ["LICENSE"], "digest": ""}])
+            fetched, error, _ = run(module, root, listed, ["--set", "raw", "--pin"])
+            check(error is not None and "commit" in error and fetched == [],
+                  f"{what} as raw files of a commit is refused before they are fetched: {fetched} {error}")
 
     with tempfile.TemporaryDirectory() as root:
         fetched, error, _ = run(module, root, manifest(), ["--set", "nothing"])

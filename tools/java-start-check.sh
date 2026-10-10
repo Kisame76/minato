@@ -40,6 +40,8 @@
 # and the program must end with 137, the kill of itself, and Minato go back to the library without a notice.
 # sqlite-test (the compatibility plan's gap 7) is one too: its own SQLite databases, whose files take the runtime's
 # locks inside the app's sandbox on the iPhone.
+# timezone-test (the compatibility plan's gap 21) is one too: the tzdata module's files in the app's /apex, and the
+# zones that libcore, java.time and ICU read from them.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -91,7 +93,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "activity-flow-test io.github.kisame76.minato.test.activityflow"
       "result-flow-test io.github.kisame76.minato.test.resultflow"
       "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash"
-      "sqlite-test io.github.kisame76.minato.test.sqlite")
+      "sqlite-test io.github.kisame76.minato.test.sqlite"
+      "timezone-test io.github.kisame76.minato.test.timezone")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -640,6 +643,9 @@ run_one result-flow-test io.github.kisame76.minato.test.resultflow
 run_one launch-mode-test io.github.kisame76.minato.test.launchmode
 # SQLite databases (the compatibility plan's gap 7): SQLiteOpenHelper on the main thread, cursors, WAL and the files.
 run_one sqlite-test io.github.kisame76.minato.test.sqlite
+# Time zones (the compatibility plan's gap 21): the tzdata module's files, and libcore's, java.time's and ICU's zones;
+# the device's zone is only shown.
+run_one timezone-test io.github.kisame76.minato.test.timezone
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.

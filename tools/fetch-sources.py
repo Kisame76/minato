@@ -8,7 +8,8 @@ android.googlesource.com, extracted to build/sources/<name>/. A source with a "u
 checked against its "sha256" before anything of it is extracted into its "directory" below the repository. An
 archive of one commit that its host makes on request, as GitHub's are (MoltenVK's sources, ADR-0044 b), names
 its "commit" instead of a "sha256", all 40 hex digits, which its "url" names too, and only its content is pinned, as
-for android.googlesource.com.
+for android.googlesource.com. A source with a "raw" url is single "files" of one commit from a host that serves them
+as they are (ICU's time zone resources from GitHub's icu-data), the commit named by all 40 hex digits in that url.
 The content is checked against the pinned digest in the list:
 SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not depend on how the
 server packs the archive. A source whose digest matches is not fetched again.
@@ -175,7 +176,21 @@ def main():
         staging = tempfile.mkdtemp(dir=os.path.dirname(target), prefix=f".{name}-")
         try:
             downloaded = 0
-            if "files" in source or "directories" in source:
+            if "raw" in source:
+                if not (re.fullmatch("[0-9a-f]{40}", source.get("commit", "")) and source["commit"] in source["raw"]):
+                    raise SystemExit(f"{name}: raw files are of the commit their url names, by all 40 hex digits, "
+                                     f"not {source.get('commit')!r} and {source['raw']}")
+                for path in source["files"]:
+                    if path.startswith("/") or ".." in path.split("/"):
+                        raise SystemExit(f"{name}: raw file path {path!r} leaves the source's folder")
+                for path in source["files"]:
+                    data = fetch(f"{source['raw']}/{path}")
+                    downloaded += len(data)
+                    file_path = os.path.join(staging, path)
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "wb") as handle:
+                        handle.write(data)
+            elif "files" in source or "directories" in source:
                 for directory in source.get("directories", []):
                     data = fetch(f"{host}/{source['project']}/+archive/{source['commit']}/{directory}.tar.gz")
                     downloaded += len(data)

@@ -11,8 +11,8 @@ every container in Guest/ passes `codesign -v`.
                     platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts, and an
                     empty etc/security/cacerts, a name the runtime links to Conscrypt's certificates
   apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data,
-                    the time zones, and Conscrypt's CA certificates in its cacerts/, the files of
-                    build/sources/ca-certificates (ADR-0046 decision 4)
+                    the tzdata module's files (the compatibility plan's gap 21), and Conscrypt's CA certificates in
+                    its cacerts/, the files of build/sources/ca-certificates (ADR-0046 decision 4)
   apex-lib64/       the APEXes' lib64: libart.so and libandroidicu.so (libsqlite's ICU) in ART's, libjavacrypto.so in
                     Conscrypt's
   resource-cache/   /data/resource-cache for a Java app (ADR-0043 f)): each overlay of
@@ -40,6 +40,12 @@ ART_COPIES = ["libbase.so", "libziparchive.so", "libexpat.so", "libc++_shared.so
 FRONT_LIBS = ["libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so"]
 BIONIC = ["libc.so", "libdl.so", "libm.so", "liblog.so", "libandroid.so", "libnativewindow.so", "libz.so"]
 ART_JARS = ["core-oj.jar", "core-libart.jar", "okhttp.jar", "bouncycastle.jar", "core-icu4j.jar"]
+# The tzdata module's files in etc/tz: bionic's tzdata with its tz_version, and in versioned/8 the same two for libcore,
+# the lookups and ICU's time zone resources.
+TZDATA_MODULE = (["tzdata", "tz_version"]
+                 + [f"versioned/8/{name}" for name in ("tzdata", "tz_version", "tzlookup.xml", "telephonylookup.xml")]
+                 + [f"versioned/8/icu/{name}.res" for name in ("zoneinfo64", "metaZones", "timezoneTypes",
+                                                               "windowsZones")])
 
 
 def monet_files():
@@ -58,8 +64,10 @@ REQUIRED = (
        "system/etc/public.libraries.txt", "system/usr/share/zoneinfo/tzdata"]
     + [f"apex/com.android.art/javalib/{jar}" for jar in ART_JARS]
     + ["apex/com.android.conscrypt/javalib/conscrypt.jar", "apex/com.android.i18n/etc/icu/icudt75l.dat",
-       "apex/com.android.tzdata/etc/tz/tzdata", "apex-lib64/com.android.art/libart.so.dylib",
-       "apex-lib64/com.android.art/libandroidicu.so.dylib", "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
+       "apex-lib64/com.android.art/libart.so.dylib", "apex-lib64/com.android.art/libandroidicu.so.dylib",
+       "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
+    # The tzdata module as Android 15's (the compatibility plan's gap 21).
+    + [f"apex/com.android.tzdata/etc/tz/{name}" for name in TZDATA_MODULE]
     + [f"resource-cache/{name}" for name in monet_files()]
 )
 
