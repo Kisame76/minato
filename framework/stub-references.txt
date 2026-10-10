@@ -458,7 +458,6 @@ android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurr
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
 android.net.ParseException <- android.net.WebAddress  # stays: WebAddress's refusal of a bad address, for CookieManager's hidden getCookie(WebAddress), and no CookieManager is given without the webview feature
 android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of
-android.hardware.camera2.CameraManager <- android.hardware.Camera  # gap: Camera.open(int) and getCameraInfo, which ask camera2's rotation override for a camera's ID; with getNumberOfCameras 0 an app has none to name
 android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
 android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open

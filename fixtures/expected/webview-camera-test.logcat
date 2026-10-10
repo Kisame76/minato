@@ -16,5 +16,7 @@ I/webview-camera-test: WebResourceResponse after the setters: text/plain, ascii,
 I/webview-camera-test: WebSettings: abstract true, layout [NORMAL, SINGLE_COLUMN, NARROW_COLUMNS, TEXT_AUTOSIZING], plugins [ON, ON_DEMAND, OFF], cache -1 2
 I/webview-camera-test: WebView: extends android.widget.AbsoluteLayout, hit test types 0 7
 I/webview-camera-test: Camera: getNumberOfCameras 0, open() null
+I/webview-camera-test: Camera.open(0): java.lang.RuntimeException: Fail to connect to camera service
+I/webview-camera-test: Camera.getCameraInfo(0): java.lang.RuntimeException: Unknown camera ID
 I/webview-camera-test: Camera.Area: [-500,-500][500,500] weight 1000, equals the same true, another weight false, null false
 I/webview-camera-test: done

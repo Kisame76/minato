@@ -1,0 +1,30 @@
+Minato's patch to frameworks/base's core/java/android/hardware/Camera.java at android-15.0.0_r1 (Apache-2.0), the
+Unity test APK probe's batch C: Camera.open(int) and getCameraInfo ask camera2's CameraManager for no rotation override.
+
+Why: both ask CameraManager.getRotationOverride for the camera's ID first, and framework.jar leaves camera2 out (a
+compile-only stub), so an app that opens or describes camera 0 ended with NoClassDefFoundError, an Error that its
+catch of Exception does not take. The override only turns a camera's image for an app that a landscape-to-portrait
+or freeform compat mode covers; Minato has no camera (getNumberOfCameras answers 0), so there is nothing to turn,
+and both go on to the natives with ROTATION_OVERRIDE_NONE, which answer as Android 15 does for an ID without a
+camera.
+
+--- a/core/java/android/hardware/Camera.java
++++ b/core/java/android/hardware/Camera.java
+@@ -308,7 +308,7 @@
+      */
+     public static void getCameraInfo(int cameraId, CameraInfo cameraInfo) {
+         Context context = ActivityThread.currentApplication().getApplicationContext();
+-        final int rotationOverride = CameraManager.getRotationOverride(context);
++        final int rotationOverride = 0;  // ICameraService.ROTATION_OVERRIDE_NONE
+         getCameraInfo(cameraId, context, rotationOverride, cameraInfo);
+     }
+ 
+@@ -441,7 +441,7 @@
+      */
+     public static Camera open(int cameraId) {
+         Context context = ActivityThread.currentApplication().getApplicationContext();
+-        final int rotationOverride = CameraManager.getRotationOverride(context);
++        final int rotationOverride = 0;  // ICameraService.ROTATION_OVERRIDE_NONE
+         return open(cameraId, context, rotationOverride);
+     }
+ 

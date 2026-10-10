@@ -27,7 +27,7 @@ import java.util.concurrent.Callable;
  * SafeDK's brand safety, Facebook's augmentWebView), and the legacy android.hardware.Camera, whose Camera$Area Unity's
  * Camera2Wrapper names; MimeTypeMap is mime-test's. From Application.onCreate, on the main thread, it logs a
  * WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'
- * enums, the WebView class, and the camera count, Camera.open() and Camera.Area.
+ * enums, the WebView class, and the camera count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area.
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
  * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
@@ -148,6 +148,12 @@ public class WebViewCameraApplication extends Application {
 
     private void camera() {
         Log.i(TAG, "Camera: getNumberOfCameras " + Camera.getNumberOfCameras() + ", open() " + Camera.open());
+        Log.i(TAG, "Camera.open(0): " + outcome(() -> Camera.open(0)));
+        Log.i(TAG, "Camera.getCameraInfo(0): " + outcome(() -> {
+            Camera.CameraInfo info = new Camera.CameraInfo();
+            Camera.getCameraInfo(0, info);
+            return "facing " + info.facing;
+        }));
         Camera.Area area = new Camera.Area(new Rect(-500, -500, 500, 500), 1000);
         Camera.Area same = new Camera.Area(new Rect(-500, -500, 500, 500), 1000);
         Camera.Area lighter = new Camera.Area(new Rect(-500, -500, 500, 500), 1);
