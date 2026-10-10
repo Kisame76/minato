@@ -1510,3 +1510,19 @@ frameworks_base/core/java/android/util/JsonToken.java
 frameworks_base/core/java/android/util/JsonWriter.java
 frameworks_base/core/java/android/util/MalformedJsonException.java
 frameworks_base/core/java/com/android/internal/util/StringPool.java
+
+# The job scheduler (gap 9; the Unity test APK probe: WorkManager casts getSystemService("jobscheduler")), jobs-test: the
+# apex's framework classes and its AIDL, with android.app.JobSchedulerImpl, which the "jobscheduler" service makes.
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/JobSchedulerImpl.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/IJobCallback.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/IJobScheduler.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/IJobService.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/IUserVisibleJobObserver.aidl
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobInfo.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobParameters.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobScheduler.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobService.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobServiceEngine.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobSnapshot.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobWorkItem.java
+frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/UserVisibleJobSummary.java

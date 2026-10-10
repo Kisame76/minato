@@ -30,6 +30,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 class ActivityManager {
+    /**
+     * Ours: Android's asks the activity manager service for the app's earlier exits, which the system keeps across
+     * starts (WorkManager's ForceStopRunnable reads them to find a force stop). Minato keeps none, so the list is
+     * empty, as it is for an app that never ended.
+     */
+    public List<ApplicationExitInfo> getHistoricalProcessExitReasons(String packageName, int pid, int maxNum) {
+        return new ArrayList<>();
+    }
+
     private static final int FIRST_START_FATAL_ERROR_CODE = -100;
     private static final int LAST_START_FATAL_ERROR_CODE = -1;
     private static final int FIRST_START_SUCCESS_CODE = 0;

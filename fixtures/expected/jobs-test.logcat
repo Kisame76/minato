@@ -1,0 +1,60 @@
+I/jobs-test: the service: android.app.JobSchedulerImpl, namespace null
+I/jobs-test: schedule: 1, pending [1]
+I/jobs-test: pending job 1: id 1, .WorkJob, latency 3600000, deadline 0, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic false -, backoff 1/30000, expedited false, extras 0 null 0
+I/jobs-test: schedule 1 again, later: 1, pending [1]
+I/jobs-test: pending job 1: id 1, .WorkJob, latency 7200000, deadline 10800000, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic false -, backoff 1/30000, expedited false, extras 0 null 0
+I/jobs-test: schedule 2: 1, pending [1, 2]
+I/jobs-test: an unknown job: null
+I/jobs-test: cancel 1: pending [2]
+I/jobs-test: cancel 99: pending [2]
+I/jobs-test: cancelAll: pending [], a list true
+I/jobs-test: every constraint: 1
+I/jobs-test: pending job 3: id 3, .WorkJob, latency 3600000, deadline 7200000, charging true, idle true, battery not low true, storage not low true, network 0, persisted false, periodic false -, backoff 1/30000, expedited false, extras 2 Minato 42
+I/jobs-test: a backoff with the idle constraint: java.lang.IllegalArgumentException: An idle mode job will not respect any back-off policy, so calling setBackoffCriteria with setRequiresDeviceIdle is an error.
+I/jobs-test: a backoff: 1
+I/jobs-test: pending job 12: id 12, .WorkJob, latency 3600000, deadline 0, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic false -, backoff 1/30000, expedited false, extras 2 Minato 42
+I/jobs-test: a periodic job: 1
+I/jobs-test: pending job 4: id 4, .WorkJob, latency 0, deadline 0, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic true 1200000/300000, backoff 1/30000, expedited false, extras 0 null 0
+I/jobs-test: a periodic job below the minimum: 1
+I/jobs-test: pending job 5: id 5, .WorkJob, latency 0, deadline 0, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic true 900000/300000, backoff 1/30000, expedited false, extras 0 null 0
+I/jobs-test: an expedited job with a constraint it cannot have: java.lang.IllegalArgumentException: An expedited job can only have network and storage-not-low constraints
+I/jobs-test: the reason of a job that waits for its delay: 9, of a periodic one 9, of an unknown one -2
+I/jobs-test: namespaces: a b null
+I/jobs-test: schedule 1 in a, b and the default: 1 1 1, then 2 in a: 1
+I/jobs-test: pending in a [1, 2], b [1], default [1]
+I/jobs-test: in all namespaces: a=[1, 2] b=[1] null=[1]
+I/jobs-test: cancel 1 in b: a [1, 2], b []
+I/jobs-test: cancelAll in a: a [], default [1]
+I/jobs-test: cancelInAllNamespaces: namespaces 0, jobs 0
+I/jobs-test: an empty namespace: java.lang.IllegalArgumentException: namespace cannot be empty
+I/jobs-test: a null namespace: java.lang.NullPointerException: namespace cannot be null
+I/jobs-test: a namespace of 1001 characters: java.lang.IllegalArgumentException: namespace cannot be more than 1000 characters
+I/jobs-test: enqueue: 1, pending [10]
+I/jobs-test: enqueue the same job: 1, pending [10]
+I/jobs-test: enqueue a changed job: 1, id 10, .WorkJob, latency 7200000, deadline 0, charging false, idle false, battery not low false, storage not low false, network 0, persisted false, periodic false -, backoff 1/30000, expedited false, extras 0 null 0
+I/jobs-test: enqueue without work: java.lang.NullPointerException: work is null
+I/jobs-test: a work item: first, delivery count 0
+I/jobs-test: a service of the app, not found: java.lang.IllegalArgumentException: Tried to schedule job for non-existent component: ComponentInfo{io.github.kisame76.minato.test.jobs/io.github.kisame76.minato.test.jobs.Missing}
+I/jobs-test: a service of another package: java.lang.IllegalArgumentException: Tried to schedule job for non-existent component: ComponentInfo{com.example.other/com.example.other.Job}
+I/jobs-test: a service without BIND_JOB_SERVICE: java.lang.IllegalArgumentException: Scheduled service ComponentInfo{io.github.kisame76.minato.test.jobs/io.github.kisame76.minato.test.jobs.OpenJob} does not require android.permission.BIND_JOB_SERVICE permission
+I/jobs-test: a persisted job without RECEIVE_BOOT_COMPLETED: java.lang.IllegalArgumentException: Requested job cannot be persisted without holding android.permission.RECEIVE_BOOT_COMPLETED permission
+I/jobs-test: a job with neither: (job:26/io.github.kisame76.minato.test.jobs/.WorkJob)
+I/jobs-test: a periodic job with a delay: java.lang.IllegalArgumentException: Can't call setMinimumLatency() on a periodic job
+I/jobs-test: a negative delay: java.lang.IllegalArgumentException: Minimum latency is negative: -1
+I/jobs-test: pending after the refusals: []
+I/jobs-test: can run user-initiated jobs: false
+I/jobs-test: the limit: 151 scheduled, refused at 152: Apps may not schedule more than 150 distinct jobs
+I/jobs-test: pending at the limit: 151, job 1 again: java.lang.IllegalStateException: Apps may not schedule more than 150 distinct jobs
+I/jobs-test: pending after cancelAll: 0
+I/jobs-test: an unset pending intent: null
+I/jobs-test: the exit reasons: true
+I/jobs-test: the user is unlocked: true
+I/jobs-test: a component's state: 0
+I/jobs-test: enabled: 1
+I/jobs-test: disabled: 2
+I/jobs-test: back to the default: 0
+I/jobs-test: an unknown component, read: 0
+I/jobs-test: an unknown component, set: java.lang.IllegalArgumentException: Component class io.github.kisame76.minato.test.jobs.Missing does not exist in io.github.kisame76.minato.test.jobs
+I/jobs-test: an unknown package: java.lang.IllegalArgumentException: Unknown component: ComponentInfo{com.example.other/com.example.other.Job}
+I/jobs-test: an activity of the app: 0
+I/jobs-test: done

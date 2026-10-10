@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the job scheduler (jobs-test): android.app.job.JobScheduler as an app uses it, and the calls that
+     WorkManager's start makes (the Unity test APK probe's blocker 9). WorkJob is a job service that requires
+     BIND_JOB_SERVICE; OpenJob does not. The app holds no RECEIVE_BOOT_COMPLETED, ACCESS_NETWORK_STATE or
+     RUN_USER_INITIATED_JOBS. The launcher activity is the framework's own android.app.Activity, so that `am start`
+     starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.jobs" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.jobs.JobsApplication">
+    <service android:name="io.github.kisame76.minato.test.jobs.WorkJob"
+        android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <service android:name="io.github.kisame76.minato.test.jobs.OpenJob" android:exported="false"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

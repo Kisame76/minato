@@ -74,7 +74,7 @@ for path in "${taken[@]}"; do
   name=$(basename "$path")
   if [[ "$name" == *.aidl ]]; then
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
-      -Iframework/aidl-imports -o "$GEN/aidl" "$source"
+      -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -Iframework/aidl-imports -o "$GEN/aidl" "$source"
     continue
   fi
   if [[ "$name" == *.logtags ]]; then

@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.FeatureInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
@@ -194,6 +195,69 @@ class ApplicationPackageManager {
             throw new IllegalArgumentException("Unknown package: " + packageName);
         }
         return null;
+    }
+
+    // A component's enabled state (gap 9, WorkManager's start enables its job service and receivers): kept for the
+    // process, where PackageManagerService keeps it in its package settings, which Minato has none of. The default
+    // state keeps nothing. The app's own components only; another package is unknown [verified: jobs-test on
+    // apk-runner-35]. Nothing yet reads the state: a disabled component still resolves and starts.
+    private final ArrayMap<ComponentName, Integer> mComponentStates = new ArrayMap<>();
+
+    public void setComponentEnabledSetting(ComponentName componentName, int newState, int flags) {
+        checkOwnComponent(componentName);
+        if (!hasComponent(componentName)) {
+            throw new IllegalArgumentException("Component class " + componentName.getClassName()
+                    + " does not exist in " + componentName.getPackageName());
+        }
+        synchronized (mComponentStates) {
+            if (newState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+                mComponentStates.remove(componentName);
+            } else {
+                mComponentStates.put(componentName, newState);
+            }
+        }
+    }
+
+    public int getComponentEnabledSetting(ComponentName componentName) {
+        checkOwnComponent(componentName);
+        synchronized (mComponentStates) {
+            Integer state = mComponentStates.get(componentName);
+            return state == null ? PackageManager.COMPONENT_ENABLED_STATE_DEFAULT : state;
+        }
+    }
+
+    private void checkOwnComponent(ComponentName componentName) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg == null || !pkg.packageName.equals(componentName.getPackageName())) {
+            throw new IllegalArgumentException("Unknown component: " + componentName);
+        }
+    }
+
+    private boolean hasComponent(ComponentName componentName) {
+        try {
+            getActivityInfo(componentName, 0);
+            return true;
+        } catch (NameNotFoundException e) {
+            // Not an activity.
+        }
+        try {
+            getReceiverInfo(componentName, 0);
+            return true;
+        } catch (NameNotFoundException e) {
+            // Not a receiver.
+        }
+        try {
+            getServiceInfo(componentName, 0);
+            return true;
+        } catch (NameNotFoundException e) {
+            // Not a service.
+        }
+        try {
+            getProviderInfo(componentName, 0);
+            return true;
+        } catch (NameNotFoundException e) {
+            return false;
+        }
     }
 
     public int checkPermission(String permName, String packageName) {
