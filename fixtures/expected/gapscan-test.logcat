@@ -1,0 +1,15 @@
+I/gapscan-test: planted: 12 lines
+I/gapscan-test: gapscan: 2 missing classes, 4 missing methods, 2 missing fields
+I/gapscan-test: package android.nosuch (2)
+I/gapscan-test:   class android.nosuch.Bar x1
+I/gapscan-test:   class android.nosuch.Foo x2
+I/gapscan-test: package java.lang (5)
+I/gapscan-test:   method java.lang.String.<init>(Ljava/util/Date;)V x1
+I/gapscan-test:   method java.lang.String.noSuchMethod()V x1
+I/gapscan-test:   method java.lang.String.valueOf(Landroid/nosuch/Bar;)V x1
+I/gapscan-test:   field java.lang.Integer.MAX_VALUE:J x1
+I/gapscan-test:   field java.lang.Integer.NOPE:I x1
+I/gapscan-test: package java.util (1)
+I/gapscan-test:   method java.util.ArrayList.frobnicate()V [via com.example.Own] x1
+I/gapscan-test: own APK: 0 missing classes, 0 methods, 0 fields
+I/gapscan-test: done
