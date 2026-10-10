@@ -64,9 +64,11 @@
 // as an app process on the interpreter (ADR-0039) may take its time to start; without one, apk-run says so and plays
 // no more steps. A touch has no answer: the next step comes a second after its last event.
 // --measures has the runtime write what the run measured to <file> at the program's end (apkrt_report_exit_measures).
+// The guest's audio streams play on an output that plays nowhere (headless_audio.h), at 48 kHz in 10 ms bursts.
 #include "APKRuntime/apkrt.h"
 #include "apk_run_layers.h"
 #include "frame_clock.h"
+#include "headless_audio.h"
 #include "headless_host.h"
 
 #include <fcntl.h>
@@ -591,6 +593,7 @@ int main(int argc, char **argv) {
                     .detach();
         }
     }
+    apkrt_set_audio_host(&headless_audio::host);
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);
     if (configured) {

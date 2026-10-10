@@ -76,6 +76,10 @@ ifaddrs-test system
 cacerts-test system
 # sendfile from a file to a file, a socket and a pipe, its offsets and its errors.
 sendfile-test system
+# The links exe, cwd and root of /proc/self (the Unity test APK probe: Unity and FMOD read exe and cwd).
+proc-links-test system
+# libandroid's sensor manager and an event queue without sensors (the Unity test APK probe: Unity's start).
+sensors-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the
 # emulator's differ (its AVD's heap, a userdebug build).
 property-test system runtime-only

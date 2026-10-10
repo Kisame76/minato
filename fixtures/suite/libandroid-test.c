@@ -137,8 +137,6 @@ int main(void) {
     printf("AThermal_getCurrentThermalStatus: %d\n", AThermal_getCurrentThermalStatus(manager));
     printf("AThermal_getThermalHeadroom: %s\n", isnan(AThermal_getThermalHeadroom(manager, 10)) ? "nan" : "a number");
     printf("APerformanceHint_getManager: %s\n", APerformanceHint_getManager() == NULL ? "null" : "a manager");
-    printf("ASensorManager_getInstanceForPackage: %s\n",
-           ASensorManager_getInstanceForPackage("io.github.kisame76.minato") == NULL ? "null" : "a manager");
     printf("ASensor_getResolution: %g\n", ASensor_getResolution(NULL));
     printf("ATrace_isEnabled: %d\n", ATrace_isEnabled());
     ATrace_beginSection("minato");

@@ -1,0 +1,65 @@
+I/audiotrack-test: outputs: listed true, the built-in speaker true, all sinks true
+I/audiotrack-test: min buffer 44100 12 2: positive true, whole frames true
+I/audiotrack-test: min buffer 48000 12 2: positive true, whole frames true
+I/audiotrack-test: min buffer 48000 4 2: positive true, whole frames true
+I/audiotrack-test: min buffer 48000 12 4: positive true, whole frames true
+I/audiotrack-test: min buffer 22050 2 3: positive true, whole frames true
+I/audiotrack-test: min buffer 48000 252 2: positive true, whole frames true
+I/audiotrack-test: min buffer, rate 1000: -2
+I/audiotrack-test: min buffer, rate 0: -2
+I/audiotrack-test: min buffer, encoding 99: -2
+I/audiotrack-test: min buffer, front right alone: -2
+I/audiotrack-test: native output rate positive: true
+I/audiotrack-test: buffer 0: java.lang.IllegalArgumentException: Invalid audio buffer size.
+I/audiotrack-test: buffer 6: java.lang.IllegalArgumentException: Invalid audio buffer size.
+I/audiotrack-test: rate 1000: java.lang.IllegalArgumentException: Invalid sample rate 1000
+I/audiotrack-test: encoding 99: java.lang.IllegalArgumentException: Invalid encoding 99
+I/audiotrack-test: mode 5: java.lang.IllegalArgumentException: Invalid mode.
+I/audiotrack-test: front right alone: java.lang.IllegalArgumentException: Unsupported channel mask configuration 8 for encoding 2
+I/audiotrack-test: session -5: java.lang.IllegalArgumentException: Invalid audio session ID: -5
+I/audiotrack-test: null format: java.lang.IllegalArgumentException: Illegal null AudioFormat
+I/audiotrack-test: legacy track: state 1 play state 1, rate 44100, channels 2, encoding 2, configuration 12, stream type 3, playback rate 44100, head 0
+I/audiotrack-test: buffer frames at least asked: true, session positive: true
+I/audiotrack-test: non-blocking write before play: short true, whole frames true
+I/audiotrack-test: non-blocking write when full: 0
+I/audiotrack-test: write errors: offset -1 -2, past the end -2, mode 7 -2, floats -3
+I/audiotrack-test: write of a part frame: 0
+I/audiotrack-test: flush before play: head 0
+I/audiotrack-test: play: state 1 play state 3
+I/audiotrack-test: blocking write of four buffers: all true, waited for room true
+I/audiotrack-test: shorts: 1024
+I/audiotrack-test: head moved: true
+I/audiotrack-test: volume: 0 0
+I/audiotrack-test: pause: state 1 play state 2
+I/audiotrack-test: head still while paused: true, positive true
+I/audiotrack-test: flush while paused: head 0, state 1 play state 2
+I/audiotrack-test: play after flush: state 1 play state 3, write 4096
+I/audiotrack-test: stop: state 1 play state 1, head 0
+I/audiotrack-test: write after stop: 4096
+I/audiotrack-test: play after stop: state 1 play state 3
+I/audiotrack-test: release: state 0 play state 1
+I/audiotrack-test: pause during a blocking write: returned true, short true, whole frames true
+I/audiotrack-test: float track: state 1 play state 1, rate 48000, encoding 4, stream type 3
+I/audiotrack-test: float track's byte and short writes: -3 -3
+I/audiotrack-test: float writes: 9600, bad mode -2, past the end -2
+I/audiotrack-test: byte buffers: direct 4000 at 4000, heap 2000 at 3000, too big -2, mode 9 -2
+I/audiotrack-test: built without a format: state 1 play state 1, rate is the output's true, channels 2, encoding 2, buffer frames positive true
+I/audiotrack-test: builder, buffer -1: java.lang.IllegalArgumentException: Invalid buffer size -1
+I/audiotrack-test: builder, transfer mode 9: java.lang.IllegalArgumentException: Invalid transfer mode 9
+I/audiotrack-test: builder, session 0: Builder
+I/audiotrack-test: builder, null attributes: java.lang.IllegalArgumentException: Illegal null AudioAttributes argument
+I/audiotrack-test: builder, buffer 6: java.lang.UnsupportedOperationException: Invalid audio buffer size.
+I/audiotrack-test: game track: state 1 play state 1, rate 44100, stream type 3
+I/audiotrack-test: game track writes: 8192, state 1 play state 3
+I/audiotrack-test: static clip: state 2 play state 1, play java.lang.IllegalStateException: play() called on uninitialized AudioTrack.
+I/audiotrack-test: static writes: 8820, state 1 play state 1, again 8820
+I/audiotrack-test: static clip after its length: head 4410, state 1 play state 3, reload -3
+I/audiotrack-test: static clip stopped: head 0, reload 0, head 0
+I/audiotrack-test: after release: state 0 play state 1, write -3, volume -3, reload -3
+I/audiotrack-test: play after release: java.lang.IllegalStateException: play() called on uninitialized AudioTrack.
+I/audiotrack-test: stop after release: java.lang.IllegalStateException: stop() called on uninitialized AudioTrack.
+I/audiotrack-test: pause after release: java.lang.IllegalStateException: pause() called on uninitialized AudioTrack.
+I/audiotrack-test: flush after release: flushed
+I/audiotrack-test: head after release: java.lang.IllegalStateException: Unable to retrieve AudioTrack pointer for getPosition()
+I/audiotrack-test: release twice: released
+I/audiotrack-test: done

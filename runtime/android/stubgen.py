@@ -64,6 +64,13 @@ LIBRARIES = {
             "AHardwareBuffer_isSupported", "AHardwareBuffer_lock", "AHardwareBuffer_lockAndGetInfo",
             "AHardwareBuffer_lockPlanes", "AHardwareBuffer_recvHandleFromUnixSocket", "AHardwareBuffer_release",
             "AHardwareBuffer_sendHandleToUnixSocket", "AHardwareBuffer_unlock",
+            # a manager without sensors and its event queues (sensor_manager.c, the Unity test APK probe)
+            "ASensorManager_getInstance", "ASensorManager_getInstanceForPackage", "ASensorManager_getSensorList",
+            "ASensorManager_getDynamicSensorList", "ASensorManager_getDefaultSensor",
+            "ASensorManager_getDefaultSensorEx", "ASensorManager_createEventQueue",
+            "ASensorManager_destroyEventQueue", "ASensorEventQueue_registerSensor", "ASensorEventQueue_enableSensor",
+            "ASensorEventQueue_disableSensor", "ASensorEventQueue_setEventRate", "ASensorEventQueue_hasEvents",
+            "ASensorEventQueue_getEvents",
         ],
         # M3 has no resource matching. Input's Java side waits for Java (M4).
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
@@ -148,13 +155,9 @@ VALUES = {
     "APerformanceHint_setThreads": "EPIPE", "APerformanceHint_updateTargetWorkDuration": "EPIPE",
     "APermissionManager_checkPermission": "-2",  # PERMISSION_MANAGER_STATUS_SERVICE_UNAVAILABLE
     # Sensors: none exists
-    "ASensorEventQueue_disableSensor": "-EINVAL", "ASensorEventQueue_enableSensor": "-EINVAL",
-    "ASensorEventQueue_getEvents": "-EINVAL", "ASensorEventQueue_hasEvents": "0",
-    "ASensorEventQueue_registerSensor": "-EINVAL", "ASensorEventQueue_requestAdditionalInfoEvents": "-EINVAL",
-    "ASensorEventQueue_setEventRate": "-EINVAL", "ASensorManager_configureDirectReport": "-EINVAL",
+    "ASensorEventQueue_requestAdditionalInfoEvents": "-EINVAL", "ASensorManager_configureDirectReport": "-EINVAL",
     "ASensorManager_createHardwareBufferDirectChannel": "-EINVAL",
-    "ASensorManager_createSharedMemoryDirectChannel": "-EINVAL", "ASensorManager_destroyEventQueue": "-EINVAL",
-    "ASensorManager_getDynamicSensorList": "0", "ASensorManager_getSensorList": "0",
+    "ASensorManager_createSharedMemoryDirectChannel": "-EINVAL",
     "ASensor_getFifoMaxEventCount": "0", "ASensor_getFifoReservedEventCount": "0", "ASensor_getHandle": "0",
     "ASensor_getHighestDirectReportRateLevel": "0", "ASensor_getMinDelay": "0",
     "ASensor_getReportingMode": "-1",  # AREPORTING_MODE_INVALID

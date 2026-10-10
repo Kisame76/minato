@@ -131,7 +131,10 @@ void launch(const char *container_path, const char *const argv[], const char *co
     // /proc/self/maps and /proc/self/stat show the stack as Linux's exec sets it up.
     const auto stack_low = reinterpret_cast<std::uint64_t>(stack.data());
     apkrt::proc::set_main_stack(stack_low, stack_low + stack.size(), start->stack_pointer);
-    if (argv != nullptr && argv[0] != nullptr) start->name = std::filesystem::path(argv[0]).filename().string();
+    if (argv != nullptr && argv[0] != nullptr) {
+        start->name = std::filesystem::path(argv[0]).filename().string();
+        apkrt::proc::set_executable(argv[0]);
+    }
 
     // The thread's own frames go below the start stack, on whole pages of the same mapping.
     const auto page = static_cast<std::uint64_t>(::getpagesize());

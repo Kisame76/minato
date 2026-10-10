@@ -23,6 +23,10 @@ void set_main_stack(std::uint64_t low, std::uint64_t high, std::uint64_t start);
 /// name is `program`, the name of the program's file, as Linux's exec sets it.
 void set_main_thread(pthread_t thread, std::string_view program);
 
+/// The program's file, as /proc/self/exe names it: `path`, its start's argv[0], from the working directory when it
+/// is relative, as Linux's exec resolves the file it runs.
+void set_executable(std::string_view path);
+
 /// A file the guest maps with sys_mmap through its descriptor `fd`, at [begin, end) from file offset `offset`:
 /// /proc/self/maps and smaps name that range by the file's guest path, with its device and inode, as Linux shows
 /// a file's mapping, until an unmap, a mapping over it or mremap changes the range. A `shared` one (MAP_SHARED)

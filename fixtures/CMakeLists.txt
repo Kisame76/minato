@@ -172,6 +172,11 @@ add_executable(ifaddrs-test suite/ifaddrs-test.c)
 add_executable(cacerts-test suite/cacerts-test.c)
 # sendfile-test: sendfile(2) to a file, a socket and a pipe, its offsets and its errors in the kernel's order.
 add_executable(sendfile-test suite/sendfile-test.c)
+# proc-links-test: the links exe, cwd and root of /proc/self and /proc/<pid>.
+add_executable(proc-links-test suite/proc-links-test.c)
+# sensors-test: libandroid's sensor manager and an event queue without sensors.
+add_executable(sensors-test suite/sensors-test.c)
+target_link_libraries(sensors-test PRIVATE android)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

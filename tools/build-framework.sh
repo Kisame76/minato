@@ -140,7 +140,8 @@ python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
 # Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step; gap 1's audio and
-# connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats), logged once where
+# connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats and gap 13's
+# AudioTrack and AudioDeviceInfo), logged once where
 # framework/managers' hand files do not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
@@ -149,6 +150,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --class android.view.inputmethod.InputMethodManager --class android.view.textservice.TextServicesManager \
   --class android.view.textclassifier.TextClassificationManager --class android.media.AudioManager \
+  --class android.media.AudioTrack --class android.media.AudioDeviceInfo \
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
   --class android.telephony.TelephonyCallback \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \

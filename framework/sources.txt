@@ -1548,3 +1548,9 @@ location_java/location/java/android/location/LocationListener.java
 frameworks_base_graphics/graphics/java/android/graphics/HardwareRenderer.java
 frameworks_base/core/java/android/view/IGraphicsStats.aidl
 frameworks_base/core/java/android/view/IGraphicsStatsCallback.aidl
+
+# AudioTrack (gap 13, the Unity test APK probe: FMOD's output thread), audiotrack-test: our written AudioTrack
+# (framework/managers) takes AudioFormat as it stands, and implements the two interfaces of its API.
+frameworks_base_types/media/java/android/media/AudioFormat.java
+frameworks_base_types/media/java/android/media/AudioRouting.java
+frameworks_base_types/media/java/android/media/VolumeAutomation.java

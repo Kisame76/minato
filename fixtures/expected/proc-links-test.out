@@ -1,0 +1,8 @@
+exe: /data/local/tmp/proc-links-test
+exe by pid: /data/local/tmp/proc-links-test
+exe cut to 7: /data/l
+cwd at the start: /data/local/tmp
+cwd after chdir to a folder: /data/local/tmp/proc-links-folder
+cwd after chdir ..: /data/local/tmp
+root: /
+nothing: ENOENT

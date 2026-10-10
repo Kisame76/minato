@@ -329,6 +329,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_hardware_HardwareBuffer.cpp
+            native/android_runtime/android_media_AudioTrack.cpp
             native/android_runtime/android_graphics_HardwareRenderer.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
             native/android_runtime/minato_gles.cpp native/android_runtime/android_hardware_input_InputService.cpp
@@ -346,7 +347,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
-                      GLESv2 GLESv3 nativewindow input sqlite)
+                      GLESv2 GLESv3 nativewindow input sqlite aaudio)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

@@ -56,6 +56,22 @@ class AudioManager {
         return false;
     }
 
+    /**
+     * The session's output, as a phone's built-in speaker (gap 13: FMOD lists the outputs before it builds its
+     * AudioTrack, and Android lists the speaker among them); no input, as Minato records nothing yet (a named
+     * difference: Android lists the built-in microphone).
+     */
+    public AudioDeviceInfo[] getDevices(int flags) {
+        if ((flags & GET_DEVICES_OUTPUTS) == 0) {
+            return new AudioDeviceInfo[0];
+        }
+        return new AudioDeviceInfo[] {new AudioDeviceInfo(BUILTIN_SPEAKER_ID, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                true)};
+    }
+
+    /** The speaker's port ID, as the audio server numbers its ports from 1. */
+    private static final int BUILTIN_SPEAKER_ID = 2;
+
     public int getStreamVolume(int streamType) {
         return volume(DEFAULT_STREAM_VOLUME, streamType);
     }

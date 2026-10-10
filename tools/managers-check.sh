@@ -11,6 +11,8 @@
 #     bodies may call framework.jar's own types, as they do in its build (TrafficStats' Log, StrictMode and
 #     Process): its classes and stubs.jar stand behind the sources;
 #   - each of the three managers has the hidden ctor (android.content.Context) that SystemServiceRegistry calls.
+# AudioDeviceInfo is among the generated classes, as AudioManager's hand file makes its devices; AudioTrack (gap 13) is
+# not, as its hand file calls AudioFormat's hidden members, which framework.jar's build has (tools/framework-check.sh).
 # The stubs never go into framework.jar; ADR-0039 b3/c's build of frameworks/base takes their place. Prints the
 # counts of classes, methods and stubs.
 # Needs the API files of tools/fetch-sources.py --set framework, libcore's of --set art, and build/framework/system,
@@ -44,6 +46,7 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --api "$CORE" --api "$LOCATION" --all-of "$CONNECTIVITY" --all-of "$CONNECTIVITY_T" --all-of "$WIFI" \
   --class android.media.AudioManager --class android.telephony.TelephonyManager \
   --class android.telephony.PhoneStateListener --class android.telephony.TelephonyCallback \
+  --class android.media.AudioDeviceInfo \
   --hand framework/managers --out "$OUT/gen" --references-out "$OUT/stubs"
 
 # The boot jars' java.base exports only the JDK's packages; framework.jar's classes see the rest, as on Android.

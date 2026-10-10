@@ -1,0 +1,11 @@
+manager: yes
+manager for a package: yes
+sensor list: given
+event queue: yes
+events of an empty queue: 0
+has events: -1
+register a null sensor: -22
+enable a null sensor: -22
+disable a null sensor: -22
+rate of a null sensor: -22
+destroy: 0

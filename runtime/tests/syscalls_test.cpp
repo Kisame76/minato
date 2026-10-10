@@ -2634,6 +2634,31 @@ TEST(proc_self_fd_links_name_what_the_descriptors_refer_to) {
     }
 }
 
+TEST(proc_self_exe_cwd_and_root_name_the_program_and_its_folders) {
+    // The Unity test APK probe: Unity and FMOD read /proc/self/exe and /proc/self/cwd. Linux names the file the program's
+    // exec ran, /system/bin/app_process64 for an app, the working directory and the root.
+    const Scratch scratch;
+    const auto link = [](const std::string &path, std::size_t size = 256) {
+        std::string buffer(size, '\0');
+        const auto length = call(nr_readlinkat, {at_fdcwd, address(path.c_str()), address(buffer.data()), size});
+        return length < 0 ? "error " + std::to_string(-length) : buffer.substr(0, static_cast<std::size_t>(length));
+    };
+    apkrt::proc::set_executable("/system/bin/app_process64");
+    CHECK(link("/proc/self/exe") == "/system/bin/app_process64");
+    CHECK(link(std::format("/proc/{}/exe", ::getpid())) == "/system/bin/app_process64");
+    CHECK(link("/proc/self/exe", 7) == "/system");  // cut, as readlink does
+    CHECK(link("/proc/self/cwd") == "/data/local/tmp");
+    apkrt::vfs::set_working_directory("/");
+    CHECK(link("/proc/self/cwd") == "/");
+    CHECK(link("/proc/self/root") == "/");
+    // A relative start resolves from the working directory then, as exec's file does.
+    apkrt::vfs::set_working_directory("/data/local/tmp");
+    apkrt::proc::set_executable("./kernel-test");
+    apkrt::vfs::set_working_directory("/");
+    CHECK(link("/proc/self/exe") == "/data/local/tmp/kernel-test");
+    CHECK(link("/proc/self/nothing") == std::format("error {}", enoent));
+}
+
 // --- Record locks (fcntl F_GETLK, F_SETLK and F_SETLKW) ---------------------------------------------------------
 // SQLite's unix VFS locks a database's bytes with them (os_unix.c), FileChannel.lock waits with F_SETLKW. A process's
 // own locks never conflict, as on Linux, so a host child process holds or looks at the other side here.

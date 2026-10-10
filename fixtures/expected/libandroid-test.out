@@ -44,7 +44,6 @@ AThermal_acquireManager again: null
 AThermal_getCurrentThermalStatus: -1
 AThermal_getThermalHeadroom: nan
 APerformanceHint_getManager: null
-ASensorManager_getInstanceForPackage: null
 ASensor_getResolution: 0
 ATrace_isEnabled: 0
 ATrace_beginSection and ATrace_endSection: done

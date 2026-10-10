@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -65,6 +66,7 @@ struct State {
     bool has_main_thread = false;
     pthread_t main_thread{};
     std::string program;
+    std::string executable;  // /proc/self/exe's target
     std::vector<FileMapping> files;  // in address order, apart from one another
 };
 
@@ -666,6 +668,14 @@ void set_main_thread(pthread_t thread, std::string_view program) {
     current.program = program;
 }
 
+void set_executable(std::string_view path) {
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    current.executable = path.starts_with('/')
+                             ? std::string(path)
+                             : (std::filesystem::path(vfs::working_directory()) / path).lexically_normal().string();
+}
+
 void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offset, bool shared) {
     const auto description = descriptors::get(fd);
     const auto path = descriptor_target(fd);
@@ -738,9 +748,27 @@ std::optional<long> open(std::string_view path, int linux_flags) {
     return descriptors::add(std::move(description), (linux_flags & cloexec) != 0);
 }
 
+/// What the links exe, cwd and root of /proc/self show: the program's file, the working directory and the root, as
+/// Linux's proc_exe_link, proc_cwd_link and proc_root_link give them; nullopt for another entry.
+std::optional<std::string> process_link(std::string_view entry) {
+    if (entry == "cwd") return vfs::working_directory();
+    if (entry == "root") return std::string("/");
+    if (entry != "exe") return std::nullopt;
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    if (current.executable.empty()) return std::nullopt;
+    return current.executable;
+}
+
 std::optional<long> read_link(std::string_view path, char *buffer, std::size_t size) {
     const auto entry = own_entry(path);
-    if (!entry || !entry->starts_with("fd/")) return std::nullopt;
+    if (!entry) return std::nullopt;
+    if (const auto target = process_link(*entry)) {
+        const auto length = std::min(size, target->size());
+        std::memcpy(buffer, target->data(), length);
+        return static_cast<long>(length);
+    }
+    if (!entry->starts_with("fd/")) return std::nullopt;
     const auto digits = entry->substr(3);
     int fd = -1;
     const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), fd);
