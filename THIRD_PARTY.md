@@ -186,6 +186,14 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
+The module APIs' Java sources (the framework breadth, `docs/plans/2026-10-07-framework-breadth.md`), fetched by `tools/fetch-sources.py --set framework` at the tag with the user's go of 2026-10-08 (`build/sources/location_java`, `connectivity_java`, `wifi_java`). `tools/api-coverage.py` reads them to classify the module APIs' types, and a breadth batch takes the plain Java ones into `framework/sources.txt`. Their folders hold tests, build files and AIDL besides the Java; only the files a batch lists are built. `RttManager.java` in the Wi-Fi module has no license header; it lies in an Apache-2.0 project.
+
+| Project | Commit | License | Folders | Files | Digest |
+|---|---|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `location/java` | 96 | `f67e7935b34094ff…` |
+| `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework`, `framework-t` | 220 | `09f780b06cb754fa…` |
+| `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework` | 320 | `23e1635aeae7342d…` |
+
 The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The Mac's harness mounts it, and every app build ships it in its guest system since ADR-0039 c4.
 
 | Project | Commit | License | File | Size | SHA-256 |

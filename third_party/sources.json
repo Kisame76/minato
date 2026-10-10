@@ -540,6 +540,37 @@
       "digest": "69e5814c677e64519bdeda2985a768bcebe5f33a409ee8b74a5565960df385d3"
     },
     {
+      "name": "location_java",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "location/java"
+      ],
+      "digest": "f67e7935b34094ffe6be233dd4a1410fc311358d66ac329d595b13bf82e03886"
+    },
+    {
+      "name": "connectivity_java",
+      "project": "platform/packages/modules/Connectivity",
+      "commit": "355670c19612b43b73d496fee4b4fc7d4c13bf01",
+      "license": "Apache-2.0",
+      "directories": [
+        "framework",
+        "framework-t"
+      ],
+      "digest": "09f780b06cb754fa0822179f1b70a996af41d0c79494b7b3f1a791c9f0adb6c1"
+    },
+    {
+      "name": "wifi_java",
+      "project": "platform/packages/modules/Wifi",
+      "commit": "a88d7fbb026bada1345124fc1afbbaa0a6b5498f",
+      "license": "Apache-2.0",
+      "directories": [
+        "framework"
+      ],
+      "digest": "23e1635aeae7342234c430ba6821ccafdea129aaad90ae1eb03872919af9aeab"
+    },
+    {
       "name": "frameworks_native_input",
       "project": "platform/frameworks/native",
       "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
