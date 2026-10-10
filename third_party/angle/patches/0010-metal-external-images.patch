@@ -1,0 +1,172 @@
+External textures on the Metal backend (ADR-0058, decision 2 and step b); ADR-0029, decision 8).
+
+Why: SurfaceTexture, video players, camera previews and Flutter's textures sample their frames through
+samplerExternalOES on GL_TEXTURE_EXTERNAL_OES, whose EGL image Minato makes of an AHardwareBuffer's IOSurface.
+The Metal backend kept GL_OES_EGL_image_external and its ESSL 3 variant off, its MSL translator left
+samplerExternalOES unimplemented, and TextureMtl::setEGLImageTarget refused an External texture for a 2D image.
+Now both extensions are on, samplerExternalOES is a texture2d in MSL with the 2D sampler's prelude functions,
+and an External texture adopts a 2D image (EGL_METAL_TEXTURE_ANGLE), as a 2D texture on Metal.
+Upstream: could go upstream; the Vulkan backend has both extensions (vk_caps_utils.cpp).
+Remove: when upstream's Metal backend supports external images.
+
+diff --git a/src/libANGLE/renderer/metal/DisplayMtl.mm b/src/libANGLE/renderer/metal/DisplayMtl.mm
+--- a/src/libANGLE/renderer/metal/DisplayMtl.mm
++++ b/src/libANGLE/renderer/metal/DisplayMtl.mm
+@@ -1001,9 +1001,9 @@
+     mNativeExtensions.blendMinmaxEXT = true;
+ 
+     mNativeExtensions.EGLImageOES         = true;
+-    mNativeExtensions.EGLImageExternalOES = false;
+-    // NOTE(hqle): Support GL_OES_EGL_image_external_essl3.
+-    mNativeExtensions.EGLImageExternalEssl3OES = false;
++    // Minato (patch 0010, ADR-0058 b)): external textures are 2D textures on Metal.
++    mNativeExtensions.EGLImageExternalOES      = true;
++    mNativeExtensions.EGLImageExternalEssl3OES = true;
+ 
+     mNativeExtensions.memoryObjectEXT   = false;
+     mNativeExtensions.memoryObjectFdEXT = false;
+diff --git a/src/compiler/translator/msl/SymbolEnv.cpp b/src/compiler/translator/msl/SymbolEnv.cpp
+--- a/src/compiler/translator/msl/SymbolEnv.cpp
++++ b/src/compiler/translator/msl/SymbolEnv.cpp
+@@ -653,7 +653,10 @@
+             break;
+ 
+         // Extentions
+-        case EbtSamplerExternalOES:       // Only valid if OES_EGL_image_external exists:
++        // Minato (patch 0010, ADR-0058 b)): an external texture is a 2D texture on Metal.
++        case EbtSamplerExternalOES:
++            HANDLE_TEXTURE_NAME("texture2d");
++            break;
+         case EbtSamplerExternal2DY2YEXT:  // Only valid if GL_EXT_YUV_target exists:
+             UNIMPLEMENTED();
+             HANDLE_TEXTURE_NAME("TODO");
+diff --git a/src/compiler/translator/msl/ProgramPrelude.cpp b/src/compiler/translator/msl/ProgramPrelude.cpp
+--- a/src/compiler/translator/msl/ProgramPrelude.cpp
++++ b/src/compiler/translator/msl/ProgramPrelude.cpp
+@@ -3037,6 +3037,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.texelFetch_2D();
+@@ -3060,6 +3061,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.texelFetchOffset_2D();
+@@ -3080,6 +3082,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return bias ? pp.textureBias_2D() : pp.texture_2D();
+@@ -3175,6 +3178,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.textureGrad_2D();
+@@ -3204,6 +3208,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.textureGradOffset_2D();
+@@ -3227,6 +3232,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.textureLod_2D();
+@@ -3256,6 +3262,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return pp.textureLodOffset_2D();
+@@ -3280,6 +3287,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return bias ? pp.textureOffsetBias_2D() : pp.textureOffset_2D();
+@@ -3305,6 +3313,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+@@ -3324,6 +3333,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+@@ -3343,6 +3353,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+@@ -3362,6 +3373,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+@@ -3381,6 +3393,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+@@ -3401,6 +3414,7 @@
+         switch (func.getParam(0)->getType().getBasicType())
+         {
+             case EbtSampler2D:
++            case EbtSamplerExternalOES:  // Minato (patch 0010): a 2D texture on Metal
+             case EbtISampler2D:
+             case EbtUSampler2D:
+                 return func.getParam(1)->getType().getNominalSize() == 4
+diff --git a/src/libANGLE/renderer/metal/TextureMtl.mm b/src/libANGLE/renderer/metal/TextureMtl.mm
+--- a/src/libANGLE/renderer/metal/TextureMtl.mm
++++ b/src/libANGLE/renderer/metal/TextureMtl.mm
+@@ -1677,7 +1677,10 @@
+     ContextMtl *contextMtl = mtl::GetImpl(context);
+ 
+     ImageMtl *imageMtl = mtl::GetImpl(image);
+-    if (type != imageMtl->getImageTextureType())
++    // Minato (patch 0010, ADR-0058 b)): an external texture adopts a 2D image, as a 2D texture on Metal.
++    const bool external2D =
++        type == gl::TextureType::External && imageMtl->getImageTextureType() == gl::TextureType::_2D;
++    if (type != imageMtl->getImageTextureType() && !external2D)
+     {
+         return angle::Result::Stop;
+     }

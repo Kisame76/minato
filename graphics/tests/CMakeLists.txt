@@ -17,9 +17,10 @@ set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^s
 # Tests 2, 4, 5 and rgb_configs need Core Animation and Metal objects: Objective-C++ with ARC.
 # Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003). Test 5:
 # EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11). rgb_configs: RGB888 configs
-# without alpha on Metal, GLSurfaceView's default (patch 0006, ADR-0043 c4).
+# without alpha on Metal, GLSurfaceView's default (patch 0006, ADR-0043 c4). external_images: samplerExternalOES and
+# GL_TEXTURE_EXTERNAL_OES on Metal (patch 0010, ADR-0058 b)).
 enable_language(OBJCXX)
-foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs)
+foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs external_images)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)
