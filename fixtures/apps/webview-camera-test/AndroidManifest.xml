@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of android.webkit's classes and the legacy android.hardware.Camera (webview-camera-test, the Unity test APK
+     probe's batch C: the ad SDKs' WebView, WebViewClient, WebSettings and WebResourceRequest/Response, Unity's
+     Camera$Area). The lines of webview-camera-test are Android's own on a device without cameras;
+     those of webview-camera-test-device depend on the device's WebView and are only shown. The launcher activity is the
+     framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewcamera" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.webviewcamera.WebViewCameraApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

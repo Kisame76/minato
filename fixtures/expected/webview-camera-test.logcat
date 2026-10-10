@@ -1,0 +1,20 @@
+I/webview-camera-test: WebViewClient: shouldOverrideUrlLoading(url) false, (request) false
+I/webview-camera-test: WebViewClient: shouldInterceptRequest(url) null, (request) null
+I/webview-camera-test: WebViewClient: shouldOverrideKeyEvent false, onRenderProcessGone false
+I/webview-camera-test: WebResourceRequest: https://example.com/page?q=1, GET, main frame true, redirect false
+I/webview-camera-test: WebResourceResponse: text/html, utf-8, 0 null, headers null, data true
+I/webview-camera-test: WebResourceResponse: image/png, null, 404 Not Found, headers {Cache-Control=no-cache}, data false
+I/webview-camera-test: setStatusCodeAndReasonPhrase(99, x): java.lang.IllegalArgumentException: statusCode can't be less than 100.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(600, x): java.lang.IllegalArgumentException: statusCode can't be greater than 599.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(302, Found): java.lang.IllegalArgumentException: statusCode can't be in the [300, 399] range.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(200, null): java.lang.IllegalArgumentException: reasonPhrase can't be null.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(200, ): java.lang.IllegalArgumentException: reasonPhrase can't be empty.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(200, Über): java.lang.IllegalArgumentException: reasonPhrase can't contain non-ASCII characters.
+I/webview-camera-test: setStatusCodeAndReasonPhrase(204, No Content): 204 No Content
+I/webview-camera-test: setData(StringBufferInputStream): java.lang.IllegalArgumentException: StringBufferInputStream is deprecated and must not be passed to a WebResourceResponse
+I/webview-camera-test: WebResourceResponse after the setters: text/plain, ascii, 204 No Content, headers null, data true
+I/webview-camera-test: WebSettings: abstract true, layout [NORMAL, SINGLE_COLUMN, NARROW_COLUMNS, TEXT_AUTOSIZING], plugins [ON, ON_DEMAND, OFF], cache -1 2
+I/webview-camera-test: WebView: extends android.widget.AbsoluteLayout, hit test types 0 7
+I/webview-camera-test: Camera: getNumberOfCameras 0, open() null
+I/webview-camera-test: Camera.Area: [-500,-500][500,500] weight 1000, equals the same true, another weight false, null false
+I/webview-camera-test: done

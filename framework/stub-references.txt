@@ -167,7 +167,6 @@ android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.vi
 android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays: content capture, which Minato does not run, so getSystemService answers null
 android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
-android.webkit.WebView <- android.view.ViewGroup  # stays: ViewGroup's autofill structure (populateChildrenForAutofill), for a service Minato does not run
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
 com.google.android.collect.Maps <- android.view.View  # stays: View.dumpFlags, a debugging dump
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
@@ -444,3 +443,24 @@ android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobSch
 
 # Gap 1 (App): the clipboard over the local clipboard service.
 android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs
+
+# The Unity test APK probe's batch C (Grafik): android.webkit without a WebView provider (no webview feature) and the legacy
+# Camera without cameras.
+android.webkit.ClientCertRequest <- android.webkit.WebViewClient  # stays: WebViewClient's default callbacks, which only a WebView provider calls, and Minato has none
+android.webkit.HttpAuthHandler <- android.webkit.WebViewClient  # stays: WebViewClient's default callbacks, which only a WebView provider calls, and Minato has none
+android.webkit.SafeBrowsingResponse <- android.webkit.WebViewClient  # stays: WebViewClient's default callbacks, which only a WebView provider calls, and Minato has none
+android.webkit.SslErrorHandler <- android.webkit.WebViewClient  # stays: WebViewClient's default callbacks, which only a WebView provider calls, and Minato has none
+android.webkit.WebResourceError <- android.webkit.WebViewClient  # stays: WebViewClient's default callbacks, which only a WebView provider calls, and Minato has none
+android.view.textclassifier.TextClassifier <- android.webkit.WebViewProvider  # stays: a WebView provider's default text classifier, and Minato has no provider
+android.webkit.PluginList <- android.webkit.WebView  # stays: WebView's hidden getPluginList, removed from the API long ago
+android.webkit.URLUtil <- android.webkit.WebView  # stays: a WebView's postUrl, and no WebView is made without the webview feature (WebViewFactory.getProvider)
+android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
+android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
+android.net.ParseException <- android.net.WebAddress  # stays: WebAddress's refusal of a bad address, for CookieManager's hidden getCookie(WebAddress), and no CookieManager is given without the webview feature
+android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of
+android.hardware.camera2.CameraManager <- android.hardware.Camera  # gap: Camera.open(int) and getCameraInfo, which ask camera2's rotation override for a camera's ID; with getNumberOfCameras 0 an app has none to name
+android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
+android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
+com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
+com.android.internal.app.IAppOpsService$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
+com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open

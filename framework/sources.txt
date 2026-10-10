@@ -1561,3 +1561,21 @@ frameworks_base/core/java/android/view/IGraphicsStatsCallback.aidl
 frameworks_base_types/media/java/android/media/AudioFormat.java
 frameworks_base_types/media/java/android/media/AudioRouting.java
 frameworks_base_types/media/java/android/media/VolumeAutomation.java
+
+# The Unity test APK probe's batch C (Grafik), webview-camera-test: android.webkit's classes that the ad SDKs and FileProvider
+# name, with WebView answering as Android 15 does without the webview feature, which Minato does not report
+# (WebViewFactory.getProvider's UnsupportedOperationException); the legacy Camera, whose Camera$Area Unity's
+# Camera2Wrapper names, on a device without cameras.
+frameworks_base/core/java/android/webkit/WebResourceRequest.java
+frameworks_base/core/java/android/webkit/WebResourceResponse.java
+frameworks_base/core/java/android/webkit/WebSettings.java
+frameworks_base/core/java/android/webkit/WebView.java
+frameworks_base/core/java/android/webkit/WebViewClient.java
+frameworks_base/core/java/android/webkit/CookieManager.java
+frameworks_base/core/java/android/webkit/CookieSyncManager.java
+frameworks_base/core/java/android/webkit/WebSyncManager.java
+frameworks_base/core/java/android/webkit/FindAddress.java
+frameworks_base/core/java/android/net/WebAddress.java
+frameworks_base/core/java/android/webkit/WebViewFactoryProvider.java
+frameworks_base/core/java/android/webkit/WebViewProvider.java
+frameworks_base/core/java/android/hardware/Camera.java

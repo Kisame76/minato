@@ -53,6 +53,7 @@ extern int register_android_os_Process(JNIEnv *env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
 extern int register_android_hardware_SensorManager(JNIEnv *env);
 extern int register_android_hardware_HardwareBuffer(JNIEnv *env);
+extern int register_android_hardware_Camera(JNIEnv *env);
 // AudioTrack's (gap 13): ours on libaaudio.
 extern int register_android_media_AudioTrack(JNIEnv *env);
 extern int register_android_graphics_HardwareRenderer(JNIEnv *env);
@@ -133,6 +134,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_os_Process,
           register_com_android_internal_util_VirtualRefBasePtr,
           register_android_hardware_SensorManager, register_android_hardware_HardwareBuffer,
+          register_android_hardware_Camera,
           register_android_media_AudioTrack,
           register_android_graphics_HardwareRenderer,
           register_android_opengl_classes,

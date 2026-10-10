@@ -27,6 +27,9 @@ class AppOpsManager {
     /** @hide */
     public static final int OP_SYSTEM_ALERT_WINDOW = 24;
 
+    /** @hide As AOSP's: the op the legacy Camera watches for its shutter sound (the Unity test APK probe's batch C). */
+    public static final int OP_PLAY_AUDIO = 28;
+
     /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1). */
     public static final int OP_LEGACY_STORAGE = 87;
 

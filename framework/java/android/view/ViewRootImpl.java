@@ -1672,6 +1672,13 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void dispatchKeyFromAutofill(KeyEvent event) {
     }
 
+    /**
+     * AOSP's hands an event a WebView did not handle to the synthetic stage; only a WebView provider calls it, through
+     * WebViewClient.onUnhandledInputEvent, and Minato has none (the Unity test APK probe's batch C).
+     */
+    public void dispatchUnhandledInputEvent(InputEvent event) {
+    }
+
     /** As AOSP's: a key an input method sends, which takes the stages after the input method's (ADR-0045 step 7c1). */
     public void dispatchKeyFromIme(KeyEvent event) {
         final Message msg = mHandler.obtainMessage(MSG_DISPATCH_KEY_FROM_IME, event);

@@ -48,6 +48,8 @@
 # api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test (gap 5), whose widgets are
 # laid out in px on the M4 plan's display.
 # breadth-test (the framework breadth's behavior test) is one too.
+# webview-camera-test (the Unity test APK probe's batch C) is one too, on apk-runner-35-bare, a device without cameras like
+# Minato; its lines of webview-camera-test-device, which the AVD's WebView answers, are only shown.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
 # local_testing_dir only from a manifest. pad-test (ADR-0050 test 3), built with Google's Play libraries by
 # tools/build-pad-test.sh, is a Java app with its own activity: bundletool's install-apks puts its local-testing set on
@@ -199,7 +201,7 @@ fi
 # The package manager's tests and the system features: apk-runner-35-bare, without the hardware Minato reports as
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
-    || "$app" == services-test || "$app" == input-service-test ]]; then
+    || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -490,7 +492,7 @@ run_app() {
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | jni-fields-test \
-      | storage-test | location-test | gapscan-test)
+      | storage-test | location-test | gapscan-test | webview-camera-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
