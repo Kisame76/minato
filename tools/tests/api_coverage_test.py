@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tools/api-coverage.py, the framework's breadth (the compatibility plan's entry 22): on an API file, a classes folder
 and a source folder this test writes, the missing public types by group, with the closure over the missing types a
-source uses, the nested types our own top-level types lack, the batches and the table. Python 3.9."""
+source uses, the nested types our own top-level types lack, the batches and the table, and a module API's types
+apart. Python 3.9."""
 import json
 import os
 import subprocess
@@ -108,6 +109,9 @@ package g.h {
   public class Named {
   }
 
+  public class Registered {
+  }
+
 }
 
 """
@@ -151,13 +155,48 @@ SOURCES = {
                       "    Object of(Context c) { return c.getSystemService(Context.WIFI_SERVICE); }\n}\n"),
     "g/h/Named.java": ("package g.h;\npublic class Named {\n"
                        "    Object of(Context c, String name) { return c.getSystemService(name); }\n}\n"),
+    "g/h/Registered.java": ("package g.h;\npublic class Registered {\n"
+                            "    Object of(Context c) { return c.getSystemService(Context.POWER_SERVICE); }\n"
+                            "    Object by(Context c) { return c.getSystemService(DisplayManager.class); }\n}\n"),
 }
 
-# framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API; and the hidden R.
+# framework.jar has a.b.Present, our own, without its nested type, and nothing else of the API; the hidden R; and two of
+# the module API's types.
 CLASSES = ["a/b/Present.class", "x/y/Ours.class", "com/android/internal/R.class", "android/os/IBinder.class",
-           "android/os/ServiceManager.class"]
+           "android/os/ServiceManager.class", "g/h/Counted.class", "p/q/Whole.class"]
 # A module's API, of which the build makes compile-only stubs too.
 STUB_API = "package x.y {\n\n  public class Known {\n  }\n\n}\n"
+# A module's API (--module-api), counted apart from the core one: framework.jar has its Counted, in a package the core
+# API has too, and all of p.q, and lacks Uncounted and Far, which another step takes.
+MODULE_API = """// Signature format: 2.0
+package g.h {
+
+  public class Counted {
+  }
+
+  public static class Counted.Inner {
+  }
+
+  public class Uncounted {
+  }
+
+}
+
+package m.n {
+
+  public final class Far {
+  }
+
+}
+
+package p.q {
+
+  public class Whole {
+  }
+
+}
+
+"""
 
 
 def check(condition, what):
@@ -185,7 +224,8 @@ with tempfile.TemporaryDirectory() as work:
     open(os.path.join(ours, "a", "b", "Present.java"), "w").close()
     taken = os.path.join(work, "taken.txt")
     with open(taken, "w") as handle:
-        handle.write("# Other steps\na.b.Cycle2\tgap 7 (Formate)\na\tno package of this name has types\n")
+        handle.write("# Other steps\na.b.Cycle2\tgap 7 (Formate)\na\tno package of this name has types\n"
+                     "m.n.Far\t(9), App\n")
     context_impl = os.path.join(work, "ContextImpl.java")
     with open(context_impl, "w") as handle:
         handle.write("class ContextImpl {\n    Object getSystemService(String name) {\n"
@@ -194,12 +234,22 @@ with tempfile.TemporaryDirectory() as work:
                      "    String getSystemServiceName(Class<?> serviceClass) {\n"
                      "        if (serviceClass == InputMethodManager.class) {\n            return null;\n"
                      "        }\n        return null;\n    }\n}\n")
+    registry = os.path.join(work, "SystemServiceRegistry.java")
+    with open(registry, "w") as handle:
+        handle.write("class SystemServiceRegistry {\n    static {\n"
+                     "        cached(Context.POWER_SERVICE, PowerManager.class, ctx -> new PowerManager(ctx));\n"
+                     "        register(Context.DISPLAY_SERVICE, DisplayManager.class, false,\n"
+                     "                ctx -> new DisplayManager(ctx));\n"
+                     "        // cached(Context.WIFI_SERVICE, WifiManager.class, ctx -> null);\n    }\n}\n")
     jmod = os.path.join(work, "java.base.jmod")
     with zipfile.ZipFile(jmod, "w") as archive:
         archive.writestr("classes/android/compat/annotation/UnsupportedAppUsage.class", b"")
     stub_api = os.path.join(work, "module-current.txt")
     with open(stub_api, "w") as handle:
         handle.write(STUB_API)
+    module_api = os.path.join(work, "module-api.txt")
+    with open(module_api, "w") as handle:
+        handle.write(MODULE_API)
     first = os.path.join(work, "first.txt")
     with open(first, "w") as handle:
         handle.write("# the Unity test APK's blockers\nc.d.Other\n")
@@ -208,6 +258,8 @@ with tempfile.TemporaryDirectory() as work:
     result = subprocess.run([sys.executable, TOOL, "--api", api, "--classes", classes, "--sources", sources,
                              "--stub-api", stub_api, "--known", jmod, "--ours", ours, "--first", first,
                              "--taken", taken, "--batch", "3", "--context-impl", context_impl,
+                             "--service-registry", registry,
+                             "--module-api", f"mod={module_api}",
                              "--table", table, "--json", data],
                             capture_output=True, text=True)
     check(result.returncode == 0, f"exit status {result.returncode}: {result.stderr.strip()[-400:]}")
@@ -241,6 +293,9 @@ with tempfile.TemporaryDirectory() as work:
     check(groups.get("g.h.Inflating") == "pure Java" and groups.get("g.h.Typing") == "pure Java",
           "a system service that ContextImpl answers, by its name or its class, is no service: "
           f"{groups.get('g.h.Inflating')}, {groups.get('g.h.Typing')}")
+    check(groups.get("g.h.Registered") == "pure Java",
+          "a service the service registry registers, by its name or its class, is no service: "
+          f"{groups.get('g.h.Registered')}")
     check(groups.get("g.h.Wifi") == "service" and groups.get("g.h.Named") == "service",
           "one that ContextImpl does not answer, or a name in a variable, is a service: "
           f"{groups.get('g.h.Wifi')}, {groups.get('g.h.Named')}")
@@ -252,7 +307,7 @@ with tempfile.TemporaryDirectory() as work:
     check(batches[1:] == [["a.b.Archived", "a.b.Cycle1", "a.b.Parceled"], ["a.b.Plain", "a.b.UsesElsewhere",
                                                                            "a.b.UsesNative"],
                           ["a.b.UsesPlain", "a.b.UsesStub"], ["e.f.Marked", "e.f.Remote"],
-                          ["g.h.Inflating", "g.h.Typing"]],
+                          ["g.h.Inflating", "g.h.Registered", "g.h.Typing"]],
           f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses, then e.f's "
           f"and g.h's: {batches[1:]}")
     check(report["types"].get("a.b.Cycle2", {}).get("taken") == "gap 7 (Formate)", "Cycle2 is taken by gap 7")
@@ -266,8 +321,20 @@ with tempfile.TemporaryDirectory() as work:
     check("Do not edit by hand." in text, "the table says it is generated")
     check("- gap 7 (Formate): 1 (Cycle2)" in text, "the table lists the taken type with its step")
     check("- a.b: Elsewhere" in text, "the table lists the type without a source")
+    module = report.get("modules", {}).get("mod", {})
+    check(module.get("present") == ["g.h.Counted", "p.q.Whole"], f"framework.jar has Counted and Whole: {module}")
+    check(module.get("missing") == {"g.h.Uncounted": {"taken": None}, "m.n.Far": {"taken": "(9), App"}},
+          f"the module lacks Uncounted, and Far, which (9) takes: {module}")
+    check("g.h.Uncounted" not in groups and "m.n.Far" not in groups, "the module's types are not the core API's")
+    check("The module APIs have 5 public types, 4 of them top-level. framework.jar has 2 of these; 2 are missing."
+          in text, "the table counts the module API's types")
+    check("| mod | g.h | 1 | 1 | Uncounted |" in text and "| mod | m.n | 0 | 1 | Far ((9), App) |" in text,
+          "the module table's rows name the missing types, with the step that takes one")
+    check("| mod | p.q |" not in text, "a module package that framework.jar has whole has no row")
+    check("| g.h | 0 | 5 | 3 | 2 | 0 | 0 | 0 |" in text, "the core table's row for g.h leaves the module's types out")
+    check("- (9), App: 1 (Far)" in text, "the table lists the taken module type with its step")
 
 if failures:
     print(f"{failures} failed")
     sys.exit(1)
-print("api-coverage: groups, closure, nested types, batches and table as expected")
+print("api-coverage: groups, closure, nested types, batches, table and module APIs as expected")

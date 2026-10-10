@@ -8,10 +8,11 @@ this order:
   pure Java    its source is fetched and plain Java;
   service      it reaches a system service: ServiceManager, a Stub's asInterface, getSystemService of a service
                that our ContextImpl does not answer (--context-impl: the names and classes it answers, as
-               Context.SENSOR_SERVICE.equals(name) and serviceClass == SensorManager.class name them, are local; a
-               name in a variable is not), or an AIDL interface (a .aidl file that declares an interface, not one
-               that declares a parcelable, or a name like IDumpstate that its package lacks, as another project's
-               .aidl makes it);
+               Context.SENSOR_SERVICE.equals(name) and serviceClass == SensorManager.class name them, and
+               --service-registry: those our SystemServiceRegistry registers, as cached(Context.POWER_SERVICE,
+               PowerManager.class, ...) names them, are local; a name in a variable is not), or an AIDL interface
+               (a .aidl file that declares an interface, not one that declares a parcelable, or a name like
+               IDumpstate that its package lacks, as another project's .aidl makes it);
   native       it declares native methods (JNI);
   module       it imports an android or com.android type that nothing here defines: framework.jar, the APIs the build
                makes compile-only stubs of (--stub-api: libcore's, ICU's and the modules' current.txt files), the
@@ -28,13 +29,18 @@ The pure-Java types go into batches of up to --batch types (60), whole packages 
 --first's types (fixtures/corpus/api-first.txt: one qualified name a line, # starts a comment), then the packages whose
 types the most missing types of other packages use. Within a package a type comes after the ones it uses. A type that
 another step takes (fixtures/corpus/api-taken.txt: a package, which is its own types only, or a type, then a tab and the
-step) goes into no batch; the table lists it with its step. Writes the table (docs/corpus/api-coverage.md) and the JSON
+step) goes into no batch; the table lists it with its step. The APIs that Android 15 builds apart from the core one,
+each a library of its own (--module-api <name>=<current.txt>: the connectivity modules', Wi-Fi's and location's), are
+counted apart, by package: which of their top-level types framework.jar has, and which another step takes. Their
+sources lie in other projects, so no batch takes them. Writes the table (docs/corpus/api-coverage.md) and the JSON
 for the batches (build/api-coverage.json). It reads framework.jar's classes in build/framework/classes, so
 tools/build-framework.sh comes first. Python 3.9.
 
 Usage: api-coverage.py [--api <current.txt>] [--stub-api <current.txt>]... [--known <folder or .jmod>]...
                        [--classes <folder>] [--sources <folder>]... [--ours <folder>] [--first <file>] [--taken <file>]
-                       [--batch <n>] [--context-impl <file>] [--table <file>] [--json <file>]
+                       [--batch <n>] [--context-impl <file>] [--service-registry <file>]
+                       [--module-api <name>=<current.txt>]...
+                       [--table <file>] [--json <file>]
 """
 import collections
 import json
@@ -64,6 +70,11 @@ STRUCTURED_PARCELABLE = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*parcelable\s+
 IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+?)(\.\*)?\s*;", re.M)
 NAME = re.compile(r"\b[A-Z]\w*\b")
 AIDL_NAME = re.compile(r"^I[A-Z][a-z]\w*$")
+# The APIs that Android 15 builds apart from frameworks/base's core one, each a library of its own, in build/sources
+# as third_party/sources.json fetches them.
+MODULE_APIS = [("connectivity", "connectivity_api/framework/api/current.txt"),
+               ("connectivity_t", "connectivity_t_api/framework-t/api/current.txt"),
+               ("location", "location_api/location/api/current.txt"), ("wifi", "wifi_api/framework/api/current.txt")]
 
 
 def read_api(path):
@@ -95,15 +106,22 @@ def class_names(folder):
     return names
 
 
-def local_services(path):
-    """The system services our ContextImpl answers itself: their names (LAYOUT_INFLATER_SERVICE) and classes
-    (LayoutInflater)."""
-    if not os.path.exists(path):
-        return set(), set()
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        code = NOISE.sub(" ", handle.read())
-    names = set(re.findall(r"\b(?:Context\.)?([A-Z][A-Z0-9_]*_SERVICE)\.equals\(\s*name\s*\)", code))
-    classes = {name.rsplit(".", 1)[-1] for name in re.findall(r"\bserviceClass\s*==\s*([\w.]+)\.class\b", code)}
+def local_services(*paths):
+    """The system services our ContextImpl answers itself and our SystemServiceRegistry registers (cached or register
+    of a name and a class): their names (LAYOUT_INFLATER_SERVICE) and classes (LayoutInflater)."""
+    names, classes = set(), set()
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            code = NOISE.sub(" ", handle.read())
+        names |= set(re.findall(r"\b(?:Context\.)?([A-Z][A-Z0-9_]*_SERVICE)\.equals\(\s*name\s*\)", code))
+        classes |= {name.rsplit(".", 1)[-1]
+                    for name in re.findall(r"\bserviceClass\s*==\s*([\w.]+)\.class\b", code)}
+        for name, cls in re.findall(r"\b(?:cached|register)\(\s*(?:Context\.)?([A-Z][A-Z0-9_]*_SERVICE)\s*,\s*"
+                                    r"([\w.]+)\.class\b", code):
+            names.add(name)
+            classes.add(cls.rsplit(".", 1)[-1])
     return names, classes
 
 
@@ -327,11 +345,15 @@ def main():
                "--first": os.path.join(REPO, "fixtures", "corpus", "api-first.txt"),
                "--taken": os.path.join(REPO, "fixtures", "corpus", "api-taken.txt"), "--batch": "60",
                "--context-impl": os.path.join(REPO, "framework", "managers", "android", "app", "ContextImpl.java"),
+               "--service-registry": os.path.join(REPO, "framework", "java", "android", "app",
+                                                  "SystemServiceRegistry.java"),
                "--table": os.path.join(REPO, "docs", "corpus", "api-coverage.md"),
                "--json": os.path.join(REPO, "build", "api-coverage.json")}
-    roots, stub_apis, known = [], [], []
+    roots, stub_apis, known, modules = [], [], [], []
     while arguments:
-        if len(arguments) < 2 or arguments[0] not in list(options) + ["--sources", "--stub-api", "--known"]:
+        repeated = ["--sources", "--stub-api", "--known", "--module-api"]
+        if (len(arguments) < 2 or arguments[0] not in list(options) + repeated
+                or arguments[0] == "--module-api" and not all(arguments[1].partition("=")[::2])):
             raise SystemExit(__doc__.split("Usage: ")[1].strip())
         if arguments[0] == "--sources":
             roots.append(arguments[1])
@@ -339,6 +361,8 @@ def main():
             stub_apis.append(arguments[1])
         elif arguments[0] == "--known":
             known.append(arguments[1])
+        elif arguments[0] == "--module-api":
+            modules.append(tuple(arguments[1].partition("=")[::2]))
         else:
             options[arguments[0]] = arguments[1]
         arguments = arguments[2:]
@@ -346,10 +370,12 @@ def main():
         # The API files tools/build-framework.sh makes the compile-only stubs of, besides frameworks/base's.
         sources = os.path.join(REPO, "build", "sources")
         stub_apis = [os.path.join(sources, *path.split("/")) for path in (
-            "libcore/api/current.txt", "icu/android_icu4j/api/public/current.txt",
-            "location_api/location/api/current.txt", "connectivity_api/framework/api/current.txt",
-            "connectivity_t_api/framework-t/api/current.txt", "wifi_api/framework/api/current.txt")]
+            "libcore/api/current.txt", "icu/android_icu4j/api/public/current.txt", *(p for _, p in MODULE_APIS))]
         stub_apis = [path for path in stub_apis if os.path.exists(path)]
+    if not modules:
+        sources = os.path.join(REPO, "build", "sources")
+        modules = [(name, os.path.join(sources, *path.split("/"))) for name, path in MODULE_APIS]
+        modules = [(name, path) for name, path in modules if os.path.exists(path)]
     if not known:
         framework = os.path.dirname(os.path.abspath(options["--classes"]))
         known = [os.path.join(framework, "stub-classes"), os.path.join(framework, "jmod", "java.base.jmod")]
@@ -374,9 +400,15 @@ def main():
             steps = [tuple(line.rstrip("\n").split("\t", 1)) for line in handle
                      if line.strip() and not line.startswith("#")]
     coverage = Coverage(options["--api"], options["--classes"], roots, options["--ours"], stub_apis, known,
-                        local_services(options["--context-impl"]))
+                        local_services(options["--context-impl"], options["--service-registry"]))
+    # Each module API's count of public types and its top-level ones, and the top-level ones framework.jar lacks.
+    apart = {}
+    for name, path in modules:
+        each = read_api(path)
+        apart[name] = (len(each), sorted({f"{package}.{simple}" for package, simple in each if "." not in simple}))
+    apart_missing = [q for _, tops in apart.values() for q in tops if not coverage.present(q)]
     taken = {}
-    for qualified in coverage.missing:
+    for qualified in coverage.missing + apart_missing:
         for name, step in steps:
             if qualified == name or qualified.rsplit(".", 1)[0] == name:
                 taken[qualified] = step
@@ -393,7 +425,11 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(options["--json"])), exist_ok=True)
     with open(options["--json"], "w") as handle:
         json.dump({"types": types, "batches": batches, "ours": ours,
-                   "nested": sorted({f"{p}.{n}" for p, n in coverage.nested} - set(ours))}, handle, indent=1)
+                   "nested": sorted({f"{p}.{n}" for p, n in coverage.nested} - set(ours)),
+                   "modules": {name: {"api": path, "present": [q for q in apart[name][1] if coverage.present(q)],
+                                      "missing": {q: {"taken": taken.get(q)} for q in apart[name][1]
+                                                  if not coverage.present(q)}}
+                               for name, path in modules}}, handle, indent=1)
         handle.write("\n")
 
     counts = collections.Counter(coverage.group[q] for q in coverage.missing)
@@ -403,8 +439,9 @@ def main():
         rows[package]["present" if qualified not in types else coverage.group[qualified]] += 1
         rows[package]["missing"] += qualified in types
     lines = ["# The framework's API coverage", "",
-             "Written by tools/api-coverage.py from Android 15's API (frameworks/base's core/api/current.txt) and",
-             "framework.jar's classes, for the [framework breadth plan](../plans/2026-10-07-framework-breadth.md).",
+             "Written by tools/api-coverage.py from Android 15's API (frameworks/base's core/api/current.txt), its",
+             "module APIs and framework.jar's classes, for the",
+             "[framework breadth plan](../plans/2026-10-07-framework-breadth.md).",
              "Do not edit by hand.", "",
              f"The API has {len(coverage.types)} public types, {len(coverage.tops)} of them top-level. framework.jar "
              f"has {len(coverage.tops) - len(coverage.missing)} of these; {len(coverage.missing)} are missing: "
@@ -417,6 +454,27 @@ def main():
         if row["missing"]:
             lines.append(f"| {package} | {row['present']} | {row['missing']} | "
                          + " | ".join(str(row[g]) for g in GROUPS) + " |")
+    tops = sum(len(module_tops) for _, module_tops in apart.values())
+    lines += ["", "## Module APIs", "",
+              "The APIs that Android 15 builds apart from frameworks/base's core one, each a library of its own: "
+              + (", ".join(apart) or "none") + ". The build makes compile-only stubs of their types. No batch takes "
+              "them, since their sources lie in other projects: our own code does, or a later fetch.", ""]
+    if apart:
+        lines += [f"The module APIs have {sum(count for count, _ in apart.values())} public types, {tops} of them "
+                  f"top-level. framework.jar has {tops - len(apart_missing)} of these; {len(apart_missing)} are "
+                  "missing.", "", "| Module | Package | In framework.jar | Missing | Missing types |",
+                  "|---|---|---|---|---|"]
+    for name, (_, module_tops) in apart.items():
+        present, absent = collections.Counter(), collections.defaultdict(list)
+        for qualified in module_tops:
+            package, simple = qualified.rsplit(".", 1)
+            if coverage.present(qualified):
+                present[package] += 1
+            else:
+                absent[package].append(simple + (f" ({taken[qualified]})" if qualified in taken else ""))
+        for package in sorted(absent, key=lambda p: (-len(absent[p]), p)):
+            lines.append(f"| {name} | {package} | {present[package]} | {len(absent[package])} | "
+                         + ", ".join(absent[package]) + " |")
     lines += ["", "## Batches of the pure-Java types", ""]
     for number, batch in enumerate(batches, 1):
         pulled = sorted({p for q in batch for p in coverage.pulls(q)})
@@ -450,7 +508,8 @@ def main():
     with open(options["--table"], "w") as handle:
         handle.write("\n".join(lines) + "\n")
     print(f"{options['--table']}: {len(coverage.missing)} missing, " + ", ".join(f"{counts[g]} {g}" for g in GROUPS)
-          + f"; {len(batches)} batches; {len(ours)} nested types of ours")
+          + f"; {len(batches)} batches; {len(ours)} nested types of ours; module APIs: {len(apart_missing)} of {tops} "
+          "top-level types missing")
 
 
 if __name__ == "__main__":
