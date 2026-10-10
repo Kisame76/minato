@@ -95,6 +95,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.WidgetFlags;
 import com.android.internal.compat.CompatTable;
+import com.android.internal.minato.GapScan;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
 import dalvik.system.RuntimeHooks;
@@ -357,6 +358,26 @@ public final class ActivityThread {
         throw new UnsupportedOperationException("Minato has no system context (ADR-0045)");
     }
 
+    /**
+     * GapScan's lines for `apk` under the tag gapscan, as gapscan-test logs those of an APK it is given: a line with
+     * their count, then the summary and the missing classes, methods and fields by package, between a line at the
+     * start and one with the time the scan took, which the interpreter makes long for an app of several big dex files.
+     */
+    private static void scanGaps(String packageName, String apk) {
+        long start = SystemClock.uptimeMillis();
+        Log.i("gapscan", "scanning base.apk of " + packageName);
+        try {
+            GapScan.Report report = GapScan.scanApk(apk);
+            Log.i("gapscan", "base.apk of " + packageName + ": " + report.lines.size() + " lines");
+            for (String line : report.lines) {
+                Log.i("gapscan", line);
+            }
+        } catch (Throwable t) {
+            Log.w("gapscan", "the scan of " + apk + " failed", t);
+        }
+        Log.i("gapscan", "done after " + (SystemClock.uptimeMillis() - start) + " ms");
+    }
+
     // Looper.prepareMainLooper and AsyncTask's executors, deprecated for apps, which only this main calls.
     @SuppressWarnings("deprecation")
     public static void main(String[] args) throws ErrnoException {
@@ -450,6 +471,12 @@ public final class ActivityThread {
         // each by its target SDK.
         StrictMode.initThreadDefaults(pkg.applicationInfo(0));
         StrictMode.initVmDefaults(pkg.applicationInfo(0));
+        // Minato's gap scanner, a developer diagnostic: with MINATO_GAPSCAN=1 in the environment (GuestStart's extra
+        // entries), the process scans its own base.apk, not its splits, before the app's first class runs, as on the
+        // iPhone no other process can read it, and logs what the platform lacks under the tag gapscan.
+        if ("1".equals(System.getenv("MINATO_GAPSCAN"))) {
+            scanGaps(packageName, apk);
+        }
         ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);

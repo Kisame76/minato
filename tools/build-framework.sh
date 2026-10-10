@@ -12,7 +12,9 @@
 #     ManifestFeatureFlags, the feature flags' values framework-res was built with, for ManifestPackage's
 #     AconfigFlags.skipCurrentElement (b3.5b1), CompatTable, the compat changes of framework.jar's and the boot jars'
 #     sources with the target SDK from which each is enabled (tools/compatgen.py, step c2e), and the EventLogTags
-#     classes of the .logtags files framework/sources.txt names (tools/event-log-tags.py, step c2c3);
+#     classes of the .logtags files framework/sources.txt names (tools/event-log-tags.py, step c2c3), and GapScan,
+#     the gap scanner of fixtures/java/gapscan-test in a package of ours, com.android.internal.minato (ActivityThread's
+#     MINATO_GAPSCAN);
 #   - compile-only stubs, compiled on their own into build/framework/stubs.jar: managergen's (--stubs) for the public
 #     API of core, location and the Connectivity and Wi-Fi modules, with the hidden members of
 #     framework/stubs/members/ (managergen's hand files: what taken AOSP files call on a public type); the
@@ -165,6 +167,16 @@ python3 tools/compatgen.py --sources "$SOURCES" --list framework/sources.txt --j
   --boot-jars build/art/boot_jars.json --build "$SOURCES/frameworks_base/core/java/android/os/Build.java" \
   --version-codes "$SOURCES/libcore/dalvik/src/main/java/dalvik/annotation/compat/VersionCodes.java" \
   --out "$GEN/compat" >/dev/null
+# The gap scanner (a developer diagnostic: ActivityThread scans the app's own base.apk with MINATO_GAPSCAN=1):
+# gapscan-test's GapScan, the one source, in a package of ours, so that it never meets the test app's own copy.
+GAPSCAN=fixtures/java/gapscan-test/io/github/kisame76/minato/test/gapscan/GapScan.java
+if ! grep -qx 'package io.github.kisame76.minato.test.gapscan;' "$GAPSCAN"; then
+  echo "$GAPSCAN: no longer in the package io.github.kisame76.minato.test.gapscan" >&2
+  exit 1
+fi
+mkdir -p "$GEN/gapscan/com/android/internal/minato"
+sed 's/^package io\.github\.kisame76\.minato\.test\.gapscan;$/package com.android.internal.minato;/' "$GAPSCAN" \
+  > "$GEN/gapscan/com/android/internal/minato/GapScan.java"
 # The app op table (ADR-0045's storage and app ops step): AOSP's ops by number with their permissions and default
 # modes, from which our AppOpsManager answers its checks and notes.
 python3 tools/appopsgen.py --source "$SOURCES/frameworks_base/core/java/android/app/AppOpsManager.java" \
@@ -199,7 +211,7 @@ while IFS= read -r type; do
 done < "$OUT/defined.txt"
 find "$OUT/stubs-src" -name '*.java' | sort > "$OUT/stub-sources.txt"
 # The generated sources' folders, each a root of java.base's patch.
-GENERATED="$GEN/aconfig:$GEN/aidl:$GEN/logtags:$GEN/r:$GEN/managers:$GEN/compat"
+GENERATED="$GEN/aconfig:$GEN/aidl:$GEN/logtags:$GEN/r:$GEN/managers:$GEN/compat:$GEN/gapscan"
 # -XDstringConcat=inline as for the boot jars: their StringConcatFactory lacks makeConcatWithConstants.
 JAVAC=("$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system="$OUT/system" -XDstringConcat=inline
   -XDskipDuplicateBridges=true -encoding UTF-8 -g -Xmaxerrs 9999 -proc:none)

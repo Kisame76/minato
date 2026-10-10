@@ -272,7 +272,7 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
-          lifecycle=None, android_id=None, obbs=(), packs=()):
+          lifecycle=None, android_id=None, obbs=(), packs=(), environment=()):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -291,6 +291,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     overlays made from that build of framework-res, as SystemUI and idmap2 keep them there on Android 15 (ADR-0043
     f)): every app's Resources take them, as its overlay paths. libsqlite.so beside app_process goes to /system/lib64
     too, for libandroid_runtime's database natives (the compatibility plan's gap 7).
+    `environment` are apk-run's --env entries (<name>=<value>) on top of the app's environment, as GuestStart's
+    extra entries (the gap scanner's MINATO_GAPSCAN).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
     host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
@@ -398,6 +400,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}"]
     if libraries:
         command += ["--libraries", f"{app}/lib/arm64={os.path.join(work, 'app-lib64')}"]
+    for entry in environment:
+        command += ["--env", entry]
     command += ["--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",

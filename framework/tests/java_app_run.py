@@ -27,6 +27,9 @@ With --drawn, the run must have drawn its window: apk-run's headless buffers log
 With --in-order <text>, once or more, lines of the process's log must start with these texts in this order, among
 its other lines: a host's lines among the app's, such as graphics-run's window host's (ADR-0043 c4 (c)).
 
+With --env <name>=<value>, once or more, the app starts with this entry in its environment, as GuestStart adds a
+run's extra entries (the gap scanner's MINATO_GAPSCAN=1).
+
 With --once <line>, once or more, the process's log must hold this line exactly once: a line logged once however
 often its cause comes, such as ART's log of a failed resolution (minato-resolve).
 
@@ -52,7 +55,7 @@ starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
-                       [--status <n>] [--once <line>]...
+                       [--status <n>] [--once <line>]... [--env <name>=<value>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -84,8 +87,9 @@ def main():
     packs = []
     status = 0
     once = []
+    environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"]):
+                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"], ["--env"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -94,6 +98,8 @@ def main():
             obbs, args = obbs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--packs":
             packs, args = packs + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--env":
+            environment, args = environment + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--once":
             once, args = once + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--status":
@@ -140,7 +146,7 @@ def main():
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
                        signers=signers, again=again,
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
-                       android_id=android_id, obbs=obbs, packs=packs)
+                       android_id=android_id, obbs=obbs, packs=packs, environment=environment)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

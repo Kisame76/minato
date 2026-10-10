@@ -1,0 +1,20 @@
+# The gap scanner in an app's own process (MINATO_GAPSCAN=1, a developer diagnostic): resolve-log-test, started with
+# the switch, prints its usual lines, and ActivityThread logs the scan of its base.apk under the tag gapscan before
+# the Application is made. The app refers to three members android.util.Pair lacks (its compile-only twin) and to a
+# class of its own package it lacks, which is no platform class and so no gap. Ours only: no reference run. A tag
+# shorter than 8 characters is padded, as logcat's brief format pads it.
+round 1, a missing class: java.lang.NoClassDefFoundError
+round 1, a missing method: java.lang.NoSuchMethodError
+round 1, a missing static field: java.lang.NoSuchFieldError
+round 1, a missing instance field: java.lang.NoSuchFieldError
+round 2, a missing class: java.lang.NoClassDefFoundError
+round 2, a missing method: java.lang.NoSuchMethodError
+round 2, a missing static field: java.lang.NoSuchFieldError
+round 2, a missing instance field: java.lang.NoSuchFieldError
+done
+logcat I/gapscan : base.apk of io.github.kisame76.minato.test.resolvelog: 5 lines
+logcat I/gapscan : gapscan: 0 missing classes, 1 missing methods, 2 missing fields
+logcat I/gapscan : package android.util (3)
+logcat I/gapscan :   method android.util.Pair.minatoMissing()I x1
+logcat I/gapscan :   field android.util.Pair.minatoMissingField:I x1
+logcat I/gapscan :   field android.util.Pair.minatoMissingStatic:I x1
