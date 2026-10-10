@@ -632,6 +632,14 @@ frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.j
 # AppDetailsActivity in place of b3.5a's interim one.
 frameworks_base/core/java/android/app/Activity.java
 frameworks_base/core/java/android/app/Dialog.java
+frameworks_base/core/java/android/view/DragEvent.java
+frameworks_base/core/java/android/view/GhostView.java
+frameworks_base/core/java/android/view/RoundScrollbarRenderer.java
+frameworks_base/core/java/android/view/ViewCredentialHandler.java
+frameworks_base/core/java/android/view/ViewTraversalTracingStrings.java
+frameworks_base/core/java/com/android/internal/view/IDragAndDropPermissions.aidl
+frameworks_base/core/java/android/view/translation/ViewTranslationCallback.java
+frameworks_base/core/java/android/view/translation/ViewTranslationResponse.java
 frameworks_base/core/java/android/app/AlertDialog.java
 frameworks_base/core/java/com/android/internal/app/AlertController.java
 frameworks_base/core/java/com/android/internal/app/MicroAlertController.java

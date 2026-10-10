@@ -1,0 +1,21 @@
+I/view-fields-test: chain io.github.kisame76.minato.test.viewfields.ViewFieldsApplication$Player: fields readable
+I/view-fields-test: chain android.widget.FrameLayout: fields readable
+I/view-fields-test: chain android.view.ViewGroup: fields readable
+I/view-fields-test: chain android.view.View: fields readable
+I/view-fields-test: android.view.View: fields readable
+I/view-fields-test: android.view.ViewGroup: fields readable
+I/view-fields-test: android.widget.FrameLayout: fields readable
+I/view-fields-test: android.widget.ListView: fields readable
+I/view-fields-test: android.widget.ScrollView: fields readable
+I/view-fields-test: android.widget.ImageView: fields readable
+I/view-fields-test: android.view.SurfaceView: fields readable
+I/view-fields-test: android.view.Surface: fields readable
+I/view-fields-test: android.view.Window: fields readable
+I/view-fields-test: android.content.Context: fields readable
+I/view-fields-test: android.content.ContextWrapper: fields readable
+I/view-fields-test: android.content.res.Resources: fields readable
+I/view-fields-test: android.app.AlertDialog: fields readable
+I/view-fields-test: android.os.Handler: fields readable
+I/view-fields-test: android.os.Looper: fields readable
+I/view-fields-test: currentActivity found true, type android.app.Activity
+I/view-fields-test: done

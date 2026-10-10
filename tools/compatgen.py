@@ -231,7 +231,10 @@ def target(arguments, build, libcore):
     if re.fullmatch(r"[0-9]+", expression):
         return int(expression)
     qualifier, _, name = expression.rpartition(".")
-    table = build if qualifier in BUILD_QUALIFIERS else libcore if qualifier in LIBCORE_QUALIFIERS else None
+    # A name without a qualifier is a static import of Build.VERSION_CODES' constant (ContentCaptureSession's
+    # UPSIDE_DOWN_CAKE); the processor lets javac resolve it, and a name that is not one of the table's is refused.
+    table = (build if qualifier in BUILD_QUALIFIERS or not qualifier
+             else libcore if qualifier in LIBCORE_QUALIFIERS else None)
     if table is None or name not in table:
         raise Refusal(f"a target SDK it cannot read: {expression}")
     return table[name]

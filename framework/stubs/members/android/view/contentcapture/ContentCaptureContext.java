@@ -9,4 +9,9 @@ class ContentCaptureContext {
 
     /** @hide */
     public static final int FLAG_DISABLED_FLUSH_FOR_VIEW_TREE_APPEARING = 1 << 3;
+
+    /** @hide */
+    public void dump(java.io.PrintWriter pw) {
+        throw new RuntimeException("stub");
+    }
 }

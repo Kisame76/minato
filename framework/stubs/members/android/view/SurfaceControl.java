@@ -48,4 +48,9 @@ class SurfaceControl {
             throw new RuntimeException("stub");
         }
     }
+
+    /** @hide */
+    public void setUnreleasedWarningCallSite(String callsite) {
+        throw new RuntimeException("stub");
+    }
 }

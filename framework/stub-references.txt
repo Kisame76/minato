@@ -124,7 +124,6 @@ android.content.ContentCaptureOptions <- android.view.contentcapture.ContentCapt
 android.content.ContentCaptureOptions$ContentProtectionOptions <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.ContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.DataShareWriteAdapter <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.IContentCaptureManager$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
@@ -149,31 +148,23 @@ android.view.SurfaceControl$Builder <- android.view.View  # ADR-0041 a): surface
 android.view.SurfaceControl$Transaction <- android.util.RotationUtils, android.view.View  # ADR-0041 a): surfaces
 android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
 android.view.FrameMetricsObserver <- android.view.View  # M4 step 10: drawing's frame metrics
-android.view.GhostView <- android.view.View  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.ThreadedRenderer <- android.view.View  # M4 step 10: drawing through hwui's renderer
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
 android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.content.AutofillOptions <- android.view.View  # stays: augmented autofill, which Minato does not run
-android.view.RoundScrollbarRenderer <- android.view.View  # stays: scroll bars on a round screen (View.layout asks Configuration.isScreenRound), and an iPhone's is not
-android.view.ViewTraversalTracingStrings <- android.view.View  # stays: atrace's traversal sections, only while atrace traces views
 android.view.accessibility.AccessibilityInteractionClient <- android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo <- android.view.View, android.view.ViewGroup, android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.view.ViewGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo <- android.view.View  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.contentcapture.ContentCaptureSession <- android.view.View  # stays: content capture, which Minato does not run, so getSystemService answers null
-android.view.translation.ViewTranslationCallback <- android.view.View  # stays: UI translation, which only the system starts
 android.view.translation.ViewTranslationRequest <- android.view.View  # stays: UI translation, which only the system starts
 com.android.internal.view.ScrollCaptureInternal <- android.view.View  # stays: scroll capture, which only the system's screenshot starts
 android.content.IntentSender <- android.view.View  # gap: drag and drop's check for an activity's pending intent
 android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialRequest <- android.view.View  # gap: Credential Manager requests
-android.os.Vibrator <- android.view.View  # gap: haptic feedback
 android.view.DragAndDropPermissions <- android.view.View  # gap: drag and drop
-android.view.DragEvent <- android.view.View, android.view.ViewGroup  # gap: drag and drop
-android.view.ViewCredentialHandler <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 android.view.displayhash.DisplayHashResultCallback <- android.view.View  # gap: display hashes
 com.android.internal.view.TooltipPopup <- android.view.View  # gap: tooltips, which need a popup window
@@ -219,7 +210,6 @@ android.view.SurfaceControl <- android.view.Surface  # ADR-0041 a): a Surface ma
 android.view.SurfaceControl$Transaction <- android.app.Instrumentation  # stays: an instrumentation test's synchronous start, and no test instrumentation runs on Minato
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
 android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
-android.view.contentcapture.ContentCaptureSession <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.view.translation.UiTranslationController <- android.app.Activity  # stays: UI translation, which only the system's translation service starts
 android.widget.Toast <- android.app.Activity  # gap: performStart's warning toast for an app that used a hidden API, a second window (ADR-0041 decision 2)
 android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
@@ -272,7 +262,6 @@ android.view.inputmethod.InputMethodSubtype <- android.hardware.input.IInputMana
 
 # ADR-0042 b's start stops (Planung): android.transition names widgets, overlays and surfaces, which a transition meets
 # when it captures or runs, and the window's insets controller names its animation listener.
-android.view.GhostView <- android.transition.ChangeTransform  # M4 step 10: a transition's ghost view, drawn in an overlay
 android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidden), which asks each view whether it is a TextureView
 
 # ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
@@ -308,11 +297,9 @@ android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertMod
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
 android.util.Range <- android.widget.SpellChecker  # stays: a spell checker session's suggestions, and text services are absent (ADR-0043 step d), decision 3)
 android.view.DragAndDropPermissions <- android.widget.Editor  # gap: drag and drop
-android.view.DragEvent <- android.widget.Editor, android.widget.TextView  # gap: drag and drop
 android.view.accessibility.AccessibilityNodeInfo <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
 android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.widget.Editor, android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
 android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo <- android.widget.TextView  # stays: accessibility, off (ADR-0041): node infos and smart actions only for an accessibility service
-android.view.contentcapture.ContentCaptureSession <- android.widget.TextView  # stays: content capture, off (step c2c3), which alone hears of a laid-out TextView's changed text
 android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textclassifier.SelectionEvent <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textclassifier.TextClassification <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
@@ -327,7 +314,6 @@ android.view.textservice.SpellCheckerSubtype <- android.widget.TextView  # stays
 android.view.translation.TranslationRequestValue <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.ViewTranslationRequest$Builder <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
-android.view.translation.ViewTranslationResponse <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.widget.Magnifier <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.PopupWindow <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
@@ -384,7 +370,6 @@ android.view.accessibility.AccessibilityNodeInfo$AccessibilityAction <- android.
 android.view.accessibility.AccessibilityNodeInfo$CollectionInfo <- android.widget.GridView, android.widget.ListView, android.widget.RadioGroup  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$CollectionItemInfo <- android.widget.GridView, android.widget.ListView, android.widget.RadioButton  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.view.accessibility.AccessibilityNodeInfo$RangeInfo <- android.widget.ProgressBar  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.view.contentcapture.ContentCaptureSession <- android.widget.AbsListView  # stays: content capture is off (step c2c1), so a list reports no views to it
 android.widget.PopupWindow <- android.widget.AbsListView  # gap: a list's text filter popup (setTextFilterEnabled), a second window (gap 4)
 android.provider.ContactsContract$CommonDataKinds$Email <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
@@ -478,3 +463,5 @@ com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.P
 android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is a graphics fence; no ImageReader gives an app an Image yet (category 2)
 android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.print.PrintManager <- android.print.PrintJob  # stays: a print job's manager, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
+android.view.SurfaceControl <- android.view.DragEvent  # gap: drag and drop's drag surface (DragEvent.writeToParcel), a second window's layer
+android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts

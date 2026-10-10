@@ -55,6 +55,7 @@ import android.compat.annotation.Overridable;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
 import dalvik.annotation.compat.VersionCodes;
+import static android.os.Build.VERSION_CODES.S;
 
 /** Names {@link ChangeId} and @ChangeId in its documentation, which declares nothing. */
 public class Listed {
@@ -101,6 +102,11 @@ public class Listed {
     @ChangeId
     @EnabledAfter(targetSdkVersion = 0)
     static final long AFTER_ZERO = 1200L;
+
+    /** A target SDK named by a static import of the version code, as ContentCaptureSession writes UPSIDE_DOWN_CAKE. */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = S)
+    static final long SINCE_S_STATIC = 1400L;
 
     void method() {
     }
@@ -164,11 +170,11 @@ public final class Main {
 
 # What disabledFor and loggableFor give on a release build of SDK 35 (the cap at 35: SINCE_36 stays disabled for
 # target 36), and on a development build, without the cap.
-RELEASE = """disabled 28 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300]
+RELEASE = """disabled 28 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300, 1400]
 loggable 28 []
-disabled 29 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300]
+disabled 29 [100, 200, 300, 600, 700, 800, 900, 1000, 1100, 1300, 1400]
 loggable 29 []
-disabled 30 [300, 700, 800, 900, 1100, 1300]
+disabled 30 [300, 700, 800, 900, 1100, 1300, 1400]
 loggable 30 [100, 200, 600, 1000]
 disabled 35 [300, 700, 1100, 1300]
 loggable 35 [900]
@@ -235,8 +241,8 @@ def main():
         write(boot_jars, '{"jars": {"core-sample": {"sources": ["%s", "%s"], "resources": []}}, "compile_only": []}'
               % (boot, compatibility))
         result = generate(scratch, LISTED, os.path.join(scratch, "java"), boot_jars)
-        check(result.returncode == 0 and "13 changes" in result.stdout,
-              f"writes the sample's 13 changes: {result.returncode} {result.stdout.strip()} {result.stderr.strip()}")
+        check(result.returncode == 0 and "14 changes" in result.stdout,
+              f"writes the sample's 14 changes: {result.returncode} {result.stdout.strip()} {result.stderr.strip()}")
         table = os.path.join(scratch, "out", "com", "android", "internal", "compat", "CompatTable.java")
         if result.returncode == 0:
             text = open(table, encoding="utf-8").read()

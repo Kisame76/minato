@@ -159,7 +159,8 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.media.MediaMetadataRetriever --class android.media.MediaExtractor \
   --class android.media.ImageReader --class android.media.tv.TvInputManager \
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
-  --class android.telephony.TelephonyCallback \
+  --class android.telephony.TelephonyCallback --class android.os.Vibrator \
+  --class android.view.contentcapture.ContentCaptureSession \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
