@@ -1,0 +1,36 @@
+I/jni-fields-test: getField currentActivity: currentActivity android.app.Activity of JniFieldsApplication static public
+I/jni-fields-test: getField ownActivity: ownActivity android.app.Activity of JniFieldsApplication instance public
+I/jni-fields-test: getField hiddenActivity: java.lang.NoSuchFieldException: hiddenActivity
+I/jni-fields-test: getDeclaredField hiddenActivity: hiddenActivity android.app.Activity of JniFieldsApplication static
+I/jni-fields-test: getDeclaredField of a superclass's field: java.lang.NoSuchFieldException: No field mBase in class Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;
+I/jni-fields-test: getField of a public superclass field: TRIM_MEMORY_COMPLETE int of ComponentCallbacks2 static public
+I/jni-fields-test: getFields, this class's: [anything, count, currentActivity, names, numbers, ownActivity, text]
+I/jni-fields-test: getDeclaredFields: [SELF java.lang.String of JniFieldsApplication static, TAG java.lang.String of JniFieldsApplication static, anything java.lang.Object of JniFieldsApplication static public, count long of JniFieldsApplication static public, currentActivity android.app.Activity of JniFieldsApplication static public, hiddenActivity android.app.Activity of JniFieldsApplication static, names [[Ljava.lang.String; of JniFieldsApplication static public, numbers [I of JniFieldsApplication static public, ownActivity android.app.Activity of JniFieldsApplication instance public, text java.lang.String of JniFieldsApplication instance public]
+I/jni-fields-test: Object assignable from Activity: true, Activity from Object: false, currentActivity's type from Activity: true
+I/jni-fields-test: type names: [I [[Ljava.lang.String; long java.lang.Object
+I/jni-fields-test: forName android.app.Activity: android.app.Activity
+I/jni-fields-test: forName [Ljava.lang.Object;: [Ljava.lang.Object;
+I/jni-fields-test: forName Landroid/app/Activity;: java.lang.ClassNotFoundException: Invalid name: Landroid/app/Activity;
+I/jni-fields-test: forName in the app's loader: JniFieldsApplication
+I/jni-fields-test: field value through reflection: a string
+I/jni-fields-test: JNI static, exact: found
+I/jni-fields-test: JNI static, Object: java.lang.NoSuchFieldError: no "Ljava/lang/Object;" field "currentActivity" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI static, a subclass's signature: java.lang.NoSuchFieldError: no "Ljava/lang/String;" field "anything" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI static, private: found
+I/jni-fields-test: JNI static, an instance field: java.lang.NoSuchFieldError: no "Landroid/app/Activity;" field "ownActivity" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI static, missing: java.lang.NoSuchFieldError: no "I" field "nothing" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI static, a primitive: found
+I/jni-fields-test: JNI static, a primitive as int: java.lang.NoSuchFieldError: no "I" field "count" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI instance, exact: found
+I/jni-fields-test: JNI instance, Object: java.lang.NoSuchFieldError: no "Ljava/lang/Object;" field "ownActivity" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI instance, a static field: java.lang.NoSuchFieldError: no "Landroid/app/Activity;" field "currentActivity" in class "Lio/github/kisame76/minato/test/jnifields/JniFieldsApplication;" or its superclasses
+I/jni-fields-test: JNI instance, a superclass's private field: found
+I/jni-fields-test: FromReflectedField anything: an ID, the value a string
+I/jni-fields-test: FromReflectedField currentActivity: an ID, the value null
+I/jni-fields-test: ToReflectedField anything: public static java.lang.Object io.github.kisame76.minato.test.jnifields.JniFieldsApplication.anything
+I/jni-fields-test: ToReflectedField ownActivity: public android.app.Activity io.github.kisame76.minato.test.jnifields.JniFieldsApplication.ownActivity
+I/jni-fields-test: FindClass of this class here: found
+I/jni-fields-test: FindClass of Activity here: found
+I/jni-fields-test: FindClass of this class on an attached thread: java.lang.ClassNotFoundException: io.github.kisame76.minato.test.jnifields.JniFieldsApplication
+I/jni-fields-test: FindClass of Activity on an attached thread: found
+I/jni-fields-test: done
