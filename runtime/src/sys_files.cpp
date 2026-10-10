@@ -616,6 +616,22 @@ bool in_different_mounts(const HostPath &host, const HostPath &other) {
     return mount && other_mount && *mount != *other_mount;
 }
 
+/// Whether two path arguments' folders, which hold their names, lie in different mounts: rename's EXDEV, which
+/// compares those (do_renameat2), not the mounts of what the names are.
+bool folders_in_different_mounts(const HostPath &host, const HostPath &other) {
+    const auto mount = vfs::mount_point(folder_of(host.guest));
+    const auto other_mount = vfs::mount_point(folder_of(other.guest));
+    return mount && other_mount && *mount != *other_mount;
+}
+
+/// Whether `guest` is a mount's own folder or file. The folder that holds its name is no folder of the app's on
+/// Android 15 (/data/data, /data/user_de/0, /data/app/~~<a>, Android/data): rename, unlink and rmdir check its write
+/// permission (may_delete) before a mount point's EBUSY, so the app gets EACCES.
+bool is_mounted_itself(std::string_view guest) {
+    const auto mount = vfs::mount_point(guest);
+    return guest != "/" && mount && *mount == guest;
+}
+
 // --- Directory streams ---------------------------------------------------------------------------------
 //
 // getdents64 reads a directory through a DIR* of its open file description (descriptors.h), opened
@@ -813,6 +829,7 @@ long sys_unlinkat(int directory, std::uint64_t path, int flags) {
     // On a read-only partition EROFS, once the folder is there: Linux checks the mount before the name (do_unlinkat).
     if (read_only(folder_of(host.guest)) && LastFolder(host).error() == 0) return -linux_errno::erofs;
     if (entry_at(host, false)) {  // ENOENT first, the host's
+        if (is_mounted_itself(host.guest)) return -linux_errno::eacces;
         if (const long refused = may_change_entries(host)) return refused;
     }
     if (::unlinkat(host.directory, host.path.c_str(),
@@ -841,12 +858,13 @@ long sys_renameat2(int old_directory, std::uint64_t old_path, int new_directory,
     if (from.error != 0) return from.error;
     const auto to = resolve(new_directory, new_path);
     if (to.error != 0) return to.error;
-    if (in_different_mounts(from, to)) return -linux_errno::exdev;
+    if (folders_in_different_mounts(from, to)) return -linux_errno::exdev;
     // On a read-only partition EROFS, once both folders are there, before the names (do_renameat2).
     if (read_only(folder_of(from.guest)) && LastFolder(from).error() == 0 && LastFolder(to).error() == 0) {
         return -linux_errno::erofs;
     }
     if (entry_at(from, false)) {  // ENOENT first, the host's
+        if (is_mounted_itself(from.guest)) return -linux_errno::eacces;  // a name onto one: may_change_entries
         if (const long refused = may_change_entries(from)) return refused;
         if (const long refused = may_change_entries(to)) return refused;
     }

@@ -1036,6 +1036,35 @@ TEST(the_apps_own_folders_take_every_change_but_a_hard_link) {
 
 // On a host whose file system ignores case (the Mac's, so the Simulator's), /data/APP/... below a mount of /data is
 // the same file as /data/app/...: the owners go by the folders without regard to case, so it is system's as well.
+TEST(the_apps_mounted_folders_themselves_refuse_a_rename_or_a_removal) {
+    // Linux's rename and rmdir check the write permission of the folder that holds the name (may_delete) before a
+    // mount point's EBUSY, and rename's EXDEV compares those folders' mounts. The folders that hold an app's mounted
+    // ones are system's (/data/data, /data/user_de/0, /data/app/~~<a>, Android/data), so Android 15 answers EACCES
+    // (the contexts-test probe), where the runtime answered EXDEV and EINVAL.
+    Install install;
+    // The folders that hold them, as GuestStart's /data and the external storage's own mount give them.
+    for (const char *folder : {"root", "root/data", "root/data/data", "root/data/app", "root/data/app/~~AAAA",
+                               "storage", "storage/Android", "storage/Android/data"}) {
+        CHECK(::mkdir((install.host + "/" + folder).c_str(), 0755) == 0);
+    }
+    apkrt::vfs::mount("/data", install.host + "/root/data");
+    apkrt::vfs::mount("/storage/emulated/0", install.host + "/storage");
+    for (const std::string &folder : {install.data, std::string("/data/data/io.example"), install.code,
+                                      install.external}) {
+        CHECK(call(nr_unlinkat, {at_fdcwd, at(folder), at_removedir}) == -eacces);
+        CHECK(call(nr_renameat2, {at_fdcwd, at(folder), at_fdcwd, at(folder + "-moved"), 0}) == -eacces);
+    }
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(install.apk), 0}) == -eacces);  // a mounted file's too, as before
+    // A name moved onto one of them: the same check of the folder that holds it.
+    CHECK(::close(::open((install.host + "/root/data/data/x").c_str(), O_CREAT | O_WRONLY, 0600)) == 0);
+    CHECK(call(nr_renameat2, {at_fdcwd, at("/data/data/x"), at_fdcwd, at("/data/data/io.example"), 0}) == -eacces);
+    CHECK(install.has("data") && install.has("code/base.apk") && install.has("external"));
+    // The names inside still move and go as before.
+    CHECK(::close(::open((install.host + "/data/a").c_str(), O_CREAT | O_WRONLY, 0600)) == 0);
+    CHECK(call(nr_renameat2, {at_fdcwd, at(install.data + "/a"), at_fdcwd, at(install.data + "/b"), 0}) == 0);
+    CHECK(call(nr_unlinkat, {at_fdcwd, at(install.data + "/b"), 0}) == 0);
+}
+
 TEST(the_apps_code_is_systems_in_any_case) {
     Scratch scratch;
     const auto code = scratch.host + "/data/app/~~AAAA/io.example-BBBB";
