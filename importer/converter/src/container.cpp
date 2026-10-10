@@ -242,14 +242,37 @@ std::array<std::uint8_t, 16> content_uuid(std::span<const std::byte> image, cons
     return uuid;
 }
 
+/// The LOAD segments and GNU_RELRO, as a layout refusal names them, so that an app's import shows the layout it
+/// met: "(segments: LOAD r-x 0x0 size 0x220 align 0x1000, ..., GNU_RELRO 0x12c0 size 0x40)".
+std::string segments_text(const elf::File &file) {
+    std::string text = "(segments:";
+    const char *separator = " ";
+    for (const auto &segment : file.segments) {
+        const auto flags = segment.flags;
+        if (segment.type == elf::SegmentType::load) {
+            text += std::format("{}LOAD {}{}{} {:#x} size {:#x} align {:#x}", separator,
+                                (flags & elf::segment_readable) ? 'r' : '-',
+                                (flags & elf::segment_writable) ? 'w' : '-',
+                                (flags & elf::segment_executable) ? 'x' : '-', segment.address, segment.memory_size,
+                                segment.alignment);
+        } else if (segment.type == elf::SegmentType::gnu_relro) {
+            text += std::format("{}GNU_RELRO {:#x} size {:#x}", separator, segment.address, segment.memory_size);
+        } else {
+            continue;
+        }
+        separator = ", ";
+    }
+    return text + ")";
+}
+
 }  // namespace
 
 PageLayout page_layout(const elf::File &file) {
     constexpr std::uint64_t small_page = 4 * 1024;  // Android's pages before 16 KiB
     if (const auto *segment = elf::first_misaligned_load(file, small_page)) {
         throw Incompatible(std::format(
-            "LOAD segment at {:#x} does not fit 4 KiB pages: aligned to {:#x}, at offset {:#x} (ADR-0007)",
-            segment->address, segment->alignment, segment->offset));
+            "LOAD segment at {:#x} does not fit 4 KiB pages: aligned to {:#x}, at offset {:#x} (ADR-0007) {}",
+            segment->address, segment->alignment, segment->offset, segments_text(file)));
     }
     std::vector<const elf::Segment *> loads;
     for (const auto &segment : file.segments) {
@@ -300,13 +323,13 @@ PageLayout page_layout(const elf::File &file) {
         layout.shift = (page_size - (layout.writable_start - layout.min_vaddr) % page_size) % page_size;
         if (layout.shift % alignment != 0) {
             throw Incompatible(std::format(
-                "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs (ADR-0007)",
-                alignment, layout.shift));
+                "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs (ADR-0007) {}",
+                alignment, layout.shift, segments_text(file)));
         }
     } else {
         throw Incompatible(std::format(
-            "the non-writable segment at {:#x} comes after or shares a 4 KiB page with a writable one (ADR-0007)",
-            small_pages.crossing->address));
+            "the non-writable segment at {:#x} comes after or shares a 4 KiB page with a writable one (ADR-0007) {}",
+            small_pages.crossing->address, segments_text(file)));
     }
     layout.end = last > layout.writable_start
                      ? layout.writable_start + align_up(last - layout.writable_start, page_size)

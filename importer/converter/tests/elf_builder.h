@@ -18,6 +18,7 @@ constexpr std::uint32_t pt_dynamic = 2;
 constexpr std::uint32_t pt_interp = 3;
 constexpr std::uint32_t pt_phdr = 6;
 constexpr std::uint32_t pt_gnu_stack = 0x6474'e551;
+constexpr std::uint32_t pt_gnu_relro = 0x6474'e552;
 constexpr std::uint32_t r = 4;
 constexpr std::uint32_t w = 2;
 constexpr std::uint32_t x = 1;

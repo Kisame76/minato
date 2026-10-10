@@ -482,16 +482,21 @@ TEST(refuses_a_4_kib_layout_no_shift_fits) {
     // Code and data on one 4 KiB page.
     CHECK_THROWS(Incompatible, convert(four_kib_program(0x2c0)), "shares a 4 KiB page with a writable one");
 
-    // A read-only segment after the data: a second boundary between code and data.
+    // A read-only segment after the data: a second boundary between code and data. The refusal names every LOAD
+    // segment and GNU_RELRO, so that an app's import shows its layout (the Unity test APK v2's libil2cpp.so).
     auto read_only_after = four_kib_program(0x12c0);
     read_only_after.segments({
-        {pt_phdr, r, 0x40, 0x40, 5 * 56, 5 * 56, 8},
+        {pt_phdr, r, 0x40, 0x40, 6 * 56, 6 * 56, 8},
         {pt_load, r | x, 0, 0, 0x220, 0x220, 0x1000},
         {pt_load, r | w, 0x2c0, 0x12c0, 0x40, 0x1000, 0x1000},
         {pt_load, r, 0x100, 0x3100, 0x40, 0x40, 0x1000},
         {pt_dynamic, r | w, 0x2c0, 0x12c0, 0x40, 0x40, 8},
+        {pt_gnu_relro, r, 0x2c0, 0x12c0, 0x40, 0x40, 1},
     });
     CHECK_THROWS(Incompatible, convert(read_only_after), "the non-writable segment at 0x3100 comes after");
+    CHECK_THROWS(Incompatible, convert(read_only_after),
+                 "(segments: LOAD r-x 0x0 size 0x220 align 0x1000, LOAD rw- 0x12c0 size 0x1000 align 0x1000, "
+                 "LOAD r-- 0x3100 size 0x40 align 0x1000, GNU_RELRO 0x12c0 size 0x40)");
 
     // Aligned to less than 4 KiB.
     auto small = four_kib_program(0x42c0);
