@@ -214,7 +214,7 @@ add_custom_command(OUTPUT "${android_map}" "${android_stubs}"
 apk_bionic_unit(apk_android SOURCES "${android_sources}/looper.cpp" "${android_sources}/configuration.cpp"
   "${android_sources}/asset_manager.cpp" "${android_sources}/native_activity.cpp" "${android_sources}/input_queue.cpp"
   "${android_sources}/input.cpp" "${android_sources}/choreographer.cpp" "${android_sources}/window_forwards.cpp"
-  "${android_sources}/hardware_buffer_forwards.cpp"
+  "${android_sources}/hardware_buffer_forwards.cpp" "${android_sources}/hardware_buffer_jni.cpp"
   "${android_sources}/native_window_jni.cpp" "${android_sources}/sharedmem.cpp" "${android_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libandroid UNITS apk_android NEEDED libc libdl liblog libnativewindow libz

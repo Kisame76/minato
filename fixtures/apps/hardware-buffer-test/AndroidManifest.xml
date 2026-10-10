@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0058 a)'s Java test (hardware-buffer-test): android.hardware.HardwareBuffer, AOSP's class over Minato's JNI on
+     libnativewindow's AHardwareBuffer, and libandroid's AHardwareBuffer_fromHardwareBuffer and toHardwareBuffer
+     through the app's JNI library. The launcher activity is the framework's own android.app.Activity, so that
+     `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.hardwarebuffer" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="Hardware Buffer Test"
+      android:name="io.github.kisame76.minato.test.hardwarebuffer.HardwareBufferApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

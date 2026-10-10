@@ -1,0 +1,21 @@
+I/hardware-buffer-test: isSupported RGBA_8888: true
+I/hardware-buffer-test: isSupported RGB_565: true
+I/hardware-buffer-test: isSupported BLOB: true
+I/hardware-buffer-test: isSupported RGBA_8888 protected with the CPU: false
+I/hardware-buffer-test: create: 64 x 48 x 1, format 1, usage 0x133, closed false
+I/hardware-buffer-test: getId: not 0 true, another buffer's differs true
+I/hardware-buffer-test: a BLOB: 100000 x 1 x 1, format 33, usage 0x33
+I/hardware-buffer-test: create 0 x 48, format 1, layers 1: java.lang.IllegalArgumentException: Invalid width 0
+I/hardware-buffer-test: create 64 x 0, format 1, layers 1: java.lang.IllegalArgumentException: Invalid height 0
+I/hardware-buffer-test: create 64 x 48, format 1, layers 0: java.lang.IllegalArgumentException: Invalid layer count 0
+I/hardware-buffer-test: create 64 x 48, format 153, layers 1: java.lang.IllegalArgumentException: Unable to create a HardwareBuffer, either the dimensions passed were too large, too many image layers were requested, or an invalid set of usage flags or invalid format was passed
+I/hardware-buffer-test: create 4096 x 2, format 33, layers 1: java.lang.IllegalArgumentException: Height must be 1 when using the BLOB format
+I/hardware-buffer-test: from a parcel: 16 x 8 x 1, format 1, usage 0x33, the same ID true, describeContents 1
+I/hardware-buffer-test: the read one after the written one's close: 16 x 8 x 1, format 1, usage 0x33
+I/hardware-buffer-test: closed twice: closed true
+I/hardware-buffer-test: getWidth after close: java.lang.IllegalStateException: This HardwareBuffer has been closed and its width cannot be obtained.
+I/hardware-buffer-test: writeToParcel after close: java.lang.IllegalStateException: This HardwareBuffer has been closed and cannot be written to a parcel.
+I/hardware-buffer-test: fromHardwareBuffer: 64 x 48 x 1, format 1, the same ID 1, lock 0, unlock 0
+I/hardware-buffer-test: the pattern read back natively: 0x5a5a5a5a
+I/hardware-buffer-test: toHardwareBuffer: 32 x 16 x 1, format 4, usage 0x33
+I/hardware-buffer-test: done

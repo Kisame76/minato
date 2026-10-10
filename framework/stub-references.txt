@@ -80,7 +80,6 @@ android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: Reso
 android.graphics.Movie <- android.content.res.Resources  # gap: Resources.getMovie
 android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
 android.view.ThreadedRenderer <- android.graphics.Bitmap  # M4 step 10: Bitmap.createBitmap of a Picture, drawn on hwui's render thread
-android.hardware.HardwareBuffer <- android.graphics.Bitmap  # gap: hardware bitmaps (Bitmap.wrapHardwareBuffer, getHardwareBuffer) (ADR-0043, Grafik)
 android.graphics.PostProcessor <- android.graphics.ImageDecoder  # gap: ImageDecoder.setPostProcessor (ADR-0043, Grafik)
 android.media.MediaCodecInfo <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
 android.media.MediaCodecInfo$CodecCapabilities <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
@@ -210,7 +209,6 @@ android.graphics.BLASTBufferQueue <- android.view.Surface  # ADR-0041 a): a wind
 android.graphics.HardwareRenderer <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
 android.graphics.HardwareRenderer$FrameRenderRequest <- android.view.Surface  # M4 step 10: Surface's hardware canvas (lockHardwareCanvas), which hwui's GPU pipeline gives
 android.graphics.SurfaceTexture <- android.view.Surface  # M4 step 10: a Surface made from a SurfaceTexture, which stays compile-only with the GPU pipeline
-android.hardware.HardwareBuffer <- android.app.SharedElementCallback  # stays: shared element transitions, compile-only (step c2c3's decision 5)
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # stays: Activity's dumpables print only for dumpsys
 android.util.PrintWriterPrinter <- android.app.Activity  # stays: Activity.dump, for dumpsys
@@ -236,7 +234,6 @@ com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # st
 # ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
 # sensor runs.
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
-android.hardware.HardwareBuffer <- android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers
 android.hardware.LegacySensorManager <- android.hardware.SensorManager  # gap: the SensorListener API, deprecated since API 3, which needs the window manager's rotation watcher
 android.hardware.input.InputSensorInfo <- android.hardware.Sensor  # stays: an input device's sensor, which only InputManager makes
 android.os.MemoryFile <- android.hardware.SensorDirectChannel, android.hardware.SystemSensorManager  # stays: direct channels, which no sensor of Minato's offers

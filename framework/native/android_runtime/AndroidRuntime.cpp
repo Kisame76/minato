@@ -52,6 +52,7 @@ extern int register_android_os_Debug(JNIEnv *env);
 extern int register_android_os_Process(JNIEnv *env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
 extern int register_android_hardware_SensorManager(JNIEnv *env);
+extern int register_android_hardware_HardwareBuffer(JNIEnv *env);
 extern int register_android_app_ActivityThread(JNIEnv *env);
 extern int register_android_animation_PropertyValuesHolder(JNIEnv *env);
 extern int register_android_util_EventLog(JNIEnv *env);
@@ -128,7 +129,8 @@ int register_framework_natives(JNIEnv *env) {
           register_android_os_MessageQueue, register_android_os_Trace, register_android_os_Debug,
           register_android_os_Process,
           register_com_android_internal_util_VirtualRefBasePtr,
-          register_android_hardware_SensorManager, register_android_opengl_classes,
+          register_android_hardware_SensorManager, register_android_hardware_HardwareBuffer,
+          register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent,
           register_android_view_KeyCharacterMap, register_android_hardware_input_InputService,

@@ -706,6 +706,8 @@ frameworks_base/core/java/com/android/internal/dynamicanimation/animation/Spring
 frameworks_base/core/java/android/hardware/Sensor.java
 frameworks_base/core/java/android/hardware/SensorAdditionalInfo.java
 frameworks_base/core/java/android/hardware/SensorDirectChannel.java
+# HardwareBuffer (ADR-0058 a)): AOSP's class over our natives on libnativewindow's AHardwareBuffer.
+frameworks_base/core/java/android/hardware/HardwareBuffer.java
 frameworks_base/core/java/android/hardware/SensorEvent.java
 frameworks_base/core/java/android/hardware/SensorEventCallback.java
 frameworks_base/core/java/android/hardware/SensorEventListener.java

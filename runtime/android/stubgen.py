@@ -57,8 +57,9 @@ LIBRARIES = {
             "ANativeWindow_fromSurface", "ANativeWindow_toSurface",
             # shared memory on memfd_create, as libcutils' memfd path makes it (sharedmem.cpp)
             "ASharedMemory_*",
-            # forwarded to libnativewindow (hardware_buffer_forwards.cpp, ADR-0058 a)); the Java ones wait for
-            # HardwareBuffer's JNI
+            # forwarded to libnativewindow (hardware_buffer_forwards.cpp, ADR-0058 a)), and a Java HardwareBuffer's
+            # buffer through libandroid_runtime (hardware_buffer_jni.cpp)
+            "AHardwareBuffer_fromHardwareBuffer", "AHardwareBuffer_toHardwareBuffer",
             "AHardwareBuffer_acquire", "AHardwareBuffer_allocate", "AHardwareBuffer_describe", "AHardwareBuffer_getId",
             "AHardwareBuffer_isSupported", "AHardwareBuffer_lock", "AHardwareBuffer_lockAndGetInfo",
             "AHardwareBuffer_lockPlanes", "AHardwareBuffer_recvHandleFromUnixSocket", "AHardwareBuffer_release",
