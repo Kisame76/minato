@@ -57,4 +57,9 @@ I/jobs-test: an unknown component, read: 0
 I/jobs-test: an unknown component, set: java.lang.IllegalArgumentException: Component class io.github.kisame76.minato.test.jobs.Missing does not exist in io.github.kisame76.minato.test.jobs
 I/jobs-test: an unknown package: java.lang.IllegalArgumentException: Unknown component: ComponentInfo{com.example.other/com.example.other.Job}
 I/jobs-test: an activity of the app: 0
+I/jobs-test: a service the manifest disables, found by default: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.jobs/io.github.kisame76.minato.test.jobs.OffJob}
+I/jobs-test: ... with MATCH_DISABLED_COMPONENTS, enabled=false
+I/jobs-test: its state: 0
+I/jobs-test: set enabled: 1
+I/jobs-test: set back to the default: 0
 I/jobs-test: done

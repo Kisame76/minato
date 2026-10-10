@@ -271,5 +271,23 @@ public class JobsApplication extends Application {
                 new ComponentName("com.example.other", "com.example.other.Job"))));
         log("an activity of the app: " + packageManager.getComponentEnabledSetting(
                 new ComponentName("io.github.kisame76.minato.test.jobs", "android.app.Activity")));
+        // A service the manifest disables (Google's asset-delivery library enables its extraction service this way):
+        // PackageManagerService looks it up with MATCH_DISABLED_COMPONENTS, so the state can be set and read.
+        ComponentName off = new ComponentName(PACKAGE, PACKAGE + ".OffJob");
+        log("a service the manifest disables, found by default: "
+                + outcome(() -> packageManager.getServiceInfo(off, 0).name));
+        log("... with MATCH_DISABLED_COMPONENTS, enabled=" + outcome(
+                () -> packageManager.getServiceInfo(off, PackageManager.MATCH_DISABLED_COMPONENTS).enabled));
+        log("its state: " + packageManager.getComponentEnabledSetting(off));
+        log("set enabled: " + outcome(() -> {
+            packageManager.setComponentEnabledSetting(off, PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP);
+            return packageManager.getComponentEnabledSetting(off);
+        }));
+        log("set back to the default: " + outcome(() -> {
+            packageManager.setComponentEnabledSetting(off, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+                    PackageManager.DONT_KILL_APP);
+            return packageManager.getComponentEnabledSetting(off);
+        }));
     }
 }

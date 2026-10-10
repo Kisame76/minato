@@ -237,27 +237,28 @@ class ApplicationPackageManager {
         }
     }
 
+    /** Whether the manifest declares the component, enabled or not: PackageManagerService looks it up with MATCH_DISABLED_COMPONENTS. */
     private boolean hasComponent(ComponentName componentName) {
         try {
-            getActivityInfo(componentName, 0);
+            getActivityInfo(componentName, PackageManager.MATCH_DISABLED_COMPONENTS);
             return true;
         } catch (NameNotFoundException e) {
             // Not an activity.
         }
         try {
-            getReceiverInfo(componentName, 0);
+            getReceiverInfo(componentName, PackageManager.MATCH_DISABLED_COMPONENTS);
             return true;
         } catch (NameNotFoundException e) {
             // Not a receiver.
         }
         try {
-            getServiceInfo(componentName, 0);
+            getServiceInfo(componentName, PackageManager.MATCH_DISABLED_COMPONENTS);
             return true;
         } catch (NameNotFoundException e) {
             // Not a service.
         }
         try {
-            getProviderInfo(componentName, 0);
+            getProviderInfo(componentName, PackageManager.MATCH_DISABLED_COMPONENTS);
             return true;
         } catch (NameNotFoundException e) {
             return false;
