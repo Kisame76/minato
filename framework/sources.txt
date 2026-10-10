@@ -1579,3 +1579,13 @@ frameworks_base/core/java/android/net/WebAddress.java
 frameworks_base/core/java/android/webkit/WebViewFactoryProvider.java
 frameworks_base/core/java/android/webkit/WebViewProvider.java
 frameworks_base/core/java/android/hardware/Camera.java
+
+# The keystore's parameter classes (batch D 2: GetSocial and AndroidX Security build a KeyGenParameterSpec before they
+# ask the AndroidKeyStore provider for a key), keystore-test: the spec and its Builder, KeyProperties, their two
+# helpers and the spec's interface UserAuthArgs. The provider is ADR-0059's; KeymasterDefs, KeyMint's EcCurve and
+# GateKeeper, whose constants they inline, are hand stubs.
+frameworks_base_types/keystore/java/android/security/keystore/KeyGenParameterSpec.java
+frameworks_base_types/keystore/java/android/security/keystore/KeyProperties.java
+frameworks_base_types/keystore/java/android/security/keystore/Utils.java
+frameworks_base_types/keystore/java/android/security/keystore/ArrayUtils.java
+frameworks_base_types/keystore/java/android/security/keystore/UserAuthArgs.java

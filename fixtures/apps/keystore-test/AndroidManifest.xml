@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the keystore's parameter classes (keystore-test; batch D 2: GetSocial and AndroidX Security build a
+     KeyGenParameterSpec before they ask the AndroidKeyStore provider for a key): KeyGenParameterSpec, its Builder's
+     defaults, checks and copies, and KeyProperties' constants. The provider itself is ADR-0059's; whether it is there
+     is only shown. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
+     process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.keystore" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.keystore.KeystoreApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

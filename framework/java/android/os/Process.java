@@ -27,6 +27,13 @@ public class Process {
     public static final int SYSTEM_UID = 1000;
 
     /**
+     * As AOSP's: the uid of the Wi-Fi processes, which KeyProperties' namespaces name (batch D 2).
+     *
+     * @hide
+     */
+    public static final int WIFI_UID = 1010;
+
+    /**
      * As AOSP's: no pid, which an AttributionSource without one carries (ADR-0045, gap 13a).
      *
      * @hide

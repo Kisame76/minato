@@ -492,7 +492,7 @@ run_app() {
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | jni-fields-test \
-      | storage-test | location-test | gapscan-test | webview-camera-test)
+      | storage-test | location-test | gapscan-test | webview-camera-test | keystore-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
