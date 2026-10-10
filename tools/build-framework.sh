@@ -103,7 +103,8 @@ for patch in framework/patches/*.patch; do
 done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --declarations "$SOURCES/frameworks_base_graphics" --declarations "$SOURCES/frameworks_base_hwui" \
-  --values "$SOURCES/build_release/aconfig/ap3a" --out "$GEN/aconfig" >/dev/null
+  --declarations "$SOURCES/frameworks_base_types" --values "$SOURCES/build_release/aconfig/ap3a" \
+  --out "$GEN/aconfig" >/dev/null
 cp -R "$R_JAVA/." "$GEN/r/"
 # The values of every feature flag framework-res was built with (ap3a's), which Android's parser reads from the
 # device's aconfig storage to leave out a manifest element behind a flag that is off (b3.5b1).

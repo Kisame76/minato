@@ -210,4 +210,21 @@ I/api-breadth-test: android.os.Debug: loads
 I/api-breadth-test: android.util.Base64DataException: loads
 I/api-breadth-test: android.util.Base64InputStream: loads
 I/api-breadth-test: android.util.Base64OutputStream: loads
+I/api-breadth-test: android.media.AudioFocusRequest: loads
+I/api-breadth-test: android.media.AudioTimestamp: loads
+I/api-breadth-test: android.media.Rating: loads
+I/api-breadth-test: android.media.MediaDescription: loads
+I/api-breadth-test: android.media.PlaybackParams: loads
+I/api-breadth-test: android.media.MediaMetadata: loads
+I/api-breadth-test: android.media.DeniedByServerException: loads
+I/api-breadth-test: android.media.Image: loads
+I/api-breadth-test: android.media.MediaCryptoException: loads
+I/api-breadth-test: android.media.MediaDrmException: loads
+I/api-breadth-test: android.media.NotProvisionedException: loads
+I/api-breadth-test: android.media.VolumeProvider: loads
+I/api-breadth-test: android.media.MediaDataSource: loads
+I/api-breadth-test: android.media.MediaDrmResetException: loads
+I/api-breadth-test: android.media.MediaMetadataEditor: loads
+I/api-breadth-test: android.media.UnsupportedSchemeException: loads
+I/api-breadth-test: android.media.ResourceBusyException: loads
 I/api-breadth-test: done

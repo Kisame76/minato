@@ -94,6 +94,15 @@ class AudioManager {
         return null;
     }
 
+    /** @hide As AOSP's: the focus request flags that AudioFocusRequest names (android.media's take-in classes). */
+    public static final int AUDIOFOCUS_FLAG_DELAY_OK = 0x1 << 0;
+
+    /** @hide As AOSP's. */
+    public static final int AUDIOFOCUS_FLAG_PAUSES_ON_DUCKABLE_LOSS = 0x1 << 1;
+
+    /** @hide As AOSP's. */
+    public static final int AUDIOFOCUS_FLAG_LOCK = 0x1 << 2;
+
     /** @hide As AOSP's: the sounds of a repeated focus move, which SoundEffectConstants picks (ADR-0045 step 7c1). */
     public static final int NUM_NAVIGATION_REPEAT_SOUND_EFFECTS = 4;
 

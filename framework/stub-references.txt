@@ -481,3 +481,6 @@ com.android.internal.content.InstallLocationUtils <- android.content.pm.PackageI
 com.android.internal.util.IndentingPrintWriter <- android.content.pm.PackageInstaller  # stays: SessionParams.dump, for dumpsys
 com.android.internal.util.function.pooled.PooledLambda <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3 (the local installer accepts callbacks and calls none)
 com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3
+
+# android.media's take-in classes (the Unity test APK gap sort, Formate's category 1).
+android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is a graphics fence; no ImageReader gives an app an Image yet (category 2)

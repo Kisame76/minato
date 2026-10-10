@@ -1647,3 +1647,25 @@ frameworks_base/core/java/android/app/IParcelFileDescriptorRetriever.aidl
 frameworks_base/core/java/android/app/IAppTraceRetriever.aidl
 frameworks_base/core/java/android/content/pm/DataLoaderType.aidl
 frameworks_base/core/java/android/content/pm/verify/domain/DomainVerificationUtils.java
+
+# android.media's take-in classes (the Unity test APK gap sort 2026-10-09, Formate's category 1), api-breadth-test: pure Java
+# that an app names: audio focus requests, ratings, metadata and descriptions, playback parameters, the DRM exceptions,
+# images and data sources.
+frameworks_base_types/media/java/android/media/AudioFocusRequest.java
+frameworks_base_types/media/java/android/media/AudioTimestamp.java
+frameworks_base_types/media/java/android/media/Rating.java
+frameworks_base_types/media/java/android/media/MediaDescription.java
+frameworks_base_types/media/java/android/media/PlaybackParams.java
+frameworks_base_types/media/java/android/media/MediaMetadata.java
+frameworks_base_types/media/java/android/media/DeniedByServerException.java
+frameworks_base_types/media/java/android/media/Image.java
+frameworks_base_types/media/java/android/media/MediaCryptoException.java
+frameworks_base_types/media/java/android/media/MediaDrmException.java
+frameworks_base_types/media/java/android/media/NotProvisionedException.java
+frameworks_base_types/media/java/android/media/VolumeProvider.java
+frameworks_base_types/media/java/android/media/MediaDataSource.java
+frameworks_base_types/media/java/android/media/MediaDrmResetException.java
+frameworks_base_types/media/java/android/media/MediaMetadataEditor.java
+frameworks_base_types/media/java/android/media/UnsupportedSchemeException.java
+frameworks_base_types/media/java/android/media/ResourceBusyException.java
+frameworks_base_types/media/java/android/media/MediaDrmThrowable.java
