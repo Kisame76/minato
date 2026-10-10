@@ -15,8 +15,46 @@ I/webview-camera-test: setData(StringBufferInputStream): java.lang.IllegalArgume
 I/webview-camera-test: WebResourceResponse after the setters: text/plain, ascii, 204 No Content, headers null, data true
 I/webview-camera-test: WebSettings: abstract true, layout [NORMAL, SINGLE_COLUMN, NARROW_COLUMNS, TEXT_AUTOSIZING], plugins [ON, ON_DEMAND, OFF], cache -1 2
 I/webview-camera-test: WebView: extends android.widget.AbsoluteLayout, hit test types 0 7
+I/webview-camera-test: ConsoleMessage: hello, page.js:7, WARNING, levels [TIP, LOG, WARNING, ERROR, DEBUG]
+I/webview-camera-test: TracingConfig: categories 4, custom [blink*, v8], mode 1
+I/webview-camera-test: WebMessage: data, ports null, 0
+I/webview-camera-test: ServiceWorkerClient: shouldInterceptRequest null
+I/webview-camera-test: callbacks: value v, download https://example.com/f.zip application/zip 42, WebMessageCallback's default ran
+I/webview-camera-test: JavascriptInterface: on Bridge.version true
+I/webview-camera-test: type ClientCertRequest: abstract true, extends java.lang.Object
+I/webview-camera-test: type HttpAuthHandler: abstract false, extends android.os.Handler
+I/webview-camera-test: type JsPromptResult: abstract false, extends android.webkit.JsResult
+I/webview-camera-test: type JsResult: abstract false, extends java.lang.Object
+I/webview-camera-test: type PermissionRequest: abstract true, extends java.lang.Object
+I/webview-camera-test: type RenderProcessGoneDetail: abstract true, extends java.lang.Object
+I/webview-camera-test: type SafeBrowsingResponse: abstract true, extends java.lang.Object
+I/webview-camera-test: type ServiceWorkerWebSettings: abstract true, extends java.lang.Object
+I/webview-camera-test: type SslErrorHandler: abstract false, extends android.os.Handler
+I/webview-camera-test: type WebBackForwardList: abstract true, extends java.lang.Object
+I/webview-camera-test: type WebHistoryItem: abstract true, extends java.lang.Object
+I/webview-camera-test: type WebMessagePort: abstract true, extends java.lang.Object
+I/webview-camera-test: type WebResourceError: abstract true, extends java.lang.Object
+I/webview-camera-test: type WebViewRenderProcess: abstract true, extends java.lang.Object
+I/webview-camera-test: type WebViewRenderProcessClient: abstract true, extends java.lang.Object
 I/webview-camera-test: Camera: getNumberOfCameras 0, open() null
 I/webview-camera-test: Camera.open(0): java.lang.RuntimeException: Fail to connect to camera service
 I/webview-camera-test: Camera.getCameraInfo(0): java.lang.RuntimeException: Unknown camera ID
 I/webview-camera-test: Camera.Area: [-500,-500][500,500] weight 1000, equals the same true, another weight false, null false
+I/webview-camera-test: CameraAccessException: 1 The camera is disabled due to a device policy, and cannot be opened.; 3 CAMERA_ERROR (3): boom
+I/webview-camera-test: MeteringRectangle: (x:10, y:20, w:30, h:40, wt:500), rect [10,20][40,60], x 10 y 20 30 x 40, weight 500, equals the same by rect true
+I/webview-camera-test: MeteringRectangle refusals: java.lang.IllegalArgumentException: meteringWeight is out of range of [0, 1000] (too low); java.lang.IllegalArgumentException: meteringWeight is out of range of [0, 1000] (too high); java.lang.IllegalArgumentException: x must be nonnegative
+I/webview-camera-test: type android.hardware.camera2.CameraCaptureSession: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.hardware.camera2.CameraCaptureSession$CaptureCallback: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.hardware.camera2.CameraCaptureSession$StateCallback: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.hardware.camera2.CaptureFailure: abstract false, extends java.lang.Object
+I/webview-camera-test: PageRange: PageRange[0 - 4], 0-4, all PageRange[<all pages>], equals true
+I/webview-camera-test: PageRange refusals: java.lang.IllegalArgumentException: start cannot be less than zero.; java.lang.IllegalArgumentException: start must be lesser than end.
+I/webview-camera-test: PrintDocumentInfo: report.pdf, type 0, pages 3, size 0, PrintDocumentInfo{name=report.pdf, pageCount=3, contentType=CONTENT_TYPE_DOCUMENT, dataSize=0}
+I/webview-camera-test: PrintDocumentInfo refusals: java.lang.IllegalArgumentException: name cannot be empty; java.lang.IllegalArgumentException: pageCount must be greater than or equal to zero or DocumentInfo#PAGE_COUNT_UNKNOWN
+I/webview-camera-test: type android.print.PrintDocumentAdapter: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.print.PrintDocumentAdapter$LayoutResultCallback: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.print.PrintDocumentAdapter$WriteResultCallback: abstract true, extends java.lang.Object
+I/webview-camera-test: type android.print.PrintJob: abstract false, extends java.lang.Object
+I/webview-camera-test: ShapeDrawable OvalShape: 8 x 8, opacity -3, alpha 255, center ff00ff00, corner 0
+I/webview-camera-test: ShapeDrawable RectShape: 8 x 8, opacity -3, alpha 255, center ff00ff00, corner ff00ff00
 I/webview-camera-test: done

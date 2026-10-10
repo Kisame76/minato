@@ -1669,3 +1669,44 @@ frameworks_base_types/media/java/android/media/MediaMetadataEditor.java
 frameworks_base_types/media/java/android/media/UnsupportedSchemeException.java
 frameworks_base_types/media/java/android/media/ResourceBusyException.java
 frameworks_base_types/media/java/android/media/MediaDrmThrowable.java
+
+# The Unity test APK probe's gap sort, category 1 (Grafik), webview-camera-test: the rest of android.webkit's public types
+# that the ad SDKs name, plain Java: messages, results, handlers and the abstract types a provider implements.
+frameworks_base/core/java/android/webkit/ClientCertRequest.java
+frameworks_base/core/java/android/webkit/ConsoleMessage.java
+frameworks_base/core/java/android/webkit/DownloadListener.java
+frameworks_base/core/java/android/webkit/HttpAuthHandler.java
+frameworks_base/core/java/android/webkit/JavascriptInterface.java
+frameworks_base/core/java/android/webkit/JsPromptResult.java
+frameworks_base/core/java/android/webkit/JsResult.java
+frameworks_base/core/java/android/webkit/PermissionRequest.java
+frameworks_base/core/java/android/webkit/RenderProcessGoneDetail.java
+frameworks_base/core/java/android/webkit/SafeBrowsingResponse.java
+frameworks_base/core/java/android/webkit/ServiceWorkerClient.java
+frameworks_base/core/java/android/webkit/ServiceWorkerWebSettings.java
+frameworks_base/core/java/android/webkit/SslErrorHandler.java
+frameworks_base/core/java/android/webkit/TracingConfig.java
+frameworks_base/core/java/android/webkit/ValueCallback.java
+frameworks_base/core/java/android/webkit/WebBackForwardList.java
+frameworks_base/core/java/android/webkit/WebHistoryItem.java
+frameworks_base/core/java/android/webkit/WebMessage.java
+frameworks_base/core/java/android/webkit/WebMessagePort.java
+frameworks_base/core/java/android/webkit/WebResourceError.java
+frameworks_base/core/java/android/webkit/WebViewRenderProcess.java
+frameworks_base/core/java/android/webkit/WebViewRenderProcessClient.java
+
+# The Unity test APK probe's gap sort, category 1 (Grafik), package 2, webview-camera-test: camera2's plain types that Unity's
+# Camera2Wrapper names (the exception, a metering area, the session's callbacks and a capture failure), android.print's
+# plain types (page ranges, print attributes, a document's info, the adapter and a print job) and ShapeDrawable.
+frameworks_base/core/java/android/hardware/camera2/CameraAccessException.java
+frameworks_base/core/java/android/hardware/camera2/CameraCaptureSession.java
+frameworks_base/core/java/android/hardware/camera2/CaptureFailure.java
+frameworks_base/core/java/android/hardware/camera2/params/MeteringRectangle.java
+frameworks_base/core/java/android/hardware/camera2/utils/HashCodeHelpers.java
+frameworks_base/core/java/android/print/PageRange.java
+frameworks_base/core/java/android/print/PrintDocumentAdapter.java
+frameworks_base/core/java/android/print/PrintAttributes.java
+frameworks_base/core/java/android/print/PrintDocumentInfo.java
+frameworks_base/core/java/android/print/PrintJob.java
+frameworks_base_graphics/graphics/java/android/graphics/drawable/ShapeDrawable.java
+

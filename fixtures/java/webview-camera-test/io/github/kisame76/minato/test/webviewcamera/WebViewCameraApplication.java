@@ -3,16 +3,55 @@ package io.github.kisame76.minato.test.webviewcamera;
 import android.app.Application;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.graphics.drawable.ShapeDrawable;
+import android.graphics.drawable.shapes.OvalShape;
+import android.graphics.drawable.shapes.RectShape;
 import android.hardware.Camera;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CaptureFailure;
+import android.hardware.camera2.params.MeteringRectangle;
+import android.os.Bundle;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
+import android.print.PrintJob;
 import android.net.Uri;
 import android.util.Log;
+import android.webkit.ClientCertRequest;
+import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
+import android.webkit.HttpAuthHandler;
+import android.webkit.JavascriptInterface;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
+import android.webkit.PermissionRequest;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.SafeBrowsingResponse;
+import android.webkit.ServiceWorkerClient;
+import android.webkit.ServiceWorkerWebSettings;
+import android.webkit.SslErrorHandler;
+import android.webkit.TracingConfig;
+import android.webkit.ValueCallback;
+import android.webkit.WebBackForwardList;
+import android.webkit.WebHistoryItem;
+import android.webkit.WebMessage;
+import android.webkit.WebMessagePort;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebViewRenderProcess;
+import android.webkit.WebViewRenderProcessClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -27,7 +66,9 @@ import java.util.concurrent.Callable;
  * SafeDK's brand safety, Facebook's augmentWebView), and the legacy android.hardware.Camera, whose Camera$Area Unity's
  * Camera2Wrapper names; MimeTypeMap is mime-test's. From Application.onCreate, on the main thread, it logs a
  * WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'
- * enums, the WebView class, and the camera count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area.
+ * enums, the WebView class, the rest of android.webkit's public types (category 1 of the gap sort), and the camera
+ * count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area; then camera2's and android.print's plain types and
+ * ShapeDrawable (category 1, package 2).
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
  * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
@@ -44,7 +85,11 @@ public class WebViewCameraApplication extends Application {
         client();
         responses();
         settings();
+        webkitTypes();
         camera();
+        camera2();
+        print();
+        shapes();
         provider();
         Log.i(TAG, "done");
     }
@@ -146,6 +191,50 @@ public class WebViewCameraApplication extends Application {
                 + WebView.HitTestResult.UNKNOWN_TYPE + " " + WebView.HitTestResult.SRC_ANCHOR_TYPE);
     }
 
+    /** A class the bridge of a page's JavaScript would call, as the ad SDKs give WebView.addJavascriptInterface. */
+    public static final class Bridge {
+        @JavascriptInterface
+        public String version() {
+            return "1";
+        }
+    }
+
+    /** The rest of android.webkit's public types the ad SDKs name: the plain ones made, the abstract ones described. */
+    private static void webkitTypes() {
+        ConsoleMessage message = new ConsoleMessage("hello", "page.js", 7, ConsoleMessage.MessageLevel.WARNING);
+        Log.i(TAG, "ConsoleMessage: " + message.message() + ", " + message.sourceId() + ":" + message.lineNumber()
+                + ", " + message.messageLevel() + ", levels "
+                + java.util.Arrays.toString(ConsoleMessage.MessageLevel.values()));
+        TracingConfig tracing = new TracingConfig.Builder()
+                .addCategories(TracingConfig.CATEGORIES_WEB_DEVELOPER).addCategories("blink*", "v8")
+                .setTracingMode(TracingConfig.RECORD_CONTINUOUSLY).build();
+        Log.i(TAG, "TracingConfig: categories " + tracing.getPredefinedCategories() + ", custom "
+                + tracing.getCustomIncludedCategories() + ", mode " + tracing.getTracingMode());
+        Log.i(TAG, "WebMessage: " + new WebMessage("data").getData() + ", ports " + new WebMessage("data").getPorts()
+                + ", " + new WebMessage("d", new WebMessagePort[0]).getPorts().length);
+        Log.i(TAG, "ServiceWorkerClient: shouldInterceptRequest "
+                + new ServiceWorkerClient().shouldInterceptRequest(request("https://example.com/sw.js")));
+        StringBuilder calls = new StringBuilder();
+        ValueCallback<String> callback = value -> calls.append("value ").append(value);
+        callback.onReceiveValue("v");
+        DownloadListener download = (url, agent, disposition, type, length) -> calls.append(", download ").append(url)
+                .append(" ").append(type).append(" ").append(length);
+        download.onDownloadStart("https://example.com/f.zip", "agent", "attachment", "application/zip", 42);
+        new WebMessagePort.WebMessageCallback() {}.onMessage(null, new WebMessage("m"));
+        Log.i(TAG, "callbacks: " + calls + ", WebMessageCallback's default ran");
+        Log.i(TAG, "JavascriptInterface: on Bridge.version " + outcome(() -> Bridge.class.getMethod("version")
+                .isAnnotationPresent(JavascriptInterface.class)));
+        Class<?>[] types = {ClientCertRequest.class, HttpAuthHandler.class, JsPromptResult.class, JsResult.class,
+                PermissionRequest.class, RenderProcessGoneDetail.class, SafeBrowsingResponse.class,
+                ServiceWorkerWebSettings.class, SslErrorHandler.class, WebBackForwardList.class, WebHistoryItem.class,
+                WebMessagePort.class, WebResourceError.class, WebViewRenderProcess.class,
+                WebViewRenderProcessClient.class};
+        for (Class<?> type : types) {
+            Log.i(TAG, "type " + type.getSimpleName() + ": abstract " + Modifier.isAbstract(type.getModifiers())
+                    + ", extends " + type.getSuperclass().getName());
+        }
+    }
+
     private void camera() {
         Log.i(TAG, "Camera: getNumberOfCameras " + Camera.getNumberOfCameras() + ", open() " + Camera.open());
         Log.i(TAG, "Camera.open(0): " + outcome(() -> Camera.open(0)));
@@ -159,6 +248,82 @@ public class WebViewCameraApplication extends Application {
         Camera.Area lighter = new Camera.Area(new Rect(-500, -500, 500, 500), 1);
         Log.i(TAG, "Camera.Area: " + area.rect.toShortString() + " weight " + area.weight + ", equals the same "
                 + area.equals(same) + ", another weight " + area.equals(lighter) + ", null " + area.equals(null));
+    }
+
+    private static String describe(Class<?> type) {
+        return "type " + type.getName() + ": abstract " + Modifier.isAbstract(type.getModifiers()) + ", extends "
+                + type.getSuperclass().getName();
+    }
+
+    /** camera2's plain types that Unity's Camera2Wrapper names: the exception, a metering area and the callbacks. */
+    private static void camera2() {
+        CameraAccessException disabled = new CameraAccessException(CameraAccessException.CAMERA_DISABLED);
+        CameraAccessException error = new CameraAccessException(CameraAccessException.CAMERA_ERROR, "boom");
+        Log.i(TAG, "CameraAccessException: " + disabled.getReason() + " " + disabled.getMessage() + "; "
+                + error.getReason() + " " + error.getMessage());
+        MeteringRectangle area = new MeteringRectangle(10, 20, 30, 40, 500);
+        Log.i(TAG, "MeteringRectangle: " + area + ", rect " + area.getRect().toShortString() + ", x " + area.getX()
+                + " y " + area.getY() + " " + area.getWidth() + " x " + area.getHeight() + ", weight "
+                + area.getMeteringWeight() + ", equals the same by rect "
+                + area.equals(new MeteringRectangle(new Rect(10, 20, 40, 60), 500)));
+        Log.i(TAG, "MeteringRectangle refusals: " + outcome(() -> new MeteringRectangle(1, 1, 1, 1, -1)) + "; "
+                + outcome(() -> new MeteringRectangle(1, 1, 1, 1, 1001)) + "; "
+                + outcome(() -> new MeteringRectangle(-1, 1, 1, 1, 0)));
+        new CameraCaptureSession.CaptureCallback() {}.onCaptureStarted(null, null, 0, 0);
+        for (Class<?> type : new Class<?>[] {CameraCaptureSession.class, CameraCaptureSession.CaptureCallback.class,
+                CameraCaptureSession.StateCallback.class, CaptureFailure.class}) {
+            Log.i(TAG, describe(type));
+        }
+    }
+
+    /** android.print's plain types that the SDKs' print paths name: page ranges, a document's info and an adapter. */
+    private static void print() {
+        PageRange range = new PageRange(0, 4);
+        Log.i(TAG, "PageRange: " + range + ", " + range.getStart() + "-" + range.getEnd() + ", all "
+                + PageRange.ALL_PAGES + ", equals " + range.equals(new PageRange(0, 4)));
+        Log.i(TAG, "PageRange refusals: " + outcome(() -> new PageRange(-1, 2)) + "; "
+                + outcome(() -> new PageRange(3, 1)));
+        PrintDocumentInfo info = new PrintDocumentInfo.Builder("report.pdf")
+                .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT).setPageCount(3).build();
+        Log.i(TAG, "PrintDocumentInfo: " + info.getName() + ", type " + info.getContentType() + ", pages "
+                + info.getPageCount() + ", size " + info.getDataSize() + ", " + info);
+        Log.i(TAG, "PrintDocumentInfo refusals: " + outcome(() -> new PrintDocumentInfo.Builder("")) + "; "
+                + outcome(() -> new PrintDocumentInfo.Builder("a").setPageCount(-2)));
+        PrintDocumentAdapter adapter = new PrintDocumentAdapter() {
+            @Override
+            public void onLayout(PrintAttributes oldAttributes, PrintAttributes newAttributes,
+                    CancellationSignal cancellationSignal, LayoutResultCallback callback, Bundle extras) {
+            }
+
+            @Override
+            public void onWrite(PageRange[] pages, ParcelFileDescriptor destination,
+                    CancellationSignal cancellationSignal, WriteResultCallback callback) {
+            }
+        };
+        adapter.onStart();
+        adapter.onFinish();
+        for (Class<?> type : new Class<?>[] {PrintDocumentAdapter.class,
+                PrintDocumentAdapter.LayoutResultCallback.class, PrintDocumentAdapter.WriteResultCallback.class,
+                PrintJob.class}) {
+            Log.i(TAG, describe(type));
+        }
+    }
+
+    /** ShapeDrawable, drawn into a bitmap: an oval and a rectangle, their center and corner pixels. */
+    private static void shapes() {
+        for (ShapeDrawable shape : new ShapeDrawable[] {new ShapeDrawable(new OvalShape()),
+                new ShapeDrawable(new RectShape())}) {
+            shape.setIntrinsicWidth(8);
+            shape.setIntrinsicHeight(8);
+            shape.getPaint().setColor(0xff00ff00);
+            shape.setBounds(0, 0, 8, 8);
+            Bitmap bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+            shape.draw(new Canvas(bitmap));
+            Log.i(TAG, "ShapeDrawable " + shape.getShape().getClass().getSimpleName() + ": " + shape.getIntrinsicWidth()
+                    + " x " + shape.getIntrinsicHeight() + ", opacity " + shape.getOpacity() + ", alpha "
+                    + shape.getAlpha() + ", center " + Integer.toHexString(bitmap.getPixel(4, 4)) + ", corner "
+                    + Integer.toHexString(bitmap.getPixel(0, 0)));
+        }
     }
 
     private void provider() {
