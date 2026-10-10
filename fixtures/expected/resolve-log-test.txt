@@ -1,0 +1,17 @@
+# The log of failed resolutions (minato-resolve): what resolve-log-test (fixtures/java/resolve-log-test) prints without
+# its "resolve-log-test: " prefix, and, as "logcat " lines, what ART logs; tools/resolve-log-check.sh also wants each
+# minato-resolve line exactly once. Ours only: Android has no such log, so there is no reference run. The errors are
+# Android's for a missing class, method and field.
+round 1, a missing class: java.lang.NoClassDefFoundError
+round 1, a missing method: java.lang.NoSuchMethodError
+round 1, a missing static field: java.lang.NoSuchFieldError
+round 1, a missing instance field: java.lang.NoSuchFieldError
+round 2, a missing class: java.lang.NoClassDefFoundError
+round 2, a missing method: java.lang.NoSuchMethodError
+round 2, a missing static field: java.lang.NoSuchFieldError
+round 2, a missing instance field: java.lang.NoSuchFieldError
+done
+logcat W/minato-resolve: missing class io.github.kisame76.minato.test.resolvelog.Absent (from io.github.kisame76.minato.test.resolvelog.ResolveLogApplication.newAbsent)
+logcat W/minato-resolve: missing method int android.util.Pair.minatoMissing() (from io.github.kisame76.minato.test.resolvelog.ResolveLogApplication.callMissing)
+logcat W/minato-resolve: missing field int android.util.Pair.minatoMissingStatic (from io.github.kisame76.minato.test.resolvelog.ResolveLogApplication.readMissingStatic)
+logcat W/minato-resolve: missing field int android.util.Pair.minatoMissingField (from io.github.kisame76.minato.test.resolvelog.ResolveLogApplication.readMissingField)

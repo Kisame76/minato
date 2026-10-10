@@ -33,6 +33,8 @@
 # breadth-test, the framework breadth's behavior test, is one too.
 # sqlite-test (the compatibility plan's gap 7) is one more, whose activity makes, changes and deletes its own SQLite
 # database.
+# resolve-log-test (the Unity test APK probe's log of failed resolutions) is one more, whose compile-only/ classes javac
+# compiles the app against and D8 leaves out, so that the app meets missing classes and members at run time.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).
@@ -67,6 +69,11 @@ mkdir -p "$OUT/classes" "$OUT/dex"
 # -Xlint:-options: the notes about source 8 on a newer JDK.
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
   -classpath "$FRAMEWORK_CLASSES:$STUBS" -d "$OUT/classes" $(find "$JAVA" -name '*.java' | sort)
+if [[ -d "$JAVA/compile-only" ]]; then
+  (cd "$JAVA/compile-only" && find . -name '*.java') | while read -r source; do
+    rm -f "$OUT/classes/${source%.java}.class" "$OUT/classes/${source%.java}"\$*.class
+  done
+fi
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()

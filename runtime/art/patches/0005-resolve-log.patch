@@ -1,0 +1,83 @@
+The class linker logs each class, method and field it fails to resolve (the Unity test APK probe, minato_resolve_log.h).
+
+An app that catches a NoClassDefFoundError names no gap: Unity's activity died on a missing android.app.Dialog, and
+the run showed only a later NoSuchFieldError. Where DoResolveType turns a ClassNotFoundException into a
+NoClassDefFoundError, and where ResolveMethod, ResolveField and ResolveFieldJLS throw NoSuchMethodError and
+NoSuchFieldError, a warning with the tag minato-resolve names what is missing and the method that asks, once; the
+verifier names the method it verifies for the resolutions it makes.
+
+--- a/art/runtime/class_linker-inl.h
++++ b/art/runtime/class_linker-inl.h
+@@ -30,6 +30,7 @@
+ #include "gc_root-inl.h"
+ #include "handle_scope-inl.h"
+ #include "jni/jni_internal.h"
++#include "minato_resolve_log.h"
+ #include "mirror/class_loader.h"
+ #include "mirror/dex_cache-inl.h"
+ #include "mirror/iftable.h"
+@@ -421,6 +422,8 @@
+     const char* name = dex_file.GetStringData(method_id.name_idx_);
+     const Signature signature = dex_file.GetMethodSignature(method_id);
+     ThrowNoSuchMethodError(type, klass, name, signature);
++    // Minato: name the missing method (minato_resolve_log.h).
++    minato_resolve::Report(Thread::Current(), "method " + dex_file.PrettyMethod(method_idx));
+   }
+   Thread::Current()->AssertPendingException();
+   return nullptr;
+@@ -489,6 +492,8 @@
+     const char* name = dex_file.GetFieldName(field_id);
+     const char* type = dex_file.GetFieldTypeDescriptor(field_id);
+     ThrowNoSuchFieldError(is_static ? "static " : "instance ", klass, type, name);
++    // Minato: name the missing field (minato_resolve_log.h).
++    minato_resolve::Report(Thread::Current(), "field " + minato_resolve::FieldName(dex_file, field_idx));
+   }
+   return resolved;
+ }
+--- a/art/runtime/class_linker.cc
++++ b/art/runtime/class_linker.cc
+@@ -158,6 +158,7 @@
+ #include "verifier/class_verifier.h"
+ #include "verifier/verifier_deps.h"
+ #include "well_known_classes.h"
++#include "minato_resolve_log.h"
+ 
+ namespace art HIDDEN {
+ 
+@@ -10008,6 +10009,8 @@
+       self->ClearException();
+       ThrowNoClassDefFoundError("Failed resolution of: %s", descriptor);
+       self->GetException()->SetCause(cause.Get());
++      // Minato: name the missing class, also where the app catches the error (minato_resolve_log.h).
++      minato_resolve::Report(self, "class " + PrettyDescriptor(descriptor));
+     }
+   }
+   DCHECK((resolved == nullptr) || resolved->IsResolved())
+@@ -10174,6 +10177,8 @@
+     const char* name = dex_file.GetFieldName(field_id);
+     const char* type = dex_file.GetFieldTypeDescriptor(field_id);
+     ThrowNoSuchFieldError("", klass, type, name);
++    // Minato: name the missing field (minato_resolve_log.h).
++    minato_resolve::Report(Thread::Current(), "field " + minato_resolve::FieldName(dex_file, field_idx));
+   }
+   return resolved;
+ }
+--- a/art/runtime/verifier/method_verifier.cc
++++ b/art/runtime/verifier/method_verifier.cc
+@@ -64,6 +64,7 @@
+ #include "vdex_file.h"
+ #include "verifier/method_verifier.h"
+ #include "verifier_deps.h"
++#include "minato_resolve_log.h"
+ 
+ namespace art HIDDEN {
+ namespace verifier {
+@@ -848,6 +849,8 @@
+ 
+ template <bool kVerifierDebug>
+ bool MethodVerifier<kVerifierDebug>::Verify() {
++  // Minato: the resolutions that fail while verifying name this method (minato_resolve_log.h).
++  minato_resolve::VerifyingScope verifying(dex_file_, dex_method_idx_);
+   // Some older code doesn't correctly mark constructors as such. Test for this case by looking at
+   // the name.
+   const dex::MethodId& method_id = dex_file_->GetMethodId(dex_method_idx_);

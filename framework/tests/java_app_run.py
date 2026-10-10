@@ -27,6 +27,9 @@ With --drawn, the run must have drawn its window: apk-run's headless buffers log
 With --in-order <text>, once or more, lines of the process's log must start with these texts in this order, among
 its other lines: a host's lines among the app's, such as graphics-run's window host's (ADR-0043 c4 (c)).
 
+With --once <line>, once or more, the process's log must hold this line exactly once: a line logged once however
+often its cause comes, such as ART's log of a failed resolution (minato-resolve).
+
 With --status <n>, the run must end by itself with status n, where every other run ends with 0: an app whose exception
 no thread catches ends with SIGKILL from Android's handler, 137 (128 + 9) through apk-run's session (ADR-0039,
 crash-test).
@@ -49,7 +52,7 @@ starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
-                       [--status <n>]
+                       [--status <n>] [--once <line>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -80,8 +83,9 @@ def main():
     obbs = []
     packs = []
     status = 0
+    once = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"], ["--packs"], ["--status"]):
+                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -90,6 +94,8 @@ def main():
             obbs, args = obbs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--packs":
             packs, args = packs + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--once":
+            once, args = once + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--status":
             status, args = int(args[1]), args[2:]
         elif args[0] == "--drawn":
@@ -152,6 +158,12 @@ def main():
             print(f"  {'found' if index < found else 'missing'}: {text}")
         print("stderr, last 40 lines:")
         print("\n".join(result.stderr.splitlines()[-40:]))
+        sys.exit(1)
+    counts = [(line, result.stderr.splitlines().count(line)) for line in once]
+    if any(count != 1 for _, count in counts):
+        print("FAIL: the process's log must hold these lines once:")
+        for line, count in counts:
+            print(f"  {count} times: {line}")
         sys.exit(1)
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}
