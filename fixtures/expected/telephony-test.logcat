@@ -1,0 +1,10 @@
+I/telephony-test: the service: android.telephony.TelephonyManager
+I/telephony-test: the same service again: true
+I/telephony-test: by class: true
+I/telephony-test: the call state: java.lang.SecurityException: getCallState: Neither user UID nor current process has android.permission.READ_PHONE_STATE.
+I/telephony-test: a listener: true
+I/telephony-test: listen to nothing: fine
+I/telephony-test: a null executor: java.lang.IllegalArgumentException: TelephonyCallback and executor must be non-null
+I/telephony-test: a null callback: java.lang.IllegalArgumentException: TelephonyCallback and executor must be non-null
+I/telephony-test: unregister a callback that was never registered: fine
+I/telephony-test: done

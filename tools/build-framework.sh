@@ -147,6 +147,8 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --class android.view.inputmethod.InputMethodManager --class android.view.textservice.TextServicesManager \
   --class android.view.textclassifier.TextClassificationManager --class android.media.AudioManager \
+  --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
+  --class android.telephony.TelephonyCallback \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \

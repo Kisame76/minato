@@ -42,7 +42,8 @@ rm -rf "$OUT"
 mkdir -p "$OUT/classes"
 python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$ICU" \
   --api "$CORE" --api "$LOCATION" --all-of "$CONNECTIVITY" --all-of "$CONNECTIVITY_T" --all-of "$WIFI" \
-  --class android.media.AudioManager \
+  --class android.media.AudioManager --class android.telephony.TelephonyManager \
+  --class android.telephony.PhoneStateListener --class android.telephony.TelephonyCallback \
   --hand framework/managers --out "$OUT/gen" --references-out "$OUT/stubs"
 
 # The boot jars' java.base exports only the JDK's packages; framework.jar's classes see the rest, as on Android.
@@ -55,7 +56,8 @@ find "$OUT/gen" "$OUT/stubs" framework/java/com/android/minato/services -name '*
   @"$OUT/sources"
 
 failed=0
-for manager in android.media.AudioManager android.net.ConnectivityManager android.net.wifi.WifiManager; do
+for manager in android.media.AudioManager android.net.ConnectivityManager android.net.wifi.WifiManager \
+    android.telephony.TelephonyManager; do
   if "$JDK/bin/javap" -p -cp "$OUT/classes" "$manager" | grep -qF "  public $manager(android.content.Context);"; then
     echo "ok    $manager has its hidden ctor (Context)"
   else

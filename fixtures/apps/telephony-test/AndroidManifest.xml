@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the telephony manager (telephony-test): getSystemService("phone"), PhoneStateListener, the telephony
+     callbacks and TelephonyManager's answers (the Unity test APK probe's blocker 10). The lines of telephony-test are
+     Android's own on any device; those of telephony-test-device depend on the device's SIM and radio and are only
+     shown. The app holds no READ_PHONE_STATE. The launcher activity is the framework's own android.app.Activity, so
+     that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.telephony" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.telephony.TelephonyApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

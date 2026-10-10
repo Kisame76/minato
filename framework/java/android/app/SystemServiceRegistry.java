@@ -31,6 +31,7 @@ import android.os.PowerManager;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
 import android.os.UserManager;
+import android.telephony.TelephonyManager;
 import android.os.storage.StorageManager;
 import android.util.ArrayMap;
 import android.view.ContextThemeWrapper;
@@ -99,6 +100,8 @@ final class SystemServiceRegistry {
         cached(Context.NOTIFICATION_SERVICE, NotificationManager.class, ctx -> new NotificationManager(
                 new ContextThemeWrapper(ctx.getOuterContext(), dialogTheme(ctx.getOuterContext())),
                 ctx.mMainThread.getHandler()));
+        // Gap 1: a phone without a SIM (ADR-0045 decision 4), as the tag's constructor takes the outer context.
+        cached(Context.TELEPHONY_SERVICE, TelephonyManager.class, ctx -> new TelephonyManager(ctx.getOuterContext()));
         // Gap 9: as JobSchedulerFrameworkInitializer's, over the local scheduler.
         cached(Context.JOB_SCHEDULER_SERVICE, JobScheduler.class, ctx -> new JobSchedulerImpl(ctx.getOuterContext(),
                 IJobScheduler.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.JOB_SCHEDULER_SERVICE))));
