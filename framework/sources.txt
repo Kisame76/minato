@@ -1526,3 +1526,10 @@ frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobServic
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobSnapshot.java
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/JobWorkItem.java
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/UserVisibleJobSummary.java
+
+# The clipboard (the Unity test APK probe: UnityPlayer's constructor asks getSystemService("clipboard")), clipboard-test: the
+# manager and the two AIDL interfaces of the service.
+frameworks_base/core/java/android/content/ClipboardManager.java
+frameworks_base/core/java/android/text/ClipboardManager.java
+frameworks_base/core/java/android/content/IClipboard.aidl
+frameworks_base/core/java/android/content/IOnPrimaryClipChangedListener.aidl

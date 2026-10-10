@@ -307,7 +307,6 @@ android.app.Dialog <- android.text.method.CharacterPickerDialog  # stays: the ch
 android.app.ActivityOptions <- android.app.PendingIntent  # gap: sending an activity's PendingIntent, which names its caller's display, with ADR-0045 step d3's intent senders
 android.content.IntentSender <- android.app.PendingIntent  # gap: PendingIntent.getIntentSender, with ADR-0045 step d3's intent senders
 android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
-android.content.ClipboardManager <- android.widget.TextView  # gap: the clipboard (gap 18), which TextView's paste asks
 android.graphics.drawable.ShapeDrawable <- android.widget.SmartSelectSprite  # stays: smart selection's animation, with text classification absent (ADR-0043 step d), decision 3)
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
@@ -443,3 +442,6 @@ com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.
 
 # Gap 9 (App): the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
 android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobScheduler's Stub and Proxy, which the local job scheduler never runs
+
+# Gap 1 (App): the clipboard over the local clipboard service.
+android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs

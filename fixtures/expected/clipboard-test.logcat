@@ -1,0 +1,19 @@
+I/clipboard-test: the service: android.content.ClipboardManager
+I/clipboard-test: the same service again: true
+I/clipboard-test: by class: true
+I/clipboard-test: cleared: has false, clip null, description null, has text false
+I/clipboard-test: changes after the first set: 2
+I/clipboard-test: plain text: has true, clip label [note], items 1, mime text/plain, text [hello], html [null], uri [null], intent [null], has text true, text hello
+I/clipboard-test: classification of the text: 3
+I/clipboard-test: its description: note, 1 type, text true
+I/clipboard-test: a copy changed: the clipboard has 1 item, the copy 2
+I/clipboard-test: changes after the reads: 2
+I/clipboard-test: html: label [page], items 1, mime text/html, text [plain], html [<b>bold</b>], uri [null], intent [null], has text true
+I/clipboard-test: uri: label [link], items 1, mime text/uri-list, text [null], html [null], uri [content://io.example/item/1], intent [null], has text false, classification 2
+I/clipboard-test: intent: label [go], items 1, mime text/vnd.android.intent, text [null], html [null], uri [null], intent [io.example.GO], has text false, classification 2
+I/clipboard-test: an empty text: has true, has text false
+I/clipboard-test: a null clip: java.lang.NullPointerException: null
+I/clipboard-test: changes: 4
+I/clipboard-test: cleared twice: 1 change, has false
+I/clipboard-test: after the listener was removed: 0 change, has true
+I/clipboard-test: done

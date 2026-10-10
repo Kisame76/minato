@@ -13,6 +13,7 @@ package android.app;
 
 import android.app.job.IJobScheduler;
 import android.app.job.JobScheduler;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Resources;
 import android.hardware.SystemSensorManager;
@@ -102,6 +103,9 @@ final class SystemServiceRegistry {
                 ctx.mMainThread.getHandler()));
         // Gap 1: a phone without a SIM (ADR-0045 decision 4), as the tag's constructor takes the outer context.
         cached(Context.TELEPHONY_SERVICE, TelephonyManager.class, ctx -> new TelephonyManager(ctx.getOuterContext()));
+        // Gap 1: as the tag's, over the local clipboard.
+        cached(Context.CLIPBOARD_SERVICE, ClipboardManager.class,
+                ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
         // Gap 9: as JobSchedulerFrameworkInitializer's, over the local scheduler.
         cached(Context.JOB_SCHEDULER_SERVICE, JobScheduler.class, ctx -> new JobSchedulerImpl(ctx.getOuterContext(),
                 IJobScheduler.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.JOB_SCHEDULER_SERVICE))));

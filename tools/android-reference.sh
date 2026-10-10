@@ -502,6 +502,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BroadcastActivity
       limit=90
       ;;
+    # clipboard-test (the Unity test APK probe's blocker 11): its activity runs when the window has the focus and ends with "done".
+    clipboard-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ClipboardActivity
+      limit=90
+      ;;
     # sqlite-test (the compatibility plan's gap 7): its activity's parts end with "done".
     sqlite-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SqliteActivity
