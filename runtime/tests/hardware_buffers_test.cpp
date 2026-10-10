@@ -281,6 +281,53 @@ TEST(the_last_release_frees_and_the_id_is_gone) {
     CHECK(call(APKRT_HARDWARE_BUFFER_ACQUIRE, 0) == -einval);
 }
 
+TEST(the_host_gets_a_buffers_handle_table_and_description) {
+    // ADR-0058 b): graphics/host turns the ID that the front libEGL passes into its own handle, and checks the table.
+    Fake fake;
+    const Installed installed(fake);
+    auto made = description(20, 6, rgb565);
+    CHECK(call(APKRT_HARDWARE_BUFFER_ALLOCATE, made) == 0);
+    std::uint64_t handle = 0;
+    void *context = nullptr;
+    apkrt_hardware_buffer_description described{};
+    std::uint32_t stride = 0;
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id, &handle, &context, &described, &stride) == 0);
+    CHECK(fake.buffers.size() == 1 && handle == fake.buffers.begin()->first && context == &fake);
+    CHECK(described.width == 20 && described.height == 6 && described.layers == 1 && described.format == rgb565 &&
+          described.usage == made.usage && stride == made.stride);
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id, &handle, nullptr, nullptr, nullptr) == 0);  // the rest NULL
+    apkrt_hardware_buffer_release_handle(made.id);
+    apkrt_hardware_buffer_release_handle(made.id);
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id + 1, &handle, nullptr, nullptr, nullptr) == -einval);
+    CHECK(apkrt_hardware_buffer_acquire_handle(0, &handle, nullptr, nullptr, nullptr) == -einval);
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id, nullptr, nullptr, nullptr, nullptr) == -einval);
+    CHECK(fake.frees == 0);
+    CHECK(call(APKRT_HARDWARE_BUFFER_RELEASE, made.id) == 0);
+    CHECK(fake.frees == 1);
+}
+
+TEST(the_hosts_reference_outlives_the_guests_and_its_extra_releases) {
+    // The guest's last release takes the ID away; the buffer stays the host's until its own release, and a release
+    // too many of the guest's cannot free it under the host.
+    Fake fake;
+    const Installed installed(fake);
+    auto made = description(8, 8, rgba8);
+    CHECK(call(APKRT_HARDWARE_BUFFER_ALLOCATE, made) == 0);
+    std::uint64_t handle = 0;
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id, &handle, nullptr, nullptr, nullptr) == 0);
+    CHECK(apkrt_hardware_buffer_acquire_handle(made.id, &handle, nullptr, nullptr, nullptr) == 0);
+    CHECK(call(APKRT_HARDWARE_BUFFER_RELEASE, made.id) == 0);
+    CHECK(call(APKRT_HARDWARE_BUFFER_RELEASE, made.id) == -einval);
+    CHECK(call(APKRT_HARDWARE_BUFFER_DESCRIBE, made) == -einval);
+    CHECK(fake.frees == 0 && fake.buffers.count(handle) == 1);
+    apkrt_hardware_buffer_release_handle(made.id);
+    CHECK(fake.frees == 0);
+    apkrt_hardware_buffer_release_handle(made.id);
+    CHECK(fake.frees == 1);
+    apkrt_hardware_buffer_release_handle(made.id);  // none left: ignored
+    CHECK(fake.frees == 1);
+}
+
 TEST(a_lock_gives_the_hosts_memory_until_its_unlock) {
     Fake fake;
     const Installed installed(fake);

@@ -126,6 +126,9 @@ struct Buffer {
 struct Registry {
     std::mutex mutex;
     std::map<std::uint64_t, std::shared_ptr<Buffer>> buffers;
+    // The host's references (apkrt_hardware_buffer_acquire_handle), by ID: apart from the guest's count, so that no
+    // release of the guest's, one too many either, frees a buffer under the host.
+    std::multimap<std::uint64_t, std::shared_ptr<Buffer>> held;
     std::uint64_t next_id = 1;
     apkrt_hardware_buffers table{};  // all NULL: none
 };
@@ -322,6 +325,35 @@ long call(std::uint64_t op, std::uint64_t argument) {
 }
 
 }  // namespace apkrt::hardware_buffers
+
+extern "C" int apkrt_hardware_buffer_acquire_handle(std::uint64_t id, std::uint64_t *handle, void **context,
+                                                   apkrt_hardware_buffer_description *description,
+                                                   std::uint32_t *stride) {
+    using namespace apkrt::hardware_buffers;
+    if (handle == nullptr) return -linux_errno::einval;
+    auto &all = registry();
+    const std::lock_guard hold(all.mutex);
+    const auto found = all.buffers.find(id);
+    if (found == all.buffers.end()) return -linux_errno::einval;
+    const Buffer &buffer = *found->second;
+    *handle = buffer.handle;
+    if (context != nullptr) *context = buffer.table.context;
+    if (description != nullptr) *description = buffer.description;
+    if (stride != nullptr) *stride = buffer.stride;
+    all.held.emplace(id, found->second);
+    return 0;
+}
+
+extern "C" void apkrt_hardware_buffer_release_handle(std::uint64_t id) {
+    using namespace apkrt::hardware_buffers;
+    std::shared_ptr<Buffer> last;  // freed when this goes, after the registry's mutex, if it was the last holder
+    auto &all = registry();
+    const std::lock_guard hold(all.mutex);
+    const auto found = all.held.find(id);
+    if (found == all.held.end()) return;
+    last = std::move(found->second);
+    all.held.erase(found);
+}
 
 extern "C" int apkrt_set_hardware_buffers(const apkrt_hardware_buffers *set) {
     using namespace apkrt::hardware_buffers;

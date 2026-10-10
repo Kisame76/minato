@@ -342,6 +342,18 @@ struct apkrt_hardware_buffers {
 /// Returns 0, or -1 when a function is NULL.
 int apkrt_set_hardware_buffers(const struct apkrt_hardware_buffers *buffers);
 
+/// For graphics/host (ADR-0058 b)): the guest's hardware buffer `id`, AHardwareBuffer_getId's, as the host's buffers
+/// made it: 0 with its handle and, where not NULL, the context of the table that made it, its description and its
+/// stride; -EINVAL for an ID that is not there, or a NULL `handle`. Takes a reference of the host's own, which keeps
+/// the buffer beyond the guest's last release until apkrt_hardware_buffer_release_handle of the same ID; no release
+/// of the guest's drops it. Any thread; it runs none of the table's functions.
+int apkrt_hardware_buffer_acquire_handle(uint64_t id, uint64_t *handle, void **context,
+                                         struct apkrt_hardware_buffer_description *description, uint32_t *stride);
+
+/// Drops one reference that apkrt_hardware_buffer_acquire_handle took for `id`; the last of all frees the buffer
+/// through its own table, after the unlocks of the locks still open. An ID without one is ignored.
+void apkrt_hardware_buffer_release_handle(uint64_t id);
+
 // MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
 //
 // For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and
