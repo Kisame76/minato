@@ -513,6 +513,10 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DialogActivity
       limit=90
       ;;
+    # alert-test (the Unity test APK probe's blocker 14): its activity runs when the window has the focus and ends with "done".
+    alert-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90
+      ;;
     # sqlite-test (the compatibility plan's gap 7): its activity's parts end with "done".
     sqlite-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SqliteActivity

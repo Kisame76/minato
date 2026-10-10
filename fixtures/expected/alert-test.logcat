@@ -1,0 +1,30 @@
+I/alert-test: created: showing false, is a Dialog true
+I/alert-test: showing true
+I/alert-test: message Message
+I/alert-test: title Title
+I/alert-test: positive "Yes" visibility 0
+I/alert-test: negative "No" visibility 0
+I/alert-test: neutral "Maybe" visibility 0
+I/alert-test: click negative:
+I/alert-test: after click: showing true
+I/alert-test: no onClick which=-2
+I/alert-test: buttons dismiss-listener
+I/alert-test: items list true, count 3, first one
+I/alert-test: click item 1:
+I/alert-test: items onClick which=1
+I/alert-test: after item: showing false
+I/alert-test: single checked 1, choice mode 1
+I/alert-test: single onClick which=2
+I/alert-test: single checked now 2, showing true
+I/alert-test: multi choice mode 2, checked falsefalsefalse
+I/alert-test: multi onClick which=1 checked=true
+I/alert-test: multi array now [true, true, true]
+I/alert-test: custom view found true, text typed
+I/alert-test: late message Late message
+I/alert-test: late positive "Go" visibility 0
+I/alert-test: late negative "" visibility 8
+I/alert-test: after cancel: showing false
+I/alert-test: late onClick which=-1
+I/alert-test: late cancel-listener
+I/alert-test: built twice: true
+I/alert-test: done
