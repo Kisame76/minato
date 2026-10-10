@@ -60,14 +60,14 @@ def check(condition, what):
         print(f"FAIL {what}")
 
 
-def run(allowlist, javap=JAVAP):
+def run(allowlist, javap=JAVAP, extra=()):
     with tempfile.TemporaryDirectory() as scratch:
         paths = []
         for name, text in (("framework.txt", FRAMEWORK), ("boot.txt", BOOT), ("allowlist.txt", allowlist)):
             paths.append(os.path.join(scratch, name))
             with open(paths[-1], "w") as handle:
                 handle.write(text)
-        result = subprocess.run([sys.executable, TOOL, *paths], input=javap, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, TOOL, *paths, *extra], input=javap, capture_output=True, text=True)
         check(result.returncode == 0, f"exit {result.returncode}: {result.stderr}")
         return result.stdout.splitlines()
 
@@ -105,6 +105,13 @@ for why in ("step b3: taken", "ADR-0041 a): with input", "M4 step 10: with TextV
 for why in ("", "  # stays", "  # stays:", "  # gap:  ", "  # whatever", "  # steps b3: x", "  # ADR-41: x"):
     lines = run(HEADER + EVERY.replace("s.Field <- a.One  # step b3: taken", f"s.Field <- a.One{why}"))
     check(lines == ["unexplained s.Field <- a.One"], f"why '{why}': {lines}")
+
+# --lines: the unlisted pairs as allowlist lines, grouped by type, with a why that is still to be written.
+lines = run(HEADER + EVERY.replace("s.Field <- a.One  # step b3: taken\n", "").replace("s.Fields <- a.One  # step b3: taken\n", ""),
+            extra=["--lines"])
+check(lines == ["s.Field <- a.One  # FILL IN WHY", "s.Fields <- a.One  # FILL IN WHY"], f"--lines: {lines}")
+lines = run(HEADER + EVERY, extra=["--lines"])
+check(lines == [], f"--lines, all listed: {lines}")
 
 print("signature_types_test: " + ("fine" if not failures else f"{failures} failed"))
 sys.exit(1 if failures else 0)

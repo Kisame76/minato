@@ -13,7 +13,10 @@ without a step yet. Prints "unlisted <class> -> <type> (<member>)" for a pair no
 for a listed pair that no longer holds ("stale * -> <type>" when nothing names the type), and "unexplained <type> <-
 <classes>" for a line without its why.
 
-Usage: javap -p -s ... | signature_types.py <framework classes.txt> <boot classes.txt> <allowlist>
+Usage: javap -p -s ... | signature_types.py <framework classes.txt> <boot classes.txt> <allowlist> [--lines]
+
+With --lines it prints only the unlisted pairs, grouped by type as the allowlist's lines, "<type> <- <classes>  # FILL IN
+WHY": replace that with the reason (step, stays or gap), which the tool reports as unexplained until then.
 """
 import re
 import sys
@@ -57,7 +60,8 @@ def names(lines, known):
 
 
 def main():
-    if len(sys.argv) != 4:
+    lines_only = sys.argv[4:] == ["--lines"]
+    if len(sys.argv) != 4 and not lines_only:
         raise SystemExit(__doc__)
     known = set(open(sys.argv[1]).read().split()) | set(open(sys.argv[2]).read().split())
     allowed, unexplained = {}, []
@@ -72,6 +76,14 @@ def main():
         if not REASON.match(why.strip()):
             unexplained.append(f"{missing} <- {', '.join(sorted(classes))}")
     found = names(sys.stdin, known)
+    if lines_only:
+        unlisted = {}
+        for (top, missing) in found:
+            if "*" not in allowed.get(missing, set()) and top not in allowed.get(missing, set()):
+                unlisted.setdefault(missing, set()).add(top)
+        for missing, users in sorted(unlisted.items()):
+            print(f"{missing} <- {', '.join(sorted(users))}  # FILL IN WHY")
+        return
     for (top, missing), members in sorted(found.items()):
         users = allowed.get(missing, set())
         if "*" not in users and top not in users:
