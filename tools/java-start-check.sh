@@ -44,6 +44,7 @@
 # zones that libcore, java.time and ICU read from them.
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
+# media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -97,7 +98,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "launch-mode-test io.github.kisame76.minato.test.launchmode" "crash-test io.github.kisame76.minato.test.crash"
       "sqlite-test io.github.kisame76.minato.test.sqlite"
       "timezone-test io.github.kisame76.minato.test.timezone"
-      "package-installer-test io.github.kisame76.minato.test.packageinstaller")
+      "package-installer-test io.github.kisame76.minato.test.packageinstaller"
+      "media-absent-test io.github.kisame76.minato.test.mediaabsent")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -651,6 +653,8 @@ run_one sqlite-test io.github.kisame76.minato.test.sqlite
 run_one timezone-test io.github.kisame76.minato.test.timezone
 # The package installer for an app without install rights, and the exit reasons (the Unity test APK resolve list, batch E).
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
+# android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.
+run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.

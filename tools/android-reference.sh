@@ -62,6 +62,8 @@
 # timezone-test (the compatibility plan's gap 21), whose activity reads the time zone data, is one too.
 # package-installer-test (the Unity test APK resolve list, batch E), whose activity asks the package installer for sessions
 # and a new one, and reads the exit reasons, is one too.
+# media-absent-test (the Unity test APK gap sort, category 2), whose activity asks android.media's DRM, codec, retriever and
+# extractor classes, is one too; its lines of media-absent-test-device are only shown.
 # drawables-test (ADR-0043 step d)), whose Button and CheckBox are sized in dp, is one of those Java apps too, on
 # the M4 plan's display, and so is checkbox-test (ADR-0043 step e1)), whose CheckBoxes are laid out in px there.
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
@@ -534,6 +536,10 @@ run_app() {
     # package-installer-test (the Unity test APK resolve list, batch E): its activity's parts end with "done".
     package-installer-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.InstallerActivity
+      ;;
+    # media-absent-test (the Unity test APK gap sort, category 2): its activity's parts end with "done".
+    media-absent-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MediaActivity
       ;;
     # activity-start-test (ADR-0039 step c2c3): its own activity, behind the alias Launcher, ends with "done" once its
     # window has focus.

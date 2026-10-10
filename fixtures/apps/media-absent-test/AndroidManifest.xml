@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Unity test APK gap sort's category 2 test (media-absent-test): android.media's classes that need hardware or native
+     parts Minato lacks (DRM, the codec list, the retriever, the extractor, the image reader, the TV input manager),
+     and what an app meets when it asks them. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediaabsent" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="media-absent-test">
+    <activity android:name="io.github.kisame76.minato.test.mediaabsent.MediaActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

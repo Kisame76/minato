@@ -36,6 +36,8 @@
 # timezone-test (the compatibility plan's gap 21) is one more, whose activity reads the time zone data.
 # package-installer-test (the Unity test APK resolve list, batch E) is one more, whose activity asks the package installer
 # for sessions and a new one, and reads the exit reasons.
+# media-absent-test (the Unity test APK gap sort, category 2) is one more, whose activity asks android.media's DRM, codec,
+# retriever and extractor classes.
 # resolve-log-test (the Unity test APK probe's log of failed resolutions) is one more, whose compile-only/ classes javac
 # compiles the app against and D8 leaves out, so that the app meets missing classes and members at run time.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,

@@ -1,0 +1,16 @@
+I/media-absent-test: drm none supported: false
+I/media-absent-test: drm none with mime: false
+I/media-absent-test: drm schemes list: true
+I/media-absent-test: drm none: android.media.UnsupportedSchemeException: Failed to instantiate drm object: NO_INIT
+I/media-absent-test: crypto none supported: false
+I/media-absent-test: crypto none: android.media.MediaCryptoException: Failed to instantiate crypto object: NO_INIT
+I/media-absent-test: codec list: created
+I/media-absent-test: retriever without a source: null
+I/media-absent-test: retriever with a missing file: java.lang.IllegalArgumentException
+I/media-absent-test: retriever released
+I/media-absent-test: extractor tracks without a source: 0
+I/media-absent-test: extractor with a missing file: java.io.IOException
+I/media-absent-test: extractor released
+I/media-absent-test: image reader asked
+I/media-absent-test: tv input service asked
+I/media-absent-test: done
