@@ -17,5 +17,18 @@ I/view-fields-test: android.content.res.Resources: fields readable
 I/view-fields-test: android.app.AlertDialog: fields readable
 I/view-fields-test: android.os.Handler: fields readable
 I/view-fields-test: android.os.Looper: fields readable
+I/view-fields-test: activity chain io.github.kisame76.minato.test.viewfields.ViewFieldsApplication$PlayerActivity: no fields
+I/view-fields-test: activity chain io.github.kisame76.minato.test.viewfields.ViewFieldsApplication$PlayerActivity: no declared methods, public methods readable
+I/view-fields-test: activity chain android.app.Activity: fields readable
+I/view-fields-test: activity chain android.app.Activity: declared methods readable, public methods readable
+I/view-fields-test: activity chain android.view.ContextThemeWrapper: fields readable
+I/view-fields-test: activity chain android.view.ContextThemeWrapper: declared methods readable, public methods readable
+I/view-fields-test: activity chain android.content.ContextWrapper: fields readable
+I/view-fields-test: activity chain android.content.ContextWrapper: declared methods readable, public methods readable
+I/view-fields-test: activity chain android.content.Context: fields readable
+I/view-fields-test: activity chain android.content.Context: declared methods readable, public methods readable
+I/view-fields-test: android.app.Fragment: fields readable
+I/view-fields-test: android.app.Fragment: declared methods readable, public methods readable
+I/view-fields-test: activity getClass found true
 I/view-fields-test: currentActivity found true, type android.app.Activity
 I/view-fields-test: done

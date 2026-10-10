@@ -17,6 +17,9 @@ import java.io.PrintWriter;
 import com.android.minato.services.Unwritten;
 
 class AutofillManager {
+    /** @hide AutofillOptions' verbose flag (the Unity test APK retest 10: Context's methods name AutofillOptions). */
+    public static final int FLAG_ADD_CLIENT_VERBOSE = 0x4;
+
     /** @hide What AutofillManager asks of an activity; AutofillClientController answers it. */
     public interface AutofillClient {
         void autofillClientAuthenticate(int authenticationId, IntentSender intent, Intent fillInIntent,

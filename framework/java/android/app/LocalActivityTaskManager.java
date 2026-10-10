@@ -77,6 +77,18 @@ public final class LocalActivityTaskManager extends IActivityTaskManager.Stub {
         return false;
     }
 
+    /**
+     * An activity's screen capture callbacks (ScreenCaptureCallbackHandler): kept by nothing, so none is called, as on
+     * Android while no screenshot is taken. The host's screenshot notice could call them later.
+     */
+    @Override
+    public void registerScreenCaptureObserver(IBinder activityToken, IScreenCaptureObserver observer) {
+    }
+
+    @Override
+    public void unregisterScreenCaptureObserver(IBinder activityToken, IScreenCaptureObserver observer) {
+    }
+
     /** The process's own controller, which ActivityThread hands ActivityClient at the bind (step c2c3). */
     @Override
     public IActivityClientController getActivityClientController() {

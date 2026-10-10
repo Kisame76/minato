@@ -1,7 +1,7 @@
 /*
  * The activity task manager's interface (ADR-0039 step b3.5b2-1): our class under its AIDL's name, as IWindowManager is
  * (step c2c2), with exactly the methods framework.jar's code calls: Instrumentation's and Activity's starts, the next
- * matching activity, local voice interaction, and ActivityClient's controller. AOSP's AIDL has about 130 methods,
+ * matching activity, local voice interaction, Activity's screen capture observers, and ActivityClient's controller. AOSP's AIDL has about 130 methods,
  * whose parcelables framework.jar lacks for nothing else. Its Stub's asInterface is AIDL's for the one local service,
  * LocalActivityTaskManager, which ServiceManager's table gives as "activity_task".
  */
@@ -27,6 +27,11 @@ public interface IActivityTaskManager extends IInterface {
             int flagsMask, int flagsValues, Bundle options) throws RemoteException;
 
     boolean supportsLocalVoiceInteraction() throws RemoteException;
+
+    void registerScreenCaptureObserver(IBinder activityToken, IScreenCaptureObserver observer) throws RemoteException;
+
+    void unregisterScreenCaptureObserver(IBinder activityToken, IScreenCaptureObserver observer)
+            throws RemoteException;
 
     int startActivities(IApplicationThread caller, String callingPackage, String callingFeatureId, Intent[] intents,
             String[] resolvedTypes, IBinder resultTo, Bundle options, int userId) throws RemoteException;

@@ -47,6 +47,9 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.media.AudioManager --class android.telephony.TelephonyManager \
   --class android.telephony.PhoneStateListener --class android.telephony.TelephonyCallback \
   --class android.media.AudioDeviceInfo --class android.os.Vibrator \
+  --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
+  --class android.media.session.MediaController --class android.widget.Toolbar --class android.app.VoiceInteractor \
+  --class android.window.SplashScreen \
   --class android.view.contentcapture.ContentCaptureSession \
   --hand framework/managers --out "$OUT/gen" --references-out "$OUT/stubs"
 

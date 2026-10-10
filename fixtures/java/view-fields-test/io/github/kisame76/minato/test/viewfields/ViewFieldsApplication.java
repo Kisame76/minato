@@ -9,9 +9,11 @@ import java.lang.reflect.Field;
 
 /**
  * Reflection over framework classes, as engines and libraries use it (the Unity test APK probe: Unity's ReflectionHelper walks a
- * view's superclasses with getDeclaredFields, and the type of every field must resolve): the declared fields of the
- * classes in the chain of a FrameLayout subclass and of other classes engines look at, each readable or the error it
- * gives, and the lookup of a static field along the chain.
+ * view's superclasses with getDeclaredFields, and the type of every field must resolve; retest 10: it looks up an
+ * activity's methods, and the Play Games plugin's fragment's, whose parameter and return types must resolve too): the
+ * declared fields of the classes in the chain of a FrameLayout subclass and of other classes engines look at, each
+ * readable or the error it gives, the lookup of a static field along the chain, and the declared and public methods
+ * of the classes in the chain of an Activity subclass and of Fragment, with a method found through getMethods.
  */
 public class ViewFieldsApplication extends Application {
     static final String TAG = "view-fields-test";
@@ -25,13 +27,17 @@ public class ViewFieldsApplication extends Application {
         }
     }
 
+    /** What Unity's UnityPlayerActivity looks like to the reflection: an Activity subclass. */
+    public static class PlayerActivity extends Activity {
+    }
+
     private static void log(String line) {
         Log.i(TAG, line);
     }
 
     /**
-     * Only shown: classes whose fields still name a type that framework.jar lacks (TextView's text classifier,
-     * Activity's action bar and search manager, Dialog's action bar); the gap list of the batches takes them in.
+     * Only shown: TextView, whose fields still name a type that framework.jar lacks (its text classifier), and Dialog,
+     * which batch B3b's other part checks; the gap list of the batches takes them in.
      */
     private static void logDevice(String line) {
         Log.i(TAG + "-device", line);
@@ -44,6 +50,27 @@ public class ViewFieldsApplication extends Application {
         } catch (Throwable t) {
             return name + ": " + t.getClass().getName();
         }
+    }
+
+    private static String methods(Class<?> c) {
+        String declared;
+        try {
+            java.lang.reflect.Method[] all = c.getDeclaredMethods();
+            for (java.lang.reflect.Method m : all) {
+                m.getParameterTypes();
+                m.getReturnType();
+            }
+            declared = all.length > 0 ? "declared methods readable" : "no declared methods";
+        } catch (Throwable t) {
+            declared = "declared methods " + t.getClass().getName();
+        }
+        String pub;
+        try {
+            pub = c.getMethods().length > 0 ? "public methods readable" : "no public methods";
+        } catch (Throwable t) {
+            pub = "public methods " + t.getClass().getName();
+        }
+        return c.getName() + ": " + declared + ", " + pub;
     }
 
     @Override
@@ -66,8 +93,20 @@ public class ViewFieldsApplication extends Application {
         for (String name : classes) {
             log(readable(name));
         }
-        for (String name : new String[] {"android.widget.TextView", "android.app.Activity", "android.app.Dialog"}) {
+        for (String name : new String[] {"android.widget.TextView", "android.app.Dialog"}) {
             logDevice(readable(name));
+        }
+        // The chain of the activity class, and the fragment the Play Games plugin adds.
+        for (Class<?> c = PlayerActivity.class; c != null && c != Object.class; c = c.getSuperclass()) {
+            log("activity chain " + readable(c.getName()));
+            log("activity chain " + methods(c));
+        }
+        log(readable("android.app.Fragment"));
+        log(methods(android.app.Fragment.class));
+        try {
+            log("activity getClass found " + (PlayerActivity.class.getMethod("getClass") != null));
+        } catch (Throwable t) {
+            log("activity getClass lookup: " + t.getClass().getName());
         }
         try {
             Field f = null;
