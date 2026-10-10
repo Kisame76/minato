@@ -335,6 +335,7 @@ long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t 
 long sys_pwrite64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset);
 long sys_preadv(int fd, std::uint64_t vectors, int count, std::int64_t offset);
 long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset);
+long sys_sendfile(int out, int in, std::uint64_t offset, std::uint64_t count);
 long sys_fchmod(int fd, int mode);
 long sys_fchown(int fd, std::uint32_t owner, std::uint32_t group);
 long sys_ftruncate(int fd, std::int64_t length);

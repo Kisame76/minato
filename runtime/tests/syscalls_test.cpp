@@ -765,6 +765,30 @@ std::string read_text(std::int64_t fd, std::size_t size) {
     return count < 0 ? "error " + std::to_string(-count) : buffer.substr(0, static_cast<std::size_t>(count));
 }
 
+TEST(sendfile_moves_more_than_one_chunk_and_checks_in_the_kernels_order) {
+    // do_sendfile (fs/read_write.c, Android 15's 6.6 kernel), beyond sendfile-test's lines: a count of several
+    // chunks moves them all, the input's checks come before the output's, and a negative offset before both.
+    constexpr std::uint64_t nr_sendfile = 71;
+    const Scratch scratch;
+    static char bytes[300000];
+    for (std::size_t each = 0; each < sizeof bytes; ++each) bytes[each] = static_cast<char>(each % 253);
+    const auto in = open_guest(at_fdcwd, "/data/local/tmp/in", o_creat | o_rdwr | o_trunc, 0600);
+    CHECK(call(nr_write, {unsigned_of(in), address(bytes), sizeof bytes}) == sizeof bytes);
+    const auto out = open_guest(at_fdcwd, "/data/local/tmp/out", o_creat | o_rdwr | o_trunc, 0600);
+    std::int64_t offset = 0;
+    CHECK(call(nr_sendfile, {unsigned_of(out), unsigned_of(in), address(&offset), sizeof bytes}) == sizeof bytes);
+    CHECK(offset == sizeof bytes);
+    static char back[300000];
+    CHECK(call(nr_pread64, {unsigned_of(out), address(back), sizeof back, 0}) == sizeof back);
+    CHECK(std::memcmp(back, bytes, sizeof back) == 0);
+    const auto write_only = open_guest(at_fdcwd, "/data/local/tmp/in", o_wronly);
+    const auto appending = open_guest(at_fdcwd, "/data/local/tmp/out", o_wronly | o_append);
+    CHECK(call(nr_sendfile, {unsigned_of(appending), unsigned_of(write_only), 0, 10}) == -ebadf);
+    offset = -1;
+    CHECK(call(nr_sendfile, {unsigned_of(-1), unsigned_of(in), address(&offset), 10}) == -einval);
+    for (const auto fd : {in, out, write_only, appending}) call(nr_close, {unsigned_of(fd)});
+}
+
 TEST(files_under_a_mount_are_host_files) {
     Scratch scratch;
     const auto fd = open_guest(at_fdcwd, "/data/local/tmp/a.txt", o_creat | o_wronly | o_trunc, 0640);
@@ -3167,6 +3191,28 @@ TEST(a_send_by_path_on_a_connected_datagram_socket_keeps_its_peer) {
     call(nr_close, {unsigned_of(ends[0])});
     call(nr_close, {unsigned_of(ends[1])});
     call(nr_close, {unsigned_of(bound)});
+}
+
+TEST(a_stream_socketpair_takes_50000_bytes_before_a_read) {
+    // Linux's AF_UNIX stream socket has wmem_default and rmem_default, 229376 bytes, so a writer with no reader yet
+    // gets 50,000 bytes in at once (sendfile-test on Android 15), where Darwin's 8 KiB would stop it after 8192.
+    constexpr std::uint64_t msg_dontwait = 0x40;
+    std::int32_t ends[2] = {-1, -1};
+    CHECK(call(nr_socketpair, {af_unix, sock_stream, 0, address(ends)}) == 0);
+    static char bytes[50000];
+    for (std::size_t each = 0; each < sizeof bytes; ++each) bytes[each] = static_cast<char>(each % 251);
+    CHECK(call(nr_sendto, {unsigned_of(ends[0]), address(bytes), sizeof bytes, msg_dontwait, 0, 0}) == 50000);
+    static char back[50000];
+    std::size_t total = 0;
+    while (total < sizeof back) {
+        const auto got = call(nr_recvfrom, {unsigned_of(ends[1]), address(back + total), sizeof back - total,
+                                            msg_dontwait, 0, 0});
+        if (got <= 0) break;
+        total += static_cast<std::size_t>(got);
+    }
+    CHECK(total == sizeof back && std::memcmp(back, bytes, sizeof back) == 0);
+    call(nr_close, {unsigned_of(ends[0])});
+    call(nr_close, {unsigned_of(ends[1])});
 }
 
 /// The swap of swap_name_for_link once the socket is pinned.

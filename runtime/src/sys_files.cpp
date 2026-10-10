@@ -1320,6 +1320,68 @@ long sys_pwritev(int fd, std::uint64_t vectors, int count, std::int64_t offset) 
     });
 }
 
+/// sendfile (fs/read_write.c's do_sendfile, Android 15's 6.6 kernel): `count` bytes of the regular file `in`, from
+/// the offset at `offset` or from its own position, written to `out` as write(2) writes them, so a socket, a pipe or
+/// a memfd waits, stops short and fails as it does. The errors come in the kernel's order: the offset's EFAULT, the
+/// input's EBADF, ESPIPE and EINVAL for a negative offset, the output's EBADF, then EINVAL for an output open for
+/// appending and for an input that is no regular file (no splice_read: a pipe, a socket). The offset given moves and
+/// the input's position does not, else the position moves. A copy through the runtime: Darwin's sendfile takes only
+/// a socket.
+long sys_sendfile(int out, int in, std::uint64_t offset, std::uint64_t count) {
+    std::int64_t position = 0;
+    if (offset != 0 && !memory::copy_checked(reinterpret_cast<std::uint64_t>(&position), offset, sizeof position)) {
+        return -linux_errno::efault;
+    }
+    const auto input = descriptors::get(in);
+    if (!input || (::fcntl(input->host(), F_GETFL) & O_ACCMODE) == O_WRONLY) return -linux_errno::ebadf;
+    struct stat status {};
+    const bool regular = input->kind() == Description::Kind::file && ::fstat(input->host(), &status) == 0 &&
+                         S_ISREG(status.st_mode);
+    if (offset == 0) {
+        const off_t current = regular ? ::lseek(input->host(), 0, SEEK_CUR) : 0;
+        if (current < 0) return -to_linux_errno(errno);
+        position = current;
+    } else if (!regular && ::lseek(input->host(), 0, SEEK_CUR) < 0) {
+        return -linux_errno::espipe;
+    }
+    if (position < 0) return -linux_errno::einval;
+    count = std::min<std::uint64_t>(count, 0x7fff'c000);  // MAX_RW_COUNT with the 16 KiB pages
+    const auto output = descriptors::get(out);
+    if (!output) return -linux_errno::ebadf;
+    const int out_flags = output->kind() == Description::Kind::file ? ::fcntl(output->host(), F_GETFL) : O_RDWR;
+    if ((out_flags & O_ACCMODE) == O_RDONLY) return -linux_errno::ebadf;
+    if ((out_flags & O_APPEND) != 0 || !regular) return -linux_errno::einval;
+
+    std::vector<char> buffer(std::min<std::uint64_t>(count, 128 * 1024));
+    std::uint64_t moved = 0;
+    long failure = 0;
+    while (moved < count) {
+        const auto wanted = static_cast<std::size_t>(std::min<std::uint64_t>(count - moved, buffer.size()));
+        const ssize_t got = ::pread(input->host(), buffer.data(), wanted, position + static_cast<std::int64_t>(moved));
+        if (got <= 0) {
+            if (got < 0) failure = -to_linux_errno(errno);
+            break;
+        }
+        const long written =
+            sys_write(out, reinterpret_cast<std::uint64_t>(buffer.data()), static_cast<std::uint64_t>(got));
+        if (written < 0) {
+            failure = written;
+            break;
+        }
+        moved += static_cast<std::uint64_t>(written);
+        if (written < got) break;
+    }
+    const std::int64_t end = position + static_cast<std::int64_t>(moved);
+    if (moved > 0 && offset == 0) ::lseek(input->host(), end, SEEK_SET);
+    if (offset != 0) {
+        const std::int64_t answer = moved > 0 ? end : position;
+        if (!memory::copy_checked(offset, reinterpret_cast<std::uint64_t>(&answer), sizeof answer)) {
+            return -linux_errno::efault;
+        }
+    }
+    return moved > 0 ? static_cast<long>(moved) : failure;
+}
+
 long sys_fchmod(int fd, int mode) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;

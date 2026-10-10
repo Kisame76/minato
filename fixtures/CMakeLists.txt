@@ -170,6 +170,8 @@ target_link_libraries(sharedmem-test PRIVATE android)
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
 # cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 add_executable(cacerts-test suite/cacerts-test.c)
+# sendfile-test: sendfile(2) to a file, a socket and a pipe, its offsets and its errors in the kernel's order.
+add_executable(sendfile-test suite/sendfile-test.c)
 # looper-test and configuration-test: ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 # The configuration's newest getters came with API 34.
 add_executable(looper-test suite/looper-test.c)

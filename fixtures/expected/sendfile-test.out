@@ -1,0 +1,27 @@
+input digest: bd26da00
+file to file from 100, 10000 bytes: 10000
+offset after: 10100, the input's position: 0, the output's: 10000
+output: 10000 bytes, the input's from 100: yes
+file to file from the position 50000, 20000 bytes: 20000
+the input's position: 70000
+40000 more, beyond the end: 30000
+at the end: 0
+output: 50000 bytes, the input's from 50000: yes
+an offset beyond the end: 0
+a count of 0: 0
+file to a socket, 50000 bytes: 50000
+the socket's bytes: 50000, the input's: yes
+file to a pipe, 4096 bytes: 4096
+the pipe's bytes: 4096, the input's: yes
+an offset at an address not mapped, from no descriptor: -1 EFAULT
+from no descriptor: -1 EBADF
+from a file open for writing only: -1 EBADF
+from a pipe with an offset: -1 ESPIPE
+from a pipe: -1 EINVAL
+from a socket: -1 EINVAL
+a negative offset: -1 EINVAL
+to no descriptor: -1 EBADF
+to a file open for reading only: -1 EBADF
+to a file open for appending: -1 EINVAL
+offset after the error: 0
+a non-blocking socket: bytes before it filled: yes, then: EAGAIN

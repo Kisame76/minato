@@ -178,6 +178,7 @@ constexpr std::uint64_t pread64 = 67;
 constexpr std::uint64_t pwrite64 = 68;
 constexpr std::uint64_t preadv = 69;
 constexpr std::uint64_t pwritev = 70;
+constexpr std::uint64_t sendfile = 71;
 constexpr std::uint64_t pselect6 = 72;
 constexpr std::uint64_t ppoll = 73;
 constexpr std::uint64_t readlinkat = 78;
@@ -765,6 +766,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_preadv(as_int(x[0]), x[1], as_int(x[2]), static_cast<std::int64_t>(x[3]));
         case nr::pwritev:
             return sys_pwritev(as_int(x[0]), x[1], as_int(x[2]), static_cast<std::int64_t>(x[3]));
+        case nr::sendfile:
+            return sys_sendfile(as_int(x[0]), as_int(x[1]), x[2], x[3]);
         case nr::lseek:
             return sys_lseek(as_int(x[0]), static_cast<std::int64_t>(x[1]), as_int(x[2]));
         case nr::openat:

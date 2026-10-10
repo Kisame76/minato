@@ -427,6 +427,14 @@ void hold_datagrams(int host, int linux_size) {
     }
 }
 
+/// Gives a host AF_UNIX stream socket Linux's room, wmem_default and rmem_default: Darwin's 8 KiB
+/// (net.local.stream.sendspace and recvspace) would make a writer with no reader yet wait after 8 KiB, where Linux
+/// takes some 200 KiB first, as sendfile-test's 50,000 bytes into a socketpair on one thread show.
+void hold_stream(int host) {
+    ::setsockopt(host, SOL_SOCKET, SO_SNDBUF, &linux_buffer, sizeof linux_buffer);
+    ::setsockopt(host, SOL_SOCKET, SO_RCVBUF, &linux_buffer, sizeof linux_buffer);
+}
+
 /// Linux's family of a Darwin one.
 int linux_family(int host_family) {
     switch (host_family) {
@@ -2005,6 +2013,7 @@ Socket::Socket(int host, bool nonblocking, int family_number, int type_number, i
     receive_buffer = tcp ? tcp_receive_buffer : linux_buffer;
     // A seqpacket's host is a datagram socket too.
     if (family == af_unix && (type == sock_dgram || type == sock_seqpacket)) hold_datagrams(host, send_buffer);
+    if (family == af_unix && type == sock_stream) hold_stream(host);
 }
 
 Socket::~Socket() {
@@ -2269,6 +2278,7 @@ void unbind(Socket &socket) {
     if (::dup2(fresh, socket.host()) >= 0) ::fcntl(socket.host(), F_SETFD, FD_CLOEXEC);
     ::close(fresh);
     if (socket.type != sock_stream) sockets::hold_datagrams(socket.host(), socket.send_buffer);
+    if (socket.type == sock_stream) sockets::hold_stream(socket.host());
 }
 
 long bind_unix(Socket &socket, sockets::HostName &name) {
