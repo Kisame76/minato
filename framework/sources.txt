@@ -1795,11 +1795,13 @@ frameworks_base/core/java/android/util/Range.java
 
 # android.media's data classes that AudioTrack's, MediaExtractor's and MediaCodecList's members name (the Unity test APK gap
 # sort, Formate's category 3m): audio presentations, the metadata map, DRM init data and the media metrics' session
-# ID, as AOSP has them. VolumeShaper, MediaFormat, MediaCodecInfo and MediaCodec come from tools/managergen.
+# ID, as AOSP has them. VolumeShaper, MediaCodecInfo and MediaCodec come from tools/managergen; MediaFormat is
+# AOSP's with Minato's patch (framework/patches).
 frameworks_base_types/media/java/android/media/AudioPresentation.java
 frameworks_base_types/media/java/android/media/AudioMetadataReadMap.java
 frameworks_base_types/media/java/android/media/AudioMetadataMap.java
 frameworks_base_types/media/java/android/media/AudioMetadata.java
+frameworks_base_types/media/java/android/media/MediaFormat.java
 frameworks_base_types/media/java/android/media/DrmInitData.java
 frameworks_base_types/media/java/android/media/metrics/LogSessionId.java
 

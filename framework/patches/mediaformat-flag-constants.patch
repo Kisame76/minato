@@ -1,0 +1,42 @@
+Minato's patch to frameworks/base's media/java/android/media/MediaFormat.java at android-15.0.0_r1 (Apache-2.0), the
+Unity test APK gap sort, category 3m: the class as AOSP has it, with the four feature flags it names as local constants.
+
+Why: MediaFormat is the key-value map that apps and SDKs fill with a codec's or a track's parameters, and it needs
+no codec to work. It names four aconfig flags (FLAG_IN_PROCESS_SW_AUDIO_CODEC, FLAG_REGION_OF_INTEREST in package
+android.media.codec; FLAG_CODEC_IMPORTANCE, FLAG_LARGE_AUDIO_FRAME in com.android.media.codec.flags) in @FlaggedApi
+annotations by static imports of their generated Flags classes. Those flags are declared in frameworks/av, which
+Minato does not fetch, so the imports do not resolve. The annotations are only markers (source retention), so
+constants with the flags' names are enough. The values are those of Android 15's core/api/current.txt, which gives
+each flag's name in @FlaggedApi ("android.media.codec.region_of_interest" and the others).
+
+--- a/media/java/android/media/MediaFormat.java
++++ b/media/java/android/media/MediaFormat.java
+@@ -16,12 +16,6 @@
+ 
+ package android.media;
+ 
+-import static android.media.codec.Flags.FLAG_IN_PROCESS_SW_AUDIO_CODEC;
+-import static android.media.codec.Flags.FLAG_REGION_OF_INTEREST;
+-
+-import static com.android.media.codec.flags.Flags.FLAG_CODEC_IMPORTANCE;
+-import static com.android.media.codec.flags.Flags.FLAG_LARGE_AUDIO_FRAME;
+-
+ import android.annotation.FlaggedApi;
+ import android.annotation.IntDef;
+ import android.annotation.NonNull;
+@@ -155,6 +149,15 @@
+  * </table>
+  */
+ public final class MediaFormat {
++    // Minato: four feature flags of the media codec packages (android.media.codec and com.android.media.codec.flags),
++    // whose aconfig declarations are in frameworks/av and not fetched, as constants of this class instead of the static
++    // imports of their generated Flags classes. The values are the flag names that Android 15's public API
++    // (core/api/current.txt) gives in @FlaggedApi.
++    private static final String FLAG_IN_PROCESS_SW_AUDIO_CODEC = "android.media.codec.in_process_sw_audio_codec";
++    private static final String FLAG_REGION_OF_INTEREST = "android.media.codec.region_of_interest";
++    private static final String FLAG_CODEC_IMPORTANCE = "com.android.media.codec.flags.codec_importance";
++    private static final String FLAG_LARGE_AUDIO_FRAME = "com.android.media.codec.flags.large_audio_frame";
++
+     public static final String MIMETYPE_VIDEO_VP8 = "video/x-vnd.on2.vp8";
+     public static final String MIMETYPE_VIDEO_VP9 = "video/x-vnd.on2.vp9";
+     public static final String MIMETYPE_VIDEO_AV1 = "video/av01";

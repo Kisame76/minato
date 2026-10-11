@@ -1,0 +1,31 @@
+I/media-format-test: video: {mime=video/avc, width=1280, height=720}
+I/media-format-test: video mime video/avc, 1280x720
+I/media-format-test: audio: {sample-rate=44100, mime=audio/mp4a-latm, channel-count=2}
+I/media-format-test: subtitle: {mime=text/vtt, language=en}
+I/media-format-test: empty: {}
+I/media-format-test: int 7, long 1099511627776, float 1.5, string text
+I/media-format-test: buffer 4 bytes, first 1
+I/media-format-test: defaults 9, 10, 2.5, dflt null null
+I/media-format-test: number 7, 1.5, 3
+I/media-format-test: contains true false
+I/media-format-test: types 1 2 3 4 5 0
+I/media-format-test: keys [buffer, float, int, long, string]
+I/media-format-test: replaced 8
+I/media-format-test: removed false, keys [buffer, float, long, string]
+I/media-format-test: null string true null
+I/media-format-test: missing int: java.lang.NullPointerException
+I/media-format-test: int as string: java.lang.ClassCastException
+I/media-format-test: string as int: java.lang.ClassCastException
+I/media-format-test: int as long: java.lang.ClassCastException
+I/media-format-test: int as float: java.lang.ClassCastException
+I/media-format-test: keys add: java.lang.UnsupportedOperationException
+I/media-format-test: features before false
+I/media-format-test: feature unset: java.lang.IllegalArgumentException: feature is not specified
+I/media-format-test: features true false true false
+I/media-format-test: feature keys []
+I/media-format-test: feature missing: java.lang.IllegalArgumentException
+I/media-format-test: copy 640 320 video/hevc
+I/media-format-test: copy of null: java.lang.NullPointerException
+I/media-format-test: constants bitrate frame-rate sample-rate channel-count durationUs audio/opus video/x-vnd.on2.vp9
+I/media-format-test: types 012345 color 117
+I/media-format-test: done

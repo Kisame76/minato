@@ -97,6 +97,7 @@ for patch in framework/patches/*.patch; do
   copy="$OUT/src/${target#*/java/}"
   original="$SOURCES/frameworks_base/$target"
   [[ "$target" == graphics/* ]] && original="$SOURCES/frameworks_base_graphics/$target"
+  [[ "$target" == media/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
   rm "$copy"
   patch --quiet -o "$copy" "$original" "$patch"
@@ -158,7 +159,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.media.MediaDrm --class android.media.MediaCrypto --class android.media.MediaCodecList \
   --class android.media.MediaMetadataRetriever --class android.media.MediaExtractor \
   --class android.media.ImageReader --class android.media.tv.TvInputManager \
-  --class android.media.VolumeShaper --class android.media.MediaFormat --class android.media.MediaCodecInfo \
+  --class android.media.VolumeShaper --class android.media.MediaCodecInfo \
   --class android.media.MediaCodec --class android.media.MediaDescrambler \
   --class android.media.MediaCas \
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
