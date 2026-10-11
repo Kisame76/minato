@@ -52,6 +52,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.type.DefaultMimeMapFactory;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -111,6 +112,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import libcore.content.type.MimeMap;
 import org.xmlpull.v1.XmlPullParserException;
 
 public final class ActivityThread {
@@ -391,6 +393,8 @@ public final class ActivityThread {
         // plan's gap 21).
         RuntimeHooks.setTimeZoneIdSupplier(() -> SystemProperties.get("persist.sys.timezone"));
         TrafficStats.attachSocketTagger();
+        // RuntimeInit.commonInit's MIME table: the extensions of framework.jar's res/*.mime.types.
+        MimeMap.setDefaultSupplier(DefaultMimeMapFactory::create);
         String packageName = null;
         String processName = null;
         String apk = null;

@@ -299,8 +299,17 @@ mkdir -p "$OUT/lint"
   --lib "$BOOT_CLASSES" --output "$OUT/dex" "$OUT/classes.jar"
 
 python3 - "$OUT/dex" "$OUT/framework.jar" <<'PY'
-import os, struct, sys, zipfile
+import os, re, struct, sys, zipfile
 folder, path = sys.argv[1], sys.argv[2]
+
+
+def minimized(source):
+    """Android's debian.mime.types.minimized genrule (external/mime-support's Android.bp): comments stripped, white space
+    normalized, lines without an extension dropped. DefaultMimeMapFactory reads only this format."""
+    lines = (" ".join(re.sub(r"#.*$", "", line).split()) for line in open(source, encoding="utf-8"))
+    return "".join(line + "\n" for line in lines if " " in line)
+
+
 with zipfile.ZipFile(path + ".tmp", "w") as jar:
     for name in sorted(n for n in os.listdir(folder) if n.endswith(".dex")):
         info = zipfile.ZipInfo(name, (2008, 1, 1, 0, 0, 0))
@@ -311,6 +320,15 @@ with zipfile.ZipFile(path + ".tmp", "w") as jar:
         padding = -start % 4
         info.extra = struct.pack("<HHH", 0xD935, 2 + padding, 4) + bytes(padding)
         jar.writestr(info, open(os.path.join(folder, name), "rb").read())
+    # DefaultMimeMapFactory reads its tables as /res/<name> from the boot class path, as Android's mimemap-res.jar has
+    # them (third_party/sources.json's mime_map and mime_support).
+    for name, source in (("debian.mime.types", "build/sources/mime_support/mime.types"),
+                         ("android.mime.types", "build/sources/mime_map/mime/java-res/android.mime.types"),
+                         ("vendor.mime.types", "build/sources/mime_map/mime/java-res/vendor.mime.types")):
+        info = zipfile.ZipInfo("res/" + name, (2008, 1, 1, 0, 0, 0))
+        info.external_attr = 0o644 << 16
+        info.compress_type = zipfile.ZIP_STORED
+        jar.writestr(info, minimized(source))
 os.replace(path + ".tmp", path)
 PY
 echo "build-framework: $OUT/framework.jar ($(wc -c <"$OUT/framework.jar" | tr -d ' ') bytes)"

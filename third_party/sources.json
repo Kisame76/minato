@@ -679,6 +679,29 @@
         "apex/framework/java/android/media/MediaFeature.java"
       ],
       "digest": "c12dff6542d2515bb7bde9749f3937f62befba4c870ad74fb127118418f4a0bc"
+    },
+    {
+      "name": "mime_map",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "mime/java-res/android.mime.types",
+        "mime/java-res/vendor.mime.types",
+        "mime/java/android/content/type/DefaultMimeMapFactory.java"
+      ],
+      "digest": "ea842014fa19272ab3be72c026a33d1b66d47f467039503ec5895231cc8cd16d"
+    },
+    {
+      "name": "mime_support",
+      "project": "platform/external/mime-support",
+      "commit": "fa5a0ada898ed4c81a1c3a2c0c142b92dc99ec3b",
+      "license": "public domain (Debian's mime.types, legacy_unencumbered)",
+      "files": [
+        "LICENSE",
+        "mime.types"
+      ],
+      "digest": "a08dd24e7acb71763ed96a04c9be721c12b48ed87164436647c4001f907b3d7c"
     }
   ],
   "angle": {

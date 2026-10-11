@@ -239,6 +239,18 @@ SQLite and Android's functions for it (the compatibility plan's gap 7), fetched 
 
 The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `Android.bp` files, which are read, not built.
 
+The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName` (framework breadth batch B1), fetched by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-10; `build/sources/mime_map` and `build/sources/mime_support`, the entries `mime_map` and `mime_support`, digests `ea842014…d16d` and `a08dd24e…907b3d7c`). 86 KB; `DefaultMimeMapFactory` reads the three tables, which `tools/build-framework.sh` puts into framework.jar as `res/…` as Android's `mimemap-res.jar` does.
+
+| Project | Commit | License | File | Size | SHA-256 |
+|---|---|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `mime/java/android/content/type/DefaultMimeMapFactory.java` | 4,329 | `f8a6b3fda9f1b581…` |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `mime/java-res/android.mime.types` | 4,586 | `f1d10e57da386f92…` |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `mime/java-res/vendor.mime.types` | 1,476 | `626e767be0115aa7…` |
+| `platform/external/mime-support` | `fa5a0ada898e` | public domain | `mime.types` | 74,975 | `fb5d3dced49ceecd…` |
+| `platform/external/mime-support` | `fa5a0ada898e` | public domain | `LICENSE` | 442 | `ce7ee91d78762c68…` |
+
+The evidence for "public domain": the project's `LICENSE` is a Debian copyright file that states `Copyright: public-domain`, `License: ad-hoc`, and "It contains public information compiled from around the 'net and many people", `METADATA` names `license_type: UNENCUMBERED` (Debian's media-types package, version `0cde41f063cf`, upgraded 2024-07-12), the project's `Android.bp` declares the license kind `legacy_unencumbered`, and the file `MODULE_LICENSE_PUBLIC_DOMAIN` is empty and present. Nothing of it is copied into our source files: the build puts the tables into framework.jar after the same minimizing step as Android's `debian.mime.types.minimized` genrule (comments stripped, whitespace normalized, lines without an extension dropped).
+
 ## Graphics sources (ADR-0043 a)
 
 Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`, and libjnigraphics with them since ADR-0041 a5, with these texts under "Graphics sources" in its Licenses folder: libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av, hardware/interfaces, libhardware and googletest's `gtest_prod.h` are headers only. FreeType's and the IJG's credits stand in their components' license lines.

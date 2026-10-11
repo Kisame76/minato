@@ -81,7 +81,6 @@ android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils
 android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
-android.webkit.MimeTypeMap <- android.os.FileUtils  # stays: FileUtils.splitFileName, for the hidden buildUniqueFile of documents providers
 com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle  # stays: BaseBundle.dumpStats, for dumpsys
 com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 com.android.internal.util.ArtBinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
@@ -244,7 +243,6 @@ com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a 
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
 android.text.Html <- android.content.ClipData  # gap: a clip item's HTML text (android.text.Html, a later breadth batch)
-android.net.ParseException <- android.net.MailTo  # gap: a malformed mailto: URI (connectivity's ParseException)
 
 # The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
 android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, which framework.jar has none of yet (SqliteWrapper.checkSQLiteException's message on a full disk)
@@ -315,10 +313,8 @@ android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard
 # The Unity test APK probe's batch C (Grafik): android.webkit without a WebView provider (no webview feature) and the legacy
 # Camera without cameras.
 android.webkit.PluginList <- android.webkit.WebView  # stays: WebView's hidden getPluginList, removed from the API long ago
-android.webkit.URLUtil <- android.webkit.WebView  # stays: a WebView's postUrl, and no WebView is made without the webview feature (WebViewFactory.getProvider)
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
-android.net.ParseException <- android.net.WebAddress  # stays: WebAddress's refusal of a bad address, for CookieManager's hidden getCookie(WebAddress), and no CookieManager is given without the webview feature
 android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of
 android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
 android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera

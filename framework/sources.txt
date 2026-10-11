@@ -1772,3 +1772,13 @@ frameworks_base/core/java/android/view/IScrollCaptureCallbacks.aidl
 # names. MinSdk, its marker for the SDK a class needs, is a compile-only stub.
 media_module/apex/framework/java/android/media/ApplicationMediaCapabilities.java
 media_module/apex/framework/java/android/media/MediaFeature.java
+
+# Batch B1, MimeTypeMap and URLUtil (retest 8's resolve list): the table of extensions and MIME types that a library asks
+# for a download's name or an upload's type, and the URL helpers of a WebView's downloads. DefaultMimeMapFactory (fetched
+# with the three tables it reads, third_party/sources.json's mime_map and mime_support) is the supplier that
+# ActivityThread.main installs as libcore's MimeMap default, as RuntimeInit.commonInit does on Android.
+frameworks_base/core/java/android/webkit/MimeTypeMap.java
+frameworks_base/core/java/android/webkit/URLUtil.java
+mime_map/mime/java/android/content/type/DefaultMimeMapFactory.java
+# ParseException, which URLUtil.guessUrl catches and WebAddress throws: connectivity's, from the fetched module source.
+connectivity_java/framework/src/android/net/ParseException.java

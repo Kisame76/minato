@@ -1,0 +1,148 @@
+I/mime-test: extension 'png': image/png has true
+I/mime-test: extension 'PNG': image/png has true
+I/mime-test: extension 'jpg': image/jpeg has true
+I/mime-test: extension 'jpeg': image/jpeg has true
+I/mime-test: extension 'gif': image/gif has true
+I/mime-test: extension 'webp': image/webp has true
+I/mime-test: extension 'html': text/html has true
+I/mime-test: extension 'htm': text/html has true
+I/mime-test: extension 'txt': text/plain has true
+I/mime-test: extension 'text': text/plain has true
+I/mime-test: extension 'json': application/json has true
+I/mime-test: extension 'xml': text/xml has true
+I/mime-test: extension 'pdf': application/pdf has true
+I/mime-test: extension 'zip': application/zip has true
+I/mime-test: extension 'apk': application/vnd.android.package-archive has true
+I/mime-test: extension 'mp3': audio/mpeg has true
+I/mime-test: extension 'mp4': video/mp4 has true
+I/mime-test: extension 'm4a': audio/mpeg has true
+I/mime-test: extension 'ogg': audio/ogg has true
+I/mime-test: extension 'wav': audio/x-wav has true
+I/mime-test: extension 'svg': image/svg+xml has true
+I/mime-test: extension 'js': text/javascript has true
+I/mime-test: extension 'css': text/css has true
+I/mime-test: extension 'csv': text/comma-separated-values has true
+I/mime-test: extension 'md': text/markdown has true
+I/mime-test: extension 'ttf': font/ttf has true
+I/mime-test: extension 'woff2': font/woff2 has true
+I/mime-test: extension 'bin': application/octet-stream has true
+I/mime-test: extension 'xyz': chemical/x-xyz has true
+I/mime-test: extension '': null has false
+I/mime-test: extension 'obb': null has false
+I/mime-test: extension 'heic': image/heic has true
+I/mime-test: extension 'avif': image/avif has true
+I/mime-test: extension '3gp': video/3gpp has true
+I/mime-test: extension 'mkv': video/x-matroska has true
+I/mime-test: extension 'webm': video/webm has true
+I/mime-test: extension 'flac': audio/flac has true
+I/mime-test: extension 'docx': application/vnd.openxmlformats-officedocument.wordprocessingml.document has true
+I/mime-test: extension 'xlsx': application/vnd.openxmlformats-officedocument.spreadsheetml.sheet has true
+I/mime-test: extension 'epub': application/epub+zip has true
+I/mime-test: extension 'wasm': application/wasm has true
+I/mime-test: extension null: null has false
+I/mime-test: type 'text/plain': txt has true
+I/mime-test: type 'text/html': html has true
+I/mime-test: type 'image/jpeg': jpg has true
+I/mime-test: type 'image/png': png has true
+I/mime-test: type 'image/gif': gif has true
+I/mime-test: type 'image/webp': webp has true
+I/mime-test: type 'application/json': json has true
+I/mime-test: type 'application/xml': xml has true
+I/mime-test: type 'text/xml': xml has true
+I/mime-test: type 'application/pdf': pdf has true
+I/mime-test: type 'application/zip': zip has true
+I/mime-test: type 'audio/mpeg': mp3 has true
+I/mime-test: type 'audio/mp4': m4a has true
+I/mime-test: type 'video/mp4': mp4 has true
+I/mime-test: type 'video/webm': webm has true
+I/mime-test: type 'audio/ogg': oga has true
+I/mime-test: type 'audio/x-wav': wav has true
+I/mime-test: type 'image/svg+xml': svg has true
+I/mime-test: type 'text/css': css has true
+I/mime-test: type 'application/javascript': null has false
+I/mime-test: type 'text/javascript': es has true
+I/mime-test: type 'text/csv': csv has true
+I/mime-test: type 'application/vnd.android.package-archive': apk has true
+I/mime-test: type 'application/octet-stream': bin has true
+I/mime-test: type 'foo/bar': null has false
+I/mime-test: type '': null has false
+I/mime-test: type 'TEXT/PLAIN': txt has true
+I/mime-test: type 'image/heic': heic has true
+I/mime-test: type 'font/ttf': ttf has true
+I/mime-test: type 'application/epub+zip': epub has true
+I/mime-test: type null: null has false
+I/mime-test: url 'http://example.com/a/photo.jpg': 'jpg'
+I/mime-test: url 'http://example.com/a/photo.JPG?x=1': 'JPG'
+I/mime-test: url 'file:///sdcard/a.tar.gz': 'gz'
+I/mime-test: url 'http://example.com/': ''
+I/mime-test: url 'http://example.com/a.txt#frag': 'txt'
+I/mime-test: url 'http://example.com/a/b.html?q=a.b': 'html'
+I/mime-test: url '': ''
+I/mime-test: url 'name': ''
+I/mime-test: url 'name.': ''
+I/mime-test: url '.hidden': 'hidden'
+I/mime-test: url 'http://example.com/a b.png': ''
+I/mime-test: url 'content://media/external/images/media/12': ''
+I/mime-test: url null: ''
+I/mime-test: urlutil 'http://example.com': valid true http true https false network true file false content false asset false about false data false js false
+I/mime-test: urlutil 'https://example.com/x': valid true http false https true network true file false content false asset false about false data false js false
+I/mime-test: urlutil 'HTTP://EXAMPLE.COM': valid true http true https false network true file false content false asset false about false data false js false
+I/mime-test: urlutil 'ftp://example.com': valid false http false https false network false file false content false asset false about false data false js false
+I/mime-test: urlutil 'file:///sdcard/x.txt': valid true http false https false network false file true content false asset false about false data false js false
+I/mime-test: urlutil 'content://media/x': valid true http false https false network false file false content true asset false about false data false js false
+I/mime-test: urlutil 'file:///android_asset/a.html': valid true http false https false network false file false content false asset true about false data false js false
+I/mime-test: urlutil 'file:///android_res/a.png': valid true http false https false network false file true content false asset false about false data false js false
+I/mime-test: urlutil 'javascript:alert(1)': valid true http false https false network false file false content false asset false about false data false js true
+I/mime-test: urlutil 'about:blank': valid true http false https false network false file false content false asset false about true data false js false
+I/mime-test: urlutil 'data:text/plain,hi': valid false http false https false network false file false content false asset false about false data true js false
+I/mime-test: urlutil 'example.com': valid false http false https false network false file false content false asset false about false data false js false
+I/mime-test: urlutil '': valid false http false https false network false file false content false asset false about false data false js false
+I/mime-test: urlutil null: valid false http false
+I/mime-test: urlutil guessUrl: http://example.com/ http://a.b/c file:/sdcard/x http://www..com/  example.com   http://www..com/a http://www.https.com/a.b
+I/mime-test: urlutil stripAnchor: http://a.b/c http://a.b/c
+I/mime-test: urlutil search: http://x/?q=a+b
+I/mime-test: urlutil decode: a b/c
+I/mime-test: guessFileName http://example.com/a/photo.jpg | null | null: photo.jpg
+I/mime-test: guessFileName http://example.com/a/photo.jpg | null | image/jpeg: photo.jpg
+I/mime-test: guessFileName http://example.com/a/photo | null | image/png: photo.png
+I/mime-test: guessFileName http://example.com/a/photo | null | text/html: photo.html
+I/mime-test: guessFileName http://example.com/a/photo | null | text/plain: photo.txt
+I/mime-test: guessFileName http://example.com/a/photo | null | application/octet-stream: photo.bin
+I/mime-test: guessFileName http://example.com/a/photo.bin | null | application/octet-stream: photo.bin
+I/mime-test: guessFileName http://example.com/a/photo.php?x=1 | null | text/html: photo.php
+I/mime-test: guessFileName http://example.com/ | null | text/html: downloadfile.html
+I/mime-test: guessFileName http://example.com/ | null | null: downloadfile.bin
+I/mime-test: guessFileName http://example.com/a/b.txt | attachment; filename="c.zip" | application/zip: c.zip
+I/mime-test: guessFileName http://example.com/a/b.txt | attachment; filename=c.zip | null: c.zip
+I/mime-test: guessFileName http://example.com/a/b.txt | attachment; filename="../x.zip" | null: x.zip
+I/mime-test: guessFileName http://example.com/a/b.txt | inline | text/plain: b.txt
+I/mime-test: guessFileName http://example.com/a/b%20c.txt | null | text/plain: b c.txt
+I/mime-test: guessFileName http://example.com/a/b.tar.gz | null | application/x-gzip: b.tar.gz
+I/mime-test: guessFileName http://example.com/a/archive.zip | null | application/zip: archive.zip
+I/mime-test: guessFileName http://example.com/a/song | null | audio/mpeg: song.mp3
+I/mime-test: guessFileName http://example.com/a/video | null | video/mp4: video.mp4
+I/mime-test: guessFileName http://example.com/a/app | null | application/vnd.android.package-archive: app.apk
+I/mime-test: guessFileName http://example.com/a/data | null | application/json: data.json
+I/mime-test: guessFileName http://example.com/a/data | null | text/csv: data.csv
+I/mime-test: guessFileName http://example.com/a/x | null | application/pdf: x.pdf
+I/mime-test: guessContentTypeFromName a.png: image/png
+I/mime-test: guessContentTypeFromName a.PNG: image/png
+I/mime-test: guessContentTypeFromName a.jpeg: image/jpeg
+I/mime-test: guessContentTypeFromName a.txt: text/plain
+I/mime-test: guessContentTypeFromName a.html: text/html
+I/mime-test: guessContentTypeFromName a.json: application/json
+I/mime-test: guessContentTypeFromName a.mp3: audio/mpeg
+I/mime-test: guessContentTypeFromName a.mp4: video/mp4
+I/mime-test: guessContentTypeFromName a.apk: application/vnd.android.package-archive
+I/mime-test: guessContentTypeFromName a.zip: application/zip
+I/mime-test: guessContentTypeFromName a.pdf: application/pdf
+I/mime-test: guessContentTypeFromName a.csv: text/comma-separated-values
+I/mime-test: guessContentTypeFromName a.svg: image/svg+xml
+I/mime-test: guessContentTypeFromName a.xyz: chemical/x-xyz
+I/mime-test: guessContentTypeFromName a: text/vnd.a
+I/mime-test: guessContentTypeFromName a.: null
+I/mime-test: guessContentTypeFromName .png: image/png
+I/mime-test: guessContentTypeFromName dir.d/a: null
+I/mime-test: guessContentTypeFromName http://x/a.gif: image/gif
+I/mime-test: guessContentTypeFromName a b.png: image/png
+I/mime-test: done
