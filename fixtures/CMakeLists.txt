@@ -70,6 +70,14 @@ add_library(page4k-lib SHARED suite/libpage4k-lib.c)
 target_link_options(page4k-lib PRIVATE -Wl,-z,max-page-size=4096)
 add_executable(page4k-test suite/page4k-test.c)
 target_link_libraries(page4k-test PRIVATE page4k-lib)
+# runs-test and its library, linked with runs-lib.ld so that a second code segment, a read-only one and a writable one
+# follow its data, as the Unity test APK v2's libil2cpp.so (ADR-0008 amendment, step 2); --rosegment keeps read-only data in
+# LOAD segments of their own, as there.
+add_library(runs-lib SHARED suite/libruns-lib.c)
+target_link_options(runs-lib PRIVATE -Wl,--rosegment "-Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/suite/runs-lib.ld")
+set_target_properties(runs-lib PROPERTIES LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/suite/runs-lib.ld")
+add_executable(runs-test suite/runs-test.c)
+target_link_libraries(runs-test PRIVATE runs-lib)
 # dl-test and the libraries it opens at run time; libdl-missing.so is built for libdl-broken.so to
 # link against, but never installed next to dl-test.
 add_library(dl-helper SHARED suite/libdl-helper.c)

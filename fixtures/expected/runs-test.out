@@ -1,0 +1,9 @@
+constructor in the code after the data: 42
+counters: after the data 11, then 12 and 13; before it 9
+dlsym finds the same: code yes, counter yes
+operations: 6 9
+texts: early, read-only data after the data; directly: read-only data after the data
+thread values: main 5, the other thread's before its write 5, main after it 5
+program headers: 7 LOAD segments: r-- r-x rw- rw- r-x r-- rw-
+after the data: the code in an executable LOAD yes, its counter in a writable one yes, its text in a read-only one yes
+maps: lines in order and apart yes, the first at the load address with offset 0 yes, the code after the data in an executable line yes, its counter in a writable line yes
