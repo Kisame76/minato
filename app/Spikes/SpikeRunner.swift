@@ -1,9 +1,10 @@
 #if DEBUG
+import APKConvert
 import Darwin
 import Foundation
 
-/// Runs the feasibility spikes S1–S3 and S1b (docs/STATUS.md) when the app is launched with -runSpikes,
-/// prints a report to stdout and exits before any UI appears. `tools/spikes.sh` starts it on the
+/// Runs the feasibility spikes S1–S3 and S1b (docs/STATUS.md), and S4 (ADR-0008 amendment, step 0), when the
+/// app is launched with -runSpikes, prints a report to stdout and exits before any UI appears. `tools/spikes.sh` starts it on the
 /// iPhone and shows the output.
 enum SpikeRunner {
     static func runIfRequested() {
@@ -15,6 +16,7 @@ enum SpikeRunner {
         runS1()
         runS2()
         runS3()
+        runS4()
         report("SPIKES done")
         exit(0)
     }
@@ -163,6 +165,46 @@ enum SpikeRunner {
     private static func outcome(_ values: [UInt64], _ runs: [spike_register_trace]) -> String {
         zip(values, runs).map { value, run in value == run.written ? "kept" : "changed→0x\(hex(value))" }
             .joined(separator: ", ")
+    }
+
+    // MARK: - S4
+
+    /// ADR-0008 amendment, step 0: does dyld load a container, signed with the imported certificate as the
+    /// converter signs, whose segments are __TEXT r-x, __DATA rw-, __TEXT_1 r-x, __CONST_1 r-- and __DATA_1 rw-,
+    /// from the data container, and run the code in __TEXT_1?
+    private static func runS4() {
+        report("S4 container in protection runs (code after data), signed on the iPhone, "
+            + "loaded from Application Support")
+        do {
+            let folder = try freshFolder(
+                URL.applicationSupportDirectory.appending(path: "spikes-s4", directoryHint: .isDirectory))
+            var error = [CChar](repeating: 0, count: 1024)
+            let identifier = Bundle.main.bundleIdentifier ?? "io.github.kisame76.minato"
+            let signer: OpaquePointer?
+            if let identity = CodeSigning.storedIdentity() {
+                signer = apkconv_signer_create(identity, Bundle.main.executablePath, identifier, &error, error.count)
+            } else if let key = CodeSigning.storedPrivateKey(), let certificate = CodeSigning.storedCertificateData() {
+                signer = certificate.withUnsafeBytes {
+                    apkconv_signer_create_with_key(key, $0.baseAddress, $0.count, Bundle.main.executablePath,
+                                                   identifier, &error, error.count)
+                }
+            } else {
+                report("  no signing certificate is imported")
+                return
+            }
+            guard let signer else {
+                report("  signer: \(converterMessage(in: error))")
+                return
+            }
+            defer { apkconv_signer_free(signer) }
+            var text = [CChar](repeating: 0, count: 1024)
+            let result = apkconv_segment_runs_spike(signer, folder.path, &text, text.count, &error, error.count)
+            report(result == 0 ? "  OK: \(converterMessage(in: text))"
+                : result == 1 ? "  loaded, wrong results: \(converterMessage(in: text))"
+                : "  failed: \(converterMessage(in: error))")
+        } catch {
+            report("  setup failed: \(error)")
+        }
     }
 
     // MARK: - Output

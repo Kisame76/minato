@@ -44,6 +44,12 @@ int main(int argc, char **argv) {
     expect(apkconv_self_test(signer, "/nonexistent/folder", &result, error, sizeof error) == -1 && error[0] != '\0',
            "apkconv_self_test names a folder it cannot write to");
 
+    char runs[1024] = {0};
+    const int ran = apkconv_segment_runs_spike(signer, scratch, runs, sizeof runs, error, sizeof error);
+    if (ran != 0) fprintf(stderr, "apkconv_segment_runs_spike: %s %s\n", runs, error);
+    expect(ran == 0 && strstr(runs, "__TEXT_1 r-x __CONST_1 r-- __DATA_1 rw-") != NULL,
+           "apkconv_segment_runs_spike loads a container with code after data and calls into it (ADR-0008 step 0)");
+
     unsigned char key[4096];
     unsigned char key_certificate[4096];
     size_t key_length = 0;

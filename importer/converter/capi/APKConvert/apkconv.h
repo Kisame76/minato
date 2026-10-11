@@ -75,6 +75,13 @@ typedef struct {
 int apkconv_self_test(const apkconv_signer *signer, const char *directory, apkconv_self_test_result *result,
                       char *error, size_t error_size);
 
+/// ADR-0008 amendment, step 0 (spike): signs a container whose segments are __TEXT r-x, __DATA rw-, __TEXT_1 r-x,
+/// __CONST_1 r-- and __DATA_1 rw- in `directory`, loads it with dlopen and calls the function in __TEXT_1 twice.
+/// Writes the mapped protections and the results to `report`. Returns 0 when both calls answer as expected, 1
+/// when they do not, -1 with the reason in `error` when the container does not load.
+int apkconv_segment_runs_spike(const apkconv_signer *signer, const char *directory, char *report, size_t report_size,
+                               char *error, size_t error_size);
+
 /// Reads a PKCS #12 file whose key and certificate are not encrypted, as SideStore 0.6.4 and later
 /// writes it, which SecPKCS12Import rejects (ADR-0023). Copies the RSA private key (PKCS #1 DER, for
 /// SecKeyCreateWithData) to `key` and the certificate that belongs to it (DER) to `certificate`,

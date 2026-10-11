@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <mach/mach.h>
 #if __has_feature(ptrauth_calls)
 #include <ptrauth.h>
 #endif
@@ -521,6 +522,137 @@ extern "C" int apkconv_signing_certificate(const char *path, void *certificate, 
         }
         std::memcpy(certificate, leaf.data(), leaf.size());
         return 0;
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
+namespace {
+
+// ADR-0008 amendment, step 0: a container in protection runs, as the Unity test APK v2's libil2cpp.so needs them: __TEXT
+// (r-x, the header), __DATA (rw-), __TEXT_1 (r-x, the function), __CONST_1 (r--), __DATA_1 (rw-), __LINKEDIT.
+constexpr std::uint64_t runs_data = 0x4000, runs_code = 0x8000, runs_const = 0xc000, runs_data_1 = 0x10000,
+                        runs_linkedit = 0x14000;
+constexpr std::uint32_t runs_const_value = 1000, runs_data_start = 7, runs_data_1_start = 5;
+
+std::vector<std::byte> segment_runs_container(std::uint32_t tag) {
+    using apk::macho::page_size;
+    using apk::macho::protection_execute;
+    using apk::macho::protection_read;
+    using apk::macho::protection_write;
+    auto segment = [](const char *name, std::uint64_t address, std::uint32_t protection, std::uint64_t file_size) {
+        return apk::macho::Segment{.name = name,
+                                   .address = address,
+                                   .vm_size = page_size,
+                                   .file_offset = address,
+                                   .file_size = file_size,
+                                   .protection = protection,
+                                   .sections = {}};
+    };
+    const apk::macho::Dylib dylib{
+        .install_name = std::format("@rpath/segment-runs-{:08x}.dylib", tag),
+        .platform = platform,
+        .version = 26u << 16,
+        .uuid = test_container_uuid(tag ^ 0x5eu),
+        .segments = {segment("__TEXT", 0, protection_read | protection_execute, page_size),
+                     segment("__DATA", runs_data, protection_read | protection_write, page_size),
+                     segment("__TEXT_1", runs_code, protection_read | protection_execute, page_size),
+                     segment("__CONST_1", runs_const, protection_read, page_size),
+                     segment("__DATA_1", runs_data_1, protection_read | protection_write, page_size),
+                     segment("__LINKEDIT", runs_linkedit, protection_read, 16)},
+    };
+    std::vector<std::byte> image(runs_linkedit + 16);
+    apk::macho::write_header(dylib, image);
+    // At __TEXT_1: reads __CONST_1, counts in __DATA_1 and __DATA, returns const + data_1 + 10 * data.
+    const std::uint32_t function[] = {
+        0x10020001,  // adr x1, . + 0x4000      (__CONST_1)
+        0xb9400020,  // ldr w0, [x1]
+        0x1003ffc2,  // adr x2, . + 0x7ff8      (__DATA_1)
+        0xb9400043,  // ldr w3, [x2]
+        0x11000463,  // add w3, w3, #1
+        0xb9000043,  // str w3, [x2]
+        0x10fdff44,  // adr x4, . - 0x4018      (__DATA)
+        0xb9400085,  // ldr w5, [x4]
+        0x110004a5,  // add w5, w5, #1
+        0xb9000085,  // str w5, [x4]
+        0x0b030000,  // add w0, w0, w3
+        0x52800146,  // mov w6, #10
+        0x1b0600a0,  // madd w0, w5, w6, w0
+        0xd65f03c0,  // ret
+    };
+    std::memcpy(image.data() + runs_code, function, sizeof function);
+    std::memcpy(image.data() + runs_const, &runs_const_value, sizeof runs_const_value);
+    std::memcpy(image.data() + runs_data, &runs_data_start, sizeof runs_data_start);
+    std::memcpy(image.data() + runs_data_1, &runs_data_1_start, sizeof runs_data_1_start);
+    return image;
+}
+
+std::string protection_at(std::uintptr_t address) {
+    vm_address_t region = address;
+    vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    if (vm_region_64(mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                     reinterpret_cast<vm_region_info_t>(&info), &count, &object) != KERN_SUCCESS || region > address) {
+        return "unmapped";
+    }
+    return std::format("{}{}{}", (info.protection & VM_PROT_READ) ? 'r' : '-',
+                       (info.protection & VM_PROT_WRITE) ? 'w' : '-', (info.protection & VM_PROT_EXECUTE) ? 'x' : '-');
+}
+
+}  // namespace
+
+extern "C" int apkconv_segment_runs_spike(const apkconv_signer *signer, const char *directory, char *report_text,
+                                          size_t report_size, char *error, size_t error_size) {
+    try {
+        if (signer == nullptr || directory == nullptr || report_text == nullptr) {
+            throw std::runtime_error("apkconv_segment_runs_spike needs a signer, a directory and a report");
+        }
+        const std::uint32_t tag = std::random_device{}();
+        auto image = segment_runs_container(tag);
+        apk::codesign::sign(image, {.identifier = signer->identifier,
+                                    .identity = signer->identity ? &*signer->identity : nullptr});
+        const auto path = std::filesystem::path(directory) / std::format("segment-runs-{:08x}.dylib", tag);
+        replace_file(path, image);
+        const auto loading = std::chrono::steady_clock::now();
+        const mach_header_64 *header = nullptr;
+        try {
+            check_signature(path.c_str());
+            if (::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL) == nullptr) {
+                throw std::runtime_error(std::format("dlopen refuses the container: {}", ::dlerror()));
+            }
+            header = loaded_image(test_container_uuid(tag ^ 0x5eu));
+            if (header == nullptr) throw std::runtime_error("dlopen loaded the container, but dyld does not list it");
+        } catch (...) {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+            throw;
+        }
+        std::error_code ignored;
+        std::filesystem::remove(path, ignored);
+        const auto load_time = milliseconds_since(loading);
+
+        const auto base = reinterpret_cast<std::uintptr_t>(header);
+        std::string text = std::format("dlopen {:.2f} ms; mapped:", load_time);
+        for (const auto &[name, offset] : {std::pair{"__TEXT", std::uint64_t{0}}, {"__DATA", runs_data},
+                                           {"__TEXT_1", runs_code}, {"__CONST_1", runs_const},
+                                           {"__DATA_1", runs_data_1}, {"__LINKEDIT", runs_linkedit}}) {
+            text += std::format(" {} {}", name, protection_at(base + offset));
+        }
+        using Function = int (*)();
+#if __has_feature(ptrauth_calls)
+        const auto function = ptrauth_sign_unauthenticated(reinterpret_cast<Function>(base + runs_code),
+                                                           ptrauth_key_function_pointer, 0);
+#else
+        const auto function = reinterpret_cast<Function>(base + runs_code);
+#endif
+        const int first = function();
+        const int second = function();
+        text += std::format("; __TEXT_1's function: {}, {} (expected 1086, 1097)", first, second);
+        copy_text(text, report_text, report_size);
+        return first == 1086 && second == 1097 ? 0 : 1;
     } catch (const std::exception &failure) {
         report(failure, error, error_size);
         return -1;
