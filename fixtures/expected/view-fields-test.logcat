@@ -103,4 +103,10 @@ I/view-fields-test: android.view.WindowInsets fields readable, declared methods 
 I/view-fields-test: android.content.res.TypedArray fields readable, declared methods readable, public methods readable
 I/view-fields-test: android.graphics.Bitmap fields readable, declared methods readable, public methods readable
 I/view-fields-test: android.graphics.Canvas fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.storage.StorageManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.webkit.WebView fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.app.LocaleManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: locale manager true
+I/view-fields-test: application locales ""
+I/view-fields-test: system locales same as the configuration's true
 I/view-fields-test: done

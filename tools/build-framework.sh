@@ -163,6 +163,9 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
   --class android.media.session.MediaController --class android.widget.Toolbar --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
+  --class android.app.LocaleManager --class android.os.storage.OnObbStateChangeListener \
+  --class android.net.http.SslCertificate --class android.webkit.WebStorage \
+  --class android.webkit.GeolocationPermissions \
   --class android.credentials.GetCredentialRequest \
   --class android.credentials.GetCredentialResponse \
   --class android.media.AudioDeviceCallback \

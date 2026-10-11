@@ -57,7 +57,6 @@ com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: Strict
 # The app model, activities and views.
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo.applyOverrideScaleIfNeeded, which the window manager's relayout calls
-android.app.LocaleManager <- android.app.LocaleConfig  # gap: per-app languages (LocaleConfig)
 android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: ResourcesManager.dump, for dumpsys
 
 # Drawables and graphics.
@@ -312,7 +311,6 @@ android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard
 
 # The Unity test APK probe's batch C (Grafik): android.webkit without a WebView provider (no webview feature) and the legacy
 # Camera without cameras.
-android.webkit.PluginList <- android.webkit.WebView  # stays: WebView's hidden getPluginList, removed from the API long ago
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
 android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of

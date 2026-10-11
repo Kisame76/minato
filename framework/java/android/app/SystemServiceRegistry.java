@@ -108,6 +108,8 @@ final class SystemServiceRegistry {
         // Gap 1: as the tag's, over the local clipboard.
         cached(Context.CLIPBOARD_SERVICE, ClipboardManager.class,
                 ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
+        // Retest 12: the app's and the system's languages (Helpshift), as the tag's over the outer context.
+        cached(Context.LOCALE_SERVICE, LocaleManager.class, ctx -> new LocaleManager(ctx.getOuterContext()));
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));

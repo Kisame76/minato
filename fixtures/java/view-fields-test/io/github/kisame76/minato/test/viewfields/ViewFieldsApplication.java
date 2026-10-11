@@ -15,7 +15,8 @@ import java.lang.reflect.Field;
  * readable or the error it gives, the lookup of a static field along the chain, and the declared and public methods
  * of the classes in the chain of an Activity subclass and of Fragment, with a method found through getMethods; and
  * (retest 11: the game's device id walks the content resolver's class) the same for the classes behind a context's
- * own objects and about 60 classes engines and SDKs call.
+ * own objects and about 60 classes engines and SDKs call; and (retest 12) the storage manager, WebView and the locale
+ * manager, whose answers Helpshift reads.
  */
 public class ViewFieldsApplication extends Application {
     static final String TAG = "view-fields-test";
@@ -193,13 +194,24 @@ public class ViewFieldsApplication extends Application {
                 log(name + ": " + t.getClass().getName());
             }
         }
-        // Only shown: the storage manager (its OBB listener) and WebView, a later batch's.
-        for (String name : new String[] {"android.os.storage.StorageManager", "android.webkit.WebView"}) {
+        // Retest 12's resolve list: the storage manager (its OBB listener), WebView's members, and Helpshift's
+        // language through the locale manager.
+        for (String name : new String[] {"android.os.storage.StorageManager", "android.webkit.WebView",
+                "android.app.LocaleManager"}) {
             try {
-                logDevice(name + " " + verdict(Class.forName(name)));
+                log(name + " " + verdict(Class.forName(name)));
             } catch (Throwable t) {
-                logDevice(name + ": " + t.getClass().getName());
+                log(name + ": " + t.getClass().getName());
             }
+        }
+        try {
+            android.app.LocaleManager locales = getSystemService(android.app.LocaleManager.class);
+            log("locale manager " + (locales != null));
+            log("application locales \"" + locales.getApplicationLocales().toLanguageTags() + "\"");
+            log("system locales same as the configuration's "
+                    + locales.getSystemLocales().equals(getResources().getConfiguration().getLocales()));
+        } catch (Throwable t) {
+            log("locale manager: " + t.getClass().getName());
         }
         log("done");
     }
