@@ -1,0 +1,5 @@
+I/main-looper-test: single posts ran 5 of 5, each within 250 ms true
+I/main-looper-test: a post after 2 s idle ran true, within 250 ms true
+I/main-looper-test: a post delayed by 300 ms ran true, not early true, within 250 ms of its time true
+I/main-looper-test: a burst of 20 posts ran true, in order true, within 250 ms true
+I/main-looper-test: done
