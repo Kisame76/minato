@@ -29,7 +29,11 @@ add_executable(app_process app_process/app_process.cpp)
 set_target_properties(app_process PROPERTIES OUTPUT_NAME app_process64)
 target_include_directories(app_process PRIVATE "${NATIVEHELPER}/include_jni" "${NATIVEHELPER}/include_platform")
 target_compile_options(app_process PRIVATE -Wall -Wextra -Werror -fno-exceptions -fno-rtti)
-target_link_options(app_process PRIVATE -Wl,--export-dynamic -Wl,-z,max-page-size=16384)
+# --exclude-libs,ALL keeps the static C++ library's symbols out of what --export-dynamic exports: Android's
+# app_process has libc++.so and exports none of them. Exported, they bind an app library's own C++ runtime to ours
+# (its personality routine then reads its unwind context with our unwinder: Unity's self-quit crash, retest 12),
+# cxx-binding-test.
+target_link_options(app_process PRIVATE -Wl,--export-dynamic -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 # In this order, as dalvikvm's DT_NEEDED: libsigchain before libc, which the toolchain adds last.
 target_link_libraries(app_process PRIVATE art_libnativehelper art_libsigchain log)
 

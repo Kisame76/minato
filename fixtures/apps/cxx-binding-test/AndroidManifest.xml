@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The self-quit crash's test (cxx-binding-test): a JNI library with the NDK's static C++ library, as Unity's
+     libil2cpp.so, and the images its references to the C++ runtime bind to. The launcher activity is the framework's
+     own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.cxxbinding" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="C++ Binding Test"
+      android:name="io.github.kisame76.minato.test.cxxbinding.CxxBindingApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

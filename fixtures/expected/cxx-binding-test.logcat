@@ -1,0 +1,3 @@
+I/cxx-binding-test: bindings: __gxx_personality_v0: the library itself; __cxa_throw: the library itself; __cxa_begin_catch: the library itself; operator new: the library itself; std::terminate: the library itself
+I/cxx-binding-test: on a thread: caught: thrown on a thread
+I/cxx-binding-test: done

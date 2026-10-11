@@ -83,8 +83,9 @@ fi
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()
 [[ ! -d "fixtures/apps/$APP/assets" ]] || assets=(--assets "fixtures/apps/$APP/assets")
-# An app with a jni folder gets its C files as its JNI library, lib<app>.so in lib/arm64-v8a, built with the NDK's clang
-# at API 29 (D8's --min-api); jni/link.txt names the NDK libraries it links, one per line, each kept as NEEDED.
+# An app with a jni folder gets its C and C++ files as its JNI library, lib<app>.so in lib/arm64-v8a, built with the
+# NDK's clang at API 29 (D8's --min-api); jni/link.txt names the NDK libraries it links, one per line, each kept as
+# NEEDED.
 libs=()
 if [[ -d "$JAVA/jni" ]]; then
   NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
@@ -96,10 +97,15 @@ if [[ -d "$JAVA/jni" ]]; then
   if [[ -f "$JAVA/jni/link.txt" ]]; then
     while read -r name; do link+=("-l$name"); done < "$JAVA/jni/link.txt"
   fi
+  # C++ files make it a C++ library with the NDK's static C++ library (c++_static), as Unity's libil2cpp.so is.
+  compiler=clang
+  cxx=()
+  if [[ -n "$(find "$JAVA/jni" -name '*.cpp')" ]]; then compiler=clang++ cxx=(-std=c++20 -static-libstdc++); fi
   mkdir -p "$OUT/lib"
-  "$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall \
-    -Werror -Wl,-z,max-page-size=16384 -Wl,--no-undefined -o "$OUT/lib/lib$(basename "$JAVA").so" \
-    $(find "$JAVA/jni" -name '*.c' | sort) -Wl,--no-as-needed ${link[@]+"${link[@]}"} -Wl,--as-needed
+  "$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/$compiler" --target=aarch64-linux-android29 -shared -fPIC -O2 \
+    -Wall -Werror ${cxx[@]+"${cxx[@]}"} -Wl,-z,max-page-size=16384 -Wl,--no-undefined \
+    -o "$OUT/lib/lib$(basename "$JAVA").so" $(find "$JAVA/jni" -name '*.c' -o -name '*.cpp' | sort) \
+    -Wl,--no-as-needed ${link[@]+"${link[@]}"} -Wl,--as-needed
   libs=(--lib "$OUT/lib/lib$(basename "$JAVA").so")
 fi
 manifest=(--manifest "fixtures/apps/$APP/AndroidManifest.xml")
