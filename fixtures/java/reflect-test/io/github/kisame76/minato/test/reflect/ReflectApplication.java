@@ -26,6 +26,10 @@ public class ReflectApplication extends Application {
         {"android.hardware.Sensor", "getName"},
         {"android.media.MediaDrm", "getPropertyString"},
         {"android.view.textclassifier.TextClassification", "getText"},
+        {"android.os.BaseBundle", "getString"},
+        {"android.os.UserManager", "isSystemUser"},
+        {"android.os.storage.StorageVolume", "getDescription"},
+        {"android.view.accessibility.AccessibilityManager", "isEnabled"},
     };
 
     @Override

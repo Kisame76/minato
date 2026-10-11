@@ -6,4 +6,8 @@ I/reflect-test: android.graphics.drawable.Icon: methods true, fields true, has l
 I/reflect-test: android.hardware.Sensor: methods true, fields true, has getName true
 I/reflect-test: android.media.MediaDrm: methods true, fields true, has getPropertyString true
 I/reflect-test: android.view.textclassifier.TextClassification: methods true, fields true, has getText true
+I/reflect-test: android.os.BaseBundle: methods true, fields true, has getString true
+I/reflect-test: android.os.UserManager: methods true, fields true, has isSystemUser true
+I/reflect-test: android.os.storage.StorageVolume: methods true, fields true, has getDescription true
+I/reflect-test: android.view.accessibility.AccessibilityManager: methods true, fields true, has isEnabled true
 I/reflect-test: done

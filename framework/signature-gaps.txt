@@ -12,10 +12,6 @@
 # IWindowId, InsetsFrameProvider, FrameMetricsObserver, TaskFpsCallback, ScrollCaptureInternal and TooltipPopup; and
 # SharedMemory, MemoryFile, ConstrainDisplayApisConfig, LegacySensorManager, BatterySaverPolicyConfig and
 # ZenModeConfig.
-android.annotation.AppIdInt <- com.android.internal.util.AnnotationValidations  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.annotation.FloatRange <- com.android.internal.util.AnnotationValidations  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.annotation.IntRange <- com.android.internal.util.AnnotationValidations  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.annotation.Size <- com.android.internal.util.AnnotationValidations  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.AsyncNotedAppOp <- android.app.AppOpsManager  # gap: (Planung) not taken: it reads AppOpsManager._NUM_OP, which the parked breadth batch 3 adds with tools/appopsgen.py
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
@@ -61,56 +57,43 @@ android.net.wifi.SupplicantState <- android.net.wifi.WifiInfo  # gap: (App) Wi-F
 android.net.wifi.WifiEnterpriseConfig <- android.net.wifi.WifiConfiguration, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.Credential <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.HomeSp <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
-android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.CombinedVibration <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal, android.os.VibratorManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.CoolingDevice <- android.os.IThermalService  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.NewUserRequest <- android.os.UserManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.NewUserResponse <- android.os.UserManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.ParcelDuration <- android.os.IPowerManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.PerformanceCollector <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.os.CoolingDevice <- android.os.IThermalService  # gap: (Planung) not taken: it names android.hardware.thermal's generated HAL type CoolingType
+android.os.PerformanceCollector <- android.app.Instrumentation  # gap: (Planung) not taken: it calls Process.getElapsedCpuTime, which our Process lacks; only instrumentation tests use it
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android.app.INotificationManager, android.app.job.IJobScheduler, android.content.IClipboard, android.content.IContentService, android.hardware.display.IDisplayManager, android.hardware.input.IInputManager, com.android.internal.compat.IPlatformCompat  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: (Planung) not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.print.PrintJobId <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.service.notification.Adjustment <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: (Planung) not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.service.notification.NotificationListenerFilter <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.telephony.RadioAccessSpecifier <- android.telephony.NetworkScanRequest  # gap: (App) network scans' radio specifiers not taken yet; Minato has no radio
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.telephony.data.ApnSetting <- android.telephony.PreciseDataConnectionState  # gap: (App) a data connection's APN, not taken yet; Minato's phone has no SIM
-android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: (Planung) not taken: it needs ImeTracker, SoftInputShowHideReason and BackGestureInterpolator; Minato has no soft keyboard
 android.view.InputMonitor <- android.hardware.input.IInputManager, android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) a hidden class of the system's remote animations, which no app reflects over
 android.view.RemoteAnimationTarget <- android.window.BackMotionEvent, android.window.BackTouchTracker  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.SurfaceSession <- android.view.SurfaceControl  # gap: (App) a placeholder's session (SurfaceControl, Grafik's), not taken yet
-android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.accessibility.AccessibilityRequestPreparer <- android.view.accessibility.AccessibilityManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: (Planung) not taken: it reads InputEvent.INVALID_INPUT_EVENT_ID, which our InputEvent lacks
 android.view.accessibility.AccessibilityWindowInfo <- android.view.accessibility.AccessibilityNodeInfo  # gap: (App) accessibility windows not taken yet; accessibility is off (ADR-0041)
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.autofill.IAutofillWindowPresenter <- android.view.autofill.AutofillClientController, android.view.autofill.AutofillManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.contentcapture.DataRemovalRequest <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.contentcapture.DataShareRequest <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.contentcapture.DataShareWriteAdapter <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResultCallback  # gap: (App) display hashes not taken yet
 android.view.textclassifier.ConversationActions <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
 android.view.textclassifier.ConversationActions$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
 android.view.textclassifier.SelectionEvent <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.TextClassificationSessionFactory <- android.view.textclassifier.TextClassificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.textclassifier.TextClassifierEvent <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.textclassifier.TextClassifierEvent <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: (Planung) not taken: it calls TextClassifierEvent's builders of App's text classifier files (NO_SIGNATURE, setInvocationMethod) that they lack
 android.view.textclassifier.TextLanguage <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
 android.view.textclassifier.TextLanguage$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.TextSelection <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.textclassifier.TextSelection <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: (Planung) not taken: it names EntityConfidence, SystemTextClassifierMetadata and the textclassifier Utils, which App's text classifier files do not hold
 android.view.textclassifier.TextSelection$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textservice.SpellCheckerInfo <- android.view.textservice.SpellCheckerSession, android.view.textservice.TextServicesManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.textservice.SpellCheckerSubtype <- android.view.textservice.TextServicesManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.textservice.SpellCheckerInfo <- android.view.textservice.SpellCheckerSession, android.view.textservice.TextServicesManager  # gap: (Planung) not taken: its constructor of SpellCheckerSubtype does not match ours; with SpellCheckerSubtype
+android.view.textservice.SpellCheckerSubtype <- android.view.textservice.TextServicesManager  # gap: (Planung) not taken: it needs SubtypeLocaleUtils of the input method service; Minato has no spell checker service
 android.view.translation.TranslationRequestValue <- android.view.translation.ViewTranslationRequest  # gap: (App) translation requests' values not taken yet
 android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
@@ -122,25 +105,18 @@ android.webkit.WebViewDatabase <- android.webkit.WebSyncManager, android.webkit.
 android.widget.Magnifier <- android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.widget.PopupWindow <- android.widget.AbsListView, android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.window.ActivityWindowInfo <- android.view.ViewRootImpl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.window.OnBackInvokedCallbackInfo <- android.view.IWindowSession  # gap: (App) a placeholder's back callback info (IWindowSession, Grafik's), not taken yet
-android.window.SizeConfigurationBuckets <- android.app.ActivityClient, android.app.IActivityClientController  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.window.SplashScreenView <- android.window.SplashScreen  # gap: (App) SplashScreenView, the system splash screen's view, not taken yet; Minato shows none
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 com.android.internal.inputmethod.IInputContentUriToken <- android.view.inputmethod.InputContentInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-com.android.internal.util.IndentingPrintWriter <- android.os.BaseBundle, android.os.storage.StorageVolume, android.view.textclassifier.TextClassificationConstants  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-com.android.internal.util.RingBuffer <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-com.android.internal.util.SyncResultReceiver <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 
 # Formate: the package installer (the Unity test APK resolve list, batch E) and android.media (the gap sort, categories 1 and 2).
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors, which the local installer never runs; no app reflects over a binder interface
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
-com.android.internal.util.IndentingPrintWriter <- android.content.pm.PackageInstaller  # stays: SessionParams.dump, for dumpsys, which no app calls
 android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is Grafik's graphics fence (EGLExt makes it with hidden create methods, so managergen cannot write it); Image stays unreadable by reflection until that class is taken
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras getCameraCharacteristics refuses every ID before one is made
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
