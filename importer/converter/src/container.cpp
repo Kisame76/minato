@@ -220,6 +220,12 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
             section.offset - segment->offset != section.address - segment->address) {
             throw Incompatible(std::format("the executable section {} is not where its segment says", section.name));
         }
+        // Its bytes come from the segment's file part, where the rewriter's sites must lie too.
+        if (section.address - segment->address + section.size > segment->file_size) {
+            throw Incompatible(std::format("the executable section {} reaches beyond the file part of its segment at "
+                                           "{:#x}",
+                                           section.name, segment->address));
+        }
         rewrite::scan(elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
                       section.address, scan.findings, data);
         scan.code_bytes += section.size;
@@ -231,7 +237,11 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
 std::array<std::uint8_t, 16> content_uuid(std::span<const std::byte> image, const std::string &install_name) {
     CC_SHA256_CTX context;
     CC_SHA256_Init(&context);
-    CC_SHA256_Update(&context, image.data(), static_cast<CC_LONG>(image.size()));
+    // CC_LONG has 32 bits: in parts, so that nothing of a container of 4 GiB or more is left out.
+    for (std::size_t at = 0; at < image.size(); at += std::size_t{1} << 30) {
+        const auto part = std::min(image.size() - at, std::size_t{1} << 30);
+        CC_SHA256_Update(&context, image.data() + at, static_cast<CC_LONG>(part));
+    }
     CC_SHA256_Update(&context, install_name.data(), static_cast<CC_LONG>(install_name.size()));
     std::uint8_t digest[CC_SHA256_DIGEST_LENGTH];
     CC_SHA256_Final(digest, &context);
@@ -285,6 +295,15 @@ PageLayout page_layout(const elf::File &file) {
     // below wraps and no container takes more than that (a hostile file's sizes).
     constexpr auto highest = ~std::uint64_t{0} - page_size;
     std::uint64_t image_end = 0;
+    for (const auto *segment : loads) {
+        if ((segment->flags & (elf::segment_writable | elf::segment_executable)) ==
+            (elf::segment_writable | elf::segment_executable)) {
+            throw Incompatible(std::format(
+                "the LOAD segment at {:#x} is writable and executable, which Android's linker refuses for apps that "
+                "target Android 8 (API 26) or later and iOS cannot run {}",
+                segment->address, segments_text(file)));
+        }
+    }
     for (const auto &segment : file.segments) {
         if (segment.type != elf::SegmentType::load && segment.type != elf::SegmentType::gnu_relro) continue;
         if (segment.address > highest || segment.memory_size > highest - segment.address) {
@@ -428,22 +447,22 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     report.relocations = check_relocations(file, elf_bytes, dynamic);
 
     // Layout of the ELF image (page_layout): its runs of pages with one protection, each from a 16 KiB page of the
-    // container on, in the file in whole pages; only a last run that is writable keeps no more than its file bytes.
+    // container on. A code run is in the file in whole pages, a data run only up to the page of its last file byte;
+    // dyld fills the rest with zeros.
     const std::uint64_t min_vaddr = layout.min_vaddr;
     const std::uint64_t end = layout.end;
     const auto &runs = layout.runs;
-    std::uint64_t last_file_end = runs.back().end;
-    if (runs.back().writable) {
-        last_file_end = runs.back().start;
+    const auto file_end = [&](const Run &run) {
+        if (!run.writable) return run.end;
+        std::uint64_t last = run.start;
         for (const auto *segment : loads) {
-            if (segment->address >= runs.back().start && segment->file_size > 0) {
-                last_file_end = std::max(last_file_end, runs.back().start + align_up(segment->address +
-                                                                                         segment->file_size -
-                                                                                         runs.back().start,
-                                                                                     page_size));
+            if (segment->address >= run.start && segment->address < run.end && segment->file_size > 0) {
+                last = std::max(last, run.start + align_up(segment->address + segment->file_size - run.start,
+                                                           page_size));
             }
         }
-    }
+        return last;
+    };
 
     // Scan the executable sections: only there are the bytes known to be instructions (R1).
     const auto scan = scan_sections(file, elf_bytes, sections);
@@ -520,14 +539,17 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     text.vm_size = text.file_size = container_address(runs.front().writable ? runs.front().start : runs.front().end);
     text.sections[0].address = info_offset;
 
+    // The segments follow one another in the file; a data run's zero-filled pages take no file bytes.
+    std::uint64_t file_position = text.file_size;
     std::size_t next = 1;
     for (std::size_t index = runs.front().writable ? 0 : 1; index < runs.size(); ++index, ++next) {
         const auto &run = runs[index];
         auto &segment = dylib.segments[next];
-        segment.address = segment.file_offset = container_address(run.start);
+        segment.address = container_address(run.start);
+        segment.file_offset = file_position;
         segment.vm_size = container_address(run.end) - segment.address;
-        segment.file_size = &run == &runs.back() ? container_address(last_file_end) - segment.address
-                                                 : segment.vm_size;
+        segment.file_size = container_address(file_end(run)) - segment.address;
+        file_position += segment.file_size;
     }
     const std::uint64_t runtime_slots = container_address(end);
     if (runs.back().writable) {
@@ -535,20 +557,40 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     } else {
         auto &slots = dylib.segments[next++];
         slots.address = runtime_slots;
-        slots.file_offset = container_address(end);
+        slots.file_offset = file_position;
         slots.vm_size = page_size;
     }
 
     const auto &before_linkedit = dylib.segments[next - 1];
     auto &linkedit = dylib.segments[next];
     linkedit.address = before_linkedit.address + before_linkedit.vm_size;
-    linkedit.file_offset = before_linkedit.file_offset + before_linkedit.file_size;
+    linkedit.file_offset = file_position;
     linkedit.file_size = symbol_table_size;
     linkedit.vm_size = page_size;
 
-    std::vector<std::byte> bytes(linkedit.file_offset + linkedit.file_size, std::byte{0});
+    // No container takes much more than its file: code runs are in the file in whole pages, zero-filled ones too.
+    const std::uint64_t container_size = linkedit.file_offset + linkedit.file_size;
+    if (container_size > 2 * std::uint64_t{elf_bytes.size()} + (std::uint64_t{16} << 20)) {
+        throw Incompatible(std::format("the container would take {:#x} bytes for a file of {:#x} {}", container_size,
+                                       elf_bytes.size(), segments_text(file)));
+    }
+    std::vector<std::byte> bytes(container_size, std::byte{0});
+    // Where `size` bytes at container address `address` lie in the file: within one segment's file part, or the
+    // conversion stops before writing.
+    const auto file_at = [&](std::uint64_t address, std::uint64_t size) -> std::byte * {
+        for (std::size_t index = 0; index < next; ++index) {
+            const auto &segment = dylib.segments[index];
+            if (address >= segment.address && size <= segment.file_size &&
+                address - segment.address <= segment.file_size - size) {
+                return bytes.data() + segment.file_offset + (address - segment.address);
+            }
+        }
+        throw Incompatible(std::format("{:#x} bytes at {:#x} of the container lie outside its file part", size,
+                                       address));
+    };
     for (const auto *segment : loads) {
-        std::memcpy(bytes.data() + container_address(segment->address),
+        if (segment->file_size == 0) continue;
+        std::memcpy(file_at(container_address(segment->address), segment->file_size),
                     elf_bytes.data() + segment->offset, segment->file_size);
     }
 
@@ -574,8 +616,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         const std::uint64_t site_address = container_address(site.address);
         const auto size = rewrite::stub_size(site);
         const auto patch = rewrite::emit(site, site_address, stub, runtime_slots + offsetof(apk_runtime_slots, syscall_entry),
-                                         std::span(bytes).subspan(static_cast<std::size_t>(stub), static_cast<std::size_t>(size)));
-        std::memcpy(bytes.data() + site_address, &patch, sizeof patch);
+                                         std::span(file_at(stub, size), static_cast<std::size_t>(size)));
+        std::memcpy(file_at(site_address, sizeof patch), &patch, sizeof patch);
         switch (site.kind) {
             case rewrite::SiteKind::thread_pointer_read: ++report.thread_pointer_reads; break;
             case rewrite::SiteKind::thread_pointer_write: ++report.thread_pointer_writes; break;
@@ -592,9 +634,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         const std::uint64_t region_address = container_address(region.address);
         const auto size = rewrite::exclusive_region_stub_size(region);
         const auto patch = rewrite::emit_exclusive_region(region, region_address, stub,
-                                                          std::span(bytes).subspan(static_cast<std::size_t>(stub),
-                                                                                   static_cast<std::size_t>(size)));
-        std::memcpy(bytes.data() + region_address, &patch, sizeof patch);
+                                                          std::span(file_at(stub, size), static_cast<std::size_t>(size)));
+        std::memcpy(file_at(region_address, sizeof patch), &patch, sizeof patch);
         add_island(rewrite::exclusive_region_layout(region), stub, region_address);
         stub += size;
         ++report.x18_islands;
@@ -604,9 +645,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         const std::uint64_t branch_address = container_address(table.address);
         const auto size = rewrite::jump_table_stub_size(table);
         const auto patch = rewrite::emit_jump_table(table, branch_address, stub,
-                                                    std::span(bytes).subspan(static_cast<std::size_t>(stub),
-                                                                             static_cast<std::size_t>(size)));
-        std::memcpy(bytes.data() + branch_address, &patch, sizeof patch);
+                                                    std::span(file_at(stub, size), static_cast<std::size_t>(size)));
+        std::memcpy(file_at(branch_address, sizeof patch), &patch, sizeof patch);
         add_island(rewrite::jump_table_layout(table), stub, branch_address);
         stub += size;
         ++report.x18_islands;

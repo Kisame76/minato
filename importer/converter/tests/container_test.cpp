@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -510,6 +511,8 @@ struct MachSegment {
     std::uint64_t address;
     std::uint64_t size;
     std::uint32_t protection;
+    std::uint64_t file_offset;
+    std::uint64_t file_size;
 };
 
 std::vector<MachSegment> mach_segments(const std::vector<std::byte> &bytes) {
@@ -524,7 +527,8 @@ std::vector<MachSegment> mach_segments(const std::vector<std::byte> &bytes) {
             segment_command_64 segment;
             std::memcpy(&segment, bytes.data() + at, sizeof segment);
             segments.push_back({std::string(segment.segname, strnlen(segment.segname, sizeof segment.segname)),
-                                segment.vmaddr, segment.vmsize, static_cast<std::uint32_t>(segment.initprot)});
+                                segment.vmaddr, segment.vmsize, static_cast<std::uint32_t>(segment.initprot),
+                                segment.fileoff, segment.filesize});
         }
         at += command.cmdsize;
     }
@@ -532,6 +536,37 @@ std::vector<MachSegment> mach_segments(const std::vector<std::byte> &bytes) {
 }
 
 constexpr std::uint32_t rx = 5, rw = 3;  // VM protections
+
+/// Where container address `address` lies in the file, as dyld maps it; zero-filled pages lie nowhere.
+std::optional<std::uint64_t> file_offset_of(const std::vector<std::byte> &bytes, std::uint64_t address) {
+    for (const auto &segment : mach_segments(bytes)) {
+        if (address >= segment.address && address < segment.address + segment.file_size) {
+            return segment.file_offset + (address - segment.address);
+        }
+    }
+    return std::nullopt;
+}
+
+/// The bytes at container address `address`, read where dyld maps them from.
+const std::byte *mapped(const std::vector<std::byte> &bytes, std::uint64_t address) {
+    const auto offset = file_offset_of(bytes, address);
+    if (!offset) throw std::runtime_error(std::format("{:#x} is not in the container's file", address));
+    return bytes.data() + *offset;
+}
+
+/// The word at container address `address` and the container address a B there branches to.
+std::uint32_t mapped_word(const std::vector<std::byte> &bytes, std::uint64_t address) {
+    std::uint32_t value;
+    std::memcpy(&value, mapped(bytes, address), sizeof value);
+    return value;
+}
+
+std::optional<std::uint64_t> mapped_branch_target(const std::vector<std::byte> &bytes, std::uint64_t address) {
+    const auto instruction = mapped_word(bytes, address);
+    if ((instruction & 0xfc00'0000) != 0x1400'0000) return std::nullopt;
+    const auto immediate = static_cast<std::int64_t>(static_cast<std::int32_t>(instruction << 6) >> 6);
+    return static_cast<std::uint64_t>(static_cast<std::int64_t>(address) + 4 * immediate);
+}
 
 /// the Unity test APK v2's libil2cpp.so in small (ADR-0008 amendment): built for 16 KiB pages, r-- with the headers and the
 /// RELR table, r-x, rw- with the dynamic table (GNU_RELRO), rw- zero filled, then a second r-x, an r-- and an rw- with
@@ -569,6 +604,29 @@ ElfBuilder segment_runs_program(std::uint64_t relocated = 0x18500, std::uint64_t
         {".rodata", sht_progbits, shf_alloc, 0x14480, 0x480, 0x40},
         {".data", sht_progbits, shf_alloc | shf_write, 0x18500, 0x500, 0x10},
         {".bss.after", sht_nobits, shf_alloc | shf_write, 0x18510, 0x510, 0x1d0},
+    });
+    return builder;
+}
+
+/// Code, data with `zero_filled` bytes of .bss, then code again on the 16 KiB page after them.
+ElfBuilder data_then_code(std::uint64_t zero_filled) {
+    const std::uint64_t later = ((0x42c0 + zero_filled + 0x3fff) & ~std::uint64_t{0x3fff}) + 0x300;
+    ElfBuilder builder;
+    builder.bytes.resize(0x400);
+    builder.put<std::uint64_t>(24, 0x200);  // e_entry
+    builder
+        .segments({
+            {pt_load, r | x, 0, 0, 0x220, 0x220, 0x4000},
+            {pt_load, r | w, 0x2c0, 0x42c0, 0x40, zero_filled, 0x4000},
+            {pt_load, r | x, 0x300, later, 0x20, 0x20, 0x4000},
+            {pt_dynamic, r | w, 0x2c0, 0x42c0, 0x40, 0x40, 8},
+        })
+        .dynamic(0x2c0, {{0, 0}});
+    for (std::size_t at = 0x200; at < 0x220; at += 4) builder.put<std::uint32_t>(at, 0xd503'201f);  // nop
+    for (std::size_t at = 0x300; at < 0x320; at += 4) builder.put<std::uint32_t>(at, 0xd503'201f);
+    builder.sections({
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, 0x20},
+        {".text.after", sht_progbits, shf_alloc | shf_execinstr, later, 0x300, 0x20},
     });
     return builder;
 }
@@ -612,17 +670,23 @@ TEST(splits_an_image_into_runs_of_protection) {
         CHECK(segments[4].name == "__LINKEDIT" && segments[4].address == image + 0x20000);
     }
 
+    // The data runs are in the file up to their last file byte's page only: dyld fills the rest with zeros.
+    if (segments.size() == 5) {
+        CHECK(segments[1].file_size == 0x4000 && segments[2].file_offset == segments[1].file_offset + 0x4000);
+        CHECK(segments[3].file_size == 0x4000);
+    }
     // Every byte at its ELF address; both executable sections rewritten, whichever run they lie in.
-    CHECK(std::memcmp(bytes.data() + image, builder.bytes.data(), 64) == 0);
-    CHECK(std::memcmp(bytes.data() + image + 0x14480, "read-only data after the data", 29) == 0);
+    CHECK(std::memcmp(mapped(bytes, image), builder.bytes.data(), 64) == 0);
+    CHECK(std::memcmp(mapped(bytes, image + 0x14480), "read-only data after the data", 29) == 0);
     std::int64_t tag;
-    std::memcpy(&tag, bytes.data() + image + 0x84c0, sizeof tag);
+    std::memcpy(&tag, mapped(bytes, image + 0x84c0), sizeof tag);
     CHECK(tag == dt_relr);
-    CHECK(word_at(bytes, image + 0x18500) == 0x1234);
+    CHECK(mapped_word(bytes, image + 0x18500) == 0x1234);
+    CHECK(!file_offset_of(bytes, image + 0xc500));  // .bss: zero filled
     for (const std::uint64_t text : {0x4400u, 0x10440u}) {
-        const auto target = branch_target(bytes, image + text);
+        const auto target = mapped_branch_target(bytes, image + text);
         CHECK(target.has_value() && *target < image);
-        CHECK(word_at(bytes, image + text + 4) == code[1]);
+        CHECK(mapped_word(bytes, image + text + 4) == code[1]);
     }
     CHECK(info.syscalls == 2 && info.thread_pointer_reads == 4 && info.thread_pointer_writes == 2);
     CHECK(container.report.relocations == 1);
@@ -713,7 +777,7 @@ TEST(moves_a_4_kib_image_so_that_every_run_starts_a_16_kib_page) {
         CHECK(segments[3].name == "__DATA_1" && segments[3].protection == rw &&
               segments[3].address == info.runtime_slots && segments[3].size == 0x4000);
     }
-    CHECK(std::memcmp(bytes.data() + info.image_offset + 0x5100, builder.bytes.data() + 0x100, 0x40) == 0);
+    CHECK(std::memcmp(mapped(bytes, info.image_offset + 0x5100), builder.bytes.data() + 0x100, 0x40) == 0);
 }
 
 TEST(refuses_a_4_kib_layout_no_shift_fits) {
@@ -779,6 +843,23 @@ TEST(refuses_what_cannot_run) {
     CHECK_THROWS(Incompatible, convert(huge), "spans more than 4 GiB");
     CHECK_THROWS(Incompatible, convert(segment_runs_program(0x18500, ~std::uint64_t{0} - 0x84bf)),
                  "ends beyond the address space");
+
+    // A writable and executable LOAD segment, which Android's linker refuses for apps targeting API 26 or later
+    // (ElfReader::LoadSegments) and iOS cannot run; an executable section beyond its segment's file part, whose
+    // rewritten sites would lie outside the container's bytes (the lead's reviewer's finding).
+    auto writable_code = static_program();
+    writable_code.put<std::uint32_t>(64 + 56 + 4, r | w | x);  // p_flags of the code segment
+    CHECK_THROWS(Incompatible, convert(writable_code), "LOAD segment at 0x0 is writable and executable");
+    auto code_beyond_file = static_program();
+    code_beyond_file.put<std::uint64_t>(64 + 56 + 32, 0x210);  // p_filesz of the code segment, .text ends at 0x220
+    CHECK_THROWS(Incompatible, convert(code_beyond_file), "the executable section .text reaches beyond");
+    // Zero-filled data in the middle stays out of the file; a container far larger than its file is refused.
+    CHECK(convert(data_then_code(std::uint64_t{256} << 20)).bytes.size() < (1 << 20));
+    auto zero_code = static_program((std::uint64_t{256} << 20) + 0x4800);
+    zero_code.put<std::uint64_t>(64 + 56 + 40, std::uint64_t{256} << 20);  // p_memsz of the code segment
+    zero_code.put<std::uint64_t>(64 + 2 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);  // the data after it
+    zero_code.put<std::uint64_t>(64 + 3 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);  // PT_DYNAMIC
+    CHECK_THROWS(Incompatible, convert(zero_code), "the container would take");
 
     auto x86 = static_program();
     x86.put<std::uint16_t>(18, 62);
