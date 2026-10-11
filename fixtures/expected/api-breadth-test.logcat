@@ -227,4 +227,6 @@ I/api-breadth-test: android.media.MediaDrmResetException: loads
 I/api-breadth-test: android.media.MediaMetadataEditor: loads
 I/api-breadth-test: android.media.UnsupportedSchemeException: loads
 I/api-breadth-test: android.media.ResourceBusyException: loads
+I/api-breadth-test: android.media.ApplicationMediaCapabilities: loads
+I/api-breadth-test: android.media.ApplicationMediaCapabilities$Builder: loads
 I/api-breadth-test: done

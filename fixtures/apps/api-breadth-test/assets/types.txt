@@ -233,3 +233,6 @@ android.media.MediaDrmResetException
 android.media.MediaMetadataEditor
 android.media.UnsupportedSchemeException
 android.media.ResourceBusyException
+# Batch M3: android.media's ApplicationMediaCapabilities, with its Builder, from the Media module.
+android.media.ApplicationMediaCapabilities
+android.media.ApplicationMediaCapabilities$Builder

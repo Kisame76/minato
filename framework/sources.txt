@@ -1766,3 +1766,9 @@ frameworks_base/core/java/android/view/ScrollCaptureResponse.java
 modules_utils/java/com/android/modules/utils/BasicShellCommandHandler.java
 frameworks_base/core/java/android/view/IScrollCaptureConnection.aidl
 frameworks_base/core/java/android/view/IScrollCaptureCallbacks.aidl
+
+# android.media's ApplicationMediaCapabilities and its Builder (the Unity test APK gap sort, Formate's category 1, from the Media
+# module, third_party/sources.json media_module): what an app declares it can play, with MediaFeature's HDR types it
+# names. MinSdk, its marker for the SDK a class needs, is a compile-only stub.
+media_module/apex/framework/java/android/media/ApplicationMediaCapabilities.java
+media_module/apex/framework/java/android/media/MediaFeature.java

@@ -668,6 +668,17 @@
         "android/sqlite3_android.h"
       ],
       "digest": "6ba2eee560653efb81fc208a3c40ee923ab31838e8ad220da0d89875c41cf850"
+    },
+    {
+      "name": "media_module",
+      "project": "platform/packages/modules/Media",
+      "commit": "579b22cdf08d463034146603014a1eab2a08274a",
+      "license": "Apache-2.0",
+      "files": [
+        "apex/framework/java/android/media/ApplicationMediaCapabilities.java",
+        "apex/framework/java/android/media/MediaFeature.java"
+      ],
+      "digest": "c12dff6542d2515bb7bde9749f3937f62befba4c870ad74fb127118418f4a0bc"
     }
   ],
   "angle": {
