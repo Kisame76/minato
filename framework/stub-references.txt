@@ -36,15 +36,10 @@ com.android.internal.pm.parsing.PackageParserException <- android.content.pm.Pac
 
 # The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
 # (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
-android.hardware.display.Curve <- android.hardware.display.DisplayManagerGlobal  # gap: DisplayManager.getMinimumBrightnessCurve, a system API that the display service does not answer
 android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
-android.hardware.display.BrightnessConfiguration <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
-android.hardware.display.Curve <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
-android.hardware.display.HdrConversionMode <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.hardware.display.VirtualDisplayConfig <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
-android.hardware.display.WifiDisplayStatus <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.media.projection.IMediaProjection$Stub <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.os.PermissionEnforcer <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
@@ -63,7 +58,6 @@ android.util.IndentingPrintWriter <- android.app.ResourcesManager  # stays: Reso
 android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
 android.graphics.TextureLayer <- android.graphics.HardwareRenderer  # stays: a renderer's texture layers, and no renderer is made, as its constructor's first native is not registered (PixelCopy's step)
 android.hardware.DataSpace <- android.graphics.HardwareRenderer  # stays: the process initializer's display info, which needs the context that only ActivityThread's setContextForInit gives, and Minato's does not call it (PixelCopy's step)
-android.graphics.PostProcessor <- android.graphics.ImageDecoder  # gap: ImageDecoder.setPostProcessor (ADR-0043, Grafik)
 android.provider.FontRequest <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.provider.FontsContract <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
@@ -130,7 +124,6 @@ android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # 
 android.app.ExitTransitionCoordinator$ActivityExitTransitionCallbacks <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
 android.app.FullscreenRequestHandler <- android.app.Activity  # gap: Activity.requestFullscreenMode (API 34), which leaves a freeform window, and Minato's windows are always fullscreen
 android.app.IAppTask <- android.app.Instrumentation  # stays: app tasks (ActivityManager.AppTask), which no Context's ActivityManager gives on Minato
-android.app.IInstrumentationWatcher <- android.app.Instrumentation  # stays: an instrumentation test's watcher, and no test instrumentation runs on Minato
 android.app.TaskInfo <- android.app.ActivityManager  # stays: ActivityManager's task lists, which no Context's ActivityManager gives on Minato (ADR-0045's local services)
 android.app.UiAutomation <- android.app.Instrumentation  # stays: UI automation of an instrumentation test, and no test instrumentation runs on Minato
 android.os.PerformanceCollector <- android.app.Instrumentation  # stays: an instrumentation test's performance snapshots, and no test instrumentation runs on Minato
@@ -150,7 +143,6 @@ com.android.internal.content.ReferrerIntent <- android.app.Instrumentation  # st
 # ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
 # sensor runs.
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
-android.hardware.input.InputSensorInfo <- android.hardware.Sensor  # stays: an input device's sensor, which only InputManager makes
 
 # GLES from Java (ADR-0041 a), Grafik): opengl/java's three packages. A window surface takes a SurfaceView's or a
 # Surface's window (ADR-0043 c4); a SurfaceTexture needs libgui, and a native fence EGL_ANDROID_native_fence_sync,
@@ -161,19 +153,13 @@ android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap:
 # ADR-0045, the input service (Planung, gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
 # over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
 # devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.
-android.hardware.BatteryState <- android.hardware.input.InputManagerGlobal  # gap: an input device's battery (InputDevice.getBatteryState, API 31), which a device without one, as Minato's are, gets as a LocalBatteryState
 android.hardware.input.InputDeviceLightsManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
 android.hardware.input.InputDeviceSensorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's sensors (InputDevice.getSensorManager, API 31), whose manager Android makes for any device
 android.hardware.input.InputDeviceVibrator <- android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # stays: the vibrator of an input device that has one, and Minato's devices have none
 android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's vibrators (InputDevice.getVibratorManager, API 31), whose manager Android makes for any device
-android.hardware.input.InputSensorInfo <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
 android.hardware.input.KeyboardLayoutPreviewDrawable <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
-android.hardware.input.KeyboardLayoutSelectionResult <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
-android.hardware.input.TouchCalibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.hardware.lights.Light <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.hardware.lights.Light <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
 android.hardware.lights.LightState <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.hardware.lights.LightState <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
 android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
@@ -194,7 +180,6 @@ com.android.internal.util.IndentingPrintWriter <- android.os.storage.StorageVolu
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
-android.app.IUriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions (take, release and list), which ask the URI grants service
 android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
@@ -209,7 +194,6 @@ android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeec
 
 # ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
-android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActionModeHelper, android.widget.TextView  # stays: text classification's smart actions, absent (ADR-0043 step d), decision 3), for a selection and for accessibility
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
@@ -276,7 +260,6 @@ android.appwidget.AppWidgetManager <- android.widget.RemoteViewsAdapter  # stays
 # ADR-0045 gap 1, batch 2 (App): NotificationManager over the local notification service, with Notification, its
 # channels, RemoteViews, VibrationEffect and AudioAttributes. What they reach only on the system's side, in a host of
 # RemoteViews, or in a style or call that a later piece brings.
-android.app.NotificationHistory <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
 android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
 android.service.notification.Adjustment <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
 android.service.notification.INotificationListener$Stub <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
@@ -289,7 +272,6 @@ android.media.RingtoneManager <- android.app.NotificationChannel  # stays: a cha
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
-android.app.IUriGrantsManager <- android.graphics.drawable.Icon  # stays: Icon.loadDrawableCheckingUriGrant, which only the system calls for another app's URI icon
 android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
 android.os.VibratorInfo <- android.os.vibrator.PrebakedSegment, android.os.vibrator.PrimitiveSegment, android.os.vibrator.RampSegment, android.os.vibrator.StepSegment  # gap: Vibrator.areVibrationFeaturesSupported, which comes with the vibrator
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
@@ -343,6 +325,5 @@ android.print.PrintManager <- android.print.PrintJob  # stays: a print job's man
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
 
 # Activity's signature types (App, the Unity test APK retest 10): the types they take in reach these.
-android.app.RemoteAction <- android.app.PictureInPictureParams  # gap: (App) a picture-in-picture close action read from a parcel; RemoteAction is not taken yet, and Minato has no picture-in-picture
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none

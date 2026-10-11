@@ -10,7 +10,6 @@ android.view.contentcapture.ContentCaptureManager$DataShareAdapterDelegate -> an
 android.app.ActivityManager$RecentTaskInfo -> android.app.TaskInfo  # stays: ActivityManager's task lists, which no Context's ActivityManager gives on Minato (ADR-0045's local services), so no task info is made (step c2c3)
 android.app.ActivityManager$RunningTaskInfo -> android.app.TaskInfo  # stays: ActivityManager's task lists, which no Context's ActivityManager gives on Minato (ADR-0045's local services), so no task info is made (step c2c3)
 android.hardware.SystemSensorManager$3 -> android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener  # stays: SystemSensorManager listens for virtual devices only for a virtual device's context, which Minato has none of
-android.hardware.input.InputManagerGlobal$LocalBatteryState -> android.hardware.BatteryState  # gap: an input device's battery (InputDevice.getBatteryState, API 31), which a device without one, as Minato's are, gets as a LocalBatteryState
 android.widget.Editor$ErrorPopup -> android.widget.PopupWindow  # gap: TextView.setError's popup, another window
 android.widget.Editor$SuggestionsPopupWindow$CustomPopupWindow -> android.widget.PopupWindow  # gap: the suggestions popup on a tap, another window
 android.widget.RemoteViewsAdapter$RemoteViewsFrameLayout -> android.appwidget.AppWidgetHostView$AdapterChildHostView  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none (gap 5 batch 1)

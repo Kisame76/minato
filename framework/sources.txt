@@ -1802,3 +1802,22 @@ frameworks_base_types/media/java/android/media/AudioMetadataMap.java
 frameworks_base_types/media/java/android/media/AudioMetadata.java
 frameworks_base_types/media/java/android/media/DrmInitData.java
 frameworks_base_types/media/java/android/media/metrics/LogSessionId.java
+
+# Batch B3b-2 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
+frameworks_base/core/java/android/app/IInstrumentationWatcher.aidl
+frameworks_base/core/java/android/app/IUriGrantsManager.aidl
+frameworks_base/core/java/android/app/NotificationHistory.java
+frameworks_base/core/java/android/app/RemoteAction.java
+frameworks_base_graphics/graphics/java/android/graphics/PostProcessor.java
+frameworks_base/core/java/android/hardware/BatteryState.java
+frameworks_base/core/java/android/hardware/display/BrightnessConfiguration.java
+frameworks_base/core/java/android/hardware/display/Curve.java
+frameworks_base/core/java/android/hardware/display/HdrConversionMode.java
+frameworks_base/core/java/android/hardware/display/WifiDisplayStatus.java
+frameworks_base/core/java/android/hardware/input/InputSensorInfo.java
+frameworks_base/core/java/android/hardware/input/KeyboardLayoutSelectionResult.java
+frameworks_base/core/java/android/hardware/input/TouchCalibration.java
+frameworks_base/core/java/android/hardware/lights/Light.java
+frameworks_base/core/java/android/hardware/display/BrightnessCorrection.java
+frameworks_base/core/java/android/hardware/display/WifiDisplay.java
+frameworks_base/core/java/android/hardware/display/WifiDisplaySessionInfo.java

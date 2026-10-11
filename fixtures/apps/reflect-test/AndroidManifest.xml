@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of reflection over the framework's classes (reflect-test; retest 8's batch B3): getDeclaredMethods,
+     getDeclaredFields and getDeclaredConstructors of the classes that libraries reflect over, which ART resolves
+     every member's signature for. The launcher activity is the framework's own android.app.Activity, so that
+     `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.reflect" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="reflect-test" android:name="io.github.kisame76.minato.test.reflect.ReflectApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
