@@ -12,6 +12,7 @@
 #include <sys/param.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
@@ -83,17 +84,56 @@ struct DynamicEntry {
 
 /// The word a relocation changes. Checked before anything is read or written: the code around the
 /// writable part is signed, and outside the image lies whatever else the process has mapped.
-std::uint64_t *relocation_target(std::uint64_t address, std::uint64_t bias, Range writable) {
-    if (writable.end < writable.start + 8 || address < writable.start || address > writable.end - 8) {
-        throw LoadError(std::format("relocation at {:#x} lies outside the writable part [{:#x}, {:#x})", address,
-                                    writable.start, writable.end));
+std::uint64_t *relocation_target(std::uint64_t address, std::uint64_t bias, const Writable &writable) {
+    if (!writable.contains(address, 8)) {
+        std::string ranges;
+        for (const auto &range : writable.ranges) ranges += std::format(" [{:#x}, {:#x})", range.start, range.end);
+        throw LoadError(std::format("relocation at {:#x} lies outside the writable part{}", address, ranges));
     }
     return reinterpret_cast<std::uint64_t *>(bias + address);
 }
 
+/// More runs than any image of 4 GiB in 16 KiB pages could have (the converter's limit).
+constexpr std::uint64_t most_runs = (std::uint64_t{4} << 30) / (16 * 1024);
+
 }  // namespace
 
-void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, Range writable) {
+bool Writable::contains(std::uint64_t address, std::uint64_t size) const {
+    return std::ranges::any_of(ranges, [&](const Range &range) {
+        return range.end >= range.start && range.end - range.start >= size && address >= range.start &&
+               address <= range.end - size;
+    });
+}
+
+Writable writable_part(const Image &image) {
+    const auto &info = *image.info;
+    if (info.version < 3) return Range{info.writable_start, info.writable_end};
+    // The table lies in __TEXT between __apk_info and the image, which the code signature covers.
+    if (info.run_count > most_runs || info.runs < sizeof(apk_container_info) ||
+        info.runs + std::uint64_t{info.run_count} * sizeof(apk_run) > info.image_offset) {
+        throw LoadError(std::format("the table of {} runs at {:#x} does not lie before the image at {:#x}",
+                                    info.run_count, info.runs, info.image_offset));
+    }
+    const auto *runs = reinterpret_cast<const apk_run *>(reinterpret_cast<std::uint64_t>(image.header) + info.runs);
+    // The runs cover the image from min_vaddr to its end in order, each after the one before, none empty.
+    std::uint64_t expected = info.min_vaddr;
+    for (std::uint32_t index = 0; index < info.run_count; ++index) {
+        if (runs[index].start != expected || runs[index].end <= runs[index].start) expected = ~std::uint64_t{0};
+        else expected = runs[index].end;
+    }
+    if (info.run_count == 0 || info.image_size > ~std::uint64_t{0} - info.min_vaddr ||
+        expected != info.min_vaddr + info.image_size) {
+        throw LoadError(std::format("the runs do not cover the image [{:#x}, {:#x}) in order", info.min_vaddr,
+                                    info.min_vaddr + info.image_size));
+    }
+    std::vector<Range> parts;
+    for (std::uint32_t index = 0; index < info.run_count; ++index) {
+        if (runs[index].flags & APK_RUN_WRITABLE) parts.push_back({runs[index].start, runs[index].end});
+    }
+    return Writable(std::move(parts));
+}
+
+void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, const Writable &writable) {
     // An even entry is an address, an odd one a bitmap of the 63 words after the last address.
     std::uint64_t where = 0;
     for (const auto entry : table) {
@@ -109,8 +149,8 @@ void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, Range 
     }
 }
 
-void apply_rela(std::span<const Rela> table, std::uint64_t bias, Range writable, const SymbolResolver &resolve,
-                const OtherRelocation &other) {
+void apply_rela(std::span<const Rela> table, std::uint64_t bias, const Writable &writable,
+                const SymbolResolver &resolve, const OtherRelocation &other) {
     for (const auto &entry : table) {
         const auto type = static_cast<std::uint32_t>(entry.info);
         const auto symbol = static_cast<std::uint32_t>(entry.info >> 32);
@@ -299,7 +339,7 @@ void relocate(const Image &image) {
         }
     }
 
-    const Range writable{info.writable_start, info.writable_end};
+    const auto writable = writable_part(image);
     if (rela != 0) {
         apply_rela({reinterpret_cast<const Rela *>(image.bias + rela), rela_size / sizeof(Rela)}, image.bias, writable);
     }

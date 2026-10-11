@@ -355,6 +355,73 @@ TEST(a_container_of_another_version_is_refused) {
                  "container version 3, this runtime reads versions 2 to 3");
 }
 
+/// A container in four runs (ADR-0008 amendment): r-x with the program headers and the RELR table, rw- with the
+/// dynamic table, r-x, rw-. Its RELR table's one address is `relocated` in the container, which the converter
+/// checks, and `patched` in the copy the loader gets, which only the loader's own check can refuse. Unsigned.
+std::vector<std::byte> runs_container(const std::string &name, std::uint64_t patched,
+                                      std::uint64_t run_patch_offset = 0, std::uint64_t run_patch = 0) {
+    namespace elf = apk::testing;
+    constexpr std::uint64_t relocated = 0xc300;
+    elf::ElfBuilder builder;
+    builder.bytes.resize(0x400);
+    builder.put<std::uint64_t>(24, 0x8200);  // e_entry
+    builder
+        .segments({
+            {elf::pt_phdr, elf::r, 0x40, 0x40, 6 * 56, 6 * 56, 8},
+            {elf::pt_load, elf::r | elf::x, 0, 0, 0x2c0, 0x2c0, 0x4000},
+            {elf::pt_load, elf::r | elf::w, 0x2c0, 0x42c0, 0x40, 0x40, 0x4000},
+            {elf::pt_load, elf::r | elf::x, 0x200, 0x8200, 0x20, 0x20, 0x4000},
+            {elf::pt_load, elf::r | elf::w, 0x300, 0xc300, 0x10, 0x10, 0x4000},
+            {2 /* PT_DYNAMIC */, elf::r | elf::w, 0x2c0, 0x42c0, 0x40, 0x40, 8},
+        })
+        .put<std::uint64_t>(0x1a0, relocated)
+        .dynamic(0x2c0, {{36 /* DT_RELR */, 0x1a0}, {35 /* DT_RELRSZ */, 8}, {0, 0}});
+    for (std::size_t at = 0x200; at < 0x220; at += 4) builder.put<std::uint32_t>(at, 0xd503'201f);  // nop
+    builder.sections({
+        {".text", elf::sht_progbits, elf::shf_alloc | elf::shf_execinstr, 0x8200, 0x200, 0x20},
+        {".dynamic", 6 /* SHT_DYNAMIC */, elf::shf_alloc | elf::shf_write, 0x42c0, 0x2c0, 0x40},
+        {".data", elf::sht_progbits, elf::shf_alloc | elf::shf_write, 0xc300, 0x300, 0x10},
+    });
+    auto container = apk::container::convert(builder.bytes, {.install_name = "@rpath/" + name + ".dylib"}).bytes;
+    const std::string_view magic(APK_CONTAINER_MAGIC, sizeof APK_CONTAINER_MAGIC);  // with its zero
+    const auto at = std::string_view(reinterpret_cast<const char *>(container.data()), container.size()).find(magic);
+    CHECK(at != std::string_view::npos);
+    if (at != std::string_view::npos) {
+        apk_container_info info;
+        std::memcpy(&info, container.data() + at, sizeof info);
+        std::memcpy(container.data() + info.image_offset + 0x1a0, &patched, sizeof patched);
+        if (run_patch_offset != 0) {
+            std::memcpy(container.data() + info.runs + run_patch_offset, &run_patch, sizeof run_patch);
+        }
+    }
+    return container;
+}
+
+TEST(relocations_go_only_into_writable_runs) {
+    // A version 3 container's relocations may write only its writable runs, not the code between them, which
+    // writable_start and writable_end span (ADR-0008 amendment, step 3).
+    const auto image = apkrt::loader::load(write_signed("runs", runs_container("runs", 0xc300)));
+    CHECK(image.info->run_count == 4);
+    auto *const word = reinterpret_cast<std::uint64_t *>(image.bias + 0xc300);
+    const auto before = *word;
+    apkrt::loader::relocate(image);
+    CHECK(*word == before + image.bias);
+
+    const auto into_code =
+        apkrt::loader::load(write_signed("runs-into-code", runs_container("runs-into-code", 0x8200)));
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::relocate(into_code),
+                 "relocation at 0x8200 lies outside the writable part [0x4000, 0x8000) [0xc000, 0x10000)");
+
+    // A table of runs that does not cover the image from min_vaddr on, in order and without gaps, is refused: the
+    // second run's end beyond the third's start, the last run's end beyond the image.
+    const auto overlapping = apkrt::loader::load(
+        write_signed("runs-overlapping", runs_container("runs-overlapping", 0xc300, sizeof(apk_run) + 8, 0x9000)));
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::relocate(overlapping), "the runs do not cover the image");
+    const auto beyond = apkrt::loader::load(
+        write_signed("runs-beyond", runs_container("runs-beyond", 0xc300, 3 * sizeof(apk_run) + 8, 0x20000)));
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::relocate(beyond), "the runs do not cover the image");
+}
+
 // ADR-0020 X4: the loader registers the island table of every container it loads, so that a
 // signal handler can tell from a pc whether the thread stopped inside an x18 island, and in which.
 TEST(the_islands_of_a_loaded_container_are_found_by_pc) {

@@ -501,8 +501,7 @@ std::uint64_t resolve(const Object &object, std::uint32_t index, std::span<const
 }
 
 void relocate(const Object &object, std::span<const Object *const> scope) {
-    const auto &info = *object.image.info;
-    const loader::Range writable{info.writable_start, info.writable_end};
+    const auto writable = loader::writable_part(object.image);
     const auto resolver = [&](std::uint32_t index) { return resolve(object, index, scope); };
     // R_AARCH64_IRELATIVE here; the TLS types wait for relocate_tls.
     const auto other = [&](const loader::Rela &entry, std::uint64_t *target) {
@@ -519,14 +518,13 @@ void relocate(const Object &object, std::span<const Object *const> scope) {
 }
 
 void relocate_tls(const Object &object, std::span<const Object *const> scope, const TlsResolvers &resolvers) {
-    const auto &info = *object.image.info;
-    const loader::Range writable{info.writable_start, info.writable_end};
+    const auto writable = loader::writable_part(object.image);
     for (const auto table : {object.dynamic.rela, object.dynamic.plt}) {
         for (const auto &entry : table) {
             const auto type = static_cast<std::uint32_t>(entry.info);
             if (!is_tls_relocation(type)) continue;
             const std::uint64_t size = type == r_aarch64_tlsdesc ? 16 : 8;
-            if (entry.offset < writable.start || entry.offset + size > writable.end) {
+            if (!writable.contains(entry.offset, size)) {
                 throw LoadError(std::format("{}: TLS relocation at {:#x} lies outside the writable part", object.name,
                                             entry.offset));
             }

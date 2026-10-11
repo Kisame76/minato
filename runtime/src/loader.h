@@ -11,6 +11,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace apkrt::loader {
@@ -26,6 +27,18 @@ struct Range {
     std::uint64_t end;
 };
 
+/// Where relocations may write, in ELF addresses: a version 2 container's one writable range, a version 3 one's
+/// writable runs (ADR-0008 amendment), not the code between them.
+struct Writable {
+    std::vector<Range> ranges;
+
+    Writable(Range range) : ranges{range} {}
+    explicit Writable(std::vector<Range> parts) : ranges(std::move(parts)) {}
+
+    /// Whether [address, address + size) lies in one of the ranges.
+    bool contains(std::uint64_t address, std::uint64_t size) const;
+};
+
 /// Elf64_Rela.
 struct Rela {
     std::uint64_t offset;
@@ -35,7 +48,7 @@ struct Rela {
 
 /// Applies a RELR table: every address it lists gets `bias` added. Relocation targets must lie in
 /// `writable`, because the code around them is signed (ADR-0010). Checked before each write.
-void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, Range writable);
+void apply_relr(std::span<const std::uint64_t> table, std::uint64_t bias, const Writable &writable);
 
 /// The host address of the symbol with the given number, for a relocation that names one.
 using SymbolResolver = std::function<std::uint64_t(std::uint32_t symbol)>;
@@ -48,7 +61,7 @@ using OtherRelocation = std::function<bool(const Rela &entry, std::uint64_t *tar
 /// _GLOB_DAT and _JUMP_SLOT (S + A). Without one, a relocation with a symbol throws. So do
 /// R_AARCH64_COPY, which Android's linker refuses as well, and types neither `other` nor this
 /// function handles.
-void apply_rela(std::span<const Rela> table, std::uint64_t bias, Range writable,
+void apply_rela(std::span<const Rela> table, std::uint64_t bias, const Writable &writable,
                 const SymbolResolver &resolve = {}, const OtherRelocation &other = {});
 
 /// What goes onto the start stack.
@@ -76,6 +89,10 @@ struct Image {
     const apk_container_info *info;   // __TEXT,__apk_info
     std::uint64_t bias;               // host address = bias + ELF address
 };
+
+/// Where `image`'s relocations may write: its writable runs, or a version 2 container's writable range. Throws
+/// LoadError when the table of runs does not lie in __TEXT before the image.
+Writable writable_part(const Image &image);
 
 /// dlopen()s the signed container at `path` (never unloaded, ADR-0003), checks its metadata and
 /// points its syscall slot at the syscall entry.
