@@ -266,6 +266,7 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 | `platform/external/libjpeg-turbo` | `1e113e5593fa` | IJG, BSD-3-Clause and zlib (`LICENSE.md`) | JPEG codec |
 | `platform/external/webp` | `c3a8e58734bd` | BSD-3-Clause (`COPYING`), with Google's patent grant (`PATENTS`) | WebP codec (`src`, `sharpyuv`) |
 | `platform/external/wuffs-mirror-release-c` | `479408ccc13b` | Apache-2.0 | GIF decoder |
+| `platform/external/giflib` | `b771f86bcb3d` | MIT (`NOTICE`) | GIF decoding for hwui's Movie (`jni/GIFMovie.cpp`), statically in libhwui: fetched as `giflib` on your go of 2026-10-11 in the Grafik chat, 0.03 MB, digest `4ee3a007…eba9` |
 | `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |

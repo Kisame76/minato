@@ -203,13 +203,14 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.view.translation.ViewTranslationRequest \
   --placeholder android.view.SurfaceControl \
   --placeholder android.graphics.SurfaceTexture \
-  --placeholder android.graphics.Movie \
   --placeholder android.view.WindowId \
   --placeholder android.window.InputTransferToken \
   --placeholder android.window.TrustedPresentationThresholds \
   --placeholder android.os.SharedMemory \
   --placeholder android.os.MemoryFile \
   --placeholder android.view.displayhash.DisplayHashResultCallback \
+  --class android.hardware.camera2.CameraManager \
+  --placeholder android.hardware.camera2.params.StreamConfigurationMap \
   --class android.view.contentcapture.ContentCaptureSession \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \

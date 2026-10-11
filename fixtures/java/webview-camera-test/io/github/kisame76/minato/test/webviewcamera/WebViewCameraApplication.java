@@ -1,16 +1,23 @@
 package io.github.kisame76.minato.test.webviewcamera;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Movie;
+import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
 import android.graphics.Rect;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.OvalShape;
 import android.graphics.drawable.shapes.RectShape;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.params.MeteringRectangle;
@@ -22,6 +29,7 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.print.PrintJob;
+import android.print.pdf.PrintedPdfDocument;
 import android.net.Uri;
 import android.util.Log;
 import android.webkit.ClientCertRequest;
@@ -54,6 +62,8 @@ import android.webkit.WebViewRenderProcess;
 import android.webkit.WebViewRenderProcessClient;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringBufferInputStream;
 import java.lang.reflect.Modifier;
@@ -68,7 +78,8 @@ import java.util.concurrent.Callable;
  * WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'
  * enums, the WebView class, the rest of android.webkit's public types (category 1 of the gap sort), and the camera
  * count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area; then camera2's and android.print's plain types and
- * ShapeDrawable (category 1, package 2).
+ * ShapeDrawable (category 1, package 2); then camera2's CameraManager, Movie with a GIF of two frames, PdfDocument and
+ * PrintedPdfDocument (category 2).
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
  * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
@@ -90,6 +101,9 @@ public class WebViewCameraApplication extends Application {
         camera2();
         print();
         shapes();
+        cameraManager();
+        movie();
+        pdf();
         provider();
         Log.i(TAG, "done");
     }
@@ -324,6 +338,132 @@ public class WebViewCameraApplication extends Application {
                     + shape.getAlpha() + ", center " + Integer.toHexString(bitmap.getPixel(4, 4)) + ", corner "
                     + Integer.toHexString(bitmap.getPixel(0, 0)));
         }
+    }
+
+    /** camera2's manager on a device without cameras (gap sort, category 2). */
+    private void cameraManager() {
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        Log.i(TAG, "CameraManager: " + (manager == null ? "null" : manager.getClass().getName())
+                + ", by class the same " + (manager == getSystemService(CameraManager.class)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(TAG, "CameraManager.getCameraIdList: " + outcome(() -> manager.getCameraIdList().length));
+        Log.i(TAG, "CameraManager.getCameraCharacteristics(0): "
+                + outcome(() -> manager.getCameraCharacteristics("0")));
+        Log.i(TAG, "CameraManager.openCamera(0): " + outcome(() -> {
+            manager.openCamera("0", new CameraDevice.StateCallback() {
+                @Override
+                public void onOpened(CameraDevice camera) {
+                    Log.i(TAG, "CameraManager: opened");
+                }
+
+                @Override
+                public void onDisconnected(CameraDevice camera) {
+                    Log.i(TAG, "CameraManager: disconnected");
+                }
+
+                @Override
+                public void onError(CameraDevice camera, int error) {
+                    Log.i(TAG, "CameraManager: error " + error);
+                }
+            }, null);
+            return "asked";
+        }));
+        Log.i(TAG, "CameraManager.setTorchMode(0): " + outcome(() -> {
+            manager.setTorchMode("0", true);
+            return "set";
+        }));
+        Log.i(TAG, "CameraManager.getConcurrentCameraIds: " + outcome(() -> manager.getConcurrentCameraIds().size()));
+        CameraManager.AvailabilityCallback availability = new CameraManager.AvailabilityCallback() {
+            @Override
+            public void onCameraAvailable(String cameraId) {
+                Log.i(TAG, "CameraManager: available " + cameraId);
+            }
+        };
+        manager.registerAvailabilityCallback(availability, null);
+        manager.unregisterAvailabilityCallback(availability);
+        Log.i(TAG, describe(StreamConfigurationMap.class));
+    }
+
+    /** A GIF of two frames, 2 x 2, red then blue, 100 ms each, looping. */
+    private static final byte[] GIF = {
+            71, 73, 70, 56, 57, 97, 2, 0, 2, 0, -127, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, -1, -1, -1, 33, -1, 11, 78, 69,
+            84, 83, 67, 65, 80, 69, 50, 46, 48, 3, 1, 0, 0, 0, 33, -7, 4, 4, 10, 0, 0, 0, 44, 0, 0, 0, 0, 2, 0, 2, 0, 0,
+            2, 3, 4, 8, 20, 0, 33, -7, 4, 4, 10, 0, 0, 0, 44, 0, 0, 0, 0, 2, 0, 2, 0, 0, 2, 3, 76, -104, 20, 0, 59
+    };
+
+    private static String pixel(Movie movie, int time) {
+        Bitmap bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888);
+        movie.setTime(time);
+        movie.draw(new Canvas(bitmap), 0, 0);
+        return Integer.toHexString(bitmap.getPixel(1, 1));
+    }
+
+    /** android.graphics.Movie, which decodes GIFs (gap sort, category 2). */
+    private static void movie() {
+        Log.i(TAG, "Movie: " + outcome(() -> {
+            Movie movie = Movie.decodeByteArray(GIF, 0, GIF.length);
+            return movie == null ? "null" : movie.width() + " x " + movie.height() + ", " + movie.duration()
+                    + " ms, opaque " + movie.isOpaque() + ", at 0 ms " + pixel(movie, 0) + ", at 150 ms "
+                    + pixel(movie, 150);
+        }));
+        Log.i(TAG, "Movie of a stream: " + outcome(() -> {
+            Movie movie = Movie.decodeStream(new ByteArrayInputStream(GIF));
+            return movie == null ? "null" : movie.width() + " x " + movie.height() + ", " + movie.duration() + " ms";
+        }));
+        Log.i(TAG, "Movie of no GIF: " + outcome(() -> Movie.decodeByteArray(new byte[] {1, 2, 3}, 0, 3)));
+    }
+
+    private static String document(PdfDocument document) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        document.writeTo(out);
+        String text = new String(out.toByteArray(), java.nio.charset.StandardCharsets.ISO_8859_1);
+        int pages = 0;
+        for (int at = text.indexOf("/Type /Page"); at >= 0; at = text.indexOf("/Type /Page", at + 1)) {
+            pages += text.startsWith("/Type /Pages", at) ? 0 : 1;
+        }
+        return "header " + text.substring(0, 8) + ", pages " + pages + ", ends with %%EOF "
+                + text.trim().endsWith("%%EOF");
+    }
+
+    /** android.graphics.pdf.PdfDocument and android.print.pdf.PrintedPdfDocument (gap sort, category 2). */
+    private void pdf() {
+        Log.i(TAG, "PdfDocument: " + outcome(() -> {
+            PdfDocument document = new PdfDocument();
+            PdfDocument.PageInfo info = new PdfDocument.PageInfo.Builder(100, 200, 1)
+                    .setContentRect(new Rect(10, 10, 90, 190)).create();
+            PdfDocument.Page page = document.startPage(info);
+            Paint paint = new Paint();
+            paint.setColor(0xff0000ff);
+            page.getCanvas().drawRect(0, 0, 50, 50, paint);
+            String canvas = page.getCanvas().getWidth() + " x " + page.getCanvas().getHeight();
+            document.finishPage(page);
+            document.finishPage(document.startPage(new PdfDocument.PageInfo.Builder(300, 300, 2).create()));
+            String pages = document.getPages().size() + " pages, the first " + document.getPages().get(0)
+                    .getPageWidth() + " x " + document.getPages().get(0).getPageHeight() + " content "
+                    + document.getPages().get(0).getContentRect().toShortString();
+            String written = document(document);
+            document.close();
+            String closed = outcome(() -> document.startPage(info));
+            return "canvas " + canvas + ", " + pages + ", " + written + ", after close: " + closed;
+        }));
+        Log.i(TAG, "PdfDocument refusals: " + outcome(() -> new PdfDocument.PageInfo.Builder(0, 1, 1)) + "; "
+                + outcome(() -> new PdfDocument.PageInfo.Builder(1, 1, -1)));
+        Log.i(TAG, "PrintedPdfDocument: " + outcome(() -> {
+            PrintAttributes attributes = new PrintAttributes.Builder()
+                    .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                    .setResolution(new PrintAttributes.Resolution("r", "300 dpi", 300, 300))
+                    .setMinMargins(PrintAttributes.Margins.NO_MARGINS).build();
+            PrintedPdfDocument document = new PrintedPdfDocument(this, attributes);
+            PdfDocument.Page page = document.startPage(0);
+            String info = document.getPageWidth() + " x " + document.getPageHeight() + ", content "
+                    + document.getPageContentRect().toShortString() + ", page " + page.getInfo().getPageNumber();
+            document.finishPage(page);
+            String written = document(document);
+            document.close();
+            return info + ", " + written;
+        }));
     }
 
     private void provider() {

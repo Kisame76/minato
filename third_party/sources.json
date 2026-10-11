@@ -864,6 +864,13 @@
   },
   "graphics": [
     {
+      "name": "giflib",
+      "project": "platform/external/giflib",
+      "commit": "b771f86bcb3d0086ee5eda84da70634e7ab746dd",
+      "license": "MIT",
+      "digest": "4ee3a0070d3b2714eb4e09a4e6e18c04bfd018679d79540e462d500d5fb0eba9"
+    },
+    {
       "name": "frameworks_base_hwui",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

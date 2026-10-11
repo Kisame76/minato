@@ -1263,6 +1263,20 @@
       ]
     },
     {
+      "name": "giflib",
+      "section": "Graphics sources",
+      "license": "MIT",
+      "rows": [
+        "platform/external/giflib"
+      ],
+      "texts": [
+        {
+          "from": "sources:giflib/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
       "name": "libultrahdr",
       "section": "Graphics sources",
       "license": "Apache-2.0",

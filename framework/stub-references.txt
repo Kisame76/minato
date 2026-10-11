@@ -216,7 +216,6 @@ android.app.RemoteAction <- android.widget.Editor, android.widget.SelectionActio
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.os.CancellationSignalBeamer$Sender <- android.view.inputmethod.InsertModeGesture  # stays: an input method's side of a handwriting gesture, and Minato has no input method until the keyboard step
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
-android.util.Range <- android.widget.SpellChecker  # stays: a spell checker session's suggestions, and text services are absent (ADR-0043 step d), decision 3)
 android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textclassifier.SelectionEvent <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textclassifier.TextClassifierEvent$LanguageDetectionEvent$Builder <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for

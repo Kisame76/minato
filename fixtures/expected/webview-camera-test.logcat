@@ -57,4 +57,17 @@ I/webview-camera-test: type android.print.PrintDocumentAdapter$WriteResultCallba
 I/webview-camera-test: type android.print.PrintJob: abstract false, extends java.lang.Object
 I/webview-camera-test: ShapeDrawable OvalShape: 8 x 8, opacity -3, alpha 255, center ff00ff00, corner 0
 I/webview-camera-test: ShapeDrawable RectShape: 8 x 8, opacity -3, alpha 255, center ff00ff00, corner ff00ff00
+I/webview-camera-test: CameraManager: android.hardware.camera2.CameraManager, by class the same true
+I/webview-camera-test: CameraManager.getCameraIdList: 0
+I/webview-camera-test: CameraManager.getCameraCharacteristics(0): java.lang.IllegalArgumentException: getCameraCharacteristics:1329: Unable to retrieve camera characteristics for unknown device 0: No such file or directory (-2)
+I/webview-camera-test: CameraManager.openCamera(0): java.lang.IllegalArgumentException: getCameraCharacteristics:1329: Unable to retrieve camera characteristics for unknown device 0: No such file or directory (-2)
+I/webview-camera-test: CameraManager.setTorchMode(0): java.lang.IllegalArgumentException: setTorchMode:2996: Camera ID "0" is a not valid camera ID
+I/webview-camera-test: CameraManager.getConcurrentCameraIds: 0
+I/webview-camera-test: type android.hardware.camera2.params.StreamConfigurationMap: abstract false, extends java.lang.Object
+I/webview-camera-test: Movie: 2 x 2, 200 ms, opaque false, at 0 ms ffff0000, at 150 ms ff0000ff
+I/webview-camera-test: Movie of a stream: 2 x 2, 200 ms
+I/webview-camera-test: Movie of no GIF: null
+I/webview-camera-test: PdfDocument: canvas 80 x 180, 2 pages, the first 100 x 200 content [10,10][90,190], header %PDF-1.4, pages 2, ends with %%EOF true, after close: java.lang.IllegalStateException: document is closed!
+I/webview-camera-test: PdfDocument refusals: java.lang.IllegalArgumentException: page width must be positive; java.lang.IllegalArgumentException: pageNumber must be non negative
+I/webview-camera-test: PrintedPdfDocument: 595 x 841, content [0,0][595,841], page 0, header %PDF-1.4, pages 1, ends with %%EOF true
 I/webview-camera-test: done

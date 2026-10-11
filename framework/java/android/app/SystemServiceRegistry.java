@@ -19,6 +19,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Resources;
 import android.hardware.SystemSensorManager;
+import android.hardware.camera2.CameraManager;
 import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
@@ -105,6 +106,8 @@ final class SystemServiceRegistry {
                 ctx.mMainThread.getHandler()));
         // Gap 1: a phone without a SIM (ADR-0045 decision 4), as the tag's constructor takes the outer context.
         cached(Context.TELEPHONY_SERVICE, TelephonyManager.class, ctx -> new TelephonyManager(ctx.getOuterContext()));
+        // The gap sort's category 2 (Grafik): as the tag's, on a device without cameras.
+        cached(Context.CAMERA_SERVICE, CameraManager.class, ctx -> new CameraManager(ctx.getOuterContext()));
         // Gap 1: as the tag's, over the local clipboard.
         cached(Context.CLIPBOARD_SERVICE, ClipboardManager.class,
                 ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));

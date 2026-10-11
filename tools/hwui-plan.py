@@ -43,6 +43,7 @@ TREE = {
     "external/image_io": "image_io",
     "external/modp_b64": "modp_b64",
     "external/libpng": "libpng",
+    "external/giflib": "giflib",
     "external/zlib": "zlib",
     "external/expat": "expat",
     "external/fmtlib": "fmtlib",

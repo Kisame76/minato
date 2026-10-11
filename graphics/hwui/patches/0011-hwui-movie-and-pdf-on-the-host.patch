@@ -1,0 +1,75 @@
+hwui's Movie and PdfDocument on the host flavor, as Android registers them (the Unity test APK probe's gap sort, category 2).
+
+The host flavor leaves jni/Movie.cpp with GIFMovie and MovieImpl, and jni/pdf/PdfDocument.cpp, to the device's
+sources, as layoutlib does without giflib and with its own PDF path. Android's libhwui builds them and registers
+android.graphics.Movie (GIFs over external/giflib's libgif) and android.graphics.pdf.PdfDocument (over Skia's PDF
+backend, which the host flavor builds already). So the host target takes the four sources and libgif, and
+LayoutlibLoader's map and its list of patch 0006 gain both classes, in the device's gRegJNI order. PdfEditor stays
+out: it needs libpdfium, and no taken class names it.
+
+--- a/frameworks/base/libs/hwui/Android.bp
++++ b/frameworks/base/libs/hwui/Android.bp
+@@ -458,12 +458,20 @@
+             srcs: ["platform/darwin/utils/SharedLib.cpp"],
+         },
+         host: {
++            // Minato: Movie over giflib and PdfDocument over Skia's PDF backend, as on the device.
++            srcs: [
++                "jni/GIFMovie.cpp",
++                "jni/Movie.cpp",
++                "jni/MovieImpl.cpp",
++                "jni/pdf/PdfDocument.cpp",
++            ],
+             cflags: [
+                 "-Wno-unused-const-variable",
+                 "-Wno-unused-function",
+             ],
+             static_libs: [
+                 "libandroidfw",
++                "libgif",
+             ],
+         },
+     },
+--- a/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
++++ b/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
+@@ -41,6 +41,7 @@
+ extern int register_android_graphics_RenderEffect(JNIEnv* env);
+ extern int register_android_graphics_Typeface(JNIEnv* env);
+ extern int register_android_graphics_YuvImage(JNIEnv* env);
++extern int register_android_graphics_Movie(JNIEnv* env);
+ 
+ namespace android {
+ 
+@@ -64,6 +65,7 @@
+ extern int register_android_graphics_drawable_VectorDrawable(JNIEnv* env);
+ extern int register_android_graphics_fonts_Font(JNIEnv* env);
+ extern int register_android_graphics_fonts_FontFamily(JNIEnv* env);
++extern int register_android_graphics_pdf_PdfDocument(JNIEnv* env);
+ extern int register_android_graphics_text_LineBreaker(JNIEnv* env);
+ extern int register_android_graphics_text_MeasuredText(JNIEnv* env);
+ extern int register_android_graphics_text_TextShaper(JNIEnv* env);
+@@ -114,6 +116,8 @@
+         {"android.graphics.RenderEffect", REG_JNI(register_android_graphics_RenderEffect)},
+         {"android.graphics.Typeface", REG_JNI(register_android_graphics_Typeface)},
+         {"android.graphics.YuvImage", REG_JNI(register_android_graphics_YuvImage)},
++        {"android.graphics.Movie", REG_JNI(register_android_graphics_Movie)},
++        {"android.graphics.pdf.PdfDocument", REG_JNI(register_android_graphics_pdf_PdfDocument)},
+         {"android.graphics.animation.NativeInterpolatorFactory",
+          REG_JNI(register_android_graphics_animation_NativeInterpolatorFactory)},
+         {"android.graphics.animation.RenderNodeAnimator",
+@@ -180,6 +184,7 @@
+             "android.graphics.Interpolator",
+             "android.graphics.MaskFilter",
+             "android.graphics.Matrix",
++            "android.graphics.Movie",
+             "android.graphics.NinePatch",
+             "android.graphics.Paint",
+             "android.graphics.Path",
+@@ -198,6 +203,7 @@
+             "android.graphics.drawable.VectorDrawable",
+             "android.graphics.fonts.Font",
+             "android.graphics.fonts.FontFamily",
++            "android.graphics.pdf.PdfDocument",
+             "android.graphics.text.MeasuredText",
+             "android.graphics.text.LineBreaker",
+             "android.graphics.text.TextRunShaper",
