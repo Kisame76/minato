@@ -16,7 +16,8 @@ import java.lang.reflect.Field;
  * of the classes in the chain of an Activity subclass and of Fragment, with a method found through getMethods; and
  * (retest 11: the game's device id walks the content resolver's class) the same for the classes behind a context's
  * own objects and about 60 classes engines and SDKs call; and (retest 12) the storage manager, WebView and the locale
- * manager, whose answers Helpshift reads.
+ * manager, whose answers Helpshift reads; and the classes SDKs extend or call for the network, the phone, notifications
+ * and vibration.
  */
 public class ViewFieldsApplication extends Application {
     static final String TAG = "view-fields-test";
@@ -202,6 +203,27 @@ public class ViewFieldsApplication extends Application {
                 log(name + " " + verdict(Class.forName(name)));
             } catch (Throwable t) {
                 log(name + ": " + t.getClass().getName());
+            }
+        }
+        // The classes SDKs extend or call for the network, the phone, notifications and the input devices' vibrators
+        // (the gap list of 2026-10-11). Only shown: InputDevice, which waits for batch B3b-2's BatteryState too, and the
+        // classes this step makes loadable whose own members still name missing types.
+        for (String name : new String[] {"android.net.NetworkCapabilities", "android.webkit.WebViewClient",
+                "android.net.wifi.WifiManager", "android.net.LinkProperties",
+                "android.telephony.PhoneStateListener", "android.telephony.TelephonyCallback",
+                "android.app.Notification", "android.os.VibrationEffect"}) {
+            try {
+                log(name + " " + verdict(Class.forName(name)));
+            } catch (Throwable t) {
+                log(name + ": " + t.getClass().getName());
+            }
+        }
+        for (String name : new String[] {"android.view.InputDevice", "android.os.VibratorManager",
+                "android.hardware.lights.LightsManager", "android.media.session.MediaSession"}) {
+            try {
+                logDevice(name + " " + verdict(Class.forName(name)));
+            } catch (Throwable t) {
+                logDevice(name + ": " + t.getClass().getName());
             }
         }
         try {

@@ -106,6 +106,14 @@ I/view-fields-test: android.graphics.Canvas fields readable, declared methods re
 I/view-fields-test: android.os.storage.StorageManager fields readable, declared methods readable, public methods readable
 I/view-fields-test: android.webkit.WebView fields readable, declared methods readable, public methods readable
 I/view-fields-test: android.app.LocaleManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.NetworkCapabilities fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.webkit.WebViewClient fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.wifi.WifiManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.net.LinkProperties fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.telephony.PhoneStateListener fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.telephony.TelephonyCallback fields readable, no declared methods, public methods readable
+I/view-fields-test: android.app.Notification fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.VibrationEffect fields readable, declared methods readable, public methods readable
 I/view-fields-test: locale manager true
 I/view-fields-test: application locales ""
 I/view-fields-test: system locales same as the configuration's true

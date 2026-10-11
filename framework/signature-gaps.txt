@@ -45,34 +45,24 @@ android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManag
 android.hardware.display.VirtualDisplay$Callback <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal, android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.hardware.input.InputDeviceSensorManager <- android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.lights.LightState <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.lights.LightsManager <- android.hardware.input.InputManagerGlobal, android.view.InputDevice  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.hardware.lights.LightState <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal, android.hardware.lights.LightsManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal, android.hardware.lights.LightsManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.location.ILocationManager <- android.os.SystemClock  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.session.MediaSession <- android.media.RemoteControlClient  # gap: (App) media sessions not taken yet
-android.media.session.MediaSession$Token <- android.app.Notification  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.session.MediaSession$Token <- android.media.session.MediaController  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
-android.media.session.PlaybackState <- android.media.session.MediaController  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
+android.media.session.MediaSessionManager$RemoteUserInfo <- android.media.session.MediaSession  # gap: (App) media sessions' types, not taken yet (Formate's category 3m)
+android.media.session.PlaybackState <- android.media.session.MediaController, android.media.session.MediaSession  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
 android.media.session.PlaybackState$CustomAction <- android.media.session.MediaController  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
+android.net.IpConfiguration <- android.net.wifi.WifiConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # gap: (Planung) not taken: its field constants come from MetricsProto, a generated proto class
-android.net.DhcpInfo <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.IpPrefix <- android.net.LinkProperties  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.net.IpSecTransform <- android.net.IpSecManager  # gap: (App) IPsec transforms not taken yet; Minato has no IPsec service
-android.net.RouteInfo <- android.net.LinkProperties  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.TransportInfo <- android.net.NetworkCapabilities  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.http.SslError <- android.webkit.WebViewClient  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.net.wifi.SoftApConfiguration <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WifiConfiguration <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WifiInfo <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WifiNetworkSpecifier <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WifiNetworkSuggestion <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WifiSsid <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.WpsInfo <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.net.wifi.hotspot2.PasspointConfiguration <- android.net.wifi.WifiManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.net.MacAddress <- android.net.wifi.SoftApConfiguration, android.net.wifi.WifiConfiguration, android.net.wifi.WifiInfo, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
+android.net.wifi.SupplicantState <- android.net.wifi.WifiInfo  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
+android.net.wifi.WifiEnterpriseConfig <- android.net.wifi.WifiConfiguration, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
+android.net.wifi.hotspot2.pps.Credential <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
+android.net.wifi.hotspot2.pps.HomeSp <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.os.CancellationSignalBeamer$Receiver <- android.view.inputmethod.CancellableHandwritingGesture  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.CombinedVibration <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.os.CombinedVibration <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal, android.os.VibratorManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.CoolingDevice <- android.os.IThermalService  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.NewUserRequest <- android.os.UserManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.NewUserResponse <- android.os.UserManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
@@ -80,8 +70,6 @@ android.os.ParcelDuration <- android.os.IPowerManager  # gap: not taken yet (bat
 android.os.PerformanceCollector <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android.app.INotificationManager, android.app.job.IJobScheduler, android.content.IClipboard, android.content.IContentService, android.hardware.display.IDisplayManager, android.hardware.input.IInputManager, com.android.internal.compat.IPlatformCompat  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.VibratorInfo <- android.os.VibrationEffect, android.os.vibrator.PrebakedSegment, android.os.vibrator.PrimitiveSegment, android.os.vibrator.RampSegment, android.os.vibrator.StepSegment, android.os.vibrator.VibrationEffectSegment  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.os.VibratorManager <- android.hardware.input.InputManagerGlobal, android.view.InputDevice  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.print.PrintJobId <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
@@ -91,13 +79,9 @@ android.service.autofill.UserData <- android.view.autofill.AutofillManager  # ga
 android.service.notification.Adjustment <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.service.notification.NotificationListenerFilter <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.telephony.BarringInfo <- android.telephony.PhoneStateListener, android.telephony.TelephonyCallback  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.telephony.CellIdentity <- android.telephony.PhoneStateListener, android.telephony.TelephonyCallback  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.telephony.PreciseDataConnectionState <- android.telephony.PhoneStateListener, android.telephony.TelephonyCallback  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.telephony.RadioAccessSpecifier <- android.telephony.NetworkScanRequest  # gap: (App) network scans' radio specifiers not taken yet; Minato has no radio
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.telephony.TelephonyDisplayInfo <- android.telephony.PhoneStateListener, android.telephony.TelephonyCallback  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.telephony.ims.ImsReasonInfo <- android.telephony.PhoneStateListener, android.telephony.TelephonyCallback  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.telephony.data.ApnSetting <- android.telephony.PreciseDataConnectionState  # gap: (App) a data connection's APN, not taken yet; Minato's phone has no SIM
 android.util.IndentingPrintWriter <- com.android.internal.util.dump.DumpableContainerImpl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.util.MergedConfiguration <- android.content.res.CompatibilityInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)

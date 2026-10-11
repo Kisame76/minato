@@ -267,13 +267,11 @@ android.service.notification.NotificationListenerFilter <- android.app.INotifica
 android.app.admin.DevicePolicyManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.media.PlayerBase <- android.app.Notification  # gap: Notification.Builder.setSound(Uri, int), deprecated since API 26, whose stream type check is PlayerBase's
-android.media.session.MediaSession$Token <- android.app.Notification  # gap: a media notification's session (MediaStyle, isMediaNotification), as MediaSession is compile-only
 android.media.RingtoneManager <- android.app.NotificationChannel  # stays: a channel's sound restored from the system's backup (getUncanonicalizedSoundUri)
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
 android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
-android.os.VibratorInfo <- android.os.vibrator.PrebakedSegment, android.os.vibrator.PrimitiveSegment, android.os.vibrator.RampSegment, android.os.vibrator.StepSegment  # gap: Vibrator.areVibrationFeaturesSupported, which comes with the vibrator
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
 android.appwidget.AppWidgetHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
 android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
