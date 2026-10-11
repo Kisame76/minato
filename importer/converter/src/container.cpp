@@ -281,59 +281,125 @@ PageLayout page_layout(const elf::File &file) {
     if (loads.empty()) throw Incompatible("the file has no LOAD segments");
     std::ranges::sort(loads, {}, &elf::Segment::address);
 
-    // On pages of `granule`: the first writable page (the end without a writable segment), unless a
-    // non-writable segment reaches into it. One shift can put only one such boundary on a 16 KiB page.
-    struct Boundary {
-        std::uint64_t start = 0;
+    // Every end, rounded up to a 16 KiB page, stays in the address space, and the image within 4 GiB, so that no sum
+    // below wraps and no container takes more than that (a hostile file's sizes).
+    constexpr auto highest = ~std::uint64_t{0} - page_size;
+    std::uint64_t image_end = 0;
+    for (const auto &segment : file.segments) {
+        if (segment.type != elf::SegmentType::load && segment.type != elf::SegmentType::gnu_relro) continue;
+        if (segment.address > highest || segment.memory_size > highest - segment.address) {
+            throw Incompatible(std::format("the segment at {:#x} size {:#x} ends beyond the address space {}",
+                                           segment.address, segment.memory_size, segments_text(file)));
+        }
+        if (segment.type == elf::SegmentType::load) {
+            image_end = std::max(image_end, segment.address + segment.memory_size);
+        }
+    }
+    constexpr std::uint64_t largest_image = std::uint64_t{4} << 30;
+    if (image_end - page_down(loads.front()->address) > largest_image) {
+        throw Incompatible(std::format("the image spans more than 4 GiB, from {:#x} to {:#x} {}",
+                                       loads.front()->address, image_end, segments_text(file)));
+    }
+
+    // The runs on pages of `granule`: each LOAD segment's pages join the run before when they have its protection;
+    // a gap between segments goes to the run before, up to the page of the segment after it. `crossing` is the first
+    // segment whose pages reach into the run before of the other protection.
+    struct Attempt {
+        std::vector<Run> runs;
         const elf::Segment *crossing = nullptr;
     };
-    const auto boundary = [&](std::uint64_t granule) {
-        Boundary result;
-        std::optional<std::uint64_t> first_writable;
+    const auto runs_on = [&](std::uint64_t granule) {
+        Attempt attempt;
         for (const auto *segment : loads) {
-            result.start = std::max(result.start, align_up(segment->address + segment->memory_size, granule));
-            if ((segment->flags & elf::segment_writable) && !first_writable) {
-                first_writable = segment->address & ~(granule - 1);
+            const bool writable = (segment->flags & elf::segment_writable) != 0;
+            const auto start = segment->address & ~(granule - 1);
+            const auto end = align_up(segment->address + segment->memory_size, granule);
+            if (attempt.runs.empty()) {
+                attempt.runs.push_back({.start = start, .end = end, .writable = writable});
+                continue;
             }
-        }
-        if (first_writable) result.start = *first_writable;
-        for (const auto *segment : loads) {
-            if ((segment->flags & elf::segment_writable) == 0 &&
-                align_up(segment->address + segment->memory_size, granule) > result.start) {
-                result.crossing = segment;
+            auto &before = attempt.runs.back();
+            if (before.writable == writable) {
+                before.end = std::max(before.end, end);
+                continue;
+            }
+            if (start < before.end) {
+                attempt.crossing = segment;
                 break;
             }
+            before.end = start;
+            attempt.runs.push_back({.start = start, .end = end, .writable = writable});
         }
-        return result;
+        return attempt;
     };
 
     PageLayout layout;
     layout.min_vaddr = page_down(loads.front()->address);
-    std::uint64_t last = 0;
     std::uint64_t alignment = small_page;
-    for (const auto *segment : loads) {
-        last = std::max(last, align_up(segment->address + segment->memory_size, small_page));
-        alignment = std::max(alignment, segment->alignment);
-    }
-    if (const auto pages = boundary(page_size); pages.crossing == nullptr) {
+    for (const auto *segment : loads) alignment = std::max(alignment, segment->alignment);
+    if (auto pages = runs_on(page_size); pages.crossing == nullptr) {
         // As it is: built for 16 KiB pages, or for 4 KiB pages with code and data apart.
-        layout.writable_start = pages.start;
-    } else if (const auto small_pages = boundary(small_page); small_pages.crossing == nullptr) {
-        layout.writable_start = small_pages.start;
-        layout.shift = (page_size - (layout.writable_start - layout.min_vaddr) % page_size) % page_size;
+        layout.runs = std::move(pages.runs);
+    } else {
+        auto small_pages = runs_on(small_page);
+        if (small_pages.crossing != nullptr) {
+            throw Incompatible(std::format(
+                "the segment at {:#x} and the one before it share a 4 KiB page, one writable and one not "
+                "(ADR-0007) {}",
+                small_pages.crossing->address, segments_text(file)));
+        }
+        layout.runs = std::move(small_pages.runs);
+        if (layout.runs.front().start != layout.min_vaddr) {
+            // Below a first writable run: the 16 KiB page's rest goes to the code before it, with the header.
+            if (layout.runs.front().writable) {
+                layout.runs.insert(layout.runs.begin(),
+                                   Run{.start = layout.min_vaddr, .end = layout.runs.front().start, .writable = false});
+            } else {
+                layout.runs.front().start = layout.min_vaddr;
+            }
+        }
+        // One shift for the whole image must put every boundary between runs on a 16 KiB page, and the start of a
+        // first run that is writable, which ends the header's __TEXT.
+        std::optional<std::uint64_t> offset;
+        std::uint64_t first_boundary = 0;
+        for (std::size_t index = layout.runs.front().writable ? 0 : 1; index < layout.runs.size(); ++index) {
+            const auto into_page = (layout.runs[index].start - layout.min_vaddr) % page_size;
+            if (offset && *offset != into_page) {
+                throw Incompatible(std::format(
+                    "no shift puts every boundary between code and data on a 16 KiB page: {:#x} and {:#x} lie "
+                    "{:#x} and {:#x} into theirs (ADR-0007, ADR-0008) {}",
+                    first_boundary, layout.runs[index].start, *offset, into_page, segments_text(file)));
+            }
+            if (!offset) first_boundary = layout.runs[index].start;
+            offset = into_page;
+        }
+        layout.shift = offset ? (page_size - *offset) % page_size : 0;
         if (layout.shift % alignment != 0) {
             throw Incompatible(std::format(
                 "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs (ADR-0007) {}",
                 alignment, layout.shift, segments_text(file)));
         }
-    } else {
-        throw Incompatible(std::format(
-            "the non-writable segment at {:#x} comes after or shares a 4 KiB page with a writable one (ADR-0007) {}",
-            small_pages.crossing->address, segments_text(file)));
     }
-    layout.end = last > layout.writable_start
-                     ? layout.writable_start + align_up(last - layout.writable_start, page_size)
-                     : layout.writable_start;  // no writable segment: the code's end, on a 16 KiB page
+    layout.runs.front().start = layout.min_vaddr;
+    // The image ends on a 16 KiB page of the container.
+    auto &last = layout.runs.back();
+    last.end += (page_size - (layout.shift + last.end - layout.min_vaddr) % page_size) % page_size;
+    layout.end = last.end;
+    const auto first_writable = std::ranges::find(layout.runs, true, &Run::writable);
+    layout.writable_start = first_writable == layout.runs.end() ? layout.end : first_writable->start;
+
+    // GNU_RELRO, which the guest may make read-only after its relocations, lies in one run of writable pages.
+    for (const auto &segment : file.segments) {
+        if (segment.type != elf::SegmentType::gnu_relro || segment.memory_size == 0) continue;
+        const bool inside = std::ranges::any_of(layout.runs, [&](const Run &run) {
+            return run.writable && segment.address >= run.start && segment.address + segment.memory_size <= run.end;
+        });
+        if (!inside) {
+            throw Incompatible(std::format(
+                "GNU_RELRO at {:#x} size {:#x} is not inside one run of writable pages (ADR-0008) {}",
+                segment.address, segment.memory_size, segments_text(file)));
+        }
+    }
     return layout;
 }
 
@@ -361,17 +427,21 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     report.is_static = file.interpreter.empty() && !dynamic_value(dynamic, dt_needed);
     report.relocations = check_relocations(file, elf_bytes, dynamic);
 
-    // Layout of the ELF image (page_layout): the non-writable segments first, the writable ones from a
-    // 16 KiB page of the container on, their file bytes and the whole data in 16 KiB pages.
+    // Layout of the ELF image (page_layout): its runs of pages with one protection, each from a 16 KiB page of the
+    // container on, in the file in whole pages; only a last run that is writable keeps no more than its file bytes.
     const std::uint64_t min_vaddr = layout.min_vaddr;
-    const std::uint64_t writable_start = layout.writable_start;
     const std::uint64_t end = layout.end;
-    std::uint64_t writable_file_end = writable_start;
-    for (const auto *segment : loads) {
-        if ((segment->flags & elf::segment_writable) && segment->file_size > 0) {
-            writable_file_end = std::max(
-                writable_file_end,
-                writable_start + align_up(segment->address + segment->file_size - writable_start, page_size));
+    const auto &runs = layout.runs;
+    std::uint64_t last_file_end = runs.back().end;
+    if (runs.back().writable) {
+        last_file_end = runs.back().start;
+        for (const auto *segment : loads) {
+            if (segment->address >= runs.back().start && segment->file_size > 0) {
+                last_file_end = std::max(last_file_end, runs.back().start + align_up(segment->address +
+                                                                                         segment->file_size -
+                                                                                         runs.back().start,
+                                                                                     page_size));
+            }
         }
     }
 
@@ -399,26 +469,44 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 
-    // Layout of the container (APKRuntime/container_format.h).
+    // Layout of the container (APKRuntime/container_format.h): __TEXT with the header and the first run when it is
+    // code, a segment for every other run, the runtime slots' page after the image (in the last run when that is
+    // writable), then __LINKEDIT.
+    constexpr auto code_protection = macho::protection_read | macho::protection_execute;
+    constexpr auto data_protection = macho::protection_read | macho::protection_write;
     macho::Dylib dylib{
         .install_name = options.install_name,
         .platform = options.platform,
         .version = options.platform_version,
         .uuid = {},
         .segments = {macho::Segment{.name = "__TEXT",
-                                    .protection = macho::protection_read | macho::protection_execute,
+                                    .protection = code_protection,
                                     .sections = {macho::Section{.name = APK_CONTAINER_SECTION,
-                                                                .size = sizeof(apk_container_info)}}},
-                     macho::Segment{.name = "__DATA", .protection = macho::protection_read | macho::protection_write},
-                     macho::Segment{.name = "__LINKEDIT", .protection = macho::protection_read}},
+                                                                .size = sizeof(apk_container_info)}}}},
     };
+    unsigned code_segments = 0, data_segments = 0;
+    const auto data_name = [&] {
+        return data_segments++ == 0 ? std::string("__DATA") : std::format("__DATA_{}", data_segments - 1);
+    };
+    for (std::size_t index = runs.front().writable ? 0 : 1; index < runs.size(); ++index) {
+        dylib.segments.push_back(runs[index].writable
+                                     ? macho::Segment{.name = data_name(), .protection = data_protection}
+                                     : macho::Segment{.name = std::format("__TEXT_{}", ++code_segments),
+                                                      .protection = code_protection});
+    }
+    if (!runs.back().writable) {
+        dylib.segments.push_back(macho::Segment{.name = data_name(), .protection = data_protection});
+    }
+    dylib.segments.push_back(macho::Segment{.name = "__LINKEDIT", .protection = macho::protection_read});
+
     const std::uint64_t info_offset = align_up(macho::header_size(dylib) + macho::signature_headroom, 8);
-    // The island table follows __apk_info: one entry per x18 island, in the order of the stubs.
+    // The island table follows __apk_info: one entry per x18 island, in the order of the stubs; then the runs.
     const auto island_count =
         static_cast<std::size_t>(std::ranges::count(findings.sites, rewrite::SiteKind::x18, &rewrite::Site::kind)) +
         findings.exclusive_regions.size() + findings.jump_tables.size();
     const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
-    const std::uint64_t stubs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 16);
+    const std::uint64_t runs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 8);
+    const std::uint64_t stubs_offset = align_up(runs_offset + runs.size() * sizeof(apk_run), 16);
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
@@ -429,18 +517,32 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     };
 
     auto &text = dylib.segments[0];
-    text.vm_size = text.file_size = container_address(writable_start);
+    text.vm_size = text.file_size = container_address(runs.front().writable ? runs.front().start : runs.front().end);
     text.sections[0].address = info_offset;
 
-    auto &data = dylib.segments[1];
-    data.address = data.file_offset = container_address(writable_start);
-    data.file_size = writable_file_end - writable_start;
-    data.vm_size = end - writable_start + page_size;  // one more page for the runtime slots
+    std::size_t next = 1;
+    for (std::size_t index = runs.front().writable ? 0 : 1; index < runs.size(); ++index, ++next) {
+        const auto &run = runs[index];
+        auto &segment = dylib.segments[next];
+        segment.address = segment.file_offset = container_address(run.start);
+        segment.vm_size = container_address(run.end) - segment.address;
+        segment.file_size = &run == &runs.back() ? container_address(last_file_end) - segment.address
+                                                 : segment.vm_size;
+    }
     const std::uint64_t runtime_slots = container_address(end);
+    if (runs.back().writable) {
+        dylib.segments[next - 1].vm_size += page_size;  // the runtime slots' page
+    } else {
+        auto &slots = dylib.segments[next++];
+        slots.address = runtime_slots;
+        slots.file_offset = container_address(end);
+        slots.vm_size = page_size;
+    }
 
-    auto &linkedit = dylib.segments[2];
-    linkedit.address = data.address + data.vm_size;
-    linkedit.file_offset = data.file_offset + data.file_size;
+    const auto &before_linkedit = dylib.segments[next - 1];
+    auto &linkedit = dylib.segments[next];
+    linkedit.address = before_linkedit.address + before_linkedit.vm_size;
+    linkedit.file_offset = before_linkedit.file_offset + before_linkedit.file_size;
     linkedit.file_size = symbol_table_size;
     linkedit.vm_size = page_size;
 
@@ -510,6 +612,12 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         ++report.x18_islands;
     }
     std::memcpy(bytes.data() + islands_offset, islands.data(), islands.size() * sizeof(apk_island));
+    std::vector<apk_run> run_table;
+    for (const auto &run : runs) {
+        run_table.push_back({.start = run.start, .end = run.end, .flags = run.writable ? APK_RUN_WRITABLE : 0u,
+                             .reserved = 0});
+    }
+    std::memcpy(bytes.data() + runs_offset, run_table.data(), run_table.size() * sizeof(apk_run));
     report.image_offset = image_offset + layout.shift;
     report.image_shift = layout.shift;
     report.stub_bytes = stubs_size;
@@ -527,8 +635,9 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     info.phnum = static_cast<std::uint32_t>(file.segments.size());
     info.phentsize = 56;
     info.runtime_slots = runtime_slots;
-    info.writable_start = writable_start;
-    info.writable_end = end;
+    const auto last_writable = std::find_if(runs.rbegin(), runs.rend(), [](const Run &run) { return run.writable; });
+    info.writable_start = layout.writable_start;
+    info.writable_end = last_writable == runs.rend() ? end : last_writable->end;
     info.thread_pointer_reads = report.thread_pointer_reads;
     info.thread_pointer_writes = report.thread_pointer_writes;
     info.syscalls = report.syscalls;
@@ -536,6 +645,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     info.islands = islands_offset;
     info.stubs = stubs_offset;
     info.stubs_size = stubs_size;
+    info.runs = runs_offset;
+    info.run_count = static_cast<std::uint32_t>(runs.size());
     std::memcpy(bytes.data() + info_offset, &info, sizeof info);
 
     dylib.uuid = content_uuid(bytes, options.install_name);

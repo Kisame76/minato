@@ -10,6 +10,8 @@
 #include "check.h"
 #include "elf_builder.h"
 
+#include <mach-o/loader.h>
+
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -302,16 +304,55 @@ std::string write_signed(const std::string &name, std::vector<std::byte> contain
     return path.string();
 }
 
-TEST(a_container_of_another_version_is_refused) {
+/// x18_program_container with `version` in its __apk_info.
+std::vector<std::byte> container_of_version(std::uint32_t version) {
     auto container = x18_program_container();
     const std::string_view magic(APK_CONTAINER_MAGIC, sizeof APK_CONTAINER_MAGIC);  // with its zero
     const auto at = std::string_view(reinterpret_cast<const char *>(container.data()), container.size()).find(magic);
     CHECK(at != std::string_view::npos);
-    if (at == std::string_view::npos) return;
-    const std::uint32_t version = 1;
-    std::memcpy(container.data() + at + offsetof(apk_container_info, version), &version, sizeof version);
-    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-1", std::move(container))),
-                 "container version 1, this runtime reads version 2");
+    if (at != std::string_view::npos) {
+        std::memcpy(container.data() + at + offsetof(apk_container_info, version), &version, sizeof version);
+    }
+    return container;
+}
+
+/// `container` with its __apk_info section as long as version 2's, which ends before the runs.
+std::vector<std::byte> shorten_info(std::vector<std::byte> container) {
+    mach_header_64 header;
+    std::memcpy(&header, container.data(), sizeof header);
+    std::size_t at = sizeof header;
+    for (std::uint32_t index = 0; index < header.ncmds; ++index) {
+        load_command command;
+        std::memcpy(&command, container.data() + at, sizeof command);
+        if (command.cmd == LC_SEGMENT_64) {
+            segment_command_64 segment;
+            std::memcpy(&segment, container.data() + at, sizeof segment);
+            for (std::uint32_t number = 0; number < segment.nsects; ++number) {
+                const auto where = at + sizeof segment + number * sizeof(section_64);
+                section_64 section;
+                std::memcpy(&section, container.data() + where, sizeof section);
+                if (std::strncmp(section.sectname, APK_CONTAINER_SECTION, sizeof section.sectname) == 0) {
+                    section.size = offsetof(apk_container_info, runs);
+                    std::memcpy(container.data() + where, &section, sizeof section);
+                }
+            }
+        }
+        at += command.cmdsize;
+    }
+    return container;
+}
+
+TEST(a_container_of_another_version_is_refused) {
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-1", container_of_version(1))),
+                 "container version 1, this runtime reads versions 2 to 3");
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-4", container_of_version(4))),
+                 "container version 4, this runtime reads versions 2 to 3");
+    // Containers converted before the runs (ADR-0008 amendment) still load: the app keeps them. Their __apk_info
+    // ends before the runs; a version 3 one that short is refused.
+    CHECK(apkrt::loader::load(write_signed("version-2", shorten_info(container_of_version(2)))).info->version == 2);
+    CHECK_THROWS(apkrt::loader::LoadError,
+                 apkrt::loader::load(write_signed("version-3-short", shorten_info(container_of_version(3)))),
+                 "container version 3, this runtime reads versions 2 to 3");
 }
 
 // ADR-0020 X4: the loader registers the island table of every container it loads, so that a

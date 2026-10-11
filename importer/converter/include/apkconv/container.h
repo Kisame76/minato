@@ -51,16 +51,27 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-/// Where an ELF image goes in 16 KiB pages (ADR-0007 decision 2, as amended 2026-10-07). Its LOAD
-/// segments are aligned to 4 KiB or more, the non-writable ones on 4 KiB pages below the writable
-/// ones. The whole image moves by `shift` so that its first writable 4 KiB page starts a 16 KiB page,
-/// as AOSP's 16 KiB compat mode moves its load bias: ADRP counts 4 KiB pages, so no instruction or
-/// table in the image changes. Pages below that boundary hold code, those above it data.
+/// A run of the image (ADR-0008 amendment): ELF addresses whose pages have one protection, one Mach-O
+/// segment of the container. Non-writable pages are code (r-x), read-only data included.
+struct Run {
+    std::uint64_t start = 0;
+    std::uint64_t end = 0;
+    bool writable = false;
+};
+
+/// Where an ELF image goes in 16 KiB pages (ADR-0007 decision 2, as amended 2026-10-07, and ADR-0008
+/// as amended 2026-10-11). Its LOAD segments are aligned to 4 KiB or more, and no 4 KiB page holds
+/// both a writable and a non-writable one. The image splits into runs of pages with one protection
+/// in address order, and the whole image moves by `shift` so that every boundary between runs starts
+/// a 16 KiB page, as AOSP's 16 KiB compat mode moves its load bias: ADRP counts 4 KiB pages, so no
+/// instruction or table in the image changes. A gap between segments goes to the run before, up to
+/// the page of the segment after it.
 struct PageLayout {
     std::uint64_t min_vaddr = 0;       // the first LOAD segment's 16 KiB page
-    std::uint64_t writable_start = 0;  // the first writable LOAD segment's page, else `end`
-    std::uint64_t end = 0;             // past the last LOAD segment, the data in whole 16 KiB pages
+    std::uint64_t writable_start = 0;  // the first writable run's start, else `end`
+    std::uint64_t end = 0;             // past the last LOAD segment, on a 16 KiB page of the container
     std::uint64_t shift = 0;           // 0, 4, 8 or 12 KiB
+    std::vector<Run> runs;             // from min_vaddr to end, in address order
 };
 
 /// The layout of `file`. Throws Incompatible with the reason when no shift fits it.

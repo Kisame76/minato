@@ -4,11 +4,14 @@
 // Layout of a container (addresses relative to its Mach-O header, which dyld places anywhere):
 //
 //   __TEXT  r-x  Mach-O header and load commands, the section __apk_info with the struct below,
-//                the table of x18 islands, the stubs of the rewriter (islands and veneers), then
-//                from image_offset on the ELF image: every ELF LOAD segment at image_offset +
-//                (p_vaddr - min_vaddr), the non-writable ones here
-//   __DATA  rw-  the writable ELF segments with their zero-filled parts, then one page of runtime
-//                slots (struct apk_runtime_slots) that the loader fills in
+//                the table of x18 islands, the table of runs, the stubs of the rewriter (islands
+//                and veneers), then from image_offset on the ELF image: every ELF LOAD segment at
+//                image_offset + (p_vaddr - min_vaddr), its first run if that is not writable
+//   then one segment per run of the image (ADR-0008 amendment): its 16 KiB pages of one
+//   protection in address order, non-writable ones r-x (read-only data included) as __TEXT_1,
+//   __TEXT_2, ..., writable ones rw- with their zero-filled parts as __DATA, __DATA_1, ...;
+//   one page of runtime slots (struct apk_runtime_slots) that the loader fills in follows the
+//   image, in its last run when that is writable, else in a data segment of its own
 //   __LINKEDIT   an empty symbol table and the code signature
 //
 // All ELF segments keep their distances, so one load bias maps every ELF address:
@@ -21,7 +24,8 @@
 #define APK_CONTAINER_SEGMENT "__TEXT"
 #define APK_CONTAINER_SECTION "__apk_info"
 #define APK_CONTAINER_MAGIC "APKCONT"  /* 8 bytes with the terminating zero */
-#define APK_CONTAINER_VERSION 2  /* 2: the table of x18 islands (ADR-0020 X4) */
+#define APK_CONTAINER_VERSION 3  /* 2: the table of x18 islands (ADR-0020 X4); 3: the runs (ADR-0008 amendment) */
+#define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
 
 /// apk_container_info.flags
 enum {
@@ -44,8 +48,8 @@ struct apk_container_info {
     uint32_t phentsize;
 
     uint64_t runtime_slots;  // from the Mach-O header to struct apk_runtime_slots, in __DATA
-    uint64_t writable_start; // ELF addresses the loader may write to (relocations), page aligned
-    uint64_t writable_end;
+    uint64_t writable_start; // ELF addresses from the first writable run to the end of the last one, page aligned;
+    uint64_t writable_end;   // version 2 had one writable run, version 3 lists them in `runs`
 
     // What the rewriter did, for the import log (ADR-0010: every change is counted).
     uint32_t thread_pointer_reads;
@@ -57,6 +61,24 @@ struct apk_container_info {
     uint64_t islands;     // from the Mach-O header to the island table (struct apk_island), in __TEXT
     uint64_t stubs;       // from the Mach-O header to the stub area: every island and veneer
     uint64_t stubs_size;  // bytes of the stub area
+    // Version 3 (ADR-0008 amendment): the runs of the image, in address order, together from min_vaddr to
+    // min_vaddr + image_size. A version 2 container's __apk_info ends before these fields.
+    uint64_t runs;       // from the Mach-O header to the table of runs (struct apk_run), in __TEXT
+    uint32_t run_count;
+    uint32_t reserved;
+};
+
+/// apk_run.flags
+enum {
+    APK_RUN_WRITABLE = 1u << 0,  // rw-; otherwise r-x
+};
+
+/// One run of the image: 16 KiB pages of the container with one protection, one Mach-O segment.
+struct apk_run {
+    uint64_t start;  // ELF addresses, each on a 16 KiB page of the container
+    uint64_t end;
+    uint32_t flags;
+    uint32_t reserved;
 };
 
 /// apk_island.kind

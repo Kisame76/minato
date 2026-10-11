@@ -14,6 +14,7 @@
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
 #include <mach-o/loader.h>
+#include <mach/mach.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,8 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -408,7 +411,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 2);
+    CHECK(read_info(singles.bytes).version == 3);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -478,22 +481,250 @@ TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
     }
 }
 
-TEST(refuses_a_4_kib_layout_no_shift_fits) {
-    // Code and data on one 4 KiB page.
-    CHECK_THROWS(Incompatible, convert(four_kib_program(0x2c0)), "shares a 4 KiB page with a writable one");
-
-    // A read-only segment after the data: a second boundary between code and data. The refusal names every LOAD
-    // segment and GNU_RELRO, so that an app's import shows its layout (the Unity test APK v2's libil2cpp.so).
-    auto read_only_after = four_kib_program(0x12c0);
-    read_only_after.segments({
-        {pt_phdr, r, 0x40, 0x40, 6 * 56, 6 * 56, 8},
+/// four_kib_program with a read-only segment after the data at `read_only` (0x100 into its file), a second boundary
+/// between code and data, and GNU_RELRO over the dynamic table; five program headers, as four_kib_program's, so that
+/// they end before its RELR table.
+ElfBuilder four_kib_program_with_read_only_after(std::uint64_t read_only) {
+    auto builder = four_kib_program(0x12c0);
+    builder.segments({
         {pt_load, r | x, 0, 0, 0x220, 0x220, 0x1000},
         {pt_load, r | w, 0x2c0, 0x12c0, 0x40, 0x1000, 0x1000},
-        {pt_load, r, 0x100, 0x3100, 0x40, 0x40, 0x1000},
+        {pt_load, r, 0x100, read_only, 0x40, 0x40, 0x1000},
         {pt_dynamic, r | w, 0x2c0, 0x12c0, 0x40, 0x40, 8},
         {pt_gnu_relro, r, 0x2c0, 0x12c0, 0x40, 0x40, 1},
     });
-    CHECK_THROWS(Incompatible, convert(read_only_after), "the non-writable segment at 0x3100 comes after");
+    return builder;
+}
+
+/// The runs of the container's info (ADR-0008 amendment): start, end and whether writable.
+std::vector<apk_run> runs_of(const std::vector<std::byte> &bytes) {
+    const auto info = read_info(bytes);
+    std::vector<apk_run> runs(info.run_count);
+    std::memcpy(runs.data(), bytes.data() + info.runs, runs.size() * sizeof(apk_run));
+    return runs;
+}
+
+/// The Mach-O segments of a container: name, address, size and protection.
+struct MachSegment {
+    std::string name;
+    std::uint64_t address;
+    std::uint64_t size;
+    std::uint32_t protection;
+};
+
+std::vector<MachSegment> mach_segments(const std::vector<std::byte> &bytes) {
+    mach_header_64 header;
+    std::memcpy(&header, bytes.data(), sizeof header);
+    std::vector<MachSegment> segments;
+    std::size_t at = sizeof header;
+    for (std::uint32_t index = 0; index < header.ncmds; ++index) {
+        load_command command;
+        std::memcpy(&command, bytes.data() + at, sizeof command);
+        if (command.cmd == LC_SEGMENT_64) {
+            segment_command_64 segment;
+            std::memcpy(&segment, bytes.data() + at, sizeof segment);
+            segments.push_back({std::string(segment.segname, strnlen(segment.segname, sizeof segment.segname)),
+                                segment.vmaddr, segment.vmsize, static_cast<std::uint32_t>(segment.initprot)});
+        }
+        at += command.cmdsize;
+    }
+    return segments;
+}
+
+constexpr std::uint32_t rx = 5, rw = 3;  // VM protections
+
+/// the Unity test APK v2's libil2cpp.so in small (ADR-0008 amendment): built for 16 KiB pages, r-- with the headers and the
+/// RELR table, r-x, rw- with the dynamic table (GNU_RELRO), rw- zero filled, then a second r-x, an r-- and an rw- with
+/// a relocated word and zero-filled bytes. `relocated` is the address in the RELR table, `relro_size` GNU_RELRO's.
+ElfBuilder segment_runs_program(std::uint64_t relocated = 0x18500, std::uint64_t relro_size = 0x40) {
+    ElfBuilder builder;
+    builder.bytes.resize(0x800);
+    builder.put<std::uint64_t>(24, 0x4400);  // e_entry
+    builder
+        .segments({
+            {pt_phdr, r, 0x40, 0x40, 11 * 56, 11 * 56, 8},
+            {pt_load, r, 0, 0, 0x2b8, 0x2b8, 0x4000},
+            {pt_load, r | x, 0x400, 0x4400, 0x20, 0x20, 0x4000},
+            {pt_load, r | w, 0x4c0, 0x84c0, 0x40, 0x40, 0x4000},
+            {pt_load, r | w, 0x500, 0xc500, 0, 0x100, 0x4000},
+            {pt_load, r | x, 0x440, 0x10440, 0x20, 0x20, 0x4000},
+            {pt_load, r, 0x480, 0x14480, 0x40, 0x40, 0x4000},
+            {pt_load, r | w, 0x500, 0x18500, 0x10, 0x1e0, 0x4000},
+            {pt_dynamic, r | w, 0x4c0, 0x84c0, 0x40, 0x40, 8},
+            {pt_gnu_relro, r, 0x4c0, 0x84c0, 0x40, relro_size, 1},
+            {pt_gnu_stack, r | w, 0, 0, 0, 0, 0},
+        })
+        .put<std::uint64_t>(0x2b0, relocated)
+        .dynamic(0x4c0, {{dt_relr, 0x2b0}, {dt_relrsz, 8}, {dt_relrent, 8}, {0, 0}})
+        .text(0x480, "read-only data after the data   ")
+        .put<std::uint64_t>(0x500, 0x1234);
+    std::memcpy(builder.bytes.data() + 0x400, code, sizeof code);
+    std::memcpy(builder.bytes.data() + 0x440, code, sizeof code);
+    builder.sections({
+        {".relr.dyn", sht_relr, shf_alloc, 0x2b0, 0x2b0, 8},
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x4400, 0x400, sizeof code},
+        {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x84c0, 0x4c0, 0x40},
+        {".bss", sht_nobits, shf_alloc | shf_write, 0xc500, 0x500, 0x100},
+        {".text.after", sht_progbits, shf_alloc | shf_execinstr, 0x10440, 0x440, sizeof code},
+        {".rodata", sht_progbits, shf_alloc, 0x14480, 0x480, 0x40},
+        {".data", sht_progbits, shf_alloc | shf_write, 0x18500, 0x500, 0x10},
+        {".bss.after", sht_nobits, shf_alloc | shf_write, 0x18510, 0x510, 0x1d0},
+    });
+    return builder;
+}
+
+TEST(splits_an_image_into_runs_of_protection) {
+    // ADR-0008 amendment: every run of pages with one protection is a Mach-O segment of its own, in address order,
+    // under one load bias. Non-writable pages are code (r-x), read-only data included.
+    const auto builder = segment_runs_program();
+    const auto container = convert(builder);
+    const auto &bytes = container.bytes;
+    const auto info = read_info(bytes);
+    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 3);
+    CHECK(info.min_vaddr == 0);
+    CHECK(container.report.image_shift == 0);
+    CHECK(info.image_size == 0x1c000);
+    CHECK(info.writable_start == 0x8000);  // the first data run
+    CHECK(info.writable_end == 0x1c000);   // the end of the last one
+    CHECK(info.runtime_slots == info.image_offset + 0x1c000);
+
+    const auto runs = runs_of(bytes);
+    CHECK(runs.size() == 4);
+    if (runs.size() == 4) {
+        CHECK(runs[0].start == 0 && runs[0].end == 0x8000 && runs[0].flags == 0);
+        CHECK(runs[1].start == 0x8000 && runs[1].end == 0x10000 && runs[1].flags == APK_RUN_WRITABLE);
+        CHECK(runs[2].start == 0x10000 && runs[2].end == 0x18000 && runs[2].flags == 0);
+        CHECK(runs[3].start == 0x18000 && runs[3].end == 0x1c000 && runs[3].flags == APK_RUN_WRITABLE);
+    }
+
+    const auto image = info.image_offset;
+    const auto segments = mach_segments(bytes);
+    CHECK(segments.size() == 5);
+    if (segments.size() == 5) {
+        CHECK(segments[0].name == "__TEXT" && segments[0].address == 0 && segments[0].size == image + 0x8000 &&
+              segments[0].protection == rx);
+        CHECK(segments[1].name == "__DATA" && segments[1].address == image + 0x8000 && segments[1].size == 0x8000 &&
+              segments[1].protection == rw);
+        CHECK(segments[2].name == "__TEXT_1" && segments[2].address == image + 0x10000 &&
+              segments[2].size == 0x8000 && segments[2].protection == rx);
+        CHECK(segments[3].name == "__DATA_1" && segments[3].address == image + 0x18000 &&
+              segments[3].size == 0x8000 && segments[3].protection == rw);  // with the runtime slots' page
+        CHECK(segments[4].name == "__LINKEDIT" && segments[4].address == image + 0x20000);
+    }
+
+    // Every byte at its ELF address; both executable sections rewritten, whichever run they lie in.
+    CHECK(std::memcmp(bytes.data() + image, builder.bytes.data(), 64) == 0);
+    CHECK(std::memcmp(bytes.data() + image + 0x14480, "read-only data after the data", 29) == 0);
+    std::int64_t tag;
+    std::memcpy(&tag, bytes.data() + image + 0x84c0, sizeof tag);
+    CHECK(tag == dt_relr);
+    CHECK(word_at(bytes, image + 0x18500) == 0x1234);
+    for (const std::uint64_t text : {0x4400u, 0x10440u}) {
+        const auto target = branch_target(bytes, image + text);
+        CHECK(target.has_value() && *target < image);
+        CHECK(word_at(bytes, image + text + 4) == code[1]);
+    }
+    CHECK(info.syscalls == 2 && info.thread_pointer_reads == 4 && info.thread_pointer_writes == 2);
+    CHECK(container.report.relocations == 1);
+}
+
+TEST(dyld_maps_each_run_with_its_protection) {
+    auto container = convert(segment_runs_program());
+    apk::codesign::sign(container.bytes, {.identifier = "segment-runs"});
+    const auto path = scratch / "segment-runs.dylib";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char *>(container.bytes.data()),
+                   static_cast<std::streamsize>(container.bytes.size()));
+    }
+    void *const handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        apk::testing::fail(std::source_location::current(), "dlopen failed: ", dlerror());
+        return;
+    }
+    const mach_header_64 *header = nullptr;
+    for (std::uint32_t index = 0; index < _dyld_image_count(); ++index) {
+        if (path == _dyld_get_image_name(index)) {
+            header = reinterpret_cast<const mach_header_64 *>(_dyld_get_image_header(index));
+        }
+    }
+    CHECK(header != nullptr);
+    if (header == nullptr) return;
+    const auto info = read_info(container.bytes);
+    const auto image = reinterpret_cast<std::uintptr_t>(header) + info.image_offset;
+    const auto protection = [](std::uintptr_t address) {
+        vm_address_t region = address;
+        vm_size_t size = 0;
+        vm_region_basic_info_data_64_t basic{};
+        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+        mach_port_t object = MACH_PORT_NULL;
+        if (vm_region_64(mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                         reinterpret_cast<vm_region_info_t>(&basic), &count, &object) != KERN_SUCCESS ||
+            region > address) {
+            return -1;
+        }
+        return static_cast<int>(basic.protection);
+    };
+    CHECK(protection(image + 0x4400) == static_cast<int>(rx));
+    CHECK(protection(image + 0x8000) == static_cast<int>(rw));
+    CHECK(protection(image + 0x10440) == static_cast<int>(rx));
+    CHECK(protection(image + 0x14480) == static_cast<int>(rx));
+    CHECK(protection(image + 0x18500) == static_cast<int>(rw));
+    CHECK(std::memcmp(reinterpret_cast<const void *>(image + 0x14480), "read-only data after the data", 29) == 0);
+    // The zero-filled parts of both data runs read as zero and are writable, as are the runtime slots.
+    for (const std::uint64_t zero : {0xc500u, 0x18600u}) {
+        auto *word = reinterpret_cast<volatile std::uint64_t *>(image + zero);
+        CHECK(*word == 0);
+        *word = 7;
+        CHECK(*word == 7);
+    }
+    auto *slots = reinterpret_cast<volatile apk_runtime_slots *>(reinterpret_cast<std::uintptr_t>(header) +
+                                                                info.runtime_slots);
+    slots->syscall_entry = 0x1234;
+    CHECK(slots->syscall_entry == 0x1234);
+    dlclose(handle);
+}
+
+TEST(moves_a_4_kib_image_so_that_every_run_starts_a_16_kib_page) {
+    // One shift for the whole image must put every boundary between runs on a 16 KiB page (ADR-0008 amendment,
+    // decision 4): the data at 0x1000 and the read-only segment at 0x5000 are both 0x1000 into a 16 KiB page.
+    const auto builder = four_kib_program_with_read_only_after(0x5100);
+    const auto container = convert(builder);
+    const auto &bytes = container.bytes;
+    const auto info = read_info(bytes);
+    CHECK(container.report.image_shift == 0x3000);
+    const auto runs = runs_of(bytes);
+    CHECK(runs.size() == 3);
+    if (runs.size() == 3) {
+        CHECK(runs[0].start == 0 && runs[0].end == 0x1000 && runs[0].flags == 0);
+        CHECK(runs[1].start == 0x1000 && runs[1].end == 0x5000 && runs[1].flags == APK_RUN_WRITABLE);
+        CHECK(runs[2].start == 0x5000 && runs[2].end == 0x9000 && runs[2].flags == 0);
+    }
+    for (std::size_t index = 1; index < runs.size(); ++index) {
+        CHECK((info.image_offset + runs[index].start - info.min_vaddr) % 0x4000 == 0);  // the first is in __TEXT
+    }
+    CHECK(info.image_size == 0x9000);
+    CHECK((info.image_offset + info.image_size) % 0x4000 == 0);
+    // The image ends with code, so the runtime slots get a data segment of their own.
+    const auto segments = mach_segments(bytes);
+    CHECK(segments.size() == 5);
+    if (segments.size() == 5) {
+        CHECK(segments[2].name == "__TEXT_1" && segments[2].protection == rx);
+        CHECK(segments[3].name == "__DATA_1" && segments[3].protection == rw &&
+              segments[3].address == info.runtime_slots && segments[3].size == 0x4000);
+    }
+    CHECK(std::memcmp(bytes.data() + info.image_offset + 0x5100, builder.bytes.data() + 0x100, 0x40) == 0);
+}
+
+TEST(refuses_a_4_kib_layout_no_shift_fits) {
+    // Code and data on one 4 KiB page.
+    CHECK_THROWS(Incompatible, convert(four_kib_program(0x2c0)), "share a 4 KiB page");
+
+    // A read-only segment after the data whose boundary lies elsewhere in its 16 KiB page than the data's: no one
+    // shift puts both on a 16 KiB page. The refusal names every LOAD segment and GNU_RELRO, so that an app's import
+    // shows its layout (the Unity test APK v2's libil2cpp.so).
+    const auto read_only_after = four_kib_program_with_read_only_after(0x3100);
+    CHECK_THROWS(Incompatible, convert(read_only_after), "no shift puts every boundary between code and data");
     CHECK_THROWS(Incompatible, convert(read_only_after),
                  "(segments: LOAD r-x 0x0 size 0x220 align 0x1000, LOAD rw- 0x12c0 size 0x1000 align 0x1000, "
                  "LOAD r-- 0x3100 size 0x40 align 0x1000, GNU_RELRO 0x12c0 size 0x40)");
@@ -529,6 +760,25 @@ TEST(refuses_what_cannot_run) {
     auto text_relocations = static_program();
     text_relocations.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 8}, {22 /* DT_TEXTREL */, 0}, {0, 0}});
     CHECK_THROWS(Incompatible, convert(text_relocations), "text relocation");
+    // A relocation into the code after the data, and GNU_RELRO reaching from a data run into it (ADR-0008
+    // amendment, decision 3).
+    CHECK_THROWS(Incompatible, convert(segment_runs_program(0x10440)), "text relocation at 0x10440");
+    CHECK_THROWS(Incompatible, convert(segment_runs_program(0x18500, 0x8000)),
+                 "GNU_RELRO at 0x84c0 size 0x8000 is not inside one run of writable pages");
+
+    // Hostile sizes (the reviewer's finding): a segment whose end wraps around 2^64, a later one that wraps, and an
+    // image larger than 4 GiB, whose zero-filled data before code would all go into the file.
+    auto wrapping = static_program();
+    wrapping.put<std::uint64_t>(64 + 56 + 40, ~std::uint64_t{0} - 0x3fff);  // p_memsz of the code segment
+    CHECK_THROWS(Incompatible, convert(wrapping), "ends beyond the address space");
+    auto wrapping_data = static_program();
+    wrapping_data.put<std::uint64_t>(64 + 2 * 56 + 40, ~std::uint64_t{0} - 0x4000);  // p_memsz of the data segment
+    CHECK_THROWS(Incompatible, convert(wrapping_data), "ends beyond the address space");
+    auto huge = static_program();
+    huge.put<std::uint64_t>(64 + 2 * 56 + 40, std::uint64_t{5} << 30);
+    CHECK_THROWS(Incompatible, convert(huge), "spans more than 4 GiB");
+    CHECK_THROWS(Incompatible, convert(segment_runs_program(0x18500, ~std::uint64_t{0} - 0x84bf)),
+                 "ends beyond the address space");
 
     auto x86 = static_program();
     x86.put<std::uint16_t>(18, 62);

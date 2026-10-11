@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -246,14 +247,17 @@ Image load(const std::string &path) {
     unsigned long size = 0;
     const auto *info = reinterpret_cast<const apk_container_info *>(
         getsectiondata(header, APK_CONTAINER_SEGMENT, APK_CONTAINER_SECTION, &size));
-    if (info == nullptr || size < sizeof(apk_container_info) ||
+    // A version 2 container, converted before the runs (ADR-0008 amendment), has a shorter __apk_info.
+    constexpr auto version_2_size = offsetof(apk_container_info, runs);
+    if (info == nullptr || size < version_2_size ||
         std::memcmp(info->magic, APK_CONTAINER_MAGIC, sizeof info->magic) != 0) {
         throw LoadError(std::format("{}: not a container dylib (no {},{})", resolved, APK_CONTAINER_SEGMENT,
                                     APK_CONTAINER_SECTION));
     }
-    if (info->version != APK_CONTAINER_VERSION) {
-        throw LoadError(std::format("{}: container version {}, this runtime reads version {}", resolved,
-                                    info->version, APK_CONTAINER_VERSION));
+    if (info->version < APK_CONTAINER_OLDEST_VERSION || info->version > APK_CONTAINER_VERSION ||
+        (info->version == APK_CONTAINER_VERSION && size < sizeof(apk_container_info))) {
+        throw LoadError(std::format("{}: container version {}, this runtime reads versions {} to {}", resolved,
+                                    info->version, APK_CONTAINER_OLDEST_VERSION, APK_CONTAINER_VERSION));
     }
 
     const auto base = reinterpret_cast<std::uint64_t>(header);
