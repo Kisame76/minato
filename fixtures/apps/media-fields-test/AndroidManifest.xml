@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of reflection over android.media's classes (media-fields-test; the Unity test APK gap sort, category 3m): the fields,
+     constructors and methods of the classes Unity's audio and video paths look at, whose parameter and return types
+     must all resolve (AudioTrack's VolumeShaper, MediaCodecList's and MediaExtractor's MediaCodecInfo, MediaFormat and
+     DrmInitData). The launcher activity is the framework's own android.app.Activity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediafields" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.mediafields.MediaFieldsApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

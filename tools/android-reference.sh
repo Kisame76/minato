@@ -498,7 +498,7 @@ run_app() {
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | jni-fields-test \
       | storage-test | location-test | gapscan-test | webview-camera-test | keystore-test | sms-test | accounts-test \
-      | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test \
+      | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test \
       | main-looper-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes

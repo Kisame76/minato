@@ -64,11 +64,6 @@ android.hardware.lights.LightState <- android.hardware.input.IInputManager, andr
 android.hardware.lights.LightsManager <- android.hardware.input.InputManagerGlobal, android.view.InputDevice  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.location.ILocationManager <- android.os.SystemClock  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.AudioMetadataReadMap <- android.media.AudioTrack  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.AudioPresentation <- android.media.AudioTrack  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.VolumeShaper <- android.media.AudioTrack, android.media.VolumeAutomation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.VolumeShaper$Configuration <- android.media.AudioTrack, android.media.VolumeAutomation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.metrics.LogSessionId <- android.media.AudioTrack  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.media.session.MediaSession <- android.media.RemoteControlClient  # gap: (App) media sessions not taken yet
@@ -177,7 +172,7 @@ android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.c
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 com.android.internal.util.IndentingPrintWriter <- android.content.pm.PackageInstaller  # stays: SessionParams.dump, for dumpsys, which no app calls
-android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, a graphics fence; no ImageReader gives an app an Image yet (media category 2)
+android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is Grafik's graphics fence (EGLExt makes it with hidden create methods, so managergen cannot write it); Image stays unreadable by reflection until that class is taken
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras getCameraCharacteristics refuses every ID before one is made
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras no extension is described
@@ -186,13 +181,6 @@ android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraDe
 android.hardware.camera2.params.ExtensionSessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.params.InputConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.params.SessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
-android.media.MediaCodecInfo <- android.media.MediaCodecList  # gap: the codec classes (MediaCodec, MediaCodecInfo, MediaFormat) come with the sort's category 3m; the list is empty until then
-android.media.MediaFormat <- android.media.MediaCodecList, android.media.MediaExtractor  # gap: as MediaCodecInfo, category 3m
-android.media.MediaCodec$CryptoInfo <- android.media.MediaExtractor  # gap: as MediaCodecInfo, category 3m
-android.media.DrmInitData <- android.media.MediaExtractor  # gap: the extractor has no source to read DRM data from; the class comes with category 3m
-android.media.MediaCas <- android.media.MediaExtractor  # stays: conditional access modules, which only a TV tuner device has
-android.media.MediaCas$Session <- android.media.MediaExtractor  # stays: as MediaCas
-android.media.metrics.LogSessionId <- android.media.MediaDrm, android.media.MediaExtractor  # gap: the media metrics classes (the sort's Planung rows) are not all taken yet
 android.media.tv.TvContentRating <- android.media.tv.TvInputManager  # stays: the TV input manager, which a phone has no service for (getSystemService answers null)
 android.media.tv.TvInputInfo <- android.media.tv.TvInputManager  # stays: as TvContentRating
 android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet (batch D 3: IAlarmManager's Stub, which the local alarm service never runs)

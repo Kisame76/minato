@@ -64,9 +64,6 @@ android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10:
 android.graphics.TextureLayer <- android.graphics.HardwareRenderer  # stays: a renderer's texture layers, and no renderer is made, as its constructor's first native is not registered (PixelCopy's step)
 android.hardware.DataSpace <- android.graphics.HardwareRenderer  # stays: the process initializer's display info, which needs the context that only ActivityThread's setContextForInit gives, and Minato's does not call it (PixelCopy's step)
 android.graphics.PostProcessor <- android.graphics.ImageDecoder  # gap: ImageDecoder.setPostProcessor (ADR-0043, Grafik)
-android.media.MediaCodecInfo <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
-android.media.MediaCodecInfo$CodecCapabilities <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
-android.media.MediaFormat <- android.graphics.ImageDecoder  # gap: HEIF and AVIF images, whose decoding asks MediaCodecList (ADR-0043, Grafik)
 android.provider.FontRequest <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.provider.FontsContract <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
