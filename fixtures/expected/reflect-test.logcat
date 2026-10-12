@@ -1,13 +1,17 @@
-I/reflect-test: android.content.Context: methods true, fields true, has getSystemService true
-I/reflect-test: android.content.ContextWrapper: methods true, fields true, has getBaseContext true
-I/reflect-test: android.app.PictureInPictureParams: methods true, fields true, has isAutoEnterEnabled true
-I/reflect-test: android.graphics.ImageDecoder: methods true, fields true, has setTargetSize true
-I/reflect-test: android.graphics.drawable.Icon: methods true, fields true, has loadDrawable true
-I/reflect-test: android.hardware.Sensor: methods true, fields true, has getName true
-I/reflect-test: android.media.MediaDrm: methods true, fields true, has getPropertyString true
-I/reflect-test: android.view.textclassifier.TextClassification: methods true, fields true, has getText true
-I/reflect-test: android.os.BaseBundle: methods true, fields true, has getString true
-I/reflect-test: android.os.UserManager: methods true, fields true, has isSystemUser true
-I/reflect-test: android.os.storage.StorageVolume: methods true, fields true, has getDescription true
-I/reflect-test: android.view.accessibility.AccessibilityManager: methods true, fields true, has isEnabled true
+I/reflect-test: android.content.Context: methods true, has getSystemService true
+I/reflect-test: android.content.ContextWrapper: methods true, has getBaseContext true
+I/reflect-test: android.app.PictureInPictureParams: methods true, has isAutoEnterEnabled true
+I/reflect-test: android.graphics.ImageDecoder: methods true, has setTargetSize true
+I/reflect-test: android.graphics.drawable.Icon: methods true, has loadDrawable true
+I/reflect-test: android.hardware.Sensor: methods true, has getName true
+I/reflect-test: android.media.MediaDrm: methods true, has getPropertyString true
+I/reflect-test: android.view.textclassifier.TextClassification: methods true, has getText true
+I/reflect-test: android.os.BaseBundle: methods true, has getString true
+I/reflect-test: android.os.UserManager: methods true, has isSystemUser true
+I/reflect-test: android.os.storage.StorageVolume: methods true, has getDescription true
+I/reflect-test: android.view.accessibility.AccessibilityManager: methods true, has isEnabled true
+I/reflect-test: android.hardware.HardwareBuffer: methods true, has getWidth true
+I/reflect-test: android.view.inputmethod.InputContentInfo: methods true, has getContentUri true
+I/reflect-test: android.graphics.HardwareRenderer: methods true, has setName true
+I/reflect-test: android.graphics.RecordingCanvas: methods true, has enableZ true
 I/reflect-test: done

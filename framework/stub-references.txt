@@ -36,10 +36,7 @@ com.android.internal.pm.parsing.PackageParserException <- android.content.pm.Pac
 
 # The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
 # (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
-android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
-android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
-android.hardware.display.VirtualDisplayConfig <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.media.projection.IMediaProjection$Stub <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.os.PermissionEnforcer <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
@@ -53,8 +50,6 @@ com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: Strict
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 
 # Drawables and graphics.
-android.graphics.TextureLayer <- android.graphics.RecordingCanvas  # M4 step 10: TextureView's layers
-android.graphics.TextureLayer <- android.graphics.HardwareRenderer  # stays: a renderer's texture layers, and no renderer is made, as its constructor's first native is not registered (PixelCopy's step)
 android.hardware.DataSpace <- android.graphics.HardwareRenderer  # stays: the process initializer's display info, which needs the context that only ActivityThread's setContextForInit gives, and Minato's does not call it (PixelCopy's step)
 android.provider.FontRequest <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
 android.provider.FontsContract <- android.graphics.Typeface  # gap: downloadable fonts in font XML (Typeface.createFromResources)
@@ -144,7 +139,6 @@ android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap:
 # over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
 # devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.
 android.hardware.input.InputDeviceLightsManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
-android.hardware.input.InputDeviceSensorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's sensors (InputDevice.getSensorManager, API 31), whose manager Android makes for any device
 android.hardware.input.InputDeviceVibrator <- android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # stays: the vibrator of an input device that has one, and Minato's devices have none
 android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's vibrators (InputDevice.getVibratorManager, API 31), whose manager Android makes for any device
 android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
@@ -198,8 +192,6 @@ android.widget.PopupWindow <- android.widget.Editor  # gap: a selection's handle
 android.widget.PopupWindow$OnDismissListener <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Toast <- android.widget.TextView  # gap: the toast after a process-text activity's result, a second window (ADR-0041 decision 2)
 com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
-com.android.internal.inputmethod.IInputContentUriToken <- android.view.inputmethod.InputContentInfo  # stays: the URI permission of content an input method commits, and Minato has no input method until the keyboard step
-com.android.internal.inputmethod.IInputContentUriToken$Stub <- android.view.inputmethod.InputContentInfo  # stays: the URI permission of content an input method commits, and Minato has no input method until the keyboard step
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
 com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 
@@ -219,7 +211,6 @@ android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, whi
 android.content.pm.IPackageManager <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
 android.content.pm.IPackageManager$Stub <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
 android.hardware.display.ColorDisplayManager <- android.hardware.display.DisplayManager  # stays: setSaturationLevel, a system API that needs CONTROL_DISPLAY_SATURATION
-android.hardware.display.VirtualDisplayConfig$Builder <- android.hardware.display.DisplayManager  # gap: virtual displays, which DisplayManager.createVirtualDisplay makes (a later step)
 android.os.CoolingDevice <- android.os.IThermalService  # stays: IThermalService's Stub and Proxy, which the local thermal service never runs
 android.os.Temperature <- android.os.IThermalService, android.os.IThermalEventListener  # stays: the thermal interfaces' Stub and Proxy, which the local thermal service never runs and whose events it sends none of
 android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a system API that needs WRITE_DREAM_STATE

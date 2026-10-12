@@ -1912,3 +1912,12 @@ frameworks_base/core/java/android/service/notification/NotificationListenerFilte
 frameworks_base/core/java/com/android/internal/content/ReferrerIntent.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityRequestPreparer.java
 frameworks_base/core/java/android/os/CancellationSignalBeamer.java
+
+# Batch B3b-4 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
+frameworks_base_graphics/graphics/java/android/graphics/GraphicBuffer.java
+frameworks_base_graphics/graphics/java/android/graphics/TextureLayer.java
+frameworks_base/core/java/android/hardware/display/VirtualDisplay.java
+frameworks_base/core/java/android/hardware/display/VirtualDisplayConfig.java
+frameworks_base/core/java/android/hardware/input/InputDeviceSensorManager.java
+frameworks_base/core/java/android/view/autofill/IAutofillWindowPresenter.aidl
+frameworks_base/core/java/com/android/internal/inputmethod/IInputContentUriToken.aidl

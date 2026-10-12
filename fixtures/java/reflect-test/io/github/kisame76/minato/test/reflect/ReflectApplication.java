@@ -30,6 +30,10 @@ public class ReflectApplication extends Application {
         {"android.os.UserManager", "isSystemUser"},
         {"android.os.storage.StorageVolume", "getDescription"},
         {"android.view.accessibility.AccessibilityManager", "isEnabled"},
+        {"android.hardware.HardwareBuffer", "getWidth"},
+        {"android.view.inputmethod.InputContentInfo", "getContentUri"},
+        {"android.graphics.HardwareRenderer", "setName"},
+        {"android.graphics.RecordingCanvas", "enableZ"},
     };
 
     @Override
@@ -48,12 +52,12 @@ public class ReflectApplication extends Application {
             for (Method each : c.getDeclaredMethods()) {
                 found |= each.getName().equals(method);
             }
-            // The constructors are read too, for the signatures they resolve, but their number is not logged: Android's
-            // reflection hides the non-SDK constructors of some classes (a Sensor's, an Icon's), which no framework
-            // class of ours imitates.
+            // The constructors and fields are read too, for the signatures they resolve, but their number is not logged:
+            // Android's reflection hides the non-SDK constructors and fields of some classes (a Sensor's, an Icon's, a
+            // RecordingCanvas's), which no framework class of ours imitates.
             c.getDeclaredConstructors();
-            return "methods " + (c.getDeclaredMethods().length > 0) + ", fields " + (c.getDeclaredFields().length > 0)
-                    + ", has " + method + " " + found;
+            c.getDeclaredFields();
+            return "methods " + (c.getDeclaredMethods().length > 0) + ", has " + method + " " + found;
         } catch (Throwable t) {
             return "failed: " + t.getClass().getName();
         }

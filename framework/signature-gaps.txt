@@ -13,39 +13,33 @@
 # SharedMemory, MemoryFile, ConstrainDisplayApisConfig, LegacySensorManager, BatterySaverPolicyConfig and
 # ZenModeConfig.
 android.app.AsyncNotedAppOp <- android.app.AppOpsManager  # gap: (Planung) not taken: it reads AppOpsManager._NUM_OP, which the parked breadth batch 3 adds with tools/appopsgen.py
-android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.app.IAppTask <- android.app.Instrumentation  # gap: (Planung) not taken: its AIDL names android.app.IApplicationThread, which is our hand file with a Stub that has no asInterface
-android.app.IUiAutomationConnection <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.app.IUiAutomationConnection <- android.app.Instrumentation  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: (Planung) not taken: it pulls android.app.servertransaction (ClientTransaction and the activity lifecycle items), a package of its own
 android.app.ProfilerInfo <- android.app.IActivityTaskManager, android.app.LocalActivityTaskManager  # gap: (Planung) not taken: its proto message ProfilerInfoProto is generated from frameworks/base's .proto files, which no step generates yet
 android.app.SearchableInfo <- android.app.SearchManager  # gap: (App) SearchableInfo, the search dialog's configuration, not taken yet; Minato has no search service
 android.app.SyncNotedAppOp <- android.app.AppOpsManager  # gap: (Planung) not taken: it reads AppOpsManager._NUM_OP, which the parked breadth batch 3 adds with tools/appopsgen.py
-android.app.UiAutomation <- android.app.Instrumentation  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener <- android.hardware.SystemSensorManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.app.UiAutomation <- android.app.Instrumentation  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener <- android.hardware.SystemSensorManager  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # gap: (Planung) not taken: its constructor calls android.content.om.OverlayIdentifier's, which our copy lacks, and it needs CriticalOverlayInfo; no overlay manager exists on Minato
-android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.credentials.Credential <- android.credentials.GetCredentialResponse  # gap: (App) the credential manager's types, not taken yet; Minato has no credential manager
 android.credentials.CredentialOption <- android.credentials.GetCredentialRequest  # gap: (App) the credential manager's types, not taken yet; Minato has no credential manager
-android.graphics.GraphicBuffer <- android.hardware.HardwareBuffer  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.graphics.TextureLayer <- android.graphics.HardwareRenderer, android.graphics.RecordingCanvas  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.SyncFence <- android.opengl.EGLExt, android.view.SurfaceControl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.hardware.SyncFence <- android.opengl.EGLExt, android.view.SurfaceControl  # gap: (Planung) not taken: its static initializer calls the native nGetDestructor (NativeAllocationRegistry); it waits for the natives of Grafik's ADR-0058 b)
 android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
 android.hardware.camera2.CaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: category 3's camera2 (Grafik)
 android.hardware.camera2.params.OutputConfiguration <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.display.VirtualDisplay <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.display.VirtualDisplay$Callback <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.display.VirtualDisplayConfig <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal, android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.hardware.input.InputDeviceSensorManager <- android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.hardware.lights.LightState <- android.hardware.input.IInputManager, android.hardware.input.InputManagerGlobal, android.hardware.lights.LightsManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal, android.hardware.lights.LightsManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.location.ILocationManager <- android.os.SystemClock  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.location.ILocationManager <- android.os.SystemClock  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
+android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
+android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.media.session.MediaSessionManager$RemoteUserInfo <- android.media.session.MediaSession  # gap: (App) media sessions' types, not taken yet (Formate's category 3m)
 android.media.session.PlaybackState <- android.media.session.MediaController, android.media.session.MediaSession  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
 android.media.session.PlaybackState$CustomAction <- android.media.session.MediaController  # gap: (App) media sessions not taken yet; an activity's media controller is null on Minato
@@ -62,27 +56,26 @@ android.os.CoolingDevice <- android.os.IThermalService  # gap: (Planung) not tak
 android.os.PerformanceCollector <- android.app.Instrumentation  # gap: (Planung) not taken: it calls Process.getElapsedCpuTime, which our Process lacks; only instrumentation tests use it
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android.app.INotificationManager, android.app.job.IJobScheduler, android.content.IClipboard, android.content.IContentService, android.hardware.display.IDisplayManager, android.hardware.input.IInputManager, com.android.internal.compat.IPlatformCompat  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: (Planung) not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
-android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.os.storage.IStorageManager <- android.os.StrictMode  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
+android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.print.PrintJobId <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: (Planung) not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
-android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.telephony.RadioAccessSpecifier <- android.telephony.NetworkScanRequest  # gap: (App) network scans' radio specifiers not taken yet; Minato has no radio
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.telephony.data.ApnSetting <- android.telephony.PreciseDataConnectionState  # gap: (App) a data connection's APN, not taken yet; Minato's phone has no SIM
 android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: (Planung) not taken: it needs ImeTracker, SoftInputShowHideReason and BackGestureInterpolator; Minato has no soft keyboard
-android.view.InputMonitor <- android.hardware.input.IInputManager, android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.InputMonitor <- android.hardware.input.IInputManager, android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) a hidden class of the system's remote animations, which no app reflects over
-android.view.RemoteAnimationTarget <- android.window.BackMotionEvent, android.window.BackTouchTracker  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.RemoteAnimationTarget <- android.window.BackMotionEvent, android.window.BackTouchTracker  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.SurfaceSession <- android.view.SurfaceControl  # gap: (App) a placeholder's session (SurfaceControl, Grafik's), not taken yet
 android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: (Planung) not taken: it reads InputEvent.INVALID_INPUT_EVENT_ID, which our InputEvent lacks
 android.view.accessibility.AccessibilityWindowInfo <- android.view.accessibility.AccessibilityNodeInfo  # gap: (App) accessibility windows not taken yet; accessibility is off (ADR-0041)
-android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.autofill.IAutofillWindowPresenter <- android.view.autofill.AutofillClientController, android.view.autofill.AutofillManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResultCallback  # gap: (App) display hashes not taken yet
 android.view.textclassifier.ConversationActions <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
 android.view.textclassifier.ConversationActions$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
@@ -102,16 +95,15 @@ android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider  # g
 android.webkit.TracingController <- android.webkit.WebViewFactoryProvider  # gap: category 3's webkit services (Grafik)
 android.webkit.WebIconDatabase <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.webkit.WebViewDatabase <- android.webkit.WebSyncManager, android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.widget.Magnifier <- android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.widget.Magnifier$Builder <- android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-android.widget.PopupWindow <- android.widget.AbsListView, android.widget.Editor  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.widget.Magnifier <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.widget.Magnifier$Builder <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
+android.widget.PopupWindow <- android.widget.AbsListView, android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.window.OnBackInvokedCallbackInfo <- android.view.IWindowSession  # gap: (App) a placeholder's back callback info (IWindowSession, Grafik's), not taken yet
 android.window.SplashScreenView <- android.window.SplashScreen  # gap: (App) SplashScreenView, the system splash screen's view, not taken yet; Minato shows none
-android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-com.android.internal.inputmethod.IInputContentUriToken <- android.view.inputmethod.InputContentInfo  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
-com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 
 # Formate: the package installer (the Unity test APK resolve list, batch E) and android.media (the gap sort, categories 1 and 2).
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors, which the local installer never runs; no app reflects over a binder interface
