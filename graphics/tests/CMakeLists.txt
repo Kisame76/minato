@@ -374,8 +374,21 @@ if(TARGET minato_graphics_host)
     add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
     # ADR-0041 a1: libGLESv1_CM on ANGLE's ES 1.x, as an app linked against the NDK's stub reaches it.
     add_guest_test(gles1_front gles1-front-test gles1_front_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0058 b): EGL images of AHardwareBuffers on ANGLE's Metal display, and on its Vulkan display, whose R8G8B8X8
+    # samples the alpha in memory (graphics/host/image.m's named limit).
+    add_guest_test(ahb_image ahb-image-test ahb_image_test "${gles_system_libraries}" ${with_angle})
+    if(EXISTS "${moltenvk}")
+      add_guest_test(ahb_image_vulkan ahb-image-test ahb_image_vulkan_test "${gles_system_libraries}"
+        "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=set:${angle}" "MINATO_METAL_HOOK=set:count"
+        "MINATO_WINDOW=set:64x48" "MINATO_ANGLE_BACKEND=set:vulkan")
+    else()
+      add_test(NAME graphics.ahb_image_vulkan COMMAND ${CMAKE_COMMAND} -E echo
+        "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/build-moltenvk.sh")
+      set_tests_properties(graphics.ahb_image_vulkan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+    endif()
   else()
-    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front gles_gate_vulkan)
+    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front gles_gate_vulkan ahb_image
+        ahb_image_vulkan)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

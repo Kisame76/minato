@@ -16,6 +16,7 @@
      and waits for the foreground if it is set; the count drops once ANGLE counted the command buffer. The
      app sets the flag, then "scheduled" waits until the count is 0 and then until ANGLE's committed command
      buffers are scheduled: either the commit sees the flag or "scheduled" sees the commit (decision 15);
+   - EGL images of the guest's hardware buffers (ADR-0058 b), image.m);
    - the ES 3.1 path (ADR-0044, decision 4): when the session chose ANGLE's Vulkan backend, ANGLE gets
      graphics/host's vkGetInstanceProcAddr (patch 0009, angle_vulkan.m), and libEGL's display, which asks for
      ANGLE's Metal display, becomes ANGLE's Vulkan display.
@@ -204,6 +205,7 @@ static egl_boolean terminated(void *display) {
     const egl_boolean result = terminate(display);
     if (result) {
         surfaces_forget(display, NULL);
+        minato_graphics_images_terminated(display);
     }
     return result;
 }
@@ -422,6 +424,7 @@ void minato_graphics_egl_wrap(void **table, void *library) {
     WRAP(EGL, eglPresentationTimeANDROID, presentation_time, presentation_time_set)
     WRAP(EGL, eglTerminate, terminate, terminated)
     WRAP(EGL, eglGetPlatformDisplay, get_platform_display, platform_display_asked)
+    minato_graphics_images_wrap(table);
     gates(library);
 }
 

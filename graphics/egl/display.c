@@ -7,7 +7,9 @@
      for an RGBA8888 config and WINDOW_FORMAT_RGBX_8888 for an RGB888 one without alpha (patch 0006), as
      Android 15 answers.
    - The extension strings leave out what tools/frontgen withholds (egl_withheld.inc); the client extensions
-     name EGL_KHR_platform_android, whose display libEGL gives.
+     name EGL_KHR_platform_android, whose display libEGL gives, and a display's name
+     EGL_ANDROID_get_native_client_buffer and EGL_ANDROID_image_native_buffer, whose images of AHardwareBuffers
+     libEGL and graphics/host make (image.c, ADR-0058 b)).
    - eglGetProcAddress hands out libEGL's own functions and libGLESv2's, never ANGLE's.
    - eglPresentationTimeANDROID goes to ANGLE, whose Metal backend presents the surface's next swap at that time
      (patch 0005, ADR-0041 decision 11); the guest's CLOCK_MONOTONIC is the uptime clock it expects (F10). With
@@ -158,6 +160,10 @@ static int is_withheld(const char *name, size_t length) {
 
 #define PLATFORM_ANDROID "EGL_KHR_platform_android"
 
+/* The extensions libEGL adds to a string: the client's, and a display's. */
+static const char *const client_added[] = {PLATFORM_ANDROID};
+static const char *const display_added[] = {"EGL_ANDROID_get_native_client_buffer", "EGL_ANDROID_image_native_buffer"};
+
 /* One of ANGLE's extension strings and what is kept of it, for the process's life: displays and their
    strings are few. */
 struct filtered {
@@ -169,11 +175,29 @@ struct filtered {
 static struct filtered *filtered;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Whether the space-separated `list` names `name`. */
+static int names(const char *list, const char *name) {
+    const size_t length = strlen(name);
+    for (const char *at = list; *at != '\0';) {
+        const size_t size = strcspn(at, " ");
+        if (size == length && memcmp(at, name, size) == 0) {
+            return 1;
+        }
+        at += size + (at[size] == ' ');
+    }
+    return 0;
+}
+
 static struct filtered *make(const char *angle, int client) {
-    const size_t length = strlen(angle);
+    const char *const *added = client ? client_added : display_added;
+    const size_t count = client ? sizeof client_added / sizeof *client_added
+                                : sizeof display_added / sizeof *display_added;
+    size_t length = strlen(angle) + 1;
+    for (size_t index = 0; index < count; index++) {
+        length += strlen(added[index]) + 1;
+    }
     struct filtered *made = calloc(1, sizeof *made);
-    if (made == NULL || (made->angle = strdup(angle)) == NULL ||
-        (made->text = malloc(length + sizeof PLATFORM_ANDROID + 1)) == NULL) {
+    if (made == NULL || (made->angle = strdup(angle)) == NULL || (made->text = malloc(length)) == NULL) {
         if (made != NULL) {
             free(made->angle);
             free(made);
@@ -182,7 +206,7 @@ static struct filtered *make(const char *angle, int client) {
     }
     made->client = client;
     char *out = made->text;
-    int android = 0;
+    *out = '\0';
     for (const char *at = angle; *at != '\0';) {
         if (*at == ' ') {
             at++;
@@ -195,18 +219,19 @@ static struct filtered *make(const char *angle, int client) {
             }
             memcpy(out, at, size);
             out += size;
-            android |= size == sizeof PLATFORM_ANDROID - 1 && memcmp(at, PLATFORM_ANDROID, size) == 0;
+            *out = '\0';
         }
         at += size;
     }
-    if (client && !android) {
-        if (out != made->text) {
-            *out++ = ' ';
+    for (size_t index = 0; index < count; index++) {
+        if (!names(made->text, added[index])) {
+            if (out != made->text) {
+                *out++ = ' ';
+            }
+            strcpy(out, added[index]);
+            out += strlen(added[index]);
         }
-        memcpy(out, PLATFORM_ANDROID, sizeof PLATFORM_ANDROID - 1);
-        out += sizeof PLATFORM_ANDROID - 1;
     }
-    *out = '\0';
     return made;
 }
 

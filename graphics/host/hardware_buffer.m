@@ -354,8 +354,9 @@ static void free_buffer(void *context, uint64_t handle) {
     }
 }
 
+// The context is the table itself, by which b)'s images know a handle as theirs (image.m).
 static const struct apkrt_hardware_buffers functions = {supported, allocate, lock_buffer, unlock_buffer, free_buffer,
-                                                        NULL};
+                                                        (void *)&functions};
 
 const struct apkrt_hardware_buffers *minato_graphics_hardware_buffers(void) {
     return &functions;

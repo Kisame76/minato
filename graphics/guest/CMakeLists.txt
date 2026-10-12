@@ -134,8 +134,11 @@ target_compile_options(ahb-test PRIVATE -Wall -Wextra -Wno-nonnull -Wno-unguarde
 # finds. libGLESv1_CM adds Android's 7 *Bounds functions (bounds.c).
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
-add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/procs.c" "${gen}/egl_stubs.S"
-  "${gen}/egl_bind.c")
+add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/procs.c"
+  "${gen}/egl_stubs.S" "${gen}/egl_bind.c")
+# AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
+set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
+  COMPILE_OPTIONS -Wno-unguarded-availability)
 target_include_directories(EGL PRIVATE "${egl}" "${gen}" "${repo}/runtime/include")
 # The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
 target_link_libraries(EGL PRIVATE minato_bind nativewindow dl)
@@ -178,6 +181,10 @@ foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_te
   target_link_libraries(${program} PRIVATE EGL GLESv3 minato_bind nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# ADR-0058 b): ahb-image-test, EGL images of AHardwareBuffers, linked as an app links libEGL and libGLESv3.
+add_executable(ahb-image-test "${tests}/ahb_image_test.c")
+target_link_libraries(ahb-image-test PRIVATE EGL GLESv3 nativewindow)
+target_compile_options(ahb-image-test PRIVATE -Wall -Wextra)
 # ADR-0041 a1: gles1-front-test, linked as an app links libGLESv1_CM.
 add_executable(gles1-front-test "${tests}/gles1_front_test.c")
 target_link_libraries(gles1-front-test PRIVATE EGL GLESv1_CM)

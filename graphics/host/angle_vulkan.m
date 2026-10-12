@@ -11,13 +11,17 @@
    - the acquires and presents answer VK_SUBOPTIMAL_KHR as VK_SUCCESS, as libvulkan's swapchain.c does: MoltenVK
      answers it whenever a swapchain's extent differs from its layer's bounds times their scale, which a fixed size
      (patch 0008) always may, and ANGLE would make its swapchain again for every frame;
-   - vkCreateSwapchainKHR counts ANGLE's swapchains for the tests.
+   - vkCreateSwapchainKHR counts ANGLE's swapchains for the tests;
+   - ANGLE's instance and device are kept for the EGL images of the guest's hardware buffers (ADR-0058 b), image.m):
+     a VkImage of ANGLE's device that MoltenVK makes over the buffer's IOSurface (VK_EXT_metal_objects' import), bound
+     to dedicated memory, which ANGLE takes as an EGL_VULKAN_IMAGE_ANGLE image.
    MoltenVK's functions come from the library the "vulkan" provider names, opened once the session chose the
    Vulkan backend. */
 #include <dlfcn.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define VK_USE_PLATFORM_METAL_EXT
@@ -45,6 +49,12 @@ static PFN_vkCreateSwapchainKHR create_swapchain;
 
 static atomic_int vulkan_backend;
 static atomic_uint swapchains;
+
+/* ANGLE's instance, physical device and device, the last made; images are made on that device. */
+static pthread_mutex_t angle_lock = PTHREAD_MUTEX_INITIALIZER;
+static VkInstance angle_instance;
+static VkPhysicalDevice angle_physical;
+static VkDevice angle_device;
 
 /* Counts a call that makes MoltenVK commit; in the background it waits for the foreground first. */
 static void enter(void) {
@@ -84,7 +94,13 @@ static VkResult instance_created(const VkInstanceCreateInfo *info, const VkAlloc
     ours.enabledExtensionCount = with_name(info->ppEnabledExtensionNames, info->enabledExtensionCount,
                                            VK_EXT_LAYER_SETTINGS_EXTENSION_NAME, names);
     ours.ppEnabledExtensionNames = names;
-    return create_instance(&ours, allocator, instance);
+    const VkResult result = create_instance(&ours, allocator, instance);
+    if (result == VK_SUCCESS) {
+        pthread_mutex_lock(&angle_lock);
+        angle_instance = *instance;
+        pthread_mutex_unlock(&angle_lock);
+    }
+    return result;
 }
 
 static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
@@ -102,10 +118,19 @@ static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateIn
         destroy_device(*device, allocator);
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
+    pthread_mutex_lock(&angle_lock);
+    angle_physical = physical;
+    angle_device = *device;
+    pthread_mutex_unlock(&angle_lock);
     return VK_SUCCESS;
 }
 
 static void device_destroyed(VkDevice device, const VkAllocationCallbacks *allocator) {
+    pthread_mutex_lock(&angle_lock);
+    if (angle_device == device) {
+        angle_device = VK_NULL_HANDLE;
+    }
+    pthread_mutex_unlock(&angle_lock);
     minato_graphics_vulkan_forget_device(device);
     destroy_device(device, allocator);
 }
@@ -262,4 +287,134 @@ void *minato_graphics_angle_vulkan_loader(void) {
 
 unsigned minato_graphics_angle_vulkan_swapchains(void) {
     return atomic_load(&swapchains);
+}
+
+/* An image of a hardware buffer on ANGLE's device: the VkImage, its memory and the create info ANGLE reads. */
+struct minato_vulkan_image {
+    VkDevice device;
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageCreateInfo info;
+};
+
+static VkFormat vulkan_format(uint32_t format) {
+    switch (format) {
+        case 1:  // R8G8B8A8_UNORM
+        case 2: return VK_FORMAT_R8G8B8A8_UNORM;  // R8G8B8X8_UNORM, its alpha as in memory (image.m)
+        case 4: return VK_FORMAT_R5G6B5_UNORM_PACK16;
+        case 0x16: return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case 0x2b: return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+        case 0x38: return VK_FORMAT_R8_UNORM;
+        default: return VK_FORMAT_UNDEFINED;
+    }
+}
+
+/* The first memory type of `bits`, device-local where one is. */
+static uint32_t memory_type(VkPhysicalDevice physical, uint32_t bits) {
+    PFN_vkGetPhysicalDeviceMemoryProperties properties_of = (PFN_vkGetPhysicalDeviceMemoryProperties)instance_function(
+        angle_instance, "vkGetPhysicalDeviceMemoryProperties");
+    VkPhysicalDeviceMemoryProperties properties = {0};
+    if (properties_of != NULL) {
+        properties_of(physical, &properties);
+    }
+    uint32_t found = UINT32_MAX;
+    for (uint32_t index = 0; index < properties.memoryTypeCount; index++) {
+        if ((bits & (1u << index)) == 0) {
+            continue;
+        }
+        if ((properties.memoryTypes[index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0) {
+            return index;
+        }
+        found = found == UINT32_MAX ? index : found;
+    }
+    return found;
+}
+
+void minato_graphics_angle_vulkan_image_free(struct minato_vulkan_image *made) {
+    if (made == NULL) {
+        return;
+    }
+    PFN_vkDeviceWaitIdle wait_idle = (PFN_vkDeviceWaitIdle)device_function(made->device, "vkDeviceWaitIdle");
+    PFN_vkDestroyImage destroy_image = (PFN_vkDestroyImage)device_function(made->device, "vkDestroyImage");
+    PFN_vkFreeMemory free_memory = (PFN_vkFreeMemory)device_function(made->device, "vkFreeMemory");
+    // ANGLE's destroy does not wait for its commands that still read the image.
+    if (wait_idle != NULL) {
+        wait_idle(made->device);
+    }
+    if (destroy_image != NULL && made->image != VK_NULL_HANDLE) {
+        destroy_image(made->device, made->image, NULL);
+    }
+    if (free_memory != NULL && made->memory != VK_NULL_HANDLE) {
+        free_memory(made->device, made->memory, NULL);
+    }
+    free(made);
+}
+
+struct minato_vulkan_image *minato_graphics_angle_vulkan_image(void *surface, uint32_t format, uint32_t width,
+                                                               uint32_t height) {
+    pthread_mutex_lock(&angle_lock);
+    const VkDevice device = angle_device;
+    const VkPhysicalDevice physical = angle_physical;
+    pthread_mutex_unlock(&angle_lock);
+    const VkFormat vk_format = vulkan_format(format);
+    if (!moltenvk_opened() || device == VK_NULL_HANDLE || vk_format == VK_FORMAT_UNDEFINED) {
+        return NULL;
+    }
+    PFN_vkCreateImage create_image = (PFN_vkCreateImage)device_function(device, "vkCreateImage");
+    PFN_vkGetImageMemoryRequirements requirements_of =
+        (PFN_vkGetImageMemoryRequirements)device_function(device, "vkGetImageMemoryRequirements");
+    PFN_vkAllocateMemory allocate_memory = (PFN_vkAllocateMemory)device_function(device, "vkAllocateMemory");
+    PFN_vkBindImageMemory bind_memory = (PFN_vkBindImageMemory)device_function(device, "vkBindImageMemory");
+    struct minato_vulkan_image *made = calloc(1, sizeof *made);
+    if (made == NULL || create_image == NULL || requirements_of == NULL || allocate_memory == NULL ||
+        bind_memory == NULL) {
+        free(made);
+        return NULL;
+    }
+    made->device = device;
+    made->info = (VkImageCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = vk_format,
+        .extent = {width, height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    const VkImportMetalIOSurfaceInfoEXT import = {.sType = VK_STRUCTURE_TYPE_IMPORT_METAL_IO_SURFACE_INFO_EXT,
+                                                  .ioSurface = (IOSurfaceRef)surface};
+    VkImageCreateInfo imported = made->info;
+    imported.pNext = &import;
+    VkMemoryRequirements requirements;
+    if (create_image(device, &imported, NULL, &made->image) != VK_SUCCESS) {
+        minato_graphics_angle_vulkan_image_free(made);
+        return NULL;
+    }
+    requirements_of(device, made->image, &requirements);
+    const VkMemoryDedicatedAllocateInfo dedicated = {.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+                                                     .image = made->image};
+    const VkMemoryAllocateInfo allocation = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                                             .pNext = &dedicated,
+                                             .allocationSize = requirements.size,
+                                             .memoryTypeIndex = memory_type(physical, requirements.memoryTypeBits)};
+    if (allocation.memoryTypeIndex == UINT32_MAX ||
+        allocate_memory(device, &allocation, NULL, &made->memory) != VK_SUCCESS ||
+        bind_memory(device, made->image, made->memory, 0) != VK_SUCCESS) {
+        minato_graphics_angle_vulkan_image_free(made);
+        return NULL;
+    }
+    return made;
+}
+
+void *minato_graphics_angle_vulkan_image_buffer(struct minato_vulkan_image *made) {
+    return &made->image;
+}
+
+const void *minato_graphics_angle_vulkan_image_info(const struct minato_vulkan_image *made) {
+    return &made->info;
 }

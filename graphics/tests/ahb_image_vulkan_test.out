@@ -1,0 +1,42 @@
+EGL_ANDROID_get_native_client_buffer: 1
+EGL_ANDROID_image_native_buffer: 1
+GL_OES_EGL_image_external: 1
+eglGetNativeClientBufferANDROID(NULL): NULL, EGL_BAD_PARAMETER
+eglCreateImageKHR with a context: EGL_NO_IMAGE_KHR, EGL_BAD_CONTEXT
+eglCreateImageKHR without a buffer: EGL_NO_IMAGE_KHR, EGL_BAD_PARAMETER
+eglCreateImageKHR: an image, EGL_SUCCESS
+RGBA8 through samplerExternalOES, ESSL 1: bound 0x0, draw 0x0
+  row 0: 0000c8ff 5000c8ef a000c8df f000c8cf
+  row 1: 0050c8ff 5050c8ef a050c8df f050c8cf
+  row 2: 00a0c8ff 50a0c8ef a0a0c8df f0a0c8cf
+  row 3: 00f0c8ff 50f0c8ef a0f0c8df f0f0c8cf
+RGBA8 through samplerExternalOES, ESSL 3: bound 0x0, draw 0x0
+  row 0: 0000c8ff 5000c8ef a000c8df f000c8cf
+  row 1: 0050c8ff 5050c8ef a050c8df f050c8cf
+  row 2: 00a0c8ff 50a0c8ef a0a0c8df f0a0c8cf
+  row 3: 00f0c8ff 50f0c8ef a0f0c8df f0f0c8cf
+RGBA8 through sampler2D: bound 0x0, draw 0x0
+  row 0: 0000c8ff 5000c8ef a000c8df f000c8cf
+  row 1: 0050c8ff 5050c8ef a050c8df f050c8cf
+  row 2: 00a0c8ff 50a0c8ef a0a0c8df f0a0c8cf
+  row 3: 00f0c8ff 50f0c8ef a0f0c8df f0f0c8cf
+RGBA8 after the CPU's write: bound 0x0, draw 0x0
+  row 0: 11223344 5000c8ef a000c8df f000c8cf
+  row 1: 0050c8ff 5050c8ef a050c8df f050c8cf
+  row 2: 00a0c8ff 50a0c8ef a0a0c8df f0a0c8cf
+  row 3: 00f0c8ff 50f0c8ef a0f0c8df f0f0c8cf
+eglDestroyImageKHR: 1
+eglDestroyImageKHR again: 0, EGL_BAD_PARAMETER
+RGBX8 through samplerExternalOES: bound 0x0, draw 0x0
+  row 0: 0000c807 5000c807 a000c807 f000c807
+  row 1: 0050c807 5050c807 a050c807 f050c807
+  row 2: 00a0c807 50a0c807 a0a0c807 f0a0c807
+  row 3: 00f0c807 50f0c807 a0f0c807 f0f0c807
+RGB565 through samplerExternalOES: bound 0x0, draw 0x0
+  row 0: 000000ff ff0000ff 0000ffff ff00ffff
+  row 1: 00ff00ff ffff00ff 00ffffff ffffffff
+  row 2: 000000ff ff0000ff 0000ffff ff00ffff
+  row 3: 00ff00ff ffff00ff 00ffffff ffffffff
+renderbuffer: complete 1
+drawn by the GPU: 10203040, last 10203040
+done
