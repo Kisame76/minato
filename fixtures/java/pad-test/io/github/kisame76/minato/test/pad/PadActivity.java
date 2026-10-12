@@ -16,7 +16,14 @@ import com.google.android.play.core.assetpacks.AssetPackStates;
 import com.google.android.play.core.assetpacks.model.AssetPackErrorCode;
 import com.google.android.play.core.assetpacks.model.AssetPackStatus;
 import com.google.android.play.core.assetpacks.model.AssetPackStorageMethod;
+import com.google.android.play.core.splitinstall.SplitInstallException;
+import com.google.android.play.core.splitinstall.SplitInstallManager;
 import com.google.android.play.core.splitinstall.SplitInstallManagerFactory;
+import com.google.android.play.core.splitinstall.SplitInstallRequest;
+import com.google.android.play.core.splitinstall.SplitInstallSessionState;
+import com.google.android.play.core.splitinstall.SplitInstallStateUpdatedListener;
+import com.google.android.play.core.splitinstall.model.SplitInstallErrorCode;
+import com.google.android.play.core.splitinstall.model.SplitInstallSessionStatus;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -37,7 +44,9 @@ import java.util.TreeSet;
  * library reports, in an order the threads do not change: the app's folders, each pack's state and location before,
  * then per pack what its fetch's task gives, whether the states the listener saw came in their order without an error
  * and the last one, its location and its one asset's text; then each pack's state after, a fetch of a pack the app
- * does not have, the locations of all packs, the modules feature-delivery counts installed, and "done". Which states
+ * does not have, the locations of all packs, the modules feature-delivery counts installed, what asking it to install
+ * the on-demand feature module "extra" gives (ADR-0050 c2: the request's task, the session's states and the modules
+ * installed after, whether the module's class loads), and "done". Which states
  * between the first and the last the listener sees differs from run to run on Android 15 too, so they, and a
  * failure's stack, have the tag pad-test-device and are only shown; a failure logs its class and the library's error
  * code.
@@ -174,11 +183,151 @@ public class PadActivity extends Activity {
             mManager.fetch(Collections.singletonList("nopack")).addOnCompleteListener(missing -> step("nopack", () -> {
                 Log.i(TAG, "nopack fetch: " + states(missing, "nopack"));
                 Log.i(TAG, "locations " + new TreeSet<>(mManager.getPackLocations().keySet()));
-                Log.i(TAG, "installed modules "
-                        + new TreeSet<>(SplitInstallManagerFactory.create(getApplicationContext()).getInstalledModules()));
-                done();
+                SplitInstallManager modules = SplitInstallManagerFactory.create(getApplicationContext());
+                Log.i(TAG, "installed modules " + new TreeSet<>(modules.getInstalledModules()));
+                install(modules);
             }));
         }));
+    }
+
+    /** The sessions' statuses and error codes the listener saw for the module, each once in a row. */
+    private final List<int[]> mModuleStates = new ArrayList<>();
+    private SplitInstallManager mModules;
+    private boolean mModuleEnded;
+    private String mRequest;
+
+    private void install(SplitInstallManager modules) {
+        mModules = modules;
+        SplitInstallStateUpdatedListener listener = state -> mHandler.post(() -> step("onModuleState", () ->
+                moduleUpdate(state)));
+        modules.registerListener(listener);
+        mHandler.postDelayed(() -> step("moduleTimeout", () -> {
+            Log.i(TAG, "extra timeout: request " + mRequest + ", states " + moduleSeen());
+            moduleEnd();
+        }), TIMEOUT_MS);
+        modules.startInstall(SplitInstallRequest.newBuilder().addModule("extra").build())
+                .addOnCompleteListener(task -> step("startInstall", () -> {
+                    mRequest = task.isSuccessful() ? "started" : "failed, " + moduleFailure(task.getException());
+                    moduleEnded();
+                }));
+    }
+
+    private void moduleUpdate(SplitInstallSessionState state) {
+        int[] entry = {state.status(), state.errorCode()};
+        if (mModuleStates.isEmpty() || !Arrays.equals(mModuleStates.get(mModuleStates.size() - 1), entry)) {
+            mModuleStates.add(entry);
+        }
+        if (moduleLast(state.status())) {
+            mModuleEnded = true;
+            moduleEnded();
+        }
+    }
+
+    /** Logs the module's install once the request's task has given its result and the listener a last status. */
+    private void moduleEnded() {
+        if (mRequest == null || !mModuleEnded && !mRequest.startsWith("failed")) {
+            return;
+        }
+        moduleEnd();
+    }
+
+    private void moduleEnd() {
+        if (mDone) {
+            return;
+        }
+        Log.i(TAG, "extra request: " + mRequest);
+        Log.i(TAG, "extra states: " + moduleOrder());
+        Log.i(TAG + "-device", "extra states: " + moduleSeen());
+        Log.i(TAG, "installed modules after " + new TreeSet<>(mModules.getInstalledModules()));
+        try {
+            Class<?> type = Class.forName("io.github.kisame76.minato.test.pad.extra.ExtraClass");
+            Log.i(TAG, "extra class: " + type.getMethod("answer").invoke(null));
+        } catch (Throwable t) {
+            Log.i(TAG, "extra class: " + t.getClass().getName());
+        }
+        done();
+    }
+
+    private static boolean moduleLast(int status) {
+        switch (status) {
+            case SplitInstallSessionStatus.INSTALLED:
+            case SplitInstallSessionStatus.FAILED:
+            case SplitInstallSessionStatus.CANCELED:
+            case SplitInstallSessionStatus.REQUIRES_USER_CONFIRMATION:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String moduleSeen() {
+        List<String> seen = new ArrayList<>();
+        for (int[] state : mModuleStates) {
+            seen.add(moduleStatus(state[0]) + " " + moduleError(state[1]));
+        }
+        return seen.toString();
+    }
+
+    /** As order() does for a pack: whether the statuses came in order, an error among them, and the last one. */
+    private String moduleOrder() {
+        if (mModuleStates.isEmpty()) {
+            return "none";
+        }
+        boolean inOrder = true;
+        boolean errors = false;
+        for (int i = 0; i < mModuleStates.size(); i++) {
+            inOrder &= i == 0 || mModuleStates.get(i)[0] >= mModuleStates.get(i - 1)[0];
+            errors |= mModuleStates.get(i)[1] != SplitInstallErrorCode.NO_ERROR;
+        }
+        int[] last = mModuleStates.get(mModuleStates.size() - 1);
+        return "in order " + inOrder + ", an error " + errors + ", last status " + moduleStatus(last[0])
+                + ", errorCode " + moduleError(last[1]);
+    }
+
+    private static String moduleFailure(Throwable t) {
+        if (t instanceof SplitInstallException) {
+            return "SplitInstallException " + moduleError(((SplitInstallException) t).getErrorCode());
+        }
+        return t == null ? "no exception" : t.getClass().getName();
+    }
+
+    private static String moduleStatus(int status) {
+        switch (status) {
+            case SplitInstallSessionStatus.UNKNOWN: return "UNKNOWN";
+            case SplitInstallSessionStatus.PENDING: return "PENDING";
+            case SplitInstallSessionStatus.REQUIRES_USER_CONFIRMATION: return "REQUIRES_USER_CONFIRMATION";
+            case SplitInstallSessionStatus.DOWNLOADING: return "DOWNLOADING";
+            case SplitInstallSessionStatus.DOWNLOADED: return "DOWNLOADED";
+            case SplitInstallSessionStatus.INSTALLING: return "INSTALLING";
+            case SplitInstallSessionStatus.INSTALLED: return "INSTALLED";
+            case SplitInstallSessionStatus.FAILED: return "FAILED";
+            case SplitInstallSessionStatus.CANCELING: return "CANCELING";
+            case SplitInstallSessionStatus.CANCELED: return "CANCELED";
+            default: return String.valueOf(status);
+        }
+    }
+
+    private static String moduleError(int code) {
+        switch (code) {
+            case SplitInstallErrorCode.NO_ERROR: return "NO_ERROR";
+            case SplitInstallErrorCode.ACTIVE_SESSIONS_LIMIT_EXCEEDED: return "ACTIVE_SESSIONS_LIMIT_EXCEEDED";
+            case SplitInstallErrorCode.MODULE_UNAVAILABLE: return "MODULE_UNAVAILABLE";
+            case SplitInstallErrorCode.INVALID_REQUEST: return "INVALID_REQUEST";
+            case SplitInstallErrorCode.SESSION_NOT_FOUND: return "SESSION_NOT_FOUND";
+            case SplitInstallErrorCode.API_NOT_AVAILABLE: return "API_NOT_AVAILABLE";
+            case SplitInstallErrorCode.NETWORK_ERROR: return "NETWORK_ERROR";
+            case SplitInstallErrorCode.ACCESS_DENIED: return "ACCESS_DENIED";
+            case SplitInstallErrorCode.INCOMPATIBLE_WITH_EXISTING_SESSION: return "INCOMPATIBLE_WITH_EXISTING_SESSION";
+            case SplitInstallErrorCode.SERVICE_DIED: return "SERVICE_DIED";
+            case SplitInstallErrorCode.INSUFFICIENT_STORAGE: return "INSUFFICIENT_STORAGE";
+            case SplitInstallErrorCode.SPLITCOMPAT_VERIFICATION_ERROR: return "SPLITCOMPAT_VERIFICATION_ERROR";
+            case SplitInstallErrorCode.SPLITCOMPAT_EMULATION_ERROR: return "SPLITCOMPAT_EMULATION_ERROR";
+            case SplitInstallErrorCode.SPLITCOMPAT_COPY_ERROR: return "SPLITCOMPAT_COPY_ERROR";
+            case SplitInstallErrorCode.PLAY_STORE_NOT_FOUND: return "PLAY_STORE_NOT_FOUND";
+            case SplitInstallErrorCode.APP_NOT_OWNED: return "APP_NOT_OWNED";
+            case SplitInstallErrorCode.INTERNAL_ERROR: return "INTERNAL_ERROR";
+            default: return String.valueOf(code);
+        }
     }
 
     private void done() {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pad-test's on-demand feature module (ADR-0050 c2), delivered by feature-delivery's local-testing path. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:dist="http://schemas.android.com/apk/distribution"
+    package="io.github.kisame76.minato.test.pad" android:versionCode="1" split="extra">
+  <dist:module dist:title="@string/title_extra">
+    <dist:fusing dist:include="true"/>
+    <dist:delivery><dist:on-demand/></dist:delivery>
+  </dist:module>
+  <application android:hasCode="true"/>
+</manifest>

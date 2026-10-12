@@ -16,4 +16,8 @@ I/pad-test: ondemand after: status COMPLETED, errorCode NO_ERROR
 I/pad-test: nopack fetch: failed, com.google.android.play.core.common.LocalTestingException
 I/pad-test: locations [fastfollow, ondemand]
 I/pad-test: installed modules []
+I/pad-test: extra request: started
+I/pad-test: extra states: in order true, an error false, last status INSTALLED, errorCode NO_ERROR
+I/pad-test: installed modules after [extra]
+I/pad-test: extra class: java.lang.ClassNotFoundException
 I/pad-test: done
