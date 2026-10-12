@@ -98,6 +98,7 @@ for patch in framework/patches/*.patch; do
   original="$SOURCES/frameworks_base/$target"
   [[ "$target" == graphics/* ]] && original="$SOURCES/frameworks_base_graphics/$target"
   [[ "$target" == media/* ]] && original="$SOURCES/frameworks_base_types/$target"
+  [[ "$target" == rs/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
   rm "$copy"
   patch --quiet -o "$copy" "$original" "$patch"

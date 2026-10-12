@@ -1792,6 +1792,70 @@ frameworks_base_graphics/graphics/java/android/graphics/pdf/PdfDocument.java
 frameworks_base/core/java/android/print/pdf/PrintedPdfDocument.java
 frameworks_base/core/java/android/hardware/camera2/CameraDevice.java
 frameworks_base/core/java/android/util/Range.java
+# The gap sort's category 2, part 3 (Grafik), webview-camera-test: android.renderscript, without a driver
+# (framework/patches/renderscript-without-a-driver.patch: create throws RSRuntimeException, a named departure);
+# RSTextureView waits for TextureView.
+frameworks_base_types/rs/java/android/renderscript/Allocation.java
+frameworks_base_types/rs/java/android/renderscript/AllocationAdapter.java
+frameworks_base_types/rs/java/android/renderscript/BaseObj.java
+frameworks_base_types/rs/java/android/renderscript/Byte2.java
+frameworks_base_types/rs/java/android/renderscript/Byte3.java
+frameworks_base_types/rs/java/android/renderscript/Byte4.java
+frameworks_base_types/rs/java/android/renderscript/Double2.java
+frameworks_base_types/rs/java/android/renderscript/Double3.java
+frameworks_base_types/rs/java/android/renderscript/Double4.java
+frameworks_base_types/rs/java/android/renderscript/Element.java
+frameworks_base_types/rs/java/android/renderscript/FieldPacker.java
+frameworks_base_types/rs/java/android/renderscript/FileA3D.java
+frameworks_base_types/rs/java/android/renderscript/Float2.java
+frameworks_base_types/rs/java/android/renderscript/Float3.java
+frameworks_base_types/rs/java/android/renderscript/Float4.java
+frameworks_base_types/rs/java/android/renderscript/Font.java
+frameworks_base_types/rs/java/android/renderscript/Int2.java
+frameworks_base_types/rs/java/android/renderscript/Int3.java
+frameworks_base_types/rs/java/android/renderscript/Int4.java
+frameworks_base_types/rs/java/android/renderscript/Long2.java
+frameworks_base_types/rs/java/android/renderscript/Long3.java
+frameworks_base_types/rs/java/android/renderscript/Long4.java
+frameworks_base_types/rs/java/android/renderscript/Matrix2f.java
+frameworks_base_types/rs/java/android/renderscript/Matrix3f.java
+frameworks_base_types/rs/java/android/renderscript/Matrix4f.java
+frameworks_base_types/rs/java/android/renderscript/Mesh.java
+frameworks_base_types/rs/java/android/renderscript/Program.java
+frameworks_base_types/rs/java/android/renderscript/ProgramFragment.java
+frameworks_base_types/rs/java/android/renderscript/ProgramFragmentFixedFunction.java
+frameworks_base_types/rs/java/android/renderscript/ProgramRaster.java
+frameworks_base_types/rs/java/android/renderscript/ProgramStore.java
+frameworks_base_types/rs/java/android/renderscript/ProgramVertex.java
+frameworks_base_types/rs/java/android/renderscript/ProgramVertexFixedFunction.java
+frameworks_base_types/rs/java/android/renderscript/RSDriverException.java
+frameworks_base_types/rs/java/android/renderscript/RSIllegalArgumentException.java
+frameworks_base_types/rs/java/android/renderscript/RSInvalidStateException.java
+frameworks_base_types/rs/java/android/renderscript/RSRuntimeException.java
+frameworks_base_types/rs/java/android/renderscript/RSSurfaceView.java
+frameworks_base_types/rs/java/android/renderscript/RenderScript.java
+frameworks_base_types/rs/java/android/renderscript/RenderScriptCacheDir.java
+frameworks_base_types/rs/java/android/renderscript/RenderScriptGL.java
+frameworks_base_types/rs/java/android/renderscript/Sampler.java
+frameworks_base_types/rs/java/android/renderscript/Script.java
+frameworks_base_types/rs/java/android/renderscript/ScriptC.java
+frameworks_base_types/rs/java/android/renderscript/ScriptGroup.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsic.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsic3DLUT.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicBLAS.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicBlend.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicBlur.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicColorMatrix.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicConvolve3x3.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicConvolve5x5.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicHistogram.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicLUT.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicResize.java
+frameworks_base_types/rs/java/android/renderscript/ScriptIntrinsicYuvToRGB.java
+frameworks_base_types/rs/java/android/renderscript/Short2.java
+frameworks_base_types/rs/java/android/renderscript/Short3.java
+frameworks_base_types/rs/java/android/renderscript/Short4.java
+frameworks_base_types/rs/java/android/renderscript/Type.java
 
 # android.media's data classes that AudioTrack's, MediaExtractor's and MediaCodecList's members name (the Unity test APK gap
 # sort, Formate's category 3m): audio presentations, the metadata map, DRM init data and the media metrics' session

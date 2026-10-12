@@ -1,0 +1,68 @@
+Minato's patch to frameworks/base's rs/java/android/renderscript/RenderScript.java at android-15.0.0_r1
+(Apache-2.0), the Unity test APK gap sort's category 2: RenderScript.create throws RSRuntimeException, a named departure.
+
+Why: Android 15 still runs RenderScript on its CPU driver (libRS with libRSCpuRef, through librs_jni), and Minato
+builds neither, so the static init would fail to load rs_jni and throw RSRuntimeException out of <clinit>: an app
+gets ExceptionInInitializerError, which no catch of RSRuntimeException takes, and every later use of the class
+NoClassDefFoundError. The off switch config.disable_renderscript has create() return null instead, and an app then
+crashes with a NullPointerException. So the static init loads nothing, and every create (through internalCreate)
+logs once through Unwritten and throws RSRuntimeException, which blur libraries and apps catch before they fall back
+to Java. Code that does not catch it still breaks, where it works on Android.
+
+--- a/rs/java/android/renderscript/RenderScript.java
++++ b/rs/java/android/renderscript/RenderScript.java
+@@ -25,6 +25,8 @@
+ import android.os.Trace;
+ import android.util.Log;
+ import android.view.Surface;
++
++import com.android.minato.services.Unwritten;
+ 
+ import java.io.File;
+ import java.lang.reflect.Method;
+@@ -112,30 +114,10 @@
+     @UnsupportedAppUsage
+     static int sPointerSize;
+ 
++    // Minato: no RenderScript driver (neither librs_jni nor libRS is built), so nothing loads here and
++    // internalCreate refuses every context.
+     static {
+         sInitialized = false;
+-        if (!SystemProperties.getBoolean("config.disable_renderscript", false)) {
+-            try {
+-                Class<?> vm_runtime = Class.forName("dalvik.system.VMRuntime");
+-                Method get_runtime = vm_runtime.getDeclaredMethod("getRuntime");
+-                sRuntime = get_runtime.invoke(null);
+-                registerNativeAllocation =
+-                        vm_runtime.getDeclaredMethod("registerNativeAllocation", Long.TYPE);
+-                registerNativeFree = vm_runtime.getDeclaredMethod("registerNativeFree", Long.TYPE);
+-            } catch (Exception e) {
+-                Log.e(LOG_TAG, "Error loading GC methods: " + e);
+-                throw new RSRuntimeException("Error loading GC methods: " + e);
+-            }
+-            try {
+-                System.loadLibrary("rs_jni");
+-                _nInit();
+-                sInitialized = true;
+-                sPointerSize = rsnSystemGetPointerSize();
+-            } catch (UnsatisfiedLinkError e) {
+-                Log.e(LOG_TAG, "Error loading RS jni library: " + e);
+-                throw new RSRuntimeException("Error loading RS jni library: " + e);
+-            }
+-        }
+     }
+ 
+     // Non-threadsafe functions.
+@@ -1408,8 +1390,10 @@
+      */
+     private static RenderScript internalCreate(Context ctx, int sdkVersion, ContextType ct, int flags) {
+         if (!sInitialized) {
+-            Log.e(LOG_TAG, "RenderScript.create() called when disabled; someone is likely to crash");
+-            return null;
++            // Minato: RSRuntimeException, which an app's fallback catches, where Android 15 runs RenderScript on
++            // its CPU driver (a named departure, docs/DECISIONS.md).
++            Unwritten.log("android.renderscript.RenderScript.create(Context) without a RenderScript driver", null);
++            throw new RSRuntimeException("RenderScript is not available on this device");
+         }
+ 
+         if ((flags & ~(CREATE_FLAG_LOW_LATENCY | CREATE_FLAG_LOW_POWER |

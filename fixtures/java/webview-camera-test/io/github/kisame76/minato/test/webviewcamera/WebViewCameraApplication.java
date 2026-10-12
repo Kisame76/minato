@@ -30,6 +30,12 @@ import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.print.PrintJob;
 import android.print.pdf.PrintedPdfDocument;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RSRuntimeException;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicBlur;
+import android.renderscript.Type;
 import android.net.Uri;
 import android.util.Log;
 import android.webkit.ClientCertRequest;
@@ -67,6 +73,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringBufferInputStream;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -78,13 +85,15 @@ import java.util.concurrent.Callable;
  * WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'
  * enums, the WebView class, the rest of android.webkit's public types (category 1 of the gap sort), and the camera
  * count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area; then camera2's and android.print's plain types and
- * ShapeDrawable (category 1, package 2); then camera2's CameraManager, Movie with a GIF of two frames, PdfDocument and
- * PrintedPdfDocument (category 2).
+ * ShapeDrawable (category 1, package 2); then camera2's CameraManager, Movie with a GIF of two frames, PdfDocument,
+ * PrintedPdfDocument and RenderScript's types (category 2).
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
  * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
- * and no package). Only public API, as an app has it on Android. It logs with the tag webview-camera-test and ends with
- * "done"; tools/android-reference.sh compares it with fixtures/expected/webview-camera-test.logcat.
+ * and no package). So do RenderScript.create and a blur through it with an app's fallback: the AVD runs RenderScript
+ * on its CPU driver, and Minato has none (its create throws RSRuntimeException). Only public API, as an app has it on
+ * Android. It logs with the tag webview-camera-test and ends with "done"; tools/android-reference.sh compares it with
+ * fixtures/expected/webview-camera-test.logcat.
  */
 public class WebViewCameraApplication extends Application {
     private static final String TAG = "webview-camera-test";
@@ -104,6 +113,7 @@ public class WebViewCameraApplication extends Application {
         cameraManager();
         movie();
         pdf();
+        renderScript();
         provider();
         Log.i(TAG, "done");
     }
@@ -466,6 +476,69 @@ public class WebViewCameraApplication extends Application {
         }));
     }
 
+    /** android.renderscript's types, which need no context (gap sort, category 2). */
+    private static void renderScript() {
+        StringBuilder types = new StringBuilder();
+        for (Class<?> type : new Class<?>[] {RenderScript.class, Allocation.class, Element.class, Type.class,
+                ScriptIntrinsicBlur.class, RSRuntimeException.class, Allocation.MipmapControl.class,
+                RenderScript.RSMessageHandler.class}) {
+            types.append(types.length() == 0 ? "" : ", ").append(type.getSimpleName()).append(" < ")
+                    .append(type.getSuperclass().getSimpleName());
+        }
+        Log.i(TAG, "RenderScript types: " + types);
+        Log.i(TAG, "Allocation.MipmapControl: " + Arrays.toString(Allocation.MipmapControl.values())
+                + ", usages " + Allocation.USAGE_SCRIPT + " " + Allocation.USAGE_GRAPHICS_TEXTURE + " "
+                + Allocation.USAGE_IO_INPUT + " " + Allocation.USAGE_SHARED);
+        Log.i(TAG, "RenderScript.ContextType: " + Arrays.toString(RenderScript.ContextType.values()) + ", flags "
+                + RenderScript.CREATE_FLAG_NONE + " " + RenderScript.CREATE_FLAG_LOW_LATENCY + " "
+                + RenderScript.CREATE_FLAG_LOW_POWER);
+        Log.i(TAG, "Element.DataType: " + Element.DataType.values().length + " values, "
+                + Element.DataType.UNSIGNED_8 + " " + Element.DataKind.PIXEL_RGBA);
+        RSRuntimeException exception = new RSRuntimeException("message");
+        Log.i(TAG, "RSRuntimeException: " + exception.getMessage() + ", a RuntimeException "
+                + (exception instanceof RuntimeException));
+        RenderScript.RSMessageHandler handler = new RenderScript.RSMessageHandler() {
+            @Override
+            public void run() {
+                Log.i(TAG, "RSMessageHandler: run");
+            }
+        };
+        handler.run();
+        Log.i(TAG, "Element.U8_4(null): " + outcome(() -> Element.U8_4(null)));
+    }
+
+    /** RenderScript.create and a blur through it, with the fallback an app has for RSRuntimeException. */
+    private void renderScriptContext() {
+        Log.i(DEVICE_TAG, "RenderScript.create: " + outcome(() -> {
+            RenderScript rs = RenderScript.create(this);
+            String made = rs == null ? null : rs.getClass().getName();
+            if (rs != null) {
+                rs.destroy();
+            }
+            return made;
+        }));
+        Bitmap bitmap = Bitmap.createBitmap(5, 5, Bitmap.Config.ARGB_8888);
+        bitmap.setPixel(2, 2, 0xffffffff);
+        String blurred;
+        try {
+            RenderScript rs = RenderScript.create(this);
+            ScriptIntrinsicBlur blur = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
+            Allocation in = Allocation.createFromBitmap(rs, bitmap, Allocation.MipmapControl.MIPMAP_NONE,
+                    Allocation.USAGE_SCRIPT);
+            Allocation out = Allocation.createTyped(rs, in.getType());
+            blur.setRadius(1);
+            blur.setInput(in);
+            blur.forEach(out);
+            out.copyTo(bitmap);
+            rs.destroy();
+            blurred = "the centre " + Integer.toHexString(bitmap.getPixel(2, 2)) + ", its neighbour "
+                    + Integer.toHexString(bitmap.getPixel(1, 2));
+        } catch (RSRuntimeException e) {
+            blurred = "RSRuntimeException, the app's fallback";
+        }
+        Log.i(DEVICE_TAG, "RenderScript blur: " + blurred);
+    }
+
     private void provider() {
         Log.i(DEVICE_TAG, "the webview feature: "
                 + getPackageManager().hasSystemFeature(PackageManager.FEATURE_WEBVIEW));
@@ -481,5 +554,6 @@ public class WebViewCameraApplication extends Application {
             PackageInfo info = WebView.getCurrentWebViewPackage();
             return info == null ? null : "a package";
         }));
+        renderScriptContext();
     }
 }

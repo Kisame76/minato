@@ -70,4 +70,11 @@ I/webview-camera-test: Movie of no GIF: null
 I/webview-camera-test: PdfDocument: canvas 80 x 180, 2 pages, the first 100 x 200 content [10,10][90,190], header %PDF-1.4, pages 2, ends with %%EOF true, after close: java.lang.IllegalStateException: document is closed!
 I/webview-camera-test: PdfDocument refusals: java.lang.IllegalArgumentException: page width must be positive; java.lang.IllegalArgumentException: pageNumber must be non negative
 I/webview-camera-test: PrintedPdfDocument: 595 x 841, content [0,0][595,841], page 0, header %PDF-1.4, pages 1, ends with %%EOF true
+I/webview-camera-test: RenderScript types: RenderScript < Object, Allocation < BaseObj, Element < BaseObj, Type < BaseObj, ScriptIntrinsicBlur < ScriptIntrinsic, RSRuntimeException < RuntimeException, MipmapControl < Enum, RSMessageHandler < Object
+I/webview-camera-test: Allocation.MipmapControl: [MIPMAP_NONE, MIPMAP_FULL, MIPMAP_ON_SYNC_TO_TEXTURE], usages 1 2 32 128
+I/webview-camera-test: RenderScript.ContextType: [NORMAL, DEBUG, PROFILE], flags 0 2 4
+I/webview-camera-test: Element.DataType: 30 values, UNSIGNED_8 PIXEL_RGBA
+I/webview-camera-test: RSRuntimeException: message, a RuntimeException true
+I/webview-camera-test: RSMessageHandler: run
+I/webview-camera-test: Element.U8_4(null): java.lang.NullPointerException: Attempt to read from field 'android.renderscript.Element android.renderscript.RenderScript.mElement_UCHAR_4' on a null object reference in method 'android.renderscript.Element android.renderscript.Element.U8_4(android.renderscript.RenderScript)'
 I/webview-camera-test: done
