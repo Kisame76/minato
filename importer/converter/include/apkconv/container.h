@@ -77,6 +77,10 @@ struct PageLayout {
 /// The layout of `file`. Throws Incompatible with the reason when no shift fits it.
 PageLayout page_layout(const elf::File &file);
 
+/// The reason for refusing a file whose x18 `uses` no island handles (at least one), for Incompatible: one use with
+/// its address, or every reason with its count and first addresses, so that one refusal names all a library needs.
+std::string x18_refusal(std::span<const rewrite::Unsupported> uses);
+
 /// Converts `elf`. Throws Incompatible, or elf::FormatError when the file is broken.
 Container convert(std::span<const std::byte> elf, const Options &options);
 

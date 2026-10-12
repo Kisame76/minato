@@ -817,6 +817,18 @@ TEST(refuses_what_cannot_run) {
     // A jump table whose table lies in code: the rewriter could have changed it as an instruction.
     CHECK_THROWS(Incompatible, convert(jump_table_program(shf_alloc | shf_execinstr)),
                  "x18 at 0x21c cannot run on iOS: it is a register branch whose table is not in read-only data");
+    // More than one use: every reason with its count and its first addresses, the most common first, so that one
+    // refusal names all that a library still needs.
+    auto many = static_program();
+    many.put<std::uint32_t>(0x204, 0x4832'7c82);  // casp x18, x19, x2, x3, [x4]
+    many.put<std::uint32_t>(0x208, 0x4832'7c82);
+    for (const std::uint32_t at : {0x20cu, 0x210u, 0x214u, 0x218u}) {
+        many.put<std::uint32_t>(at, 0x9100'025f);  // mov sp, x18
+    }
+    CHECK_THROWS(Incompatible, convert(many),
+                 "x18 cannot run on iOS in 6 places: 4 where it moves the stack pointer, below which the island keeps "
+                 "its registers (0x20c, 0x210, 0x214 and 1 more); 2 where x18 has no register field of its own in it "
+                 "(0x204 and 0x208)");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");
     CHECK_THROWS(Incompatible, convert(static_program(0x9000)), "outside");

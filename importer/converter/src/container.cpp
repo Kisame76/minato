@@ -422,6 +422,31 @@ PageLayout page_layout(const elf::File &file) {
     return layout;
 }
 
+std::string x18_refusal(std::span<const rewrite::Unsupported> uses) {
+    if (uses.size() == 1) return std::format("x18 at {:#x} cannot run on iOS: {}", uses[0].address, uses[0].reason);
+    // One class per reason, the most common first, then the one met first; the first three addresses the scan met.
+    std::vector<std::pair<std::string_view, std::vector<std::uint64_t>>> classes;
+    for (const auto &use : uses) {
+        auto known = std::ranges::find(classes, std::string_view(use.reason), &decltype(classes)::value_type::first);
+        if (known == classes.end()) known = classes.insert(classes.end(), {use.reason, {}});
+        known->second.push_back(use.address);
+    }
+    std::ranges::stable_sort(classes, std::ranges::greater{}, [](const auto &c) { return c.second.size(); });
+    constexpr std::size_t shown = 3;
+    std::string text = std::format("x18 cannot run on iOS in {} places", uses.size());
+    for (std::size_t i = 0; i < classes.size(); ++i) {
+        const auto &[reason, addresses] = classes[i];
+        text += std::format("{} {} where {} (", i == 0 ? ":" : ";", addresses.size(), reason);
+        for (std::size_t k = 0; k < addresses.size() && k < shown; ++k) {
+            const bool last = k + 1 == addresses.size();
+            text += std::format("{}{:#x}", k == 0 ? "" : last ? " and " : ", ", addresses[k]);
+        }
+        if (addresses.size() > shown) text += std::format(" and {} more", addresses.size() - shown);
+        text += ')';
+    }
+    return text;
+}
+
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
     const auto file = elf::read(elf_bytes);
     if (file.machine != elf::machine_aarch64) {
@@ -478,13 +503,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     }
     // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
     // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
-    if (!findings.x18_unsupported.empty()) {
-        const auto more = findings.x18_unsupported.size() - 1;
-        const auto &first = findings.x18_unsupported.front();
-        throw Incompatible(std::format(
-            "x18 at {:#x} cannot run on iOS: {}{}", first.address, first.reason,
-            more == 0 ? "" : std::format(" (and {} more x18 use{} no island handles)", more, more == 1 ? "" : "s")));
-    }
+    if (!findings.x18_unsupported.empty()) throw Incompatible(x18_refusal(findings.x18_unsupported));
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 

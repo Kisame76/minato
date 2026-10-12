@@ -465,12 +465,13 @@ TEST(an_exclusive_window_that_cannot_run_again_is_refused) {
         {ref_x18_window_exit, ref_x18_window_input, "a branch leaves it"},
         {ref_x18_window_input, ref_x18_window_flags, "it writes a register it reads first"},
         {ref_x18_window_flags, ref_x18_window_memory, "it reads the flags before it sets them"},
-        {ref_x18_window_memory, ref_x18_window_syscall, other},
+        {ref_x18_window_memory, ref_x18_window_syscall, "it holds a memory access, which would run again"},
         {ref_x18_window_syscall, ref_x18_window_simd, other},
         {ref_x18_window_simd, ref_x18_window_exit_next, other},
         {ref_x18_window_exit_next, ref_x18_window_base, "a branch leaves it"},
         {ref_x18_window_base, ref_x18_window_call, "it writes a register it reads first"},
-        {ref_x18_window_call, ref_x18_window_flags_read, other},
+        {ref_x18_window_call, ref_x18_window_flags_read,
+         "it holds a call, whose return address would point into the island"},
     };
     for (const auto &c : cases) {
         const auto findings = scan_words(c.begin, c.end, 0x10000);
@@ -531,7 +532,86 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
     };
     const auto findings = scan_words(code, code + 5, 0x4000);
     CHECK(findings.exclusive_regions.empty());
-    CHECK(!findings.x18_unsupported.empty());
+    CHECK(findings.x18_unsupported.size() == 2);  // the add and the stlxr
+    for (const auto &use : findings.x18_unsupported) {
+        CHECK(std::string_view(use.reason) == "it lies in an exclusive window into which a branch from outside leads");
+    }
+}
+
+// Each window that is not relocated says why, so that one refusal names every cause at once.
+TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
+    std::vector<std::uint32_t> far{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
+    far.insert(far.end(), 31, 0xd503'201f);                    // nop
+    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 33 words after the ldxr
+    const std::uint32_t open[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1
+        0xd503'201f,  // nop
+        0x9100'0652,  // add x18, x18, #1: the code ends, no close
+    };
+    auto late = far;
+    late.back() = 0xc85f'7c62;  // ldxr x2, [x3] where the stxr was: past the 32 words, so the cause is the distance
+    const std::uint32_t nested[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1
+        0xc85f'7c62,  // ldxr x2, [x3]
+        0xc804'7c62,  // stxr w4, x2, [x3]
+    };
+    const std::uint32_t stack[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'43ff,  // add sp, sp, #16
+        0x9100'0432,  // add x18, x1, #1
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const std::uint32_t crowded[] = {
+        0xc85f'7c20,  // ldxr x0, [x1]
+        0x8b04'0062, 0x8b07'00c5, 0x8b0a'0128, 0x8b0d'018b,  // add x2, x3, x4 ... add x11, x12, x13
+        0x8b10'01ee, 0x8b14'0271, 0x8b17'02d5, 0x8b1a'0338,  // add x14, x15, x16 ... add x24, x25, x26
+        0x8b12'039b,  // add x27, x28, x18
+        0xc802'7c32,  // stxr w2, x18, [x1]
+    };
+    const std::uint32_t pair[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x4832'7c82,  // casp x18, x19, x2, x3, [x4]
+        0xc805'7c01,  // stxr w5, x1, [x0]
+    };
+    const std::uint32_t call[] = {
+        0xc85f'7e48,  // ldxr x8, [x18]
+        0xd73f'092a,  // blraa x9, x10
+        0xc809'7e48,  // stxr w9, x8, [x18]
+    };
+    struct Case {
+        const std::uint32_t *begin, *end;
+        std::size_t uses;
+        std::string_view reason;
+    };
+    const Case cases[] = {
+        {call, call + std::size(call), 2,
+         "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address "
+         "would point into the island"},
+        {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 32 words"},
+        {open, open + std::size(open), 2, "it lies in an exclusive window that does not close within 32 words"},
+        {late.data(), late.data() + late.size(), 1,
+         "it lies in an exclusive window that does not close within 32 words"},
+        {nested, nested + std::size(nested), 1,
+         "it lies in an exclusive window that opens another load-exclusive before it closes"},
+        {stack, stack + std::size(stack), 2, "it lies in an exclusive window that moves the stack pointer"},
+        {crowded, crowded + std::size(crowded), 2,
+         "it lies in an exclusive window that leaves fewer than two registers free"},
+        {pair, pair + std::size(pair), 1,
+         "it lies in an exclusive window in which x18 has no register field of its own"},
+    };
+    for (const auto &c : cases) {
+        const auto findings = scan_words(c.begin, c.end, 0x10000);
+        CHECK(findings.exclusive_regions.empty());
+        CHECK(findings.sites.empty());
+        CHECK(findings.x18_unsupported.size() == c.uses);
+        for (const auto &use : findings.x18_unsupported) {
+            if (std::string_view(use.reason) != c.reason) {
+                apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
+            }
+        }
+    }
 }
 
 // The relocated island: x18 becomes the scratch everywhere, the guest value is loaded before and

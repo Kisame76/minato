@@ -370,6 +370,16 @@ bool reaches_below_stack_pointer(std::uint32_t word) {
 constexpr const char *inside_exclusive_sequence =
     "it lies between a load- and a store-exclusive, where the island's memory accesses could break the sequence";
 
+// Why an exclusive window with x18 inside is not relocated as one island (ADR-0020 X2c), each x18 use in it
+// refused with the cause, so that one refusal names every cause at once.
+constexpr const char *window_unclosed = "it lies in an exclusive window that does not close within 32 words";
+constexpr const char *window_nested =
+    "it lies in an exclusive window that opens another load-exclusive before it closes";
+constexpr const char *window_stack = "it lies in an exclusive window that moves the stack pointer";
+constexpr const char *window_registers = "it lies in an exclusive window that leaves fewer than two registers free";
+constexpr const char *window_field = "it lies in an exclusive window in which x18 has no register field of its own";
+constexpr const char *window_entered = "it lies in an exclusive window into which a branch from outside leads";
+
 /// Why an x18 instruction cannot run in an island, or nullptr when it can. The island saves two
 /// scratch registers in the red zone, loads the guest x18 from the TSD, runs the instruction with
 /// the value register in place of x18, stores the value back and branches to the next instruction;
@@ -434,12 +444,14 @@ std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
     return std::nullopt;
 }
 
+/// How far after its load-exclusive a window may close, in bytes.
+constexpr std::size_t window_cap = 32 * 4;
+
 /// The end offset (inclusive) of the exclusive window that opens at `open` (a load-exclusive): the
 /// first store-exclusive, plus a CLREX right behind it, or the first CLREX. Nullopt when the window
 /// nests another load-exclusive or finds no close within a small cap.
 std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code, std::size_t open) {
-    constexpr std::size_t cap = 32 * 4;
-    for (std::size_t j = open + 4; j < code.size() && j - open <= cap; j += 4) {
+    for (std::size_t j = open + 4; j < code.size() && j - open <= window_cap; j += 4) {
         const auto word = word_at(code, j);
         if (is_load_exclusive(word)) return std::nullopt;
         if (is_store_exclusive(word)) {
@@ -448,6 +460,18 @@ std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code,
         if (is_clrex(word)) return j;
     }
     return std::nullopt;
+}
+
+/// For a window that exclusive_window_end() finds no close for: the offset of its last word as scan() follows the
+/// sequence (the store-exclusive or CLREX that ends it, the word before the next load-exclusive, or the last word of
+/// the code), and why it is not relocated.
+std::pair<std::size_t, const char *> unclosed_window(std::span<const std::byte> code, std::size_t open) {
+    for (std::size_t j = open + 4; j < code.size(); j += 4) {
+        const auto word = word_at(code, j);
+        if (is_load_exclusive(word)) return {j - 4, j - open <= window_cap ? window_nested : window_unclosed};
+        if (is_exclusive(word) || is_clrex(word)) return {j, window_unclosed};
+    }
+    return {code.size() - 4, window_unclosed};
 }
 
 /// The words of the window [open, end] that a forward branch inside it can skip: what they write
@@ -480,17 +504,22 @@ bool live_into_window(std::span<const std::byte> code, std::size_t open, std::si
 
 /// Builds the relocatable region for the window [open, end] when it is simple enough (ADR-0020
 /// X2c): it uses x18, keeps a scratch register free, moves the stack pointer nowhere and
-/// substitutes x18 in every word that uses it. Nullopt otherwise, so the x18 uses inside are refused
-/// instead. Whether the window may run again from its start is restart_problem()'s question.
+/// substitutes x18 in every word that uses it. Nullopt otherwise, with the cause in `problem` (nullptr for a
+/// window without x18), so the x18 uses inside are refused instead. Whether the window may run again from its
+/// start is restart_problem()'s question.
 std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte> code, std::uint64_t address,
-                                                      std::size_t open, std::size_t end) {
+                                                      std::size_t open, std::size_t end, const char *&problem) {
+    problem = nullptr;
     ExclusiveRegion region;
     region.address = address + open;
     std::uint32_t used = 0;
     bool any_x18 = false;
     for (std::size_t j = open; j <= end; j += 4) {
         const auto word = word_at(code, j);
-        if (writes_stack_pointer(word)) return std::nullopt;
+        if (writes_stack_pointer(word)) {
+            problem = window_stack;
+            return std::nullopt;
+        }
         const auto use = a64::register_use(word);
         used |= use.reads | use.writes;
         if ((use.reads | use.writes) & x18_bit) {
@@ -512,10 +541,14 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
         if (candidate == guest_x18 || (used & (1u << candidate)) != 0) continue;
         (found++ == 0 ? region.scratch : region.base) = static_cast<std::uint8_t>(candidate);
     }
-    if (found < 2) return std::nullopt;  // not enough free registers
+    if (found < 2) {
+        problem = window_registers;
+        return std::nullopt;
+    }
     for (const auto word : region.words) {
         const auto use = a64::register_use(word);
         if (((use.reads | use.writes) & x18_bit) && !a64::substitute(word, guest_x18, region.scratch)) {
+            problem = window_field;
             return std::nullopt;
         }
     }
@@ -585,6 +618,12 @@ constexpr const char *window_instruction =
     "it lies in an exclusive window that cannot run again from its start: it holds an instruction other than "
     "data processing on general-purpose registers, a branch within the window (not a call), a barrier or the "
     "exclusive pair";
+constexpr const char *window_memory =
+    "it lies in an exclusive window that cannot run again from its start: it holds a memory access, which would run "
+    "again";
+constexpr const char *window_call =
+    "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address would "
+    "point into the island";
 constexpr const char *window_writes_input =
     "it lies in an exclusive window that cannot run again from its start: it writes a register it reads first";
 constexpr const char *window_reads_flags =
@@ -608,7 +647,12 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
     bool changes_flags = false;
     for (std::size_t k = 0; k < count; ++k) {
         const auto word = word_at(code, open + 4 * k);
-        if (!allowed_in_window(word)) return window_instruction;
+        if (!allowed_in_window(word)) {
+            if (is_load_store(word)) return window_memory;
+            // BL; BLR, BLRAA, BLRAB and their Z forms
+            if ((word & 0xfc00'0000) == 0x9400'0000 || (word & 0xfeff'0000) == 0xd63f'0000) return window_call;
+            return window_instruction;
+        }
         if (const auto displacement = branch_displacement(word)) {
             const auto target = 4 * static_cast<std::int64_t>(k) + *displacement;
             if (target < 0 || target >= 4 * static_cast<std::int64_t>(count)) return window_branch_leaves;
@@ -817,18 +861,27 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         throw RewriteError(std::format("code at {:#x} with {:#x} bytes is not word aligned", address, code.size()));
     }
     // First, relocate whole load-/store-exclusive windows that use x18 (ADR-0020 X2c). Each covers
-    // its offsets, so the main loop below leaves them alone; a window a branch could enter in the
-    // middle is dropped, and its x18 uses are refused there instead. So is a window that cannot run
-    // again from its start (ADR-0020 X4), with the reason.
+    // its offsets, so the main loop below leaves them alone. Every other window is dropped with its
+    // cause, and its x18 uses are refused there with it: one without a close, one the island cannot
+    // build, one a branch could enter in the middle, one that cannot run again from its start (X4).
     std::vector<std::pair<std::size_t, std::size_t>> covered;
     std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         if (!is_load_exclusive(word_at(code, offset))) continue;
         const auto end = exclusive_window_end(code, offset);
-        if (!end) continue;
-        auto region = build_exclusive_region(code, address, offset, *end);
-        if (!region || branch_enters_window(code, offset, *end)) continue;
-        if (const char *problem = restart_problem(code, offset, *end)) {
+        if (!end) {
+            const auto [last, problem] = unclosed_window(code, offset);
+            refused_windows.emplace_back(offset, last, problem);
+            continue;
+        }
+        const char *problem = nullptr;
+        auto region = build_exclusive_region(code, address, offset, *end, problem);
+        if (!region) {
+            if (problem) refused_windows.emplace_back(offset, *end, problem);
+            continue;
+        }
+        problem = branch_enters_window(code, offset, *end) ? window_entered : restart_problem(code, offset, *end);
+        if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
             continue;
         }

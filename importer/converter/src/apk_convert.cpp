@@ -135,8 +135,7 @@ void inspect(const std::string &path) {
                                  findings.x18_writes.size() == 1 ? "" : "s", findings.x18_saves.size(), x18_islands,
                                  findings.x18_unsupported.size());
         if (!findings.x18_unsupported.empty()) {
-            const auto &first = findings.x18_unsupported.front();
-            std::cout << std::format(" (first at {:#x}: {})", first.address, first.reason);
+            std::cout << " (" << apk::container::x18_refusal(findings.x18_unsupported) << ')';
         }
         std::cout << '\n';
     } catch (const apk::container::Incompatible &error) {
