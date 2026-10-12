@@ -507,6 +507,10 @@ run_app() {
     pad-test)
       apk="build/$app/$app-local.apks" build=tools/build-pad-test.sh last=done activity_class=.PadActivity limit=90
       ;;
+    # splits-test (ADR-0048 c)): a bundletool set that install-apks installs, whose Application logs and ends with "done".
+    splits-test)
+      apk="build/$app/$app.apks" build=tools/build-splits-test.sh last=done activity_class=android.app.Activity
+      ;;
     # broadcast-test (ADR-0045 decision 5): its activity's parts, each within 5 s, end with "done".
     broadcast-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BroadcastActivity
@@ -630,9 +634,10 @@ run_app() {
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
   activity="$package/$activity_class"
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == pad-test ]]; then
+  if [[ "$app" == pad-test || "$app" == splits-test ]]; then
     # A local-testing set: install-apks installs the base and pushes the base's language splits and the packs' slices
-    # into local_testing; it lists each push, so its output goes to a file, shown when it fails.
+    # into local_testing; it lists each push, so its output goes to a file, shown when it fails. splits-test's set is
+    # installed as the device's splits.
     local java bundletool
     java=$(find build/tools/jdk-17 -mindepth 3 -maxdepth 3 -name Home -path '*/Contents/Home' 2>/dev/null | sort | tail -n 1)
     bundletool=$(/usr/bin/python3 tools/fetch-bundletool.py) || return 1

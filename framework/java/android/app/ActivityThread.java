@@ -404,11 +404,13 @@ public final class ActivityThread {
         String signers = null;
         String androidId = null;
         String localTestingDir = null;
+        ArrayList<String> splits = new ArrayList<>();
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--package": packageName = args[i + 1]; break;
                 case "--process": processName = args[i + 1]; break;
                 case "--apk": apk = args[i + 1]; break;
+                case "--split": splits.add(args[i + 1]); break;
                 case "--library-path": libraryPath = args[i + 1]; break;
                 case "--application": application = args[i + 1]; break;
                 case "--data-dir": dataDir = args[i + 1]; break;
@@ -422,7 +424,7 @@ public final class ActivityThread {
                 || androidId != null && !androidId.matches("[0-9a-f]{16}")) {
             throw new IllegalArgumentException(
                     "usage: ActivityThread.main --package <package> [--process <name>] --apk <base.apk> "
-                    + "--library-path <folder> --data-dir <folder> [--signers <signers.json>] "
+                    + "[--split <split.apk>]... --library-path <folder> --data-dir <folder> [--signers <signers.json>] "
                     + "[--application <class>] [--android-id <16 hex digits>] [--local-testing-dir <folder>]");
         }
         // As AOSP's main: the main thread's Looper, and the Handler that framework classes post to it with.
@@ -437,7 +439,8 @@ public final class ActivityThread {
         // folder of the app's kept pack slices under its external files folder (ADR-0050 decision 2); none without.
         ManifestPackage pkg;
         try {
-            pkg = ManifestPackage.read(apk, libraryPath, dataDir, signers, localTestingDir);
+            pkg = ManifestPackage.read(apk, libraryPath, dataDir, signers, localTestingDir,
+                    splits.toArray(new String[0]));
         } catch (IOException | XmlPullParserException e) {
             throw new IllegalStateException("ActivityThread.main: cannot read " + apk + "'s manifest", e);
         }
@@ -485,7 +488,8 @@ public final class ActivityThread {
         if ("1".equals(System.getenv("MINATO_GAPSCAN"))) {
             scanGaps(packageName, apk);
         }
-        ClassLoader loader = new PathClassLoader(apk, libraryPath, ClassLoader.getSystemClassLoader());
+        ClassLoader loader = new PathClassLoader(pkg.codePaths(), libraryPath,
+                ClassLoader.getSystemClassLoader());
         ActivityThread thread = new ActivityThread(packageName, processName != null ? processName : packageName,
                 loader, pkg);
         thread.mAndroidId = androidId;

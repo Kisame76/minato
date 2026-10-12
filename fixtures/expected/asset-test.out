@@ -52,3 +52,11 @@ entry, inflates to less: found, read 192 bytes, then -1, buffer NULL; s.bin foun
 entry, inflates to more: found, read 192 bytes, then -1, buffer NULL; s.bin found
 entry, corrupt data: found, read 0 bytes, then -1, buffer NULL; s.bin found
 entry, stored sizes differ: NULL
+set: created
+d.txt: length 16, 16 bytes in 1 reads, hash 67a23a30, then 0
+s.bin: length 21, 21 bytes in 1 reads, hash 9b6412ea, then 0
+only2.txt: length 3, 3 bytes in 1 reads, hash be248829, then 0
+folder "": big.bin d.txt only2.txt s.bin (after a rewind: big.bin)
+folder "dir": a.txt b.txt z.txt (after a rewind: a.txt)
+set with a missing APK: NULL
+set of none: NULL

@@ -130,19 +130,26 @@ def extracted(name):
             and all(char.isascii() and (char.isalnum() or char in "+,-.=_") for char in name))
 
 
-def install_libraries(apk_convert, apk, folder, work):
-    """The APK's JNI libraries as the import installs them (APKLibrary.installNativeCode, ADR-0042 b1): every
-    lib/arm64-v8a/<name> that Android's installer extracts, its ELF original read-only in `folder`, the app's
+def install_libraries(apk_convert, apks, folder, work):
+    """The APK's JNI libraries as the import installs them (APKLibrary.installNativeCode, ADR-0042 b1; ADR-0048 c)
+    for a set): `apks` is the APK or the list of the base and its splits, and every
+    lib/arm64-v8a/<name> of any of them that Android's installer extracts, its ELF original read-only in `folder`, the
+    app's
     lib/arm64, where ART's class loader looks for the file, and its container in work/app-lib64, which apk-run's
     --libraries makes that folder's libraries. The originals stay in work/app-lib, dated as the APK's entries, so that
     convert()'s stamps keep the containers across runs; `folder` gets hard links to them. A changed library is
     converted again, and one the APK no longer holds goes with its container. Returns the names, sorted."""
     originals = os.path.join(work, "app-lib")
     containers = os.path.join(work, "app-lib64")
-    with zipfile.ZipFile(apk) as archive:
-        entries = {info.filename[len(APP_ABI):]: info for info in archive.infolist()
-                   if info.filename.startswith(APP_ABI) and extracted(info.filename[len(APP_ABI):])}
-        for name, info in sorted(entries.items()):
+    archives = [zipfile.ZipFile(path) for path in ([apks] if isinstance(apks, str) else apks)]
+    try:
+        # A library of a later split replaces one of the same name before it, as the library keeps one folder.
+        entries = {}
+        for archive in archives:
+            for info in archive.infolist():
+                if info.filename.startswith(APP_ABI) and extracted(info.filename[len(APP_ABI):]):
+                    entries[info.filename[len(APP_ABI):]] = (archive, info)
+        for name, (archive, info) in sorted(entries.items()):
             original = os.path.join(originals, name)
             container = os.path.join(containers, name + ".dylib")
             dated = time.mktime(info.date_time + (0, 0, -1))
@@ -162,6 +169,9 @@ def install_libraries(apk_convert, apk, folder, work):
                 if os.path.lexists(link):
                     os.remove(link)
                 os.link(original, link)
+    finally:
+        for archive in archives:
+            archive.close()
     for directory, suffix in ((originals, ""), (containers, ".dylib")):
         for file in os.listdir(directory) if os.path.isdir(directory) else []:
             if not file.startswith(".") and file[:len(file) - len(suffix)] not in entries:
@@ -308,7 +318,7 @@ def tzdata_module(tzdata, folder):
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
-          lifecycle=None, android_id=None, obbs=(), packs=(), environment=()):
+          lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=()):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -336,7 +346,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     a new run, as a user or the library puts them there (ADR-0049 test 8). `packs` are files copied read-only into the
     folder local_testing of the app's external files folder of a new run, as the library lays out an app's kept pack
     slices there, and ActivityThread gets --local-testing-dir local_testing, as GuestStart passes it (ADR-0050 test
-    2)."""
+    2). `splits` are the files of the set's splits, named as an install names them (split_<split name>.apk), copied
+    read-only beside base.apk, whose libraries are installed too, and ActivityThread gets one --split for each, as
+    GuestStart passes them (ADR-0048 c))."""
     os.makedirs(work, exist_ok=True)
     art_lib64 = os.path.join(work, "art-lib64")
     system_lib64 = os.path.join(work, "system-lib64")
@@ -390,6 +402,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 os.chmod(os.path.join(local_testing, os.path.basename(pack)), 0o444)
         shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
         os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
+        for split in splits:
+            shutil.copy(split, os.path.join(run, app.lstrip("/"), os.path.basename(split)))
+            os.chmod(os.path.join(run, app.lstrip("/"), os.path.basename(split)), 0o444)
         os.makedirs(os.path.join(run, app.lstrip("/"), "lib", "arm64"))
         if signers is not None:
             shutil.copy(signers, os.path.join(run, app.lstrip("/"), "signers.json"))
@@ -402,7 +417,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         tzdata_module(os.path.join(bionic_system, "usr", "share", "zoneinfo", "tzdata"),
                       os.path.join(run, "apex/com.android.tzdata/etc/tz"))
     # Over the same run too, where they are already in place: the APK's JNI libraries (ADR-0042 b1).
-    libraries = install_libraries(apk_convert, apk, os.path.join(run, app.lstrip("/"), "lib", "arm64"), work)
+    libraries = install_libraries(apk_convert, [apk, *splits], os.path.join(run, app.lstrip("/"), "lib", "arm64"), work)
 
     command = [apk_run,
                "--mount", f"/data={os.path.join(run, 'data')}",
@@ -442,6 +457,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 os.path.join(work, "bin", "app_process64.dylib"),
                 f"--nice-name={package}", "--package", package, "--apk", f"{app}/base.apk",
                 "--library-path", f"{app}/lib/arm64", "--data-dir", data]
+    for split in splits:
+        command += ["--split", f"{app}/{os.path.basename(split)}"]
     if application is not None:
         command += ["--application", application]
     if signers is not None:

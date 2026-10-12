@@ -41,6 +41,8 @@ public final class LoadedApk {
     private final ClassLoader mClassLoader;
     private final AppComponentFactory mAppComponentFactory;
     private ApkAssets mApkAssets;
+    // The splits' APKs after the base, in the order of splitSourceDirs.
+    private ApkAssets[] mSplitAssets;
     // The overlays of the app's overlay paths, Monet's (ADR-0043 f)), loaded with its APK.
     private ApkAssets[] mOverlayAssets;
     private Resources mResources;
@@ -105,6 +107,16 @@ public final class LoadedApk {
                 } catch (IOException e) {
                     throw new IllegalStateException("cannot load " + getResDir() + "'s resources", e);
                 }
+                String[] splitDirs = mApplicationInfo.splitSourceDirs != null
+                        ? mApplicationInfo.splitSourceDirs : new String[0];
+                mSplitAssets = new ApkAssets[splitDirs.length];
+                for (int i = 0; i < splitDirs.length; i++) {
+                    try {
+                        mSplitAssets[i] = ApkAssets.loadFromPath(splitDirs[i]);
+                    } catch (IOException e) {
+                        throw new IllegalStateException("cannot load " + splitDirs[i] + "'s resources", e);
+                    }
+                }
                 mOverlayAssets = loadOverlays(mApplicationInfo.overlayPaths);
                 Resources system = Resources.getSystem();
                 mResources = new Resources(newAssetManager(), system.getDisplayMetrics(), system.getConfiguration());
@@ -114,11 +126,14 @@ public final class LoadedApk {
     }
 
     /**
-     * As ResourcesManager.createAssetManager: the package's APK, then its overlays; AssetManager.Builder puts the
-     * system's framework-res first.
+     * As ResourcesManager.createAssetManager: the package's APK, its splits, then its overlays;
+     * AssetManager.Builder puts the system's framework-res first.
      */
     private AssetManager newAssetManager() {
         AssetManager.Builder builder = new AssetManager.Builder().addApkAssets(mApkAssets);
+        for (ApkAssets split : mSplitAssets) {
+            builder.addApkAssets(split);
+        }
         for (ApkAssets overlay : mOverlayAssets) {
             builder.addApkAssets(overlay);
         }

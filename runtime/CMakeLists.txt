@@ -448,9 +448,10 @@ if(APK_HOST_BUILD)
   add_executable(activity_test tests/activity_test.cpp)
   target_link_libraries(activity_test PRIVATE app_host)
   # Its variants: an onStart that polls the main thread's looper, a host that leaves NATIVE_WINDOW_DESTROYED
-  # out, an app that asks for a window format with alpha (WINDOW_OPAQUE 0), and a library, a function or an APK
-  # that is not there (START_FAILED, status 1).
-  foreach(case IN ITEMS "" polling leftovers translucent missing-library missing-function missing-apk)
+  # out, an app that asks for a window format with alpha (WINDOW_OPAQUE 0), a set of two APKs (ADR-0048), and a
+  # library, a function or an APK that is not there (START_FAILED, status 1).
+  foreach(case IN ITEMS "" polling leftovers translucent split missing-library missing-function
+                         missing-apk)
     set(name runtime.activity)
     if(case)
       set(name runtime.activity.${case})

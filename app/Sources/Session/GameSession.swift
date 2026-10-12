@@ -268,6 +268,10 @@ final class GameSession {
         let environment: [String] = []
         #endif
         let version = paths.versionDirectory(for: entry)
+        // An installed set keeps each split beside base.apk as split_<name>.apk (ADR-0048 decision 9).
+        let splits = ((try? FileManager.default.contentsOfDirectory(atPath: version.path)) ?? [])
+            .filter { $0.hasPrefix("split_") && $0.hasSuffix(".apk") }.sorted()
+            .map { version.appending(path: $0).path }
         let start: GuestStart?
         switch kind {
         case .nativeActivity(let library):
@@ -277,7 +281,7 @@ final class GameSession {
                 appLibraries: paths.libraryDirectory(for: entry).path,
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
-                guestSystem: bundle.appending(path: "Guest").path, environment: environment)
+                guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: environment)
         case .art:
             // An unsigned APK has no signers.json.
             let signers = version.appending(path: SignersFile.fileName)
@@ -290,7 +294,7 @@ final class GameSession {
                 guestData: paths.guestDataDirectory(for: entry.id).path,
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices, which prepareJavaStart lays out in local_testing (ADR-0050 decision 2).
-                localTesting: entry.packs?.isEmpty == false, environment: environment)
+                localTesting: entry.packs?.isEmpty == false, splits: splits, environment: environment)
         }
         guard var start else { return nil }
         // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).

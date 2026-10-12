@@ -21,3 +21,4 @@ W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
 W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
 W/libandroid: /data/local/tmp/test.apk: assets/d.txt: broken deflated data
 W/libandroid: /data/local/tmp/test.apk: assets/s.bin: stored, but its sizes differ
+W/libandroid: /data/local/tmp/missing.apk: No such file or directory

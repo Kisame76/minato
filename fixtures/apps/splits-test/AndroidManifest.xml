@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of a split set at run time (splits-test; ADR-0048 c), the guest side): a base module whose Application
+     reads what a set gives an app, an install-time feature module with dex code and an asset, a language split with a
+     string and an arm64 split with a JNI library, which bundletool makes from the bundle (tools/build-splits-test.sh).
+     The launcher activity is the framework's own android.app.Activity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.splits" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.splits.SplitsApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

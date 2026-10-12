@@ -47,6 +47,10 @@ With --packs <file>, once or more, the file lies read-only in the folder local_t
 folder before the start, as the library lays out an app's kept pack slices there, and ActivityThread gets
 --local-testing-dir local_testing (ADR-0050 test 2).
 
+With --split <file>, once or more, the file is a split of the app's set, named as an install names it
+(split_<split name>.apk), copied beside base.apk, whose libraries are installed too, and ActivityThread gets
+--split <path> for each, as GuestStart passes them (ADR-0048 c)).
+
 With --apk-inspect, the app starts with its signers.json (apk-inspect --signers), as the library writes it at the
 import, and each certificate SHA-256 the APK's check proved becomes framework/tests/certificate_mask.py's mark of its
 role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1). With --restart, the app starts a
@@ -55,7 +59,7 @@ starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
-                       [--status <n>] [--once <line>]... [--env <name>=<value>]...
+                       [--status <n>] [--once <line>]... [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                        <expected> [<configuration>]
@@ -85,11 +89,12 @@ def main():
     in_order = []
     obbs = []
     packs = []
+    splits = []
     status = 0
     once = []
     environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"], ["--env"]):
+                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"], ["--env"], ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -98,6 +103,8 @@ def main():
             obbs, args = obbs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--packs":
             packs, args = packs + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--split":
+            splits, args = splits + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--env":
             environment, args = environment + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--once":
@@ -146,7 +153,7 @@ def main():
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
                        signers=signers, again=again,
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
-                       android_id=android_id, obbs=obbs, packs=packs, environment=environment)
+                       android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

@@ -93,7 +93,8 @@ bool prepare(App &app, const Paths &paths, const std::string &run);
 void begin(const apkrt_configuration &configuration);
 
 /// Starts activity-host for `app` with `apk` (a guest path), `library` and `function`. False after a failure.
-bool start(const App &app, const std::string &apk, const char *library, const char *function);
+bool start(const App &app, const std::string &apk, const char *library, const char *function,
+           const char *split = nullptr);
 
 /// Posts one event; its serial number, 0 when the post failed.
 std::uint32_t post(apkrt_event_type type, std::uint64_t a0 = 0, std::uint64_t a1 = 0, std::uint64_t a2 = 0);

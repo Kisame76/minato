@@ -1,6 +1,7 @@
 // activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 // process for a NativeActivity.
-//   activity-host --package <package> --apk <guest path of base.apk> [--library <lib_name>] [--function <func_name>]
+//   activity-host --package <package> --apk <guest path of base.apk> [--split <guest path of a split>]...
+//                 [--library <lib_name>] [--function <func_name>]
 // Its main thread plays Android's main thread. It prepares an ALooper, connects to the session (the event
 // pipe's read end and the configuration), creates the app's three folders as NativeActivity's getters do,
 // builds the asset manager and the JNI stub, opens lib<lib_name>.so (the host's LD_LIBRARY_PATH names the
@@ -215,7 +216,8 @@ int on_event(int fd, int events, void *) {
 
 [[noreturn]] void usage() {
     __android_log_print(ANDROID_LOG_ERROR, kTag,
-                        "usage: activity-host --package <package> --apk <base.apk> [--library <name>] [--function <name>]");
+                        "usage: activity-host --package <package> --apk <base.apk> [--split <split.apk>]... "
+                        "[--library <name>] [--function <name>]");
     _exit(2);
 }
 
@@ -223,6 +225,9 @@ int on_event(int fd, int events, void *) {
 
 int main(int argc, char **argv) {
     const char *package = nullptr, *apk = nullptr, *library = "main", *function = "ANativeActivity_onCreate";
+    // base.apk, then each --split in the order given: the order of an installed set's APKs.
+    const char *apks[64] = {};
+    size_t apk_count = 0;
     for (int index = 1; index < argc; index += 2) {
         if (index + 1 >= argc) usage();
         const char *const option = argv[index], *const value = argv[index + 1];
@@ -230,6 +235,9 @@ int main(int argc, char **argv) {
             package = value;
         } else if (strcmp(option, "--apk") == 0) {
             apk = value;
+        } else if (strcmp(option, "--split") == 0) {
+            if (apk_count + 1 >= sizeof apks / sizeof apks[0]) usage();
+            apks[++apk_count] = value;
         } else if (strcmp(option, "--library") == 0) {
             library = value;
         } else if (strcmp(option, "--function") == 0) {
@@ -239,6 +247,8 @@ int main(int argc, char **argv) {
         }
     }
     if (package == nullptr || apk == nullptr) usage();
+    apks[0] = apk;
+    ++apk_count;
 
     ALooper *const looper = ALooper_prepare(0);
     struct apkrt_configuration configuration {};
@@ -255,7 +265,7 @@ int main(int argc, char **argv) {
     make_folder(files);
     make_folder(external);
     make_folder(obb);
-    AAssetManager *const assets = minato_AAssetManager_create(apk, &configuration);
+    AAssetManager *const assets = minato_AAssetManager_create(apks, apk_count, &configuration);
     if (assets == nullptr) {
         char reason[512];
         snprintf(reason, sizeof reason, "cannot read the APK %s", apk);

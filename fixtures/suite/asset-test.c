@@ -20,7 +20,12 @@
 
 #include "APKRuntime/guest_interface.h"
 
-static AAssetManager *(*create)(const char *, const struct apkrt_configuration *);
+static AAssetManager *(*create_apks)(const char *const *, size_t, const struct apkrt_configuration *);
+
+// The manager of one APK.
+static AAssetManager *create(const char *apk, const struct apkrt_configuration *configuration) {
+    return create_apks(&apk, 1, configuration);
+}
 
 static const struct apkrt_configuration phone = {3.0, 1290, 2796, 1, 1, 120, "de", "DE"};
 
@@ -435,9 +440,9 @@ static void broken_entry(const char *what, int central_offset, int local_offset,
 
 int main(void) {
     void *android = dlopen("libandroid.so", RTLD_NOW);
-    create = (AAssetManager * (*)(const char *, const struct apkrt_configuration *)) dlsym(android,
-                                                                                      "minato_AAssetManager_create");
-    if (create == NULL) {
+    create_apks = (AAssetManager * (*)(const char *const *, size_t, const struct apkrt_configuration *))dlsym(
+        android, "minato_AAssetManager_create");
+    if (create_apks == NULL) {
         printf("no minato_AAssetManager_create\n");
         return 1;
     }
@@ -554,5 +559,30 @@ int main(void) {
                manager == NULL ? "no manager"
                : AAssetManager_open(manager, "s.bin", AASSET_MODE_UNKNOWN) == NULL ? "NULL" : "found");
     }
+
+    // A set of two APKs (ADR-0048 decision 9): the later one overrides an asset of the earlier one, the earlier one
+    // still serves the rest, a folder lists the names of both once, and one APK that cannot be read fails the set.
+    sound(&zip);
+    write_file("test.apk", zip.bytes, zip.size);
+    memset(&zip, 0, sizeof zip);
+    add(&zip, "AndroidManifest.xml", "manifest", 8, 8);
+    add(&zip, "assets/d.txt", "the second APK's", 16, 0);
+    add(&zip, "assets/dir/z.txt", "z", 1, 0);
+    add(&zip, "assets/only2.txt", "two", 3, 0);
+    finish(&zip, "", 0);
+    write_file("second.apk", zip.bytes, zip.size);
+    const char *const set[] = {"/data/local/tmp/test.apk", "/data/local/tmp/second.apk"};
+    AAssetManager *both = create_apks(set, 2, &phone);
+    printf("set: %s\n", both != NULL ? "created" : "NULL");
+    if (both != NULL) {
+        read_all(both, "d.txt");
+        read_all(both, "s.bin");
+        read_all(both, "only2.txt");
+        list(both, "");
+        list(both, "dir");
+    }
+    const char *const gap[] = {"/data/local/tmp/test.apk", "/data/local/tmp/missing.apk"};
+    printf("set with a missing APK: %s\n", create_apks(gap, 2, &phone) == NULL ? "NULL" : "created");
+    printf("set of none: %s\n", create_apks(set, 0, &phone) == NULL ? "NULL" : "created");
     return 0;
 }

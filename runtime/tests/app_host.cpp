@@ -187,13 +187,17 @@ void begin(const apkrt_configuration &configuration) {
     if (apkrt_session_begin(&session) != 0) fail("apkrt_session_begin");
 }
 
-bool start(const App &app, const std::string &apk, const char *library, const char *function) {
+bool start(const App &app, const std::string &apk, const char *library, const char *function, const char *split) {
     const std::string library_path = "LD_LIBRARY_PATH=" + app.guest + "/lib/arm64";
     const char *const arguments[] = {"/system/bin/activity-host", "--package", app.package.c_str(), "--apk",
                                      apk.c_str(), "--library", library, "--function", function, nullptr};
+    // A split goes after --apk, and the list is ended at its place.
+    const char *with_split[] = {"/system/bin/activity-host", "--package", app.package.c_str(), "--apk", apk.c_str(),
+                                "--split", split, "--library", library, "--function", function, nullptr};
     const char *const environment[] = {library_path.c_str(), nullptr};
     char error[1024] = "";
-    if (apkrt_start_program(app.container.c_str(), arguments, environment, error, sizeof error) != 0) {
+    const char *const *const program_arguments = split != nullptr ? with_split : arguments;
+    if (apkrt_start_program(app.container.c_str(), program_arguments, environment, error, sizeof error) != 0) {
         fail(std::string("apkrt_start_program: ") + error);
         return false;
     }

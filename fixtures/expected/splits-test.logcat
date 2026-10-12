@@ -1,0 +1,15 @@
+I/splits-test: source: base.apk, code path: true
+I/splits-test: split names: [config.arm64_v8a, config.en, feature]
+I/splits-test: split source dirs: [split_config.arm64_v8a.apk, split_config.en.apk, split_feature.apk]
+I/splits-test: split public source dirs: [split_config.arm64_v8a.apk, split_config.en.apk, split_feature.apk]
+I/splits-test: package info splits: [config.arm64_v8a, config.en, feature], application [config.arm64_v8a, config.en, feature]
+I/splits-test: manager info splits: [split_config.arm64_v8a.apk, split_config.en.apk, split_feature.apk]
+I/splits-test: feature class: the feature split answers
+I/splits-test: same loader as the app: true
+I/splits-test: feature.txt: Minato splits-test, the feature split asset.
+I/splits-test: base.txt: Minato splits-test, the base asset.
+I/splits-test: assets: [base.txt, feature.txt, geoid_map, images, webkit]
+I/splits-test: greeting: hello from the English split
+I/splits-test: library: the arm64 split's library answers
+I/splits-test: native assets: feature.txt: Minato splits-test, the feature split asset. | base.txt: Minato splits-test, the base asset. | folder: base.txt feature.txt
+I/splits-test: done

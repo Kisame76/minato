@@ -2,7 +2,8 @@
 // Android 15's answers (fixtures/apps/activity-test), with the ZIP format's own rules. activity-host makes the
 // one AAssetManager of the app with minato_AAssetManager_create, which reads the central directory of the
 // app's base.apk once, through the guest's own file access, and keeps its entries below assets/, sorted by
-// name. A central directory that is not sound (no end record exactly at the end, a split or ZIP64 archive,
+// name. Of an installed set it does so for each split too, and a name is looked up in the last APK first (ADR-0048
+// decision 9). A central directory that is not sound (no end record exactly at the end, a split or ZIP64 archive,
 // headers that run past it, two entries of one name) makes the manager fail. An entry is checked when it is
 // opened: stored or deflated, not encrypted, no ZIP64 sizes, a local header of the same name, and data that
 // ends before the central directory; a broken entry fails only its own open. Stored entries are read in
@@ -92,6 +93,7 @@ struct AAssetManager {
     Entry *entries;  // below assets/, sorted by name
     size_t count;
     AConfiguration *configuration;
+    AAssetManager *earlier;  // the APK before this one in the set: a name this one lacks is looked up there
 };
 
 // Inflating a deflated asset while it is read, on the heap, since an app's thread may have a small stack.
@@ -136,6 +138,7 @@ void warn(const AAssetManager *manager, const Entry *entry, const char *problem)
 }
 
 void destroy(AAssetManager *manager) {
+    if (manager->earlier != nullptr) destroy(manager->earlier);
     if (manager->fd >= 0) close(manager->fd);
     if (manager->configuration != nullptr) AConfiguration_delete(manager->configuration);
     free(manager->entries);
@@ -433,18 +436,13 @@ int open_descriptor(AAsset *asset, Offset *start, Offset *length) {
     return fd;
 }
 
-}  // namespace
-
-extern "C" {
-
-AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_configuration *configuration) {
-    if (apk == nullptr || configuration == nullptr) return nullptr;
+// One APK's manager, without its configuration.
+AAssetManager *open_apk(const char *apk) {
     auto *manager = static_cast<AAssetManager *>(calloc(1, sizeof(AAssetManager)));
     if (manager == nullptr) return nullptr;
     manager->fd = -1;
     manager->apk = strdup(apk);
-    manager->configuration = AConfiguration_new();
-    if (manager->apk == nullptr || manager->configuration == nullptr) {
+    if (manager->apk == nullptr) {
         destroy(manager);
         return nullptr;
     }
@@ -458,13 +456,56 @@ AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_c
         destroy(manager);
         return nullptr;
     }
-    minato_configuration_from_session(manager->configuration, configuration);
     return manager;
+}
+
+// The manager of a set: one per APK, each linked to the one before, and the last one returned, which holds the
+// configuration. `lenient` skips an APK after the first that cannot be read (an overlay of a Java AssetManager's list
+// is no archive of assets), else one failure fails the set.
+AAssetManager *create_set(const char *const *apks, size_t count, const struct apkrt_configuration *configuration,
+                          bool lenient) {
+    if (apks == nullptr || count == 0 || configuration == nullptr) return nullptr;
+    AAssetManager *head = nullptr;
+    for (size_t index = 0; index < count; ++index) {
+        AAssetManager *manager = apks[index] != nullptr ? open_apk(apks[index]) : nullptr;
+        if (manager == nullptr) {
+            if (lenient && index > 0) {
+                __android_log_print(ANDROID_LOG_WARN, "libandroid", "%s: skipped, it cannot be read",
+                                    apks[index] != nullptr ? apks[index] : "(null)");
+                continue;
+            }
+            if (head != nullptr) destroy(head);
+            return nullptr;
+        }
+        manager->earlier = head;
+        head = manager;
+    }
+    head->configuration = AConfiguration_new();
+    if (head->configuration == nullptr) {
+        destroy(head);
+        return nullptr;
+    }
+    minato_configuration_from_session(head->configuration, configuration);
+    return head;
+}
+
+}  // namespace
+
+extern "C" {
+
+AAssetManager *minato_AAssetManager_create(const char *const *apks, size_t count,
+                                           const struct apkrt_configuration *configuration) {
+    return create_set(apks, count, configuration, false);
 }
 
 AAsset *AAssetManager_open(AAssetManager *mgr, const char *filename, int) {
     if (mgr == nullptr || filename == nullptr) return nullptr;
-    const Entry *entry = find(mgr, filename);
+    // The last APK of the set first, as Android reads a set: the later one overrides the earlier.
+    const Entry *entry = nullptr;
+    for (; mgr != nullptr; mgr = mgr->earlier) {
+        entry = find(mgr, filename);
+        if (entry != nullptr) break;
+    }
     if (entry == nullptr) return nullptr;
     const uint64_t data = data_of(mgr, entry);
     if (data == 0) return nullptr;
@@ -487,17 +528,19 @@ AAssetDir *AAssetManager_openDir(AAssetManager *mgr, const char *dirName) {
     if (prefix_size > 0 && prefix[prefix_size - 1] != '/') prefix[prefix_size++] = '/';
     prefix[prefix_size] = 0;
     // Its files: the entries with that prefix and no slash after it, in the entries' order.
-    size_t count = 0, bytes = 0;
-    const size_t first = lower_bound(mgr, prefix, prefix_size);
-    size_t last = first;
-    for (; last < mgr->count; ++last) {
-        const Entry &entry = mgr->entries[last];
-        const char *rest = entry.name + kPrefixSize;
-        const size_t rest_size = entry.name_size - kPrefixSize;
-        if (rest_size < prefix_size || memcmp(rest, prefix, prefix_size) != 0) break;
-        if (memchr(rest + prefix_size, '/', rest_size - prefix_size) != nullptr) continue;
-        ++count;
-        bytes += rest_size - prefix_size + 1;
+    // Of a set, the files of all its APKs; a name in several is listed once.
+    size_t count = 0, bytes = 0, apks = 0;
+    for (const AAssetManager *apk = mgr; apk != nullptr; apk = apk->earlier, ++apks) {
+        const size_t first = lower_bound(apk, prefix, prefix_size);
+        for (size_t last = first; last < apk->count; ++last) {
+            const Entry &entry = apk->entries[last];
+            const char *rest = entry.name + kPrefixSize;
+            const size_t rest_size = entry.name_size - kPrefixSize;
+            if (rest_size < prefix_size || memcmp(rest, prefix, prefix_size) != 0) break;
+            if (memchr(rest + prefix_size, '/', rest_size - prefix_size) != nullptr) continue;
+            ++count;
+            bytes += rest_size - prefix_size + 1;
+        }
     }
     auto *folder = static_cast<AAssetDir *>(malloc(sizeof(AAssetDir) + count * sizeof(char *) + bytes));
     if (folder == nullptr) {
@@ -508,15 +551,33 @@ AAssetDir *AAssetManager_openDir(AAssetManager *mgr, const char *dirName) {
     folder->count = 0;
     folder->next = 0;
     char *text = reinterpret_cast<char *>(folder->names + count);
-    for (size_t index = first; index < last; ++index) {
-        const Entry &entry = mgr->entries[index];
-        const char *name = entry.name + kPrefixSize + prefix_size;
-        const size_t size = entry.name_size - kPrefixSize - prefix_size;
-        if (memchr(name, '/', size) != nullptr) continue;
-        memcpy(text, name, size);
-        text[size] = 0;
-        folder->names[folder->count++] = text;
-        text += size + 1;
+    for (const AAssetManager *apk = mgr; apk != nullptr; apk = apk->earlier) {
+        const size_t first = lower_bound(apk, prefix, prefix_size);
+        for (size_t index = first; index < apk->count; ++index) {
+            const Entry &entry = apk->entries[index];
+            const char *rest = entry.name + kPrefixSize;
+            const size_t rest_size = entry.name_size - kPrefixSize;
+            if (rest_size < prefix_size || memcmp(rest, prefix, prefix_size) != 0) break;
+            const char *name = rest + prefix_size;
+            const size_t size = rest_size - prefix_size;
+            if (memchr(name, '/', size) != nullptr) continue;
+            memcpy(text, name, size);
+            text[size] = 0;
+            folder->names[folder->count++] = text;
+            text += size + 1;
+        }
+    }
+    if (apks > 1) {
+        qsort(folder->names, folder->count, sizeof(char *), [](const void *a, const void *b) {
+            return strcmp(*static_cast<char *const *>(a), *static_cast<char *const *>(b));
+        });
+        size_t kept = 0;
+        for (size_t index = 0; index < folder->count; ++index) {
+            if (kept == 0 || strcmp(folder->names[kept - 1], folder->names[index]) != 0) {
+                folder->names[kept++] = folder->names[index];
+            }
+        }
+        folder->count = kept;
     }
     free(prefix);
     return folder;
@@ -627,7 +688,7 @@ void AConfiguration_fromAssetManager(AConfiguration *out, AAssetManager *am) {
 // AAssetManager_fromJava (ADR-0041, decision 7): Android 15 gives the Java AssetManager's native object, the
 // AssetManager2 of all its APKs, the same pointer for the object's life (asset_manager.cpp:61-64,
 // android-15.0.0_r1). Here it is this file's manager on the app's base APK, one per Java object, kept for the
-// process; until split APKs (M5) the base is all it reads.
+// process; it reads the base and the splits.
 namespace {
 
 // A manager AAssetManager_fromJava made, by the Java object's mObject, with the APK paths it had. A later object at
@@ -730,20 +791,33 @@ extern "C" AAssetManager *AAssetManager_fromJava(JNIEnv *env, jobject assetManag
             return known->manager;
         }
     }
-    // The app's base is the first APK after the system's (AssetManager.java:160-190).
-    char *const base = path_at(paths, system_count);
+    // The app's base is the first APK after the system's (AssetManager.java:160-190), then its splits and overlays in
+    // the list's order (ADR-0048 decision 9); an overlay holds no assets, and one that cannot be read is skipped.
+    char *app_paths[64] = {}, *next_path = nullptr;
+    size_t app_count = 0;
+    while (app_count < sizeof app_paths / sizeof app_paths[0]) {
+        char *next = path_at(paths, system_count + static_cast<jsize>(app_count));
+        if (next == nullptr) break;
+        app_paths[app_count++] = next;
+    }
+    if (app_count == sizeof app_paths / sizeof app_paths[0] &&
+        (next_path = path_at(paths, system_count + static_cast<jsize>(app_count))) != nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: more than %zu APKs, the rest "
+                            "are not read", app_count);
+        free(next_path);
+    }
     AAssetManager *manager = nullptr;
     struct apkrt_configuration session = {};
     // ENOENT: the host began no session (a check on the Mac), so the session's values stay unset, as ActivityThread
     // keeps its defaults then.
     const int error = syscall(APKRT_NR_SESSION_CONFIGURATION, &session) == 0 ? 0 : errno;
     if (error == ENOENT) session = {};
-    if (base == nullptr) {
+    if (app_count == 0) {
         __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: no APK of the app's own");
     } else if (error != 0 && error != ENOENT) {
         __android_log_print(ANDROID_LOG_WARN, "libandroid", "AAssetManager_fromJava: the session: %s", strerror(error));
     } else {
-        manager = minato_AAssetManager_create(base, &session);
+        manager = create_set(app_paths, app_count, &session, true);
     }
     auto *known = manager != nullptr ? static_cast<JavaManager *>(calloc(1, sizeof(JavaManager))) : nullptr;
     if (known != nullptr) {
@@ -753,6 +827,6 @@ extern "C" AAssetManager *AAssetManager_fromJava(JNIEnv *env, jobject assetManag
         free(paths);
     }
     pthread_mutex_unlock(&java_managers_lock);
-    free(base);
+    for (size_t index = 0; index < app_count; ++index) free(app_paths[index]);
     return manager;
 }

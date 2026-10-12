@@ -37,13 +37,15 @@ public struct GuestStart: Sendable, Equatable {
     /// base.apk and lib/ (its containers), the app's data, device protected data, external and OBB folders, and the
     /// guest system in the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `apkSHA256` is
     /// base.apk's digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
-    /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5).
+    /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5). `splits` are the host
+    /// paths of an installed set's split APKs, `split_<name>.apk` in the version's folder (ADR-0048 decision 9): each
+    /// lies beside base.apk at the code path under the same name, and activity-host gets one `--split` for each.
     public init?(package: String, library: String, function: String?, apk: String, apkSHA256: String,
                  appLibraries: String, data: String, deviceData: String, external: String, obb: String,
-                 guestSystem: String, environment extra: [String] = []) {
+                 guestSystem: String, splits: [String] = [], environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
-        mounts = [Path(guest: "\(app)/base.apk", host: apk)]
+        mounts = [Path(guest: "\(app)/base.apk", host: apk)] + Self.splitMounts(splits, app: app)
             + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
             + [Path(guest: "/system", host: "\(guestSystem)/system")]
         libraryDirectories = [
@@ -51,8 +53,9 @@ public struct GuestStart: Sendable, Equatable {
             Path(guest: "\(app)/lib/arm64", host: appLibraries),
         ]
         program = "\(guestSystem)/bin/activity-host.dylib"
-        arguments = ["/system/bin/activity-host", "--package", package, "--apk", "\(app)/base.apk",
-                     "--library", library, "--function", function ?? Self.defaultFunction]
+        arguments = ["/system/bin/activity-host", "--package", package, "--apk", "\(app)/base.apk"]
+            + Self.splitArguments(splits, app: app)
+            + ["--library", library, "--function", function ?? Self.defaultFunction]
         environment = ["LD_LIBRARY_PATH=\(app)/lib/arm64"] + extra
     }
 
@@ -64,15 +67,18 @@ public struct GuestStart: Sendable, Equatable {
     /// APEXes are /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra
     /// entries. `localTesting`: the library keeps pack slices of the app, which the start lays out in local_testing of
     /// its external files folder (LibraryPaths.layOutPacks), so ActivityThread names that folder as the meta-data
-    /// local_testing_dir (ADR-0050 decision 2).
+    /// local_testing_dir (ADR-0050 decision 2). `splits` as for the NativeActivity start: ActivityThread gets one
+    /// `--split` for each, after `--apk`.
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
                  data: String, deviceData: String, external: String, obb: String, guestData: String,
-                 guestSystem: String, localTesting: Bool = false, environment extra: [String] = []) {
+                 guestSystem: String, localTesting: Bool = false, splits: [String] = [],
+                 environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "/data", host: guestData),
                   Path(guest: "/data/resource-cache", host: "\(guestSystem)/resource-cache"),
                   Path(guest: "\(app)/base.apk", host: apk)]
+            + Self.splitMounts(splits, app: app)
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
             + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
             + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]
@@ -84,11 +90,21 @@ public struct GuestStart: Sendable, Equatable {
         ]
         program = "\(guestSystem)/bin/app_process64.dylib"
         arguments = ["/system/bin/app_process64", "--nice-name=\(package)", "--package", package,
-                     "--apk", "\(app)/base.apk", "--library-path", "\(app)/lib/arm64",
-                     "--data-dir", "/data/user/0/\(package)"]
+                     "--apk", "\(app)/base.apk"]
+            + Self.splitArguments(splits, app: app)
+            + ["--library-path", "\(app)/lib/arm64", "--data-dir", "/data/user/0/\(package)"]
             + (signers == nil ? [] : ["--signers", "\(app)/signers.json"])
             + (localTesting ? ["--local-testing-dir", "local_testing"] : [])
         environment = extra
+    }
+
+    /// A split's file in the code path: the host file's own name, which the library gives `split_<name>.apk`.
+    private static func splitMounts(_ splits: [String], app: String) -> [Path] {
+        splits.map { Path(guest: "\(app)/\(($0 as NSString).lastPathComponent)", host: $0) }
+    }
+
+    private static func splitArguments(_ splits: [String], app: String) -> [String] {
+        splitMounts(splits, app: app).flatMap { ["--split", $0.guest] }
     }
 
     /// The app's data, external data and OBB folders at the paths that Android 15's realpath gives them, /data/data and

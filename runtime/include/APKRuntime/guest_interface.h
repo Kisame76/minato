@@ -584,11 +584,14 @@ int minato_ANativeWindow_getInfo(struct ANativeWindow *window, struct minato_win
 struct AAssetManager;
 struct AInputQueue;
 
-/// In libandroid.so, version APKRT_PRIVATE: the asset manager of the APK at the guest path `apk` (ADR-0028,
-/// decision 10), for ANativeActivity. It reads the ZIP's central directory once and keeps a descriptor of the
-/// APK; AConfiguration_fromAssetManager gives the values decision 9 chooses from `configuration`, the
-/// session's. NULL when the APK cannot be read or its central directory is not sound, or without memory.
-struct AAssetManager *minato_AAssetManager_create(const char *apk, const struct apkrt_configuration *configuration);
+/// In libandroid.so, version APKRT_PRIVATE: the asset manager of the `count` APKs at the guest paths `apks`
+/// (ADR-0028, decision 10), for ANativeActivity: base.apk first, then the splits of an installed set (ADR-0048
+/// decision 9), of which the last is read first, as Android reads a set. It reads each ZIP's central directory once
+/// and keeps a descriptor of the APK; AConfiguration_fromAssetManager gives the values decision 9 chooses from
+/// `configuration`, the session's. NULL when an APK cannot be read or its central directory is not sound, or
+/// without memory.
+struct AAssetManager *minato_AAssetManager_create(const char *const *apks, size_t count,
+                                                  const struct apkrt_configuration *configuration);
 
 struct AConfiguration;
 

@@ -86,12 +86,12 @@ struct GuestStartTests {
     // MARK: - A Java app (ADR-0039 c5), as framework/tests/app_process_run.py's start() starts it on the Mac
 
     static func javaStart(signers: String? = "/v/apps/p/1/signers.json", sha256: String = Self.sha256,
-                          localTesting: Bool = false, environment: [String] = []) -> GuestStart? {
+                          localTesting: Bool = false, splits: [String] = [], environment: [String] = []) -> GuestStart? {
         GuestStart(
             javaApp: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, signers: signers,
             appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
             external: "/v/data/p/external", obb: "/v/data/p/obb", guestData: "/c/guest/p/data",
-            guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, environment: environment)
+            guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, splits: splits, environment: environment)
     }
 
     @Test func aJavaAppHasTheSameCodePath() {
@@ -137,6 +137,44 @@ struct GuestStartTests {
         #expect(Self.javaStart(localTesting: true).map { Array($0.arguments.suffix(2)) } == ["--local-testing-dir", "local_testing"])
         #expect(Self.javaStart()?.arguments.contains("--local-testing-dir") == false)
         #expect(Self.javaStart(localTesting: true)?.mounts == Self.javaStart()?.mounts)
+    }
+
+    static let splits = ["/v/apps/p/1/split_feature.apk", "/v/apps/p/1/split_config.en.apk"]
+
+    /// ADR-0048 decision 9: every APK of the set lies at the code path under its library name, mounted after
+    /// base.apk, and ActivityThread gets one --split for each, in the order the set lists them.
+    @Test func aSplitSetMountsEachSplitBesideBaseAndNamesItToActivityThread() {
+        let app = Self.codePath
+        let start = Self.javaStart(splits: Self.splits)
+        #expect(start?.mounts.prefix(5).suffix(3) == [
+            .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
+            .init(guest: "\(app)/split_feature.apk", host: "/v/apps/p/1/split_feature.apk"),
+            .init(guest: "\(app)/split_config.en.apk", host: "/v/apps/p/1/split_config.en.apk"),
+        ])
+        #expect(start?.arguments.prefix(10).suffix(6) == [
+            "--apk", "\(app)/base.apk", "--split", "\(app)/split_feature.apk",
+            "--split", "\(app)/split_config.en.apk",
+        ])
+        #expect(Self.javaStart()?.arguments.contains("--split") == false)
+    }
+
+    /// The same for a NativeActivity app: activity-host takes one --split for each, after --apk.
+    @Test func aSplitSetNamesEachSplitToActivityHost() {
+        let app = Self.codePath
+        let start = GuestStart(
+            package: Self.package, library: "activity-test", function: nil,
+            apk: "/v/apps/p/1/base.apk", apkSHA256: Self.sha256, appLibraries: "/v/apps/p/1/lib",
+            data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
+            obb: "/v/data/p/obb", guestSystem: "/b/Minato.app/Guest", splits: Self.splits)
+        #expect(start?.mounts.prefix(3) == [
+            .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
+            .init(guest: "\(app)/split_feature.apk", host: "/v/apps/p/1/split_feature.apk"),
+            .init(guest: "\(app)/split_config.en.apk", host: "/v/apps/p/1/split_config.en.apk"),
+        ])
+        #expect(start?.arguments.prefix(9).suffix(6) == [
+            "--apk", "\(app)/base.apk", "--split", "\(app)/split_feature.apk",
+            "--split", "\(app)/split_config.en.apk",
+        ])
     }
 
     /// An unsigned APK has no signers.json: no mount and no argument, as the harness starts it.

@@ -187,6 +187,15 @@ final class ManifestPackage {
      */
     static ManifestPackage read(String apk, String libraryDir, String dataDir, String signers, String localTestingDir)
             throws IOException, XmlPullParserException {
+        return read(apk, libraryDir, dataDir, signers, localTestingDir, new String[0]);
+    }
+
+    /**
+     * With the splits of an installed set, in the order GuestStart names them (ADR-0048 decision 9): each split's
+     * manifest gives its name, and the package lists them in string order with their paths, as Android 15 does.
+     */
+    static ManifestPackage read(String apk, String libraryDir, String dataDir, String signers, String localTestingDir,
+            String[] splits) throws IOException, XmlPullParserException {
         ApkAssets apkAssets = ApkAssets.loadFromPath(apk);
         AssetManager assets = new AssetManager();
         assets.setApkAssets(new ApkAssets[] {apkAssets}, false);
@@ -203,8 +212,62 @@ final class ManifestPackage {
             if (localTestingDir != null) {
                 pkg.localTesting(localTestingDir);
             }
+            pkg.splits(splits);
             return pkg;
         }
+    }
+
+    /**
+     * The splits' names from their manifests' split attribute, and the lists Android 15 sets for an installed set:
+     * ApplicationInfo's splitNames with splitSourceDirs and splitPublicSourceDirs in the same, string order, and
+     * PackageInfo's splitNames with their revision codes.
+     */
+    private void splits(String[] paths) throws IOException, XmlPullParserException {
+        if (paths.length == 0) {
+            return;
+        }
+        String[] names = new String[paths.length];
+        int[] revisions = new int[paths.length];
+        Integer[] order = new Integer[paths.length];
+        for (int i = 0; i < paths.length; i++) {
+            AssetManager assets = new AssetManager();
+            assets.setApkAssets(new ApkAssets[] {ApkAssets.loadFromPath(paths[i])}, false);
+            try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(paths[i]),
+                    "AndroidManifest.xml")) {
+                manifestElement(parser, paths[i]);
+                names[i] = parser.getAttributeValue(null, "split");
+                revisions[i] = parser.getAttributeIntValue(ANDROID_NAMESPACE, "revisionCode", 0);
+            } finally {
+                assets.close();
+            }
+            if (names[i] == null) {
+                throw new IOException(paths[i] + "'s manifest names no split");
+            }
+            order[i] = i;
+        }
+        Arrays.sort(order, (x, y) -> names[x].compareTo(names[y]));
+        mPackage.splitNames = new String[paths.length];
+        mPackage.splitRevisionCodes = new int[paths.length];
+        mApplication.splitNames = new String[paths.length];
+        mApplication.splitSourceDirs = new String[paths.length];
+        for (int i = 0; i < paths.length; i++) {
+            mPackage.splitNames[i] = names[order[i]];
+            mPackage.splitRevisionCodes[i] = revisions[order[i]];
+            mApplication.splitNames[i] = names[order[i]];
+            mApplication.splitSourceDirs[i] = paths[order[i]];
+        }
+        mApplication.splitPublicSourceDirs = mApplication.splitSourceDirs.clone();
+    }
+
+    /** The class path of the app's loader: base.apk, then the splits, as Android's PathClassLoader over the set. */
+    String codePaths() {
+        StringBuilder paths = new StringBuilder(mApplication.sourceDir);
+        if (mApplication.splitSourceDirs != null) {
+            for (String split : mApplication.splitSourceDirs) {
+                paths.append(File.pathSeparatorChar).append(split);
+            }
+        }
+        return paths.toString();
     }
 
     /**

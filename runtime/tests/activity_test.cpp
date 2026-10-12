@@ -11,7 +11,8 @@
 // log; leftovers leaves NATIVE_WINDOW_DESTROYED out, so activity-host destroys the window before the next one
 // and before onDestroy, as NativeActivity does; translucent starts the app at activity_test_translucent_onCreate,
 // which asks for WINDOW_FORMAT_RGBA_8888 in onCreate, and must give the same log with WINDOW_OPAQUE 0 as the
-// first request (Grafik's opaque layer); missing-library, missing-function and missing-apk start
+// first request (Grafik's opaque layer); split names base.apk once more as a split of the set (ADR-0048) and must
+// give the same log; missing-library, missing-function and missing-apk start
 // activity-host with what is not there and pass when it reports the reason as START_FAILED and ends with
 // status 1.
 //   activity_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> [<case>]
@@ -71,11 +72,11 @@ int main(int argc, char **argv) {
     const std::string variant = argc == 7 ? argv[6] : "";
     const bool failing = variant.starts_with("missing-"), leftovers = variant == "leftovers";
     if ((argc != 6 && argc != 7) || (argc == 7 && variant != "polling" && variant != "leftovers" &&
-                                     variant != "translucent" && variant != "missing-library" &&
+                                     variant != "translucent" && variant != "split" && variant != "missing-library" &&
                                      variant != "missing-function" && variant != "missing-apk")) {
         std::fprintf(stderr, "usage: activity_test <scratch> <fixtures bin> <bionic lib> <guest system> <expected> "
-                             "[polling | leftovers | translucent | missing-library | missing-function | "
-                             "missing-apk]\n");
+                             "[polling | leftovers | translucent | split | missing-library | "
+                             "missing-function | missing-apk]\n");
         return 2;
     }
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
@@ -95,7 +96,9 @@ int main(int argc, char **argv) {
                                  : variant == "polling"        ? "activity_test_polling_onCreate"
                                  : variant == "translucent"    ? "activity_test_translucent_onCreate"
                                                                : "ANativeActivity_onCreate";
-    if (!start(app, apk, library, function)) _exit(1);
+    // The split variant names base.apk once more as a split of the set: the same run, through an asset manager over
+    // two APKs.
+    if (!start(app, apk, library, function, variant == "split" ? apk.c_str() : nullptr)) _exit(1);
 
     // An app that cannot start: the reason reaches the host before the program ends with status 1.
     if (failing) {
