@@ -2045,3 +2045,11 @@ frameworks_base/core/java/android/preference/SwitchPreference.java
 frameworks_base/core/java/android/preference/TwoStatePreference.java
 frameworks_base/core/java/com/android/internal/util/CharSequences.java
 frameworks_base/core/java/android/app/FragmentBreadCrumbs.java
+
+# Step (b) service exceptions (the service start exceptions; Planung): see docs/plans/2026-10-07-framework-breadth.md
+frameworks_base/core/java/android/app/ServiceStartNotAllowedException.java
+frameworks_base/core/java/android/app/ForegroundServiceStartNotAllowedException.java
+frameworks_base/core/java/android/app/BackgroundServiceStartNotAllowedException.java
+frameworks_base/core/java/android/app/ForegroundServiceTypeException.java
+frameworks_base/core/java/android/app/MissingForegroundServiceTypeException.java
+frameworks_base/core/java/android/app/InvalidForegroundServiceTypeException.java

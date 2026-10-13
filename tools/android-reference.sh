@@ -500,7 +500,7 @@ run_app() {
       | storage-test | location-test | gapscan-test | webview-camera-test | keystore-test | sms-test | accounts-test \
       | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test | media-format-test \
       | main-looper-test | reflect-test | sdk-types-test | surface-texture-test | html-test | intent-query-test \
-      | preferences-test)
+      | preferences-test | service-exceptions-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

@@ -1,0 +1,11 @@
+I/service-exceptions-test: foreground ForegroundServiceStartNotAllowedException super=ServiceStartNotAllowedException abstract=false final=true state=true service=true type=false msg=fg not allowed cause=null describe=0
+I/service-exceptions-test: foreground parcel ForegroundServiceStartNotAllowedException fg not allowed 3
+I/service-exceptions-test: background BackgroundServiceStartNotAllowedException super=ServiceStartNotAllowedException abstract=false final=true state=true service=true type=false msg=bg not allowed cause=null describe=0
+I/service-exceptions-test: background parcel BackgroundServiceStartNotAllowedException bg not allowed 3
+I/service-exceptions-test: missing MissingForegroundServiceTypeException super=ForegroundServiceTypeException abstract=false final=true state=true service=true type=true msg=no type cause=null describe=0
+I/service-exceptions-test: missing parcel MissingForegroundServiceTypeException no type 3
+I/service-exceptions-test: invalid InvalidForegroundServiceTypeException super=ForegroundServiceTypeException abstract=false final=true state=true service=true type=true msg=bad type cause=null describe=0
+I/service-exceptions-test: invalid parcel InvalidForegroundServiceTypeException bad type 3
+I/service-exceptions-test: caught as ForegroundServiceTypeException thrown
+I/service-exceptions-test: caught as IllegalStateException true
+I/service-exceptions-test: done
