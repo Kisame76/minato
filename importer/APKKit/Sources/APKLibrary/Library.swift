@@ -712,6 +712,7 @@ public actor Library {
         var unreadable: [URL] = []
         var members: [SetMember] = []
         var files: [String: (url: URL, archive: ZipArchive)] = [:]
+        var later: [(url: URL, member: SetMember, size: UInt64)] = []
         progress(0)
         for (url, size) in zip(urls, sizes) {
             let sha256 = try hash(url, size: size) { progress(0.5 * (Double(read) + $0 * Double(size)) / total) }
@@ -722,8 +723,15 @@ public actor Library {
                 unreadable.append(url)
                 continue
             }
-            members.append(member)
             files[member.fileName] = (url, archive)
+            // A later pack's slice, as bundletool writes it (no versionCode, the app's as versionName), may be a pack
+            // of its set, not a split of it: a store's XAPK or APKM or a folder of APKs may carry one (ADR-0050,
+            // step 5).
+            if member.splitName != nil, member.versionCode == 0, member.versionName != nil {
+                later.append((url, member, size))
+                continue
+            }
+            members.append(member)
         }
         // An entry records each OBB with its SHA-256 (ADR-0049 c2).
         var obbFiles: [(url: URL, file: PackageFile, name: OBBName, path: String, container: URL)] = []
@@ -747,7 +755,19 @@ public actor Library {
             read += size
             pickedFiles.append((url, size, sha256))
         }
+        // A later slice belongs to the base of its package whose versionCode, as bundletool writes it, is the slice's
+        // versionName; a base without a versionCode never is one's, and a slice with no such base stays a member, as it
+        // was before (a set that has no versionCode keeps its splits).
+        // Where the package has versioned bases but none of the slice's version, the first is its set, and refuses it
+        // by name.
+        let baseOf = { (slice: SetMember) in
+            let bases = members.filter { $0.isBase && $0.packageName == slice.packageName && $0.versionCode != 0 }
+            return bases.first { String(Int32(truncatingIfNeeded: $0.versionCode)) == slice.versionName } ?? bases.first
+        }
+        let laterSlices = later.filter { baseOf($0.member) != nil }
+        members += later.filter { baseOf($0.member) == nil }.map(\.member)
         let groups = SetGrouping.byPackageAndVersion(members)
+        let containerOf = { (url: URL) in self.fromContainers[url]?.container }
         // Each OBB goes with the set of its package from its own container; one without is named there.
         var extras = [Extras](repeating: Extras(), count: groups.count)
         var containers: [URL?] = []
@@ -778,6 +798,31 @@ public actor Library {
                 leftOut[slice.container, default: LeftOut()].byImport.append(IgnoredFile(path: slice.path, reason: checked.reason))
             }
         }
+        // The same for the later slices a set carries itself: kept in packs/ under their pack's name, or named as left
+        // out, in the container they came in, else on the entry's own files (ADR-0050, step 5).
+        var onEntry: [(index: Int, file: IgnoredFile)] = []
+        for slice in laterSlices {
+            let container = fromContainers[slice.url]?.container
+            // Its set is the one of its base, which `later` kept only for a slice that has one.
+            // The group is found by the base's own package and versionCode, which byPackageAndVersion keys it by.
+            guard let base = baseOf(slice.member), let index = groups.firstIndex(where: {
+                $0[0].packageName == base.packageName && $0[0].versionCode == base.versionCode
+            }) else { continue }
+            let split = slice.member.splitName ?? ""
+            let pack = split.components(separatedBy: ".config.")[0]
+            let checked = Self.packFile(slice.member, pack: pack, size: slice.size, of: groups[index],
+                                        taken: extras[index].packs.map(\.file.fileName))
+            if let file = checked.file {
+                extras[index].packs.append((slice.url, file))
+            } else if let container, containers[index] == container {
+                leftOut[container, default: LeftOut()].byImport.append(
+                    IgnoredFile(path: slice.member.fileName, reason: checked.reason))
+            } else {
+                // Its container's names go on that container's first entry, which is not this set's where a group
+                // merged several containers: the set's own entry names it, after those are placed below.
+                onEntry.append((index, IgnoredFile(path: slice.member.fileName, reason: checked.reason)))
+            }
+        }
         // What a container leaves out goes on the first of its entries only, never copied onto each (the lead's
         // reviewer); each set's own names go on its own.
         var named = Set<URL>()
@@ -786,6 +831,7 @@ public actor Library {
                 extras[index].leftOut = leftOut[container] ?? LeftOut()
             }
         }
+        for (index, file) in onEntry { extras[index].leftOut.byImport.append(file) }
         let parts = Double(max(unreadable.count + groups.count + picked.count, 1))
         var results = try refused.map { try refuse($0.file, $0.error) }
         for url in unreadable {
@@ -1029,7 +1075,19 @@ public actor Library {
         } else {
             return (nil, "it is no slice of the pack \(pack)")
         }
-        guard !taken.contains(name) else { return (nil, "the set has another \(name)") }
+        // A pack's name is no split's of the set (an install-time pack is a split), and names that differ in case only
+        // are one file on APFS, as SetChecks takes them.
+        // The pack's name, in any case, is no split's either (a config split of it needs the split itself).
+        let lowered = pack.lowercased()
+        if let split = group.compactMap(\.splitName).first(where: {
+            let name = $0.lowercased()
+            return name == lowered || name == slice.splitName?.lowercased()
+        }) {
+            return (nil, "the set has a split \(split)")
+        }
+        guard !taken.contains(where: { $0.lowercased() == name.lowercased() }) else {
+            return (nil, "the set has another \(name)")
+        }
         return (PackageFile(fileName: name, splitName: slice.splitName, size: size, sha256: slice.sha256), "")
     }
 
