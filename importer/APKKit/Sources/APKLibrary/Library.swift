@@ -45,6 +45,10 @@ public actor Library {
     /// The guest's public libraries (its public.libraries.txt), which the NEEDED names of a library are looked up in
     /// besides the app's own (ADR-0055 a3); without it NEEDED names are not checked.
     var publicLibraries: Set<String>?
+    /// The guest's export table (ADR-0055 a4), against which the undefined symbols of every library are bound.
+    var exportTable: ExportTable?
+    /// The SHA-256 of the texts the two lists above were read from (ADR-0055 decision 5).
+    var listDigests = Compatibility.Checks()
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
@@ -200,6 +204,11 @@ public actor Library {
             .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
     }
 
+    /// The SHA-256 of a text's bytes, in lowercase hex.
+    private static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Sets the converter's check mode that the import asks about every native library (ADR-0055 a2); without one,
     /// only the converter's own refusal at signing counts, as before.
     public func use(checker: (any ELFRefusing)?) {
@@ -210,6 +219,15 @@ public actor Library {
     /// NEEDED names of every native library (ADR-0055 a3).
     public func use(publicLibraries text: String?) {
         publicLibraries = text.map(NativeFindings.publicLibraries(from:))
+        listDigests.publicLibraries = text.map(Self.digest)
+    }
+
+    /// Sets the guest's export table, the content of its export-table.txt, so that the import binds the undefined
+    /// symbols of every native library (ADR-0055 a4); throws for a text that is no table, and keeps the old one.
+    /// Without it symbols are not checked.
+    public func use(exportTable text: String?) throws {
+        exportTable = try text.map { try ExportTable(text: $0) }
+        listDigests.exportTable = text.map(Self.digest)
     }
 
     /// Analyses one APK and installs it, updates the installed app of its package, or leaves that app as
@@ -410,9 +428,8 @@ public actor Library {
                 let installed = try installNativeCode(of: report, from: new.archives, into: versionDirectory,
                                                       signing: signing)
                 signedWith = installed.signedWith
-                report.compatibility.issues += installed.degraded.map {
-                    .libraryDegraded(library: $0.library, reason: $0.reason)
-                }
+                report.compatibility.issues += installed.findings
+                report.compatibility.checks = installed.checks
             } catch let refusal as RefusedLibrary {
                 // This version cannot run, so it keeps no code and counts as incompatible: a ready
                 // installed version then stays (ADR-0034, decision 1).

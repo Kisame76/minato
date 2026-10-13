@@ -76,11 +76,23 @@ struct RefusedLibrary: Error {
     }
 }
 
+extension InstalledNativeCode {
+    /// The degrading findings of the check, as the report holds them.
+    var findings: [Compatibility.Issue] {
+        degraded.map { .libraryDegraded(library: $0.library, reason: $0.reason) }
+            + stubCalls.map { .libraryCallsStubs(library: $0.library, reason: $0.reason) }
+    }
+}
+
 /// What installing a version's native code gave: the certificate that signed it, and the libraries left out as
 /// degraded.
 struct InstalledNativeCode {
     var signedWith: String?
     var degraded: [(library: String, reason: String)]
+    /// The libraries that stay and call functions only a stub of Minato's defines.
+    var stubCalls: [(library: String, reason: String)] = []
+    /// The digests of the lists the check used; nil where it ran without any.
+    var checks: Compatibility.Checks?
 }
 
 extension Library {
@@ -114,6 +126,9 @@ extension Library {
         try? FileManager.default.removeItem(at: partial)
         try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
         var degradedNow: [(library: String, reason: String)] = []
+        var stubsNow: [(library: String, reason: String)] = []
+        let checksNow: Compatibility.Checks? =
+            listDigests.exportTable == nil && listDigests.publicLibraries == nil ? nil : listDigests
         do {
             for library in libraries {
                 let contents: Data
@@ -130,19 +145,46 @@ extension Library {
             }
             // What cannot load is found on the extracted files, with or without a certificate: the converter's check
             // and the NEEDED names (ADR-0055 a1 and a3), and whatever needs a library that cannot load. A library of
-            // the start path, or one it needs, blocks the app with every reason of every such library; any other is left
-            // out of lib/ and degrades.
+            // the start path, or one it needs, blocks the app with every reason of every such library; any other is
+            // left out of lib/ and degrades.
             var degraded: [(library: String, reason: String)] = []
-            defer { degradedNow = degraded }
-            if checker != nil || publicLibraries != nil {
+            var stubs: [(library: String, reason: String)] = []
+            defer {
+                degradedNow = degraded
+                stubsNow = stubs
+            }
+            if checker != nil || publicLibraries != nil || exportTable != nil {
                 var facts: [NativeFindings.Library] = []
+                var symbols: [String: ELFSymbols] = [:]
                 for library in libraries {
                     let file = partial.appendingPathComponent(library.name)
                     // A file that cannot be read is no verdict, as for the converter: the first tap tries again.
                     let refusals = (try? checker?.refusals(of: file)) ?? []
-                    let needed = publicLibraries == nil ? [] : ((try? ELFDynamic.needed(
-                        in: Data(contentsOf: file, options: .mappedIfSafe))) ?? [])
+                    let readsELF = publicLibraries != nil || exportTable != nil
+                    let needed = readsELF ? ((try? ELFDynamic.needed(
+                        in: Data(contentsOf: file, options: .mappedIfSafe))) ?? []) : []
+                    if exportTable != nil, let read = try? ELFSymbols.read(
+                        Data(contentsOf: file, options: .mappedIfSafe)) {
+                        symbols[library.name] = read
+                    }
                     facts.append(NativeFindings.Library(name: library.name, refusals: refusals, needed: needed))
+                }
+                if let exportTable {
+                    // The app's own libraries define for each other; one whose symbols could not be read defines
+                    // whatever is asked, so that it never makes another look broken.
+                    var app: [String: NativeFindings.AppLibrary] = [:]
+                    for fact in facts {
+                        app[fact.name] = NativeFindings.AppLibrary(
+                            defined: symbols[fact.name]?.defined ?? [], needed: fact.needed,
+                            isUnknown: symbols[fact.name] == nil)
+                    }
+                    let binder = NativeFindings.Binder(app: app, table: exportTable)
+                    for index in facts.indices {
+                        guard let own = symbols[facts[index].name] else { continue }
+                        let binding = binder.bind(facts[index].name, references: own.undefined, own: own.defined)
+                        facts[index].missingSymbols = binding.missing
+                        facts[index].stubSymbols = binding.stubs
+                    }
                 }
                 let failing = NativeFindings.failing(facts, publicLibraries: publicLibraries)
                 let blocking = NativeFindings.closure(of: StartPath.libraries(of: report), over: facts)
@@ -163,6 +205,9 @@ extension Library {
                     throw first
                 }
                 libraries.removeAll { library in degraded.contains { $0.library == library.name } }
+                stubs = facts.filter { !$0.stubSymbols.isEmpty && failing[$0.name] == nil }.map {
+                    ($0.name, NativeFindings.stubReason($0.stubSymbols))
+                }
             }
             try? FileManager.default.removeItem(at: lib)
             try FileManager.default.moveItem(at: partial, to: lib)
@@ -171,7 +216,9 @@ extension Library {
             throw error
         }
         let originals = libraries.map { lib.appendingPathComponent($0.name) }
-        guard let signing else { return InstalledNativeCode(signedWith: nil, degraded: degradedNow) }
+        guard let signing else {
+            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
+        }
 
         // Every library is converted, also after one that could not be signed, so that none that cannot
         // run slips through.
@@ -191,9 +238,9 @@ extension Library {
             for original in originals {
                 try? FileManager.default.removeItem(at: original.appendingPathExtension("dylib"))
             }
-            return InstalledNativeCode(signedWith: nil, degraded: degradedNow)
+            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
         }
-        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow)
+        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
     }
 
     /// The longest library name Minato takes: lib/ holds <name>.dylib next to the library, which the converter writes
@@ -225,10 +272,14 @@ extension Library {
             let installed = try installNativeCode(of: report, from: archives, into: version, signing: nil)
             // The findings are the current ones: those of an earlier check are replaced, never added to.
             try record(id: id) { entry in
-                entry.report?.compatibility.issues.removeAll { if case .libraryDegraded = $0 { true } else { false } }
-                entry.report?.compatibility.issues += installed.degraded.map {
-                    .libraryDegraded(library: $0.library, reason: $0.reason)
+                entry.report?.compatibility.issues.removeAll {
+                    switch $0 {
+                    case .libraryDegraded, .libraryCallsStubs: true
+                    default: false
+                    }
                 }
+                entry.report?.compatibility.issues += installed.findings
+                entry.report?.compatibility.checks = installed.checks
             }
         } catch let refusal as RefusedLibrary {
             try refuse(id: id, refusal)

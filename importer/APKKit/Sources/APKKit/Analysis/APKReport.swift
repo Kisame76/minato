@@ -74,6 +74,19 @@ public struct NativeLibrary: Sendable, Equatable, Codable {
 }
 
 public struct Compatibility: Sendable, Equatable, Codable {
+    /// What the import's library check used (ADR-0055 decision 5): the SHA-256 of the guest's export table and of its
+    /// public.libraries.txt, so that a check after a Minato update can see that one changed. nil in reports from before,
+    /// and where no check ran.
+    public struct Checks: Sendable, Equatable, Codable {
+        public var exportTable: String?
+        public var publicLibraries: String?
+
+        public init(exportTable: String? = nil, publicLibraries: String? = nil) {
+            self.exportTable = exportTable
+            self.publicLibraries = publicLibraries
+        }
+    }
+
     public enum Status: String, Sendable, Codable {
         case ready
         case needsSplits
@@ -107,6 +120,9 @@ public struct Compatibility: Sendable, Equatable, Codable {
         /// A library outside the start path that the converter's check refuses, with all its reasons one to a line: it
         /// is left out of lib/, so that System.loadLibrary throws UnsatisfiedLinkError as for a missing file.
         case libraryDegraded(library: String, reason: String)
+        /// A library that stays and calls functions that only a stub of Minato's defines: they log once and answer
+        /// nothing (ADR-0055 a4).
+        case libraryCallsStubs(library: String, reason: String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART
@@ -122,4 +138,5 @@ public struct Compatibility: Sendable, Equatable, Codable {
 
     public var status: Status
     public var issues: [Issue]
+    public var checks: Checks? = nil
 }

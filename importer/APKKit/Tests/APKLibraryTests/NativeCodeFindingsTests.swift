@@ -1,4 +1,5 @@
 import APKKit
+import CryptoKit
 import APKTestSupport
 import Foundation
 import Testing
@@ -247,5 +248,173 @@ struct NativeCodeNeededTests {
         let current = await library.entries.first { $0.id == entry.id }
         #expect(current.map(Self.degraded)?.isEmpty == true)
         #expect(Native.names(in: sandbox.paths.libraryDirectory(for: entry)) == ["libactivity-test.so", "libhelper.so"])
+    }
+}
+
+/// ADR-0055 a4: undefined symbols against the guest's export table.
+@Suite("Native code findings, symbols")
+struct NativeCodeSymbolTests {
+    typealias Sandbox = LibraryTests.Sandbox
+    typealias Native = NativeCodeTests
+
+    static let publicLibraries = "libc.so\nlibandroid.so\nliblog.so\n"
+    static let table = """
+        # minato export table 1
+        @ libc.so
+        needs
+        malloc
+        free
+        memcpy!
+        @ libandroid.so
+        needs libc.so
+        AAsset_close@@LIBANDROID
+        ASensorManager_getInstance@@LIBANDROID!
+        @ liblog.so
+        needs libc.so
+        __android_log_print
+        """
+
+    /// A NativeActivity app (libactivity-test.so) whose libraries are real symbol tables.
+    static func apk(_ libraries: [String: Data]) throws -> Data {
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", try Native.manifest(extractNativeLibs: true))
+        for (name, contents) in libraries.sorted(by: { $0.key < $1.key }) {
+            zip.add("lib/arm64-v8a/\(name)", contents)
+        }
+        return zip.build().data
+    }
+
+    static func library(_ sandbox: Sandbox) throws -> Library {
+        try Library(paths: sandbox.paths)
+    }
+
+    @Test func aLibraryOutsideTheStartPathWithAMissingSymbolDegrades() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        try await library.use(exportTable: Self.table)
+        let apk = try Self.apk([
+            "libactivity-test.so": SymbolELF.make(
+                needed: ["libc.so"], defined: ["entry"], undefined: [.init("malloc")]),
+            "libother.so": SymbolELF.make(needed: ["libc.so"], undefined: [.init("malloc"), .init("not_there")]),
+        ])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.state == .ready)
+        let issues = result.entry.report?.compatibility.issues ?? []
+        #expect(issues.contains(.libraryDegraded(
+            library: "libother.so", reason: "it needs the symbol not_there that nothing it needs defines")))
+    }
+
+    @Test func theStartLibrarysMissingSymbolBlocks() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        try await library.use(exportTable: Self.table)
+        let apk = try Self.apk([
+            "libactivity-test.so": SymbolELF.make(needed: ["libc.so"], undefined: [.init("not_there")])])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.state == .incompatible)
+        #expect(result.entry.report?.compatibility.issues.contains(.conversionFailed(
+            library: "libactivity-test.so",
+            reason: "it needs the symbol not_there that nothing it needs defines")) == true)
+    }
+
+    @Test func aStubIsAFindingNotARefusal() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        try await library.use(exportTable: Self.table)
+        let apk = try Self.apk([
+            "libactivity-test.so": SymbolELF.make(
+                needed: ["libc.so", "libandroid.so"],
+                undefined: [.init("memcpy"), .init("ASensorManager_getInstance", version: "LIBANDROID"),
+                            .init("free")]),
+        ])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.state == .ready)
+        #expect(result.entry.report?.compatibility.issues.contains(.libraryCallsStubs(
+            library: "libactivity-test.so",
+            reason: "calls 2 functions that Minato does not have yet (they log once and answer nothing): memcpy, "
+                + "ASensorManager_getInstance")) == true)
+        // The library stays: it loads.
+        #expect(Native.names(in: sandbox.paths.libraryDirectory(for: result.entry)).contains("libactivity-test.so"))
+    }
+
+    @Test func aLibraryWhoseSymbolsCannotBeReadMakesNoOtherLookBroken() async throws {
+        // libbroken.so has no section headers (the converter would say so), so what it defines is unknown: a symbol
+        // that only it could define is not reported missing.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        try await library.use(exportTable: Self.table)
+        let apk = try Self.apk([
+            "libactivity-test.so": SymbolELF.make(needed: ["libbroken.so"], undefined: [.init("from_broken")]),
+            "libbroken.so": DynamicELF.make(needed: ["libc.so"]),
+        ])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.state == .ready)
+    }
+
+    @Test func theReportRecordsWhatTheCheckUsed() async throws {
+        // Decision 4's second check, after a Minato update, sees by these digests that a table changed.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        try await library.use(exportTable: Self.table)
+        let apk = try Self.apk(["libactivity-test.so": SymbolELF.make(needed: ["libc.so"], undefined: [.init("malloc")])])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        func digest(_ text: String) -> String {
+            SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        let checks = result.entry.report?.compatibility.checks
+        #expect(checks?.exportTable == digest(Self.table))
+        #expect(checks?.publicLibraries == digest(Self.publicLibraries))
+    }
+
+    @Test func aReportWithoutTheCheckRecordsNone() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+
+        let result = try await library.importFile(
+            sandbox.file(Native.madeAPK(extractNativeLibs: false), named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.report?.compatibility.checks == nil)
+    }
+
+    @Test func withoutATableNoSymbolIsChecked() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(publicLibraries: Self.publicLibraries)
+        let apk = try Self.apk([
+            "libactivity-test.so": SymbolELF.make(needed: ["libc.so"], undefined: [.init("not_there")])])
+
+        let result = try await library.importFile(sandbox.file(apk, named: "a.apk"), signing: Native.signing())
+
+        #expect(result.entry.state == .ready)
+    }
+
+    @Test func aBadTableIsAnErrorForTheCaller() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+
+        await #expect(throws: ExportTable.FormatError.self) { try await library.use(exportTable: "garbage") }
     }
 }
