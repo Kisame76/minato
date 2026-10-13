@@ -1,0 +1,14 @@
+I/noted-app-op-test: sync 0 android:coarse_location tag=null describe=0
+I/noted-app-op-test: sync 26 android:camera tag=feature describe=0
+I/noted-app-op-test: sync 27 android:record_audio tag=null describe=0
+I/noted-app-op-test: sync 148 android:receive_sensitive_notifications tag=null describe=0
+I/noted-app-op-test: equal true false true
+I/noted-app-op-test: string SyncNotedAppOp { opMode = 1, opCode = android:camera, attributionTag = feature, packageName = io.github.kisame76.minato.test.notedappop }
+I/noted-app-op-test: parcel android:camera feature true 2
+I/noted-app-op-test: bad -1 java.lang.IllegalStateException
+I/noted-app-op-test: bad 149 java.lang.IllegalStateException
+I/noted-app-op-test: bad 1000 java.lang.IllegalStateException
+I/noted-app-op-test: async android:camera uid=10123 tag=feature message=noted by a test time=1234567890123 describe=0
+I/noted-app-op-test: async parcel android:camera 10123 noted by a test 1234567890123 true 3
+I/noted-app-op-test: async android:coarse_location tag=null
+I/noted-app-op-test: done

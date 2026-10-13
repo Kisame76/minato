@@ -21,6 +21,12 @@ class AppOpsManager {
     /** @hide No app op, as for a permission without one. */
     public static final int OP_NONE = -1;
 
+    /**
+     * @hide As AOSP's: the number of app ops, which SyncNotedAppOp's range names (@IntRange(to = _NUM_OP - 1)), so a
+     * constant; appopsgen checks it against the table.
+     */
+    public static final int _NUM_OP = 149;
+
     /** @hide As AOSP's: the ops Settings' write checks ask by number (gap 13a); appopsgen checks them. */
     public static final int OP_WRITE_SETTINGS = 23;
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the app op notes (noted-app-op-test; framework breadth, step (e)): SyncNotedAppOp and AsyncNotedAppOp,
+     which AppOpsManager.OnOpNotedCallback hands an app: construction from an op number, the op's name, Parcel round
+     trips and the checks a bad value meets. The launcher activity is the framework's own android.app.Activity, so that
+     `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.notedappop" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="noted-app-op-test" android:name="io.github.kisame76.minato.test.notedappop.NotedAppOpApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

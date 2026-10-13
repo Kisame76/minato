@@ -12,7 +12,6 @@
 # IWindowId, InsetsFrameProvider, FrameMetricsObserver, TaskFpsCallback, ScrollCaptureInternal and TooltipPopup; and
 # SharedMemory, MemoryFile, ConstrainDisplayApisConfig, LegacySensorManager, BatterySaverPolicyConfig and
 # ZenModeConfig.
-android.app.AsyncNotedAppOp <- android.app.AppOpsManager  # gap: (Planung) not taken: it reads AppOpsManager._NUM_OP, which the parked breadth batch 3 adds with tools/appopsgen.py
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.app.ExitTransitionCoordinator <- android.app.ActivityTransitionState  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.app.IAppTask <- android.app.Instrumentation  # gap: (Planung) not taken: its AIDL names android.app.IApplicationThread, which is our hand file with a Stub that has no asInterface
@@ -20,7 +19,6 @@ android.app.IUiAutomationConnection <- android.app.Instrumentation  # gap: (Plan
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: (Planung) not taken: it pulls android.app.servertransaction (ClientTransaction and the activity lifecycle items), a package of its own
 android.app.ProfilerInfo <- android.app.IActivityTaskManager, android.app.LocalActivityTaskManager  # gap: (Planung) not taken: its proto message ProfilerInfoProto is generated from frameworks/base's .proto files, which no step generates yet
 android.app.SearchableInfo <- android.app.SearchManager  # gap: (App) SearchableInfo, the search dialog's configuration, not taken yet; Minato has no search service
-android.app.SyncNotedAppOp <- android.app.AppOpsManager  # gap: (Planung) not taken: it reads AppOpsManager._NUM_OP, which the parked breadth batch 3 adds with tools/appopsgen.py
 android.app.UiAutomation <- android.app.Instrumentation  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener <- android.hardware.SystemSensorManager  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)

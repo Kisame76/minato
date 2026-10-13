@@ -4,8 +4,8 @@ AppOpsTable by op number: names through OPSTR_ constants and literals, simple na
 the tag's expressions with MODE_DEFAULT where none is set, getSystemAlertWindowDefault() as MODE_DEFAULT, switch ops
 in the table's order, and the runtime permissions' ops without the list's comments. Then the tag's own file, with our
 hand file: its 149 ops, CAMERA at 26, and the hand file's 87, 92 and 99. Then what it must refuse: a table that
-_NUM_OP does not count, a switch op outside the table, a mode it cannot read, and a hand file's constant that the table
-contradicts."""
+_NUM_OP does not count, a switch op outside the table, a mode it cannot read, a hand file's constant that the table
+contradicts, and a hand _NUM_OP that is not the table's length."""
 import os
 import re
 import subprocess
@@ -128,7 +128,10 @@ with tempfile.TemporaryDirectory() as folder:
              None, "default mode 'mode()' cannot be read"),
             ("a hand file's constant the table contradicts", SAMPLE,
              "class AppOpsManager {\n    public static final int OP_CAMERA = 4;\n}\n",
-             "the hand file's OP_CAMERA is 4, the table's 3")):
+             "the hand file's OP_CAMERA is 4, the table's 3"),
+            ("a hand file's _NUM_OP the table contradicts", SAMPLE,
+             "class AppOpsManager {\n    public static final int _NUM_OP = 4;\n}\n",
+             "the hand file's _NUM_OP is 4, the table's 5")):
         status, output, _ = generate(folder, source, hand or "class AppOpsManager {\n}\n")
         check(f"refuses {name}", status != 0 and message in output, output.strip())
 

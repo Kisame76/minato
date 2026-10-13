@@ -106,6 +106,9 @@ def main():
     for code, value in re.findall(r"public static final int (OP_\w+) = (-?\d+);", hand):
         if code != "OP_NONE" and numbers.get(code) != int(value):
             fail(f"the hand file's {code} is {value}, the table's {numbers.get(code)}")
+    count = re.search(r"public static final int _NUM_OP = (\d+);", hand)
+    if count is not None and int(count.group(1)) != len(ops):
+        fail(f"the hand file's _NUM_OP is {count.group(1)}, the table's {len(ops)}")
 
     folder = os.path.join(args.out, "android", "app")
     os.makedirs(folder, exist_ok=True)
