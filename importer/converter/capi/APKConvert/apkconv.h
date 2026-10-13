@@ -51,6 +51,16 @@ typedef struct {
 int apkconv_convert(const apkconv_signer *signer, const char *elf_path, const char *container_path,
                     apkconv_statistics *statistics, char *error, size_t error_size);
 
+/// Every reason apkconv_convert would refuse the ELF file `elf_path` for, without a signer and without writing
+/// anything: in convert's own words and order (the machine, the layout, the section headers, the relocations, a Darwin
+/// syscall, an x18 no island handles), one per line in `reasons` (a reason has no control character; the text is cut at
+/// `reasons_size`, and `reasons_needed`, which may be NULL, is set to the size it takes with its end, also when it does
+/// not fit, as apkconv_signing_certificate does). An empty file or one that is no ELF file has the one reason
+/// apkconv_convert gives. Returns how many there are: 0 when apkconv_convert takes the file, or -1 with the reason in
+/// `error` for a file that cannot be opened or read, or for no buffer.
+int apkconv_refusals(const char *elf_path, char *reasons, size_t reasons_size, size_t *reasons_needed, char *error,
+                     size_t error_size);
+
 /// Asks the kernel whether this process may load the container `path`, the checks dyld makes
 /// before it maps a file: its code signature is registered (F_ADDFILESIGS_RETURN) and library
 /// validation lets it in (F_CHECK_LV). Loads nothing. Returns 0, or -1 with the reason in `error`.

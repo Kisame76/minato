@@ -99,6 +99,55 @@ int main(int argc, char **argv) {
         expect(apkconv_convert(signer, foreign, container, NULL, error, sizeof error) == -1 &&
                    strncmp(error, "incompatible: ", 14) == 0 && strstr(error, "AArch64") != NULL,
                "apkconv_convert refuses code for another machine as incompatible");
+        // apkconv_refusals names the reasons without a signer or a container: one, for code of another machine,
+        // none for a file that converts.
+        char reasons[2048];
+        size_t needed = 0;
+        reasons[0] = '\0';
+        expect(apkconv_refusals(foreign, reasons, sizeof reasons, &needed, error, sizeof error) == 1 &&
+                   strstr(reasons, "AArch64") != NULL && strchr(reasons, '\n') == NULL,
+               "apkconv_refusals gives the reason of code for another machine");
+        reasons[0] = '\0';
+        expect(apkconv_refusals(fixture, reasons, sizeof reasons, &needed, error, sizeof error) == 0 &&
+                   reasons[0] == '\0',
+               "apkconv_refusals gives nothing for a file that converts");
+        // A buffer too small is cut and says how big it should be, as apkconv_signing_certificate does.
+        char little[8];
+        memset(little, 'x', sizeof little);
+        needed = 0;
+        expect(apkconv_refusals(foreign, little, sizeof little, &needed, error, sizeof error) == 1 &&
+                   needed > sizeof little && little[sizeof little - 1] == '\0',
+               "apkconv_refusals cuts a reason that does not fit and gives the size it needs");
+        // Size 0 leaves the buffer as it is; no buffer is no call.
+        memset(little, 'x', sizeof little);
+        expect(apkconv_refusals(foreign, little, 0, &needed, error, sizeof error) == 1 && little[0] == 'x',
+               "apkconv_refusals with size 0 writes nothing");
+        expect(apkconv_refusals(foreign, NULL, 0, &needed, error, sizeof error) == -1,
+               "apkconv_refusals needs a buffer");
+        // A file with no content, and one that is no ELF file: one reason each, like apkconv_convert's.
+        char empty_path[1024], garbage_path[1024];
+        snprintf(empty_path, sizeof empty_path, "%s/empty.so", scratch);
+        snprintf(garbage_path, sizeof garbage_path, "%s/garbage.so", scratch);
+        fclose(fopen(empty_path, "wb"));
+        FILE *garbage = fopen(garbage_path, "wb");
+        fputs("this is not an ELF file at all, only text", garbage);
+        fclose(garbage);
+        reasons[0] = '\0';
+        expect(apkconv_refusals(empty_path, reasons, sizeof reasons, &needed, error, sizeof error) == 1 &&
+                   strstr(reasons, "is empty") != NULL,
+               "apkconv_refusals gives one reason for an empty file");
+        // The path of an empty file is in its reason; a path may carry a newline, a reason never has one.
+        char odd_path[1024];
+        snprintf(odd_path, sizeof odd_path, "%s/odd\nname.so", scratch);
+        fclose(fopen(odd_path, "wb"));
+        reasons[0] = '\0';
+        expect(apkconv_refusals(odd_path, reasons, sizeof reasons, &needed, error, sizeof error) == 1 &&
+                   strchr(reasons, '\n') == NULL && strstr(reasons, "odd name.so") != NULL,
+               "apkconv_refusals keeps a reason on one line");
+        reasons[0] = '\0';
+        expect(apkconv_refusals(garbage_path, reasons, sizeof reasons, &needed, error, sizeof error) == 1 &&
+                   strchr(reasons, '\n') == NULL,
+               "apkconv_refusals gives one reason for a file that is no ELF file");
     } else {
         printf("     (fixtures missing, conversion skipped)\n");
     }
@@ -109,6 +158,13 @@ int main(int argc, char **argv) {
     expect(apkconv_convert(signer, "/nonexistent/libgame.so", container, NULL, error, sizeof error) == -1 &&
                strstr(error, "/nonexistent/libgame.so") != NULL && strncmp(error, "incompatible: ", 14) != 0,
            "apkconv_convert names a file it cannot open");
+    {
+        char reasons[64];
+        error[0] = '\0';
+        expect(apkconv_refusals("/nonexistent/libgame.so", reasons, sizeof reasons, NULL, error, sizeof error) == -1 &&
+                   strstr(error, "/nonexistent/libgame.so") != NULL,
+               "apkconv_refusals names a file it cannot open");
+    }
     char not_elf[1024];
     snprintf(not_elf, sizeof not_elf, "%s/not-elf.so", scratch);
     FILE *file = fopen(not_elf, "w");

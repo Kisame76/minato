@@ -335,6 +335,36 @@ extern "C" int apkconv_convert(const apkconv_signer *signer, const char *elf_pat
     }
 }
 
+extern "C" int apkconv_refusals(const char *elf_path, char *reasons, size_t reasons_size, size_t *reasons_needed,
+                                char *error, size_t error_size) {
+    try {
+        if (elf_path == nullptr || reasons == nullptr) {
+            throw std::runtime_error("apkconv_refusals needs a path and a buffer");
+        }
+        std::vector<std::string> found;
+        try {
+            const MappedFile elf(elf_path);
+            found = apk::container::refusals(elf.bytes());
+        } catch (const apk::container::Incompatible &empty) {
+            found = {empty.what()};  // an empty file: its one reason, as apkconv_convert gives it
+        }
+        std::string text;
+        for (auto reason : found) {
+            // One reason is one line of printable text, also an empty file's, which carries the path.
+            for (auto &letter : reason) {
+                if (static_cast<unsigned char>(letter) < 0x20 || letter == 0x7f) letter = ' ';
+            }
+            text += (text.empty() ? "" : "\n") + reason;
+        }
+        if (reasons_needed != nullptr) *reasons_needed = text.size() + 1;
+        copy_text(text, reasons, reasons_size);
+        return static_cast<int>(found.size());
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
 extern "C" int apkconv_check_signature(const char *path, char *error, size_t error_size) {
     try {
         check_signature(path);

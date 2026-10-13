@@ -84,6 +84,13 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses);
 /// Converts `elf`. Throws Incompatible, or elf::FormatError when the file is broken.
 Container convert(std::span<const std::byte> elf, const Options &options);
 
+/// Every reason convert() would refuse `elf` for, each in convert()'s own words and in its order (the machine and the
+/// file type, the layout, the section headers, the relocations, a Darwin syscall, an x18 no island handles); empty when
+/// convert() takes the file. It makes the same tests as convert(), not copies of them, and writes nothing. A file that
+/// cannot be read, or is not AArch64 code of a shared object, has that one reason, as nothing else about it matters. A
+/// reason is one line: control characters in a name from the file are spaces.
+std::vector<std::string> refusals(std::span<const std::byte> elf);
+
 /// The code of a file as the rewriter sees it: what it finds in the executable sections, the only
 /// bytes known to be instructions (R1).
 struct CodeScan {

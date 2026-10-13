@@ -83,19 +83,44 @@ public:
     void operator()(std::uint64_t address) {
         const auto *segment = elf::load_containing(file_, address, 8);
         if (segment == nullptr) {
-            throw Incompatible(std::format("a relocation at {:#x} lies outside the image", address));
+            refuse(Kind::outside, address);
+            return;
         }
         if ((segment->flags & elf::segment_writable) == 0) {
-            throw Incompatible(std::format(
-                "text relocation at {:#x}: signed code cannot be changed at run time", address));
+            refuse(Kind::text, address);
+            return;
         }
         ++count;
+    }
+
+    /// Throws for the first relocation that cannot be applied, naming how many more there are: the walk went on to
+    /// count them, so that one refusal says how much a library still needs.
+    void finish() const {
+        if (refused_ == 0) return;
+        const auto reason = first_kind_ == Kind::outside
+            ? std::format("a relocation at {:#x} lies outside the image", first_address_)
+            : std::format("text relocation at {:#x}: signed code cannot be changed at run time", first_address_);
+        throw Incompatible(refused_ > 1 ? std::format("{} (and {} more)", reason, refused_ - 1) : reason);
     }
 
     std::uint64_t count = 0;
 
 private:
+    enum class Kind { outside, text };
+
+    /// Only the first is worded, at the end: a table of millions of refused relocations costs a count, not a message
+    /// each.
+    void refuse(Kind kind, std::uint64_t address) {
+        if (refused_++ == 0) {
+            first_kind_ = kind;
+            first_address_ = address;
+        }
+    }
+
     const elf::File &file_;
+    Kind first_kind_ = Kind::text;
+    std::uint64_t first_address_ = 0;
+    std::uint64_t refused_ = 0;
 };
 
 /// Walks a RELR table (the compact list of relative relocations): an even entry is an address, an
@@ -144,6 +169,8 @@ std::uint64_t check_relocations(const elf::File &file, std::span<const std::byte
         const auto size = dynamic_value(dynamic, dt_relrsz, dt_android_relrsz).value_or(0);
         check_relr(file_bytes_at(file, bytes, *relr, size, "RELR table"), check);
     }
+    // The first bad relocation is named before a later table is looked at, as when each was thrown at once.
+    check.finish();
     if (const auto rela = dynamic_value(dynamic, dt_rela)) {
         if (dynamic_value(dynamic, dt_relaent).value_or(rela_entry_size) != rela_entry_size) {
             throw Incompatible("RELA entries are not 24 bytes long");
@@ -151,10 +178,12 @@ std::uint64_t check_relocations(const elf::File &file, std::span<const std::byte
         check_rela(file_bytes_at(file, bytes, *rela, dynamic_value(dynamic, dt_relasz).value_or(0), "RELA table"),
                    check);
     }
+    check.finish();
     if (const auto jmprel = dynamic_value(dynamic, dt_jmprel)) {
         check_rela(file_bytes_at(file, bytes, *jmprel, dynamic_value(dynamic, dt_pltrelsz).value_or(0), "PLT relocations"),
                    check);
     }
+    check.finish();
     return check.count;
 }
 
@@ -447,14 +476,37 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses) {
     return text;
 }
 
-Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
-    const auto file = elf::read(elf_bytes);
+/// The tests convert() and refusals() both make, so that the two cannot drift: the machine and the file type, a
+/// Darwin syscall, and a use of x18 that no island handles. Each throws Incompatible.
+void require_aarch64_shared(const elf::File &file) {
     if (file.machine != elf::machine_aarch64) {
         throw Incompatible(std::format("machine {}: only AArch64 (arm64-v8a) code runs", elf::machine_name(file.machine)));
     }
     if (file.type != elf::FileType::shared) {
         throw Incompatible("not position independent (no ET_DYN): nothing can be mapped below 4 GiB on iOS");
     }
+}
+
+void refuse_darwin_syscall(const elf::File &file, std::span<const std::byte> elf_bytes,
+                           const rewrite::Findings &findings) {
+    if (findings.other_syscalls.empty()) return;
+    const auto address = findings.other_syscalls.front();
+    const auto word = file_bytes_at(file, elf_bytes, address, 4, "instruction");
+    std::uint32_t instruction;
+    std::memcpy(&instruction, word.data(), sizeof instruction);
+    const auto more = findings.other_syscalls.size() - 1;
+    throw Incompatible(std::format("svc #{:#x} at {:#x} is no Linux syscall and would run a Darwin one{}",
+                                   (instruction >> 5) & 0xffff, address,
+                                   more == 0 ? std::string() : std::format(" (and {} more)", more)));
+}
+
+void refuse_unsupported_x18(const rewrite::Findings &findings) {
+    if (!findings.x18_unsupported.empty()) throw Incompatible(x18_refusal(findings.x18_unsupported));
+}
+
+Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
+    const auto file = elf::read(elf_bytes);
+    require_aarch64_shared(file);
     const auto layout = page_layout(file);
 
     std::vector<const elf::Segment *> loads;
@@ -493,17 +545,10 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const auto scan = scan_sections(file, elf_bytes, sections);
     const auto &findings = scan.findings;
     report.code_bytes = scan.code_bytes;
-    if (!findings.other_syscalls.empty()) {
-        const auto address = findings.other_syscalls.front();
-        const auto word = file_bytes_at(file, elf_bytes, address, 4, "instruction");
-        std::uint32_t instruction;
-        std::memcpy(&instruction, word.data(), sizeof instruction);
-        throw Incompatible(std::format("svc #{:#x} at {:#x} is no Linux syscall and would run a Darwin one",
-                                       (instruction >> 5) & 0xffff, address));
-    }
+    refuse_darwin_syscall(file, elf_bytes, findings);
     // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
     // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
-    if (!findings.x18_unsupported.empty()) throw Incompatible(x18_refusal(findings.x18_unsupported));
+    refuse_unsupported_x18(findings);
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 
@@ -711,6 +756,48 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     dylib.uuid = content_uuid(bytes, options.install_name);
     macho::write_header(dylib, bytes);
     return Container{.bytes = std::move(bytes), .report = report};
+}
+
+std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
+    std::vector<std::string> reasons;
+    // Each step is a test convert() makes, and its reason is convert()'s own words; whatever else convert() would
+    // find in the file is the file's too (as c_api.cpp takes it), but out of memory is not.
+    const auto attempt = [&](const auto &step) {
+        try {
+            step();
+            return true;
+        } catch (const std::bad_alloc &) {
+            throw;
+        } catch (const std::exception &failure) {
+            // A name from the file may carry any byte; a reason is one line of printable text.
+            std::string reason = failure.what();
+            for (auto &letter : reason) {
+                if (static_cast<unsigned char>(letter) < 0x20 || letter == 0x7f) letter = ' ';
+            }
+            reasons.emplace_back(std::move(reason));
+            return false;
+        }
+    };
+    std::optional<elf::File> file;
+    if (!attempt([&] { file = elf::read(elf_bytes); })) return reasons;
+    // Code of another machine, or a file that is no shared object, says nothing more worth naming.
+    if (!attempt([&] { require_aarch64_shared(*file); })) return reasons;
+    // The scan runs even when page_layout refused the file, which convert() never gets to: scan_sections reads only
+    // what it checks itself (a 300k-mutation fuzz found nothing), so a step added after it must not assume
+    // page_layout's invariants.
+    attempt([&] { (void)page_layout(*file); });
+    std::optional<std::vector<elf::Section>> sections;
+    attempt([&] { sections = sections_for_scan(elf_bytes); });
+    attempt([&] { (void)check_relocations(*file, elf_bytes, elf::read_dynamic(*file, elf_bytes)); });
+    if (!sections) return reasons;
+    std::optional<CodeScan> scan;
+    if (!attempt([&] { scan = scan_sections(*file, elf_bytes, *sections); })) return reasons;
+    attempt([&] { refuse_darwin_syscall(*file, elf_bytes, scan->findings); });
+    attempt([&] { refuse_unsupported_x18(scan->findings); });
+    // What convert() refuses only after these, in building the container (its size, a place outside the file, the
+    // rewriter's and the writer's limits), shows when the tests above found nothing.
+    if (reasons.empty()) attempt([&] { (void)convert(elf_bytes, {.install_name = "@rpath/check.dylib"}); });
+    return reasons;
 }
 
 CodeScan scan_code(std::span<const std::byte> elf_bytes) {

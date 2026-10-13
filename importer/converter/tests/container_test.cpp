@@ -16,6 +16,7 @@
 #include <mach-o/loader.h>
 #include <mach/mach.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -24,6 +25,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -49,6 +51,9 @@ constexpr std::uint32_t code[] = {
     0xd503'201f,  // 0x21c nop
 };
 
+constexpr std::int64_t dt_rela = 7;
+constexpr std::int64_t dt_relasz = 8;
+constexpr std::int64_t dt_relaent = 9;
 constexpr std::int64_t dt_relrsz = 35;
 constexpr std::int64_t dt_relr = 36;
 constexpr std::int64_t dt_relrent = 37;
@@ -880,6 +885,197 @@ TEST(refuses_what_cannot_run) {
     ElfBuilder without_sections;
     without_sections.segments({{pt_load, r | x, 0, 0, 0x220, 0x220, 0x4000}});
     CHECK_THROWS(Incompatible, convert(without_sections), "section headers");
+}
+
+bool contains(const std::string &text, std::string_view part) {
+    return text.find(part) != std::string::npos;
+}
+
+/// What convert() throws for `builder`, "" when it converts.
+std::string refusal_of(const ElfBuilder &builder) {
+    try {
+        (void)convert(builder);
+    } catch (const Incompatible &refusal) {
+        return refusal.what();
+    }
+    return "";
+}
+
+/// static_program with a RELR table of `entries` words in a third, read-only LOAD segment: the first an address in
+/// the code, the rest bitmaps with every bit set, so that each word names 63 relocations into places outside any
+/// segment or into the code, all refused.
+ElfBuilder program_with_relocation_flood(std::size_t entries) {
+    ElfBuilder builder = static_program();
+    const std::uint64_t table = 0x1000;
+    builder.bytes.resize(table + entries * 8);
+    builder
+        .segments({
+            {pt_phdr, r, 0x40, 0x40, 6 * 56, 6 * 56, 8},
+            {pt_load, r | x, 0, 0, 0x220, 0x220, 0x4000},
+            {pt_load, r | w, 0x2c0, 0x42c0, 0x40, 0x1000, 0x4000},
+            {pt_load, r, table, 0x20000, entries * 8, entries * 8, 0x4000},
+            {pt_dynamic, r | w, 0x2c0, 0x42c0, 0x40, 0x40, 8},
+            {pt_gnu_stack, r | w, 0, 0, 0, 0, 0},
+        })
+        .dynamic(0x2c0, {{dt_relr, 0x20000}, {dt_relrsz, static_cast<std::int64_t>(entries * 8)}, {dt_relrent, 8},
+                         {0, 0}});
+    builder.put<std::uint64_t>(table, 0x200);
+    for (std::size_t index = 1; index < entries; ++index) {
+        builder.put<std::uint64_t>(table + index * 8, ~std::uint64_t{0});
+    }
+    return builder;
+}
+
+TEST(a_flood_of_refused_relocations_costs_a_count_not_a_message_each) {
+    // 4 MiB of bitmaps name some 26 million relocations; the reason is made once, for the first (the lead's reviewer:
+    // 25 s with a message each).
+    const auto flood = program_with_relocation_flood(std::size_t{4} << 17);
+    const auto start = std::chrono::steady_clock::now();
+    const auto reasons = apk::container::refusals(flood.bytes);
+    const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    CHECK(!reasons.empty());
+    CHECK(contains(reasons.at(0), "text relocation at 0x200"));
+    CHECK(contains(reasons.at(0), "more)"));
+    CHECK(seconds < 30.0);  // about 4 s under the sanitizers, 2 minutes with a message each
+}
+
+TEST(a_bad_relocation_is_named_before_a_later_table_that_cannot_be_read) {
+    // convert() named the first bad relocation before it looked at the later tables (the lead's reviewer): a RELR
+    // text relocation, then a RELA table outside the file.
+    auto first = static_program();
+    first.put<std::uint64_t>(0x160, 0x200);  // a relocation into the code
+    first.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 8}, {dt_rela, 0x90000000}, {dt_relasz, 24}, {0, 0}});
+    CHECK(contains(refusal_of(first), "text relocation at 0x200"));
+    CHECK(contains(apk::container::refusals(first.bytes).at(0), "text relocation at 0x200"));
+    // The same with an entry size that is not 24.
+    auto sized = static_program();
+    sized.put<std::uint64_t>(0x160, 0x200);
+    sized.dynamic(0x2c0,
+                  {{dt_relr, 0x160}, {dt_relrsz, 8}, {dt_rela, 0x160}, {dt_relasz, 24}, {dt_relaent, 16}, {0, 0}});
+    CHECK(contains(refusal_of(sized), "text relocation at 0x200"));
+}
+
+TEST(refusals_name_every_reason_a_file_has) {
+    using apk::container::refusals;
+
+    // What converts has no reason.
+    CHECK(refusals(static_program().bytes).empty());
+
+    // A Darwin syscall and a register branch on x18: two reasons, in convert()'s order, each as convert() words it.
+    auto both = static_program();
+    both.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
+    both.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18
+    const auto reasons = refusals(both.bytes);
+    CHECK(reasons.size() == 2);
+    CHECK(contains(reasons.at(0), "svc #0x80 at 0x218"));
+    CHECK(contains(reasons.at(1), "x18 at 0x21c cannot run on iOS: it is a register branch"));
+
+    // Text relocations come before the code's reasons, as in convert().
+    auto text_relocations = static_program();
+    text_relocations.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 8}, {22 /* DT_TEXTREL */, 0}, {0, 0}});
+    text_relocations.put<std::uint32_t>(0x218, 0xd400'1001);
+    const auto relocation_reasons = refusals(text_relocations.bytes);
+    CHECK(relocation_reasons.size() == 2);
+    CHECK(contains(relocation_reasons.at(0), "text relocation"));
+    CHECK(contains(relocation_reasons.at(1), "svc #0x80 at 0x218"));
+
+    // A layout reason (a segment both writable and executable) and a Darwin syscall: both are named.
+    auto writable_code = static_program();
+    writable_code.put<std::uint32_t>(64 + 56 + 4, r | w | x);  // p_flags of the code segment
+    writable_code.put<std::uint32_t>(0x218, 0xd400'1001);
+    const auto layout_reasons = refusals(writable_code.bytes);
+    CHECK(layout_reasons.size() == 2);
+    CHECK(contains(layout_reasons.at(0), "LOAD segment at 0x0 is writable and executable"));
+    CHECK(contains(layout_reasons.at(1), "svc #0x80 at 0x218"));
+    CHECK(layout_reasons.front() == refusal_of(writable_code));
+
+    // Not AArch64: that one reason, as the code of another machine says nothing about the rest.
+    auto x86 = static_program();
+    x86.put<std::uint16_t>(18, 62);
+    CHECK(refusals(x86.bytes).size() == 1);
+    CHECK(contains(refusals(x86.bytes).at(0), "x86-64"));
+
+    // No section headers: the layout and the relocations still count, the code scan has nothing to read.
+    ElfBuilder without_sections;
+    without_sections.segments({{pt_load, r | x, 0, 0, 0x220, 0x220, 0x4000}});
+    const auto headerless = refusals(without_sections.bytes);
+    CHECK(!headerless.empty());
+    CHECK(contains(headerless.back(), "section headers"));
+
+    // What convert() refuses only after the scan (here the container's size) shows too (the lead's reviewer).
+    auto big_container = static_program((std::uint64_t{256} << 20) + 0x4800);
+    big_container.put<std::uint64_t>(64 + 56 + 40, std::uint64_t{256} << 20);
+    big_container.put<std::uint64_t>(64 + 2 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);
+    big_container.put<std::uint64_t>(64 + 3 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);
+    CHECK(refusals(big_container.bytes).size() == 1);
+    CHECK(contains(refusals(big_container.bytes).at(0), "the container would take"));
+    CHECK(refusals(big_container.bytes).front() == refusal_of(big_container));
+
+    // An executable (ET_EXEC) AArch64 file with a Darwin syscall: that one reason, the type's; nothing about its code.
+    auto executable = static_program();
+    executable.put<std::uint16_t>(16, 2);
+    executable.put<std::uint32_t>(0x218, 0xd400'1001);
+    CHECK(refusals(executable.bytes).size() == 1);
+    CHECK(contains(refusals(executable.bytes).at(0), "not position independent"));
+
+    // No section headers and a layout reason: both.
+    ElfBuilder headerless_layout;
+    headerless_layout.segments({{pt_load, r | w | x, 0, 0, 0x220, 0x220, 0x4000}});
+    const auto both_reasons = refusals(headerless_layout.bytes);
+    CHECK(both_reasons.size() == 2);
+    CHECK(contains(both_reasons.at(0), "writable and executable"));
+    CHECK(contains(both_reasons.at(1), "section headers"));
+
+    // A scan that fails shows its own reason and nothing from the code it could not read.
+    auto beyond = static_program();
+    beyond.put<std::uint64_t>(64 + 56 + 32, 0x210);  // p_filesz of the code segment, .text ends at 0x220
+    beyond.put<std::uint32_t>(0x218, 0xd400'1001);
+    CHECK(refusals(beyond.bytes).size() == 1);
+    CHECK(contains(refusals(beyond.bytes).at(0), "reaches beyond"));
+
+    // Garbage and a file cut short: one reason each, never a throw.
+    CHECK(refusals(std::vector<std::byte>(40, std::byte{0x41})).size() == 1);
+    const auto whole = static_program();
+    const auto cut = std::vector<std::byte>(whole.bytes.begin(), whole.bytes.begin() + 100);
+    CHECK(refusals(cut).size() == 1);
+
+    // A name from the file never breaks a reason into lines (the lead's reviewer): control characters become spaces.
+    auto named = static_program();
+    named.put<std::uint64_t>(64 + 56 + 32, 0x210);
+    auto patched = named.bytes;
+    const std::string wanted = ".text";
+    for (std::size_t at = 0; at + wanted.size() < patched.size(); ++at) {
+        if (std::memcmp(patched.data() + at, wanted.data(), wanted.size()) == 0 && at > 0x300) {
+            patched[at + 3] = static_cast<std::byte>('\n');
+            break;
+        }
+    }
+    const auto one_line = refusals(patched);
+    CHECK(one_line.size() == 1);
+    CHECK(one_line.at(0).find('\n') == std::string::npos);
+
+    // The count of what repeats: Darwin syscalls, and relocations into code.
+    auto many_svc = static_program();
+    many_svc.put<std::uint32_t>(0x218, 0xd400'1001);
+    many_svc.put<std::uint32_t>(0x21c, 0xd400'1001);
+    CHECK(contains(refusals(many_svc.bytes).at(0), "svc #0x80 at 0x218"));
+    CHECK(contains(refusals(many_svc.bytes).at(0), "and 1 more"));
+    auto two_relocations = static_program();
+    two_relocations.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 16}, {0, 0}});
+    two_relocations.put<std::uint64_t>(0x160, 0x200);
+    two_relocations.put<std::uint64_t>(0x168, 0x3);
+    const auto relocation_text = refusals(two_relocations.bytes);
+    CHECK(relocation_text.size() >= 1);
+    CHECK(contains(relocation_text.at(0), "text relocation at 0x200"));
+    CHECK(contains(relocation_text.at(0), "and 1 more"));
+
+    // The first reason is the one convert() throws, word for word, for each file above that it refuses.
+    CHECK(refusals(both.bytes).front() == refusal_of(both));
+    CHECK(refusals(text_relocations.bytes).front() == refusal_of(text_relocations));
+    CHECK(refusals(x86.bytes).front() == refusal_of(x86));
+    CHECK(refusals(without_sections.bytes).front() == refusal_of(without_sections));
+    // And a file convert() takes, refusals() gives nothing for.
+    CHECK(refusal_of(static_program()).empty());
 }
 
 }  // namespace
