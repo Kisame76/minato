@@ -217,7 +217,6 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.view.textclassifier.TextLinks \
   --class android.view.translation.ViewTranslationRequest \
   --placeholder android.view.SurfaceControl \
-  --placeholder android.graphics.SurfaceTexture \
   --placeholder android.view.WindowId \
   --placeholder android.window.InputTransferToken \
   --placeholder android.window.TrustedPresentationThresholds \

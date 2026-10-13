@@ -95,7 +95,10 @@ LIBRARIES = {
             "AHardwareBuffer_sendHandleToUnixSocket", "AHardwareBuffer_unlock",
         ],
         "stubbed": [],
-        "private": ["minato_ANativeWindow_create", "minato_ANativeWindow_getInfo"],
+        "private": ["minato_ANativeWindow_create", "minato_ANativeWindow_getInfo", "minato_BufferQueue_create",
+                    "minato_BufferQueue_setDefaultSize", "minato_BufferQueue_acquire", "minato_BufferQueue_releaseSlot",
+                    "minato_BufferQueue_abandon", "minato_BufferQueue_isAbandoned", "minato_BufferQueue_release",
+                    "minato_ANativeWindow_isQueue", "minato_ANativeWindow_dequeue", "minato_ANativeWindow_queue"],
     },
     # zlib from the NDK's libz.a, whole (decision 12): only the version script.
     "libz": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},

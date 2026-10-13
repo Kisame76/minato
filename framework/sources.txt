@@ -186,7 +186,8 @@ frameworks_base/core/java/android/util/StateSet.java
 # (patch 0006) look up, and what they name within android.graphics (ColorMatrix lies in hwui's apex/java), of which
 # Rect, Color and LineBreakConfig came earlier: Paint, Typeface and Canvas replace b3.4b's compile-only stubs. The GPU
 # pipeline's TextureLayer, SurfaceTexture and BLASTBufferQueue stay compile-only, since libhwui's host flavor registers
-# none of their natives (decision 2); HardwareRenderer came later, for PixelCopy (the end of this list). PathParser and
+# none of their natives (decision 2); HardwareRenderer came later, for PixelCopy, and SurfaceTexture with ADR-0058 c)
+# (the end of this list). PathParser and
 # Size, which the registrations look up; Animator and TimeInterpolator, which RenderNodeAnimator and
 # FallbackLUTInterpolator stand on; FontConfig, which Typeface's static initializer reads with SystemFonts;
 # CompatChanges, which every new Paint asks, with the cache its static initializer makes, its query and PackageOverride
@@ -1993,3 +1994,7 @@ frameworks_base/core/java/android/os/CombinedVibration.java
 frameworks_base/core/java/android/hardware/lights/LightState.java
 frameworks_base/core/java/android/hardware/lights/LightsRequest.java
 frameworks_base_types/media/java/android/media/session/PlaybackState.java
+
+# ADR-0058 c) (Grafik), surface-texture-test: AOSP's SurfaceTexture over our natives on libnativewindow's buffer queue
+# (android_graphics_SurfaceTexture.cpp), in place of its placeholder.
+frameworks_base_graphics/graphics/java/android/graphics/SurfaceTexture.java

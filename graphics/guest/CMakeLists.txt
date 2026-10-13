@@ -181,6 +181,13 @@ foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_te
   target_link_libraries(${program} PRIVATE EGL GLESv3 minato_bind nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# ADR-0058 c): buffer-queue-test, libnativewindow's buffer queue through its private functions.
+add_executable(buffer-queue-test "${tests}/buffer_queue_test.c")
+target_include_directories(buffer-queue-test PRIVATE "${repo}/runtime/include")
+target_link_libraries(buffer-queue-test PRIVATE nativewindow dl)
+# ANativeWindow_setFrameRate is API 30's, above this build's 29: a weak reference, which Minato resolves.
+target_compile_definitions(buffer-queue-test PRIVATE __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
+target_compile_options(buffer-queue-test PRIVATE -Wall -Wextra -Wno-unguarded-availability)
 # ADR-0058 b): ahb-image-test, EGL images of AHardwareBuffers, linked as an app links libEGL and libGLESv3.
 add_executable(ahb-image-test "${tests}/ahb_image_test.c")
 target_link_libraries(ahb-image-test PRIVATE EGL GLESv3 nativewindow)

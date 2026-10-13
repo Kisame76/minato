@@ -7,7 +7,7 @@
 # A line goes when its type is taken (the check names it "stale"); none is added without its why.
 # Placeholders (App, placeholder; the Unity test APK retest 11): classes that ship only so that the classes naming them load for
 # reflection, each body logging once and throwing UnsupportedOperationException; Grafik owns the graphics ones, which
-# ADR-0058 b) / category 2 replace: SurfaceControl, SurfaceTexture, Movie, WindowId, InputTransferToken,
+# ADR-0058 b) / category 2 replace: SurfaceControl, WindowId, InputTransferToken,
 # TrustedPresentationThresholds, DisplayHashResultCallback, BLASTBufferQueue, ThreadedRenderer, IWindowSession,
 # IWindowId, InsetsFrameProvider, FrameMetricsObserver, TaskFpsCallback, ScrollCaptureInternal and TooltipPopup; and
 # SharedMemory, MemoryFile, ConstrainDisplayApisConfig, LegacySensorManager, BatterySaverPolicyConfig and

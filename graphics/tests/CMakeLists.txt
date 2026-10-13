@@ -291,6 +291,9 @@ if(TARGET minato_graphics_host)
   # ADR-0058 a): libnativewindow's AHardwareBuffer on graphics/host's hardware buffers, with Android 15's answers.
   add_guest_test(ahb ahb-test ahb_test "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so"
     "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
+  # ADR-0058 c): libnativewindow's buffer queue, a SurfaceTexture's, on graphics/host's hardware buffers.
+  add_guest_test(buffer_queue buffer-queue-test buffer_queue_test
+    "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
   # And the same buffers through the window host's background script, with the Metal hook counting guest commits.
   add_guest_test(window_background window-background-test window_background_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"

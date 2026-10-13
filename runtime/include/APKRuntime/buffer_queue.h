@@ -1,0 +1,69 @@
+/* libnativewindow's buffer queue (ADR-0058 c)): the queue behind a SurfaceTexture, in place of libgui's BufferQueue,
+   for libandroid_runtime's SurfaceTexture, libandroid's ASurfaceTexture and libEGL. Its producer is an ANativeWindow
+   (a queue window), which Surface(SurfaceTexture) holds; its consumer is the SurfaceTexture. Guest code; every
+   function is in libnativewindow.so, version APKRT_PRIVATE, and reached through dlsym, as the NDK's stub lacks it.
+   - Three slots, each an AHardwareBuffer of the window's size and format (ANativeWindow_setBuffersGeometry, else
+     the default size of minato_BufferQueue_setDefaultSize and RGBA_8888), GPU_SAMPLED_IMAGE, GPU_FRAMEBUFFER and the
+     CPU's, made at a slot's first dequeue and again when the size or the format changes.
+   - Frames go first in, first out, as BufferQueue's without async mode: a dequeue waits for a free slot, and the
+     consumer acquires the oldest queued frame; its last acquired one stays its own until the next acquire's release.
+   - Abandoned (minato_BufferQueue_abandon, SurfaceTexture.release), the producer's calls answer -ENODEV, NO_INIT,
+     libgui's answer, and a waiting dequeue wakes with it.
+   The queue lives while the window and the consumer hold it. */
+#ifndef APKRUNTIME_BUFFER_QUEUE_H
+#define APKRUNTIME_BUFFER_QUEUE_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct AHardwareBuffer;
+struct ANativeWindow;
+struct minato_BufferQueue;
+
+/* A frame as the consumer acquires it: its slot, its buffer (the slot's, which the consumer does not release), the
+   producer's timestamp (CLOCK_MONOTONIC in nanoseconds, the queue's time unless the producer gave one) and its
+   transform (ANATIVEWINDOW_TRANSFORM_*). */
+struct minato_BufferQueue_frame {
+    int32_t slot;
+    struct AHardwareBuffer *buffer;
+    int64_t timestamp;
+    int32_t transform;
+};
+
+/* Called after each queued frame on the producer's thread, outside the queue's lock; and once the queue goes, after
+   both the window and the consumer let it go, so that `context` lives as long as any call of `available` may run. */
+typedef void (*minato_BufferQueue_available)(void *context);
+typedef void (*minato_BufferQueue_destroy)(void *context);
+
+/* A new queue with its producer window, which holds one reference for the caller (ANativeWindow_release lets it go),
+   and its consumer, which minato_BufferQueue_release lets go; `available` for each frame and `destroy` at its end,
+   each with `context`, or NULL. Returns 0, -EINVAL for a NULL `producer` or `consumer`, or -ENOMEM. */
+int minato_BufferQueue_create(minato_BufferQueue_available available, minato_BufferQueue_destroy destroy,
+                              void *context, struct ANativeWindow **producer, struct minato_BufferQueue **consumer);
+
+/* The consumer: the default size of the buffers while the producer sets none (SurfaceTexture.setDefaultBufferSize);
+   the oldest queued frame, after the release of the consumer's last one (0; -EAGAIN with none queued; -ENODEV
+   abandoned); the release of a frame's slot without a new one (releaseTexImage); abandon; and the consumer's end. */
+void minato_BufferQueue_setDefaultSize(struct minato_BufferQueue *queue, int32_t width, int32_t height);
+int minato_BufferQueue_acquire(struct minato_BufferQueue *queue, struct minato_BufferQueue_frame *frame);
+void minato_BufferQueue_releaseSlot(struct minato_BufferQueue *queue, int32_t slot);
+void minato_BufferQueue_abandon(struct minato_BufferQueue *queue);
+int minato_BufferQueue_isAbandoned(struct minato_BufferQueue *queue);
+void minato_BufferQueue_release(struct minato_BufferQueue *queue);
+
+/* The producer, for libEGL's window surfaces on a queue window (c2): whether `window` is one; a free slot's buffer of
+   the window's size and format, waiting for one (0, -ENODEV abandoned, -EINVAL for any other window); and its queue
+   with a timestamp, 0 for the queue's time (0, -ENODEV, -EINVAL for a slot that is not dequeued, as libgui's
+   BAD_VALUE). */
+int minato_ANativeWindow_isQueue(struct ANativeWindow *window);
+int minato_ANativeWindow_dequeue(struct ANativeWindow *window, struct AHardwareBuffer **buffer, int32_t *slot);
+int minato_ANativeWindow_queue(struct ANativeWindow *window, int32_t slot, int64_t timestamp);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

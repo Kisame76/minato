@@ -3,11 +3,11 @@
 // an ANativeWindow*: the Java Surface holds one reference of it, and a lock one more until Java releases it after the
 // post, as libgui's sp<Surface> counts them. lockCanvas and unlockCanvasAndPost go through ANativeWindow_lock and
 // ANativeWindow_unlockAndPost with hwui's ACanvas, as AOSP's go through Surface::lock and graphics::Canvas. The natives
-// that need libgui, Binder or hardware buffers (SurfaceTexture, SurfaceControl, BLASTBufferQueue, Parcel,
+// that need libgui, Binder or hardware buffers (SurfaceControl, BLASTBufferQueue, Parcel,
 // attachAndQueueBuffer) and those our window has nothing for (frame numbers, shared buffer mode, auto refresh, a
 // scoped disconnect) log Unwritten's line once and answer what means that nothing happened. Registered at gRegJNI's
 // place, with WindowSurface's natives: a Surface on a host window by its ID, for ViewRootImpl's window and a
-// SurfaceView's layer. libnativewindow's private functions (APKRT_PRIVATE) are looked up through dlopen, as the NDK's
+// SurfaceView's layer. A Surface of a SurfaceTexture holds its queue window (ADR-0058 c)). libnativewindow's private functions (APKRT_PRIVATE) are looked up through dlopen, as the NDK's
 // stub that the library links against lacks them. For libandroid's ANativeWindow_fromSurface and
 // ANativeWindow_toSurface, which Android's libandroid builds on libandroid_runtime's
 // android_view_Surface_getNativeWindow and android_view_Surface_createFromSurface, it exports
@@ -29,6 +29,9 @@
 #include "minato_gles.h"
 
 namespace android {
+
+ANativeWindow *android_SurfaceTexture_getProducer(JNIEnv *env, jobject surfaceTexture);
+
 namespace {
 
 const char *const kIllegalArgumentException = "java/lang/IllegalArgumentException";
@@ -81,10 +84,17 @@ bool is_valid(ANativeWindow *window) {
     return window != nullptr && private_functions().getInfo(window, &info) == 0;
 }
 
-jlong nativeCreateFromSurfaceTexture(JNIEnv *env, jclass, jobject) {
-    minato_unwritten(env, "android.view.Surface(SurfaceTexture)");
-    jniThrowException(env, kOutOfResourcesException, nullptr);
-    return 0;
+// The SurfaceTexture's producer, its queue window (android_graphics_SurfaceTexture.cpp), with a reference of the
+// Surface's own; the tag's OutOfResourcesException for a SurfaceTexture without one.
+jlong nativeCreateFromSurfaceTexture(JNIEnv *env, jclass, jobject surfaceTexture) {
+    ANativeWindow *window = android_SurfaceTexture_getProducer(env, surfaceTexture);
+    if (window == nullptr) {
+        jniThrowException(env, kOutOfResourcesException,
+                          "SurfaceTexture has already been released");
+        return 0;
+    }
+    ANativeWindow_acquire(window);
+    return reinterpret_cast<jlong>(window);
 }
 
 void nativeRelease(JNIEnv *, jclass, jlong nativeObject) {

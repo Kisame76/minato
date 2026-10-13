@@ -1,0 +1,20 @@
+I/surface-texture-test: program linked true
+I/surface-texture-test: SurfaceTexture: released false
+I/surface-texture-test: Surface(SurfaceTexture): valid true
+I/surface-texture-test: first frame: Canvas 8 x 8
+I/surface-texture-test: onFrameAvailable on the creator's Looper: true, the same SurfaceTexture true
+I/surface-texture-test:   transform [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+I/surface-texture-test:   timestamp positive true, later than the last true
+I/surface-texture-test:   pixels: top ff0000ff, bottom 0000ffff, error 0x0
+I/surface-texture-test: second frame: Canvas 8 x 8
+I/surface-texture-test: onFrameAvailable on the creator's Looper: true, the same SurfaceTexture true
+I/surface-texture-test:   transform [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+I/surface-texture-test:   timestamp positive true, later than the last true
+I/surface-texture-test:   pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
+I/surface-texture-test: updateTexImage without a new frame: timestamp the same true, pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
+I/surface-texture-test: attached to a new texture: pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
+I/surface-texture-test: released: true
+I/surface-texture-test: updateTexImage after release: java.lang.RuntimeException: Error during updateTexImage (see logcat for details)
+I/surface-texture-test: lockCanvas after release: java.lang.IllegalArgumentException: null
+I/surface-texture-test: Surface released: valid false
+I/surface-texture-test: done
