@@ -152,6 +152,8 @@ final class LibraryModel {
     @ObservationIgnored var firstSigningLook: @MainActor () async -> Void = {}
 
     @ObservationIgnored private let library: Library?
+    /// Hands the library the import's checks of native libraries once; the first scan and a signing before a start wait.
+    @ObservationIgnored private var checks: Task<Void, Never>?
     @ObservationIgnored private let paths: LibraryPaths?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var needsAnotherScan = false
@@ -173,6 +175,31 @@ final class LibraryModel {
         }
         paths = openedPaths
         library = openedLibrary
+        if let openedLibrary {
+            checks = Task { await Self.useChecks(in: openedLibrary, guest: Bundle.main.bundleURL.appending(path: "Guest")) }
+        }
+    }
+
+    /// The import's checks of native libraries (ADR-0055 a2 to a4): the converter's check mode, and the guest's public
+    /// libraries and export table as tools/embed-guest-system.sh embeds them. A list that is missing or no list leaves
+    /// its check out, as the library does without it. Off the main actor: the export table is a megabyte.
+    nonisolated private static func useChecks(in library: Library, guest: URL) async {
+        let etc = guest.appending(path: "system/etc")
+        func list(_ name: String) -> String? {
+            do {
+                return try String(contentsOf: etc.appending(path: name), encoding: .utf8)
+            } catch {
+                log.error("The guest's \(name, privacy: .public) cannot be read: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+        }
+        await library.use(checker: ELFChecker())
+        await library.use(publicLibraries: list("public.libraries.txt"))
+        do {
+            try await library.use(exportTable: list("export-table.txt"))
+        } catch {
+            log.error("The guest's export table is no table: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     var items: [LibraryItem] {
@@ -201,6 +228,7 @@ final class LibraryModel {
     /// is running is not lost: the running refresh scans once more when it is done.
     func refresh() async {
         guard let library else { return }
+        await checks?.value
         guard !isRefreshing else {
             needsAnotherScan = true
             return
@@ -298,6 +326,7 @@ final class LibraryModel {
             }
             signingBeforeStart.insert(entry.id)
             defer { signingBeforeStart.remove(entry.id) }
+            await checks?.value
             do {
                 try await library.prepareNativeCode(id: entry.id)
                 let files = try await library.resign(id: entry.id, fingerprint: fingerprint, with: converter)
@@ -569,3 +598,6 @@ final class LibraryModel {
         entries = await library.entries
     }
 }
+
+/// The converter's check mode is the import's checker (ADR-0055 a2).
+extension ELFChecker: ELFRefusing {}
