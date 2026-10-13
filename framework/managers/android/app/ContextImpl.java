@@ -9,7 +9,8 @@
 // adds an activity's context, with its token and its own Resources, the window manager and the display: an
 // activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045's
 // gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider. Step SV2
-// adds the started services: startService, startForegroundService and stopService, through LocalActiveServices.
+// adds the started services: startService, startForegroundService and stopService, through LocalActiveServices, and
+// step SV3 the bound ones: bindService and unbindService.
 import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.ComponentName;
@@ -20,6 +21,7 @@ import android.content.IContentProvider;
 import android.content.IIntentReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ActivityInfo;
@@ -70,6 +72,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import libcore.io.Memory;
 
 class ContextImpl {
@@ -470,6 +473,65 @@ class ContextImpl {
                 throw new SecurityException("Not allowed to stop service " + service);
             }
             return res != 0;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    // Step SV3: bound services, as the tag's ContextImpl binds them: the connection's dispatcher (LoadedApk) on the main
+    // thread's handler or the caller's executor, then the local activity manager service. bindIsolatedService and the
+    // forms for another user stay the generated methods.
+
+    public boolean bindService(Intent service, ServiceConnection conn, int flags) {
+        return bindServiceCommon(service, conn, Integer.toUnsignedLong(flags), mMainThread.getHandler(), null);
+    }
+
+    public boolean bindService(Intent service, ServiceConnection conn, BindServiceFlags flags) {
+        return bindServiceCommon(service, conn, flags.getValue(), mMainThread.getHandler(), null);
+    }
+
+    public boolean bindService(Intent service, int flags, Executor executor, ServiceConnection conn) {
+        return bindServiceCommon(service, conn, Integer.toUnsignedLong(flags), null, executor);
+    }
+
+    public boolean bindService(Intent service, BindServiceFlags flags, Executor executor, ServiceConnection conn) {
+        return bindServiceCommon(service, conn, flags.getValue(), null, executor);
+    }
+
+    /** As AOSP's bindServiceCommon: true once bound, false when no service is found. */
+    private boolean bindServiceCommon(Intent service, ServiceConnection conn, long flags, Handler handler,
+            Executor executor) {
+        if (conn == null) {
+            throw new IllegalArgumentException("connection is null");
+        }
+        if (handler != null && executor != null) {
+            throw new IllegalArgumentException("Handler and Executor both supplied");
+        }
+        IServiceConnection sd = executor != null
+                ? mPackageInfo.getServiceDispatcher(conn, getOuterContext(), executor, flags)
+                : mPackageInfo.getServiceDispatcher(conn, getOuterContext(), handler, flags);
+        validateServiceIntent(service);
+        try {
+            service.prepareToLeaveProcess(this);
+            int res = ActivityManager.getService().bindServiceInstance(mMainThread.getApplicationThread(),
+                    getActivityToken(), service, service.resolveTypeIfNeeded(getContentResolver()), sd, flags, null,
+                    getOpPackageName(), UserHandle.myUserId());
+            if (res < 0) {
+                throw new SecurityException("Not allowed to bind to service " + service);
+            }
+            return res != 0;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    public void unbindService(ServiceConnection conn) {
+        if (conn == null) {
+            throw new IllegalArgumentException("connection is null");
+        }
+        IServiceConnection sd = mPackageInfo.forgetServiceDispatcher(getOuterContext(), conn);
+        try {
+            ActivityManager.getService().unbindService(sd);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

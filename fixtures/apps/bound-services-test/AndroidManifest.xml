@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the app's own bound services (bound-services-test, ADR-0045 step SV3): bindService and unbindService
+     with ServiceConnections called on the main thread or an executor, one onBind per intent, onUnbind and onRebind, a
+     null binding, a binding without BIND_AUTO_CREATE, a service stopped under its bindings, and binds that find no
+     service (another package's, a missing one). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.boundservices" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.boundservices.BoundServicesApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <service android:name=".BoundService" android:exported="false"/>
+    <service android:name=".NullService" android:exported="false"/>
+  </application>
+</manifest>

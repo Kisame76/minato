@@ -2,8 +2,8 @@
  * The activity manager's interface (ADR-0045 decision 5, step d2): our class under its AIDL's name, as
  * IActivityTaskManager is (ADR-0039 step b3.5b2-1), with exactly the methods framework.jar's code calls: the receivers
  * and broadcasts of ContextImpl and LoadedApk, BroadcastReceiver's finish, PendingIntent's intent senders, the started
- * services of ContextImpl, Service and ActivityThread (step SV2), and what StrictMode, Activity, Instrumentation,
- * ContentResolver and UserManager ask. AOSP's AIDL has about 300
+ * and bound services of ContextImpl, Service and ActivityThread (steps SV2 and SV3), and what StrictMode, Activity,
+ * Instrumentation, ContentResolver and UserManager ask. AOSP's AIDL has about 300
  * methods, whose parcelables framework.jar lacks for nothing else. Its Stub's asInterface is AIDL's for the one local
  * service, LocalActivityManagerService, which ServiceManager's table gives as "activity".
  */
@@ -79,6 +79,18 @@ public interface IActivityManager extends IInterface {
             throws RemoteException;
 
     int stopService(IApplicationThread caller, Intent service, String resolvedType, int userId) throws RemoteException;
+
+    int bindServiceInstance(IApplicationThread caller, IBinder token, Intent service, String resolvedType,
+            IServiceConnection connection, long flags, String instanceName, String callingPackage, int userId)
+            throws RemoteException;
+
+    boolean unbindService(IServiceConnection connection) throws RemoteException;
+
+    /** ActivityThread's, with the binder of a service's onBind (step SV3). */
+    void publishService(IBinder token, Intent intent, IBinder service) throws RemoteException;
+
+    /** ActivityThread's, when a service's onUnbind asks for onRebind (step SV3). */
+    void unbindFinished(IBinder token, Intent service, boolean doRebind) throws RemoteException;
 
     /** ActivityThread's, once a service's callback returned (step SV2). */
     void serviceDoneExecuting(IBinder token, int type, int startId, int res, Intent intent) throws RemoteException;

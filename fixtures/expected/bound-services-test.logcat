@@ -1,0 +1,60 @@
+I/bound-services-test: implicit: java.lang.IllegalArgumentException: Service Intent must be explicit: Intent { act=io.github.kisame76.minato.test.boundservices.OTHER }
+I/bound-services-test: no connection: java.lang.IllegalArgumentException: connection is null
+I/bound-services-test: other package: false
+I/bound-services-test: unbind other: done
+I/bound-services-test: missing: false
+I/bound-services-test: unbind missing: done
+I/bound-services-test: unbind never: java.lang.IllegalArgumentException: Service not registered: Conn never
+I/bound-services-test: bind A: true
+I/bound-services-test: BoundService onCreate main true
+I/bound-services-test: BoundService onBind action null main true
+I/bound-services-test: A connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main true thread main
+I/bound-services-test: bind B: true
+I/bound-services-test: B connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main true thread main
+I/bound-services-test: bind C: true
+I/bound-services-test: BoundService onBind action io.github.kisame76.minato.test.boundservices.OTHER main true
+I/bound-services-test: C connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main true thread main
+I/bound-services-test: unbind A: done
+I/bound-services-test: unbind A: java.lang.IllegalArgumentException: Service not registered: Conn A
+I/bound-services-test: unbind B: done
+I/bound-services-test: unbind C: done
+I/bound-services-test: BoundService onUnbind action null
+I/bound-services-test: BoundService onUnbind action io.github.kisame76.minato.test.boundservices.OTHER
+I/bound-services-test: BoundService onDestroy main true
+I/bound-services-test: start: io.github.kisame76.minato.test.boundservices/.BoundService
+I/bound-services-test: bind D: true
+I/bound-services-test: BoundService onCreate main true
+I/bound-services-test: BoundService onStartCommand id 1
+I/bound-services-test: BoundService onBind action null main true
+I/bound-services-test: D connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main true thread main
+I/bound-services-test: unbind D: done
+I/bound-services-test: bind E: true
+I/bound-services-test: events: E connected, service rebind, service unbind
+I/bound-services-test: stop while bound: true
+I/bound-services-test: unbind E: done
+I/bound-services-test: BoundService onUnbind action null
+I/bound-services-test: BoundService onDestroy main true
+I/bound-services-test: bind F: true
+I/bound-services-test: NullService onCreate
+I/bound-services-test: NullService onBind
+I/bound-services-test: F null binding io.github.kisame76.minato.test.boundservices/.NullService main true
+I/bound-services-test: unbind F: done
+I/bound-services-test: NullService onUnbind
+I/bound-services-test: NullService onDestroy
+I/bound-services-test: bind G: true
+I/bound-services-test: start: io.github.kisame76.minato.test.boundservices/.BoundService
+I/bound-services-test: BoundService onCreate main true
+I/bound-services-test: BoundService onBind action null main true
+I/bound-services-test: BoundService onStartCommand id 1
+I/bound-services-test: G connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main true thread main
+I/bound-services-test: stop under G: true
+I/bound-services-test: events: G died, G disconnected, service destroyed, service unbind
+I/bound-services-test: unbind G: done
+I/bound-services-test: bind H: true
+I/bound-services-test: BoundService onCreate main true
+I/bound-services-test: BoundService onBind action null main true
+I/bound-services-test: H connected io.github.kisame76.minato.test.boundservices/.BoundService same binder true main false thread binder-executor
+I/bound-services-test: unbind H: done
+I/bound-services-test: BoundService onUnbind action null
+I/bound-services-test: BoundService onDestroy main true
+I/bound-services-test: done

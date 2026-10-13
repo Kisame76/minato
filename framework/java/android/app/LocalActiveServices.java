@@ -28,6 +28,7 @@ package android.app;
 
 import android.Manifest;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -39,6 +40,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Slog;
@@ -81,11 +83,27 @@ final class LocalActiveServices {
         int lastStartId;
         /** The start IDs given to the service and not yet done with, oldest first. */
         final ArrayList<Integer> deliveredStarts = new ArrayList<>();
+        /** The service's bindings by the filter of their intents, as ServiceRecord's bindings (step SV3). */
+        final ArrayMap<Intent.FilterComparison, IntentBindRecord> bindings = new ArrayMap<>();
+        /** Its connections by their IServiceConnection's binder, as ServiceRecord's connections. */
+        final ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = new ArrayMap<>();
 
         ServiceRecord(ComponentName name, ServiceInfo serviceInfo, Intent.FilterComparison intent) {
             this.name = name;
             this.serviceInfo = serviceInfo;
             this.intent = intent;
+        }
+
+        /** As hasAutoCreateConnections: whether a connection with BIND_AUTO_CREATE needs the service. */
+        boolean hasAutoCreateConnections() {
+            for (int i = connections.size() - 1; i >= 0; i--) {
+                for (ConnectionRecord c : connections.valueAt(i)) {
+                    if ((c.flags & Context.BIND_AUTO_CREATE) != 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         int makeNextStartId() {
@@ -103,6 +121,46 @@ final class LocalActiveServices {
                     + name.flattenToShortString() + "}";
         }
     }
+
+    /**
+     * A binding of one intent's filter, as IntentBindRecord: the binder its onBind gave, and the app's connections to
+     * it, of which the one app process is the only client.
+     */
+    static final class IntentBindRecord {
+        final Intent intent;
+        final ArrayList<ConnectionRecord> connections = new ArrayList<>();
+        IBinder binder;
+        /** Whether onBind was asked for, whether its binder came, whether the service is bound, and whether onUnbind
+         *  asked for onRebind at the next binding. */
+        boolean requested;
+        boolean received;
+        boolean hasBound;
+        boolean doRebind;
+
+        IntentBindRecord(Intent intent) {
+            this.intent = intent;
+        }
+    }
+
+    /** A ServiceConnection's binding to a service, as ConnectionRecord. */
+    static final class ConnectionRecord {
+        final ServiceRecord service;
+        final IntentBindRecord binding;
+        final IServiceConnection conn;
+        final long flags;
+        /** Whether the service went under the connection, which then unbinds without an onUnbind. */
+        boolean serviceDead;
+
+        ConnectionRecord(ServiceRecord service, IntentBindRecord binding, IServiceConnection conn, long flags) {
+            this.service = service;
+            this.binding = binding;
+            this.conn = conn;
+            this.flags = flags;
+        }
+    }
+
+    /** Every connection by its IServiceConnection's binder, as ActiveServices' mServiceConnections; under mLock. */
+    private final ArrayMap<IBinder, ArrayList<ConnectionRecord>> mServiceConnections = new ArrayMap<>();
 
     private Handler handler() {
         synchronized (mLock) {
@@ -162,11 +220,37 @@ final class LocalActiveServices {
             r.startRequested = true;
             r.fgRequired = fgRequired;
             if (!r.created) {
-                r.created = true;
-                ActivityThread.currentActivityThread().scheduleCreateService(r, r.serviceInfo, new Intent(service));
+                bringUpServiceLocked(r, service);
             }
             sendServiceArgsLocked(r, r.makeNextStartId(), new Intent(service));
             return r.name;
+        }
+    }
+
+    /**
+     * As bringUpServiceLocked and realStartServiceLocked for a service not yet made: the main thread makes it, and then
+     * binds each binding that has a connection, before any start's command.
+     */
+    private void bringUpServiceLocked(ServiceRecord r, Intent intent) {
+        r.created = true;
+        ActivityThread.currentActivityThread().scheduleCreateService(r, r.serviceInfo, new Intent(intent));
+        for (int i = 0; i < r.bindings.size(); i++) {
+            requestServiceBindingLocked(r, r.bindings.valueAt(i), false);
+        }
+    }
+
+    /** As requestServiceBindingLocked: onBind (or onRebind) for a binding with a connection, once the service is made. */
+    private void requestServiceBindingLocked(ServiceRecord r, IntentBindRecord b, boolean rebind) {
+        if (!r.created) {
+            return;
+        }
+        if ((!b.requested || rebind) && !b.connections.isEmpty()) {
+            ActivityThread.currentActivityThread().scheduleBindService(r, new Intent(b.intent), rebind);
+            if (!rebind) {
+                b.requested = true;
+            }
+            b.hasBound = true;
+            b.doRebind = false;
         }
     }
 
@@ -232,9 +316,9 @@ final class LocalActiveServices {
         return r == token ? r : null;
     }
 
-    /** As bringDownServiceIfNeededLocked: a service no start needs any more goes. */
+    /** As bringDownServiceIfNeededLocked: a service that no start and no BIND_AUTO_CREATE connection needs goes. */
     private void bringDownServiceIfNeededLocked(ServiceRecord r) {
-        if (r.startRequested) {
+        if (r.startRequested || r.hasAutoCreateConnections()) {
             return;
         }
         bringDownServiceLocked(r);
@@ -245,6 +329,27 @@ final class LocalActiveServices {
      * its notification with it, and the main thread destroys the service.
      */
     private void bringDownServiceLocked(ServiceRecord r) {
+        // Its connections hear of its death; its bound bindings are unbound before it is destroyed.
+        for (int i = r.connections.size() - 1; i >= 0; i--) {
+            for (ConnectionRecord c : r.connections.valueAt(i)) {
+                c.serviceDead = true;
+                try {
+                    c.conn.connected(r.name, null, true);
+                } catch (RemoteException e) {
+                    Slog.w(TAG, "Failure disconnecting service " + r.name.flattenToShortString(), e);
+                }
+            }
+        }
+        if (r.created) {
+            for (int i = r.bindings.size() - 1; i >= 0; i--) {
+                IntentBindRecord b = r.bindings.valueAt(i);
+                if (b.hasBound) {
+                    b.hasBound = false;
+                    b.requested = false;
+                    ActivityThread.currentActivityThread().scheduleUnbindService(r, new Intent(b.intent));
+                }
+            }
+        }
         if (r.fgRequired) {
             Slog.w(TAG, "Bringing down service while still waiting for start foreground: " + r);
             r.fgRequired = false;
@@ -259,7 +364,9 @@ final class LocalActiveServices {
         cancelForegroundNotificationLocked(r);
         r.isForeground = false;
         r.foregroundServiceType = 0;
-        ActivityThread.currentActivityThread().scheduleStopService(r);
+        if (r.created) {
+            ActivityThread.currentActivityThread().scheduleStopService(r);
+        }
     }
 
     /**
@@ -420,6 +527,170 @@ final class LocalActiveServices {
         }
         final int id = r.foregroundId;
         handler().post(() -> application.getSystemService(NotificationManager.class).cancel(id));
+    }
+
+    /**
+     * As bindServiceLocked: 1 once the connection is bound to the service, 0 for none; the service is made for a
+     * BIND_AUTO_CREATE connection, the connection gets the binder at once when the binding has one, and else onBind is
+     * asked for (step SV3). An activity's token is not checked: the activity's context unbinds its connections when it
+     * goes (LoadedApk.removeContextRegistrations).
+     */
+    int bindService(IBinder token, Intent service, String resolvedType, IServiceConnection connection, long flags,
+            String instanceName) {
+        if (instanceName != null) {
+            // bindIsolatedService's, for an isolated process, which Minato has none of.
+            throw new IllegalArgumentException("Can't use instance name '" + instanceName
+                    + "' with non-isolated non-sdk sandbox service '" + service.getComponent() + "'");
+        }
+        synchronized (mLock) {
+            ServiceRecord r = retrieveLocked(service, resolvedType, true);
+            if (r == null) {
+                return 0;
+            }
+            Intent.FilterComparison filter = new Intent.FilterComparison(service);
+            IntentBindRecord b = r.bindings.get(filter);
+            if (b == null) {
+                b = new IntentBindRecord(new Intent(service));
+                r.bindings.put(filter, b);
+            }
+            ConnectionRecord c = new ConnectionRecord(r, b, connection, flags);
+            IBinder binder = connection.asBinder();
+            r.connections.computeIfAbsent(binder, key -> new ArrayList<>()).add(c);
+            b.connections.add(c);
+            mServiceConnections.computeIfAbsent(binder, key -> new ArrayList<>()).add(c);
+            if ((flags & Context.BIND_AUTO_CREATE) != 0 && !r.created) {
+                bringUpServiceLocked(r, service);
+            }
+            if (r.created && b.received) {
+                try {
+                    c.conn.connected(r.name, b.binder, false);
+                } catch (RemoteException e) {
+                    Slog.w(TAG, "Failure sending service " + r.name.flattenToShortString() + " to connection", e);
+                }
+                if (b.connections.size() == 1 && b.doRebind) {
+                    requestServiceBindingLocked(r, b, true);
+                }
+            } else if (!b.requested) {
+                requestServiceBindingLocked(r, b, false);
+            }
+            return 1;
+        }
+    }
+
+    /** As publishServiceLocked: onBind's binder for its binding's connections, once. */
+    void publishService(IBinder token, Intent intent, IBinder service) {
+        synchronized (mLock) {
+            if (!(token instanceof ServiceRecord)) {
+                return;
+            }
+            ServiceRecord r = (ServiceRecord) token;
+            Intent.FilterComparison filter = new Intent.FilterComparison(intent);
+            IntentBindRecord b = r.bindings.get(filter);
+            if (b == null || b.received) {
+                return;
+            }
+            b.binder = service;
+            b.requested = true;
+            b.received = true;
+            for (int i = r.connections.size() - 1; i >= 0; i--) {
+                for (ConnectionRecord c : r.connections.valueAt(i)) {
+                    if (!filter.equals(new Intent.FilterComparison(c.binding.intent))) {
+                        continue;
+                    }
+                    try {
+                        c.conn.connected(r.name, service, false);
+                    } catch (RemoteException e) {
+                        Slog.w(TAG, "Failure sending service " + r.name.flattenToShortString() + " to connection",
+                                e);
+                    }
+                }
+            }
+        }
+    }
+
+    /** As unbindServiceLocked: each of the connection's bindings goes; false for a connection bound to nothing. */
+    boolean unbindService(IServiceConnection connection) {
+        synchronized (mLock) {
+            ArrayList<ConnectionRecord> clist = mServiceConnections.get(connection.asBinder());
+            if (clist == null) {
+                Slog.w(TAG, "Unbind failed: could not find connection for " + connection.asBinder());
+                return false;
+            }
+            while (!clist.isEmpty()) {
+                ConnectionRecord c = clist.get(0);
+                removeConnectionLocked(c);
+                if (!clist.isEmpty() && clist.get(0) == c) {
+                    clist.remove(0);
+                }
+            }
+            return true;
+        }
+    }
+
+    /**
+     * As removeConnectionLocked: the connection leaves its service and binding; the last one of a bound binding has
+     * the service unbound, and a service that no longer needs to run goes.
+     */
+    private void removeConnectionLocked(ConnectionRecord c) {
+        IBinder binder = c.conn.asBinder();
+        ServiceRecord s = c.service;
+        IntentBindRecord b = c.binding;
+        ArrayList<ConnectionRecord> clist = s.connections.get(binder);
+        if (clist != null) {
+            clist.remove(c);
+            if (clist.isEmpty()) {
+                s.connections.remove(binder);
+            }
+        }
+        b.connections.remove(c);
+        clist = mServiceConnections.get(binder);
+        if (clist != null) {
+            clist.remove(c);
+            if (clist.isEmpty()) {
+                mServiceConnections.remove(binder);
+            }
+        }
+        if (!c.serviceDead) {
+            if (s.created && b.connections.isEmpty() && b.hasBound) {
+                b.hasBound = false;
+                b.doRebind = false;
+                ActivityThread.currentActivityThread().scheduleUnbindService(s, new Intent(b.intent));
+            }
+            if ((c.flags & Context.BIND_AUTO_CREATE) != 0) {
+                bringDownServiceIfNeededLocked(s);
+            }
+        }
+    }
+
+    /** As unbindFinishedLocked: onUnbind asked for onRebind, which comes now if a connection is there, else later. */
+    void unbindFinished(IBinder token, Intent intent, boolean doRebind) {
+        synchronized (mLock) {
+            if (!(token instanceof ServiceRecord)) {
+                return;
+            }
+            ServiceRecord r = (ServiceRecord) token;
+            IntentBindRecord b = r.bindings.get(new Intent.FilterComparison(intent));
+            if (b == null) {
+                return;
+            }
+            if (!b.connections.isEmpty() && !r.destroying) {
+                requestServiceBindingLocked(r, b, true);
+            } else {
+                b.doRebind = true;
+            }
+        }
+    }
+
+    /** As peekServiceLocked: the binder of the running service's binding of this intent, null for none. */
+    IBinder peekService(Intent service, String resolvedType) {
+        synchronized (mLock) {
+            ServiceRecord r = retrieveLocked(service, resolvedType, false);
+            if (r == null) {
+                return null;
+            }
+            IntentBindRecord b = r.bindings.get(r.intent);
+            return b != null ? b.binder : null;
+        }
     }
 
     /** As getForegroundServiceTypeLocked. */

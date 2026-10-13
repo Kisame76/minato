@@ -4,16 +4,17 @@
  * Resources and the Application, and makes the Application with its ContextImpl (makeApplicationInner). Ours does the
  * same for the one APK of the process, and since step c2c1 it makes the app's AppComponentFactory once, as
  * createAppFactory does, which then also makes the providers. Since ADR-0045's step d2 it keeps the registered
- * receivers' dispatchers, as AOSP's, through which the local activity manager service delivers broadcasts. Android's
- * also loads splits and shared libraries, and dispatches services through system_server; those come with M5 and
- * ADR-0045.
+ * receivers' dispatchers, as AOSP's, through which the local activity manager service delivers broadcasts, and since
+ * step SV3 the service connections' dispatchers. Android's also loads shared libraries, which come with M5.
  */
 package android.app;
 
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.IIntentReceiver;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ApkAssets;
@@ -22,6 +23,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.StrictMode;
@@ -34,6 +36,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 public final class LoadedApk {
     static final String TAG = "LoadedApk";
@@ -375,6 +378,30 @@ public final class LoadedApk {
                 }
             }
         }
+        // Step SV3: the context's service connections, as AOSP's.
+        synchronized (mServices) {
+            ArrayMap<ServiceConnection, ServiceDispatcher> smap = mServices.remove(context);
+            if (smap != null) {
+                for (int i = 0; i < smap.size(); i++) {
+                    ServiceDispatcher sd = smap.valueAt(i);
+                    ServiceConnectionLeaked leak = new ServiceConnectionLeaked(what + " " + who
+                            + " has leaked ServiceConnection " + sd.getServiceConnection()
+                            + " that was originally bound here");
+                    leak.setStackTrace(sd.getLocation().getStackTrace());
+                    Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
+                    if (reportRegistrationLeaks) {
+                        StrictMode.onServiceConnectionLeaked(leak);
+                    }
+                    try {
+                        ActivityManager.getService().unbindService(sd.getIServiceConnection());
+                    } catch (RemoteException e) {
+                        throw e.rethrowFromSystemServer();
+                    }
+                    sd.doForget();
+                }
+            }
+            mUnboundServices.remove(context);
+        }
     }
 
     /** As AOSP's: the dispatcher of `r`, a registered receiver's kept per context until it is forgotten. */
@@ -602,5 +629,324 @@ public final class LoadedApk {
      * @hide
      */
     public static void checkAndUpdateApkPaths(ApplicationInfo expectedAppInfo) {
+    }
+    // Step SV3 of ADR-0045: the service connections' dispatchers, as AOSP's at android-15.0.0_r1, through which the local
+    // activity manager service (LocalActiveServices) tells a ServiceConnection of its binder, on the connection's
+    // handler or executor; kept per context until unbound, for removeContextRegistrations.
+    private final ArrayMap<Context, ArrayMap<ServiceConnection, ServiceDispatcher>> mServices = new ArrayMap<>();
+    /** The dispatchers unbound with BIND_DEBUG_UNBIND, which name where a second unbind's first one was. */
+    private final ArrayMap<Context, ArrayMap<ServiceConnection, ServiceDispatcher>> mUnboundServices = new ArrayMap<>();
+
+    public final IServiceConnection getServiceDispatcher(ServiceConnection c, Context context, Handler handler,
+            long flags) {
+        return getServiceDispatcherCommon(c, context, handler, null, flags);
+    }
+
+    public final IServiceConnection getServiceDispatcher(ServiceConnection c, Context context, Executor executor,
+            long flags) {
+        return getServiceDispatcherCommon(c, context, null, executor, flags);
+    }
+
+    private IServiceConnection getServiceDispatcherCommon(ServiceConnection c, Context context, Handler handler,
+            Executor executor, long flags) {
+        synchronized (mServices) {
+            ServiceDispatcher sd = null;
+            ArrayMap<ServiceConnection, ServiceDispatcher> map = mServices.get(context);
+            if (map != null) {
+                sd = map.get(c);
+            }
+            if (sd == null) {
+                if (executor != null) {
+                    sd = new ServiceDispatcher(c, context, executor, flags);
+                } else {
+                    sd = new ServiceDispatcher(c, context, handler, flags);
+                }
+                if (map == null) {
+                    map = new ArrayMap<>();
+                    mServices.put(context, map);
+                }
+                map.put(c, sd);
+            } else {
+                sd.validate(context, handler, executor);
+            }
+            return sd.getIServiceConnection();
+        }
+    }
+
+    public IServiceConnection lookupServiceDispatcher(ServiceConnection c, Context context) {
+        synchronized (mServices) {
+            ServiceDispatcher sd = null;
+            ArrayMap<ServiceConnection, ServiceDispatcher> map = mServices.get(context);
+            if (map != null) {
+                sd = map.get(c);
+            }
+            return sd != null ? sd.getIServiceConnection() : null;
+        }
+    }
+
+    public final IServiceConnection forgetServiceDispatcher(Context context, ServiceConnection c) {
+        synchronized (mServices) {
+            ArrayMap<ServiceConnection, ServiceDispatcher> map = mServices.get(context);
+            ServiceDispatcher sd = null;
+            if (map != null) {
+                sd = map.get(c);
+                if (sd != null) {
+                    map.remove(c);
+                    sd.doForget();
+                    if (map.size() == 0) {
+                        mServices.remove(context);
+                    }
+                    if ((sd.getFlags() & Context.BIND_DEBUG_UNBIND) != 0) {
+                        ArrayMap<ServiceConnection, ServiceDispatcher> holder = mUnboundServices.get(context);
+                        if (holder == null) {
+                            holder = new ArrayMap<>();
+                            mUnboundServices.put(context, holder);
+                        }
+                        RuntimeException ex = new IllegalArgumentException("Originally unbound here:");
+                        ex.fillInStackTrace();
+                        sd.setUnbindLocation(ex);
+                        holder.put(c, sd);
+                    }
+                    return sd.getIServiceConnection();
+                }
+            }
+            ArrayMap<ServiceConnection, ServiceDispatcher> holder = mUnboundServices.get(context);
+            if (holder != null) {
+                sd = holder.get(c);
+                if (sd != null) {
+                    RuntimeException ex = sd.getUnbindLocation();
+                    throw new IllegalArgumentException("Unbinding Service " + c + " that was already unbound", ex);
+                }
+            }
+            if (context == null) {
+                throw new IllegalStateException("Unbinding Service " + c
+                        + " from Context that is no longer in use: " + context);
+            } else {
+                throw new IllegalArgumentException("Service not registered: " + c);
+            }
+        }
+    }
+
+    /** As AOSP's: a ServiceConnection's binders by component, each watched for its death. */
+    static final class ServiceDispatcher {
+        private final ServiceDispatcher.InnerConnection mIServiceConnection;
+        private final ServiceConnection mConnection;
+        private final Context mContext;
+        private final Handler mActivityThread;
+        private final Executor mActivityExecutor;
+        private final ServiceConnectionLeaked mLocation;
+        private final long mFlags;
+        private RuntimeException mUnbindLocation;
+        private boolean mForgotten;
+
+        private static class ConnectionInfo {
+            IBinder binder;
+            IBinder.DeathRecipient deathMonitor;
+        }
+
+        private static class InnerConnection extends IServiceConnection.Stub {
+            final WeakReference<ServiceDispatcher> mDispatcher;
+
+            InnerConnection(ServiceDispatcher sd) {
+                mDispatcher = new WeakReference<>(sd);
+            }
+
+            @Override
+            public void connected(ComponentName name, IBinder service, boolean dead) throws RemoteException {
+                ServiceDispatcher sd = mDispatcher.get();
+                if (sd != null) {
+                    sd.connected(name, service, dead);
+                }
+            }
+        }
+
+        private final ArrayMap<ComponentName, ConnectionInfo> mActiveConnections = new ArrayMap<>();
+
+        ServiceDispatcher(ServiceConnection conn, Context context, Handler activityThread, long flags) {
+            mIServiceConnection = new InnerConnection(this);
+            mConnection = conn;
+            mContext = context;
+            mActivityThread = activityThread;
+            mActivityExecutor = null;
+            mLocation = new ServiceConnectionLeaked(null);
+            mLocation.fillInStackTrace();
+            mFlags = flags;
+        }
+
+        ServiceDispatcher(ServiceConnection conn, Context context, Executor activityExecutor, long flags) {
+            mIServiceConnection = new InnerConnection(this);
+            mConnection = conn;
+            mContext = context;
+            mActivityThread = null;
+            mActivityExecutor = activityExecutor;
+            mLocation = new ServiceConnectionLeaked(null);
+            mLocation.fillInStackTrace();
+            mFlags = flags;
+        }
+
+        void validate(Context context, Handler activityThread, Executor activityExecutor) {
+            if (mContext != context) {
+                throw new RuntimeException("ServiceConnection " + mConnection
+                        + " registered with differing Context (was " + mContext + " now " + context + ")");
+            }
+            if (mActivityThread != activityThread) {
+                throw new RuntimeException("ServiceConnection " + mConnection
+                        + " registered with differing handler (was " + mActivityThread + " now " + activityThread
+                        + ")");
+            }
+            if (mActivityExecutor != activityExecutor) {
+                throw new RuntimeException("ServiceConnection " + mConnection
+                        + " registered with differing executor (was " + mActivityExecutor + " now "
+                        + activityExecutor + ")");
+            }
+        }
+
+        void doForget() {
+            synchronized (this) {
+                for (int i = 0; i < mActiveConnections.size(); i++) {
+                    ConnectionInfo ci = mActiveConnections.valueAt(i);
+                    ci.binder.unlinkToDeath(ci.deathMonitor, 0);
+                }
+                mActiveConnections.clear();
+                mForgotten = true;
+            }
+        }
+
+        ServiceConnectionLeaked getLocation() {
+            return mLocation;
+        }
+
+        ServiceConnection getServiceConnection() {
+            return mConnection;
+        }
+
+        IServiceConnection getIServiceConnection() {
+            return mIServiceConnection;
+        }
+
+        long getFlags() {
+            return mFlags;
+        }
+
+        void setUnbindLocation(RuntimeException ex) {
+            mUnbindLocation = ex;
+        }
+
+        RuntimeException getUnbindLocation() {
+            return mUnbindLocation;
+        }
+
+        public void connected(ComponentName name, IBinder service, boolean dead) {
+            if (mActivityExecutor != null) {
+                mActivityExecutor.execute(new RunConnection(name, service, 0, dead));
+            } else if (mActivityThread != null) {
+                mActivityThread.post(new RunConnection(name, service, 0, dead));
+            } else {
+                doConnected(name, service, dead);
+            }
+        }
+
+        public void death(ComponentName name, IBinder service) {
+            if (mActivityExecutor != null) {
+                mActivityExecutor.execute(new RunConnection(name, service, 1, false));
+            } else if (mActivityThread != null) {
+                mActivityThread.post(new RunConnection(name, service, 1, false));
+            } else {
+                doDeath(name, service);
+            }
+        }
+
+        public void doConnected(ComponentName name, IBinder service, boolean dead) {
+            ConnectionInfo old;
+            ConnectionInfo info;
+            synchronized (this) {
+                if (mForgotten) {
+                    // Unbound before the connection came: it is ignored.
+                    return;
+                }
+                old = mActiveConnections.get(name);
+                if (old != null && old.binder == service) {
+                    return;
+                }
+                if (service != null) {
+                    info = new ConnectionInfo();
+                    info.binder = service;
+                    info.deathMonitor = new DeathMonitor(name, service);
+                    try {
+                        service.linkToDeath(info.deathMonitor, 0);
+                        mActiveConnections.put(name, info);
+                    } catch (RemoteException e) {
+                        mActiveConnections.remove(name);
+                        return;
+                    }
+                } else {
+                    mActiveConnections.remove(name);
+                }
+                if (old != null) {
+                    old.binder.unlinkToDeath(old.deathMonitor, 0);
+                }
+            }
+            if (old != null) {
+                mConnection.onServiceDisconnected(name);
+            }
+            if (dead) {
+                mConnection.onBindingDied(name);
+            } else if (service != null) {
+                mConnection.onServiceConnected(name, service);
+            } else {
+                // The binding worked, and the service's onBind answered null.
+                mConnection.onNullBinding(name);
+            }
+        }
+
+        public void doDeath(ComponentName name, IBinder service) {
+            synchronized (this) {
+                ConnectionInfo old = mActiveConnections.get(name);
+                if (old == null || old.binder != service) {
+                    return;
+                }
+                mActiveConnections.remove(name);
+                old.binder.unlinkToDeath(old.deathMonitor, 0);
+            }
+            mConnection.onServiceDisconnected(name);
+        }
+
+        private final class RunConnection implements Runnable {
+            final ComponentName mName;
+            final IBinder mService;
+            final int mCommand;
+            final boolean mDead;
+
+            RunConnection(ComponentName name, IBinder service, int command, boolean dead) {
+                mName = name;
+                mService = service;
+                mCommand = command;
+                mDead = dead;
+            }
+
+            @Override
+            public void run() {
+                if (mCommand == 0) {
+                    doConnected(mName, mService, mDead);
+                } else if (mCommand == 1) {
+                    doDeath(mName, mService);
+                }
+            }
+        }
+
+        private final class DeathMonitor implements IBinder.DeathRecipient {
+            final ComponentName mName;
+            final IBinder mService;
+
+            DeathMonitor(ComponentName name, IBinder service) {
+                mName = name;
+                mService = service;
+            }
+
+            @Override
+            public void binderDied() {
+                death(mName, mService);
+            }
+        }
     }
 }

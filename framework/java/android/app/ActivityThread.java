@@ -32,7 +32,8 @@
  * the activities below the top stop once the main thread is idle, the session's lifecycle drives the top activity,
  * and the session's window, input channel and focus go to the top activity's window. Since ADR-0045 step SV2 it makes,
  * starts and destroys the app's started services on the main thread as LocalActiveServices asks, each through the
- * app's AppComponentFactory, as handleCreateService, handleServiceArgs and handleStopService do.
+ * app's AppComponentFactory, as handleCreateService, handleServiceArgs and handleStopService do, and since step SV3
+ * binds and unbinds them as handleBindService and handleUnbindService do.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -647,6 +648,16 @@ public final class ActivityThread {
         sMainThreadHandler.post(() -> handleStopService(token));
     }
 
+    /** As scheduleBindService (step SV3). */
+    void scheduleBindService(IBinder token, Intent intent, boolean rebind) {
+        sMainThreadHandler.post(() -> handleBindService(token, intent, rebind));
+    }
+
+    /** As scheduleUnbindService (step SV3). */
+    void scheduleUnbindService(IBinder token, Intent intent) {
+        sMainThreadHandler.post(() -> handleUnbindService(token, intent));
+    }
+
     /**
      * As AOSP's handleCreateService: the service through the app's AppComponentFactory with its split's class loader,
      * a context of its own (its split's for a split's service), attached and created.
@@ -694,6 +705,58 @@ public final class ActivityThread {
                 if (!mInstrumentation.onException(s, e)) {
                     throw new RuntimeException("Unable to start service " + s + " with " + args + ": " + e.toString(),
                             e);
+                }
+            }
+        }
+    }
+
+    /**
+     * As AOSP's handleBindService: the intent with the service's class loader, then onBind, whose binder the service
+     * publishes, or onRebind.
+     */
+    private void handleBindService(IBinder token, Intent intent, boolean rebind) {
+        ServiceInfo info = mServicesData.get(token);
+        Service s = mServices.get(token);
+        if (s != null) {
+            try {
+                intent.setExtrasClassLoader(s.getClassLoader());
+                intent.prepareToEnterProcess(isProtectedComponent(info), s.getAttributionSource());
+                if (!rebind) {
+                    IBinder binder = s.onBind(intent);
+                    ActivityManager.getService().publishService(token, intent, binder);
+                } else {
+                    s.onRebind(intent);
+                    ActivityManager.getService().serviceDoneExecuting(token, SERVICE_DONE_EXECUTING_REBIND, 0, 0,
+                            intent);
+                }
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException("Unable to bind to service " + s + " with " + intent + ": "
+                            + e.toString(), e);
+                }
+            }
+        }
+    }
+
+    /** As AOSP's handleUnbindService: onUnbind, whose answer asks for onRebind at the next binding. */
+    private void handleUnbindService(IBinder token, Intent intent) {
+        ServiceInfo info = mServicesData.get(token);
+        Service s = mServices.get(token);
+        if (s != null) {
+            try {
+                intent.setExtrasClassLoader(s.getClassLoader());
+                intent.prepareToEnterProcess(isProtectedComponent(info), s.getAttributionSource());
+                boolean doRebind = s.onUnbind(intent);
+                if (doRebind) {
+                    ActivityManager.getService().unbindFinished(token, intent, doRebind);
+                } else {
+                    ActivityManager.getService().serviceDoneExecuting(token, SERVICE_DONE_EXECUTING_UNBIND, 0, 0,
+                            intent);
+                }
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException("Unable to unbind to service " + s + " with " + intent + ": "
+                            + e.toString(), e);
                 }
             }
         }

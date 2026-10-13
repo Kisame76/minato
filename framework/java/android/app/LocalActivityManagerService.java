@@ -15,8 +15,8 @@
  * every filter matches it, and permissions are the app's own. PendingIntents (step d3) are LocalPendingIntents'. Not
  * yet written, each answered as the generated methods are, with a line once and Android's default: sticky
  * broadcasts, broadcast options and app ops, manifest receivers (ADR-0045 decision 5), a PendingIntent's intent, tag
- * and target, the bound services, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also
- * asks the activity manager about. Started services (step SV2) are LocalActiveServices'.
+ * and target, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also asks the activity
+ * manager about. Started and bound services (steps SV2 and SV3) are LocalActiveServices'.
  */
 package android.app;
 
@@ -453,6 +453,27 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     }
 
     @Override
+    public int bindServiceInstance(IApplicationThread caller, IBinder token, Intent service, String resolvedType,
+            IServiceConnection connection, long flags, String instanceName, String callingPackage, int userId) {
+        return mServices.bindService(token, service, resolvedType, connection, flags, instanceName);
+    }
+
+    @Override
+    public boolean unbindService(IServiceConnection connection) {
+        return mServices.unbindService(connection);
+    }
+
+    @Override
+    public void publishService(IBinder token, Intent intent, IBinder service) {
+        mServices.publishService(token, intent, service);
+    }
+
+    @Override
+    public void unbindFinished(IBinder token, Intent service, boolean doRebind) {
+        mServices.unbindFinished(token, service, doRebind);
+    }
+
+    @Override
     public boolean stopServiceToken(ComponentName className, IBinder token, int startId) {
         return mServices.stopServiceToken(className, token, startId);
     }
@@ -482,8 +503,7 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
 
     @Override
     public IBinder peekService(Intent service, String resolvedType, String callingPackage) {
-        Unwritten.log("android.app.IActivityManager.peekService", "null");
-        return null;
+        return mServices.peekService(service, resolvedType);
     }
 
     @Override
