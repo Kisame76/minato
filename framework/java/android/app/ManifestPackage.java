@@ -53,6 +53,7 @@ import android.os.PatternMatcher;
 import android.os.Process;
 import android.os.SystemProperties;
 import android.util.Slog;
+import android.util.SparseArray;
 import android.util.TypedValue;
 import android.util.Xml;
 import com.android.internal.R;
@@ -236,6 +237,9 @@ final class ManifestPackage {
         }
         String[] names = new String[paths.length];
         int[] revisions = new int[paths.length];
+        String[] configFor = new String[paths.length];
+        String[] usesSplit = new String[paths.length];
+        boolean[] feature = new boolean[paths.length];
         Integer[] order = new Integer[paths.length];
         for (int i = 0; i < paths.length; i++) {
             AssetManager assets = new AssetManager();
@@ -245,6 +249,17 @@ final class ManifestPackage {
                 manifestElement(parser, paths[i]);
                 names[i] = parser.getAttributeValue(null, "split");
                 revisions[i] = parser.getAttributeIntValue(ANDROID_NAMESPACE, "revisionCode", 0);
+                configFor[i] = parser.getAttributeValue(null, "configForSplit");
+                feature[i] = parser.getAttributeBooleanValue(ANDROID_NAMESPACE, "isFeatureSplit", false);
+                int depth = parser.getDepth();
+                int type;
+                while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                        && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+                    if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1
+                            && "uses-split".equals(parser.getName())) {
+                        usesSplit[i] = parser.getAttributeValue(ANDROID_NAMESPACE, "name");
+                    }
+                }
             } finally {
                 assets.close();
             }
@@ -265,6 +280,26 @@ final class ManifestPackage {
             mApplication.splitSourceDirs[i] = paths[order[i]];
         }
         mApplication.splitPublicSourceDirs = mApplication.splitSourceDirs.clone();
+        // What a split depends on: the split a configuration split configures, else the one it uses, else the base
+        // (ParsingPackageUtils.buildSplitDependencies); the dependencies and the feature splits are kept for isolated
+        // loading (ApplicationInfo.splitDependencies holds them as Android's does, index 0 the base).
+        mFeatureSplits = new boolean[paths.length];
+        SparseArray<int[]> dependencies = new SparseArray<>();
+        dependencies.put(0, new int[] {-1});
+        for (int i = 0; i < paths.length; i++) {
+            String target = configFor[order[i]] != null ? configFor[order[i]] : usesSplit[order[i]];
+            int parent = target == null ? 0 : 1 + Arrays.asList(mApplication.splitNames).indexOf(target);
+            if (target != null && parent == 0) {
+                // Android refuses such a set at install ("requires split ... which is missing"); the library
+                // checks sets at import, so here it only shows in the log and the base stays the parent.
+                Slog.w("PackageManager", "Split " + names[order[i]] + " requires split " + target + ", not installed");
+            }
+            mFeatureSplits[i] = feature[order[i]];
+            dependencies.put(1 + i, new int[] {parent});
+        }
+        if (isolatedSplits()) {
+            mApplication.splitDependencies = dependencies;
+        }
         // The splits' components follow the base's, in the splits' order, each with its split's name. Their attributes
         // resolve against the base and all the splits, as the package parser takes a split's from the set's
         // DefaultSplitAssetLoader; these Resources stay the package's.
@@ -340,10 +375,22 @@ final class ManifestPackage {
         }
     }
 
+    private boolean[] mFeatureSplits;
+
+    boolean isolatedSplits() {
+        return mApplication.requestsIsolatedSplitLoading();
+    }
+
+    /** Whether each split, in splitNames' order, is a feature split (the rest configure one), else null. */
+    boolean[] featureSplits() {
+        return mFeatureSplits;
+    }
+
     /** The class path of the app's loader: base.apk, then the splits, as Android's PathClassLoader over the set. */
     String codePaths() {
         StringBuilder paths = new StringBuilder(mApplication.sourceDir);
-        if (mApplication.splitSourceDirs != null) {
+        // A base that asks for isolated splits gets a loader of its own code only; each split has one (LoadedApk).
+        if (mApplication.splitSourceDirs != null && !isolatedSplits()) {
             for (String split : mApplication.splitSourceDirs) {
                 paths.append(File.pathSeparatorChar).append(split);
             }
@@ -547,6 +594,9 @@ final class ManifestPackage {
             mPackage.baseRevisionCode = sa.getInteger(R.styleable.AndroidManifest_revisionCode, 0);
             mPackage.installLocation = sa.getInteger(R.styleable.AndroidManifest_installLocation,
                     PackageInfo.INSTALL_LOCATION_UNSPECIFIED);
+            if (sa.getBoolean(R.styleable.AndroidManifest_isolatedSplits, false)) {
+                mApplication.privateFlags |= ApplicationInfo.PRIVATE_FLAG_ISOLATED_SPLIT_LOADING;
+            }
             String sharedUserId = sa.getNonConfigurationString(R.styleable.AndroidManifest_sharedUserId, 0);
             if (sharedUserId != null && !sharedUserId.isEmpty()) {
                 mPackage.sharedUserId = sharedUserId;

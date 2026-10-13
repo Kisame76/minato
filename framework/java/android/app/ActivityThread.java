@@ -504,6 +504,7 @@ public final class ActivityThread {
             // which loads and initializes it, then its attachBaseContext with the app's ContextImpl.
             // currentApplication() gives it out from then on.
             LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
+            packageInfo.setFeatureSplits(pkg.featureSplits());
             thread.mLoadedApk = packageInfo;
             Application app = packageInfo.makeApplication(application);
             thread.mInitialApplication = app;
@@ -562,8 +563,13 @@ public final class ActivityThread {
         for (ProviderInfo info : providers) {
             ContentProvider provider;
             try {
-                provider = packageInfo.getAppFactory().instantiateProvider(context.getClassLoader(), info.name);
-                provider.attachInfo(context, info);
+                // A provider of a split gets that split's context (the tag's installProvider), which is the app's
+                // unless the app loads its splits in isolation.
+                Context providerContext = info.splitName != null ? context.createContextForSplit(info.splitName)
+                        : context;
+                provider = packageInfo.getAppFactory().instantiateProvider(providerContext.getClassLoader(),
+                        info.name);
+                provider.attachInfo(providerContext, info);
             } catch (Exception e) {
                 throw new RuntimeException("Unable to get provider " + info.name + ": " + e, e);
             }

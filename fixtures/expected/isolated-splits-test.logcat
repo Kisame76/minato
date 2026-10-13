@@ -1,0 +1,19 @@
+I/isolated-splits-test: feature provider made by the app's loader: true
+I/isolated-splits-test: split names: [feature, second]
+I/isolated-splits-test: feature class by the app's loader: failed, java.lang.ClassNotFoundException
+I/isolated-splits-test: feature class by the feature loader: the feature split answers
+I/isolated-splits-test: feature loader is the app's: false
+I/isolated-splits-test: feature loader's parent is the app's: true
+I/isolated-splits-test: feature string: Feature label
+I/isolated-splits-test: feature asset: Minato isolated-splits-test, the feature split asset.
+I/isolated-splits-test: base asset by the feature context: Minato isolated-splits-test, the base asset.
+I/isolated-splits-test: base string by the feature context: hello from the base
+I/isolated-splits-test: feature string by the app: 0
+I/isolated-splits-test: feature asset by the app: failed, java.io.FileNotFoundException
+I/isolated-splits-test: base asset by the app: Minato isolated-splits-test, the base asset.
+I/isolated-splits-test: second class by the second loader: the second split answers, over the feature split answers
+I/isolated-splits-test: second loader's parent is the feature loader: true
+I/isolated-splits-test: provider: FeatureProvider, split feature
+I/isolated-splits-test: service: FeatureService, split feature
+I/isolated-splits-test: receiver: FeatureReceiver, split feature
+I/isolated-splits-test: done

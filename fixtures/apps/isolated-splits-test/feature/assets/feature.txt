@@ -1,0 +1,1 @@
+Minato isolated-splits-test, the feature split asset.

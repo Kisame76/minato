@@ -15,6 +15,7 @@ import android.content.Context;
 import android.content.IIntentReceiver;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -27,10 +28,12 @@ import android.os.StrictMode;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Slog;
+import dalvik.system.PathClassLoader;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.List;
 
 public final class LoadedApk {
     static final String TAG = "LoadedApk";
@@ -130,14 +133,111 @@ public final class LoadedApk {
      * AssetManager.Builder puts the system's framework-res first.
      */
     private AssetManager newAssetManager() {
+        return newAssetManager(-1);
+    }
+
+    /**
+     * The same for one split of an app that loads its splits in isolation (`split` its index, -1 for the app's own):
+     * the base and the configuration splits of the base, then each split on the way from the base to `split` with the
+     * configuration splits of each, as SplitAssetDependencyLoader makes them. An app that does not isolate its splits
+     * has every split in all of them.
+     */
+    private AssetManager newAssetManager(int split) {
         AssetManager.Builder builder = new AssetManager.Builder().addApkAssets(mApkAssets);
-        for (ApkAssets split : mSplitAssets) {
-            builder.addApkAssets(split);
+        if (!isolated()) {
+            for (ApkAssets apk : mSplitAssets) {
+                builder.addApkAssets(apk);
+            }
+        } else {
+            List<Integer> chain = new ArrayList<>();
+            for (int i = split; i >= 0; i = parentOf(i)) {
+                chain.add(0, i);
+            }
+            for (int i = 0; i < mSplitAssets.length; i++) {
+                if (!feature(i) && parentOf(i) == -1) {
+                    builder.addApkAssets(mSplitAssets[i]);
+                }
+            }
+            for (int member : chain) {
+                builder.addApkAssets(mSplitAssets[member]);
+                for (int i = 0; i < mSplitAssets.length; i++) {
+                    if (!feature(i) && parentOf(i) == member) {
+                        builder.addApkAssets(mSplitAssets[i]);
+                    }
+                }
+            }
         }
         for (ApkAssets overlay : mOverlayAssets) {
             builder.addApkAssets(overlay);
         }
         return builder.build();
+    }
+
+    // Isolated splits (ADR-0048 c): an app whose manifest asks for them has a class loader and Resources for each
+    // split, whose parent is the split it depends on, else the base's.
+
+    private boolean[] mFeatureSplits;
+    private ClassLoader[] mSplitLoaders;
+
+    /** Which splits, in splitNames' order, are feature splits; the rest configure one (ManifestPackage). */
+    void setFeatureSplits(boolean[] featureSplits) {
+        mFeatureSplits = featureSplits;
+    }
+
+    /** Whether the app loads its splits in isolation, as ApplicationInfo.requestsIsolatedSplitLoading says. */
+    boolean isolated() {
+        return mApplicationInfo.requestsIsolatedSplitLoading() && mApplicationInfo.splitNames != null
+                && mApplicationInfo.splitDependencies != null;
+    }
+
+    private boolean feature(int split) {
+        return mFeatureSplits != null && mFeatureSplits[split];
+    }
+
+    /** The index of the split `split` depends on, -1 for the base (ApplicationInfo.splitDependencies' parents). */
+    private int parentOf(int split) {
+        return mApplicationInfo.splitDependencies.get(split + 1)[0] - 1;
+    }
+
+    private int splitIndex(String splitName) throws PackageManager.NameNotFoundException {
+        int index = splitName == null ? -1 : java.util.Arrays.asList(mApplicationInfo.splitNames).indexOf(splitName);
+        if (splitName != null && index < 0) {
+            throw new PackageManager.NameNotFoundException("Split name '" + splitName + "' is not installed");
+        }
+        return index;
+    }
+
+    /** As LoadedApk.getSplitClassLoader: the app's loader, or for an isolated split its own. */
+    public ClassLoader getSplitClassLoader(String splitName) throws PackageManager.NameNotFoundException {
+        return isolated() ? loaderOf(splitIndex(splitName)) : mClassLoader;
+    }
+
+    private ClassLoader loaderOf(int split) {
+        if (split < 0) {
+            return mClassLoader;
+        }
+        synchronized (this) {
+            if (mSplitLoaders == null) {
+                mSplitLoaders = new ClassLoader[mApplicationInfo.splitNames.length];
+            }
+            if (mSplitLoaders[split] == null) {
+                mSplitLoaders[split] = new PathClassLoader(mApplicationInfo.splitSourceDirs[split],
+                        mApplicationInfo.nativeLibraryDir, loaderOf(parentOf(split)));
+            }
+            return mSplitLoaders[split];
+        }
+    }
+
+    /** The Resources of an isolated split, over the base and what it depends on; the app's own for any other app. */
+    @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
+    Resources getSplitResources(String splitName) throws PackageManager.NameNotFoundException {
+        if (!isolated()) {
+            return getResources();
+        }
+        int split = splitIndex(splitName);
+        getResources();
+        Resources system = Resources.getSystem();
+        return new Resources(newAssetManager(split), system.getDisplayMetrics(), system.getConfiguration());
     }
 
     /**
@@ -167,8 +267,20 @@ public final class LoadedApk {
      */
     @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
     Resources createActivityResources(Configuration overrideConfiguration) {
+        return createActivityResources(overrideConfiguration, null);
+    }
+
+    /** The same for an activity of a split, which an isolated app gives that split's assets. */
+    @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
+    Resources createActivityResources(Configuration overrideConfiguration, String splitName) {
         getResources();
-        AssetManager assets = newAssetManager();
+        int split = -1;
+        try {
+            split = isolated() ? splitIndex(splitName) : -1;
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new IllegalStateException(e);
+        }
+        AssetManager assets = newAssetManager(split);
         Resources system = Resources.getSystem();
         Configuration config = new Configuration(system.getConfiguration());
         if (overrideConfiguration != null) {

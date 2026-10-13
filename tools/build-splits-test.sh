@@ -12,8 +12,12 @@
 # Needs bundletool (tools/fetch-bundletool.py), the JDK and D8 of tools/fetch-sources.py --set art, tools/build-art.sh's
 # boot classes, tools/build-framework.sh's output, tools/build-aapt2.sh, tools/build-framework-res.sh and the Android
 # NDK (ANDROID_NDK, default as tools/build-java-test-app.sh).
-# Usage: tools/build-splits-test.sh [--key <folder>]
+# Usage: tools/build-splits-test.sh [--key <folder>] [<app>]
 #   --key  make-apk's key folder, default ~/.android/minato-debug-key, which tools/make-apk.sh makes on first use
+#   <app>  splits-test (the default) or another set of the same shape, such as isolated-splits-test: its manifest and
+#          resources in fixtures/apps/<app>, a feature module in each folder of it that holds an AndroidManifest.xml
+#          (with res/ and assets/ if it has any), its code in fixtures/java/<app>/base and fixtures/java/<app>/<module>,
+#          and the JNI libraries of fixtures/java/<app>/jni/*.c, which the base module holds
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,11 +26,17 @@ die() {
   exit 1
 }
 key=$HOME/.android/minato-debug-key
-if [[ $# -eq 2 && "$1" == --key ]]; then
+if [[ $# -ge 2 && "$1" == --key ]]; then
   key=$2
-elif [[ $# -ne 0 ]]; then
-  die "usage: tools/build-splits-test.sh [--key <folder>]"
+  shift 2
 fi
+APP=splits-test
+if [[ $# -eq 1 ]]; then
+  APP=$1
+elif [[ $# -ne 0 ]]; then
+  die "usage: tools/build-splits-test.sh [--key <folder>] [<app>]"
+fi
+[[ -f "fixtures/apps/$APP/AndroidManifest.xml" ]] || die "no fixtures/apps/$APP/AndroidManifest.xml"
 JAR=$(/usr/bin/python3 tools/fetch-bundletool.py 2>/dev/null) \
   || die "bundletool differs from its pin or is missing (tools/fetch-bundletool.py)"
 JDK=$(echo build/tools/jdk-17/*/Contents/Home)
@@ -47,8 +57,11 @@ CLANG="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang"
 [[ -f "$key/key.der" && -f "$key/certificate.der" ]] \
   || die "no key.der and certificate.der in $key: tools/make-apk.sh makes them on first use"
 
-APP=splits-test
 OUT=build/$APP
+MODULES=()
+for manifest in fixtures/apps/$APP/*/AndroidManifest.xml; do
+  MODULES+=("$(basename "$(dirname "$manifest")")")
+done
 work=""
 cleanup() {
   [[ -z "$work" || -n "${KEEP_WORK:-}" ]] || rm -rf "${work:?}"
@@ -56,8 +69,7 @@ cleanup() {
 trap cleanup EXIT
 work=$(mktemp -d "${TMPDIR:-/tmp}/build-splits-test.XXXXXX")
 chmod 700 "$work"
-mkdir -p "$work/gen" "$work/classes/base" "$work/classes/feature" "$work/dex/base" "$work/dex/feature" \
-  "$work/lib" "$work/modules"
+mkdir -p "$work/gen" "$work/classes/base" "$work/dex/base" "$work/lib" "$work/modules"
 
 # The base module: resources and manifest linked in protobuf's format, with the R class for its code.
 "$AAPT2" compile --dir "fixtures/apps/$APP/res" -o "$work/compiled.zip"
@@ -70,31 +82,50 @@ mkdir -p "$work/gen" "$work/classes/base" "$work/classes/feature" "$work/dex/bas
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$work/dex/base" \
   $(find "$work/classes/base" -name '*.class' | sort)
-# The feature module: its manifest (no resources), its class, and its asset.
-"$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
-  -classpath "$FRAMEWORK_CLASSES:$STUBS" -d "$work/classes/feature" \
-  $(find "fixtures/java/$APP/feature" -name '*.java' | sort)
-"$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
-  --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$work/dex/feature" \
-  $(find "$work/classes/feature" -name '*.class' | sort)
-# The feature's own string takes its id beside the base's (--stable-ids), as the splits of one package share it.
-"$AAPT2" compile --dir "fixtures/apps/$APP/feature/res" -o "$work/feature-compiled.zip"
-"$AAPT2" link --proto-format -o "$work/feature-linked.apk" -I "$FRAMEWORK_RES" --stable-ids "$work/ids.txt" \
-  --manifest "fixtures/apps/$APP/feature/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35 \
-  "$work/feature-compiled.zip"
-# The JNI library, which the arm64 split holds.
-"$CLANG" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall -Werror -Wl,-z,max-page-size=16384 \
-  -Wl,--no-undefined -landroid -o "$work/lib/libsplits_test.so" "fixtures/java/$APP/jni/splits_test.c"
+# Each feature module: its manifest, its code, and its resources, whose ids take their places beside the base's
+# (--stable-ids), as the splits of one package share them.
+earlier="$work/classes/base"  # the code a module may use: the base's and that of the modules before it
+for module in "${MODULES[@]}"; do
+  mkdir -p "$work/classes/$module" "$work/dex/$module"
+  "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
+    -classpath "$FRAMEWORK_CLASSES:$STUBS:$earlier" -d "$work/classes/$module" \
+    $(find "fixtures/java/$APP/$module" -name '*.java' | sort)
+  libs=()
+  for dir in ${earlier//:/ }; do libs+=(--lib "$dir"); done
+  "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
+    --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" "${libs[@]}" --output "$work/dex/$module" \
+    $(find "$work/classes/$module" -name '*.class' | sort)
+  earlier="$earlier:$work/classes/$module"
+  compiled=()
+  if [[ -d "fixtures/apps/$APP/$module/res" ]]; then
+    "$AAPT2" compile --dir "fixtures/apps/$APP/$module/res" -o "$work/$module-compiled.zip"
+    compiled=("$work/$module-compiled.zip")
+  fi
+  "$AAPT2" link --proto-format -o "$work/$module-linked.apk" -I "$FRAMEWORK_RES" --stable-ids "$work/ids.txt" \
+    --manifest "fixtures/apps/$APP/$module/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35 \
+    ${compiled[@]+"${compiled[@]}"}
+done
+# The JNI libraries, which the arm64 split holds.
+LIBRARIES=()
+for source in fixtures/java/$APP/jni/*.c; do
+  [[ -f "$source" ]] || continue
+  library=lib$(basename "$source" .c).so
+  "$CLANG" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall -Werror -Wl,-z,max-page-size=16384 \
+    -Wl,--no-undefined -landroid -o "$work/lib/$library" "$source"
+  LIBRARIES+=("$library")
+done
 
-/usr/bin/python3 - "$work" "fixtures/apps/$APP" <<'PY'
+/usr/bin/python3 - "$work" "fixtures/apps/$APP" "${LIBRARIES[*]-}" "${MODULES[@]}" <<'PY'
 import os
 import sys
 import zipfile
 
-work, app = sys.argv[1:]
+work, app, libraries = sys.argv[1:4]
+modules = sys.argv[4:]
 # The assets of each module (bundletool refuses one name with different content in two modules).
-assets = {"base": ["assets/base.txt"], "feature": ["feature/feature.txt"]}
-for name in ("base", "feature"):
+assets = {"base": os.path.join(app, "assets")}
+assets.update({module: os.path.join(app, module, "assets") for module in modules})
+for name in ["base"] + modules:
     with zipfile.ZipFile(os.path.join(work, f"{name}-linked.apk")) as apk, \
             zipfile.ZipFile(os.path.join(work, "modules", f"{name}.zip"), "w", zipfile.ZIP_DEFLATED) as module:
         for entry in apk.infolist():
@@ -102,11 +133,15 @@ for name in ("base", "feature"):
             module.writestr(target, apk.read(entry))
         module.write(os.path.join(work, "dex", name, "classes.dex"), "dex/classes.dex")
         if name == "base":
-            module.write(os.path.join(work, "lib", "libsplits_test.so"), "lib/arm64-v8a/libsplits_test.so")
-        for asset in assets[name]:
-            module.write(os.path.join(app, asset), "assets/" + os.path.basename(asset))
+            for library in libraries.split():
+                module.write(os.path.join(work, "lib", library), "lib/arm64-v8a/" + library)
+        if os.path.isdir(assets[name]):
+            for asset in sorted(os.listdir(assets[name])):
+                module.write(os.path.join(assets[name], asset), "assets/" + asset)
 PY
-"$JDK/bin/java" -jar "$JAR" build-bundle --modules="$work/modules/base.zip,$work/modules/feature.zip" \
+modules_list=$work/modules/base.zip
+for module in "${MODULES[@]}"; do modules_list+=,$work/modules/$module.zip; done
+"$JDK/bin/java" -jar "$JAR" build-bundle --modules="$modules_list" \
   --output="$work/$APP.aab" >/dev/null
 
 # The keystore: make-apk's key and certificate as PEM, then a PKCS#12 under a random password, all in the private

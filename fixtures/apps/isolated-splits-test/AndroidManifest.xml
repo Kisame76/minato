@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of isolated splits at run time (isolated-splits-test; ADR-0048 c): a base module whose manifest asks for
+     isolatedSplits, whose Application looks at what each split gets: its class loader, its Context, its Resources and
+     assets. A feature module with a provider, a service and a receiver, a second feature module that uses the first.
+     Built by tools/build-splits-test.sh isolated-splits-test. The launcher activity is the framework's own. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.isolated" android:versionCode="1" android:versionName="1.0"
+    android:isolatedSplits="true">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.isolated.IsolatedApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -24,12 +24,24 @@ cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-splits-test.sh >/dev/null
+tools/build-splits-test.sh isolated-splits-test >/dev/null
 
-splits=()
-# In reverse order of the names, since ActivityThread lists them in string order whichever order it gets them in.
-for split in $(ls -r build/splits-test/set/split_*.apk); do splits+=(--split "$split"); done
-python3 framework/tests/java_app_run.py "${splits[@]}" splits-test io.github.kisame76.minato.test.splits \
-  io.github.kisame76.minato.test.splits.SplitsApplication build/art build/bionic/lib build/bionic/system \
-  build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
-  "$NATIVE/runtime/apk-run" build/splits-check build/framework-native/app_process64 build/framework/framework.jar \
-  build/framework-res/framework-res build/splits-test/set/base.apk fixtures/expected/splits-test.logcat
+# splits-test, and isolated-splits-test, whose base asks for isolatedSplits: a loader and Resources for each split.
+status=0
+for app in splits-test isolated-splits-test; do
+  if [[ "$app" == splits-test ]]; then
+    package=io.github.kisame76.minato.test.splits application=SplitsApplication
+  else
+    package=io.github.kisame76.minato.test.isolated application=IsolatedApplication
+  fi
+  splits=()
+  # In reverse order of the names, since ActivityThread lists them in string order whichever order it gets them in.
+  for split in $(ls -r "build/$app/set"/split_*.apk); do splits+=(--split "$split"); done
+  echo "$app:"
+  python3 framework/tests/java_app_run.py "${splits[@]}" "$app" "$package" "$package.$application" build/art \
+    build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+    "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" "build/splits-check-$app" \
+    build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+    "build/$app/set/base.apk" "fixtures/expected/$app.logcat" || status=1
+done
+exit "$status"

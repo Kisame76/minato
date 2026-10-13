@@ -108,6 +108,8 @@ class ContextImpl {
     private final int mFlags;
     /** The attribution tag of createAttributionContext, null for the app's default. */
     private String mAttributionTag;
+    /** The class loader of an isolated split's context, null for the package's. */
+    private ClassLoader mClassLoader;
 
     private ContextImpl(ActivityThread mainThread, LoadedApk packageInfo) {
         this(mainThread, packageInfo, 0);
@@ -141,6 +143,7 @@ class ContextImpl {
         context.mIsDisplayContext = mIsDisplayContext;
         context.mResources = mResources;
         context.mAttributionTag = mAttributionTag;
+        context.mClassLoader = mClassLoader;
         return context;
     }
 
@@ -178,7 +181,15 @@ class ContextImpl {
         ContextImpl context = new ContextImpl(mainThread, packageInfo);
         context.mToken = activityToken;
         context.mIsActivityContext = true;
-        context.mResources = packageInfo.createActivityResources(overrideConfiguration);
+        context.mResources = packageInfo.createActivityResources(overrideConfiguration, activityInfo.splitName);
+        // An activity of an isolated split is made by that split's loader (the tag's createActivityContext).
+        if (packageInfo.isolated() && activityInfo.splitName != null) {
+            try {
+                context.mClassLoader = packageInfo.getSplitClassLoader(activityInfo.splitName);
+            } catch (PackageManager.NameNotFoundException e) {
+                throw new IllegalStateException(e);
+            }
+        }
         return context;
     }
 
@@ -457,7 +468,7 @@ class ContextImpl {
     }
 
     public ClassLoader getClassLoader() {
-        return mPackageInfo.getClassLoader();
+        return mClassLoader != null ? mClassLoader : mPackageInfo.getClassLoader();
     }
 
     public String getPackageName() {
@@ -850,11 +861,19 @@ class ContextImpl {
     }
 
     /**
-     * As the tag's for an app that does not load its splits in isolation: this context, as its class loader and
-     * Resources hold every split. An isolated split's own loader is not made yet (a departure, named).
+     * As the tag's: for an app that does not load its splits in isolation this context, as its class loader and
+     * Resources hold every split; for one that does, a context with the split's class loader and Resources.
      */
     public Context createContextForSplit(String splitName) throws PackageManager.NameNotFoundException {
-        return (Context) (Object) this;
+        if (!mPackageInfo.isolated()) {
+            return (Context) (Object) this;
+        }
+        ClassLoader loader = mPackageInfo.getSplitClassLoader(splitName);
+        Resources resources = mPackageInfo.getSplitResources(splitName);
+        ContextImpl context = copy(mFlags);
+        context.mClassLoader = loader;
+        context.mResources = resources;
+        return (Context) (Object) context;
     }
 
     // The external folders of decision 6, on Environment's one volume.
