@@ -1,0 +1,53 @@
+I/html-test: mode 0 '<b>bold</b> and <i>it</i> and <b><i>both</i></b>': 'bold and it and both' StyleSpan(1)[0,4] StyleSpan(2)[9,11] StyleSpan(1)[16,20] StyleSpan(2)[16,20]
+I/html-test: mode 0 '<a href="http://example.com/z?x=1&amp;y=2">link</a> text': 'link text' URLSpan(http://example.com/z?x=1&y=2)[0,4]
+I/html-test: mode 0 '<font color="#ff0000">red</font> <font color="blue">blue</font> <font face="sans-serif">sans</font>': 'red blue sans' ForegroundColorSpan(ffff0000)[0,3] ForegroundColorSpan(ff0000ff)[4,8] TypefaceSpan(sans-serif)[9,13]
+I/html-test: mode 0 '<p>para1</p><p>para2</p>after': 'para1\n\npara2\n\nafter'
+I/html-test: mode 0 'line<br>break<br/>again': 'line\nbreak\nagain'
+I/html-test: mode 0 '<ul><li>one</li><li>two</li></ul>tail': 'one\n\ntwo\n\ntail' BulletSpan[0,4] BulletSpan[5,9]
+I/html-test: mode 0 '&lt;tag&gt; &amp; &copy; &#65; &#x42; &nbsp;|': '<tag> & © A B  |'
+I/html-test: mode 0 '<h1>Head</h1>text<h3>Sub</h3>': 'Head\n\ntext\n\nSub\n\n' RelativeSizeSpan(1.5)[0,4] StyleSpan(1)[0,4] RelativeSizeSpan(1.3)[12,15] StyleSpan(1)[12,15]
+I/html-test: mode 0 '<blockquote>quoted</blockquote>plain': 'quoted\n\nplain' QuoteSpan[0,7]
+I/html-test: mode 0 '<u>u</u><strike>s</strike><sup>2</sup><sub>3</sub><tt>mono</tt><big>b</big><small>s</small>': 'us23monobs' UnderlineSpan[0,1] StrikethroughSpan[1,2] SuperscriptSpan[2,3] SubscriptSpan[3,4] TypefaceSpan(monospace)[4,8] RelativeSizeSpan(1.25)[8,9] RelativeSizeSpan(0.8)[9,10]
+I/html-test: mode 0 '<span style="color:#00ff00;background-color:#0000ff">styled</span>': 'styled'
+I/html-test: mode 0 '<div align="center">centered</div><div align="right">right</div>': 'centered\n\nright\n\n'
+I/html-test: mode 0 '<img src="x.png"> pic': '￼ pic' ImageSpan(x.png)[0,1]
+I/html-test: mode 0 '<b>unclosed <i>and nested': 'unclosed and nested' StyleSpan(1)[0,19] StyleSpan(2)[9,19]
+I/html-test: mode 0 'a<<>>b': 'ab'
+I/html-test: mode 0 '  spaced   \n  text  ': 'spaced text '
+I/html-test: mode 0 '': ''
+I/html-test: mode 63 '<b>bold</b> and <i>it</i> and <b><i>both</i></b>': 'bold and it and both' StyleSpan(1)[0,4] StyleSpan(2)[9,11] StyleSpan(1)[16,20] StyleSpan(2)[16,20]
+I/html-test: mode 63 '<a href="http://example.com/z?x=1&amp;y=2">link</a> text': 'link text' URLSpan(http://example.com/z?x=1&y=2)[0,4]
+I/html-test: mode 63 '<font color="#ff0000">red</font> <font color="blue">blue</font> <font face="sans-serif">sans</font>': 'red blue sans' ForegroundColorSpan(ffff0000)[0,3] ForegroundColorSpan(ff0000ff)[4,8] TypefaceSpan(sans-serif)[9,13]
+I/html-test: mode 63 '<p>para1</p><p>para2</p>after': 'para1\npara2\nafter'
+I/html-test: mode 63 'line<br>break<br/>again': 'line\nbreak\nagain'
+I/html-test: mode 63 '<ul><li>one</li><li>two</li></ul>tail': 'one\ntwo\ntail' BulletSpan[0,4] BulletSpan[4,8]
+I/html-test: mode 63 '&lt;tag&gt; &amp; &copy; &#65; &#x42; &nbsp;|': '<tag> & © A B  |'
+I/html-test: mode 63 '<h1>Head</h1>text<h3>Sub</h3>': 'Head\ntext\nSub\n' RelativeSizeSpan(1.5)[0,4] StyleSpan(1)[0,4] RelativeSizeSpan(1.3)[10,13] StyleSpan(1)[10,13]
+I/html-test: mode 63 '<blockquote>quoted</blockquote>plain': 'quoted\nplain' QuoteSpan[0,7]
+I/html-test: mode 63 '<u>u</u><strike>s</strike><sup>2</sup><sub>3</sub><tt>mono</tt><big>b</big><small>s</small>': 'us23monobs' UnderlineSpan[0,1] StrikethroughSpan[1,2] SuperscriptSpan[2,3] SubscriptSpan[3,4] TypefaceSpan(monospace)[4,8] RelativeSizeSpan(1.25)[8,9] RelativeSizeSpan(0.8)[9,10]
+I/html-test: mode 63 '<span style="color:#00ff00;background-color:#0000ff">styled</span>': 'styled'
+I/html-test: mode 63 '<div align="center">centered</div><div align="right">right</div>': 'centered\nright\n'
+I/html-test: mode 63 '<img src="x.png"> pic': '￼ pic' ImageSpan(x.png)[0,1]
+I/html-test: mode 63 '<b>unclosed <i>and nested': 'unclosed and nested' StyleSpan(1)[0,19] StyleSpan(2)[9,19]
+I/html-test: mode 63 'a<<>>b': 'ab'
+I/html-test: mode 63 '  spaced   \n  text  ': 'spaced text '
+I/html-test: mode 63 '': ''
+I/html-test: toHtml '<b>bold</b> and <i>it</i> and <b><i>both</i></b>': <p dir="ltr"><b>bold</b> and <i>it</i> and <i><b>both</b></i></p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><b>bold</b> and <i>it</i> and <i><b>both</b></i></p>\n
+I/html-test: toHtml '<a href="http://example.com/z?x=1&amp;y=2">link</a> text': <p dir="ltr"><a href="http://example.com/z?x=1&y=2">link</a> text</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><a href="http://example.com/z?x=1&y=2">link</a> text</p>\n
+I/html-test: toHtml '<font color="#ff0000">red</font> <font color="blue">blue</font> <font face="sans-serif">sans</font>': <p dir="ltr"><span style="color:#FF0000;">red</span> <span style="color:#0000FF;">blue</span> sans</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><span style="color:#FF0000;">red</span> <span style="color:#0000FF;">blue</span> sans</p>\n
+I/html-test: toHtml '<p>para1</p><p>para2</p>after': <p dir="ltr">para1</p>\n<p dir="ltr">para2</p>\n<p dir="ltr">after</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">para1</p>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">para2</p>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">after</p>\n
+I/html-test: toHtml 'line<br>break<br/>again': <p dir="ltr">line<br>\nbreak<br>\nagain</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">line</p>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">break</p>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">again</p>\n
+I/html-test: toHtml '<ul><li>one</li><li>two</li></ul>tail': <p dir="ltr">one<br>\n</p>\n<p dir="ltr"><br>\n</p>\n<p dir="ltr">two<br>\n</p>\n<p dir="ltr"><br>\ntail</p>\n | <ul style="margin-top:0; margin-bottom:0;">\n<li dir="ltr">one</li>\n</ul>\n<br>\n<ul style="margin-top:0; margin-bottom:0;">\n<li dir="ltr">two</li>\n</ul>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">tail</p>\n
+I/html-test: toHtml '&lt;tag&gt; &amp; &copy; &#65; &#x42; &nbsp;|': <p dir="ltr">&lt;tag&gt; &amp; &#169; A B &#160;|</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">&lt;tag&gt; &amp; &#169; A B &#160;|</p>\n
+I/html-test: toHtml '<h1>Head</h1>text<h3>Sub</h3>': <p dir="ltr"><span style="font-size:1.50em;"><b>Head</b></span></p>\n<p dir="ltr">text</p>\n<p dir="ltr"><span style="font-size:1.30em;"><b>Sub</b></span></p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><span style="font-size:1.50em;"><b>Head</b></span></p>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">text</p>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;"><span style="font-size:1.30em;"><b>Sub</b></span></p>\n<br>\n<br>\n
+I/html-test: toHtml '<blockquote>quoted</blockquote>plain': <blockquote><p dir="ltr">quoted<br>\n</p>\n</blockquote>\n<p dir="ltr"><br>\nplain</p>\n | <blockquote><p dir="ltr" style="margin-top:0; margin-bottom:0;">quoted</p>\n<br>\n</blockquote>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">plain</p>\n
+I/html-test: toHtml '<u>u</u><strike>s</strike><sup>2</sup><sub>3</sub><tt>mono</tt><big>b</big><small>s</small>': <p dir="ltr"><u>u</u><span style="text-decoration:line-through;">s</span><sup>2</sup><sub>3</sub><tt>mono</tt><span style="font-size:1.25em;">b</span><span style="font-size:0.80em;">s</span></p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><u>u</u><span style="text-decoration:line-through;">s</span><sup>2</sup><sub>3</sub><tt>mono</tt><span style="font-size:1.25em;">b</span><span style="font-size:0.80em;">s</span></p>\n
+I/html-test: toHtml '<span style="color:#00ff00;background-color:#0000ff">styled</span>': <p dir="ltr">styled</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">styled</p>\n
+I/html-test: toHtml '<div align="center">centered</div><div align="right">right</div>': <p dir="ltr">centered</p>\n<p dir="ltr">right</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">centered</p>\n<br>\n<p dir="ltr" style="margin-top:0; margin-bottom:0;">right</p>\n<br>\n<br>\n
+I/html-test: toHtml '<img src="x.png"> pic': <p dir="ltr"><img src="x.png"> pic</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><img src="x.png"> pic</p>\n
+I/html-test: toHtml '<b>unclosed <i>and nested': <p dir="ltr"><b>unclosed </b><i><b>and nested</b></i></p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;"><b>unclosed </b><i><b>and nested</b></i></p>\n
+I/html-test: toHtml 'a<<>>b': <p dir="ltr">ab</p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">ab</p>\n
+I/html-test: toHtml '  spaced   \n  text  ': <p dir="ltr">spaced text </p>\n | <p dir="ltr" style="margin-top:0; margin-bottom:0;">spaced text </p>\n
+I/html-test: toHtml '':  | 
+I/html-test: escapeHtml: a&lt;b&gt;&amp;"'&nbsp; c&#10;&#9;d &#233; &#128512;
+I/html-test: done

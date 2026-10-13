@@ -13,7 +13,6 @@ android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays
 android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityURLSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.LocaleSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.QuoteSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.ScaleXSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
@@ -54,7 +53,6 @@ android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  
 com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
 
 # Text layout: TextView's step (M4 step 10).
-android.text.Html <- android.text.TextUtils  # M4 step 10: TextUtils.makeSafeForPresentation
 android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils.getReverse, on AndroidCharacter's natives
 
 # Files, bundles and the rest.
@@ -191,7 +189,6 @@ com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a 
 # only those services and tools ask for, and a button drawable from an Icon.
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
-android.text.Html <- android.content.ClipData  # gap: a clip item's HTML text (android.text.Html, a later breadth batch)
 
 # The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
 android.widget.Toast <- android.database.sqlite.SqliteWrapper  # gap: Toast, which framework.jar has none of yet (SqliteWrapper.checkSQLiteException's message on a full disk)

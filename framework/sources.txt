@@ -1998,3 +1998,24 @@ frameworks_base_types/media/java/android/media/session/PlaybackState.java
 # ADR-0058 c) (Grafik), surface-texture-test: AOSP's SurfaceTexture over our natives on libnativewindow's buffer queue
 # (android_graphics_SurfaceTexture.cpp), in place of its placeholder.
 frameworks_base_graphics/graphics/java/android/graphics/SurfaceTexture.java
+
+# Step (a) Html (TagSoup and the spans Html creates; Planung): see docs/plans/2026-10-07-framework-breadth.md
+tagsoup/src/org/ccil/cowan/tagsoup/AttributesImpl.java
+tagsoup/src/org/ccil/cowan/tagsoup/AutoDetector.java
+tagsoup/src/org/ccil/cowan/tagsoup/CommandLine.java
+tagsoup/src/org/ccil/cowan/tagsoup/Element.java
+tagsoup/src/org/ccil/cowan/tagsoup/ElementType.java
+tagsoup/src/org/ccil/cowan/tagsoup/HTMLModels.java
+tagsoup/src/org/ccil/cowan/tagsoup/HTMLScanner.java
+tagsoup/src/org/ccil/cowan/tagsoup/HTMLSchema.java
+tagsoup/src/org/ccil/cowan/tagsoup/PYXScanner.java
+tagsoup/src/org/ccil/cowan/tagsoup/PYXWriter.java
+tagsoup/src/org/ccil/cowan/tagsoup/Parser.java
+tagsoup/src/org/ccil/cowan/tagsoup/ScanHandler.java
+tagsoup/src/org/ccil/cowan/tagsoup/Scanner.java
+tagsoup/src/org/ccil/cowan/tagsoup/Schema.java
+tagsoup/src/org/ccil/cowan/tagsoup/XMLWriter.java
+frameworks_base/core/java/android/text/Html.java
+frameworks_base/core/java/android/text/style/ImageSpan.java
+frameworks_base/core/java/android/text/style/QuoteSpan.java
+frameworks_base/core/java/android/text/style/DynamicDrawableSpan.java

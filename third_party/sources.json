@@ -702,6 +702,31 @@
         "mime.types"
       ],
       "digest": "a08dd24e7acb71763ed96a04c9be721c12b48ed87164436647c4001f907b3d7c"
+    },
+    {
+      "name": "tagsoup",
+      "project": "platform/external/tagsoup",
+      "commit": "5c387116e235ff706ba0baf63a9883b72c872490",
+      "license": "Apache-2.0 (TagSoup 1.2.1, the files' own header)",
+      "files": [
+        "LICENSE",
+        "src/org/ccil/cowan/tagsoup/AttributesImpl.java",
+        "src/org/ccil/cowan/tagsoup/AutoDetector.java",
+        "src/org/ccil/cowan/tagsoup/CommandLine.java",
+        "src/org/ccil/cowan/tagsoup/Element.java",
+        "src/org/ccil/cowan/tagsoup/ElementType.java",
+        "src/org/ccil/cowan/tagsoup/HTMLModels.java",
+        "src/org/ccil/cowan/tagsoup/HTMLScanner.java",
+        "src/org/ccil/cowan/tagsoup/HTMLSchema.java",
+        "src/org/ccil/cowan/tagsoup/PYXScanner.java",
+        "src/org/ccil/cowan/tagsoup/PYXWriter.java",
+        "src/org/ccil/cowan/tagsoup/Parser.java",
+        "src/org/ccil/cowan/tagsoup/ScanHandler.java",
+        "src/org/ccil/cowan/tagsoup/Scanner.java",
+        "src/org/ccil/cowan/tagsoup/Schema.java",
+        "src/org/ccil/cowan/tagsoup/XMLWriter.java"
+      ],
+      "digest": "0b41896922dd34f1fac9fc770521f01e03f1d4564461173e22a3f8937262e428"
     }
   ],
   "angle": {
