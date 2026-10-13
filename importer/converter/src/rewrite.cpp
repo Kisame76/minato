@@ -313,6 +313,12 @@ constexpr bool is_branch(std::uint32_t word) {
     return (word & 0x1c00'0000) == 0x1400'0000 && (word >> 24) != 0xd5;
 }
 
+/// CB<cc>, CBB<cc>, CBH<cc> (FEAT_CMPBR): compare two registers, or one with a 6-bit immediate, and
+/// branch to a PC-relative label. Both forms carry the label as imm9 at bits 13:5 (Arm ARM, C4.1).
+constexpr bool is_cmpbr(std::uint32_t word) {
+    return ((word >> 25) & 0x3f) == 0b111010;
+}
+
 /// LDXR, STXR and their acquire, release and pair forms (bits 29:23 = 0010000, where o1 set with
 /// bit 31 clear is CASP instead), and LDTXR, STTXR (LSUI, bits 29:23 = 0010010).
 constexpr bool is_exclusive(std::uint32_t word) {
@@ -434,7 +440,8 @@ constexpr bool is_store_exclusive(std::uint32_t word) {
 }
 
 /// The signed byte displacement of any PC-relative branch, or nullopt when `word` is none: B, BL
-/// (imm26), B.cond, BC.cond (imm19), and the conditional branches CBZ, CBNZ, TBZ, TBNZ.
+/// (imm26), B.cond, BC.cond (imm19), the conditional branches CBZ, CBNZ, TBZ, TBNZ, and the
+/// compare-and-branch CB<cc>, CBB<cc>, CBH<cc> (CMPBR, imm9 at bits 13:5).
 std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
     if ((word & 0x7c00'0000) == 0x1400'0000) {  // B, BL
         return static_cast<std::int64_t>(static_cast<std::int32_t>(word << 6) >> 6) * 4;
@@ -443,6 +450,7 @@ std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
         return static_cast<std::int64_t>(static_cast<std::int32_t>(word << 8) >> 13) * 4;
     }
     if (is_conditional_branch(word)) return conditional_branch_displacement(word);
+    if (is_cmpbr(word)) return static_cast<std::int64_t>(static_cast<std::int32_t>(word << 18) >> 23) * 4;
     return std::nullopt;
 }
 
@@ -747,7 +755,7 @@ bool stays_in_place(std::span<const std::byte> code, std::size_t open, std::size
     }
     for (std::size_t j = open; j < end; j += 4) {
         const auto word = word_at(code, j);
-        if (!branch_displacement(word)) continue;
+        if (!is_branch(word)) continue;  // any branch, the register branches with no displacement included
         if ((a64::register_use(word).reads & tainted) != 0 || (flags && reads_flags(word))) return false;
     }
     if ((tainted & (1u << rn_field(closing))) != 0) return false;
@@ -1160,11 +1168,13 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 
 namespace {
 
-/// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ) with its displacement set to `delta`.
+/// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ, CMPBR) with its displacement set to
+/// `delta`.
 std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delta) {
     const auto encoded = static_cast<std::uint32_t>(delta / 4);
     if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | (encoded & 0x03ff'ffff);  // B, BL
     if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);  // B.cond
+    if (is_cmpbr(word)) return (word & ~(0x1ffu << 5)) | ((encoded & 0x1ff) << 5);                   // CMPBR imm9
     return with_branch_displacement(word, delta);  // CBZ, CBNZ, TBZ, TBNZ
 }
 

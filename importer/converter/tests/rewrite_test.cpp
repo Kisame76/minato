@@ -719,6 +719,8 @@ TEST(a_window_stays_in_place_only_when_a_lost_x18_cannot_escape) {
          {0x9100'0412, 0xf100'025f, 0x5400'0020, 0xc802'7c32, 0x35ff'fe42}},  // add x18; cmp x18, #0; b.eq .+4
         {"x18 decides a branch through another register", 10, 3,
          {0x9100'0412, 0x9100'0645, 0xb400'0025, 0xc802'7c32, 0x35ff'fe42}},  // add x18; add x5, x18, #1; cbz x5
+        {"x18 decides a branch through a cmpbr", 10, 3,  // add x18; add x5, x18, #1; cmpbr x5, x6, .+4 (Finding A)
+         {0x9100'0412, 0x9100'0645, 0xf4c6'0025, 0xc802'7c32, 0x35ff'fe42}},
         {"sp from x18", 10, 3, {0x9100'0412, 0x9100'225f, 0xc802'7c32, 0x35ff'fe62},  // add x18; add sp, x18, #8
          "it lies in an exclusive window that moves the stack pointer"},
         {"an authentication with x18", 10, 3,
@@ -779,6 +781,30 @@ TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
     CHECK(word(stub, 5) == 0xd53b'd061);   // mrs x1, TPIDRRO_EL0 (the TSD base)
     CHECK(word(stub, 7) == 0xf900'2c20);   // str x0, [x1, #88]
     CHECK(branch_target_at(stub, 10, stub_address) == address_of(ref_site) + 4 * 3);  // after the window
+}
+
+// A CMPBR (FEAT_CMPBR compare-and-branch, two registers and a PC-relative label) is a branch within
+// a window like B.cond: a relocated window may hold one, x18 renamed where it uses it, and the island
+// keeps it aimed at the same word of the copied window (step C class 7 groundwork, Finding A).
+TEST(a_cmpbr_in_a_relocated_window_is_kept_and_retargeted) {
+    const std::uint32_t code[] = {
+        0xc85f'7c20,  // ldxr x0, [x1]
+        0x9100'0412,  // add x18, x0, #1
+        0xf4c4'0043,  // cmpbr cbeq x3, x4, .+8  (skips the next word, lands on the store-exclusive)
+        0xd280'0005,  // mov x5, #0
+        0xc802'7c32,  // stxr w2, x18, [x1]
+        0x35ff'ff62,  // cbnz w2, ldxr
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x10000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() != 1) return;
+    const auto &region = findings.exclusive_regions[0];
+    std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
+    apk::rewrite::emit_exclusive_region(region, address_of(ref_site), address_of(ref_site) - 0x100, stub);
+    // The window is copied contiguously, so the cmpbr keeps its +8 and stays byte-for-byte itself
+    // (it names no x18); index 4 = save value, save base, ldxr, add, cmpbr.
+    CHECK(word(stub, 4) == 0xf4c4'0043);
 }
 
 // --- Jump tables through x18 (ADR-0020 X2d) --------------------------------------------------------
