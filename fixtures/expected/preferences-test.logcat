@@ -1,0 +1,35 @@
+I/preferences-test: default channels Set [a, c]
+I/preferences-test: default debug Boolean false
+I/preferences-test: default nickname String player
+I/preferences-test: default quality String medium
+I/preferences-test: default server String example.org
+I/preferences-test: default sound Boolean true
+I/preferences-test: default vibrate Boolean false
+I/preferences-test: default again sound false
+I/preferences-test: default read again sound false
+I/preferences-test: name io.github.kisame76.minato.test.preferences_preferences
+I/preferences-test: checkbox false on off dis=true
+I/preferences-test: checkbox true dis=false k T
+I/preferences-test: checkbox inverted dis=true true
+I/preferences-test: checkbox default true true true
+I/preferences-test: switch false Yes No enabled disabled
+I/preferences-test: switch true
+I/preferences-test: edittext null Dialog
+I/preferences-test: edittext hello null
+I/preferences-test: edittext null sum EditText
+I/preferences-test: list null null 2 -1
+I/preferences-test: list Now: 
+I/preferences-test: list medium Medium Now: Medium
+I/preferences-test: list high High 3 3
+I/preferences-test: list other null
+I/preferences-test: multi [] 2
+I/preferences-test: multi [a, c] 3
+I/preferences-test: order 2147483647 5 2147483647
+I/preferences-test: order compare 1 -1 1 -1 0
+I/preferences-test: category add !NullPointerException !NullPointerException count=2
+I/preferences-test: category get one two ordered=true find=true none=false
+I/preferences-test: category sorted false one
+I/preferences-test: category remove true false count=1
+I/preferences-test: category 0 enabled=false selectable=false
+I/preferences-test: plain failed: java.lang.IllegalStateException
+I/preferences-test: done

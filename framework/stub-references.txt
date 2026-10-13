@@ -228,6 +228,7 @@ android.app.admin.DevicePolicyManager <- android.app.Notification  # stays: a wo
 android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.media.PlayerBase <- android.app.Notification  # gap: Notification.Builder.setSound(Uri, int), deprecated since API 26, whose stream type check is PlayerBase's
 android.media.RingtoneManager <- android.app.NotificationChannel  # stays: a channel's sound restored from the system's backup (getUncanonicalizedSoundUri)
+android.media.RingtoneManager <- android.preference.RingtonePreference  # gap: RingtonePreference's picker intent (getDefaultUri); the ringtone picker's RingtoneManager and Ringtone are a media service type no step has taken
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" android:key="root">
+  <PreferenceCategory android:key="general" android:title="General">
+    <CheckBoxPreference android:key="sound" android:title="Sound" android:summaryOn="On" android:summaryOff="Off"
+        android:defaultValue="true"/>
+    <SwitchPreference android:key="vibrate" android:title="Vibrate" android:defaultValue="false"
+        android:switchTextOn="Yes" android:switchTextOff="No" android:dependency="sound"/>
+    <EditTextPreference android:key="nickname" android:title="Nickname" android:defaultValue="player"
+        android:dialogTitle="Your nickname"/>
+    <ListPreference android:key="quality" android:title="Quality" android:summary="Now: %s"
+        android:entries="@array/quality_entries" android:entryValues="@array/quality_values"
+        android:defaultValue="medium"/>
+    <MultiSelectListPreference android:key="channels" android:title="Channels"
+        android:entries="@array/multi_values" android:entryValues="@array/multi_values"
+        android:defaultValue="@array/multi_defaults"/>
+  </PreferenceCategory>
+  <PreferenceScreen android:key="advanced" android:title="Advanced">
+    <CheckBoxPreference android:key="debug" android:title="Debug" android:defaultValue="false"/>
+    <EditTextPreference android:key="server" android:title="Server" android:defaultValue="example.org"/>
+    <RingtonePreference android:key="tone" android:title="Tone" android:ringtoneType="notification"/>
+    <Preference android:key="about" android:title="About" android:persistent="false"/>
+  </PreferenceScreen>
+</PreferenceScreen>

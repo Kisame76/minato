@@ -6,6 +6,10 @@ import java.io.FileNotFoundException;
 
 class RingtoneManager {
     /** @hide */
+    public static final String EXTRA_RINGTONE_AUDIO_ATTRIBUTES_FLAGS =
+            "android.intent.extra.ringtone.AUDIO_ATTRIBUTES_FLAGS";
+
+    /** @hide */
     public static Uri getRingtoneUriForRestore(ContentResolver contentResolver, String value, int ringtoneType)
             throws FileNotFoundException, IllegalArgumentException {
         throw new RuntimeException("stub");
