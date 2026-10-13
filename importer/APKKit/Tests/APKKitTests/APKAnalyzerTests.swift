@@ -277,6 +277,22 @@ struct APKAnalyzerTests {
         #expect(report.compatibility.issues.contains(.usesLicenseCheck))
     }
 
+    /// ADR-0054 c2a: the report says whether the app requests INTERNET; a report from before the import read it has
+    /// none, which the start takes as granted.
+    @Test func reportsInternet() throws {
+        let with = TestAPK(manifestChildren: [
+            E("uses-permission", [.android("name", 0x0101_0003, .string("android.permission.INTERNET"))]),
+        ])
+        let report = try APKAnalyzer.analyze(with.archive(), preferredLanguages: [])
+        #expect(report.usesInternet == true)
+        #expect(try APKAnalyzer.analyze(TestAPK().archive(), preferredLanguages: []).usesInternet == false)
+
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
+        json.removeValue(forKey: "usesInternet")
+        let old = try JSONDecoder().decode(APKReport.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(old.usesInternet == nil)
+    }
+
     @Test func notesGraphicsBeyondANGLEMetal() throws {
         let apk = TestAPK(manifestChildren: [
             E("uses-feature", [.android("glEsVersion", 0x0101_0281, .hex(0x0003_0002))]),

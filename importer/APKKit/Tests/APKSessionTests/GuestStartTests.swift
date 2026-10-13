@@ -177,6 +177,15 @@ struct GuestStartTests {
         ])
     }
 
+    /// ADR-0054 c2a: a start holds INTERNET unless the session says otherwise from the app's report.
+    @Test func aStartHoldsInternetByDefault() {
+        #expect(Self.javaStart()?.internet == true)
+        var start = Self.javaStart()
+        start?.internet = false
+        #expect(start?.internet == false)
+        #expect(start?.arguments == Self.javaStart()?.arguments)
+    }
+
     /// An unsigned APK has no signers.json: no mount and no argument, as the harness starts it.
     @Test func anUnsignedJavaAppHasNoSigners() {
         let start = Self.javaStart(signers: nil)

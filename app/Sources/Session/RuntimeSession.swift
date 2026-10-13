@@ -159,6 +159,8 @@ final class RuntimeSessionHost: SessionHost {
     static func startProgram(_ start: GuestStart) -> String? {
         _ = graphicsProviders
         if let refusal = angleBackend(start) { return refusal }
+        // Before the start, as the runtime keeps from then on what it has (ADR-0054 c2a).
+        guard apkrt_set_internet(start.internet ? 1 : 0) == 0 else { return "the runtime's network permission could not be set" }
         var error = [CChar](repeating: 0, count: 1024)
         let result = withCStrings(start.arguments) { arguments in
             withCStrings(start.environment) { environment in

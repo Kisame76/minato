@@ -48,6 +48,10 @@ public struct APKReport: Sendable, Equatable, Codable {
     public var splitName: String?
     public var requiresSplits: Bool
     public var playDependencies: [PlayDependency]
+    /// Whether the base's manifest requests android.permission.INTERNET within Android 15's bounds (ADR-0054 c2a); the
+    /// start passes it to the runtime, whose sockets answer EPERM without it. Nil in reports from before the import read
+    /// it, which count as granted, the runtime's default.
+    public var usesInternet: Bool? = nil
     public var engine: String?
     /// Path of the chosen icon image inside the APK.
     public var iconPath: String?

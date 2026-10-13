@@ -299,6 +299,8 @@ final class GameSession {
         guard var start else { return nil }
         // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).
         start.angleBackend = ANGLEBackend(requiredGLESVersion: entry.report?.requiredGLESVersion)
+        // The app's sockets without INTERNET answer EPERM, as on Android (ADR-0054 c2a).
+        start.internet = entry.report?.usesInternet ?? true
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(

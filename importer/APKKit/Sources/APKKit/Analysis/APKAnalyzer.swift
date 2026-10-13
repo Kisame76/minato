@@ -106,6 +106,7 @@ public enum APKAnalyzer {
             iconPath: icon?.path,
             signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
+        report.usesInternet = manifest.requestsInternet
         report.compatibility = compatibility(of: report, manifest: manifest, hasCode: apks.contains(where: \.hasCode))
         return (report, icon?.archive)
     }

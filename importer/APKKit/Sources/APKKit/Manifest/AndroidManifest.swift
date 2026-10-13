@@ -62,6 +62,11 @@ public struct AndroidManifest: Sendable, Equatable {
     public var requiredFeatures: [String]
 
     public var permissions: [String]
+    /// Whether Android 15's package parser requests android.permission.INTERNET (ADR-0054 c2a): a <uses-permission>,
+    /// <uses-permission-sdk-23> or <uses-permission-sdk-m> of that name whose int-typed minSdkVersion and maxSdkVersion,
+    /// where set, include 35, as ParsingPackageUtils reads them. Its required-feature conditions are not checked
+    /// [departure: ManifestPackage checks them for the guest's permissions].
+    public var requestsInternet = false
     public var metaData: [String: ResourceValue]
     public var usesLibraries: [String]
     /// Qualified names of activities, aliases, services, receivers and providers.
@@ -224,9 +229,18 @@ public struct AndroidManifest: Sendable, Equatable {
         requiresAndroidExtensionPack = extensionPack
         requiredFeatures = features
 
-        permissions = root.children
+        let usesPermissions = root.children
             .filter { ["uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"].contains($0.name) }
-            .compactMap { $0.android(.name)?.string }
+        permissions = usesPermissions.compactMap { $0.android(.name)?.string }
+        requestsInternet = usesPermissions.contains { element in
+            // An SDK bound counts only with an int type (TypedValue.TYPE_FIRST_INT to TYPE_LAST_INT).
+            func bound(_ attribute: AndroidAttribute) -> Int? {
+                guard let value = element.android(attribute), (0x10...0x1F).contains(value.dataType) else { return nil }
+                return Int(Int32(bitPattern: value.data))
+            }
+            return element.android(.name)?.string == "android.permission.INTERNET"
+                && (bound(.minSdkVersion) ?? 0) <= 35 && 35 <= (bound(.maxSdkVersion) ?? Int.max)
+        }
     }
 
     /// An integer as Android's package parser reads it (`TypedArray.getInteger`, TypedArray.java:628-652), by resource

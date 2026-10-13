@@ -22,6 +22,7 @@ struct AndroidAttribute: Sendable {
     static let resource = AndroidAttribute(name: "resource", id: 0x0101_0025)
     static let targetActivity = AndroidAttribute(name: "targetActivity", id: 0x0101_0202)
     static let minSdkVersion = AndroidAttribute(name: "minSdkVersion", id: 0x0101_020C)
+    static let maxSdkVersion = AndroidAttribute(name: "maxSdkVersion", id: 0x0101_0271)
     static let versionCode = AndroidAttribute(name: "versionCode", id: 0x0101_021B)
     static let versionName = AndroidAttribute(name: "versionName", id: 0x0101_021C)
     static let targetSdkVersion = AndroidAttribute(name: "targetSdkVersion", id: 0x0101_0270)

@@ -28,6 +28,9 @@ public struct GuestStart: Sendable, Equatable {
     public let environment: [String]
     /// The backend under the session's ANGLE (ADR-0044 d)), from the installed set's glEsVersion; Metal by default.
     public var angleBackend: ANGLEBackend = .metal
+    /// Whether the app holds android.permission.INTERNET, for `apkrt_set_internet` before the program starts (ADR-0054
+    /// c2a): from the installed version's report, granted by default, as for a report from before the import read it.
+    public var internet = true
 
     /// NativeActivity's default for `android.app.func_name`.
     public static let defaultFunction = "ANativeActivity_onCreate"

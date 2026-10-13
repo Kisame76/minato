@@ -479,6 +479,32 @@ struct AndroidManifestTests {
         #expect(manifest.icon == .reference(0x7F08_0000))
     }
 
+    /// ADR-0054 c2a: android.permission.INTERNET as Android 15's package parser requests it, from <uses-permission>,
+    /// <uses-permission-sdk-23> or <uses-permission-sdk-m>, only where its int-typed SDK bounds include 35.
+    @Test func requestsInternetWithinAndroid15sBounds() throws {
+        func internet(_ element: String, _ extra: [A] = []) throws -> Bool {
+            try Self.parse(Self.manifest([], [
+                E(element, [.android("name", 0x0101_0003, .string("android.permission.INTERNET"))] + extra),
+            ])).requestsInternet
+        }
+        #expect(try internet("uses-permission"))
+        #expect(try internet("uses-permission-sdk-23"))
+        #expect(try internet("uses-permission-sdk-m"))
+        #expect(try !internet("uses-permission", [.android("maxSdkVersion", 0x0101_0271, .int(34))]))
+        #expect(try internet("uses-permission", [.android("maxSdkVersion", 0x0101_0271, .int(35))]))
+        #expect(try !internet("uses-permission", [.android("minSdkVersion", 0x0101_020C, .int(36))]))
+        // Android 15's bounds default to Integer.MIN_VALUE and MAX_VALUE; an explicit 0 is a bound like any other
+        // (ParsingPackageUtils.parseMinOrMaxSdkVersion), unlike the parser before R, where 0 meant none.
+        #expect(try !internet("uses-permission", [.android("maxSdkVersion", 0x0101_0271, .int(0))]))
+        #expect(try internet("uses-permission", [.android("minSdkVersion", 0x0101_020C, .int(0))]))
+        // A bound that is not an int, such as a string, is not read, as the parser reads only int-typed ones.
+        #expect(try internet("uses-permission", [.android("maxSdkVersion", 0x0101_0271, .string("22"))]))
+        #expect(try !Self.parse(Self.manifest([], [
+            E("uses-permission", [.android("name", 0x0101_0003, .string("android.permission.CAMERA"))]),
+        ])).requestsInternet)
+        #expect(try !Self.parse(Self.manifest([], [])).requestsInternet)
+    }
+
     @Test func collectsPermissionsMetaDataLibrariesAndComponents() throws {
         let manifest = try Self.parse(Self.manifest([], [
             E("uses-permission", [.android("name", 0x0101_0003, .string("android.permission.INTERNET"))]),
