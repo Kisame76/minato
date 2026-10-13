@@ -4254,6 +4254,109 @@ TEST(an_inet_socketpair_is_checked_as_a_socket_before_it_is_refused) {
     CHECK(call(nr_socketpair, {af_inet, 5, 0, address(nullptr)}) == -esocktnosupport_);  // SOCK_SEQPACKET
 }
 
+// A loopback UDP datagram longer than Darwin's net.inet.udp.maxdgram, 9,216 bytes, the host socket's send buffer:
+// Linux takes up to 65,507 bytes over IPv4 and 65,527 over IPv6 whatever SO_SNDBUF says, and queues one into an empty
+// receive queue whatever SO_RCVBUF says (ADR-0054 step c2).
+TEST(a_loopback_udp_datagram_is_as_long_as_on_linux_whatever_the_buffers_say) {
+    constexpr std::uint64_t so_sndbuf = 7, so_rcvbuf = 8, so_rcvtimeo = 20;
+    constexpr std::int64_t edestaddrreq = 89, emsgsize = 90;
+    struct LinuxInet6Name {
+        std::uint16_t family, port;
+        std::uint32_t flow;
+        unsigned char address[16];
+        std::uint32_t scope;
+    };
+    for (const bool six : {false, true}) {
+        const auto fd = call(nr_socket, {six ? af_inet6 : af_inet, sock_dgram, 0});
+        CHECK(fd >= 0);
+        const struct {
+            std::int64_t seconds, microseconds;
+        } timeout{2, 0};
+        CHECK(call(nr_setsockopt, {unsigned_of(fd), sol_socket, so_rcvtimeo, address(&timeout), sizeof timeout}) == 0);
+        LinuxInetName four{static_cast<std::uint16_t>(af_inet), 0, 0x0100'007f, {}};  // 127.0.0.1
+        LinuxInet6Name six_name{static_cast<std::uint16_t>(af_inet6), 0, 0, {}, 0};
+        six_name.address[15] = 1;
+        void *name = six ? static_cast<void *>(&six_name) : static_cast<void *>(&four);
+        std::uint32_t length = six ? sizeof six_name : sizeof four;
+        CHECK(call(nr_bind, {unsigned_of(fd), address(name), length}) == 0);
+        CHECK(call(nr_getsockname, {unsigned_of(fd), address(name), address(&length)}) == 0);
+        const std::uint64_t most = six ? 65'527 : 65'507;
+        const std::vector<char> sent(most + 1, 'u');
+        std::vector<char> received(most + 2);
+        const auto passes = [&](std::uint64_t size) {
+            const auto result =
+                call(nr_sendto, {unsigned_of(fd), address(sent.data()), size, 0, address(name), length});
+            if (result < 0) return result;
+            return call(nr_recvfrom, {unsigned_of(fd), address(received.data()), received.size(), 0, 0, 0});
+        };
+        CHECK(passes(20'000) == 20'000);
+        CHECK(passes(most) == static_cast<std::int64_t>(most));
+        CHECK(passes(most + 1) == -emsgsize);
+        // A vector longer than SSIZE_MAX is EINVAL before the protocol looks (copy_iovec_from_user).
+        TestIovec huge{address(sent.data()), std::uint64_t{1} << 63};
+        TestMsghdr message;
+        message.name = address(name);
+        message.name_length = length;
+        message.vectors = address(&huge);
+        message.vector_count = 1;
+        CHECK(call(nr_sendmsg, {unsigned_of(fd), address(&message), 0}) == -einval);
+        // Small buffers. Over IPv6 a datagram that lo fragments (above some 65,488 bytes) would get ENOBUFS beyond
+        // twice sk_sndbuf on Linux (__ip6_append_data), which the runtime does not give (a named departure).
+        const std::int32_t small = 1024;
+        CHECK(call(nr_setsockopt, {unsigned_of(fd), sol_socket, so_sndbuf, address(&small), sizeof small}) == 0);
+        CHECK(call(nr_setsockopt, {unsigned_of(fd), sol_socket, so_rcvbuf, address(&small), sizeof small}) == 0);
+        const std::uint64_t unfragmented = six ? 60'000 : most;
+        CHECK(passes(unfragmented) == static_cast<std::int64_t>(unfragmented));
+        // Without a name: a connected socket's peer gets the same answer; an unconnected socket has none first.
+        const auto unconnected = call(nr_socket, {six ? af_inet6 : af_inet, sock_dgram, 0});
+        CHECK(call(nr_sendto, {unsigned_of(unconnected), address(sent.data()), most + 1, 0, 0, 0}) == -edestaddrreq);
+        CHECK(call(nr_connect, {unsigned_of(fd), address(name), length}) == 0);
+        CHECK(call(nr_sendto, {unsigned_of(fd), address(sent.data()), most + 1, 0, 0, 0}) == -emsgsize);
+        CHECK(call(nr_sendto, {unsigned_of(fd), address(sent.data()), most, 0, 0, 0}) ==
+              static_cast<std::int64_t>(most));
+        call(nr_close, {unsigned_of(unconnected)});
+        call(nr_close, {unsigned_of(fd)});
+    }
+    // An IPv4-mapped name on an IPv6 socket takes IPv4's path (udp_sendmsg) and its longest, 65,507 bytes.
+    const auto six = call(nr_socket, {af_inet6, sock_dgram, 0});
+    LinuxInet6Name mapped{static_cast<std::uint16_t>(af_inet6), 0x0900, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1},
+             0};  // ::ffff:127.0.0.1, port 9
+    const std::vector<char> data(65'508, 'm');
+    CHECK(call(nr_sendto, {unsigned_of(six), address(data.data()), data.size(), 0, address(&mapped), sizeof mapped}) ==
+          -90);  // EMSGSIZE
+    call(nr_close, {unsigned_of(six)});
+}
+
+// connect with AF_UNSPEC ends a UDP socket's association. The runtime keeps Darwin's answer as a named departure
+// (ADR-0054 step c2): the port stays and the address goes to the wildcard, where Linux's __udp_disconnect keeps an
+// address that bind named and drops a port it did not. This pins the departure, so that a change to it is noticed.
+TEST(a_udp_disconnect_keeps_the_port_and_resets_the_address_as_darwin_does) {
+    for (const bool six : {false, true}) {
+        const auto fd = call(nr_socket, {six ? af_inet6 : af_inet, sock_dgram, 0});
+        CHECK(fd >= 0);
+        unsigned char bound[28] = {}, after[28] = {};
+        bound[0] = static_cast<unsigned char>(six ? af_inet6 : af_inet);
+        if (six) {
+            bound[23] = 1;  // ::1
+        } else {
+            bound[4] = 127, bound[7] = 1;  // 127.0.0.1
+        }
+        std::uint32_t length = six ? 28 : 16;
+        CHECK(call(nr_bind, {unsigned_of(fd), address(bound), length}) == 0);
+        CHECK(call(nr_getsockname, {unsigned_of(fd), address(bound), address(&length)}) == 0);
+        CHECK(call(nr_connect, {unsigned_of(fd), address(bound), length}) == 0);
+        const std::uint16_t unspecified = 0;
+        CHECK(call(nr_connect, {unsigned_of(fd), address(&unspecified), sizeof unspecified}) == 0);
+        std::uint32_t after_length = sizeof after;
+        CHECK(call(nr_getsockname, {unsigned_of(fd), address(after), address(&after_length)}) == 0);
+        CHECK(after_length == length && std::memcmp(after, bound, 4) == 0);  // the family and the port
+        const unsigned char wildcard[16] = {};
+        CHECK(std::memcmp(after + (six ? 8 : 4), wildcard, six ? 16 : 4) == 0);
+        CHECK(call(nr_getpeername, {unsigned_of(fd), address(after), address(&after_length)}) == -107);  // ENOTCONN
+        call(nr_close, {unsigned_of(fd)});
+    }
+}
+
 TEST(netlink_bind_is_refused_and_the_port_comes_with_the_first_send) {
     CHECK(in_child([] {
         const auto fd = netlink_socket();

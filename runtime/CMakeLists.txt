@@ -293,6 +293,15 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/crypto-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/crypto-test.out" ${flag}
         --conscrypt --okhttp --bouncycastle)
     set_tests_properties(runtime.art_crypto${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # Networking through Java on loopback (ADR-0054 step c2): net-test's sockets, channels, okhttp's HttpURLConnection
+    # and TLS, so with the same jars as crypto-test.
+    add_test(NAME runtime.art_net${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/net-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/net-test.out" ${flag}
+        --conscrypt --okhttp --bouncycastle)
+    set_tests_properties(runtime.art_net${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # Stress (ADR-0033 test 4): stress-test runs three parts at once, with its JNI library: threads, monitors and
     # allocation; SIGUSR2 handlers while ART stops the world; Boehm's stop-the-world with SIGPWR and SIGXCPU in native
     # code. --stress checks that a signal was handled while the main thread collected.

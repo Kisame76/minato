@@ -1,0 +1,71 @@
+-- addresses
+localhost: [localhost/127.0.0.1]
+loopback: ip6-localhost/::1, true
+::1: java.net.Inet6Address ::1, true
+127.1.2.3 is loopback: true
+by address: named/127.0.0.1, true
+-- interfaces
+lo: index 1, up true, loopback true, point to point false, virtual false, mtu 65536
+lo's addresses: [127.0.0.1/8, ::1/128]
+index 1: lo
+127.0.0.1's: lo
+-- tcp ipv4
+echo: ping pong
+client's local address: 127.0.0.1, accepted's peer: 127.0.0.1, ports match: true
+1 MiB intact: true, then end: -1
+-- tcp ipv6
+echo: ping pong
+client's local address: ::1, accepted's peer: ::1, ports match: true
+1 MiB intact: true, then end: -1
+-- tcp options
+at first: nodelay false, keepalive false, linger -1, timeout 0, send 2097152, receive 6291456
+set: nodelay true, keepalive true, linger 5, send 131072, receive 8192
+server: reuse address true, receive 6291456, bound false
+-- refused
+java.net.ConnectException, ECONNREFUSED: true
+-- timeout
+java.net.SocketTimeoutException: Read timed out
+-- udp ipv4
+buffers: send 229376, receive 229376
+1: 1 intact
+9216: 9216 intact
+9217: 9217 intact
+20000: 20000 intact
+65507: 65507 intact
+65508: java.io.IOException: sendto failed: EMSGSIZE (Message too long)
+connected: 65507: 65507 intact
+connected: 65508: java.io.IOException: sendto failed: EMSGSIZE (Message too long)
+small buffers: send 4608, receive 2304
+65507: 65507 intact
+-- udp ipv6
+buffers: send 229376, receive 229376
+1: 1 intact
+9216: 9216 intact
+9217: 9217 intact
+20000: 20000 intact
+65527: 65527 intact
+65528: java.io.IOException: sendto failed: EMSGSIZE (Message too long)
+connected: 65527: 65527 intact
+connected: 65528: java.io.IOException: sendto failed: EMSGSIZE (Message too long)
+small buffers: send 4608, receive 2304
+20000: 20000 intact
+-- selector
+accepted and connected: true, true
+ready before a write: 0
+ready after a write: 1, readable true, read selected
+woken: 0
+after the client closed: -1
+-- asynchronous
+future: wrote 5, read async
+handler: true, read handler
+-- http
+connection: com.android.okhttp.internal.huc.HttpURLConnectionImpl
+response: 201 Made, text/plain; charset=utf-8, 6, X-Served loopback, body hello
+request: GET /path?q=1 HTTP/1.1, headers [Accept-Encoding, Connection, Host, User-Agent, X-Test], X-Test net-test
+-- key store
+BKS: [net-test], key EC
+-- tls
+session: TLSv1.3, TLS_AES_128_GCM_SHA256, peer CN=net-test, O=Minato
+echo: over tls
+server read: over tls
+done

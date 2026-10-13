@@ -435,6 +435,19 @@ void hold_stream(int host) {
     ::setsockopt(host, SOL_SOCKET, SO_RCVBUF, &linux_buffer, sizeof linux_buffer);
 }
 
+/// Room in a host UDP socket's buffers for the longest datagram and its name. Darwin refuses a datagram longer than
+/// the send buffer (net.inet.udp.maxdgram, 9,216 bytes, at first) with EMSGSIZE, and drops one that does not fit the
+/// receive buffer; Linux takes up to 65,507 bytes over IPv4 and 65,527 over IPv6 whatever SO_SNDBUF says (but for
+/// the ENOBUFS of a datagram whose fragments outgrow twice SO_SNDBUF, a named departure: ADR-0054 step c2), and
+/// queues one into an empty receive queue whatever SO_RCVBUF says (__udp_enqueue_schedule_skb).
+constexpr int udp_room = 131'072;
+
+/// Gives a host UDP socket the room of `udp_room`, or `linux_size` where that is more, in the buffer `name`.
+void hold_udp(int host, int name, int linux_size) {
+    const int room = std::max(linux_size, udp_room);
+    ::setsockopt(host, SOL_SOCKET, name, &room, sizeof room);
+}
+
 /// Linux's family of a Darwin one.
 int linux_family(int host_family) {
     switch (host_family) {
@@ -1248,6 +1261,24 @@ long netlink_connect(Socket &socket, std::uint64_t address, std::uint64_t length
     return 0;
 }
 
+/// Whether an IPv6 UDP datagram of `vectors` is longer than IPv6's payload less the UDP header, 65,527 bytes:
+/// __ip6_append_data refuses it with EMSGSIZE, where Darwin sends it and drops it. A datagram without a name to an
+/// unconnected socket is left to Darwin's EDESTADDRREQ, which Linux answers first, and a vector longer than SSIZE_MAX
+/// to Darwin's EINVAL, which copy_iovec_from_user answers before the protocol looks.
+bool udp6_too_long(Socket &socket, const std::vector<iovec> &vectors, bool named) {
+    constexpr std::uint64_t longest = 65'527;
+    std::uint64_t total = 0;
+    for (const iovec &vector : vectors) {
+        if (vector.iov_len > SSIZE_MAX) return false;
+        total += std::min<std::uint64_t>(vector.iov_len, longest + 1 - std::min(total, longest + 1));
+    }
+    if (total <= longest) return false;
+    if (named) return true;
+    sockaddr_storage peer{};
+    socklen_t length = sizeof peer;
+    return ::getpeername(socket.host(), reinterpret_cast<sockaddr *>(&peer), &length) == 0;
+}
+
 long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
     if (socket.netlink) return netlink_send(socket, message, flags);
     if (message.vector_count > 1024) return -linux_errno::emsgsize;  // UIO_MAXIOV
@@ -1272,6 +1303,9 @@ long send_message(Socket &socket, const LinuxMsghdr &message, int flags) {
     if (message.vector_count > 0) {
         const auto *vectors = sys::as_pointer<const iovec>(message.vectors);
         rest.assign(vectors, vectors + message.vector_count);
+    }
+    if (socket.protocol == ipproto_udp && socket.family == af_inet6 && udp6_too_long(socket, rest, named)) {
+        return -linux_errno::emsgsize;
     }
     const bool dont_wait = socket.nonblocking() || (flags & msg_dontwait) != 0;
     msghdr host{};
@@ -1576,6 +1610,8 @@ long set_socket_level(Socket &socket, int name, std::uint64_t value, std::uint32
                 // A number alone: the pair keeps room for the answers, as Linux queues one into an empty queue.
             } else if (socket.family == af_unix && socket.type == sock_dgram) {
                 if (name == so_sndbuf) limit_datagrams(socket.host(), doubled);  // the receiver's does not count
+            } else if (socket.protocol == ipproto_udp) {
+                hold_udp(socket.host(), name == so_sndbuf ? SO_SNDBUF : SO_RCVBUF, doubled);
             } else {
                 ::setsockopt(socket.host(), SOL_SOCKET, name == so_sndbuf ? SO_SNDBUF : SO_RCVBUF, &kept, sizeof kept);
             }
@@ -2014,6 +2050,10 @@ Socket::Socket(int host, bool nonblocking, int family_number, int type_number, i
     // A seqpacket's host is a datagram socket too.
     if (family == af_unix && (type == sock_dgram || type == sock_seqpacket)) hold_datagrams(host, send_buffer);
     if (family == af_unix && type == sock_stream) hold_stream(host);
+    if (protocol == ipproto_udp) {
+        hold_udp(host, SO_SNDBUF, send_buffer);
+        hold_udp(host, SO_RCVBUF, receive_buffer);  // also where the host's default is less (iOS: net.inet.udp.recvspace)
+    }
 }
 
 Socket::~Socket() {
