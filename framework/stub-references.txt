@@ -53,7 +53,6 @@ com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader
 android.text.AndroidCharacter <- android.text.TextUtils  # M4 step 10: TextUtils.getReverse, on AndroidCharacter's natives
 
 # Files, bundles and the rest.
-android.provider.MediaStore <- android.os.FileUtils  # stays: FileUtils.convertToModernFd, a hidden helper of the media provider
 com.android.internal.util.SizedInputStream <- android.os.FileUtils  # stays: a copy with a byte count, which FileUtils' public copy methods never ask for (Long.MAX_VALUE)
 android.util.DataUnit <- android.os.FileUtils  # stays: FileUtils.parseSize, a hidden helper of system settings
 com.android.internal.util.ArtBinaryXmlPullParser <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)

@@ -2170,3 +2170,46 @@ frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamI
 frameworks_base/core/java/android/app/AsyncNotedAppOp.java
 frameworks_base/core/java/android/app/SyncNotedAppOp.java
 modules_utils/java/android/annotation/CurrentTimeMillisLong.java
+
+# Framework breadth F2 (Formate), f2-types-test: DialogFragment and the other android.app types, ExifInterface,
+# WallpaperColors with the palette quantizers, AudioProfile and AudioDescriptor, Keyboard, the accessibility gesture
+# description, LiveFolders, SyncStateContract and the 7 health data classes.
+frameworks_base/core/java/android/accessibilityservice/GestureDescription.java
+frameworks_base/core/java/android/accessibilityservice/MagnificationConfig.java
+frameworks_base/core/java/android/app/AliasActivity.java
+frameworks_base/core/java/android/app/ApplicationErrorReport.java
+frameworks_base/core/java/android/app/DialogFragment.java
+frameworks_base/core/java/android/app/DirectAction.java
+frameworks_base/core/java/android/app/LauncherActivity.java
+frameworks_base/core/java/android/app/RecoverableSecurityException.java
+frameworks_base/core/java/android/app/WallpaperColors.java
+frameworks_base/core/java/android/app/WallpaperInfo.java
+frameworks_base/core/java/android/inputmethodservice/Keyboard.java
+frameworks_base/core/java/android/os/health/HealthKeys.java
+frameworks_base/core/java/android/os/health/HealthStats.java
+frameworks_base/core/java/android/os/health/PackageHealthStats.java
+frameworks_base/core/java/android/os/health/PidHealthStats.java
+frameworks_base/core/java/android/os/health/ProcessHealthStats.java
+frameworks_base/core/java/android/os/health/ServiceHealthStats.java
+frameworks_base/core/java/android/os/health/TimerStat.java
+frameworks_base/core/java/android/os/health/UidHealthStats.java
+frameworks_base/core/java/android/provider/LiveFolders.java
+frameworks_base/core/java/android/provider/SyncStateContract.java
+frameworks_base/core/java/android/view/inputmethod/InputBinding.java
+frameworks_base/core/java/android/view/inputmethod/InputConnectionWrapper.java
+frameworks_base/core/java/com/android/internal/graphics/palette/CelebiQuantizer.java
+frameworks_base/core/java/com/android/internal/graphics/palette/ColorCutQuantizer.java
+frameworks_base/core/java/com/android/internal/graphics/palette/LABPointProvider.java
+frameworks_base/core/java/com/android/internal/graphics/palette/Palette.java
+frameworks_base/core/java/com/android/internal/graphics/palette/PointProvider.java
+frameworks_base/core/java/com/android/internal/graphics/palette/Quantizer.java
+frameworks_base/core/java/com/android/internal/graphics/palette/QuantizerMap.java
+frameworks_base/core/java/com/android/internal/graphics/palette/VariationalKMeansQuantizer.java
+frameworks_base/core/java/com/android/internal/graphics/palette/WSMeansQuantizer.java
+frameworks_base/core/java/com/android/internal/graphics/palette/WuQuantizer.java
+frameworks_base/core/java/com/android/internal/ml/clustering/KMeans.java
+frameworks_base_types/media/java/android/media/AudioDescriptor.java
+frameworks_base_types/media/java/android/media/AudioProfile.java
+frameworks_base_types/media/java/android/media/ExifInterface.java
+frameworks_base_types/media/java/android/media/ExifInterfaceUtils.java
+frameworks_base_types/media/java/android/media/MediaTimestamp.java

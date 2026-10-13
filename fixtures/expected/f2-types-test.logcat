@@ -1,0 +1,26 @@
+I/f2-types-test: exif fresh: make=null orientation=0 thumbnail=false
+I/f2-types-test: exif saved: make=Minato model=Test 1 orientation=6 f=2.8 date=2024:02:29 12:34:56
+I/f2-types-test: exif gps: true 48.5 -12.25 alt=120.0 width=16
+I/f2-types-test: exif thumbnail: false true
+I/f2-types-test: wallpaper: primary=ff143cc8 secondary=ffe6c814 hints=6
+I/f2-types-test: wallpaper made: Color(1.0, 0.0, 0.0, 1.0, sRGB IEC61966-2.1) Color(0.0, 1.0, 0.0, 1.0, sRGB IEC61966-2.1) null equals=true
+I/f2-types-test: report: type=1 package=io.github.kisame76.minato.test.f2types process=proc time=1234 system=false
+I/f2-types-test: timestamp: 5000 7000000 1.5 0.0
+I/f2-types-test: direct: id1 null
+I/f2-types-test: gesture: 1 start=5 duration=200 continued=false
+I/f2-types-test: magnification: mode=1 scale=2.5 center=10.0,20.0
+I/f2-types-test: timer: 3 4500
+I/f2-types-test: health keys: 10001 10036 20001 30001 40001 50001 HealthStats
+I/f2-types-test: wrapper: before= after= commit=true
+I/f2-types-test: binding: uid=42 pid=43 connection=true
+I/f2-types-test: contract: account_name data 2 name
+I/f2-types-test: recoverable: denied | Needs your OK | Allow
+I/f2-types-test: loaded: AliasActivity LauncherActivity WallpaperInfo AudioProfile AudioDescriptor HealthStats
+I/f2-types-test: fragment onCreate
+I/f2-types-test: fragment onCreateDialog
+I/f2-types-test: fragment onStart showing=true
+I/f2-types-test: fragment shown: tag=tag1 showsDialog=true cancelable=true added=true
+I/f2-types-test: fragment dismissed: added=false
+I/f2-types-test: fragment onDismiss
+I/f2-types-test: keyboard: keys=7 modifiers=1 shifted=false code0=97 label3=S sticky=true repeat=true codes4=2
+I/f2-types-test: done

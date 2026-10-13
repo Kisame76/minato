@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
+    android:keyWidth="25%p" android:keyHeight="48dp" android:horizontalGap="0px" android:verticalGap="0px">
+  <Row>
+    <Key android:codes="97" android:keyLabel="a"/>
+    <Key android:codes="98" android:keyLabel="b"/>
+    <Key android:codes="99" android:keyLabel="c"/>
+    <Key android:codes="-1" android:keyLabel="S" android:isModifier="true" android:isSticky="true"/>
+  </Row>
+  <Row>
+    <Key android:codes="100,101" android:keyLabel="de" android:isRepeatable="true"/>
+    <Key android:codes="32" android:keyLabel="_" android:keyWidth="50%p"/>
+    <Key android:codes="10" android:keyLabel="&#8629;"/>
+  </Row>
+</Keyboard>

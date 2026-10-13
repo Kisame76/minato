@@ -534,6 +534,10 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DialogActivity
       limit=90
       ;;
+    # f2-types-test (framework breadth F2): its activity runs when the window has the focus and ends with "done".
+    f2-types-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.F2Activity limit=90
+      ;;
     # alert-test (the Unity test APK probe's blocker 14): its activity runs when the window has the focus and ends with "done".
     alert-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90

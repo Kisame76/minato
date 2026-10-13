@@ -1,0 +1,21 @@
+Minato's patch to frameworks/base's core/java/android/os/FileUtils.java at android-15.0.0_r1 (Apache-2.0), framework
+breadth F2: convertToModernFd answers null.
+
+Why: convertToModernFd asks MediaProvider (MediaStore.getOriginalMediaFormatFileDescriptor) whether a file descriptor
+has an unredacted twin, and answers null when it has none or the provider cannot be reached, which ExifInterface,
+MediaMetadataRetriever and others then take as "use the descriptor given". Minato has no MediaProvider and
+MediaStore is a stub, so the call would end in a NoClassDefFoundError that its catch of Exception does not catch.
+The answer null is the one Android gives an app whose file the media provider does not redact.
+
+--- a/core/java/android/os/FileUtils.java
++++ b/core/java/android/os/FileUtils.java
+@@ -1663,6 +1663,9 @@
+     @VisibleForTesting
+     @android.ravenwood.annotation.RavenwoodThrow(reason = "Requires kernel support")
+     public static ParcelFileDescriptor convertToModernFd(FileDescriptor fd) {
++        if (true) {
++            return null;
++        }
+         Context context = AppGlobals.getInitialApplication();
+         if (UserHandle.getAppId(Process.myUid()) == getMediaProviderAppId(context)) {
+             // Never convert modern fd for MediaProvider, because this requires
