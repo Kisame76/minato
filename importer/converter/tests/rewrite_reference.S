@@ -204,13 +204,11 @@ _ref_x18_below_sp:
 // gets landing pads when it ends a jump table (further below); here it ends none.
     .globl _ref_x18_branches
 _ref_x18_branches:
-    cbgt    x18, x1, 1f             // CMPBR: two registers, two exits
     br      x18
     blr     x18
     ret     x18
     braa    x18, x0
     braa    x0, x18                 // x18 as the modifier
-1:
 // The thread pointer moved through x18: the island of either register would lose the other.
     .globl _ref_x18_thread_pointer
 _ref_x18_thread_pointer:

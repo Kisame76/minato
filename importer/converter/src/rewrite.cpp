@@ -32,10 +32,23 @@ constexpr std::size_t branch_island_words = 9;   // save, mrs, bic, ldr, branch,
 
 /// CBZ, CBNZ (bits 30:25 = 011010) and TBZ, TBNZ (011011): a conditional branch that tests one
 /// register (Rt, bits 4:0) and has a taken and a not-taken exit. The rest of the branch group
-/// takes no register (B, B.cond) or one no plain island can follow (BR, BLR, RET, CMPBR).
+/// takes no register (B, B.cond) or one only the two-way island can follow (CMPBR), or none a plain
+/// island can (BR, BLR, RET).
 constexpr bool is_conditional_branch(std::uint32_t instruction) {
     const auto kind = (instruction >> 25) & 0x3f;
     return kind == 0b011010 || kind == 0b011011;
+}
+
+/// CB<cc>, CBB<cc>, CBH<cc> (FEAT_CMPBR): compare two registers, or one with a 6-bit immediate, and
+/// branch to a PC-relative label. Both forms carry the label as imm9 at bits 13:5 (Arm ARM, C4.1).
+constexpr bool is_cmpbr(std::uint32_t instruction) {
+    return ((instruction >> 25) & 0x3f) == 0b111010;
+}
+
+/// A branch with a register operand and two exits that the two-way island runs: the one-register
+/// CBZ/CBNZ/TBZ/TBNZ and the two-register compare-and-branch CMPBR.
+constexpr bool is_two_way_branch(std::uint32_t instruction) {
+    return is_conditional_branch(instruction) || is_cmpbr(instruction);
 }
 
 constexpr bool is_test_bit_branch(std::uint32_t instruction) {
@@ -50,13 +63,28 @@ std::int64_t conditional_branch_displacement(std::uint32_t instruction) {
     return static_cast<std::int64_t>(static_cast<std::int32_t>(instruction << 8) >> 13) * 4;
 }
 
-/// `instruction` (a conditional branch) with its displacement set to `delta` bytes.
-std::uint32_t with_branch_displacement(std::uint32_t instruction, std::int64_t delta) {
-    const auto encoded = static_cast<std::uint32_t>(delta / 4);
-    if (is_test_bit_branch(instruction)) {
-        return (instruction & ~(0x3fffu << 5)) | ((encoded & 0x3fff) << 5);
+/// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ, CMPBR) with its displacement set to
+/// `delta`. Throws when `delta` is not a multiple of 4 or does not fit the branch's field, so a
+/// target the island cannot reach is caught here, as b() and adrp() catch theirs, not truncated to
+/// a word inside the island (step C C1b).
+std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delta) {
+    if (delta % 4 != 0) {
+        throw RewriteError(std::format("a branch displacement of {:#x} is not a multiple of 4", delta));
     }
-    return (instruction & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);
+    const auto encoded = delta / 4;
+    const auto field = [&](unsigned bits) -> std::uint32_t {
+        const std::int64_t limit = std::int64_t{1} << (bits - 1);
+        if (encoded < -limit || encoded >= limit) {
+            throw RewriteError(std::format("a branch displacement of {:#x} is out of range for a {}-bit field",
+                                           delta, bits));
+        }
+        return static_cast<std::uint32_t>(encoded) & ((1u << bits) - 1);
+    };
+    if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | field(26);        // B, BL (imm26)
+    if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | (field(19) << 5);  // B.cond (imm19)
+    if (is_cmpbr(word)) return (word & ~(0x1ffu << 5)) | (field(9) << 5);                     // CMPBR (imm9)
+    if (is_test_bit_branch(word)) return (word & ~(0x3fffu << 5)) | (field(14) << 5);         // TBZ, TBNZ (imm14)
+    return (word & ~(0x7ffffu << 5)) | (field(19) << 5);                                      // CBZ, CBNZ (imm19)
 }
 
 /// Words an island needs to compute a PC-relative instruction's address for its own place: ADRP
@@ -88,7 +116,7 @@ std::uint64_t pc_relative_target(std::uint32_t instruction, std::uint64_t at) {
 // A PC-relative instruction becomes one to three words; a conditional branch gets a two-way island
 // instead (see emit).
 std::size_t x18_island_words(std::uint32_t instruction) {
-    if (is_conditional_branch(instruction)) return branch_island_words;
+    if (is_two_way_branch(instruction)) return branch_island_words;
     const auto use = a64::register_use(instruction);
     const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
     const auto body = std::max<std::size_t>(pc_relative_words(instruction), 1);
@@ -313,12 +341,6 @@ constexpr bool is_branch(std::uint32_t word) {
     return (word & 0x1c00'0000) == 0x1400'0000 && (word >> 24) != 0xd5;
 }
 
-/// CB<cc>, CBB<cc>, CBH<cc> (FEAT_CMPBR): compare two registers, or one with a 6-bit immediate, and
-/// branch to a PC-relative label. Both forms carry the label as imm9 at bits 13:5 (Arm ARM, C4.1).
-constexpr bool is_cmpbr(std::uint32_t word) {
-    return ((word >> 25) & 0x3f) == 0b111010;
-}
-
 /// LDXR, STXR and their acquire, release and pair forms (bits 29:23 = 0010000, where o1 set with
 /// bit 31 clear is CASP instead), and LDTXR, STTXR (LSUI, bits 29:23 = 0010010).
 constexpr bool is_exclusive(std::uint32_t word) {
@@ -391,8 +413,8 @@ constexpr const char *window_entered = "it lies in an exclusive window into whic
 /// Why an x18 instruction cannot run in an island, or nullptr when it can. The island saves two
 /// scratch registers in the red zone, loads the guest x18 from the TSD, runs the instruction with
 /// the value register in place of x18, stores the value back and branches to the next instruction;
-/// a conditional branch leaves by two exits, a PC-relative form is computed for the island's place.
-/// That leaves out: the thread pointer moved through x18, register branches and compare-and-branch,
+/// a two-way branch (CBZ/CBNZ/TBZ/TBNZ and CMPBR) leaves by two exits, a PC-relative form is computed
+/// for the island's place. That leaves out: the thread pointer moved through x18, register branches,
 /// exclusives (scan() adds what lies between them), sp moved or addressed below, and x18 without a
 /// register field of its own.
 const char *unsupported_reason(std::uint32_t instruction) {
@@ -400,8 +422,8 @@ const char *unsupported_reason(std::uint32_t instruction) {
     if (system_register == mrs_tpidr_el0 || system_register == msr_tpidr_el0) {
         return "it moves the thread pointer through x18";
     }
-    if (is_branch(instruction) && !is_conditional_branch(instruction)) {
-        return "it is a register branch or a compare-and-branch, which needs a landing pad the island has not yet";
+    if (is_branch(instruction) && !is_two_way_branch(instruction)) {
+        return "it is a register branch, which needs a landing pad the island has not yet";
     }
     if (is_exclusive(instruction)) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
@@ -1093,21 +1115,22 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
         }
 
         case SiteKind::x18: {
-            if (is_conditional_branch(site.instruction)) {
+            if (is_two_way_branch(site.instruction)) {
                 // A two-way island: read guest x18 into the value scratch, test it with the branch
                 // retargeted three words ahead, and restore the scratch on both exits before leaving.
+                // Holds for CMPBR too (it reads a second register directly, x18 only through value).
                 const auto value = scratch_registers(site.instruction).value;
                 const auto tested = a64::substitute(site.instruction, guest_x18, value);
-                if (!tested) throw RewriteError("x18 cannot be substituted in a conditional branch");
+                if (!tested) throw RewriteError("x18 cannot be substituted in a two-way branch");
                 write(stur(value, sp, scratch_slot_0));
                 write(mrs_tpidrro_el0(value));
                 write(bic_7(value, value));
                 write(ldr_unsigned(value, value, guest_x18_offset));
-                write(with_branch_displacement(*tested, 3 * 4));  // taken: skip to the restore below
-                write(ldur(value, sp, scratch_slot_0));           // not taken: restore, then fall through
+                write(with_any_branch_displacement(*tested, 3 * 4));  // taken: skip to the restore below
+                write(ldur(value, sp, scratch_slot_0));              // not taken: restore, then fall through
                 write(b(write.next_address(), back));
-                write(ldur(value, sp, scratch_slot_0));           // taken: restore, then branch on
-                const auto taken = site_address + static_cast<std::uint64_t>(conditional_branch_displacement(site.instruction));
+                write(ldur(value, sp, scratch_slot_0));              // taken: restore, then branch on
+                const auto taken = site_address + static_cast<std::uint64_t>(*branch_displacement(site.instruction));
                 write(b(write.next_address(), taken));
                 write.finish();
                 return b(site_address, stub_address);
@@ -1165,34 +1188,6 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
     write.finish();
     return b(site_address, stub_address);
 }
-
-namespace {
-
-/// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ, CMPBR) with its displacement set to
-/// `delta`. Throws when `delta` is not a multiple of 4 or does not fit the branch's field, so a
-/// target the island cannot reach is caught here, as b() and adrp() catch theirs, not truncated to
-/// a word inside the island (step C C1b).
-std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delta) {
-    if (delta % 4 != 0) {
-        throw RewriteError(std::format("a branch displacement of {:#x} is not a multiple of 4", delta));
-    }
-    const auto encoded = delta / 4;
-    const auto field = [&](unsigned bits) -> std::uint32_t {
-        const std::int64_t limit = std::int64_t{1} << (bits - 1);
-        if (encoded < -limit || encoded >= limit) {
-            throw RewriteError(std::format("a branch displacement of {:#x} is out of range for a {}-bit field",
-                                           delta, bits));
-        }
-        return static_cast<std::uint32_t>(encoded) & ((1u << bits) - 1);
-    };
-    if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | field(26);        // B, BL (imm26)
-    if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | (field(19) << 5);  // B.cond (imm19)
-    if (is_cmpbr(word)) return (word & ~(0x1ffu << 5)) | (field(9) << 5);                     // CMPBR (imm9)
-    if (is_test_bit_branch(word)) return (word & ~(0x3fffu << 5)) | (field(14) << 5);         // TBZ, TBNZ (imm14)
-    return (word & ~(0x7ffffu << 5)) | (field(19) << 5);                                      // CBZ, CBNZ (imm19)
-}
-
-}  // namespace
 
 std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
     std::size_t words = 1 /* save value */ + region.words.size() + 1 /* restore value */ + 1 /* branch */;
@@ -1305,7 +1300,7 @@ IslandLayout island_layout(const Site &site) {
     IslandLayout layout{.kind = APK_ISLAND_SINGLE,
                         .words = static_cast<std::uint32_t>(x18_island_words(site.instruction)),
                         .value = static_cast<std::uint8_t>(scratch.value)};
-    if (is_conditional_branch(site.instruction)) {
+    if (is_two_way_branch(site.instruction)) {
         layout.kind = APK_ISLAND_BRANCH;  // changes nothing but pc: always back to the site
         return layout;
     }

@@ -84,7 +84,7 @@ struct apk_run {
 /// apk_island.kind
 enum {
     APK_ISLAND_SINGLE = 1,      // one instruction on x18, PC-relative ones included
-    APK_ISLAND_BRANCH = 2,      // CBZ, CBNZ, TBZ or TBNZ on x18, with its two exits
+    APK_ISLAND_BRANCH = 2,      // CBZ, CBNZ, TBZ, TBNZ or a CMPBR compare-and-branch on x18, with its two exits
     APK_ISLAND_EXCLUSIVE = 3,   // a whole LL/SC window with x18 (ADR-0020 X2c)
     APK_ISLAND_JUMP_TABLE = 4,  // BR x18 at the end of a jump table, with its landing pads (X2d)
 };

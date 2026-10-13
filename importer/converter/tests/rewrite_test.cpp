@@ -331,6 +331,56 @@ TEST(the_conditional_branch_islands_match_the_assembler) {
     }
 }
 
+// A CMPBR on x18 runs in the same two-way island as CBZ/CBNZ (step C C2a): read guest x18 into the
+// value scratch, run the compare-and-branch with x18 renamed, leave by the taken and not-taken exits.
+// The host assembler has no CMPBR, so the island is checked by decoding, not against a reference; its
+// value scratch is x0, as for cbz x18, so the setup and the two restores match the cbz reference.
+TEST(a_cmpbr_on_x18_is_a_two_way_island) {
+    const std::uint32_t cmpbr = 0xf4c6'0212;  // cmpbr cbeq x18, x6, .+0x40
+    const auto findings = scan_words(&cmpbr, &cmpbr + 1, 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.sites.size() == 1);
+    const Site site{0, SiteKind::x18, 18, cmpbr};
+    CHECK(apk::rewrite::island_layout(site).value == 0);  // value is x0, as for the cbz island
+    const auto stub_address = address_of(ref_x18_island_cbz);
+    const auto [patch, stub] = emit_at(site, address_of(ref_site), stub_address);
+    CHECK(stub.size() == 9 * 4);
+    if (stub.size() != 9 * 4) return;
+    for (const std::size_t index : {0u, 1u, 2u, 3u, 5u, 7u}) CHECK(word(stub, index) == ref_x18_island_cbz[index]);
+    // Word 4: the cmpbr with x18 (Rt) renamed to x0, retargeted three words ahead to skip to the restore.
+    const auto branch = word(stub, 4);
+    CHECK(apk::a64::register_use(branch).reads == ((1u << 0) | (1u << 6)));  // x0 (was x18) and x6
+    CHECK(((branch >> 25) & 0x3f) == 0b111010);                             // still a CMPBR
+    CHECK((static_cast<std::int32_t>(branch << 18) >> 23) * 4 == 3 * 4);     // +12: skip to word 7
+    CHECK(branch_target_at(stub, 6, stub_address) == address_of(ref_site) + 4);     // not taken: after the site
+    CHECK(branch_target_at(stub, 8, stub_address) == address_of(ref_site) + 0x40);  // taken: the branch's target
+}
+
+// x18 as the second operand (Rm) of an asymmetric compare: the rename must keep the operand order,
+// so x0 (the value scratch) lands in Rm and x1 stays in Rt. A swap would invert the comparison.
+TEST(a_cmpbr_with_x18_as_the_second_operand_keeps_the_operand_order) {
+    const std::uint32_t cmpbr = 0xf412'0201;  // cbgt x1, x18, .+0x40
+    const auto findings = scan_words(&cmpbr, &cmpbr + 1, 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.sites.size() == 1);
+    const Site site{0, SiteKind::x18, 18, cmpbr};
+    CHECK(apk::rewrite::island_layout(site).value == 0);  // value is x0, distinct from the other operand x1
+    const auto stub_address = address_of(ref_x18_island_cbz);
+    const auto [patch, stub] = emit_at(site, address_of(ref_site), stub_address);
+    CHECK(stub.size() == 9 * 4);
+    if (stub.size() != 9 * 4) return;
+    for (const std::size_t index : {0u, 1u, 2u, 3u, 5u, 7u}) CHECK(word(stub, index) == ref_x18_island_cbz[index]);
+    // Word 4: x18 was the Rm operand; it renames to x0 while x1 stays in Rt. Fields, not just the read set.
+    const auto branch = word(stub, 4);
+    CHECK(apk::a64::register_use(branch).reads == ((1u << 1) | (1u << 0)));  // x1 (Rt) and x0 (was x18, Rm)
+    CHECK((branch & 0x1f) == 1);                                             // Rt still x1, not swapped
+    CHECK(((branch >> 16) & 0x1f) == 0);                                     // Rm now x0 (was x18)
+    CHECK(((branch >> 25) & 0x3f) == 0b111010);                             // still a CMPBR
+    CHECK((static_cast<std::int32_t>(branch << 18) >> 23) * 4 == 3 * 4);     // +12: skip to word 7
+    CHECK(branch_target_at(stub, 6, stub_address) == address_of(ref_site) + 4);     // not taken: after the site
+    CHECK(branch_target_at(stub, 8, stub_address) == address_of(ref_site) + 0x40);  // taken: the branch's target
+}
+
 // A PC-relative instruction on x18 runs in an island that computes the same address for its own
 // place (ADR-0020 X2). Site and island are both assembled and linked, so every word of the island,
 // the recomputed page and the branch back included, must be what the linker resolved.
@@ -366,19 +416,20 @@ TEST(the_pc_relative_islands_match_the_assembler) {
     }
 }
 
-TEST(a_conditional_branch_on_x18_is_an_island_but_a_register_branch_is_refused) {
+TEST(a_two_way_branch_on_x18_is_an_island_but_a_register_branch_is_refused) {
     const std::uint32_t code[] = {
         0xb400'0212,  // cbz x18, .+8: island
         0xb500'0212,  // cbnz x18: island
         0x3618'0212,  // tbz w18, #3: island
         0xb708'0212,  // tbnz x18, #33: island
+        0xf4c6'0212,  // cmpbr cbeq x18, x6, .+0x40: island (step C C2a)
         0xd61f'0240,  // br x18: refused, needs a landing pad
         0xd63f'0240,  // blr x18: refused
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
     std::vector<std::uint64_t> islands;
     for (const auto &s : findings.sites) islands.push_back(s.address);
-    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1004, 0x1008, 0x100c}));
+    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1004, 0x1008, 0x100c, 0x1010}));
     CHECK(findings.x18_unsupported.size() == 2);
     for (const auto &entry : findings.x18_unsupported) {
         CHECK(std::string_view(entry.reason).find("register branch") != std::string_view::npos);
