@@ -6,7 +6,8 @@
 // random UUID's form; RSA and EC signatures that verify; the default key store type with empty BKS and PKCS12 stores;
 // the default SSLContext's protocols and cipher suites; an https URL's parts and the class of its connection, which
 // openConnection() makes without connecting; and the system's CA certificates (ADR-0046, decision 4) as the default
-// trust manager and the AndroidCAStore key store have them, with ISRG Root X1 among them.
+// trust manager and the AndroidCAStore key store have them, with ISRG Root X1 among them; every provider's services
+// whose class does not load, by name, as the provider makes them; and a key that BKS seals (BouncyCastle's DESede).
 import java.net.URL;
 import java.net.URLConnection;
 import java.security.KeyPair;
@@ -18,8 +19,10 @@ import java.security.SecureRandom;
 import java.security.Security;
 import java.security.Signature;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -111,6 +114,30 @@ public class Main {
         }
         System.out.println("AndroidCAStore from " + system.getProvider().getName() + ": " + roots
                 + " system certificates, system:6187b673.0 there: " + yes(system.containsAlias("system:6187b673.0")));
+        // Every service a provider registers names a class that loads: a provider makes each by its name.
+        for (Provider provider : Security.getProviders()) {
+            int services = 0;
+            List<String> missing = new ArrayList<>();
+            for (Provider.Service service : provider.getServices()) {
+                services++;
+                try {
+                    Class.forName(service.getClassName(), false, provider.getClass().getClassLoader());
+                } catch (ClassNotFoundException e) {
+                    missing.add(service.getType() + "." + service.getAlgorithm());
+                }
+            }
+            Collections.sort(missing);
+            System.out.println(provider.getName() + ": " + services + " services, whose class does not load: "
+                    + missing);
+        }
+        // BKS seals a key it takes with PBEWithSHAAnd3-KeyTripleDES-CBC, BouncyCastle's DESede.
+        KeyStore sealed = KeyStore.getInstance("BKS");
+        sealed.load(null, null);
+        char[] password = "crypto-test".toCharArray();
+        SecretKeySpec aes = new SecretKeySpec(bytes("000102030405060708090a0b0c0d0e0f"), "AES");
+        sealed.setKeyEntry("aes", aes, password, null);
+        System.out.println("BKS with a sealed AES key: " + sealed.size() + " entry, the same key back: "
+                + yes(aes.equals(sealed.getKey("aes", password))));
     }
 
     static void signature(String keyAlgorithm, int size, String signatureAlgorithm) throws Exception {

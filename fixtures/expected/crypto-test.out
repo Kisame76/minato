@@ -22,3 +22,8 @@ URL https://example.com/a?b: protocol https, host example.com, port -1, default 
 openConnection(): com.android.okhttp.internal.huc.HttpsURLConnectionImpl
 default trust manager (PKIX from HarmonyJSSE): 145 issuers, ISRG Root X1 among them: yes
 AndroidCAStore from HarmonyJSSE: 145 system certificates, system:6187b673.0 there: yes
+AndroidOpenSSL: 103 services, whose class does not load: []
+CertPathProvider: 2 services, whose class does not load: []
+BC: 105 services, whose class does not load: []
+HarmonyJSSE: 3 services, whose class does not load: []
+BKS with a sealed AES key: 1 entry, the same key back: yes

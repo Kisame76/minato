@@ -9,10 +9,10 @@ the compile-time sources of runtime/art/java and of core-all (java.base's module
 from (their package and SourceFile attribute), so that each jar gets its own sources' classes and none of the
 compile-time ones. D8 dexes each jar as a platform build for API 31, with all classes as its library, and keeps
 records and sealed classes as the platform's own. A jar whose module optimizes (BouncyCastle's) goes through R8
-instead, as Soong runs it: shrunk and optimized as its `optimize` says, with its ProGuard files and Soong's own
-(build/make/core/proguard.flags), against the other classes as its library. A jar holds its dex files uncompressed and
-4-byte aligned, as Android's boot jars do, and its Java resources; every entry has the same time, so that a build
-makes the same bytes.
+instead, as Soong runs it through prebuilts/r8's wrapper (its system properties): shrunk and optimized as its
+`optimize` says, with its ProGuard files and Soong's own (build/make/core/proguard.flags), against the other classes
+as its library. A jar holds its dex files uncompressed and 4-byte aligned, as Android's boot jars do, and its Java
+resources; every entry has the same time, so that a build makes the same bytes.
 
 Usage: boot_jars.py <description.json> <jdk-home> <r8.jar> <output-directory> <work-directory>
 """
@@ -35,6 +35,16 @@ R8_FLAGS = D8_FLAGS + ["--map-id-template", "%MAP_HASH", "--source-file-template
 # them, records and permitted subclasses go into the dex as annotations, which ART reads.
 D8_PROPERTIES = ["-Dcom.android.tools.r8.emitRecordAnnotationsInDex",
                  "-Dcom.android.tools.r8.emitPermittedSubclassesAnnotationsInDex"]
+# What Soong's r8, prebuilts/r8's R8Wrapper, sets before it runs R8 in full mode: among them the same-file policy,
+# which merges classes only within one source file. Without it, R8 merged BouncyCastle's DESede into PKIXCRLUtil, so
+# DESede.class.getName(), the prefix of every DESede algorithm BC registers, named PKIXCRLUtil, and 30 of BC's
+# services named classes that do not exist (BKS's key sealing among them). The wrapper also turns on R8's experimental
+# keep annotations, which no boot jar uses.
+R8_PROPERTIES = D8_PROPERTIES + ["-Dcom.android.tools.r8.disableEnqueuerDeferredTracing=1",
+                                 "-Dcom.android.tools.r8.enableSameFilePolicy=1",
+                                 "-Dcom.android.tools.r8.experimental.enablewhyareyounotinlining=1",
+                                 "-Dcom.android.tools.r8.experimental.enableconvertchecknotnull=1",
+                                 "-Dcom.android.tools.r8.enableEmptyMemberRulesToDefaultInitRuleConversion=1"]
 TIMESTAMP = (2008, 1, 1, 0, 0, 0)  # soong_zip's
 ALIGNMENT_EXTRA = 0xD935  # zipalign's extra field for the alignment of a stored entry
 PACKAGE = re.compile(r"^package\s+([\w.]+)\s*;", re.M)
@@ -120,7 +130,7 @@ def shrink(java, r8, work, name, settings, own, program, dexed):
         if settings["ignore_warnings"]:
             handle.write("-ignorewarnings\n")
     configuration = [argument for path in settings["flags"] + [switches] for argument in ("--pg-conf", path)]
-    subprocess.run([java, "-Xmx4g"] + D8_PROPERTIES + ["-cp", r8, "com.android.tools.r8.R8"] + R8_FLAGS
+    subprocess.run([java, "-Xmx4g"] + R8_PROPERTIES + ["-cp", r8, "com.android.tools.r8.R8"] + R8_FLAGS
                    + ["--lib", library] + configuration
                    + ["--pg-map-output", os.path.join(work, f"{name}.map"), "--output", dexed, program], check=True)
 

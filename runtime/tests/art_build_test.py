@@ -12,7 +12,9 @@
     ART's class roots (class_root.h) and its well-known classes (well_known_classes.cc) name, and none of the
     compile-time stand-ins of runtime/art/java.
   - bouncycastle.jar is R8's, as Soong runs it (ADR-0046 d): its classes name their source file by the mapping's
-    hash, and Soong's ProGuard files have kept the members that Java serialization looks up by name.
+    hash, and Soong's ProGuard files have kept the members that Java serialization looks up by name. Every class
+    whose name prefixes what its $Mappings registers (PREFIX = <Class>.class.getName()) is there, as R8 keeps it
+    with the r8 wrapper's same-file policy.
 Prints "skipped: ..." while <art>/lib is missing.
 
 Usage: art_build_test.py <art> <bionic-lib> <apk-convert> <sources>
@@ -163,6 +165,22 @@ def dex_class(data, descriptor):
     return None
 
 
+def prefix_classes(sources):
+    """The classes of BouncyCastle's sources whose $Mappings registers its algorithms under the class's own name
+    (`PREFIX = <Class>.class.getName()`), as descriptors."""
+    root = os.path.join(sources, "bouncycastle", "repackaged", "bcprov", "src", "main", "java")
+    found = set()
+    for folder, _, files in os.walk(root):
+        for file in files:
+            if not file.endswith(".java"):
+                continue
+            with open(os.path.join(folder, file), encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+            if re.search(r"PREFIX\s*=\s*" + re.escape(file[:-5]) + r"\.class\.getName\(\)", text):
+                found.add("L" + os.path.relpath(os.path.join(folder, file[:-5]), root) + ";")
+    return found
+
+
 def classes_art_checks(sources):
     """The class descriptors of ART's class roots and well-known classes, from its sources. A well-known class is
     named by its descriptor or, where ART finds it through JNI (CacheClass), by its JNI name."""
@@ -273,6 +291,13 @@ def main():
                   f"runs it: {SERIALIZED} names its source file {source!r}, not by the mapping's hash")
             check(SERIALIZATION_MEMBERS <= members, f"bouncycastle.jar's {SERIALIZED} lacks "
                   f"{', '.join(sorted(SERIALIZATION_MEMBERS - members))}, which Soong's ProGuard files keep")
+        with zipfile.ZipFile(path) as archive:
+            own_classes = set().union(*(dex_classes(archive.read(name)) for name in archive.namelist()
+                                        if re.fullmatch(r"classes\d*\.dex", name)))
+        merged = sorted(descriptor for descriptor in prefix_classes(sources)
+                        if descriptor[:-1] + "$Mappings;" in own_classes and descriptor not in own_classes)
+        check(not merged, f"bouncycastle.jar lacks {len(merged)} classes whose name prefixes what their $Mappings "
+              f"registers (R8 merged them away without the r8 wrapper's same-file policy): {', '.join(merged[:6])}")
 
     if failures:
         raise SystemExit(f"{failures} failures")
