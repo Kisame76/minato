@@ -168,6 +168,13 @@ if(APK_HOST_BUILD)
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/android/stubgen.py" check --built "${APK_BIONIC_DIR}")
   set_tests_properties(runtime.android_libraries PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:")
 
+  # The NDK libraries built from bionic's own modules (the compatibility plan's gap 14): libstdc++.so exports exactly
+  # the names of the NDK's stub, with their versions, and the guest's public.libraries.txt lists it.
+  add_test(NAME runtime.ndk_libraries
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/ndk_libraries_test.py" "${APK_BIONIC_DIR}"
+      "${APK_GUEST_SYSTEM_DIR}")
+  set_tests_properties(runtime.ndk_libraries PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:")
+
   # tools/fetch-sources.py's two lists (ADR-0021, ADR-0033 a): the guest libc's by default, ART's with --set art,
   # against a host in memory.
   add_test(NAME runtime.fetch_sources COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/fetch_sources_test.py")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turns bionic's Android.bp files into a CMake plan for the guest libc (ADR-0021): one object
 library per bionic module, with the module's own flags and include directories, custom commands
-for the generated sources, and the link settings of libc.so, libm.so, libdl.so and libdl_android.so.
+for the generated sources, and the link settings of libc.so, libm.so, libdl.so, libdl_android.so and libstdc++.so.
 Soong would do the same from the same files; runtime/bionic/CMakeLists.txt builds the plan with the
 NDK compiler.
 
@@ -48,8 +48,9 @@ FILEGROUPS = {
 }
 # ld-android.so is a stub that libc.so and libdl.so link against; at run time the runtime's own
 # version takes its place (ADR-0021). libdl_android.so has the linker's namespace functions, which
-# ART's libart, libnativeloader, libnativebridge and libopenjdk link (ADR-0033).
-LIBRARIES = ["ld-android", "libdl", "libdl_android", "libc", "libm"]
+# ART's libart, libnativeloader, libnativebridge and libopenjdk link (ADR-0033). libstdc++.so is the NDK's "system"
+# C++ runtime, operator new and delete and the static guards, which apps built with ANDROID_STL=system link (gap 14).
+LIBRARIES = ["ld-android", "libdl", "libdl_android", "libc", "libm", "libstdc++"]
 
 # Modules from projects we do not fetch, and what stands in for them (runtime/bionic/CMakeLists.txt):
 # the NDK's liblog headers and its LLVM libunwind.

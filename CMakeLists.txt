@@ -86,11 +86,11 @@ if(APK_HOST_BUILD)
   endfunction()
 
   # bionic's libraries, built from AOSP sources (M2 step 5b), as the system's: libc.so, libm.so,
-  # libdl.so, ld-android.so, liblog.so, and libnetd_client.so, which libc.so opens at start; and the
-  # NDK libraries Minato writes itself (ADR-0028): libandroid.so, libnativewindow.so and libz.so, and the stubs
-  # libcamera2ndk.so and libmediandk.so (ADR-0042 b, gap 15).
-  set(bionic_libraries libc libm libdl ld-android liblog libnetd_client libandroid libnativewindow libz libcamera2ndk
-    libmediandk)
+  # libdl.so, ld-android.so, liblog.so, libnetd_client.so, which libc.so opens at start, and libstdc++.so (gap 14);
+  # and the NDK libraries Minato writes itself (ADR-0028): libandroid.so, libnativewindow.so and libz.so, and the
+  # stubs libcamera2ndk.so and libmediandk.so (ADR-0042 b, gap 15).
+  set(bionic_libraries libc libm libdl ld-android liblog libnetd_client libstdc++ libandroid libnativewindow libz
+    libcamera2ndk libmediandk)
   list(TRANSFORM bionic_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
 
   # The tests of fixtures/tests.txt, which says what each line means.

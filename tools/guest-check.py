@@ -38,7 +38,8 @@ HWUI = ["libcutils.so", "libft2.so", "libharfbuzz_ng.so", "libharfbuzz_subset.so
         "libultrahdr.so", "server_configurable_flags.so"]
 ART_COPIES = ["libbase.so", "libziparchive.so", "libexpat.so", "libc++_shared.so"]
 FRONT_LIBS = ["libEGL.so", "libGLESv1_CM.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so"]
-BIONIC = ["libc.so", "libdl.so", "libm.so", "liblog.so", "libandroid.so", "libnativewindow.so", "libz.so"]
+BIONIC = ["libc.so", "libdl.so", "libm.so", "liblog.so", "libstdc++.so", "libandroid.so", "libnativewindow.so",
+          "libz.so"]
 ART_JARS = ["core-oj.jar", "core-libart.jar", "okhttp.jar", "bouncycastle.jar", "core-icu4j.jar"]
 # The tzdata module's files in etc/tz: bionic's tzdata with its tz_version, and in versioned/8 the same two for libcore,
 # the lookups and ICU's time zone resources.

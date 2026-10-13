@@ -75,6 +75,8 @@ sharedmem-test system
 ifaddrs-test system
 # The routes an app reads: RTM_GETROUTE's dump, lo's routes and Android's layout of the tables.
 route-test system
+# Android's libstdc++.so, the NDK's "system" C++ runtime: new, delete and the guards of a static (gap 14).
+stdcxx-test system
 # The CA certificates of the trust store, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 cacerts-test system
 # sendfile from a file to a file, a socket and a pipe, its offsets and its errors.

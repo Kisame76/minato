@@ -178,6 +178,11 @@ target_link_libraries(sharedmem-test PRIVATE android)
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
 # route-test: the routes an app reads, RTM_GETROUTE's dump, lo's lines and Android's layout (ADR-0054 c3).
 add_executable(route-test suite/route-test.c)
+# stdcxx-test: Android's libstdc++.so, which ANDROID_STL=system links, in place of the NDK's libc++ (gap 14).
+add_executable(stdcxx-test suite/stdcxx-test.cpp)
+target_compile_options(stdcxx-test PRIVATE -std=gnu++20 -fno-exceptions -fno-rtti)
+target_link_options(stdcxx-test PRIVATE -nostdlib++)
+target_link_libraries(stdcxx-test PRIVATE stdc++ dl)
 # cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 add_executable(cacerts-test suite/cacerts-test.c)
 # sendfile-test: sendfile(2) to a file, a socket and a pipe, its offsets and its errors in the kernel's order.

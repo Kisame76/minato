@@ -1,0 +1,9 @@
+operator new: 42
+operator new[]: 1 2 3 4
+nothrow new of 16 bytes: memory
+static constructed: 1 time(s)
+operator new from: libstdc++.so
+_ZdlPv from: libstdc++.so
+_ZSt7nothrow from: libstdc++.so
+__cxa_guard_acquire from: libstdc++.so
+__cxa_pure_virtual from: libstdc++.so

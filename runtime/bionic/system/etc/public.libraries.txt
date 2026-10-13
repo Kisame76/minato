@@ -24,5 +24,6 @@ libm.so
 libnativehelper.so
 libnativewindow.so
 libOpenSLES.so
+libstdc++.so
 libvulkan.so
 libz.so
