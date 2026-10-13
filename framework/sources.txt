@@ -2157,6 +2157,15 @@ frameworks_base/core/java/android/net/http/X509TrustManagerExtensions.java
 # The graphics breadth's G2 (Grafik): SyncFence, on natives of ours (android_hardware_SyncFence.cpp) without sync files.
 frameworks_base/core/java/android/hardware/SyncFence.java
 
+# The graphics breadth's G3a (Grafik, ADR-0058 e1)): ImageReader, in place of its generated placeholder, on natives of
+# ours (android_media_ImageReader.cpp) over the buffer queue, with the format helpers it maps formats with and camera2's
+# MultiResolutionImageReader, which it calls.
+frameworks_base_types/media/java/android/media/ImageReader.java
+frameworks_base_types/media/java/android/media/ImageUtils.java
+frameworks_base_types/media/java/android/media/PublicFormatUtils.java
+frameworks_base/core/java/android/hardware/camera2/MultiResolutionImageReader.java
+frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamInfo.java
+
 # Step (e) app op notes (the app op notes; Planung): see docs/plans/2026-10-07-framework-breadth.md
 frameworks_base/core/java/android/app/AsyncNotedAppOp.java
 frameworks_base/core/java/android/app/SyncNotedAppOp.java

@@ -27,6 +27,10 @@ static __typeof__(&minato_BufferQueue_release) release;
 static __typeof__(&minato_ANativeWindow_dequeue) dequeue;
 static __typeof__(&minato_ANativeWindow_queue) queue;
 static __typeof__(&minato_ANativeWindow_cancel) cancel;
+static __typeof__(&minato_BufferQueue_setConsumer) set_consumer;
+static __typeof__(&minato_BufferQueue_setDefaultFormat) set_default_format;
+static __typeof__(&minato_BufferQueue_releaseSlot) release_slot;
+static __typeof__(&minato_BufferQueue_discardFreeBuffers) discard_free_buffers;
 
 static atomic_int available_calls;
 static atomic_int destroyed;
@@ -54,6 +58,10 @@ static int found(void) {
     FIND(dequeue, minato_ANativeWindow_dequeue);
     FIND(queue, minato_ANativeWindow_queue);
     FIND(cancel, minato_ANativeWindow_cancel);
+    FIND(set_consumer, minato_BufferQueue_setConsumer);
+    FIND(set_default_format, minato_BufferQueue_setDefaultFormat);
+    FIND(release_slot, minato_BufferQueue_releaseSlot);
+    FIND(discard_free_buffers, minato_BufferQueue_discardFreeBuffers);
 #undef FIND
     return create != NULL && set_default_size != NULL && acquire != NULL && abandon != NULL && release != NULL &&
            dequeue != NULL && queue != NULL && cancel != NULL;
@@ -156,6 +164,41 @@ int main(void) {
     release(consumer);
     ANativeWindow_release(window);
     printf("destroyed after releases while locked: %d\n", atomic_load(&destroyed));
+
+    // An ImageReader's consumer (G3a): up to two frames held at once, each until its release, and its buffers' usage.
+    if (set_consumer == NULL || set_default_format == NULL || release_slot == NULL || discard_free_buffers == NULL) {
+        printf("no consumer functions\n");
+        return 1;
+    }
+    create(NULL, NULL, NULL, &window, &consumer);
+    printf("setConsumer of 0: %d, of 2: %d\n", set_consumer(consumer, 0, 0),
+           set_consumer(consumer, 2, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN));
+    set_default_format(consumer, AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM);
+    printf("default format: %d\n", ANativeWindow_getFormat(window));
+    set_default_format(consumer, AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM);
+    set_default_size(consumer, 2, 2);
+    struct minato_BufferQueue_frame first, second, third;
+    post(window, 0xff0000ff);
+    const int got_first = acquire(consumer, &first);
+    post(window, 0xff00ff00);
+    const int got_second = acquire(consumer, &second);
+    printf("two held: %d %d, slots differ %d, first %08x, second %08x\n", got_first, got_second,
+           first.slot != second.slot, first_pixel(first.buffer), first_pixel(second.buffer));
+    post(window, 0xffff0000);
+    printf("a third while two are held: %d\n", acquire(consumer, &third) == -EBUSY);
+    release_slot(consumer, first.slot);
+    printf("after a release: %d, %08x\n", acquire(consumer, &third), first_pixel(third.buffer));
+    AHardwareBuffer_Desc description;
+    AHardwareBuffer_describe(third.buffer, &description);
+    printf("usage: CPU read %d, GPU sampled %d\n", (description.usage & AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN) != 0,
+           (description.usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE) != 0);
+    release_slot(consumer, second.slot);
+    release_slot(consumer, third.slot);
+    discard_free_buffers(consumer);
+    post(window, 0xff123456);
+    printf("after discarding: %d, %08x\n", acquire(consumer, &first), first_pixel(first.buffer));
+    release(consumer);
+    ANativeWindow_release(window);
     printf("done\n");
     return 0;
 }

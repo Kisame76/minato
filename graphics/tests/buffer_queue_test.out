@@ -22,4 +22,11 @@ destroyed after the window's: 1
 lock: 0
 setFrameRate: 0
 destroyed after releases while locked: 1
+setConsumer of 0: -22, of 2: 0
+default format: 4
+two held: 0 0, slots differ 1, first ff0000ff, second ff00ff00
+a third while two are held: 1
+after a release: 0, ffff0000
+usage: CPU read 1, GPU sampled 0
+after discarding: 0, ff123456
 done

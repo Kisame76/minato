@@ -125,6 +125,10 @@ android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorM
 # which ANGLE's Metal display lacks.
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
 
+# ImageReader (ADR-0058 e1), the graphics breadth's G3a, Grafik): ImageUtils, which ImageReader takes in, names
+# ImageWriter, whose step is G3b.
+android.media.ImageWriter <- android.media.ImageUtils  # ADR-0058 e1): G3b takes ImageWriter; until then ImageUtils.imageCopy (hidden), which only ImageWriter.queueInputImage calls, never runs
+
 # ADR-0045, the input service (Planung, gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
 # over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
 # devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.

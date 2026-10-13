@@ -1,0 +1,19 @@
+Minato's patch to frameworks/base's media/java/android/media/ImageReader.java at android-15.0.0_r1 (Apache-2.0), the
+graphics breadth's G3a (ADR-0058 e1)): the static initializer loads no libmedia_jni.
+
+Why: Android's ImageReader natives live in libmedia_jni, which its static initializer loads. Minato builds no
+libmedia_jni; its ImageReader natives are libandroid_runtime's (framework/native/android_runtime/
+android_media_ImageReader.cpp), registered with the framework's others when the process starts, so the load would
+throw UnsatisfiedLinkError out of <clinit> and every use of the class would fail. nativeClassInit stays.
+
+--- a/media/java/android/media/ImageReader.java
++++ b/media/java/android/media/ImageReader.java
+@@ -1513,7 +1513,7 @@
+      */
+     private static native void nativeClassInit();
+     static {
+-        System.loadLibrary("media_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_ImageReader.cpp), registered at the start.
+         nativeClassInit();
+     }
+ }

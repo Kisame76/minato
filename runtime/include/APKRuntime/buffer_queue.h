@@ -56,6 +56,18 @@ void minato_BufferQueue_abandon(struct minato_BufferQueue *queue);
 int minato_BufferQueue_isAbandoned(struct minato_BufferQueue *queue);
 void minato_BufferQueue_release(struct minato_BufferQueue *queue);
 
+/* The consumer as an ImageReader's (the graphics breadth's G3a, BufferQueue's maxAcquiredBufferCount): up to
+   `maxAcquired` frames stay acquired at once, each until minato_BufferQueue_releaseSlot, where a SurfaceTexture's
+   acquire lets its last frame go; one more acquire answers -EBUSY. The queue has maxAcquired + 2 slots, and its
+   buffers the consumer's `usage` with the producers' (GPU_FRAMEBUFFER, CPU_WRITE_OFTEN) in place of every usage.
+   Before the first dequeue; 0, or -EINVAL for a maxAcquired below 1 or above 62. Frames still drop as above. */
+int minato_BufferQueue_setConsumer(struct minato_BufferQueue *queue, int32_t maxAcquired, uint64_t usage);
+/* The format of the buffers while the producer sets none (BufferQueue's setDefaultBufferFormat), an
+   AHARDWAREBUFFER_FORMAT_*; RGBA_8888 until set. And the release of the buffers of every free slot, which the next
+   dequeue of each makes again (discardFreeBuffers). */
+void minato_BufferQueue_setDefaultFormat(struct minato_BufferQueue *queue, int32_t format);
+void minato_BufferQueue_discardFreeBuffers(struct minato_BufferQueue *queue);
+
 /* The producer, for libEGL's window surfaces on a queue window (c2): whether `window` is one; a free slot's buffer of
    the window's size and format, waiting for one (0, -ENODEV abandoned, -EINVAL for any other window); and its queue
    with a timestamp, 0 for the queue's time (0, -ENODEV, -EINVAL for a slot that is not dequeued, as libgui's

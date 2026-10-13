@@ -1,0 +1,17 @@
+I/image-reader-test: RGBA reader: 64 x 48, format 1, maxImages 2, usage 3, hardware buffer format 1, data space 0, surface valid true
+I/image-reader-test: nothing queued: acquireNextImage null, acquireLatestImage null
+I/image-reader-test: two frames at once: onImageAvailable 1 times, on the handler's thread true, acquired pixel (0, 0) 00ff00ff, then null
+I/image-reader-test: first: format 1, 64 x 48, 1 plane, pixel stride 4, row stride fits true, buffer covers the rows true, pixel (10, 10) ff0000ff, crop Rect(0, 0 - 64, 48), data space 0, timestamp set true
+I/image-reader-test: second, while the first is held: pixel (63, 47) 00ff00ff, timestamp later true
+I/image-reader-test: second's hardware buffer: 64 x 48, format 1, layers 1, CPU read true
+I/image-reader-test: a third while two are held: maxImages (2) has already been acquired, call #close before acquiring more.
+I/image-reader-test: first closed: Image is already closed
+I/image-reader-test: after the first's close: pixel 0000ffff
+I/image-reader-test: after the second's close: null
+I/image-reader-test: then: null
+I/image-reader-test: acquireLatestImage of three: pixel 000000ff, then acquireNextImage null
+I/image-reader-test: closed reader: surface valid false, acquireNextImage null
+I/image-reader-test: RGB_565: format 4, 1 plane, pixel stride 2, row stride fits true, buffer covers the rows true, pixel (5, 5) 3933
+I/image-reader-test: GL: 1 plane, pixel stride 4, row stride fits true, buffer covers the rows true, pixel (5, 5) 336699ff, swapped true, onImageAvailable 1, timestamp 123456789
+I/image-reader-test: PRIVATE: format 34, planes 0, hardware buffer 64 x 48, GPU sampled false, swapped true, onImageAvailable 1, timestamp 123456789
+I/image-reader-test: done

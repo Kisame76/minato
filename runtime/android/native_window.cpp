@@ -53,7 +53,8 @@ struct ANativeWindow {
 
 namespace {
 
-constexpr int kSlots = 3;
+constexpr int kSlots = 3;      // a SurfaceTexture's queue
+constexpr int kMaxSlots = 64;  // BufferQueue's NUM_BUFFER_SLOTS, for an ImageReader's maxImages + 2
 constexpr uint64_t kSlotUsage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER |
                                 AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
 
@@ -76,9 +77,14 @@ struct minato_BufferQueue {
     uint32_t references;   // the window's and the consumer's, under the lock
     bool abandoned;
     int32_t default_width, default_height;
-    Slot slots[kSlots];
+    Slot slots[kMaxSlots];
+    int32_t slot_count;  // kSlots, or an ImageReader's maxAcquired + 2
     uint64_t next_order;
-    int32_t acquired;  // the consumer's slot, or -1
+    int32_t acquired;      // a SurfaceTexture's slot, or -1
+    int32_t max_acquired;  // an ImageReader's maxImages (setConsumer), else 0
+    int32_t acquired_count;
+    uint64_t usage;          // of the buffers
+    int32_t default_format;  // setDefaultFormat's, else 0
     minato_BufferQueue_available available;
     minato_BufferQueue_destroy destroy;
     void* context;
@@ -154,7 +160,7 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
     pthread_mutex_lock(&queue->lock);
     int found = -1;
     while (!queue->abandoned) {
-        for (int index = 0; index < kSlots; index++) {
+        for (int index = 0; index < queue->slot_count; index++) {
             const Slot& slot = queue->slots[index];
             if (slot.state != SlotState::kFree) continue;
             const bool fits = slot.buffer != nullptr && slot.width == width && slot.height == height &&
@@ -185,7 +191,7 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
         description.height = static_cast<uint32_t>(height);
         description.layers = 1;
         description.format = static_cast<uint32_t>(format);
-        description.usage = kSlotUsage;
+        description.usage = queue->usage;
         AHardwareBuffer* made = nullptr;
         const int result = AHardwareBuffer_allocate(&description, &made);
         pthread_mutex_lock(&queue->lock);
@@ -222,7 +228,8 @@ int queue_slot(minato_BufferQueue* queue, int32_t index, int64_t timestamp, int3
     // A frame still queued is replaced and dropped, as an app's SurfaceTexture fed by an app's producer has it on
     // Android 15 (mQueueBufferCanDrop, surface-texture-test): only the first frame of a run calls `available`.
     bool replaced = false;
-    for (Slot& queued : queue->slots) {
+    for (int other = 0; other < queue->slot_count; other++) {
+        Slot& queued = queue->slots[other];
         if (queued.state == SlotState::kQueued) {
             queued.state = SlotState::kFree;
             replaced = true;
@@ -240,12 +247,23 @@ int queue_slot(minato_BufferQueue* queue, int32_t index, int64_t timestamp, int3
     return 0;
 }
 
+/// The window's format without setBuffersGeometry's: its queue's default format, else its own.
+int32_t own_format(ANativeWindow* window) {
+    if (window->queue != nullptr) {
+        pthread_mutex_lock(&window->queue->lock);
+        const int32_t format = window->queue->default_format;
+        pthread_mutex_unlock(&window->queue->lock);
+        if (format != 0) return format;
+    }
+    return window->format;
+}
+
 /// The window's buffer size and format for a dequeue: its geometry's, else its queue's default size and its format.
 Geometry dequeue_geometry(ANativeWindow* window) {
     const Size now = size(window);
     const Geometry geometry = buffer_geometry(window);
     return {geometry.width != 0 ? geometry.width : now.width, geometry.width != 0 ? geometry.height : now.height,
-            geometry.format != 0 ? geometry.format : window->format};
+            geometry.format != 0 ? geometry.format : own_format(window)};
 }
 
 }  // namespace
@@ -268,6 +286,8 @@ int minato_BufferQueue_create(minato_BufferQueue_available available, minato_Buf
     queue->default_width = 1;  // BufferQueue's default buffer size
     queue->default_height = 1;
     queue->acquired = -1;
+    queue->slot_count = kSlots;
+    queue->usage = kSlotUsage;
     queue->available = available;
     queue->destroy = destroy;
     queue->context = context;
@@ -297,8 +317,12 @@ int minato_BufferQueue_acquire(minato_BufferQueue* queue, minato_BufferQueue_fra
         pthread_mutex_unlock(&queue->lock);
         return -ENODEV;
     }
+    if (queue->max_acquired > 0 && queue->acquired_count >= queue->max_acquired) {
+        pthread_mutex_unlock(&queue->lock);
+        return -EBUSY;
+    }
     int oldest = -1;
-    for (int index = 0; index < kSlots; index++) {
+    for (int index = 0; index < queue->slot_count; index++) {
         const Slot& slot = queue->slots[index];
         if (slot.state == SlotState::kQueued && (oldest < 0 || slot.order < queue->slots[oldest].order)) {
             oldest = index;
@@ -308,27 +332,68 @@ int minato_BufferQueue_acquire(minato_BufferQueue* queue, minato_BufferQueue_fra
         pthread_mutex_unlock(&queue->lock);
         return -EAGAIN;
     }
-    if (queue->acquired >= 0) {
-        queue->slots[queue->acquired].state = SlotState::kFree;
-        pthread_cond_signal(&queue->freed);
+    if (queue->max_acquired > 0) {
+        queue->acquired_count++;
+    } else {
+        if (queue->acquired >= 0) {
+            queue->slots[queue->acquired].state = SlotState::kFree;
+            pthread_cond_signal(&queue->freed);
+        }
+        queue->acquired = oldest;
     }
     Slot& slot = queue->slots[oldest];
     slot.state = SlotState::kAcquired;
-    queue->acquired = oldest;
     *frame = {oldest, slot.buffer, slot.timestamp, slot.transform};
     pthread_mutex_unlock(&queue->lock);
     return 0;
 }
 
 void minato_BufferQueue_releaseSlot(minato_BufferQueue* queue, int32_t slot) {
-    if (queue == nullptr || slot < 0 || slot >= kSlots) return;
+    if (queue == nullptr || slot < 0 || slot >= kMaxSlots) return;
     pthread_mutex_lock(&queue->lock);
-    if (queue->slots[slot].state == SlotState::kAcquired) {
+    if (slot < queue->slot_count && queue->slots[slot].state == SlotState::kAcquired) {
         queue->slots[slot].state = SlotState::kFree;
-        queue->acquired = -1;
+        if (queue->max_acquired > 0) {
+            queue->acquired_count--;
+        } else {
+            queue->acquired = -1;
+        }
         pthread_cond_signal(&queue->freed);
     }
     pthread_mutex_unlock(&queue->lock);
+}
+
+int minato_BufferQueue_setConsumer(minato_BufferQueue* queue, int32_t maxAcquired, uint64_t usage) {
+    if (queue == nullptr || maxAcquired < 1 || maxAcquired > kMaxSlots - 2) return -EINVAL;
+    pthread_mutex_lock(&queue->lock);
+    queue->max_acquired = maxAcquired;
+    queue->slot_count = maxAcquired + 2;
+    queue->usage = usage | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
+    pthread_mutex_unlock(&queue->lock);
+    return 0;
+}
+
+void minato_BufferQueue_setDefaultFormat(minato_BufferQueue* queue, int32_t format) {
+    if (queue == nullptr) return;
+    pthread_mutex_lock(&queue->lock);
+    queue->default_format = format;
+    pthread_mutex_unlock(&queue->lock);
+}
+
+void minato_BufferQueue_discardFreeBuffers(minato_BufferQueue* queue) {
+    if (queue == nullptr) return;
+    AHardwareBuffer* discarded[kMaxSlots];
+    int count = 0;
+    pthread_mutex_lock(&queue->lock);
+    for (int index = 0; index < queue->slot_count; index++) {
+        Slot& slot = queue->slots[index];
+        if (slot.state == SlotState::kFree && slot.buffer != nullptr) {
+            discarded[count++] = slot.buffer;
+            slot.buffer = nullptr;
+        }
+    }
+    pthread_mutex_unlock(&queue->lock);
+    for (int index = 0; index < count; index++) AHardwareBuffer_release(discarded[index]);
 }
 
 void minato_BufferQueue_abandon(minato_BufferQueue* queue) {
@@ -371,7 +436,7 @@ int minato_ANativeWindow_dequeue(ANativeWindow* window, AHardwareBuffer** buffer
 }
 
 int minato_ANativeWindow_cancel(ANativeWindow* window, int32_t slot) {
-    if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kSlots) return -EINVAL;
+    if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kMaxSlots) return -EINVAL;
     minato_BufferQueue* queue = window->queue;
     pthread_mutex_lock(&queue->lock);
     const bool dequeued = queue->slots[slot].state == SlotState::kDequeued;
@@ -384,7 +449,7 @@ int minato_ANativeWindow_cancel(ANativeWindow* window, int32_t slot) {
 }
 
 int minato_ANativeWindow_queue(ANativeWindow* window, int32_t slot, int64_t timestamp) {
-    if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kSlots) return -EINVAL;
+    if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kMaxSlots) return -EINVAL;
     pthread_mutex_lock(&window->lock);
     const int32_t transform = window->transform;
     pthread_mutex_unlock(&window->lock);
@@ -435,7 +500,7 @@ int32_t ANativeWindow_getHeight(ANativeWindow* window) {
 int32_t ANativeWindow_getFormat(ANativeWindow* window) {
     if (!is_window(window)) return -EINVAL;
     const Geometry geometry = buffer_geometry(window);
-    return geometry.format != 0 ? geometry.format : window->format;
+    return geometry.format != 0 ? geometry.format : own_format(window);
 }
 
 // Format 0 is the window's own. Width and height are both 0, the window's own size, or both set; as on

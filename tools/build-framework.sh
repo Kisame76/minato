@@ -159,7 +159,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.media.AudioTrack --class android.media.AudioDeviceInfo \
   --class android.media.MediaDrm --class android.media.MediaCrypto --class android.media.MediaCodecList \
   --class android.media.MediaMetadataRetriever --class android.media.MediaExtractor \
-  --class android.media.ImageReader --class android.media.tv.TvInputManager \
+  --class android.media.tv.TvInputManager \
   --class android.media.VolumeShaper --class android.media.MediaCodecInfo \
   --class android.media.MediaCodec --class android.media.MediaDescrambler \
   --class android.media.MediaCas \
