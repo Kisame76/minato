@@ -541,8 +541,8 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
 // Each window that is not relocated says why, so that one refusal names every cause at once.
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     std::vector<std::uint32_t> far{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
-    far.insert(far.end(), 31, 0xd503'201f);                    // nop
-    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 33 words after the ldxr
+    far.insert(far.end(), 63, 0xd503'201f);                    // nop
+    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 65 words after the ldxr
     const std::uint32_t open[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
         0x9100'0432,  // add x18, x1, #1
@@ -550,7 +550,7 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         0x9100'0652,  // add x18, x18, #1: the code ends, no close
     };
     auto late = far;
-    late.back() = 0xc85f'7c62;  // ldxr x2, [x3] where the stxr was: past the 32 words, so the cause is the distance
+    late.back() = 0xc85f'7c62;  // ldxr x2, [x3] where the stxr was: past the 64 words, so the cause is the distance
     const std::uint32_t nested[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
         0x9100'0432,  // add x18, x1, #1
@@ -568,6 +568,14 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         0x8b04'0062, 0x8b07'00c5, 0x8b0a'0128, 0x8b0d'018b,  // add x2, x3, x4 ... add x11, x12, x13
         0x8b10'01ee, 0x8b14'0271, 0x8b17'02d5, 0x8b1a'0338,  // add x14, x15, x16 ... add x24, x25, x26
         0x8b12'039b,  // add x27, x28, x18
+        0xc802'7c32,  // stxr w2, x18, [x1]
+    };
+    const std::uint32_t written[] = {
+        0xc85f'7c20,  // ldxr x0, [x1]
+        0x8b04'0062, 0x8b07'00c5, 0x8b0a'0128, 0x8b0d'018b,  // add x2, x3, x4 ... add x11, x12, x13
+        0x8b10'01ee, 0x8b14'0271, 0x8b17'02d5, 0x8b1a'0338,  // add x14, x15, x16 ... add x24, x25, x26
+        0x8b03'007c,  // add x28, x3, x3: x27 stays free, the TSD base for the store-back is missing
+        0x9100'0412,  // add x18, x0, #1
         0xc802'7c32,  // stxr w2, x18, [x1]
     };
     const std::uint32_t pair[] = {
@@ -589,15 +597,16 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         {call, call + std::size(call), 2,
          "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address "
          "would point into the island"},
-        {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 32 words"},
-        {open, open + std::size(open), 2, "it lies in an exclusive window that does not close within 32 words"},
+        {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 64 words"},
+        {open, open + std::size(open), 2, "it lies in an exclusive window that does not close within 64 words"},
         {late.data(), late.data() + late.size(), 1,
-         "it lies in an exclusive window that does not close within 32 words"},
+         "it lies in an exclusive window that does not close within 64 words"},
         {nested, nested + std::size(nested), 1,
          "it lies in an exclusive window that opens another load-exclusive before it closes"},
         {stack, stack + std::size(stack), 2, "it lies in an exclusive window that moves the stack pointer"},
-        {crowded, crowded + std::size(crowded), 2,
-         "it lies in an exclusive window that leaves fewer than two registers free"},
+        {crowded, crowded + std::size(crowded), 2, "it lies in an exclusive window that leaves no register free"},
+        {written, written + std::size(written), 2,
+         "it lies in an exclusive window that writes x18 and leaves fewer than two registers free"},
         {pair, pair + std::size(pair), 1,
          "it lies in an exclusive window in which x18 has no register field of its own"},
     };
@@ -609,6 +618,128 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         for (const auto &use : findings.x18_unsupported) {
             if (std::string_view(use.reason) != c.reason) {
                 apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
+            }
+        }
+    }
+}
+
+// A window that only reads x18 stores nothing back and needs one free register for the value, not two; and a
+// window may close up to 64 words after its load-exclusive (the Unity test APK step B).
+TEST(a_window_that_only_reads_x18_needs_one_free_register_and_may_span_64_words) {
+    const std::uint32_t read[] = {
+        0xc85f'7e40,  // ldxr x0, [x18]
+        0x8b04'0062, 0x8b07'00c5, 0x8b0a'0128, 0x8b0d'018b,  // add x2, x3, x4 ... add x11, x12, x13
+        0x8b10'01ee, 0x8b14'0271, 0x8b17'02d5, 0x8b1a'0338,  // add x14, x15, x16 ... add x24, x25, x26
+        0x8b03'007c,  // add x28, x3, x3: only x27 stays free
+        0xc801'7e40,  // stxr w1, x0, [x18]
+    };
+    const auto findings = scan_words(read, read + std::size(read), 0x10000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() == 1) {
+        const auto &region = findings.exclusive_regions[0];
+        CHECK(region.scratch == 27);
+        CHECK(region.loads_x18);
+        CHECK(!region.writes_x18);
+        CHECK(apk::rewrite::exclusive_region_layout(region).base == APK_ISLAND_NO_REGISTER);
+    }
+
+    std::vector<std::uint32_t> long_window{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
+    long_window.insert(long_window.end(), 62, 0xd280'0003);            // mov x3, #0
+    long_window.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 64 words after
+    const auto spanning = scan_words(long_window.data(), long_window.data() + long_window.size(), 0x10000);
+    CHECK(spanning.x18_unsupported.empty());
+    CHECK(spanning.exclusive_regions.size() == 1);
+    if (spanning.exclusive_regions.size() == 1) CHECK(spanning.exclusive_regions[0].words.size() == 65);
+}
+
+// A window that uses x18 only as a temporary runs as it is when the island cannot take it (the Unity test APK step B): XNU
+// zeroes x18 only at a context switch, which comes with an exception, and every exception return clears the local
+// exclusive monitor, so a pass that lost x18 fails its store-exclusive and runs again. Here the window writes x18
+// and leaves one register free, too few for an island.
+std::vector<std::uint32_t> temporary_x18_window() {
+    return {
+        0xc85f'7c20,  // ldxr x0, [x1]
+        0x8b04'0062, 0x8b07'00c5, 0x8b0a'0128, 0x8b0d'018b,  // add x2, x3, x4 ... add x11, x12, x13
+        0x8b10'01ee, 0x8b14'0271, 0x8b17'02d5, 0x8b1a'0338,  // add x14, x15, x16 ... add x24, x25, x26
+        0x8b03'007c,  // add x28, x3, x3
+        0x9100'0412,  // add x18, x0, #1: written before it is read
+        0xc802'7c32,  // stxr w2, x18, [x1]
+        0x35ff'fe82,  // cbnz w2, ldxr: a failed pass runs again
+        0xd280'0012,  // mov x18, #0: dead after the window
+        0xd65f'03c0,  // ret
+    };
+}
+
+TEST(a_window_that_uses_x18_only_as_a_temporary_stays_in_place) {
+    const auto code = temporary_x18_window();
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x10000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.empty());
+    CHECK(findings.in_place_windows == std::vector<std::uint64_t>{0x10000});
+    CHECK(findings.sites.size() == 1);  // the mov x18 after the window, an island of its own
+    if (findings.sites.size() == 1) CHECK(findings.sites[0].address == 0x10034);
+
+    // x18 written again 16 words after the retry: still within reach.
+    auto later = code;
+    later.insert(later.begin() + 13, 15, 0xd280'0003);  // mov x3, #0
+    CHECK(scan_words(later.data(), later.data() + later.size(), 0x10000).in_place_windows.size() == 1);
+}
+
+// Each condition of staying in place, broken once: the window is refused with the island's cause.
+TEST(a_window_stays_in_place_only_when_a_lost_x18_cannot_escape) {
+    struct Change {
+        const char *what;
+        std::size_t at, count;             // the words replaced
+        std::vector<std::uint32_t> words;  // by these
+        std::string_view reason =
+            "it lies in an exclusive window that writes x18 and leaves fewer than two registers free";
+    };
+    const Change changes[] = {
+        {"x18 read before it is written", 9, 1, {0x8b03'025c}},  // add x28, x18, x3
+        {"no retry after the store-exclusive", 12, 1, {}},       // the cbnz left out
+        {"a retry to another word", 12, 1, {0x35ff'fea2}},       // cbnz w2, the word after the ldxr
+        {"a CBZ in place of the CBNZ", 12, 1, {0x34ff'fe82}},    // cbz w2, ldxr
+        {"a CBNZ on another register", 12, 1, {0x35ff'fe83}},  // cbnz w3, ldxr
+        {"a CBNZ that does not go back", 12, 1, {0x3500'0042}},  // cbnz w2, .+8
+        {"a window that only a CLREX closes", 11, 2, {0xd503'3f5f, 0x35ff'fe83}},  // clrex; cbnz w3, ldxr
+        {"x18 read after the window", 13, 1, {0x9100'0640, 0xd280'0012}},  // add x0, x18, #1; mov x18, #0
+        {"a branch before x18 is written again", 13, 1, {0x1400'0001, 0xd280'0012}},  // b .+4; mov x18, #0
+        {"x18 decides a branch in the window", 10, 3,
+         {0x9100'0412, 0xb400'0032, 0xc802'7c32, 0x35ff'fe62}},  // add x18; cbz x18, .+4; stxr; cbnz w2, ldxr
+        {"x18 as the store-exclusive's address", 11, 1, {0xc802'7e40}},              // stxr w2, x0, [x18]
+        {"the status in x18", 11, 2, {0xc812'7c20, 0x35ff'fe92}},  // stxr w18, x0, [x1]; cbnz w18, ldxr
+        {"a CLREX after the store-exclusive", 11, 2, {0xc802'7c32, 0xd503'3f5f, 0x35ff'fe62}},  // stxr; clrex; cbnz
+        {"the status in wzr", 11, 2, {0xc81f'7c32, 0x35ff'fe9f}},  // stxr wzr, x18, [x1]; cbnz wzr
+        {"a memory access in the window", 9, 1, {0xf940'007c}},    // ldr x28, [x3]: it would run again
+        {"a branch from outside into the window", 15, 0, {0x17ff'fff6}},  // b to the fifth word
+        {"a write of x18 a branch can skip", 10, 3,
+         {0xb400'0040, 0x9100'0412, 0xc802'7c32, 0x35ff'fe62}},  // cbz x0, .+8; add x18; stxr; cbnz w2, ldxr
+        {"x18 decides a branch through the flags", 10, 3,
+         {0x9100'0412, 0xf100'025f, 0x5400'0020, 0xc802'7c32, 0x35ff'fe42}},  // add x18; cmp x18, #0; b.eq .+4
+        {"x18 decides a branch through another register", 10, 3,
+         {0x9100'0412, 0x9100'0645, 0xb400'0025, 0xc802'7c32, 0x35ff'fe42}},  // add x18; add x5, x18, #1; cbz x5
+        {"sp from x18", 10, 3, {0x9100'0412, 0x9100'225f, 0xc802'7c32, 0x35ff'fe62},  // add x18; add sp, x18, #8
+         "it lies in an exclusive window that moves the stack pointer"},
+        {"an authentication with x18", 10, 3,
+         {0x9100'0412, 0xaa00'03fb, 0xdac1'125b, 0xc802'7c32, 0x35ff'fe42}},  // add x18; mov x27, x0; autia x27, x18
+        {"x18 written again only after 16 words", 13, 1,
+         {0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003,
+          0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003, 0xd280'0003,
+          0xd280'0012}},  // mov x3, #0 sixteen times, then mov x18, #0
+    };
+    for (const auto &change : changes) {
+        auto code = temporary_x18_window();
+        const auto at = code.begin() + static_cast<std::ptrdiff_t>(change.at);
+        code.insert(code.erase(at, at + static_cast<std::ptrdiff_t>(change.count)), change.words.begin(),
+                    change.words.end());
+        const auto findings = scan_words(code.data(), code.data() + code.size(), 0x10000);
+        if (!findings.in_place_windows.empty() || findings.x18_unsupported.empty()) {
+            apk::testing::fail(std::source_location::current(), "stays in place: ", change.what);
+        }
+        for (const auto &use : findings.x18_unsupported) {
+            if (std::string_view(use.reason) != change.reason) {
+                apk::testing::fail(std::source_location::current(), change.what, use.reason);
             }
         }
     }

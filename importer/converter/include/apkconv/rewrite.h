@@ -98,6 +98,9 @@ struct Findings {
     std::vector<ExclusiveRegion> exclusive_regions;
     /// Each `br x18` that ends a jump table, run in an island with landing pads (ADR-0020 X2d).
     std::vector<JumpTable> jump_tables;
+    /// Load-exclusives of windows that use x18 only as a temporary and run as they are, with x18 in the register
+    /// (ADR-0020, the Unity test APK step B): a pass that loses x18 to a context switch fails its store-exclusive.
+    std::vector<std::uint64_t> in_place_windows;
 };
 
 /// `size` bytes of read-only data at `address` (in the address space given to scan()), for the

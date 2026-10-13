@@ -372,11 +372,13 @@ constexpr const char *inside_exclusive_sequence =
 
 // Why an exclusive window with x18 inside is not relocated as one island (ADR-0020 X2c), each x18 use in it
 // refused with the cause, so that one refusal names every cause at once.
-constexpr const char *window_unclosed = "it lies in an exclusive window that does not close within 32 words";
+constexpr const char *window_unclosed = "it lies in an exclusive window that does not close within 64 words";
 constexpr const char *window_nested =
     "it lies in an exclusive window that opens another load-exclusive before it closes";
 constexpr const char *window_stack = "it lies in an exclusive window that moves the stack pointer";
-constexpr const char *window_registers = "it lies in an exclusive window that leaves fewer than two registers free";
+constexpr const char *window_no_register = "it lies in an exclusive window that leaves no register free";
+constexpr const char *window_registers =
+    "it lies in an exclusive window that writes x18 and leaves fewer than two registers free";
 constexpr const char *window_field = "it lies in an exclusive window in which x18 has no register field of its own";
 constexpr const char *window_entered = "it lies in an exclusive window into which a branch from outside leads";
 
@@ -445,7 +447,7 @@ std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
 }
 
 /// How far after its load-exclusive a window may close, in bytes.
-constexpr std::size_t window_cap = 32 * 4;
+constexpr std::size_t window_cap = 64 * 4;
 
 /// The end offset (inclusive) of the exclusive window that opens at `open` (a load-exclusive): the
 /// first store-exclusive, plus a CLREX right behind it, or the first CLREX. Nullopt when the window
@@ -534,15 +536,17 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
     // first use alone does not tell, a branch can skip it (ADR-0020 X4).
     region.loads_x18 = live_into_window(code, open, end, x18_bit);
 
-    // Two free registers: the value in place of x18, and the TSD base for the store-back. Both may
+    // Free registers: the value in place of x18, and when the window writes x18 the TSD base for the
+    // store-back; a window that only reads x18 loads it through the value register itself. They may
     // hold live values around the loop, so the island saves them in the red zone.
+    const unsigned needed = region.writes_x18 ? 2 : 1;
     unsigned found = 0;
-    for (unsigned candidate = 0; candidate < 29 && found < 2; ++candidate) {
+    for (unsigned candidate = 0; candidate < 29 && found < needed; ++candidate) {
         if (candidate == guest_x18 || (used & (1u << candidate)) != 0) continue;
         (found++ == 0 ? region.scratch : region.base) = static_cast<std::uint8_t>(candidate);
     }
-    if (found < 2) {
-        problem = window_registers;
+    if (found < needed) {
+        problem = region.writes_x18 ? window_registers : window_no_register;
         return std::nullopt;
     }
     for (const auto word : region.words) {
@@ -677,6 +681,86 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
         }
     }
     return nullptr;
+}
+
+// --- Windows that keep x18 in the register (ADR-0020, the Unity test APK step B) -----------------------------
+//
+// XNU zeroes x18 only at a context switch (F4), which an exception brings, and every exception return clears the
+// local exclusive monitor: the Arm ARM's AArch64.ExceptionReturn calls ClearExclusiveLocal unconditionally. So in
+// a window that runs again from its load-exclusive when its store-exclusive fails, a pass that lost x18 fails, and
+// only a pass without an exception, which kept x18, succeeds.
+
+/// How many words after a window's retry branch x18 must be written again.
+constexpr std::size_t dead_x18_reach = 16;
+
+/// Whether the window [open, end], which an island cannot take, may run as it is with x18 in the register. It must
+/// run the same again from its start (restart_problem), and no branch may enter it. It ends with its store-exclusive,
+/// and the next word is CBNZ on its status register (not x18) back to the load-exclusive, so every pass ends at the
+/// store-exclusive and fails when it lost x18. No path reads x18 before writing it, so a pass uses no value from
+/// before its load-exclusive. No value derived from x18 decides a branch or gives the store-exclusive's address,
+/// so a pass that lost x18 can neither loop nor fault, only compute values its failed store-exclusive discards;
+/// nor does the window move sp or authenticate a pointer.
+/// After the CBNZ, x18 is written within a few words before any read or branch: the guest's x18 lives in TSD slot
+/// 11 (ADR-0020), which this window leaves alone, so x18 must be dead after it.
+bool stays_in_place(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    const auto closing = word_at(code, end);
+    if (!is_store_exclusive(closing) || end + 4 >= code.size()) return false;
+    const unsigned status = (closing >> 16) & 0x1f;
+    if (status == guest_x18 || status == zero_register) return false;
+    const auto retry = word_at(code, end + 4);
+    if ((retry & 0x7f00'0000) != 0x3500'0000 || (retry & 0x1f) != status) return false;  // CBNZ wS|xS
+    const auto back = static_cast<std::int64_t>(open) - static_cast<std::int64_t>(end + 4);
+    if (conditional_branch_displacement(retry) != back) return false;
+    if (restart_problem(code, open, end) != nullptr || branch_enters_window(code, open, end)) return false;
+    // Two faults the checks below cannot see: sp, register 31, is no register the decoder reports, and an
+    // authentication (PACIA, AUTIA, XPACI and the rest of data processing, 1 source, opcode2 1) can fault with
+    // FEAT_FPAC where it would only compute a value.
+    for (std::size_t j = open; j <= end; j += 4) {
+        const auto word = word_at(code, j);
+        if (writes_stack_pointer(word) || (word & 0xffff'0000) == 0xdac1'0000) return false;
+    }
+
+    // Written before read on every path through the window.
+    const auto skippable = skippable_words(code, open, end);
+    bool written = false;
+    for (std::size_t k = 0; open + 4 * k <= end; ++k) {
+        const auto use = a64::register_use(word_at(code, open + 4 * k));
+        if ((use.reads & x18_bit) != 0 && !written) return false;
+        if (!skippable[k]) written = written || (use.writes & x18_bit) != 0;
+    }
+
+    // What x18 reaches, whatever the order: registers and the flags, up to the store-exclusive, whose status is not.
+    std::uint32_t tainted = x18_bit;
+    bool flags = false;
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (std::size_t j = open; j < end; j += 4) {
+            const auto word = word_at(code, j);
+            const auto use = a64::register_use(word);
+            if ((use.reads & tainted) == 0 && !(flags && reads_flags(word))) continue;
+            if ((use.writes & ~tainted) != 0) {
+                tainted |= use.writes;
+                changed = true;
+            }
+            if (!flags && modifies_flags(word)) flags = changed = true;
+        }
+    }
+    for (std::size_t j = open; j < end; j += 4) {
+        const auto word = word_at(code, j);
+        if (!branch_displacement(word)) continue;
+        if ((a64::register_use(word).reads & tainted) != 0 || (flags && reads_flags(word))) return false;
+    }
+    if ((tainted & (1u << rn_field(closing))) != 0) return false;
+
+    // Dead after the window.
+    for (std::size_t j = end + 8, n = 0; j + 4 <= code.size() && n < dead_x18_reach; j += 4, ++n) {
+        const auto word = word_at(code, j);
+        const auto use = a64::register_use(word);
+        if ((use.reads & x18_bit) != 0) return false;
+        if ((use.writes & x18_bit) != 0) return true;
+        if (is_branch(word)) return false;
+    }
+    return false;
 }
 
 // --- Jump tables through x18 (ADR-0020 X2d) ------------------------------------------------------
@@ -877,7 +961,12 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         const char *problem = nullptr;
         auto region = build_exclusive_region(code, address, offset, *end, problem);
         if (!region) {
-            if (problem) refused_windows.emplace_back(offset, *end, problem);
+            if (problem && stays_in_place(code, offset, *end)) {
+                findings.in_place_windows.push_back(address + offset);
+                covered.emplace_back(offset, *end);
+            } else if (problem) {
+                refused_windows.emplace_back(offset, *end, problem);
+            }
             continue;
         }
         problem = branch_enters_window(code, offset, *end) ? window_entered : restart_problem(code, offset, *end);

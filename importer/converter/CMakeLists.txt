@@ -83,6 +83,6 @@ if(APK_HOST_BUILD)
   add_test(NAME converter.inspect_fixtures
     COMMAND apk-convert inspect "${APK_FIXTURES_DIR}/raw-hello" "${APK_FIXTURES_DIR}/hello")
   set_tests_properties(converter.inspect_fixtures PROPERTIES
-    PASS_REGULAR_EXPRESSION "interpreter: none.*16 KiB pages: yes.*svc #0: 2.*x18: 0 reads, 0 writes, 0 saved in register dumps. islands: 0, refused: 0.*interpreter: none.*16 KiB pages: yes.*svc #0: 229.*x18: 0 reads, 1 write, 0 saved in register dumps. islands: 1, refused: 0"
+    PASS_REGULAR_EXPRESSION "interpreter: none.*16 KiB pages: yes.*svc #0: 2.*x18: 0 reads, 0 writes, 0 saved in register dumps. islands: 0, windows in place: 0, refused: 0.*interpreter: none.*16 KiB pages: yes.*svc #0: 229.*x18: 0 reads, 1 write, 0 saved in register dumps. islands: 1, windows in place: 0, refused: 0"
     SKIP_REGULAR_EXPRESSION "cannot open")
 endif()

@@ -130,10 +130,11 @@ void inspect(const std::string &path) {
         std::cout << std::format("  code: {} bytes; TPIDR_EL0: {} reads, {} writes; svc #0: {}, other svc: {}\n",
                                  scan.code_bytes, thread_pointer_reads, thread_pointer_writes, syscalls,
                                  findings.other_syscalls.size())
-                  << std::format("  x18: {} reads, {} write{}, {} saved in register dumps; islands: {}, refused: {}",
+                  << std::format("  x18: {} reads, {} write{}, {} saved in register dumps; islands: {}, windows in "
+                                 "place: {}, refused: {}",
                                  findings.x18_reads.size(), findings.x18_writes.size(),
                                  findings.x18_writes.size() == 1 ? "" : "s", findings.x18_saves.size(), x18_islands,
-                                 findings.x18_unsupported.size());
+                                 findings.in_place_windows.size(), findings.x18_unsupported.size());
         if (!findings.x18_unsupported.empty()) {
             std::cout << " (" << apk::container::x18_refusal(findings.x18_unsupported) << ')';
         }
