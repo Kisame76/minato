@@ -15,8 +15,8 @@
  * every filter matches it, and permissions are the app's own. PendingIntents (step d3) are LocalPendingIntents'. Not
  * yet written, each answered as the generated methods are, with a line once and Android's default: sticky
  * broadcasts, broadcast options and app ops, manifest receivers (ADR-0045 decision 5), a PendingIntent's intent, tag
- * and target, and the services, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also asks
- * the activity manager about.
+ * and target, the bound services, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also
+ * asks the activity manager about. Started services (step SV2) are LocalActiveServices'.
  */
 package android.app;
 
@@ -59,6 +59,8 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     private final Object mLock = new Object();
     /** The process's PendingIntents (step d3). */
     private final LocalPendingIntents mPendingIntents = new LocalPendingIntents(this);
+    /** The process's started services (step SV2). */
+    private final LocalActiveServices mServices = new LocalActiveServices();
     /** The registered receivers by their IIntentReceiver's Binder; under mLock, as the two below. */
     private final HashMap<IBinder, ReceiverList> mReceivers = new HashMap<>();
     /** Every registered filter in registration order, which ties of priority keep. */
@@ -435,21 +437,35 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     }
 
     @Override
+    public ComponentName startService(IApplicationThread caller, Intent service, String resolvedType,
+            boolean requireForeground, String callingPackage, String callingFeatureId, int userId) {
+        return mServices.startService(service, resolvedType, requireForeground);
+    }
+
+    @Override
+    public int stopService(IApplicationThread caller, Intent service, String resolvedType, int userId) {
+        return mServices.stopService(service, resolvedType);
+    }
+
+    @Override
+    public void serviceDoneExecuting(IBinder token, int type, int startId, int res, Intent intent) {
+        mServices.serviceDoneExecuting(token, type, startId, res);
+    }
+
+    @Override
     public boolean stopServiceToken(ComponentName className, IBinder token, int startId) {
-        Unwritten.log("android.app.IActivityManager.stopServiceToken", "false");
-        return false;
+        return mServices.stopServiceToken(className, token, startId);
     }
 
     @Override
     public void setServiceForeground(ComponentName className, IBinder token, int id, Notification notification,
             int flags, int foregroundServiceType) {
-        Unwritten.log("android.app.IActivityManager.setServiceForeground", null);
+        mServices.setServiceForeground(className, token, id, notification, flags, foregroundServiceType);
     }
 
     @Override
     public int getForegroundServiceType(ComponentName className, IBinder token) {
-        Unwritten.log("android.app.IActivityManager.getForegroundServiceType", "0");
-        return 0;
+        return mServices.getForegroundServiceType(className, token);
     }
 
     @Override

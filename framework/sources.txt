@@ -461,6 +461,11 @@ frameworks_base/core/java/android/app/Service.java
 frameworks_base/core/java/android/content/BroadcastReceiver.java
 frameworks_base/core/java/android/view/contentcapture/ContentCaptureManager.java
 frameworks_base/core/java/android/app/StackTrace.java
+# ADR-0045 step SV2: what startForeground(SHORT_SERVICE) throws on a stopped service (LocalActiveServices), and the
+# crash of a foreground service that did not call startForeground in time (RemoteServiceException's nested class);
+# the start exceptions are breadth's.
+frameworks_base/core/java/android/app/StartForegroundCalledOnStoppedServiceException.java
+frameworks_base/core/java/android/app/RemoteServiceException.java
 frameworks_base/core/java/android/os/AsyncTask.java
 frameworks_base/core/java/android/util/Dumpable.java
 frameworks_base/core/java/android/util/SparseBooleanArray.java

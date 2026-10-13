@@ -1,0 +1,34 @@
+I/app-services-test: implicit: java.lang.IllegalArgumentException: Service Intent must be explicit: Intent { act=io.github.kisame76.minato.test.appservices.COUNT }
+I/app-services-test: missing: null
+I/app-services-test: disabled: null
+I/app-services-test: stop not running: false
+I/app-services-test: start 1: io.github.kisame76.minato.test.appservices/.CountingService
+I/app-services-test: start 2: io.github.kisame76.minato.test.appservices/.CountingService
+I/app-services-test: CountingService onCreate instance 1 main true application true applicationContext true base android.app.ContextImpl loader true
+I/app-services-test: CountingService onStartCommand id 1 flags 0 n 1 action null copy true main true
+I/app-services-test: CountingService onStartCommand id 2 flags 0 n 2 action io.github.kisame76.minato.test.appservices.COUNT copy true main true
+I/app-services-test: stopSelfResult 1: false
+I/app-services-test: stop running: true
+I/app-services-test: CountingService onDestroy instance 1 main true
+I/app-services-test: start 3: io.github.kisame76.minato.test.appservices/.CountingService
+I/app-services-test: stop at once: true
+I/app-services-test: CountingService onCreate instance 2 main true application true applicationContext true base android.app.ContextImpl loader true
+I/app-services-test: CountingService onStartCommand id 1 flags 0 n 3 action null copy true main true
+I/app-services-test: CountingService onDestroy instance 2 main true
+I/app-services-test: start 4: io.github.kisame76.minato.test.appservices/.CountingService
+I/app-services-test: CountingService onCreate instance 3 main true application true applicationContext true base android.app.ContextImpl loader true
+I/app-services-test: CountingService onStartCommand id 1 flags 0 n 4 action null copy true main true
+I/app-services-test: stopSelf asked
+I/app-services-test: CountingService onDestroy instance 3 main true
+I/app-services-test: foreground start: io.github.kisame76.minato.test.appservices/.SyncService
+I/app-services-test: SyncService onCreate type 0
+I/app-services-test: SyncService onStartCommand id 1 copy true
+I/app-services-test: location: java.lang.IllegalArgumentException: foregroundServiceType 0x00000008 is not a subset of foregroundServiceType attribute 0x00000001 in service element of manifest file
+I/app-services-test: foreground type 1
+I/app-services-test: stopped foreground type 0
+I/app-services-test: SyncService onDestroy
+I/app-services-test: plain start: io.github.kisame76.minato.test.appservices/.PlainService
+I/app-services-test: untyped: android.app.MissingForegroundServiceTypeException
+I/app-services-test: plain type 0
+I/app-services-test: PlainService onDestroy
+I/app-services-test: done

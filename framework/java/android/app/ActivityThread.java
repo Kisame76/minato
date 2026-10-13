@@ -30,7 +30,9 @@
  * Application is made and created, as handleBindApplication does. Since step b3.5b2-1 the app starts its own
  * activities in its one task: a start or a finish runs Android's transactions in their order on the main thread,
  * the activities below the top stop once the main thread is idle, the session's lifecycle drives the top activity,
- * and the session's window, input channel and focus go to the top activity's window.
+ * and the session's window, input channel and focus go to the top activity's window. Since ADR-0045 step SV2 it makes,
+ * starts and destroys the app's started services on the main thread as LocalActiveServices asks, each through the
+ * app's AppComponentFactory, as handleCreateService, handleServiceArgs and handleStopService do.
  *
  *   ActivityThread.main --package <package> --process <name> --apk <path of base.apk>
  *                       --library-path <lib/arm64 beside it> --data-dir <the app's data folder>
@@ -47,9 +49,11 @@ import android.content.ComponentName;
 import android.content.IContentProvider;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ComponentInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
+import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.type.DefaultMimeMapFactory;
@@ -613,6 +617,119 @@ public final class ActivityThread {
     /** As AOSP's: a local provider stays until the process ends; false for none. */
     public final boolean releaseProvider(IContentProvider provider, boolean stable) {
         return provider != null;
+    }
+
+    // The app's started services (ADR-0045 step SV2): LocalActiveServices asks, as system_server's ActiveServices asks
+    // Android's app through IApplicationThread, and each request runs on the main thread in the order asked, as H's
+    // messages do. AOSP's ActivityThread names the kinds of serviceDoneExecuting.
+    public static final int SERVICE_DONE_EXECUTING_ANON = 0;
+    public static final int SERVICE_DONE_EXECUTING_START = 1;
+    public static final int SERVICE_DONE_EXECUTING_STOP = 2;
+    public static final int SERVICE_DONE_EXECUTING_REBIND = 3;
+    public static final int SERVICE_DONE_EXECUTING_UNBIND = 4;
+
+    /** The running services by their tokens, and the ServiceInfo each was made from; the main thread's. */
+    final ArrayMap<IBinder, Service> mServices = new ArrayMap<>();
+    private final ArrayMap<IBinder, ServiceInfo> mServicesData = new ArrayMap<>();
+
+    /** As scheduleCreateService. */
+    void scheduleCreateService(IBinder token, ServiceInfo info, Intent intent) {
+        sMainThreadHandler.post(() -> handleCreateService(token, info, intent));
+    }
+
+    /** As scheduleServiceArgs, for one start. */
+    void scheduleServiceArgs(IBinder token, int startId, int flags, Intent args) {
+        sMainThreadHandler.post(() -> handleServiceArgs(token, startId, flags, args));
+    }
+
+    /** As scheduleStopService. */
+    void scheduleStopService(IBinder token) {
+        sMainThreadHandler.post(() -> handleStopService(token));
+    }
+
+    /**
+     * As AOSP's handleCreateService: the service through the app's AppComponentFactory with its split's class loader,
+     * a context of its own (its split's for a split's service), attached and created.
+     */
+    private void handleCreateService(IBinder token, ServiceInfo info, Intent intent) {
+        final LoadedApk packageInfo = mLoadedApk;
+        Service service = null;
+        try {
+            Application app = mInitialApplication;
+            final ClassLoader cl = info.splitName != null ? packageInfo.getSplitClassLoader(info.splitName)
+                    : packageInfo.getClassLoader();
+            service = packageInfo.getAppFactory().instantiateService(cl, info.name, intent);
+            ContextImpl context = ContextImpl.getImpl(service.createServiceBaseContext(this, packageInfo));
+            if (info.splitName != null) {
+                context = (ContextImpl) context.createContextForSplit(info.splitName);
+            }
+            context.setOuterContext(service);
+            service.attach(context, this, info.name, token, app, ActivityManager.getService());
+            service.onCreate();
+            mServicesData.put(token, info);
+            mServices.put(token, service);
+            ActivityManager.getService().serviceDoneExecuting(token, SERVICE_DONE_EXECUTING_ANON, 0, 0, null);
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(service, e)) {
+                throw new RuntimeException("Unable to create service " + info.name + ": " + e.toString(), e);
+            }
+        }
+    }
+
+    /** As AOSP's handleServiceArgs: the start's intent with the service's class loader, then onStartCommand. */
+    private void handleServiceArgs(IBinder token, int startId, int flags, Intent args) {
+        ServiceInfo info = mServicesData.get(token);
+        Service s = mServices.get(token);
+        if (s != null) {
+            try {
+                if (args != null) {
+                    args.setExtrasClassLoader(s.getClassLoader());
+                    args.prepareToEnterProcess(isProtectedComponent(info), s.getAttributionSource());
+                }
+                int res = s.onStartCommand(args, flags, startId);
+                QueuedWork.waitToFinish();
+                ActivityManager.getService().serviceDoneExecuting(token, SERVICE_DONE_EXECUTING_START, startId, res,
+                        null);
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException("Unable to start service " + s + " with " + args + ": " + e.toString(),
+                            e);
+                }
+            }
+        }
+    }
+
+    /** As AOSP's handleStopService: onDestroy, then the context's registrations go. */
+    private void handleStopService(IBinder token) {
+        mServicesData.remove(token);
+        Service s = mServices.remove(token);
+        if (s != null) {
+            try {
+                s.onDestroy();
+                s.detachAndCleanUp();
+                Context context = s.getBaseContext();
+                if (context instanceof ContextImpl) {
+                    ((ContextImpl) context).scheduleFinalCleanup(s.getClassName(), "Service");
+                }
+                QueuedWork.waitToFinish();
+                ActivityManager.getService().serviceDoneExecuting(token, SERVICE_DONE_EXECUTING_STOP, 0, 0, null);
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException("Unable to stop service " + s + ": " + e.toString(), e);
+                }
+                Slog.i(TAG, "handleStopService: exception for " + token, e);
+            }
+        } else {
+            Slog.i(TAG, "handleStopService: token=" + token + " not found.");
+        }
+    }
+
+    /**
+     * As AOSP's isProtectedComponent, which StrictMode's unsafe intent launch check asks: a component that is not
+     * exported; Minato has no permission service to tell a signature permission's protection.
+     */
+    private static boolean isProtectedComponent(ComponentInfo info) {
+        return StrictMode.vmUnsafeIntentLaunchEnabled() && info != null && !info.exported;
     }
 
     private static volatile boolean sCrashing;

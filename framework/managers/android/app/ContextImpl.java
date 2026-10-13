@@ -8,9 +8,11 @@
 // LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made. Step c2c3
 // adds an activity's context, with its token and its own Resources, the window manager and the display: an
 // activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045's
-// gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider.
+// gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider. Step SV2
+// adds the started services: startService, startForegroundService and stopService, through LocalActiveServices.
 import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.ContextParams;
@@ -442,6 +444,73 @@ class ContextImpl {
             ActivityManager.getService().broadcastIntentWithFeature(mMainThread.getApplicationThread(), null, intent,
                     resolvedType, rd, initialCode, initialData, initialExtras, receiverPermissions, null, null,
                     AppOpsManager.OP_NONE, options, ordered, false, UserHandle.myUserId());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    // ADR-0045 step SV2: started services, as the tag's ContextImpl starts and stops them, through the local activity
+    // manager service (LocalActiveServices). The forms for another user stay the generated methods.
+
+    public ComponentName startService(Intent service) {
+        return startServiceCommon(service, false);
+    }
+
+    public ComponentName startForegroundService(Intent service) {
+        return startServiceCommon(service, true);
+    }
+
+    public boolean stopService(Intent service) {
+        try {
+            validateServiceIntent(service);
+            service.prepareToLeaveProcess(this);
+            int res = ActivityManager.getService().stopService(mMainThread.getApplicationThread(), service,
+                    service.resolveTypeIfNeeded(getContentResolver()), UserHandle.myUserId());
+            if (res < 0) {
+                throw new SecurityException("Not allowed to stop service " + service);
+            }
+            return res != 0;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** As AOSP's: an intent without a component or a package throws from a target SDK of 21 on. */
+    private void validateServiceIntent(Intent service) {
+        if (service.getComponent() == null && service.getPackage() == null) {
+            if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP) {
+                throw new IllegalArgumentException("Service Intent must be explicit: " + service);
+            } else {
+                Log.w(TAG, "Implicit intents with startService are not safe: " + service);
+            }
+        }
+    }
+
+    /** As AOSP's startServiceCommon: the service's answer, its markers ("!", "!!", "?") as exceptions. */
+    private ComponentName startServiceCommon(Intent service, boolean requireForeground) {
+        try {
+            validateServiceIntent(service);
+            service.prepareToLeaveProcess(this);
+            ComponentName cn = ActivityManager.getService().startService(mMainThread.getApplicationThread(), service,
+                    service.resolveTypeIfNeeded(getContentResolver()), requireForeground, getOpPackageName(),
+                    getAttributionTag(), UserHandle.myUserId());
+            if (cn != null) {
+                if (cn.getPackageName().equals("!")) {
+                    throw new SecurityException("Not allowed to start service " + service
+                            + " without permission " + cn.getClassName());
+                } else if (cn.getPackageName().equals("!!")) {
+                    throw new SecurityException("Unable to start service " + service + ": " + cn.getClassName());
+                } else if (cn.getPackageName().equals("?")) {
+                    throw ServiceStartNotAllowedException.newInstance(requireForeground,
+                            "Not allowed to start service " + service + ": " + cn.getClassName());
+                }
+            }
+            // A foreground service of the app's own remembers where it was started, for the crash of a late one.
+            if (cn != null && requireForeground && cn.getPackageName().equals(getOpPackageName())) {
+                Service.setStartForegroundServiceStackTrace(cn.getClassName(),
+                        new StackTrace("Last startServiceCommon() call for this service was made here"));
+            }
+            return cn;
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

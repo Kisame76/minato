@@ -326,8 +326,9 @@ class ApplicationPackageManager {
     // A component's enabled state (gap 9, WorkManager's start enables its job service and receivers): kept for the
     // process, where PackageManagerService keeps it in its package settings, which Minato has none of. The default
     // state keeps nothing. The app's own components only; another package is unknown [verified: jobs-test on
-    // apk-runner-35]. Intent resolution reads the state (step SV1); getXInfo and starts do not yet.
-    private final ArrayMap<ComponentName, Integer> mComponentStates = new ArrayMap<>();
+    // apk-runner-35]. Intent resolution reads the state (step SV1), and so do service starts (step SV2); getXInfo does
+    // not yet. One map for the process, as every context's package manager sees the same settings on Android.
+    private static final ArrayMap<ComponentName, Integer> sComponentStates = new ArrayMap<>();
 
     public void setComponentEnabledSetting(ComponentName componentName, int newState, int flags) {
         checkOwnComponent(componentName);
@@ -335,19 +336,24 @@ class ApplicationPackageManager {
             throw new IllegalArgumentException("Component class " + componentName.getClassName()
                     + " does not exist in " + componentName.getPackageName());
         }
-        synchronized (mComponentStates) {
+        synchronized (sComponentStates) {
             if (newState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
-                mComponentStates.remove(componentName);
+                sComponentStates.remove(componentName);
             } else {
-                mComponentStates.put(componentName, newState);
+                sComponentStates.put(componentName, newState);
             }
         }
     }
 
     public int getComponentEnabledSetting(ComponentName componentName) {
         checkOwnComponent(componentName);
-        synchronized (mComponentStates) {
-            Integer state = mComponentStates.get(componentName);
+        return componentState(componentName);
+    }
+
+    /** @hide A component's state as the app set it, for the activity manager's service starts (step SV2). */
+    static int componentState(ComponentName componentName) {
+        synchronized (sComponentStates) {
+            Integer state = sComponentStates.get(componentName);
             return state == null ? PackageManager.COMPONENT_ENABLED_STATE_DEFAULT : state;
         }
     }
