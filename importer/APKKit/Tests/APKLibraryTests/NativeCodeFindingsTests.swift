@@ -18,14 +18,88 @@ struct NativeCodeFindingsTests {
     /// Gives the reasons chosen for a library by its file name.
     struct Checker: ELFRefusing {
         var reasons: [String: [String]] = [:]
+        /// The libraries whose check fails, as a read error or a bad answer of the converter would.
+        var failing: Set<String> = []
+
+        struct Broke: Error, CustomStringConvertible {
+            var description: String { "the file could not be read" }
+        }
 
         func refusals(of elf: URL) throws -> [String] {
-            reasons[elf.lastPathComponent] ?? []
+            if failing.contains(elf.lastPathComponent) { throw Broke() }
+            return reasons[elf.lastPathComponent] ?? []
         }
     }
 
     static let two = ["the file has text relocations", "svc #0x80 at 0x218 is no Linux syscall"]
     static let twoText = two.joined(separator: "\n")
+
+    @Test func aCheckThatFailsIsReportedAsInformsAndTheLibraryStays() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(checker: Checker(failing: ["libhelper.so"]))
+
+        let result = try await library.importFile(
+            sandbox.file(Native.madeAPK(extractNativeLibs: false), named: "activity-test.apk"),
+            signing: Native.signing())
+
+        #expect(result.entry.state == .ready)
+        #expect(result.entry.report?.compatibility.issues.contains(
+            .libraryNotChecked(library: "libhelper.so", reason: "the file could not be read")) == true)
+        #expect(Native.names(in: sandbox.paths.libraryDirectory(for: result.entry)).contains("libhelper.so"))
+    }
+
+    @Test func aCheckThatFailsForOneLibraryDoesNotStopTheOthers() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(checker: Checker(reasons: ["libhelper.so": Self.two], failing: ["libactivity-test.so"]))
+
+        let result = try await library.importFile(
+            sandbox.file(Native.madeAPK(extractNativeLibs: false), named: "activity-test.apk"),
+            signing: Native.signing())
+
+        let issues = result.entry.report?.compatibility.issues ?? []
+        #expect(result.entry.state == .ready)
+        #expect(issues.contains(.libraryNotChecked(
+            library: "libactivity-test.so", reason: "the file could not be read")))
+        #expect(issues.contains(.libraryDegraded(library: "libhelper.so", reason: Self.twoText)))
+    }
+
+    @Test func aFileWhoseSymbolsCannotBeReadIsNotCheckedForThem() async throws {
+        // The fixtures' libraries have no section headers, which the reader of symbols refuses.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        try await library.use(exportTable: "# minato export table 1\n@ libc.so\nneeds\nmalloc\n")
+
+        let result = try await library.importFile(
+            sandbox.file(Native.madeAPK(extractNativeLibs: false), named: "activity-test.apk"),
+            signing: Native.signing())
+
+        let notChecked = (result.entry.report?.compatibility.issues ?? []).compactMap { issue -> String? in
+            if case .libraryNotChecked(let name, let reason) = issue { "\(name): \(reason)" } else { nil }
+        }
+        #expect(notChecked.count == 2)
+        #expect(notChecked.allSatisfy { $0.contains("section headers") })
+        #expect(result.entry.state == .ready)
+    }
+
+    @Test func nothingIsReportedAsNotCheckedWhenNothingWasAskedFor() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+
+        let result = try await library.importFile(
+            sandbox.file(Native.madeAPK(extractNativeLibs: false), named: "activity-test.apk"),
+            signing: Native.signing())
+
+        let notChecked = (result.entry.report?.compatibility.issues ?? []).filter {
+            if case .libraryNotChecked = $0 { true } else { false }
+        }
+        #expect(notChecked.isEmpty)
+    }
 
     @Test func aLibraryOutsideTheStartPathDegrades() async throws {
         let sandbox = try Sandbox()

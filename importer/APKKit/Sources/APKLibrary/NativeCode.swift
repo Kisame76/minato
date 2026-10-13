@@ -81,6 +81,7 @@ extension InstalledNativeCode {
     var findings: [Compatibility.Issue] {
         degraded.map { .libraryDegraded(library: $0.library, reason: $0.reason) }
             + stubCalls.map { .libraryCallsStubs(library: $0.library, reason: $0.reason) }
+            + notChecked.map { .libraryNotChecked(library: $0.library, reason: $0.reason) }
     }
 }
 
@@ -91,6 +92,8 @@ struct InstalledNativeCode {
     var degraded: [(library: String, reason: String)]
     /// The libraries that stay and call functions only a stub of Minato's defines.
     var stubCalls: [(library: String, reason: String)] = []
+    /// The libraries whose check could not run, with the error's text (ADR-0055).
+    var notChecked: [(library: String, reason: String)] = []
     /// The digests of the lists the check used; nil where it ran without any.
     var checks: Compatibility.Checks?
 }
@@ -127,6 +130,7 @@ extension Library {
         try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
         var degradedNow: [(library: String, reason: String)] = []
         var stubsNow: [(library: String, reason: String)] = []
+        var notCheckedNow: [(library: String, reason: String)] = []
         let checksNow: Compatibility.Checks? =
             listDigests.exportTable == nil && listDigests.publicLibraries == nil ? nil : listDigests
         do {
@@ -149,23 +153,44 @@ extension Library {
             // left out of lib/ and degrades.
             var degraded: [(library: String, reason: String)] = []
             var stubs: [(library: String, reason: String)] = []
+            var notChecked: [(library: String, reason: String)] = []
             defer {
                 degradedNow = degraded
                 stubsNow = stubs
+                notCheckedNow = notChecked
             }
             if checker != nil || publicLibraries != nil || exportTable != nil {
                 var facts: [NativeFindings.Library] = []
                 var symbols: [String: ELFSymbols] = [:]
                 for library in libraries {
                     let file = partial.appendingPathComponent(library.name)
-                    // A file that cannot be read is no verdict, as for the converter: the first tap tries again.
-                    let refusals = (try? checker?.refusals(of: file)) ?? []
+                    // A check that cannot run is no verdict, as for the converter: the library stays, the first tap
+                    // tries again, and the report says that it was not checked.
+                    func unchecked(_ error: any Error) {
+                        notChecked.append((library.name,
+                                           (error as? LocalizedError)?.errorDescription ?? String(describing: error)))
+                    }
+                    var refusals: [String] = []
+                    do {
+                        refusals = try checker?.refusals(of: file) ?? []
+                    } catch {
+                        unchecked(error)
+                    }
                     let readsELF = publicLibraries != nil || exportTable != nil
-                    let needed = readsELF ? ((try? ELFDynamic.needed(
-                        in: Data(contentsOf: file, options: .mappedIfSafe))) ?? []) : []
-                    if exportTable != nil, let read = try? ELFSymbols.read(
-                        Data(contentsOf: file, options: .mappedIfSafe)) {
-                        symbols[library.name] = read
+                    var needed: [String] = []
+                    if readsELF {
+                        do {
+                            needed = try ELFDynamic.needed(in: Data(contentsOf: file, options: .mappedIfSafe))
+                        } catch {
+                            if !notChecked.contains(where: { $0.library == library.name }) { unchecked(error) }
+                        }
+                    }
+                    if exportTable != nil {
+                        do {
+                            symbols[library.name] = try ELFSymbols.read(Data(contentsOf: file, options: .mappedIfSafe))
+                        } catch {
+                            if !notChecked.contains(where: { $0.library == library.name }) { unchecked(error) }
+                        }
                     }
                     facts.append(NativeFindings.Library(name: library.name, refusals: refusals, needed: needed))
                 }
@@ -217,7 +242,8 @@ extension Library {
         }
         let originals = libraries.map { lib.appendingPathComponent($0.name) }
         guard let signing else {
-            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
+            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow,
+                                   notChecked: notCheckedNow, checks: checksNow)
         }
 
         // Every library is converted, also after one that could not be signed, so that none that cannot
@@ -238,9 +264,11 @@ extension Library {
             for original in originals {
                 try? FileManager.default.removeItem(at: original.appendingPathExtension("dylib"))
             }
-            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
+            return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow,
+                                   notChecked: notCheckedNow, checks: checksNow)
         }
-        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow, stubCalls: stubsNow, checks: checksNow)
+        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow, stubCalls: stubsNow,
+                                   notChecked: notCheckedNow, checks: checksNow)
     }
 
     /// The longest library name Minato takes: lib/ holds <name>.dylib next to the library, which the converter writes

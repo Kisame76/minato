@@ -287,6 +287,8 @@ enum Texts {
             "\(library) will not load, so the app runs without it:\n\(reason)"
         case .libraryCallsStubs(let library, let reason):
             "\(library) \(reason)"
+        case .libraryNotChecked(let library, let reason):
+            "\(library) could not be checked: \(reason)"
         case .needsART:
             "Contains Java/Kotlin code, which runs interpreted for now and may be slower"
         case .requiresGLES(let version):

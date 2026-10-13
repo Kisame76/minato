@@ -123,6 +123,10 @@ public struct Compatibility: Sendable, Equatable, Codable {
         /// A library that stays and calls functions that only a stub of Minato's defines: they log once and answer
         /// nothing (ADR-0055 a4).
         case libraryCallsStubs(library: String, reason: String)
+        // Informational (ADR-0055).
+        /// A library whose check could not run, with the error's own text (a read error, a bad answer of the
+        /// converter): it stays as it is, and the converter still refuses it at signing if it cannot run.
+        case libraryNotChecked(library: String, reason: String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART
