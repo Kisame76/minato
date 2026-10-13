@@ -209,6 +209,19 @@ if(APK_HOST_BUILD)
       "${APK_ART_DIR}" "${APK_HWUI_DIR}")
   set_tests_properties(runtime.plan_inputs PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
+  # The guest's export table (ADR-0055 decision 3, tools/export-table.py), which the import's compatibility check
+  # reads: for bionic's libraries and those of ART, the front libs, hwui and the framework that are built, each block
+  # is what llvm-nm and llvm-readelf read from its library, and the stub marks are stubgen's.
+  add_test(NAME runtime.export_table
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/export_table_test.py"
+      "${PROJECT_SOURCE_DIR}/tools/export-table.py" "${APK_BIONIC_DIR}" "${APK_ART_DIR}/lib"
+      "${PROJECT_SOURCE_DIR}/build/graphics/guest/bin" "${APK_HWUI_DIR}/lib"
+      "${PROJECT_SOURCE_DIR}/build/framework-native")
+  set_tests_properties(runtime.export_table PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  # tools/guest-check.py's link check (ADR-0052) and its export table check, on Guest/ trees the test makes.
+  add_test(NAME runtime.guest_check
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/guest_check_test.py")
+
   # tools/art-plan.py writes boot_jars.json only when its content changes, so that planning again at a configuration
   # does not build the boot jars again. Skipped without ART's sources.
   add_test(NAME runtime.boot_jars_plan

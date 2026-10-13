@@ -9,6 +9,8 @@ them [verified: openat with O_RESOLVE_BENEATH on macOS 27, 2026-10-05]:
   - named: an absolute text, also one to a file inside; a ".." above the folder, also when the text comes back; a
     link into the other mounted folder or into a sibling whose name begins with the folder's; a folder's link out;
     an in-folder link to a link that leads out; and two links that point at each other (ELOOP).
+And its export table check (ADR-0055 decision 3): a block for each library container of lib64/ and apex-lib64/ and
+for nothing else, under the format's first line.
 Runs on /usr/bin/python3 (3.9).
 Usage: tools/tests/guest_check_test.py
 """
@@ -54,6 +56,37 @@ def write(path):
         file.write("x")
 
 
+def export_table_failures(temp):
+    """The export table against the containers: as it should be, a block missing, one too many, another format."""
+    guest = os.path.join(temp, "Exports", "Guest")
+    for path in ("lib64/libc.so.dylib", "lib64/libm.so.dylib", "apex-lib64/com.android.art/libart.so.dylib",
+                 "bin/app_process64.dylib"):
+        write(os.path.join(guest, path))
+    table = os.path.join(guest, "system", "etc", "export-table.txt")
+    cases = [
+        ("as it should be", "# minato export table 1\n@ libart.so\nneeds libc.so\n@ libc.so\nneeds\n@ libm.so\nneeds\n",
+         []),
+        ("a global library", "# minato export table 1\n@ libart.so global\nneeds libc.so\n@ libc.so\nneeds\n"
+         "@ libm.so\nneeds\n", []),
+        ("a block missing", "# minato export table 1\n@ libc.so\nneeds\n@ libm.so\nneeds\n",
+         ["export table: no block for libart.so"]),
+        ("a block too many", "# minato export table 1\n@ libart.so\nneeds\n@ libc.so\nneeds\n@ libm.so\nneeds\n"
+         "@ libz.so\nneeds\n", ["export table: a block for libz.so, which the guest does not have"]),
+        ("another format", "# minato export table 2\n@ libart.so\nneeds\n@ libc.so\nneeds\n@ libm.so\nneeds\n",
+         ['export table: Guest/system/etc/export-table.txt does not start with "# minato export table 1"']),
+    ]
+    failures = 0
+    for what, text, expected in cases:
+        write(table)
+        with open(table, "w") as file:
+            file.write(text)
+        problems = guest_check.export_table_problems(guest)
+        if problems != expected:
+            print(f"FAIL: export table, {what}: {problems}")
+            failures += 1
+    return failures
+
+
 def main():
     failures = 0
     with tempfile.TemporaryDirectory() as temp:
@@ -96,10 +129,12 @@ def main():
         if len(guest_check.link_problems(linked)) != 1:
             print(f"FAIL: a link out of a linked mounted folder: {guest_check.link_problems(linked)}")
             failures += 1
+        failures += export_table_failures(temp)
     if failures:
         print(f"guest_check_test: {failures} failures")
         sys.exit(1)
-    print(f"guest_check_test: {len(LINKS)} links and two in a linked mount, as ADR-0052 takes them")
+    print(f"guest_check_test: {len(LINKS)} links and two in a linked mount, as ADR-0052 takes them, and five export "
+          "tables")
 
 
 if __name__ == "__main__":

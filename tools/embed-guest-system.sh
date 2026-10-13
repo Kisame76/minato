@@ -10,8 +10,10 @@
 #                             plan's gap 7), hwui's set (ADR-0043) and ART's copies of libbase, libziparchive, libexpat
 #                             and libc++_shared that it links
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
-#                             (ADR-0040), and the fonts with their two lists (ADR-0043 test 2); framework.jar and
-#                             the framework-res folder in framework/ (ADR-0039, decision 8), platform.xml in
+#                             (ADR-0040), etc/export-table.txt, the names every library below exports (ADR-0055
+#                             decision 3, tools/export-table.py), and the fonts with their two lists (ADR-0043
+#                             test 2); framework.jar and the framework-res folder in framework/ (ADR-0039,
+#                             decision 8), platform.xml in
 #                             etc/permissions/, and etc/security/cacerts empty: the runtime links that name to
 #                             Conscrypt's certificates (ADR-0046 decision 4)
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
@@ -101,13 +103,16 @@ case "$PLATFORM_NAME" in
 esac
 rm -rf "$OUT"
 
-# Converts the ELF file into <directory>/<file name>.dylib and signs it.
+# Converts the ELF file into <directory>/<file name>.dylib and signs it. A library's ELF file goes into the export
+# table too.
+EXPORTED=()
 contain() {
   local container="$2/$(basename "$1").dylib"
   mkdir -p "$2"
   "$CONVERT" convert "$1" "$container" --platform "$PLATFORM" >/dev/null
   codesign --force --timestamp=none --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" \
     --identifier "$PRODUCT_BUNDLE_IDENTIFIER" "$container"
+  [[ "$(basename "$2")" == bin ]] || EXPORTED+=("$1")
 }
 
 contain "$BIONIC/bin/activity-host" "$OUT/bin"
@@ -185,4 +190,6 @@ done
 # them, and its empty folder keeps that name in /system/etc/security's listing.
 mkdir -p "$APEX/com.android.conscrypt/cacerts" "$OUT/system/etc/security/cacerts"
 cp "$CA_CERTIFICATES"/* "$APEX/com.android.conscrypt/cacerts/"
+# The export table of every library above (ADR-0055 decision 3), which the import's compatibility check reads.
+python3 "$SRCROOT/tools/export-table.py" "$OUT/system/etc/export-table.txt" "${EXPORTED[@]}"
 echo "Embedded the guest system: $(find "$OUT" -name '*.dylib' | wc -l | tr -d ' ') signed containers for $PLATFORM"

@@ -62,7 +62,7 @@ REQUIRED = (
        + ART_COPIES]
     + ["system/framework/framework.jar", "system/framework/framework-res/AndroidManifest.xml",
        "system/framework/framework-res/resources.arsc", "system/etc/permissions/platform.xml",
-       "system/etc/public.libraries.txt", "system/usr/share/zoneinfo/tzdata"]
+       "system/etc/public.libraries.txt", "system/etc/export-table.txt", "system/usr/share/zoneinfo/tzdata"]
     + [f"apex/com.android.art/javalib/{jar}" for jar in ART_JARS]
     + ["apex/com.android.conscrypt/javalib/conscrypt.jar", "apex/com.android.i18n/etc/icu/icudt75l.dat",
        "apex-lib64/com.android.art/libart.so.dylib", "apex-lib64/com.android.art/libandroidicu.so.dylib",
@@ -132,6 +132,25 @@ def certificate_problems(guest):
     return problems
 
 
+def export_table_problems(guest):
+    """The export table (ADR-0055 decision 3, tools/export-table.py): its format's first line, and a block for each
+    library container of lib64/ and apex-lib64/ and for nothing else, as each library's soname is its file name."""
+    path = os.path.join(guest, "system", "etc", "export-table.txt")
+    if not os.path.isfile(path):
+        return []  # REQUIRED names it
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    if not lines or lines[0] != "# minato export table 1":
+        return ["export table: Guest/system/etc/export-table.txt does not start with \"# minato export table 1\""]
+    blocks = {line[2:].split(" ")[0] for line in lines if line.startswith("@ ")}  # "@ <soname>" or "@ <soname> global"
+    libraries = {name[:-len(".dylib")] for top in ("lib64", "apex-lib64")
+                 for _, _, names in os.walk(os.path.join(guest, top)) for name in names if name.endswith(".so.dylib")}
+    problems = [f"export table: no block for {name}" for name in sorted(libraries - blocks)]
+    problems += [f"export table: a block for {name}, which the guest does not have"
+                 for name in sorted(blocks - libraries)]
+    return problems
+
+
 def link_problems(guest):
     """The links in the mounted folders of `guest` whose walk leaves their folder or never ends, each named with its
     text. The mounted folder itself may be a link: apkrt_mount takes its realpath."""
@@ -164,6 +183,7 @@ def main():
         elif os.path.getsize(full) == 0:
             problems.append(f"empty: Guest/{path}")
     problems += certificate_problems(guest)
+    problems += export_table_problems(guest)
     containers = sorted(os.path.join(folder, name) for folder, _, names in os.walk(guest) for name in names
                         if name.endswith(".dylib"))
     for container in containers:
