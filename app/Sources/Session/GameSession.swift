@@ -293,8 +293,9 @@ final class GameSession {
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
                 guestData: paths.guestDataDirectory(for: entry.id).path,
                 guestSystem: bundle.appending(path: "Guest").path,
-                // The kept pack slices, which prepareJavaStart lays out in local_testing (ADR-0050 decision 2).
-                localTesting: entry.packs?.isEmpty == false, splits: splits, environment: environment)
+                // The kept pack slices and the feature modules' splits, which prepareJavaStart lays out in
+                // local_testing (ADR-0050 decisions 2 and 3).
+                localTesting: entry.usesLocalTesting, splits: splits, environment: environment)
         }
         guard var start else { return nil }
         // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).

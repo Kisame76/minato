@@ -182,9 +182,13 @@ public class PadActivity extends Activity {
             }
             mManager.fetch(Collections.singletonList("nopack")).addOnCompleteListener(missing -> step("nopack", () -> {
                 Log.i(TAG, "nopack fetch: " + states(missing, "nopack"));
-                Log.i(TAG, "locations " + new TreeSet<>(mManager.getPackLocations().keySet()));
+                // Only the packs: a module the version installs as splits counts among the locations too (ADR-0050 decision 3).
+                TreeSet<String> locations = new TreeSet<>(mManager.getPackLocations().keySet());
+                locations.retainAll(PACKS);
+                Log.i(TAG, "locations " + locations);
+                // The modules installed before the request are not logged: a module the version installs as splits is
+                // counted installed from the start, which Android's local-testing install is not (ADR-0050 decision 3).
                 SplitInstallManager modules = SplitInstallManagerFactory.create(getApplicationContext());
-                Log.i(TAG, "installed modules " + new TreeSet<>(modules.getInstalledModules()));
                 install(modules);
             }));
         }));
@@ -242,6 +246,7 @@ public class PadActivity extends Activity {
         try {
             Class<?> type = Class.forName("io.github.kisame76.minato.test.pad.extra.ExtraClass");
             Log.i(TAG, "extra class: " + type.getMethod("answer").invoke(null));
+            Log.i(TAG, "extra library: " + type.getMethod("library").invoke(null));
         } catch (Throwable t) {
             Log.i(TAG, "extra class: " + t.getClass().getName());
         }

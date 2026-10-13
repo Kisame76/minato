@@ -102,6 +102,14 @@ resources+=("$work/app-res.zip")
   $(find "$work/classes" -name '*.class' | sort) "${classpath[@]}"
 [[ -f "$work/dex/classes.dex" && ! -f "$work/dex/classes2.dex" ]] || die "D8 wrote other than one classes.dex"
 
+# The feature module's JNI library, which its arm64 split holds (ADR-0050 c3).
+NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
+CLANG="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang"
+[[ -x "$CLANG" ]] || die "no Android NDK at $NDK: set ANDROID_NDK to its folder"
+mkdir -p "$work/lib"
+"$CLANG" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall -Werror -Wl,-z,max-page-size=16384 \
+  -Wl,--no-undefined -o "$work/lib/libextra_native.so" "fixtures/java/$APP-extra/jni/extra_native.c"
+
 # The feature module's code, a class of its own that the base does not hold, in a dex of its own.
 mkdir -p "$work/classes-extra" "$work/dex-extra"
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" -d "$work/classes-extra" \
@@ -146,6 +154,7 @@ for name in ("base", "fastfollow", "ondemand", "extra"):
             module.write(os.path.join(work, "dex", "classes.dex"), "dex/classes.dex")
         elif name == "extra":
             module.write(os.path.join(work, "dex-extra", "classes.dex"), "dex/classes.dex")
+            module.write(os.path.join(work, "lib", "libextra_native.so"), "lib/arm64-v8a/libextra_native.so")
         else:
             module.write(os.path.join(work, name, "assets", f"{name}.txt"), f"assets/{name}.txt")
 EOF
@@ -182,7 +191,7 @@ mv "$work/$APP.apks" "$work/$APP-local.apks" "$OUT/"
 unzip -q -o -j "$OUT/$APP.apks" splits/base-master.apk -d "$OUT"
 unzip -q -o -j "$OUT/$APP.apks" 'asset-slices/*' -d "$OUT/slices"
 # The on-demand feature module's split, which the local-testing mode puts in local_testing beside the packs'.
-unzip -q -o -j "$OUT/$APP.apks" splits/extra-master.apk -d "$OUT/slices"
+unzip -q -o -j "$OUT/$APP.apks" splits/extra-master.apk splits/extra-arm64_v8a.apk -d "$OUT/slices"
 # bundletool's entries carry the mode 0666 and its fixed time, which unzip restores.
 chmod 0644 "$OUT/base-master.apk" "$OUT"/slices/*.apk
 touch "$OUT/base-master.apk" "$OUT"/slices/*.apk

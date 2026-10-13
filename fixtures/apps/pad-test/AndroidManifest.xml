@@ -10,7 +10,7 @@
   <!-- asset-delivery 2.2.2's, for its foreground extraction service. -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-  <application android:label="pad-test">
+  <application android:label="pad-test" android:name="io.github.kisame76.minato.test.pad.PadApplication">
     <activity android:name="io.github.kisame76.minato.test.pad.PadActivity" android:exported="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
       <intent-filter>

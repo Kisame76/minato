@@ -48,6 +48,40 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// The asset packs Play fetches after the install, fast-follow and on-demand, kept in the version folder's packs/
     /// under bundletool's names (ADR-0049 decision 2, format 6); nil where the version has none.
     public var packs: [PackageFile]? = nil
+
+    /// The version's feature modules as bundletool's local-testing mode lays them out, each split under its name
+    /// there (ADR-0050 decision 3): a module's master split `<module>-master.apk`, a configuration split of it,
+    /// which bundletool names `<module>.config.<suffix>`, `<module>-<suffix>.apk`; the base's configuration splits
+    /// belong to no module. The names become file names in local_testing, so a module or suffix that is not ASCII
+    /// letters, digits and underscore, as the pack slices' names are (Library.swift), and a name an earlier split took,
+    /// leave their split out.
+    public var moduleSlices: [(split: PackageFile, localName: String)] {
+        let isName = { (name: Substring) in
+            !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+        }
+        let features = splits.filter { $0.kind == .feature }.compactMap(\.splitName)
+        let modules = Set(features.filter { isName(Substring($0)) })
+        var taken = Set<String>()
+        return splits.compactMap { split in
+            guard let name = split.splitName else { return nil }
+            let localName: String
+            if split.kind == .feature, modules.contains(name) {
+                localName = "\(name)-master.apk"
+            } else if split.kind == .config, let module = split.configForSplit, modules.contains(module),
+                      name.hasPrefix("\(module).config."), isName(name.dropFirst("\(module).config.".count)) {
+                localName = "\(module)-\(name.dropFirst("\(module).config.".count)).apk"
+            } else {
+                return nil
+            }
+            return taken.insert(localName).inserted ? (split, localName) : nil
+        }
+    }
+
+    /// Whether the start lays out local_testing and names it as the meta-data local_testing_dir: the version keeps
+    /// pack slices, or installs a feature module (ADR-0050 decisions 2 and 3).
+    public var usesLocalTesting: Bool {
+        packs?.isEmpty == false || !moduleSlices.isEmpty
+    }
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

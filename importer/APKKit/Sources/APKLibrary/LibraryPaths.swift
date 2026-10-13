@@ -153,18 +153,18 @@ public struct LibraryPaths: Sendable {
         }
     }
 
-    /// The version's kept pack slices in local_testing of the app's external files folder,
-    /// /sdcard/Android/data/<package>/files/local_testing, where Google's Play libraries look for them once the
+    /// The version's kept pack slices and its feature modules' splits in local_testing of the app's external files
+    /// folder, /sdcard/Android/data/<package>/files/local_testing, where Google's Play libraries look for them once the
     /// meta-data local_testing_dir names it (ADR-0050 decision 2): APFS clones, read-only as their originals in packs/
     /// are, made again at every start in the folder emptied first, which stays out of backups as packs/ does (ADR-0049
     /// decision 9). The guest can write there, so nothing here follows a link (the lead's review): external and files,
     /// the app's own folders, are opened as themselves, and a link or file in place of one stops the start; one in
     /// place of local_testing, Minato's folder, goes as itself; what local_testing holds goes by unlinkat, a link as a
     /// link; the clones come by clonefileat, each made read-only whatever its original's mode. The app's data folders are
-    /// made first, as the session makes them before a start (App's review). An app without packs keeps its external
-    /// folder as it is.
+    /// made first, as the session makes them before a start (App's review). An app without packs or a feature module
+    /// keeps its external folder as it is.
     func layOutPacks(of entry: LibraryEntry) throws {
-        guard let packs = entry.packs, !packs.isEmpty else { return }
+        guard entry.usesLocalTesting else { return }
         try prepareData(for: entry.id)
         let external = try Self.openFolder(dataDirectory(for: entry.id).appendingPathComponent("external").path)
         defer { close(external) }
@@ -173,13 +173,25 @@ public struct LibraryPaths: Sendable {
         let folder = try Self.openFolder(named: "local_testing", in: files, replacing: true)
         defer { close(folder) }
         try Self.empty(folder)
-        let source = try Self.openFolder(versionDirectory(for: entry).appendingPathComponent("packs").path)
-        defer { close(source) }
-        for pack in packs {
-            guard clonefileat(source, pack.fileName, folder, pack.fileName, UInt32(CLONE_NOFOLLOW)) == 0,
-                  fchmodat(folder, pack.fileName, 0o444, AT_SYMLINK_NOFOLLOW) == 0 else {
+        let version = try Self.openFolder(versionDirectory(for: entry).path)
+        defer { close(version) }
+        func clone(from source: Int32, _ name: String, as localName: String) throws {
+            guard clonefileat(source, name, folder, localName, UInt32(CLONE_NOFOLLOW)) == 0,
+                  fchmodat(folder, localName, 0o444, AT_SYMLINK_NOFOLLOW) == 0 else {
                 throw Self.lastError()
             }
+        }
+        // The pack slices come from packs/ under their names, a feature module's splits from the version's folder under
+        // their names in bundletool's local-testing set (ADR-0050 c2b).
+        if let packs = entry.packs, !packs.isEmpty {
+            let source = try Self.openFolder(versionDirectory(for: entry).appendingPathComponent("packs").path)
+            defer { close(source) }
+            for pack in packs {
+                try clone(from: source, pack.fileName, as: pack.fileName)
+            }
+        }
+        for (split, localName) in entry.moduleSlices {
+            try clone(from: version, split.fileName, as: localName)
         }
         try Self.excludeFromBackups(folder)
     }
