@@ -33,7 +33,9 @@ import android.print.pdf.PrintedPdfDocument;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RSRuntimeException;
+import android.renderscript.RSSurfaceView;
 import android.renderscript.RenderScript;
+import android.renderscript.RenderScriptGL;
 import android.renderscript.ScriptIntrinsicBlur;
 import android.renderscript.Type;
 import android.net.Uri;
@@ -86,13 +88,15 @@ import java.util.concurrent.Callable;
  * enums, the WebView class, the rest of android.webkit's public types (category 1 of the gap sort), and the camera
  * count, Camera.open(), open(0), getCameraInfo(0) and Camera.Area; then camera2's and android.print's plain types and
  * ShapeDrawable (category 1, package 2); then camera2's CameraManager, Movie with a GIF of two frames, PdfDocument,
- * PrintedPdfDocument and RenderScript's types (category 2).
+ * PrintedPdfDocument and RenderScript's types (category 2), with the hidden RSTextureView, a TextureView whose
+ * constructors an app cannot reach (ADR-0058 d)).
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
  * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
- * and no package). So do RenderScript.create and a blur through it with an app's fallback: the AVD runs RenderScript
- * on its CPU driver, and Minato has none (its create throws RSRuntimeException). Only public API, as an app has it on
- * Android. It logs with the tag webview-camera-test and ends with "done"; tools/android-reference.sh compares it with
+ * and no package). So do RenderScript.create, a blur through it with an app's fallback and RenderScriptGL's
+ * constructor: the AVD runs RenderScript on its drivers, and Minato has none (both throw RSRuntimeException). Only
+ * public API, as an app has it on Android, but for RenderScript's hidden classes, as an app reaches them. It logs
+ * with the tag webview-camera-test and ends with "done"; tools/android-reference.sh compares it with
  * fixtures/expected/webview-camera-test.logcat.
  */
 public class WebViewCameraApplication extends Application {
@@ -122,6 +126,15 @@ public class WebViewCameraApplication extends Application {
         try {
             return String.valueOf(call.call());
         } catch (Exception e) {
+            return e.getClass().getName() + ": " + e.getMessage();
+        }
+    }
+
+    /** As outcome, with the Errors that hidden API and missing natives answer. */
+    private static String thrown(Callable<Object> call) {
+        try {
+            return String.valueOf(call.call());
+        } catch (Throwable e) {
             return e.getClass().getName() + ": " + e.getMessage();
         }
     }
@@ -537,6 +550,24 @@ public class WebViewCameraApplication extends Application {
             blurred = "RSRuntimeException, the app's fallback";
         }
         Log.i(DEVICE_TAG, "RenderScript blur: " + blurred);
+        Log.i(TAG, "RSTextureView: " + outcome(() -> {
+            Class<?> type = Class.forName("android.renderscript.RSTextureView");
+            return type.getSimpleName() + " < " + type.getSuperclass().getName();
+        }));
+        // RenderScriptGL's constructor is greylisted, so an app reaches it, and the AVD's driver makes the context;
+        // RSSurfaceView's createRenderScriptGL is blocked on Android (NoSuchMethodError) and not on Minato, which has
+        // no hidden API policy. Both are the device's.
+        Log.i(DEVICE_TAG, "new RenderScriptGL: " + thrown(() -> {
+            RenderScriptGL gl = new RenderScriptGL(this, new RenderScriptGL.SurfaceConfig());
+            gl.destroy();
+            return gl.getClass().getName();
+        }));
+        Log.i(DEVICE_TAG, "RSSurfaceView.createRenderScriptGL: " + thrown(() -> {
+            RSSurfaceView surfaceView = new RSSurfaceView(this);
+            RenderScriptGL gl = surfaceView.createRenderScriptGL(new RenderScriptGL.SurfaceConfig());
+            surfaceView.destroyRenderScriptGL();
+            return gl.getClass().getName();
+        }));
     }
 
     private void provider() {

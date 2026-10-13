@@ -10,7 +10,8 @@
 # the device's WebView (webview-camera-test-device) are shown, and must be what Android 15 answers without the
 # webview feature, which Minato does not report (WebViewFactory.getProvider at android-15.0.0_r1): no feature, an
 # UnsupportedOperationException without a message for a new WebView, CookieManager and the default user agent, and no
-# provider package; and RenderScript.create, which the AVD runs on its CPU driver, must throw Minato's
+# provider package; and RenderScript.create and RenderScriptGL's constructor (also through RSSurfaceView, which
+# Android's hidden API policy blocks and Minato has none of), which the AVD runs on its drivers, must throw Minato's
 # RSRuntimeException, which the blur's fallback catches (a named departure, framework/patches).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/webview-camera-check.sh
@@ -38,12 +39,15 @@ python3 framework/tests/java_app_run.py webview-camera-test io.github.kisame76.m
   build/webview-camera-test/webview-camera-test.apk fixtures/expected/webview-camera-test.logcat \
   | tee build/webview-camera-check/run.txt
 missing=0
+unavailable="android.renderscript.RSRuntimeException: RenderScript is not available on this device"
 for line in "the webview feature: false" "new WebView: java.lang.UnsupportedOperationException: null" \
     "CookieManager.getInstance: java.lang.UnsupportedOperationException: null" \
     "WebSettings.getDefaultUserAgent: java.lang.UnsupportedOperationException: null" \
     "WebView.getCurrentWebViewPackage: null" \
     "RenderScript.create: android.renderscript.RSRuntimeException: RenderScript is not available on this device" \
-    "RenderScript blur: RSRuntimeException, the app's fallback"; do
+    "RenderScript blur: RSRuntimeException, the app's fallback" \
+    "new RenderScriptGL: android.renderscript.RSRuntimeException: RenderScript is not available on this device" \
+    "RSSurfaceView.createRenderScriptGL: $unavailable"; do
   if ! grep -qxF "  device: I/webview-camera-test-device: $line" build/webview-camera-check/run.txt; then
     echo "FAIL: no device line \"$line\" (Android 15 without the webview feature, Minato without RenderScript)"
     missing=1

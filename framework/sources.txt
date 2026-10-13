@@ -1794,8 +1794,8 @@ frameworks_base/core/java/android/print/pdf/PrintedPdfDocument.java
 frameworks_base/core/java/android/hardware/camera2/CameraDevice.java
 frameworks_base/core/java/android/util/Range.java
 # The gap sort's category 2, part 3 (Grafik), webview-camera-test: android.renderscript, without a driver
-# (framework/patches/renderscript-without-a-driver.patch: create throws RSRuntimeException, a named departure);
-# RSTextureView waits for TextureView.
+# (framework/patches/renderscript-without-a-driver.patch: create throws RSRuntimeException, a named departure),
+# with RSTextureView on TextureView (ADR-0058 d)).
 frameworks_base_types/rs/java/android/renderscript/Allocation.java
 frameworks_base_types/rs/java/android/renderscript/AllocationAdapter.java
 frameworks_base_types/rs/java/android/renderscript/BaseObj.java
@@ -1834,6 +1834,7 @@ frameworks_base_types/rs/java/android/renderscript/RSIllegalArgumentException.ja
 frameworks_base_types/rs/java/android/renderscript/RSInvalidStateException.java
 frameworks_base_types/rs/java/android/renderscript/RSRuntimeException.java
 frameworks_base_types/rs/java/android/renderscript/RSSurfaceView.java
+frameworks_base_types/rs/java/android/renderscript/RSTextureView.java
 frameworks_base_types/rs/java/android/renderscript/RenderScript.java
 frameworks_base_types/rs/java/android/renderscript/RenderScriptCacheDir.java
 frameworks_base_types/rs/java/android/renderscript/RenderScriptGL.java

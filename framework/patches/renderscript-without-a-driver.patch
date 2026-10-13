@@ -7,20 +7,21 @@ gets ExceptionInInitializerError, which no catch of RSRuntimeException takes, an
 NoClassDefFoundError. The off switch config.disable_renderscript has create() return null instead, and an app then
 crashes with a NullPointerException. So the static init loads nothing, and every create (through internalCreate)
 logs once through Unwritten and throws RSRuntimeException, which blur libraries and apps catch before they fall back
-to Java. Code that does not catch it still breaks, where it works on Android.
+to Java. Code that does not catch it still breaks, where it works on Android. So does RenderScriptGL's constructor,
+which makes its device through nDeviceCreate, not internalCreate (webview-camera-test, ADR-0058 d)).
 
 --- a/rs/java/android/renderscript/RenderScript.java
 +++ b/rs/java/android/renderscript/RenderScript.java
-@@ -25,6 +25,8 @@
- import android.os.Trace;
+@@ -26,6 +26,8 @@
  import android.util.Log;
  import android.view.Surface;
-+
-+import com.android.minato.services.Unwritten;
  
++import com.android.minato.services.Unwritten;
++
  import java.io.File;
  import java.lang.reflect.Method;
-@@ -112,30 +114,10 @@
+ import java.nio.ByteBuffer;
+@@ -112,34 +114,21 @@
      @UnsupportedAppUsage
      static int sPointerSize;
  
@@ -53,7 +54,19 @@ to Java. Code that does not catch it still breaks, where it works on Android.
      }
  
      // Non-threadsafe functions.
-@@ -1408,8 +1390,10 @@
+-    native long  nDeviceCreate();
++    // Minato: RenderScriptGL's constructor (greylisted, so apps reach it, also through the hidden RSSurfaceView and
++    // RSTextureView, as Minato has no hidden API policy) makes its device here, not through internalCreate: the
++    // same refusal, where the native would end the app with UnsatisfiedLinkError.
++    long nDeviceCreate() {
++        Unwritten.log("android.renderscript.RenderScriptGL(Context,SurfaceConfig) without a RenderScript driver",
++                null);
++        throw new RSRuntimeException("RenderScript is not available on this device");
++    }
+     native void nDeviceDestroy(long dev);
+     native void nDeviceSetConfig(long dev, int param, int value);
+     native int nContextGetUserMessage(long con, int[] data);
+@@ -1408,8 +1397,10 @@
       */
      private static RenderScript internalCreate(Context ctx, int sdkVersion, ContextType ct, int flags) {
          if (!sInitialized) {

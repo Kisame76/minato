@@ -77,4 +77,5 @@ I/webview-camera-test: Element.DataType: 30 values, UNSIGNED_8 PIXEL_RGBA
 I/webview-camera-test: RSRuntimeException: message, a RuntimeException true
 I/webview-camera-test: RSMessageHandler: run
 I/webview-camera-test: Element.U8_4(null): java.lang.NullPointerException: Attempt to read from field 'android.renderscript.Element android.renderscript.RenderScript.mElement_UCHAR_4' on a null object reference in method 'android.renderscript.Element android.renderscript.Element.U8_4(android.renderscript.RenderScript)'
+I/webview-camera-test: RSTextureView: RSTextureView < android.view.TextureView
 I/webview-camera-test: done
