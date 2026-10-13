@@ -41,7 +41,7 @@ enum CodeSigning {
     /// What the app shows and compares about the certificate in `der`.
     static func info(of der: Data) -> CertificateInfo? {
         var description = apkconv_certificate()
-        var error = [CChar](repeating: 0, count: 256)
+        var error = converterErrorBuffer()
         let described = der.withUnsafeBytes { apkconv_describe_certificate($0.baseAddress, $0.count, &description, &error, error.count) }
         guard described == 0 else { return nil }
         return CertificateInfo(der: der, serialNumber: text(of: &description.serial_number), team: text(of: &description.team),
@@ -69,7 +69,7 @@ enum CodeSigning {
     private static func readOwnSignature() -> OwnSignature {
         guard let executable = Bundle.main.executablePath else { return .unreadable("the app has no executable path") }
         var team = [CChar](repeating: 0, count: 64)
-        var error = [CChar](repeating: 0, count: 256)
+        var error = converterErrorBuffer()
         guard apkconv_signing_team(executable, &team, team.count, &error, error.count) == 0 else {
             return .unreadable(converterMessage(in: error))
         }
@@ -125,7 +125,7 @@ enum CodeSigning {
     static func ownChain() -> String {
         guard let executable = Bundle.main.executablePath else { return "no executable" }
         var names = [CChar](repeating: 0, count: 2048)
-        var error = [CChar](repeating: 0, count: 256)
+        var error = converterErrorBuffer()
         guard apkconv_signing_chain(executable, &names, names.count, &error, error.count) == 0 else {
             return "unreadable: \(converterMessage(in: error))"
         }
@@ -183,11 +183,6 @@ enum CodeSigning {
     }
 }
 
-/// The text a C function of APKConvert left in its error buffer.
-func converterMessage(in buffer: [CChar]) -> String {
-    String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-}
-
 /// The signer as the library's converter, at import (ADR-0032) and for signing converted code again
 /// (ADR-0023). The library calls it from its actor, one file after the other, never at the same time.
 struct SignerConverter: ContainerConverting, @unchecked Sendable {
@@ -212,7 +207,7 @@ final class ContainerSigner {
 
     /// With `identity` nil the containers are signed ad hoc, which only the Simulator runs.
     init(identity: SecIdentity?) throws {
-        var error = [CChar](repeating: 0, count: 1024)
+        var error = converterErrorBuffer()
         guard let signer = apkconv_signer_create(identity, Bundle.main.executablePath, Self.identifier, &error, error.count) else {
             throw CodeSigningError.converter(converterMessage(in: error))
         }
@@ -221,7 +216,7 @@ final class ContainerSigner {
 
     /// For a private key and its certificate (DER) kept as two keychain items.
     init(privateKey: SecKey, certificate: Data) throws {
-        var error = [CChar](repeating: 0, count: 1024)
+        var error = converterErrorBuffer()
         let created = certificate.withUnsafeBytes {
             apkconv_signer_create_with_key(privateKey, $0.baseAddress, $0.count, Bundle.main.executablePath, Self.identifier,
                                            &error, error.count)
@@ -238,7 +233,7 @@ final class ContainerSigner {
     @discardableResult
     func convert(_ elf: URL, to container: URL) throws -> apkconv_statistics {
         var statistics = apkconv_statistics()
-        var error = [CChar](repeating: 0, count: 1024)
+        var error = converterErrorBuffer()
         guard apkconv_convert(signer, elf.path, container.path, &statistics, &error, error.count) == 0 else {
             throw CodeSigningError.converter(converterMessage(in: error))
         }
@@ -248,7 +243,7 @@ final class ContainerSigner {
     /// Signs a test container in `directory`, loads it with dlopen and calls it (ADR-0023).
     func selfTest(in directory: URL) throws -> apkconv_self_test_result {
         var result = apkconv_self_test_result()
-        var error = [CChar](repeating: 0, count: 1024)
+        var error = converterErrorBuffer()
         guard apkconv_self_test(signer, directory.path, &result, &error, error.count) == 0 else {
             throw CodeSigningError.converter(converterMessage(in: error))
         }
