@@ -71,6 +71,8 @@ LIBRARIES = {
             "ASensorManager_destroyEventQueue", "ASensorEventQueue_registerSensor", "ASensorEventQueue_enableSensor",
             "ASensorEventQueue_disableSensor", "ASensorEventQueue_setEventRate", "ASensorEventQueue_hasEvents",
             "ASensorEventQueue_getEvents",
+            # a Java SurfaceTexture's consumer through libandroid_runtime (surface_texture.cpp, ADR-0058 c))
+            "ASurfaceTexture_*",
         ],
         # M3 has no resource matching. Input's Java side waits for Java (M4).
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
@@ -98,7 +100,8 @@ LIBRARIES = {
         "private": ["minato_ANativeWindow_create", "minato_ANativeWindow_getInfo", "minato_BufferQueue_create",
                     "minato_BufferQueue_setDefaultSize", "minato_BufferQueue_acquire", "minato_BufferQueue_releaseSlot",
                     "minato_BufferQueue_abandon", "minato_BufferQueue_isAbandoned", "minato_BufferQueue_release",
-                    "minato_ANativeWindow_isQueue", "minato_ANativeWindow_dequeue", "minato_ANativeWindow_queue"],
+                    "minato_ANativeWindow_isQueue", "minato_ANativeWindow_dequeue", "minato_ANativeWindow_queue",
+                    "minato_ANativeWindow_cancel"],
     },
     # zlib from the NDK's libz.a, whole (decision 12): only the version script.
     "libz": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
@@ -166,9 +169,7 @@ VALUES = {
     "ASensor_getReportingMode": "-1",  # AREPORTING_MODE_INVALID
     "ASensor_getType": "-1",  # ASENSOR_TYPE_INVALID
     "ASensor_isDirectChannelTypeSupported": "0", "ASensor_isWakeUpSensor": "0",
-    # Surface textures and transactions: none exists
-    "ASurfaceTexture_attachToGLContext": "-EINVAL", "ASurfaceTexture_detachFromGLContext": "-EINVAL",
-    "ASurfaceTexture_getTimestamp": "0", "ASurfaceTexture_updateTexImage": "-EINVAL",
+    # Surface transactions: none exists
     "ASurfaceTransactionStats_getAcquireTime": "-1", "ASurfaceTransactionStats_getLatchTime": "0",
     "ASurfaceTransactionStats_getPresentFenceFd": "-1", "ASurfaceTransactionStats_getPreviousReleaseFenceFd": "-1",
     # Thermal: no thermal service

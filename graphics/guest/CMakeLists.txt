@@ -134,7 +134,7 @@ target_compile_options(ahb-test PRIVATE -Wall -Wextra -Wno-nonnull -Wno-unguarde
 # finds. libGLESv1_CM adds Android's 7 *Bounds functions (bounds.c).
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
-add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/procs.c"
+add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/queue.c" "${egl}/procs.c"
   "${gen}/egl_stubs.S" "${gen}/egl_bind.c")
 # AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
 set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__

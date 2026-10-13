@@ -4,7 +4,8 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
 - android_opengl_EGL14.cpp and com_google_android_gles_jni_EGLImpl.cpp: a window surface's window comes from
   minato_surface_window (framework/native/android_runtime/minato_gles.h) as a plain ANativeWindow* the caller
   releases, in place of android_view_Surface_getNativeWindow's sp<ANativeWindow>. A window surface on a SurfaceTexture
-  throws UnsupportedOperationException: SurfaceTexture is libgui's buffer queue.
+  takes its queue window from minato_surface_texture_window (ADR-0058 c)), in place of a libgui Surface of its
+  producer.
 - com_google_android_gles_jni_EGLImpl.cpp: the hidden getInitCount, which read libEGL's private init count, logs its
   Unwritten line and throws UnsupportedOperationException. Nothing in the framework calls it.
 - android_opengl_EGLExt.cpp: eglDupNativeFenceFDANDROID, which the NDK's libEGL does not export, comes through
@@ -26,11 +27,11 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  
  #include <assert.h>
  #include <EGL/egl.h>
--
+ 
 -#include <gui/Surface.h>
 -#include <gui/GLConsumer.h>
 -#include <gui/Surface.h>
- 
+-
 -#include <ui/ANativeObjectBase.h>
 +// Minato (ADR-0041 a)): no libgui or libui; a Surface's window comes from minato_gles.h.
 +#include "minato_gles.h"
@@ -71,94 +72,47 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
      if (attrib_list_base) {
          _env->ReleaseIntArrayElements(attrib_list_ref, attrib_list_base,
              JNI_ABORT);
-@@ -595,83 +593,10 @@
- static jobject
- android_eglCreateWindowSurfaceTexture
-   (JNIEnv *_env, jobject _this, jobject dpy, jobject config, jobject win, jintArray attrib_list_ref, jint offset) {
--    jint _exception = 0;
--    const char * _exceptionType = "";
--    const char * _exceptionMessage = "";
--    EGLSurface _returnValue = (EGLSurface) 0;
--    EGLDisplay dpy_native = (EGLDisplay) fromEGLHandle(_env, egldisplayGetHandleID, dpy);
--    EGLConfig config_native = (EGLConfig) fromEGLHandle(_env, eglconfigGetHandleID, config);
--    int attrib_list_sentinel = 0;
--    EGLint *attrib_list_base = (EGLint *) 0;
--    jint _remaining;
--    EGLint *attrib_list = (EGLint *) 0;
+@@ -605,8 +603,7 @@
+     EGLint *attrib_list_base = (EGLint *) 0;
+     jint _remaining;
+     EGLint *attrib_list = (EGLint *) 0;
 -    android::sp<ANativeWindow> window;
 -    android::sp<android::IGraphicBufferProducer> producer;
--
--    if (!attrib_list_ref) {
--        _exception = 1;
--        _exceptionType = "java/lang/IllegalArgumentException";
--        _exceptionMessage = "attrib_list == null";
--        goto exit;
--    }
--    if (offset < 0) {
--        _exception = 1;
--        _exceptionType = "java/lang/IllegalArgumentException";
--        _exceptionMessage = "offset < 0";
--        goto exit;
--    }
--    if (win == NULL) {
--not_valid_surface:
--        _exception = 1;
--        _exceptionType = "java/lang/IllegalArgumentException";
--        _exceptionMessage = "Make sure the SurfaceView or associated SurfaceHolder has a valid Surface";
--        goto exit;
--    }
++    ANativeWindow *window = nullptr;
+ 
+     if (!attrib_list_ref) {
+         _exception = 1;
+@@ -627,12 +624,8 @@
+         _exceptionMessage = "Make sure the SurfaceView or associated SurfaceHolder has a valid Surface";
+         goto exit;
+     }
 -    producer = android::SurfaceTexture_getProducer(_env, win);
 -
 -    if (producer == NULL)
 -        goto not_valid_surface;
 -
 -    window = new android::Surface(producer, true);
--
--    if (window == NULL)
--        goto not_valid_surface;
--
--    _remaining = _env->GetArrayLength(attrib_list_ref) - offset;
--    attrib_list_base = (EGLint *)
--        _env->GetIntArrayElements(attrib_list_ref, (jboolean *)0);
--    attrib_list = attrib_list_base + offset;
--    attrib_list_sentinel = 0;
--    for (int i = _remaining - 1; i >= 0; i--)  {
--        if (*((EGLint*)(attrib_list + i)) == EGL_NONE){
--            attrib_list_sentinel = 1;
--            break;
--        }
--    }
--    if (attrib_list_sentinel == 0) {
--        _exception = 1;
--        _exceptionType = "java/lang/IllegalArgumentException";
--        _exceptionMessage = "attrib_list must contain EGL_NONE!";
--        goto exit;
--    }
--
--    _returnValue = eglCreateWindowSurface(
--        (EGLDisplay)dpy_native,
--        (EGLConfig)config_native,
++    // Minato (ADR-0058 c)): the SurfaceTexture's queue window, as the tag's Surface of its producer.
++    window = android::minato_surface_texture_window(_env, win);
+ 
+     if (window == NULL)
+         goto not_valid_surface;
+@@ -658,11 +651,14 @@
+     _returnValue = eglCreateWindowSurface(
+         (EGLDisplay)dpy_native,
+         (EGLConfig)config_native,
 -        (EGLNativeWindowType)window.get(),
--        (EGLint *)attrib_list
--    );
--
--exit:
--    if (attrib_list_base) {
--        _env->ReleaseIntArrayElements(attrib_list_ref, attrib_list_base,
--            JNI_ABORT);
--    }
--    if (_exception) {
--        jniThrowException(_env, _exceptionType, _exceptionMessage);
--        return nullptr;
--    }
--    return toEGLHandle(_env, eglsurfaceClass, eglsurfaceConstructor, _returnValue);
-+    // Minato (ADR-0041 a)): a SurfaceTexture is libgui's buffer queue, which Minato does not have.
-+    jniThrowException(_env, "java/lang/UnsupportedOperationException",
-+                      "eglCreateWindowSurface on a SurfaceTexture: Minato has no libgui (ADR-0041 a))");
-+    return nullptr;
- }
- /* EGLSurface eglCreatePbufferSurface ( EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list ) */
- static jobject
++        (EGLNativeWindowType)window,
+         (EGLint *)attrib_list
+     );
+ 
+ exit:
++    if (window != nullptr) {
++        ANativeWindow_release(window);
++    }
+     if (attrib_list_base) {
+         _env->ReleaseIntArrayElements(attrib_list_ref, attrib_list_base,
+             JNI_ABORT);
 --- a/android_opengl_EGL15.cpp
 +++ b/android_opengl_EGL15.cpp
 @@ -29,7 +29,6 @@
@@ -171,7 +125,7 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  static jclass egldisplayClass;
 --- a/android_opengl_EGLExt.cpp
 +++ b/android_opengl_EGLExt.cpp
-@@ -23,20 +23,13 @@
+@@ -23,19 +23,12 @@
  #include "jni.h"
  #include <nativehelper/JNIPlatformHelp.h>
  #include <android_runtime/AndroidRuntime.h>
@@ -186,12 +140,11 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
 -#include <gui/Surface.h>
 -#include <gui/GLConsumer.h>
 -#include <gui/Surface.h>
- 
--#include <ui/ANativeObjectBase.h>
 -
+-#include <ui/ANativeObjectBase.h>
+ 
  static jclass egldisplayClass;
  static jclass eglsurfaceClass;
- static jclass eglsyncClass;
 @@ -78,7 +71,11 @@
      EGLDisplay dpy_native = (EGLDisplay)fromEGLHandle(env, egldisplayGetHandleID, dpy);
      EGLSync sync_native = (EGLSync)fromEGLHandle(env, eglsyncGetHandleID, sync);
@@ -207,7 +160,7 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  // --------------------------------------------------------------------------
 --- a/com_google_android_gles_jni_EGLImpl.cpp
 +++ b/com_google_android_gles_jni_EGLImpl.cpp
-@@ -17,21 +17,15 @@
+@@ -17,20 +17,14 @@
  
  #include <nativehelper/JNIHelp.h>
  #include <android_runtime/AndroidRuntime.h>
@@ -219,18 +172,18 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
  #include <EGL/egl.h>
  #include <GLES/gl.h>
 -#include <private/EGL/display.h>
- 
+-
 -#include <gui/Surface.h>
 -#include <gui/GLConsumer.h>
 -#include <gui/Surface.h>
+-
+-#include <ui/ANativeObjectBase.h>
++
 +// Minato (ADR-0041 a)): no libgui, libui or libEGL's private API; a Surface's window comes from minato_gles.h.
 +#include "minato_gles.h"
  
--#include <ui/ANativeObjectBase.h>
--
  namespace android {
  
- static jclass gConfig_class;
 @@ -173,8 +167,12 @@
  }
  
@@ -255,7 +208,7 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
      if (native_window == NULL) {
  not_valid_surface:
          jniThrowException(_env, "java/lang/IllegalArgumentException",
-@@ -271,42 +269,23 @@
+@@ -271,13 +269,14 @@
          return 0;
      }
  
@@ -272,39 +225,34 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
      return reinterpret_cast<jlong>(sur);
  }
  
- static jlong jni_eglCreateWindowSurfaceTexture(JNIEnv *_env, jobject _this, jobject display,
-         jobject config, jobject native_window, jintArray attrib_list) {
--    if (display == NULL || config == NULL
--        || !validAttribList(_env, attrib_list)) {
--        jniThrowException(_env, "java/lang/IllegalArgumentException", NULL);
--        return 0;
--    }
--    EGLDisplay dpy = getDisplay(_env, display);
--    EGLContext cnf = getConfig(_env, config);
+@@ -290,7 +289,7 @@
+     }
+     EGLDisplay dpy = getDisplay(_env, display);
+     EGLContext cnf = getConfig(_env, config);
 -    sp<ANativeWindow> window;
--    if (native_window == 0) {
--not_valid_surface:
--        jniThrowException(_env, "java/lang/IllegalArgumentException",
--                "Make sure the SurfaceTexture is valid");
--        return 0;
--    }
--
++    ANativeWindow *window = nullptr;
+     if (native_window == 0) {
+ not_valid_surface:
+         jniThrowException(_env, "java/lang/IllegalArgumentException",
+@@ -298,14 +297,15 @@
+         return 0;
+     }
+ 
 -    sp<IGraphicBufferProducer> producer(SurfaceTexture_getProducer(_env, native_window));
 -    window = new Surface(producer, true);
--    if (window == NULL)
--        goto not_valid_surface;
--
--    jint* base = beginNativeAttribList(_env, attrib_list);
++    // Minato (ADR-0058 c)): the SurfaceTexture's queue window, as the tag's Surface of its producer.
++    window = minato_surface_texture_window(_env, native_window);
+     if (window == NULL)
+         goto not_valid_surface;
+ 
+     jint* base = beginNativeAttribList(_env, attrib_list);
 -    EGLSurface sur = eglCreateWindowSurface(dpy, cnf, window.get(), base);
--    endNativeAttributeList(_env, attrib_list, base);
--    return reinterpret_cast<jlong>(sur);
-+    // Minato (ADR-0041 a)): a SurfaceTexture is libgui's buffer queue, which Minato does not have.
-+    jniThrowException(_env, "java/lang/UnsupportedOperationException",
-+            "eglCreateWindowSurface on a SurfaceTexture: Minato has no libgui (ADR-0041 a))");
-+    return 0;
++    EGLSurface sur = eglCreateWindowSurface(dpy, cnf, window, base);
+     endNativeAttributeList(_env, attrib_list, base);
++    ANativeWindow_release(window);
+     return reinterpret_cast<jlong>(sur);
  }
  
- static jboolean jni_eglGetConfigAttrib(JNIEnv *_env, jobject _this, jobject display,
 --- a/android/opengl/util.cpp
 +++ b/android/opengl/util.cpp
 @@ -28,7 +28,6 @@

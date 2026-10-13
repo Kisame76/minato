@@ -29,4 +29,15 @@ MINATO_HIDDEN void minato_bad_native_window(EGLDisplay display, EGLConfig config
 /* eglTerminate's part (surface.c): the window surfaces of `display` let their windows go. */
 MINATO_HIDDEN void minato_release_windows(EGLDisplay display);
 
+/* Window surfaces on a queue window, a SurfaceTexture's (queue.c, ADR-0058 c)): whether `window` is one; its surface,
+   a pbuffer; the swap, 1 when `surface` is one of them with the swap's result in `result`, else 0; eglDestroySurface's
+   and eglTerminate's parts; and eglPresentationTimeANDROID's, 1 when `surface` is one of them. */
+struct ANativeWindow;
+MINATO_HIDDEN int minato_queue_window(struct ANativeWindow *window);
+MINATO_HIDDEN EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANativeWindow *window);
+MINATO_HIDDEN int minato_queue_swap(EGLDisplay display, EGLSurface surface, EGLBoolean *result);
+MINATO_HIDDEN void minato_queue_destroyed(EGLDisplay display, EGLSurface surface);
+MINATO_HIDDEN void minato_queue_terminated(EGLDisplay display);
+MINATO_HIDDEN int minato_queue_presentation_time(EGLDisplay display, EGLSurface surface, int64_t time);
+
 #endif

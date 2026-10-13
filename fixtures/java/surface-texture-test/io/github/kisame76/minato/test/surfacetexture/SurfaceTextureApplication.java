@@ -8,6 +8,7 @@ import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
+import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
@@ -24,6 +25,7 @@ import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * ADR-0058 c)'s test of SurfaceTexture: AOSP's SurfaceTexture.java and Surface(SurfaceTexture) over Minato's buffer
@@ -37,6 +39,14 @@ import java.util.concurrent.TimeUnit;
  *   pixel of the top half and one of the bottom half are read back;
  * - a second frame, all green, with a later timestamp; updateTexImage without a new frame keeps it; detach and attach
  *   to a new texture keep it too;
+ * - GL as the producer (ADR-0058 c), its second part): after the Canvas's Surface is released, a window surface on a
+ *   new Surface(SurfaceTexture), then one on the SurfaceTexture itself with a presentation time, which becomes the
+ *   frame's timestamp; each draws the top half yellow and the bottom half cyan by scissored clears;
+ * - the NDK's ASurfaceTexture (its third part, the JNI library): a frame through its window from native code, top
+ *   magenta and bottom white, and the consumer's calls from native code on the GL thread; then, without a listener,
+ *   a frame queued while detached, updateTexImage then, and after attaching again;
+ * - three frames from the CPU without an updateTexImage between them: whether the producer waits, the onFrameAvailable
+ *   calls, and which frame updateTexImage takes;
  * - release: isReleased, and what lockCanvas and updateTexImage answer afterwards.
  * The pixels are of one color each, exact in 8 bits. It logs with the tag surface-texture-test and ends with "done";
  * tools/android-reference.sh compares it with Android 15's log.
@@ -69,6 +79,7 @@ public class SurfaceTextureApplication extends Application {
     private final float[] matrix = new float[16];
     private CountDownLatch frame;
     private long lastTimestamp;
+    private volatile long presentationTime;
 
     @Override
     public void onCreate() {
@@ -93,6 +104,17 @@ public class SurfaceTextureApplication extends Application {
                 GLES20.glGenTextures(1, names, 0);
                 texture.attachToGLContext(names[0]);
                 Log.i(TAG, "attached to a new texture: " + pixels());
+                return null;
+            });
+            // The Canvas's Surface stays connected as the CPU's producer until it goes; GL takes a new one.
+            surface.release();
+            Log.i(TAG, "the Canvas's Surface released: valid " + surface.isValid());
+            surface = new Surface(texture);
+            produceGl("third frame, GL through Surface(SurfaceTexture)", surface, false);
+            produceGl("fourth frame, GL on the SurfaceTexture with a presentation time", texture, true);
+            ndk();
+            burst();
+            onGl(() -> {
                 texture.release();
                 Log.i(TAG, "released: " + texture.isReleased());
                 Log.i(TAG, "updateTexImage after release: " + outcome(() -> {
@@ -159,14 +181,18 @@ public class SurfaceTextureApplication extends Application {
         Log.i(TAG, "SurfaceTexture: released " + texture.isReleased());
         texture.setDefaultBufferSize(8, 8);
         texture.setOnFrameAvailableListener(available -> {
+            available.updateTexImage();
+            long timestamp = available.getTimestamp();
+            if (timestamp == lastTimestamp) {
+                return;  // a call without a new frame, which Android makes at times: the frame's own comes later
+            }
             Log.i(TAG, "onFrameAvailable on the creator's Looper: " + (Looper.myLooper() == glLooper)
                     + ", the same SurfaceTexture " + (available == texture));
-            available.updateTexImage();
             available.getTransformMatrix(matrix);
-            long timestamp = available.getTimestamp();
             Log.i(TAG, "  transform " + Arrays.toString(matrix));
             Log.i(TAG, "  timestamp positive " + (timestamp > 0) + ", later than the last "
-                    + (timestamp > lastTimestamp));
+                    + (timestamp > lastTimestamp)
+                    + (presentationTime != 0 ? ", the presentation time " + (timestamp == presentationTime) : ""));
             lastTimestamp = timestamp;
             Log.i(TAG, "  " + pixels());
             frame.countDown();
@@ -174,6 +200,141 @@ public class SurfaceTextureApplication extends Application {
         surface = new Surface(texture);
         Log.i(TAG, "Surface(SurfaceTexture): valid " + surface.isValid());
         return null;
+    }
+
+    /**
+     * The NDK's ASurfaceTexture of the SurfaceTexture (its JNI library): a frame through its window, which the Java
+     * listener takes, then the consumer's calls from native code on the GL thread, and its release.
+     */
+    private void ndk() throws InterruptedException {
+        System.loadLibrary("surface-texture-test");
+        long ndk = nativeFromSurfaceTexture(texture);
+        Log.i(TAG, "ASurfaceTexture_fromSurfaceTexture: " + (ndk != 0));
+        frame = new CountDownLatch(1);
+        String produced = nativeProduce(ndk, 0xff00ffff, 0xffffffff);
+        if (!frame.await(10, TimeUnit.SECONDS)) {
+            Log.i(TAG, "ASurfaceTexture's window: no onFrameAvailable within 10 s");
+        }
+        Log.i(TAG, "ASurfaceTexture's window: " + produced);
+        onGl(() -> {
+            int[] names = new int[1];
+            GLES20.glGenTextures(1, names, 0);
+            Log.i(TAG, "ASurfaceTexture: " + nativeConsume(ndk, names[0], texture.getTimestamp()));
+            Log.i(TAG, "  attached again: " + pixels());
+            texture.setOnFrameAvailableListener(null);
+            texture.detachFromGLContext();
+            return null;
+        });
+        // A frame queued while the texture is detached and nobody listens.
+        Log.i(TAG, "a frame while detached: " + nativeProduce(ndk, 0x00ff00ff, 0x0000ffff));
+        Thread.sleep(200);
+        onGl(() -> {
+            Log.i(TAG, "  updateTexImage detached with a frame queued: " + nativeUpdate(ndk));
+            int[] names = new int[1];
+            GLES20.glGenTextures(1, names, 0);
+            texture.attachToGLContext(names[0]);
+            Log.i(TAG, "  attached: " + pixels());
+            Log.i(TAG, "  updateTexImage attached: " + nativeUpdate(ndk) + ", " + pixels());
+            return null;
+        });
+        nativeRelease(ndk);
+        Log.i(TAG, "ASurfaceTexture_release: the SurfaceTexture released " + texture.isReleased());
+    }
+
+    /**
+     * Three frames from the CPU without an updateTexImage between them, the producer given 3 s: whether it waits for
+     * the consumer, how many onFrameAvailable calls come, and which frame updateTexImage takes, twice.
+     */
+    private void burst() throws InterruptedException {
+        AtomicInteger calls = new AtomicInteger();
+        texture.setOnFrameAvailableListener(available -> calls.incrementAndGet());
+        Surface burst = new Surface(texture);
+        Thread producer = new Thread(() -> {
+            for (int color : new int[] {0xffff0000, 0xff00ff00, 0xff0000ff}) {
+                Canvas canvas = burst.lockCanvas(null);
+                canvas.drawColor(color);
+                burst.unlockCanvasAndPost(canvas);
+            }
+        }, "burst");
+        producer.setDaemon(true);
+        producer.start();
+        producer.join(3000);
+        Log.i(TAG, "three frames without updateTexImage: the producer done " + !producer.isAlive());
+        Thread.sleep(200);
+        Log.i(TAG, "  onFrameAvailable calls " + calls.get());
+        onGl(() -> {
+            texture.updateTexImage();
+            Log.i(TAG, "  updateTexImage: " + pixels());
+            texture.updateTexImage();
+            Log.i(TAG, "  updateTexImage again: " + pixels());
+            return null;
+        });
+        burst.release();
+    }
+
+    private static native long nativeFromSurfaceTexture(SurfaceTexture texture);
+
+    private static native String nativeProduce(long texture, int top, int bottom);
+
+    private static native int nativeUpdate(long texture);
+
+    private static native String nativeConsume(long texture, int name, long timestamp);
+
+    private static native void nativeRelease(long texture);
+
+    /**
+     * A frame from GL on a producer thread, its window surface on `window` (a Surface or the SurfaceTexture): the top
+     * half yellow and the bottom half cyan through two scissored clears, the scissor test left on; `timed`, with now as
+     * its presentation time, later than the last frame's and earlier than the next one's. Waits for the listener.
+     */
+    private void produceGl(String name, Object window, boolean timed) throws InterruptedException {
+        frame = new CountDownLatch(1);
+        String[] swap = {name + ": no swap"};
+        Thread producer = new Thread(() -> {
+            int[] spec = {EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE,
+                    EGL14.EGL_WINDOW_BIT, EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_ALPHA_SIZE, 8, EGL14.EGL_NONE};
+            EGLConfig[] configs = new EGLConfig[1];
+            int[] count = new int[1];
+            EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, count, 0);
+            EGLContext own = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                    new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
+            EGLSurface windowSurface = EGL14.eglCreateWindowSurface(display, configs[0], window,
+                    new int[] {EGL14.EGL_NONE}, 0);
+            Log.i(TAG, name + ": eglCreateWindowSurface " + (windowSurface != EGL14.EGL_NO_SURFACE) + ", error 0x"
+                    + Integer.toHexString(EGL14.eglGetError()));
+            EGL14.eglMakeCurrent(display, windowSurface, windowSurface, own);
+            int[] width = new int[1];
+            int[] height = new int[1];
+            EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_WIDTH, width, 0);
+            EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_HEIGHT, height, 0);
+            Log.i(TAG, name + ": surface " + width[0] + " x " + height[0]);
+            GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+            GLES20.glScissor(0, height[0] / 2, width[0], height[0] - height[0] / 2);
+            GLES20.glClearColor(1, 1, 0, 1);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            GLES20.glScissor(0, 0, width[0], height[0] / 2);
+            GLES20.glClearColor(0, 1, 1, 1);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            if (timed) {
+                long time = System.nanoTime();
+                presentationTime = time;
+                EGLExt.eglPresentationTimeANDROID(display, windowSurface, time);
+            }
+            // The listener may run before the swap returns, so its result is logged once the frame is in.
+            swap[0] = name + ": eglSwapBuffers " + EGL14.eglSwapBuffers(display, windowSurface)
+                    + ", the scissor test still on " + GLES20.glIsEnabled(GLES20.GL_SCISSOR_TEST);
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+            EGL14.eglDestroySurface(display, windowSurface);
+            EGL14.eglDestroyContext(display, own);
+        }, "gl producer");
+        producer.start();
+        producer.join();
+        if (!frame.await(10, TimeUnit.SECONDS)) {
+            Log.i(TAG, name + ": no onFrameAvailable within 10 s");
+        }
+        Log.i(TAG, swap[0]);
+        presentationTime = 0;
     }
 
     /** A frame from a producer thread: the top half `top`, the bottom half `bottom`; waits for its listener. */

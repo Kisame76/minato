@@ -16,6 +16,7 @@
      MINATO_PRESENTS_WITHOUT_TIME=1 in the environment, decision 11's measurement switch, which only the benchmark
      and Debug builds pass to the guest, it answers EGL_TRUE and keeps the time from ANGLE: the swap comes without
      one.
+     On a SurfaceTexture's queue window the time is the next frame's timestamp (queue.c).
    - eglClientWaitSync and eglClientWaitSyncKHR wait in slices of at most 10 ms, their flush is glFlush; a
      reusable sync, on which ANGLE cannot wait, is asked without a wait between sleeps. */
 #include <android/native_window.h>
@@ -265,6 +266,9 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *name) {
 }
 
 EGLBoolean eglPresentationTimeANDROID(EGLDisplay display, EGLSurface surface, EGLnsecsANDROID time) {
+    if (minato_queue_presentation_time(display, surface, time)) {
+        return EGL_TRUE;  // the next frame's timestamp on a SurfaceTexture's queue (queue.c)
+    }
     const char *without_time = getenv("MINATO_PRESENTS_WITHOUT_TIME");
     if (without_time != NULL && strcmp(without_time, "1") == 0) {
         return EGL_TRUE;

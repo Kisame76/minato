@@ -13,6 +13,10 @@ namespace android {
 // Surface's natives (android_view_Surface.cpp, ADR-0043 c2), which keep the window in mNativeObject.
 ANativeWindow *minato_surface_window(JNIEnv *env, jobject surface);
 
+// The queue window of the SurfaceTexture `surfaceTexture` (ADR-0058 c)), acquired for the caller, who releases it; null
+// for a finalized SurfaceTexture. Defined with SurfaceTexture's natives (android_graphics_SurfaceTexture.cpp).
+ANativeWindow *minato_surface_texture_window(JNIEnv *env, jobject surfaceTexture);
+
 // Logs `method` once through com.android.minato.services.Unwritten, as the generated managers do (ADR-0045 decision
 // 3): "Unwritten: <method> is not implemented".
 void minato_unwritten(JNIEnv *env, const char *method);

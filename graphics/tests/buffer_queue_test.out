@@ -4,12 +4,17 @@ lock: 0, 4 x 2
 unlockAndPost: 0, available 1
 acquire: 0, timestamp positive 1
 acquire with none queued: 1
-first: ff0000ff
-second: ff00ff00
+two frames: available calls 1
+acquired: ff00ff00
+acquire again: 1
 dequeue: 0
 queue: 0
 queue again: -22
 queue of the consumer's slot: -22
+dequeue for a cancel: 0
+cancel: 0
+cancel again: -22
+dequeue held: 0
 a waiting dequeue after abandon: -19
 lock after abandon: -19
 destroyed after the consumer's release: 0

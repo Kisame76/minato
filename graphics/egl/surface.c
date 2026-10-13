@@ -8,7 +8,8 @@
    - eglSwapBuffers and eglSwapBuffersWithDamageKHR, which ignores the damage, pass the window's gate first,
      outside ANGLE: open, ANGLE's swap; closed, glFlush commits the frame in flight, then the thread waits,
      holding none of ANGLE's locks, and a signal's handler runs meanwhile; gone, EGL_FALSE with
-     EGL_BAD_NATIVE_WINDOW at once, without GPU work. */
+     EGL_BAD_NATIVE_WINDOW at once, without GPU work.
+   A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -124,6 +125,9 @@ static EGLSurface kept(struct window_surface *record, EGLSurface surface) {
 
 EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativeWindowType window,
                                   const EGLint *attributes) {
+    if (minato_queue_window(window)) {
+        return minato_queue_surface(display, config, window);
+    }
     struct window_surface *record = prepared(display, config, window);
     EGLint *ours = record != NULL ? fixed_attributes(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
@@ -139,6 +143,9 @@ EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativ
 
 EGLSurface eglCreatePlatformWindowSurface(EGLDisplay display, EGLConfig config, void *window,
                                           const EGLAttrib *attributes) {
+    if (minato_queue_window(window)) {
+        return minato_queue_surface(display, config, window);
+    }
     struct window_surface *record = prepared(display, config, window);
     EGLAttrib *ours = record != NULL ? fixed_attribs(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
@@ -179,12 +186,14 @@ EGLBoolean eglDestroySurface(EGLDisplay display, EGLSurface surface) {
     const EGLBoolean result = minato_host_eglDestroySurface(display, surface);
     if (result && surface != EGL_NO_SURFACE) {
         release(display, surface);
+        minato_queue_destroyed(display, surface);
     }
     return result;
 }
 
 void minato_release_windows(EGLDisplay display) {
     release(display, EGL_NO_SURFACE);
+    minato_queue_terminated(display);
 }
 
 /* A copy of a window surface's record; 0 for any other surface. */
@@ -250,6 +259,10 @@ static void follow(EGLDisplay display, EGLSurface surface, const struct window_s
 
 static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     struct window_surface record;
+    EGLBoolean queued;
+    if (minato_queue_swap(display, surface, &queued)) {
+        return queued;
+    }
     if (!recall(surface, &record)) {
         return minato_host_eglSwapBuffers(display, surface);
     }

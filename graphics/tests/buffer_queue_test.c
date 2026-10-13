@@ -1,7 +1,8 @@
 /* ADR-0058 c): buffer-queue-test, libnativewindow's buffer queue (APKRuntime/buffer_queue.h) through its private
    functions, as libandroid_runtime's SurfaceTexture and libEGL reach them, on graphics/host's hardware buffers:
    - a queue window's size and lock before and after setDefaultSize, a post, the available callback, an acquire;
-   - first in, first out over two frames; a second queue of the same slot, which only a dequeued slot takes;
+   - a newer frame replacing one still queued, with one callback for the two; a second queue of the same slot, which
+     only a dequeued slot takes; a cancel;
    - a dequeue that waits for a free slot and wakes with -ENODEV when the queue is abandoned;
    - the context's destroy, which comes once both the window and the consumer let the queue go, and not before;
      also for a window released while it is locked.
@@ -25,6 +26,7 @@ static __typeof__(&minato_BufferQueue_abandon) abandon;
 static __typeof__(&minato_BufferQueue_release) release;
 static __typeof__(&minato_ANativeWindow_dequeue) dequeue;
 static __typeof__(&minato_ANativeWindow_queue) queue;
+static __typeof__(&minato_ANativeWindow_cancel) cancel;
 
 static atomic_int available_calls;
 static atomic_int destroyed;
@@ -51,9 +53,10 @@ static int found(void) {
     FIND(release, minato_BufferQueue_release);
     FIND(dequeue, minato_ANativeWindow_dequeue);
     FIND(queue, minato_ANativeWindow_queue);
+    FIND(cancel, minato_ANativeWindow_cancel);
 #undef FIND
     return create != NULL && set_default_size != NULL && acquire != NULL && abandon != NULL && release != NULL &&
-           dequeue != NULL && queue != NULL;
+           dequeue != NULL && queue != NULL && cancel != NULL;
 }
 
 /* A CPU frame of one color, posted. */
@@ -106,13 +109,14 @@ int main(void) {
     printf("acquire: %d, timestamp positive %d\n", acquire(consumer, &frame), frame.timestamp > 0);
     printf("acquire with none queued: %d\n", acquire(consumer, &frame) == -EAGAIN);
 
-    // First in, first out.
+    // A newer frame replaces one still queued.
+    const int calls = atomic_load(&available_calls);
     post(window, 0xff0000ff);
     post(window, 0xff00ff00);
+    printf("two frames: available calls %d\n", atomic_load(&available_calls) - calls);
     acquire(consumer, &frame);
-    printf("first: %08x\n", first_pixel(frame.buffer));
-    acquire(consumer, &frame);
-    printf("second: %08x\n", first_pixel(frame.buffer));
+    printf("acquired: %08x\n", first_pixel(frame.buffer));
+    printf("acquire again: %d\n", acquire(consumer, &frame) == -EAGAIN);
 
     // A slot is queued once.
     struct AHardwareBuffer *dequeued = NULL;
@@ -121,9 +125,12 @@ int main(void) {
     printf("queue: %d\n", queue(window, slot, 0));
     printf("queue again: %d\n", queue(window, slot, 0));
     printf("queue of the consumer's slot: %d\n", queue(window, frame.slot, 0));
+    printf("dequeue for a cancel: %d\n", dequeue(window, &dequeued, &slot));
+    printf("cancel: %d\n", cancel(window, slot));
+    printf("cancel again: %d\n", cancel(window, slot));
 
-    // A dequeue waits for a free slot: one acquired, two queued.
-    post(window, 0xffff0000);
+    // A dequeue waits while every slot is busy: one acquired, one queued, one dequeued.
+    printf("dequeue held: %d\n", dequeue(window, &dequeued, &slot));
     pthread_t waiter;
     pthread_create(&waiter, NULL, dequeue_one, window);
     usleep(100 * 1000);

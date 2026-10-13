@@ -219,11 +219,21 @@ int queue_slot(minato_BufferQueue* queue, int32_t index, int64_t timestamp, int3
         pthread_mutex_unlock(&queue->lock);
         return -ENODEV;
     }
+    // A frame still queued is replaced and dropped, as an app's SurfaceTexture fed by an app's producer has it on
+    // Android 15 (mQueueBufferCanDrop, surface-texture-test): only the first frame of a run calls `available`.
+    bool replaced = false;
+    for (Slot& queued : queue->slots) {
+        if (queued.state == SlotState::kQueued) {
+            queued.state = SlotState::kFree;
+            replaced = true;
+            pthread_cond_signal(&queue->freed);
+        }
+    }
     slot.state = SlotState::kQueued;
     slot.timestamp = timestamp != 0 ? timestamp : monotonic_now();
     slot.transform = transform;
     slot.order = queue->next_order++;
-    const minato_BufferQueue_available available = queue->available;
+    const minato_BufferQueue_available available = replaced ? nullptr : queue->available;
     void* const context = queue->context;
     pthread_mutex_unlock(&queue->lock);
     if (available != nullptr) available(context);
@@ -358,6 +368,19 @@ int minato_ANativeWindow_dequeue(ANativeWindow* window, AHardwareBuffer** buffer
         pthread_mutex_unlock(&window->queue->lock);
     }
     return result;
+}
+
+int minato_ANativeWindow_cancel(ANativeWindow* window, int32_t slot) {
+    if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kSlots) return -EINVAL;
+    minato_BufferQueue* queue = window->queue;
+    pthread_mutex_lock(&queue->lock);
+    const bool dequeued = queue->slots[slot].state == SlotState::kDequeued;
+    if (dequeued) {
+        queue->slots[slot].state = SlotState::kFree;
+        pthread_cond_signal(&queue->freed);
+    }
+    pthread_mutex_unlock(&queue->lock);
+    return dequeued ? 0 : -EINVAL;
 }
 
 int minato_ANativeWindow_queue(ANativeWindow* window, int32_t slot, int64_t timestamp) {

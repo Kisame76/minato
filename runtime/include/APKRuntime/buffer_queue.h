@@ -5,8 +5,10 @@
    - Three slots, each an AHardwareBuffer of the window's size and format (ANativeWindow_setBuffersGeometry, else
      the default size of minato_BufferQueue_setDefaultSize and RGBA_8888), GPU_SAMPLED_IMAGE, GPU_FRAMEBUFFER and the
      CPU's, made at a slot's first dequeue and again when the size or the format changes.
-   - Frames go first in, first out, as BufferQueue's without async mode: a dequeue waits for a free slot, and the
-     consumer acquires the oldest queued frame; its last acquired one stays its own until the next acquire's release.
+   - A queued frame replaces one still queued, which is dropped, as an app's SurfaceTexture fed by an app's producer
+     has it on Android 15 (BufferQueue's mQueueBufferCanDrop): `available` comes for the first frame of a run only,
+     and the consumer acquires the newest. A dequeue waits only while every slot is busy; the consumer's last acquired
+     frame stays its own until the next acquire's release.
    - Abandoned (minato_BufferQueue_abandon, SurfaceTexture.release), the producer's calls answer -ENODEV, NO_INIT,
      libgui's answer, and a waiting dequeue wakes with it.
    The queue lives while the window and the consumer hold it. */
@@ -45,7 +47,7 @@ int minato_BufferQueue_create(minato_BufferQueue_available available, minato_Buf
                               void *context, struct ANativeWindow **producer, struct minato_BufferQueue **consumer);
 
 /* The consumer: the default size of the buffers while the producer sets none (SurfaceTexture.setDefaultBufferSize);
-   the oldest queued frame, after the release of the consumer's last one (0; -EAGAIN with none queued; -ENODEV
+   the queued frame, the newest, after the release of the consumer's last one (0; -EAGAIN with none queued; -ENODEV
    abandoned); the release of a frame's slot without a new one (releaseTexImage); abandon; and the consumer's end. */
 void minato_BufferQueue_setDefaultSize(struct minato_BufferQueue *queue, int32_t width, int32_t height);
 int minato_BufferQueue_acquire(struct minato_BufferQueue *queue, struct minato_BufferQueue_frame *frame);
@@ -57,10 +59,11 @@ void minato_BufferQueue_release(struct minato_BufferQueue *queue);
 /* The producer, for libEGL's window surfaces on a queue window (c2): whether `window` is one; a free slot's buffer of
    the window's size and format, waiting for one (0, -ENODEV abandoned, -EINVAL for any other window); and its queue
    with a timestamp, 0 for the queue's time (0, -ENODEV, -EINVAL for a slot that is not dequeued, as libgui's
-   BAD_VALUE). */
+   BAD_VALUE); or its cancel, which gives the slot back free without a frame, libgui's cancelBuffer (0, -EINVAL). */
 int minato_ANativeWindow_isQueue(struct ANativeWindow *window);
 int minato_ANativeWindow_dequeue(struct ANativeWindow *window, struct AHardwareBuffer **buffer, int32_t *slot);
 int minato_ANativeWindow_queue(struct ANativeWindow *window, int32_t slot, int64_t timestamp);
+int minato_ANativeWindow_cancel(struct ANativeWindow *window, int32_t slot);
 
 #ifdef __cplusplus
 }

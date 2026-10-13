@@ -13,6 +13,38 @@ I/surface-texture-test:   timestamp positive true, later than the last true
 I/surface-texture-test:   pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
 I/surface-texture-test: updateTexImage without a new frame: timestamp the same true, pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
 I/surface-texture-test: attached to a new texture: pixels: top 00ff00ff, bottom 00ff00ff, error 0x0
+I/surface-texture-test: the Canvas's Surface released: valid false
+I/surface-texture-test: third frame, GL through Surface(SurfaceTexture): eglCreateWindowSurface true, error 0x3000
+I/surface-texture-test: third frame, GL through Surface(SurfaceTexture): surface 8 x 8
+I/surface-texture-test: onFrameAvailable on the creator's Looper: true, the same SurfaceTexture true
+I/surface-texture-test:   transform [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+I/surface-texture-test:   timestamp positive true, later than the last true
+I/surface-texture-test:   pixels: top ffff00ff, bottom 00ffffff, error 0x0
+I/surface-texture-test: third frame, GL through Surface(SurfaceTexture): eglSwapBuffers true, the scissor test still on true
+I/surface-texture-test: fourth frame, GL on the SurfaceTexture with a presentation time: eglCreateWindowSurface true, error 0x3000
+I/surface-texture-test: fourth frame, GL on the SurfaceTexture with a presentation time: surface 8 x 8
+I/surface-texture-test: onFrameAvailable on the creator's Looper: true, the same SurfaceTexture true
+I/surface-texture-test:   transform [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+I/surface-texture-test:   timestamp positive true, later than the last true, the presentation time true
+I/surface-texture-test:   pixels: top ffff00ff, bottom 00ffffff, error 0x0
+I/surface-texture-test: fourth frame, GL on the SurfaceTexture with a presentation time: eglSwapBuffers true, the scissor test still on true
+I/surface-texture-test: ASurfaceTexture_fromSurfaceTexture: true
+I/surface-texture-test: onFrameAvailable on the creator's Looper: true, the same SurfaceTexture true
+I/surface-texture-test:   transform [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+I/surface-texture-test:   timestamp positive true, later than the last true
+I/surface-texture-test:   pixels: top ff00ffff, bottom ffffffff, error 0x0
+I/surface-texture-test: ASurfaceTexture's window: lock 0, 8 x 8 in format 1, post 0
+I/surface-texture-test: ASurfaceTexture: updateTexImage 0, the Java timestamp 1, matrix [1 -1 0 1], detach 0, updateTexImage detached 0, attach 0
+I/surface-texture-test:   attached again: pixels: top ff00ffff, bottom ffffffff, error 0x0
+I/surface-texture-test: a frame while detached: lock 0, 8 x 8 in format 1, post 0
+I/surface-texture-test:   updateTexImage detached with a frame queued: -38
+I/surface-texture-test:   attached: pixels: top 000000ff, bottom 000000ff, error 0x0
+I/surface-texture-test:   updateTexImage attached: 0, pixels: top 000000ff, bottom 000000ff, error 0x0
+I/surface-texture-test: ASurfaceTexture_release: the SurfaceTexture released false
+I/surface-texture-test: three frames without updateTexImage: the producer done true
+I/surface-texture-test:   onFrameAvailable calls 1
+I/surface-texture-test:   updateTexImage: pixels: top 0000ffff, bottom 0000ffff, error 0x0
+I/surface-texture-test:   updateTexImage again: pixels: top 0000ffff, bottom 0000ffff, error 0x0
 I/surface-texture-test: released: true
 I/surface-texture-test: updateTexImage after release: java.lang.RuntimeException: Error during updateTexImage (see logcat for details)
 I/surface-texture-test: lockCanvas after release: java.lang.IllegalArgumentException: null
