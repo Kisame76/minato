@@ -12,10 +12,13 @@
 // and before onDestroy, as NativeActivity does; translucent starts the app at activity_test_translucent_onCreate,
 // which asks for WINDOW_FORMAT_RGBA_8888 in onCreate, and must give the same log with WINDOW_OPAQUE 0 as the
 // first request (Grafik's opaque layer); split names base.apk once more as a split of the set (ADR-0048) and must
-// give the same log; missing-library, missing-function and missing-apk start
-// activity-host with what is not there and pass when it reports the reason as START_FAILED and ends with
-// status 1.
-//   activity_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> [<case>]
+// give the same log; set names a real set's folder as a seventh argument (tools/build-activity-splits.sh:
+// base.apk and split_config.arm64_v8a.apk, whose library the harness checks is the fixture's) and must give the
+// same log through an asset manager over the two real APKs (ADR-0048 c4); missing-library, missing-function and
+// missing-apk start activity-host with what is not there and pass when it reports the reason as START_FAILED and
+// ends with status 1.
+//   activity_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> [<case>
+//                 [<set folder>]]
 #include "app_host.h"
 
 #include <unistd.h>
@@ -69,19 +72,38 @@ std::string without_window_destroyed(const std::string &reference) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    const std::string variant = argc == 7 ? argv[6] : "";
+    const std::string variant = argc >= 7 ? argv[6] : "";
     const bool failing = variant.starts_with("missing-"), leftovers = variant == "leftovers";
-    if ((argc != 6 && argc != 7) || (argc == 7 && variant != "polling" && variant != "leftovers" &&
-                                     variant != "translucent" && variant != "split" && variant != "missing-library" &&
-                                     variant != "missing-function" && variant != "missing-apk")) {
+    if (argc < 6 || argc > 8 || (argc >= 7 && variant != "polling" && variant != "leftovers" &&
+                                 variant != "translucent" && variant != "split" && variant != "set" &&
+                                 variant != "missing-library" && variant != "missing-function" &&
+                                 variant != "missing-apk") ||
+        (variant == "set") != (argc == 8)) {
         std::fprintf(stderr, "usage: activity_test <scratch> <fixtures bin> <bionic lib> <guest system> <expected> "
                              "[polling | leftovers | translucent | split | missing-library | "
-                             "missing-function | missing-apk]\n");
+                             "missing-function | missing-apk | set <set folder>]\n");
         return 2;
     }
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
     App app{.name = "activity-test", .package = "io.github.kisame76.minato.test.activity"};
+    // The set variant: the real set's base APK in place of the fixture's, and its config split beside it.
+    const fs::path set = variant == "set" ? fs::path(argv[7]) : fs::path();
+    if (variant == "set") app.apk_file = set / "base.apk";
+    if (variant == "set" && (!fs::exists(set / "base.apk") || !fs::exists(set / "split_config.arm64_v8a.apk"))) {
+        std::printf("skipped: %s has no base.apk and split_config.arm64_v8a.apk (tools/build-activity-splits.sh)\n",
+                    set.c_str());
+        return 0;
+    }
     if (!prepare(app, paths, "activity" + variant)) return 0;
+    const std::string split_guest = app.guest + "/split_config.arm64_v8a.apk";
+    if (variant == "set") {
+        char mount_error[1024] = "";
+        if (apkrt_mount(split_guest.c_str(), (set / "split_config.arm64_v8a.apk").c_str(), mount_error,
+                        sizeof mount_error) != 0) {
+            fail(mount_error);
+            return 1;
+        }
+    }
 
     Capture capture;
     if (!capture.start()) {
@@ -98,7 +120,8 @@ int main(int argc, char **argv) {
                                                                : "ANativeActivity_onCreate";
     // The split variant names base.apk once more as a split of the set: the same run, through an asset manager over
     // two APKs.
-    if (!start(app, apk, library, function, variant == "split" ? apk.c_str() : nullptr)) _exit(1);
+    const char *const split = variant == "split" ? apk.c_str() : variant == "set" ? split_guest.c_str() : nullptr;
+    if (!start(app, apk, library, function, split)) _exit(1);
 
     // An app that cannot start: the reason reaches the host before the program ends with status 1.
     if (failing) {

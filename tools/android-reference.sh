@@ -641,6 +641,9 @@ run_app() {
       limit=120
       ;;
   esac
+  # APK_SET: a bundletool set (.apks) in place of the app's APK, installed as the device's splits (ADR-0048 c4:
+  # APK_SET=build/activity-splits/activity-splits.apks tools/android-reference.sh --app activity-test).
+  [[ -z "${APK_SET:-}" ]] || { apk=$APK_SET build=tools/build-activity-splits.sh; }
   if [[ ! -f "$apk" ]]; then
     echo "No $apk: run $build first." >&2
     return 1
@@ -648,7 +651,7 @@ run_app() {
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
   activity="$package/$activity_class"
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == pad-test || "$app" == splits-test || "$app" == isolated-splits-test ]]; then
+  if [[ "$app" == pad-test || "$app" == splits-test || "$app" == isolated-splits-test || -n "${APK_SET:-}" ]]; then
     # A local-testing set: install-apks installs the base and pushes the base's language splits and the packs' slices
     # into local_testing; it lists each push, so its output goes to a file, shown when it fails. splits-test's set is
     # installed as the device's splits.

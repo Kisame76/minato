@@ -8,8 +8,11 @@
 # (ADR-0043 c4 (d)'s, a GLSurfaceView whose surface is a layer of its own beside the window's), palette-test
 # (ADR-0043 f)'s, whose app colors are Monet's, from the overlays of the guest's /data/resource-cache), binder-test
 # (ADR-0043 d2b)'s, whose Binder, AIDL-style stub, IBinder and ResultReceivers are its own), strictmode-test (ADR-0039
-# step c2d3's, StrictMode's defaults at the bind and Build.getSerial) and, in the Simulator, obb-test (ADR-0049 test
-# 8's, which reads its main OBB, picked after it as a unit of its own, which the library gives to it by its name),
+# step c2d3's, StrictMode's defaults at the bind and Build.getSerial) and obb-test (ADR-0049 test 8's, which reads its
+# main and its patch OBB, picked after it as a unit of its own, which the library gives to it by its name; on the iPhone
+# the unit is copied into incoming/ with devicectl), splits-test and isolated-splits-test (ADR-0048 c's bundletool sets,
+# picked as units too; splits-test's greeting on a device whose language is not English is the base's, as Android's
+# would be for it),
 # packs-test (ADR-0050 test 2's, a bundletool .apks of tools/build-packs-test.sh with a fast-follow and an on-demand
 # pack, whose slices the library keeps and the start lays out in local_testing, read-only, with the meta-data
 # local_testing_dir; its lines are the Mac's, fixtures/expected/packs-test-packs.logcat, with that set's sizes) and
@@ -105,16 +108,16 @@ ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
 [[ " $ONLY " != *" java-test "* ]] || JAVA_TEST=yes
 # obb-test's OBB comes as a unit folder of its own, which this check makes in the Simulator only.
-[[ "$ON_DEVICE" == yes ]] || APPS+=("obb-test io.github.kisame76.minato.test.obb")
+APPS+=("obb-test io.github.kisame76.minato.test.obb")
 # packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
+APPS+=("splits-test io.github.kisame76.minato.test.splits")
+APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # pad-test too, when Google's Play libraries are there to build it with (ADR-0050 c)).
-if [[ "$ON_DEVICE" == no ]]; then
-  if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
-    APPS+=("pad-test io.github.kisame76.minato.test.pad")
-  else
-    echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go)"
-  fi
+if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
+  APPS+=("pad-test io.github.kisame76.minato.test.pad")
+else
+  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go)"
 fi
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
 GODOT_TEST=${GODOT_TEST-yes}
@@ -154,6 +157,7 @@ apk() {
     godot-bench-*) echo "build/godot/$1.apk" ;;
     packs-test) echo "build/packs-test/packs-test.apks" ;;
     pad-test) echo "build/pad-test/pad-test.apks" ;;
+    splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
@@ -169,6 +173,7 @@ for app in "${APPS[@]}"; do
       ;;
     packs-test) tools/build-packs-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
+    splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -513,25 +518,38 @@ mkdir -p "$CHECK"
 for app in "${APPS[@]}"; do
   # packs-test's and pad-test's sets come as unit folders of their own (pick_set), as the library takes only APKs
   # lying flat here.
-  [[ "${app%% *}" != packs-test && "${app%% *}" != pad-test ]] || continue
+  case "${app%% *}" in packs-test|pad-test|splits-test|isolated-splits-test) continue ;; esac
   if [[ "$ON_DEVICE" == yes ]]; then
     devicectl_copy to --source "$(apk "${app%% *}")" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
   else
     cp "$(apk "${app%% *}")" "$SUPPORT/incoming/"
   fi
 done
-# obb-test's main OBB (ADR-0049 test 8): a unit of its own after the APKs, a folder that appears whole, as "+" leaves a
-# pick; the library gives it to obb-test, which it imports first, by its name. remove_test_apps took any left over.
+# obb-test's main and patch OBB (ADR-0049 test 8): a unit of its own after the APKs, a folder that appears whole, as
+# "+" leaves a pick; the library gives it to obb-test, which it imports first, by its name. remove_test_apps took any
+# left over.
 pick_obb() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    rm -rf "$WORK/unit-obb" && mkdir -p "$WORK/unit-obb"
+    cp "fixtures/apps/obb-test/main.1.$1.obb" "fixtures/apps/obb-test/patch.1.$1.obb" "$WORK/unit-obb/"
+    devicectl_copy to --source "$WORK/unit-obb" --destination "$SUPPORT_REL/incoming/obb-test-obb"
+    return
+  fi
   local unit="${SUPPORT:?}/incoming/obb-test-obb"
   mkdir "$unit.partial"
-  cp "fixtures/apps/obb-test/main.1.$1.obb" "$unit.partial/"
+  cp "fixtures/apps/obb-test/main.1.$1.obb" "fixtures/apps/obb-test/patch.1.$1.obb" "$unit.partial/"
   mv "$unit.partial" "$unit"
 }
-if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then pick_obb io.github.kisame76.minato.test.obb; fi
+if wanted obb-test; then pick_obb io.github.kisame76.minato.test.obb; fi
 # packs-test's and pad-test's sets (ADR-0050 tests 2 and 3), each a unit folder that appears whole, as "+" leaves a
 # pick.
 pick_set() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    rm -rf "$WORK/unit-$1" && mkdir -p "$WORK/unit-$1"
+    cp "$(apk "$1")" "$WORK/unit-$1/"
+    devicectl_copy to --source "$WORK/unit-$1" --destination "$SUPPORT_REL/incoming/$1-apks"
+    return
+  fi
   local unit="${SUPPORT:?}/incoming/$1-apks"
   mkdir "$unit.partial"
   cp "$(apk "$1")" "$unit.partial/"
@@ -539,6 +557,8 @@ pick_set() {
 }
 if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then pick_set packs-test; fi
 if listed pad-test; then pick_set pad-test; fi
+if listed splits-test; then pick_set splits-test; fi
+if listed isolated-splits-test; then pick_set isolated-splits-test; fi
 send_requests
 launch
 for app in "${APPS[@]}"; do
@@ -608,7 +628,12 @@ fi
 run_one() {
   wanted "$1" || return 0
   run_start "$1" "$2" 1
-  python3 - "$1" "$WORK/$1-1.log" "${3:-fixtures/expected/$1.logcat}" <<'EOF' || failures=$((failures + 1))
+  local expected="${3:-fixtures/expected/$1.logcat}"
+  if [[ "${4:-}" == locale ]] && grep -q "^I/$1: greeting: hello from the base$" "$WORK/$1-1.log"; then
+    sed "s/^\(I\/$1: greeting: hello from the \)English split$/\1base/" "$expected" > "$WORK/$1-expected.logcat"
+    expected="$WORK/$1-expected.logcat"
+  fi
+  python3 - "$1" "$WORK/$1-1.log" "$expected" <<'EOF' || failures=$((failures + 1))
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
@@ -694,10 +719,11 @@ if in_order_found(text.splitlines(), wanted) < len(wanted):
 compare_log(app, subprocess.CompletedProcess([], 0, "", text), expected, {})
 PY
 fi
-if wanted obb-test && [[ "$ON_DEVICE" == no ]]; then
+if wanted obb-test; then
   # Its OBB must be in its OBB folder before the tap.
-  obb="$SUPPORT/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
-  for _ in $(seq 1 100); do [[ -f "$obb" ]] && break; sleep 0.2; done
+  obb_rel="$SUPPORT_REL/data/io.github.kisame76.minato.test.obb/obb/main.1.io.github.kisame76.minato.test.obb.obb"
+  obb="$CONTAINER/$obb_rel"
+  for _ in $(seq 1 100); do fetch "$obb_rel" && break; sleep 0.2; done
   if [[ -f "$obb" ]]; then ok "obb-test's OBB is in its OBB folder"; else fail "no OBB in obb-test's OBB folder"; fi
   run_one obb-test io.github.kisame76.minato.test.obb
 fi
@@ -727,6 +753,14 @@ fi
 if listed pad-test; then
   run_one pad-test io.github.kisame76.minato.test.pad
 fi
+if listed splits-test; then
+  # The AVD's language is English, so Android's greeting comes from the set's English split. An iPhone or a Mac in
+  # another language (German here) takes the base's string, as Android does for it (the set holds the English split,
+  # not that language's): its expected line is then the base's. A named limit: an English device whose English split
+  # failed to apply would pass too.
+  run_one splits-test io.github.kisame76.minato.test.splits fixtures/expected/splits-test.logcat locale
+fi
+if listed isolated-splits-test; then run_one isolated-splits-test io.github.kisame76.minato.test.isolated; fi
 
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then
   run_lifecycle 1

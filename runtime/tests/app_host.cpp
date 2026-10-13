@@ -128,7 +128,8 @@ std::string read_text(const fs::path &path) {
 }
 
 bool prepare(App &app, const Paths &paths, const std::string &run) {
-    const fs::path apk = paths.fixtures.parent_path() / "apks" / (app.name + ".apk");
+    const fs::path apk = app.apk_file.empty() ? paths.fixtures.parent_path() / "apks" / (app.name + ".apk")
+                                              : app.apk_file;
     const fs::path library = paths.fixtures / ("lib" + app.name + ".so");
     const fs::path host = paths.bionic.parent_path() / "bin" / "activity-host";
     for (const auto &needed : {apk, library, host, paths.bionic / "libandroid.so"}) {

@@ -83,6 +83,7 @@ struct App {
     fs::path container;   // activity-host's
     fs::path data, external, obb;  // the host folders of the app's data
     std::string guest;    // /data/app/<package>
+    fs::path apk_file;    // the base APK to mount in place of apks/<name>.apk (a real set's, ADR-0048 c4)
 };
 
 /// Converts and mounts everything `app` needs below `paths.scratch / run`. False, after "skipped: ..." on
