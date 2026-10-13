@@ -27,6 +27,7 @@ package android.app;
 
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
@@ -38,6 +39,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.PathPermission;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
+import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
 import android.content.res.ApkAssets;
@@ -47,6 +49,7 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.os.Bundle;
+import android.os.PatternMatcher;
 import android.os.Process;
 import android.os.SystemProperties;
 import android.util.Slog;
@@ -65,10 +68,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.ToIntFunction;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -136,6 +141,8 @@ final class ManifestPackage {
     private final List<ActivityInfo> mLaunchers = new ArrayList<>();
     private final List<ServiceInfo> mServices = new ArrayList<>();
     private final List<ProviderInfo> mProviders = new ArrayList<>();
+    // Each component's intent filters as the package parser keeps them (step SV1), in manifest order.
+    private final Map<ComponentInfo, List<IntentFilter>> mFilters = new IdentityHashMap<>();
     private final List<PermissionInfo> mPermissions = new ArrayList<>();
     private final List<String> mRequestedPermissions = new ArrayList<>();
     /** Each requested permission's android:usesPermissionFlags; 0 for an implicit one. */
@@ -755,7 +762,7 @@ final class ManifestPackage {
         } finally {
             sa.recycle();
         }
-        info.metaData = children(parser, null);
+        info.metaData = children(parser, null, null);
         mPermissions.add(info);
     }
 
@@ -1049,9 +1056,11 @@ final class ManifestPackage {
             sa.recycle();
         }
         int[] filters = {0, 0, 0};
-        info.metaData = children(parser, filters);
+        List<IntentFilter> own = new ArrayList<>();
+        info.metaData = children(parser, filters, own);
         // An intent filter without an action is dropped, so it does not count.
         info.exported = exportedSet ? exported : filters[0] > 0;
+        keepFilters(info, own, !receiver);
         if (!receiver && filters[2] > 0) {
             mLaunchers.add(info);
         }
@@ -1125,8 +1134,10 @@ final class ManifestPackage {
             sa.recycle();
         }
         int[] filters = {0, 0, 0};
-        info.metaData = children(parser, filters);
+        List<IntentFilter> own = new ArrayList<>();
+        info.metaData = children(parser, filters, own);
         info.exported = exportedSet ? exported : filters[0] > 0;
+        keepFilters(info, own, true);
         if (filters[2] > 0) {
             mLaunchers.add(info);
         }
@@ -1167,9 +1178,11 @@ final class ManifestPackage {
             sa.recycle();
         }
         int[] filters = {0, 0, 0};
-        info.metaData = children(parser, filters);
+        List<IntentFilter> own = new ArrayList<>();
+        info.metaData = children(parser, filters, own);
         // A service's intent filter counts even without an action.
         info.exported = exportedSet ? exported : filters[1] > 0;
+        mFilters.put(info, own);
         return info;
     }
 
@@ -1206,7 +1219,9 @@ final class ManifestPackage {
         } finally {
             sa.recycle();
         }
-        info.metaData = children(parser, null);
+        List<IntentFilter> own = new ArrayList<>();
+        info.metaData = children(parser, new int[3], own);
+        mFilters.put(info, own);
         info.pathPermissions = new PathPermission[0];
         return info;
     }
@@ -1256,9 +1271,11 @@ final class ManifestPackage {
     /**
      * A component's children: its <meta-data> as a Bundle, null if it has none, and in filters[0] the number of
      * <intent-filter>s with an action (an activity's, receiver's or alias's count), in filters[1] of all of them, in
-     * filters[2] of those a home screen's launch intent (MAIN, LAUNCHER, no data) matches.
+     * filters[2] of those a home screen's launch intent (MAIN, LAUNCHER, no data) matches; the filters themselves into
+     * `out` unless it is null.
      */
-    private Bundle children(XmlResourceParser parser, int[] filters) throws IOException, XmlPullParserException {
+    private Bundle children(XmlResourceParser parser, int[] filters, List<IntentFilter> out)
+            throws IOException, XmlPullParserException {
         Bundle metaData = null;
         int depth = parser.getDepth();
         int type;
@@ -1270,56 +1287,142 @@ final class ManifestPackage {
             if ("meta-data".equals(parser.getName())) {
                 metaData = metaData(parser, metaData);
             } else if ("intent-filter".equals(parser.getName()) && filters != null) {
-                int kind = filterKind(parser);
-                if ((kind & FILTER_ACTION) != 0) {
+                boolean[] data = {false};
+                IntentFilter filter = intentFilter(parser, data);
+                if (filter.countActions() > 0) {
                     filters[0]++;
                 }
-                if ((kind & FILTER_LAUNCHER) != 0) {
+                // A home screen's launch intent matches MAIN with LAUNCHER and no <data>.
+                if (filter.hasAction(Intent.ACTION_MAIN) && filter.hasCategory(Intent.CATEGORY_LAUNCHER) && !data[0]) {
                     filters[2]++;
                 }
                 filters[1]++;
+                if (out != null) {
+                    out.add(filter);
+                }
             }
         }
         return metaData;
     }
 
-    private static final int FILTER_ACTION = 1;
-    private static final int FILTER_LAUNCHER = 2;
-
     /**
-     * What an <intent-filter> holds: FILTER_ACTION for an action, FILTER_LAUNCHER where a home screen's launch intent
-     * matches it, which needs the MAIN action, the LAUNCHER category and no <data>. Action and category names are
-     * read by name, as ParsedIntentInfoUtils reads them.
+     * One <intent-filter> as ParsedIntentInfoUtils.parseIntentInfo and parseData read it at android-15.0.0_r1: its
+     * priority and order, then its actions and categories by name and its <data>'s MIME types, MIME groups, schemes,
+     * scheme-specific parts, authorities and paths, each pattern kind as AOSP adds it (globs allowed, as for every
+     * component of an app). data[0] tells whether it has a <data> element. A malformed MIME type, which fails the
+     * import on Android, throws.
      */
-    private static int filterKind(XmlResourceParser parser) throws IOException, XmlPullParserException {
-        boolean action = false;
-        boolean main = false;
-        boolean launcher = false;
-        boolean data = false;
+    private IntentFilter intentFilter(XmlResourceParser parser, boolean[] data)
+            throws IOException, XmlPullParserException {
+        IntentFilter filter = new IntentFilter();
+        TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestIntentFilter);
+        try {
+            filter.setPriority(sa.getInt(R.styleable.AndroidManifestIntentFilter_priority, 0));
+            filter.setOrder(sa.getInt(R.styleable.AndroidManifestIntentFilter_order, 0));
+            filter.setAutoVerify(sa.getBoolean(R.styleable.AndroidManifestIntentFilter_autoVerify, false));
+        } finally {
+            sa.recycle();
+        }
         int depth = parser.getDepth();
         int type;
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
-            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
+            if (type != XmlPullParser.START_TAG || skipped(parser)) {
                 continue;
             }
             String name = parser.getAttributeValue(ANDROID_NAMESPACE, "name");
             switch (parser.getName()) {
                 case "action":
-                    action = true;
-                    main |= Intent.ACTION_MAIN.equals(name);
+                    if (name != null) {
+                        filter.addAction(name);
+                    }
                     break;
                 case "category":
-                    launcher |= Intent.CATEGORY_LAUNCHER.equals(name);
+                    if (name != null) {
+                        filter.addCategory(name);
+                    }
                     break;
                 case "data":
-                    data = true;
+                    data[0] = true;
+                    data(parser, filter);
                     break;
                 default:
                     break;
             }
         }
-        return (action ? FILTER_ACTION : 0) | (main && launcher && !data ? FILTER_LAUNCHER : 0);
+        return filter;
+    }
+
+    private void data(XmlResourceParser parser, IntentFilter filter) {
+        TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestData);
+        try {
+            String str = sa.getNonConfigurationString(R.styleable.AndroidManifestData_mimeType, 0);
+            if (str != null) {
+                try {
+                    filter.addDataType(str);
+                } catch (IntentFilter.MalformedMimeTypeException e) {
+                    throw new IllegalStateException(e.toString());
+                }
+            }
+            str = sa.getNonConfigurationString(R.styleable.AndroidManifestData_mimeGroup, 0);
+            if (str != null) {
+                filter.addMimeGroup(str);
+            }
+            str = sa.getNonConfigurationString(R.styleable.AndroidManifestData_scheme, 0);
+            if (str != null) {
+                filter.addDataScheme(str);
+            }
+            schemeSpecificPart(sa, filter, R.styleable.AndroidManifestData_ssp, PatternMatcher.PATTERN_LITERAL);
+            schemeSpecificPart(sa, filter, R.styleable.AndroidManifestData_sspPrefix, PatternMatcher.PATTERN_PREFIX);
+            schemeSpecificPart(sa, filter, R.styleable.AndroidManifestData_sspPattern,
+                    PatternMatcher.PATTERN_SIMPLE_GLOB);
+            schemeSpecificPart(sa, filter, R.styleable.AndroidManifestData_sspAdvancedPattern,
+                    PatternMatcher.PATTERN_ADVANCED_GLOB);
+            schemeSpecificPart(sa, filter, R.styleable.AndroidManifestData_sspSuffix, PatternMatcher.PATTERN_SUFFIX);
+            String host = sa.getNonConfigurationString(R.styleable.AndroidManifestData_host, 0);
+            String port = sa.getNonConfigurationString(R.styleable.AndroidManifestData_port, 0);
+            if (host != null) {
+                filter.addDataAuthority(host, port);
+            }
+            path(sa, filter, R.styleable.AndroidManifestData_path, PatternMatcher.PATTERN_LITERAL);
+            path(sa, filter, R.styleable.AndroidManifestData_pathPrefix, PatternMatcher.PATTERN_PREFIX);
+            path(sa, filter, R.styleable.AndroidManifestData_pathPattern, PatternMatcher.PATTERN_SIMPLE_GLOB);
+            path(sa, filter, R.styleable.AndroidManifestData_pathAdvancedPattern, PatternMatcher.PATTERN_ADVANCED_GLOB);
+            path(sa, filter, R.styleable.AndroidManifestData_pathSuffix, PatternMatcher.PATTERN_SUFFIX);
+        } finally {
+            sa.recycle();
+        }
+    }
+
+    private static void schemeSpecificPart(TypedArray sa, IntentFilter filter, int index, int kind) {
+        String str = sa.getNonConfigurationString(index, 0);
+        if (str != null) {
+            filter.addDataSchemeSpecificPart(str, kind);
+        }
+    }
+
+    private static void path(TypedArray sa, IntentFilter filter, int index, int kind) {
+        String str = sa.getNonConfigurationString(index, 0);
+        if (str != null) {
+            filter.addDataPath(str, kind);
+        }
+    }
+
+    /**
+     * An activity's, alias's or receiver's filters: one without an action is dropped, as the package parser drops it.
+     * An activity's priority above 0 becomes 0, as ComponentResolver.adjustPriority sets it for an app that is not a
+     * privileged system app [measured: intent-query-test on apk-runner-35]; a receiver keeps its own.
+     */
+    private void keepFilters(ActivityInfo info, List<IntentFilter> filters, boolean activity) {
+        filters.removeIf(filter -> filter.countActions() == 0);
+        if (activity) {
+            for (IntentFilter filter : filters) {
+                if (filter.getPriority() > 0) {
+                    filter.setPriority(0);
+                }
+            }
+        }
+        mFilters.put(info, filters);
     }
 
     /** One <meta-data> into the Bundle, as ParsingPackageUtils.parseMetaData and Property.toBundle put it. */
@@ -1605,6 +1708,107 @@ final class ManifestPackage {
             }
         }
         return null;
+    }
+
+    static final int QUERY_ACTIVITIES = 0;
+    static final int QUERY_RECEIVERS = 1;
+    static final int QUERY_SERVICES = 2;
+    static final int QUERY_PROVIDERS = 3;
+
+    /**
+     * The app's components of one kind that `intent` resolves to (step SV1), as the package manager's
+     * queryIntentActivities, queryBroadcastReceivers, queryIntentServices and queryIntentContentProviders answer for
+     * one package [measured: intent-query-test on apk-runner-35]:
+     * - an intent for another package resolves to nothing, as no other package is installed;
+     * - an explicit intent gives its component, if it is the app's and enabled, with no filter, match 0 and priority 0;
+     * - else every enabled component with a filter that matches (IntentFilter.match over the action, `resolvedType`,
+     *   the data and the categories), the first such filter in manifest order for each; an activity's only with the
+     *   DEFAULT category under MATCH_DEFAULT_ONLY. Each result carries the filter's priority and the match, the filter
+     *   itself only with GET_RESOLVED_FILTER; isDefault stays false, as Android 15 reports it;
+     * - sorted by the filters' priority, highest first and in manifest order among equals, as IntentResolver sorts.
+     * `state` gives a component's state that setComponentEnabledSetting left (COMPONENT_ENABLED_STATE_DEFAULT for
+     * none): enabled overrides the manifest's enabled="false", and disabled hides it, unless MATCH_DISABLED_COMPONENTS.
+     */
+    List<ResolveInfo> query(int kind, Intent intent, String resolvedType, long flags,
+            ToIntFunction<ComponentName> state) {
+        List<ResolveInfo> results = new ArrayList<>();
+        String target = intent.getComponent() != null ? intent.getComponent().getPackageName() : intent.getPackage();
+        if (target != null && !target.equals(packageName)) {
+            return results;
+        }
+        ApplicationInfo app = applicationInfo(flags);
+        boolean defaultOnly = kind == QUERY_ACTIVITIES && (flags & PackageManager.MATCH_DEFAULT_ONLY) != 0;
+        for (ComponentInfo component : components(kind)) {
+            ComponentName name = new ComponentName(packageName, component.name);
+            if (!enabled(component, name, flags, state)) {
+                continue;
+            }
+            if (intent.getComponent() != null) {
+                if (intent.getComponent().getClassName().equals(component.name)) {
+                    results.add(result(kind, component, flags, app));
+                }
+                continue;
+            }
+            for (IntentFilter filter : mFilters.getOrDefault(component, Collections.emptyList())) {
+                if (defaultOnly && !filter.hasCategory(Intent.CATEGORY_DEFAULT)) {
+                    continue;
+                }
+                int match = filter.match(intent.getAction(), resolvedType, intent.getScheme(), intent.getData(),
+                        intent.getCategories(), "PackageManager");
+                if (match >= 0) {
+                    ResolveInfo info = result(kind, component, flags, app);
+                    info.priority = filter.getPriority();
+                    info.match = match;
+                    if ((flags & PackageManager.GET_RESOLVED_FILTER) != 0) {
+                        info.filter = new IntentFilter(filter);
+                    }
+                    results.add(info);
+                    break;
+                }
+            }
+        }
+        results.sort((a, b) -> Integer.compare(b.priority, a.priority));
+        return results;
+    }
+
+    private List<? extends ComponentInfo> components(int kind) {
+        switch (kind) {
+            case QUERY_ACTIVITIES: return mActivities;
+            case QUERY_RECEIVERS: return mReceivers;
+            case QUERY_SERVICES: return mServices;
+            default: return mProviders;
+        }
+    }
+
+    private static boolean enabled(ComponentInfo component, ComponentName name, long flags,
+            ToIntFunction<ComponentName> state) {
+        if ((flags & PackageManager.MATCH_DISABLED_COMPONENTS) != 0) {
+            return true;
+        }
+        switch (state.applyAsInt(name)) {
+            case PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
+                return true;
+            case PackageManager.COMPONENT_ENABLED_STATE_DEFAULT:
+                return component.enabled;
+            default:
+                return false;
+        }
+    }
+
+    private static ResolveInfo result(int kind, ComponentInfo component, long flags, ApplicationInfo app) {
+        ResolveInfo info = new ResolveInfo();
+        switch (kind) {
+            case QUERY_SERVICES:
+                info.serviceInfo = serviceInfo((ServiceInfo) component, flags, app);
+                break;
+            case QUERY_PROVIDERS:
+                info.providerInfo = providerInfo((ProviderInfo) component, flags, app);
+                break;
+            default:
+                info.activityInfo = activityInfo((ActivityInfo) component, flags, app);
+                break;
+        }
+        return info;
     }
 
     private boolean named(ComponentInfo info, ComponentName component) {

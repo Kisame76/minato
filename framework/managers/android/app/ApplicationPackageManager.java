@@ -3,6 +3,7 @@
 // answers from the app's manifest as ActivityThread read it, the platform's permissions and the import's signers,
 // without IPackageManager.
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.FeatureInfo;
@@ -12,15 +13,19 @@ import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
+import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
 import android.content.res.XmlResourceParser;
+import android.os.Bundle;
+import android.os.Process;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -145,6 +150,123 @@ class ApplicationPackageManager {
         return pkg;
     }
 
+    // Intent resolution over the app's own components (ADR-0045 step SV1), as Android's answers through
+    // IPackageManager for one installed package: ManifestPackage.query has the rules. The type is the intent's own or
+    // its content: URI's, as ApplicationPackageManager resolves it with the context's ContentResolver.
+
+    public List<ResolveInfo> queryIntentActivities(Intent intent, int flags) {
+        return queryIntentActivities(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public List<ResolveInfo> queryIntentActivities(Intent intent, ResolveInfoFlags flags) {
+        return query(ManifestPackage.QUERY_ACTIVITIES, intent, flags.getValue());
+    }
+
+    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, int flags) {
+        return queryBroadcastReceivers(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, ResolveInfoFlags flags) {
+        return query(ManifestPackage.QUERY_RECEIVERS, intent, flags.getValue());
+    }
+
+    public List<ResolveInfo> queryIntentServices(Intent intent, int flags) {
+        return queryIntentServices(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public List<ResolveInfo> queryIntentServices(Intent intent, ResolveInfoFlags flags) {
+        return query(ManifestPackage.QUERY_SERVICES, intent, flags.getValue());
+    }
+
+    public List<ResolveInfo> queryIntentContentProviders(Intent intent, int flags) {
+        return queryIntentContentProviders(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public List<ResolveInfo> queryIntentContentProviders(Intent intent, ResolveInfoFlags flags) {
+        return query(ManifestPackage.QUERY_PROVIDERS, intent, flags.getValue());
+    }
+
+    /** The first service found, as the package manager's resolveService gives it; null for none. */
+    public ResolveInfo resolveService(Intent intent, int flags) {
+        return resolveService(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public ResolveInfo resolveService(Intent intent, ResolveInfoFlags flags) {
+        List<ResolveInfo> results = queryIntentServices(intent, flags);
+        return results.isEmpty() ? null : results.get(0);
+    }
+
+    /**
+     * As the package manager's chooseBestActivity, without preferred activities, which Minato keeps none of: null for
+     * none, the one found, the first when it ranks above the second by priority, and else the platform's chooser,
+     * ResolverActivity.
+     */
+    public ResolveInfo resolveActivity(Intent intent, int flags) {
+        return resolveActivity(intent, ResolveInfoFlags.of(flags));
+    }
+
+    public ResolveInfo resolveActivity(Intent intent, ResolveInfoFlags flags) {
+        List<ResolveInfo> results = queryIntentActivities(intent, flags);
+        if (results.isEmpty()) {
+            return null;
+        }
+        ResolveInfo first = results.get(0);
+        if (results.size() == 1 || first.priority != results.get(1).priority
+                || first.preferredOrder != results.get(1).preferredOrder
+                || first.isDefault != results.get(1).isDefault) {
+            return first;
+        }
+        return resolver(intent, results);
+    }
+
+    /**
+     * The chooser's ResolveInfo: PackageManagerService's mResolveActivity, the platform's ResolverActivity in the
+     * process system:ui, as chooseBestActivity copies it, with the meta-data android.dock_home, and the app's label and
+     * icon when every choice is of the intent's package [measured: intent-query-test on apk-runner-35; the other fields
+     * as PackageManagerService.setPlatformPackage sets them].
+     */
+    private static ResolveInfo resolver(Intent intent, List<ResolveInfo> results) {
+        ApplicationInfo platform = new ApplicationInfo();
+        platform.packageName = "android";
+        platform.uid = Process.SYSTEM_UID;
+        platform.flags = ApplicationInfo.FLAG_SYSTEM;
+        ActivityInfo activity = new ActivityInfo();
+        activity.applicationInfo = platform;
+        activity.name = "com.android.internal.app.ResolverActivity";
+        activity.packageName = "android";
+        activity.processName = "system:ui";
+        activity.launchMode = ActivityInfo.LAUNCH_MULTIPLE;
+        activity.documentLaunchMode = ActivityInfo.DOCUMENT_LAUNCH_NEVER;
+        activity.flags = ActivityInfo.FLAG_EXCLUDE_FROM_RECENTS | ActivityInfo.FLAG_FINISH_ON_CLOSE_SYSTEM_DIALOGS;
+        activity.theme = com.android.internal.R.style.Theme_Material_Dialog_Alert;
+        activity.exported = true;
+        activity.enabled = true;
+        activity.resizeMode = ActivityInfo.RESIZE_MODE_RESIZEABLE;
+        activity.metaData = new Bundle();
+        activity.metaData.putBoolean(Intent.METADATA_DOCK_HOME, true);
+        ResolveInfo info = new ResolveInfo();
+        info.activityInfo = activity;
+        String target = intent.getPackage();
+        if (target != null && !target.isEmpty()) {
+            ApplicationInfo app = results.get(0).activityInfo.applicationInfo;
+            info.resolvePackageName = target;
+            info.icon = app.icon;
+            info.iconResourceId = app.icon;
+            info.labelRes = app.labelRes;
+        }
+        return info;
+    }
+
+    private List<ResolveInfo> query(int kind, Intent intent, long flags) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg == null) {
+            return new java.util.ArrayList<>();
+        }
+        Application app = ActivityThread.currentApplication();
+        String type = app != null ? intent.resolveTypeIfNeeded(app.getContentResolver()) : intent.getType();
+        return pkg.query(kind, intent, type, flags, this::getComponentEnabledSetting);
+    }
+
     // Providers by authority and the XML their meta-data names (step c2c1.1), as androidx's FileProvider finds its
     // paths: resolveContentProvider and then ProviderInfo.loadXmlMetaData, which asks getXml.
 
@@ -204,7 +326,7 @@ class ApplicationPackageManager {
     // A component's enabled state (gap 9, WorkManager's start enables its job service and receivers): kept for the
     // process, where PackageManagerService keeps it in its package settings, which Minato has none of. The default
     // state keeps nothing. The app's own components only; another package is unknown [verified: jobs-test on
-    // apk-runner-35]. Nothing yet reads the state: a disabled component still resolves and starts.
+    // apk-runner-35]. Intent resolution reads the state (step SV1); getXInfo and starts do not yet.
     private final ArrayMap<ComponentName, Integer> mComponentStates = new ArrayMap<>();
 
     public void setComponentEnabledSetting(ComponentName componentName, int newState, int flags) {

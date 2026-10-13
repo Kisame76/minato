@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of PackageManager's intent resolution over the app's own components (intent-query-test, ADR-0045 step
+     SV1): SDKs ask queryIntentServices, resolveService and queryBroadcastReceivers before they start a service or send a
+     broadcast. Activities, services, receivers and a provider with filters of every kind: actions, categories, data
+     with scheme, host, path and MIME type, priorities, a disabled component and meta-data. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.intentquery" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.intentquery.IntentQueryApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name=".ViewActivity" android:exported="true">
+      <intent-filter android:priority="5">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="minato" android:host="example.test" android:pathPrefix="/items"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.SEND"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:mimeType="text/plain"/>
+      </intent-filter>
+    </activity>
+    <activity android:name=".PlainActivity" android:exported="false">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.intentquery.PLAIN"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.SEND"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:mimeType="text/*"/>
+      </intent-filter>
+    </activity>
+    <service android:name=".LowService" android:exported="false">
+      <intent-filter android:priority="5">
+        <action android:name="io.github.kisame76.minato.test.intentquery.SYNC"/>
+      </intent-filter>
+      <meta-data android:name="kind" android:value="low"/>
+    </service>
+    <service android:name=".HighService" android:exported="false">
+      <intent-filter android:priority="10">
+        <action android:name="io.github.kisame76.minato.test.intentquery.SYNC"/>
+      </intent-filter>
+    </service>
+    <service android:name=".OffService" android:enabled="false" android:exported="false">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.intentquery.SYNC"/>
+      </intent-filter>
+    </service>
+    <service android:name=".PlainService" android:exported="false"/>
+    <receiver android:name=".FirstReceiver" android:exported="false">
+      <intent-filter android:priority="3">
+        <action android:name="io.github.kisame76.minato.test.intentquery.PING"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name=".SecondReceiver" android:exported="true">
+      <intent-filter android:priority="7">
+        <action android:name="io.github.kisame76.minato.test.intentquery.PING"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.PACKAGE_ADDED"/>
+        <data android:scheme="package"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name=".BootReceiver" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+      </intent-filter>
+    </receiver>
+    <provider android:name=".QueryProvider" android:authorities="io.github.kisame76.minato.test.intentquery.provider"
+        android:exported="false">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.intentquery.PROVIDE"/>
+      </intent-filter>
+    </provider>
+  </application>
+</manifest>

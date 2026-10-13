@@ -1,0 +1,39 @@
+I/intent-query-test: activities view: 1; activity ViewActivity priority 0 match 0x508000 default false filter false meta-data none enabled true
+I/intent-query-test: activities view default: 1; activity ViewActivity priority 0 match 0x508000 default false filter false meta-data none enabled true
+I/intent-query-test: activities view browsable: 1; activity ViewActivity priority 0 match 0x508000 default false filter false meta-data none enabled true
+I/intent-query-test: activities view other host: 0
+I/intent-query-test: activities view other path: 0
+I/intent-query-test: activities send text/plain: 2; activity ViewActivity priority 0 match 0x608000 default false filter false meta-data none enabled true; activity PlainActivity priority 0 match 0x608000 default false filter false meta-data none enabled true
+I/intent-query-test: activities send text/html: 1; activity PlainActivity priority 0 match 0x608000 default false filter false meta-data none enabled true
+I/intent-query-test: activities send image/png: 0
+I/intent-query-test: activities plain: 1; activity PlainActivity priority 0 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: activities plain default: 0
+I/intent-query-test: activities launcher: 1; activity Activity priority 0 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: activities explicit: 1; activity ViewActivity priority 0 match 0x0 default false filter false meta-data none enabled true
+I/intent-query-test: activities explicit missing: 0
+I/intent-query-test: resolveActivity view: activity ViewActivity priority 0 match 0x508000 default false filter false meta-data none enabled true
+I/intent-query-test: resolveActivity send: activity ResolverActivity priority 0 match 0x0 default false filter false meta-data android.util.MapCollections$KeySet@f3217eac enabled true
+I/intent-query-test: resolveActivity plain default: null
+I/intent-query-test: services sync: 2; service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: services sync own: 2; service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: services sync meta-data: 2; service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter false meta-data android.util.MapCollections$KeySet@323b94 enabled true
+I/intent-query-test: services sync filter: 2; service HighService priority 10 match 0x108000 default false filter true actions 1 meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter true actions 1 meta-data none enabled true
+I/intent-query-test: services sync disabled too: 3; service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true; service OffService priority 0 match 0x108000 default false filter false meta-data none enabled false
+I/intent-query-test: services sync other package: 0
+I/intent-query-test: services explicit: 1; service PlainService priority 0 match 0x0 default false filter false meta-data none enabled true
+I/intent-query-test: services explicit disabled: 0
+I/intent-query-test: resolveService sync: service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: resolveService explicit: service PlainService priority 0 match 0x0 default false filter false meta-data none enabled true
+I/intent-query-test: resolveService nothing: null
+I/intent-query-test: resolveService gms: null
+I/intent-query-test: receivers ping: 2; activity SecondReceiver priority 7 match 0x108000 default false filter false meta-data none enabled true; activity FirstReceiver priority 3 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: receivers ping own: 2; activity SecondReceiver priority 7 match 0x108000 default false filter false meta-data none enabled true; activity FirstReceiver priority 3 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: receivers boot: 1; activity BootReceiver priority 0 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: receivers package added: 1; activity SecondReceiver priority 0 match 0x208000 default false filter false meta-data none enabled true
+I/intent-query-test: receivers package added no data: 0
+I/intent-query-test: providers provide: 1; provider QueryProvider priority 0 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: providers provide own: 1; provider QueryProvider priority 0 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: services sync after enable and disable: 2; service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true; service OffService priority 0 match 0x108000 default false filter false meta-data none enabled false
+I/intent-query-test: resolveService sync after: service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: services sync after reset: 2; service HighService priority 10 match 0x108000 default false filter false meta-data none enabled true; service LowService priority 5 match 0x108000 default false filter false meta-data none enabled true
+I/intent-query-test: done
