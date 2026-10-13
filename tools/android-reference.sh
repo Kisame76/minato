@@ -667,9 +667,10 @@ run_app() {
     run cmd window user-rotation lock 0 >/dev/null
   fi
   if [[ "$app" == obb-test ]]; then
-    # ADR-0049 test 8: its main OBB in its OBB folder before the start, as a user or a store puts one there.
+    # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.
     run mkdir -p "/sdcard/Android/obb/${package:?}"
     device push "fixtures/apps/$app/main.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
+    device push "fixtures/apps/$app/patch.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
   fi
   if [[ "$app" == services-test ]]; then
     # Gap 1's batch 2: the notification service keeps an uninstalled app's channels in its policy file when the

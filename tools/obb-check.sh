@@ -24,6 +24,7 @@ tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh obb-test >/dev/null
 
 python3 framework/tests/java_app_run.py --obb fixtures/apps/obb-test/main.1.io.github.kisame76.minato.test.obb.obb \
+  --obb fixtures/apps/obb-test/patch.1.io.github.kisame76.minato.test.obb.obb \
   obb-test io.github.kisame76.minato.test.obb io.github.kisame76.minato.test.obb.ObbApplication build/art \
   build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/obb-check \
