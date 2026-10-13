@@ -7,16 +7,21 @@
 #include "check.h"
 
 #include <arpa/inet.h>
+#include <net/route.h>
+#include <sys/socket.h>
 
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <vector>
 
 namespace {
 
+using namespace std::string_literals;
 using apkrt::netlink::Address;
 using apkrt::netlink::HostInterface;
+using apkrt::netlink::HostRoute;
 using apkrt::netlink::Interface;
 
 constexpr int af_inet = 2, af_inet6 = 10, af_packet = 17;
@@ -239,9 +244,10 @@ std::vector<Interface> two() {
 }
 
 std::vector<std::string> answered(const std::string &datagram, long expected = 0, std::uint32_t port = 1234,
-                                  std::vector<Interface> interfaces = two()) {
+                                  std::vector<Interface> interfaces = two(), std::vector<HostRoute> routes = {}) {
     std::vector<std::string> replies;
-    const long result = apkrt::netlink::answer(datagram, port, [&] { return interfaces; }, replies);
+    const long result = apkrt::netlink::answer(datagram, port, [&] { return interfaces; }, replies,
+                                               [&] { return routes; });
     CHECK(result == expected);
     return replies;
 }
@@ -309,11 +315,10 @@ TEST(selinux_refuses_an_app_the_link_dump_the_neighbours_and_every_change) {
 }
 
 TEST(other_reads_answer_empty_dumps_and_errors) {
-    CHECK((answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 4)) == std::vector<std::string>{done(4, 1234)}));
     CHECK((answered(request(rtm_getrule, nlm_f_request | nlm_f_dump, 5)) == std::vector<std::string>{done(5, 1234)}));
     CHECK((answered(request(rtm_gettunnel, nlm_f_request | nlm_f_dump, 6)) ==
            std::vector<std::string>{done(6, 1234)}));
-    // A lookup in a table without routes, and requests that only dump.
+    // A route lookup (a named departure: no lookup in the guest's tables), and requests that only dump.
     const std::string lookup = request(rtm_getroute, nlm_f_request, 7);
     CHECK((answered(lookup) == std::vector<std::string>{error_message(-enetunreach, lookup, 1234)}));
     const std::string rule = request(rtm_getrule, nlm_f_request, 8);
@@ -344,13 +349,319 @@ TEST(junk_ends_the_datagram_quietly) {
     shorter.replace(0, 4, le32(8));
     CHECK(answered(shorter).empty());
     // A good request before the junk is answered.
-    CHECK(answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 2) + std::string(6, '\0')).size() == 1);
+    CHECK(answered(request(rtm_getrule, nlm_f_request | nlm_f_dump, 2) + std::string(6, '\0')).size() == 1);
 }
 
 TEST(two_requests_in_one_datagram_are_answered_in_order) {
     const auto replies = answered(request(rtm_getaddr, nlm_f_request | nlm_f_dump, 1, af_inet6) +
-                                  request(rtm_getroute, nlm_f_request | nlm_f_dump, 2));
+                                  request(rtm_getrule, nlm_f_request | nlm_f_dump, 2));
     CHECK(replies.size() == 3 && replies[1] == done(1, 1234) && replies[2] == done(2, 1234));
+}
+
+// --- The routes (ADR-0054 step c3) ------------------------------------------------------------------------------
+
+constexpr std::uint16_t rtm_newroute = 24;
+constexpr std::uint16_t rta_dst = 1, rta_oif = 4, rta_gateway = 5, rta_priority = 6, rta_prefsrc = 7, rta_metrics = 8,
+                        rta_cacheinfo = 12, rta_table = 15, rta_pref = 20, rtax_hoplimit = 10;
+constexpr int rtn_unicast = 1, rtn_local = 2, rtn_broadcast = 3, rtn_multicast = 5;
+constexpr int rtprot_kernel = 2, rtprot_static = 4, rtprot_ra = 9;
+
+/// A route as the test writes it: what both families have, and IPv6's metric.
+struct Want {
+    std::uint32_t table;
+    int type, protocol, scope;
+    const char *destination;  // nullptr: a default route
+    int prefix;
+    std::uint32_t oif;
+    const char *source = nullptr, *gateway = nullptr;
+    long metric = -1;  // IPv6
+    bool hoplimit = false;
+};
+
+/// RTM_NEWROUTE as fib_dump_info writes it for IPv4: RTA_TABLE, RTA_DST, RTA_PREFSRC, RTA_GATEWAY and RTA_OIF; and as
+/// rt6_fill_node for IPv6: RTA_TABLE, RTA_DST, RTA_METRICS, RTA_PRIORITY, RTA_GATEWAY, RTA_OIF, RTA_CACHEINFO and
+/// RTA_PREF. The header's table is RT_TABLE_COMPAT for a table beyond 255.
+std::string route(int family, std::uint32_t sequence, const Want &want) {
+    std::string payload{static_cast<char>(family), static_cast<char>(want.prefix), 0, 0,
+                        static_cast<char>(want.table < 256 ? want.table : 252), static_cast<char>(want.protocol),
+                        static_cast<char>(want.scope), static_cast<char>(want.type)};
+    payload += le32(0);
+    payload += attribute(rta_table, le32(want.table));
+    if (want.prefix > 0) payload += attribute(rta_dst, ip(want.destination));
+    if (family == af_inet) {
+        if (want.source != nullptr) payload += attribute(rta_prefsrc, ip(want.source));
+    } else {
+        if (want.hoplimit) payload += attribute(rta_metrics, attribute(rtax_hoplimit, le32(64)));
+        payload += attribute(rta_priority, le32(static_cast<std::uint32_t>(want.metric)));
+    }
+    if (want.gateway != nullptr) payload += attribute(rta_gateway, ip(want.gateway));
+    payload += attribute(rta_oif, le32(want.oif));
+    if (family == af_inet6) payload += attribute(rta_cacheinfo, std::string(32, '\0')) + attribute(rta_pref, "\0"s);
+    return message(rtm_newroute, nlm_f_multi, sequence, 1234, payload);
+}
+
+std::string routes(int family, std::uint32_t sequence, const std::vector<Want> &wants) {
+    std::string out;
+    for (const auto &want : wants) out += route(family, sequence, want);
+    return out;
+}
+
+constexpr int host_scope = 254, link_scope = 253, universe = 0;
+
+TEST(an_ipv4_route_dump_lays_the_tables_out_as_android_15) {
+    // lo and wlan0 (the host's en0, index 11, 192.168.1.20/24) with the host's default route through 192.168.1.1:
+    // netd's tables of wlan0's local routes and network first, as the kernel's table hash orders them, then main and
+    // local, each by destination.
+    const std::vector<HostRoute> host{{af_inet, 11, ip("192.168.1.1")}, {af_inet6, 11, ip("fe80::1")}};
+    const auto replies = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 3, af_inet), 0, 1234, two(), host);
+    CHECK(replies.size() == 2);
+    if (replies.size() != 2) return;
+    CHECK(replies[0] == routes(af_inet, 3, {
+        {1000000011, rtn_unicast, rtprot_static, link_scope, "192.168.1.0", 24, 11},
+        {1000000011, rtn_unicast, rtprot_static, link_scope, "224.0.0.0", 24, 11},
+        {1011, rtn_unicast, rtprot_static, universe, nullptr, 0, 11, nullptr, "192.168.1.1"},
+        {1011, rtn_unicast, rtprot_static, link_scope, "192.168.1.0", 24, 11},
+        {254, rtn_unicast, rtprot_kernel, link_scope, "192.168.1.0", 24, 11, "192.168.1.20"},
+        {255, rtn_local, rtprot_kernel, host_scope, "127.0.0.0", 8, 1, "127.0.0.1"},
+        {255, rtn_local, rtprot_kernel, host_scope, "127.0.0.1", 32, 1, "127.0.0.1"},
+        {255, rtn_broadcast, rtprot_kernel, link_scope, "127.255.255.255", 32, 1, "127.0.0.1"},
+        {255, rtn_local, rtprot_kernel, host_scope, "192.168.1.20", 32, 11, "192.168.1.20"},
+        {255, rtn_broadcast, rtprot_kernel, link_scope, "192.168.1.255", 32, 11, "192.168.1.20"},
+    }));
+    CHECK(replies[1] == done(3, 1234));
+}
+
+TEST(an_ipv6_route_dump_lays_the_tables_out_as_android_15) {
+    // The kernel's routes (metric 256) beside netd's (1024), the router's default route from its advertisement with
+    // its hop limit, the default route last in its table, and the addresses' local routes with ff00::/8 in table local.
+    const std::vector<HostRoute> host{{af_inet, 11, ip("192.168.1.1")}, {af_inet6, 11, ip("fe80::1")}};
+    const auto replies = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 4, af_inet6), 0, 1234, two(), host);
+    CHECK(replies.size() == 2);
+    if (replies.size() != 2) return;
+    CHECK(replies[0] == routes(af_inet6, 4, {
+        {1000000011, rtn_unicast, rtprot_static, universe, "2001:db8::", 64, 11, nullptr, nullptr, 1024},
+        {1000000011, rtn_unicast, rtprot_static, universe, "fe80::", 64, 11, nullptr, nullptr, 1024},
+        {1011, rtn_unicast, rtprot_kernel, universe, "2001:db8::", 64, 11, nullptr, nullptr, 256},
+        {1011, rtn_unicast, rtprot_static, universe, "2001:db8::", 64, 11, nullptr, nullptr, 1024},
+        {1011, rtn_unicast, rtprot_kernel, universe, "fe80::", 64, 11, nullptr, nullptr, 256},
+        {1011, rtn_unicast, rtprot_static, universe, "fe80::", 64, 11, nullptr, nullptr, 1024},
+        {1011, rtn_unicast, rtprot_ra, universe, nullptr, 0, 11, nullptr, "fe80::1", 1024, true},
+        {255, rtn_local, rtprot_kernel, universe, "::1", 128, 1, nullptr, nullptr, 0},
+        {255, rtn_local, rtprot_kernel, universe, "2001:db8::5", 128, 11, nullptr, nullptr, 0},
+        {255, rtn_local, rtprot_kernel, universe, "fe80::1c2b:3cff:fe4d:5e6f", 128, 11, nullptr, nullptr, 0},
+        {255, rtn_multicast, rtprot_kernel, universe, "ff00::", 8, 11, nullptr, nullptr, 256},
+    }));
+    CHECK(replies[1] == done(4, 1234));
+}
+
+TEST(a_route_dump_of_both_families_answers_ipv4_then_ipv6_and_without_the_hosts_routes_no_default) {
+    const auto replies = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 5));
+    CHECK(replies.size() == 3);
+    if (replies.size() != 3) return;
+    CHECK(replies[0].find(ip("192.168.1.1")) == std::string::npos);
+    CHECK(replies[0].find(ip("224.0.0.0")) != std::string::npos);
+    CHECK(replies[1].substr(16, 1) == std::string(1, static_cast<char>(af_inet6)));
+    CHECK(replies[2] == done(5, 1234));
+}
+
+TEST(a_point_to_point_address_routes_its_peer_and_an_ipv6_address_without_a_prefix_routes_nothing) {
+    // A VPN's 10.2.0.2 to its peer 10.2.0.1, /32: a route to the peer in table main, as fib_add_ifaddr adds where the
+    // prefix is not the address; no broadcast. An IPv6 address of prefix 0 gives no ::/0 to the network's table.
+    auto guest = apkrt::netlink::guest_interfaces(iphone());
+    Interface tun = guest.at(3);
+    tun.addresses = {address("10.2.0.2", 32, nullptr, "10.2.0.1"), address("2001:db8:5::1", 0)};
+    const auto four = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 8, af_inet), 0, 1234, {tun});
+    CHECK(four.size() == 2);
+    if (four.size() == 2) {
+        CHECK(four[0] == routes(af_inet, 8, {
+            {1000000011, rtn_unicast, rtprot_static, link_scope, "10.2.0.1", 32, 11},
+            {1000000011, rtn_unicast, rtprot_static, link_scope, "224.0.0.0", 24, 11},
+            {1011, rtn_unicast, rtprot_static, link_scope, "10.2.0.1", 32, 11},
+            {254, rtn_unicast, rtprot_kernel, link_scope, "10.2.0.1", 32, 11, "10.2.0.2"},
+            {255, rtn_local, rtprot_kernel, host_scope, "10.2.0.2", 32, 11, "10.2.0.2"},
+        }));
+    }
+    const auto six = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 9, af_inet6), 0, 1234, {tun});
+    CHECK(six.size() == 2);
+    if (six.size() == 2) {
+        CHECK(six[0] == routes(af_inet6, 9, {
+            {255, rtn_local, rtprot_kernel, universe, "2001:db8:5::1", 128, 11, nullptr, nullptr, 0},
+            {255, rtn_multicast, rtprot_kernel, universe, "ff00::", 8, 11, nullptr, nullptr, 256},
+        }));
+    }
+}
+
+TEST(a_route_dump_takes_each_prefix_once_and_none_of_a_zero_network) {
+    // A second address in a subnet adds no route to it; a /31 has no broadcast; 0.0.0.0/8 is no prefix route
+    // (fib_add_ifaddr's zeronet); a link-local address gives fe80::/64 whatever its own prefix.
+    auto guest = apkrt::netlink::guest_interfaces(iphone());
+    Interface wlan = guest.at(3);
+    wlan.addresses = {address("192.168.1.20", 24, "192.168.1.255"), address("192.168.1.21", 24, "192.168.1.255"),
+                      address("10.3.0.1", 31), address("0.1.2.3", 8), address("fe80::2", 96)};
+    const auto four = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 10, af_inet), 0, 1234, {wlan});
+    CHECK(four.size() == 2);
+    if (four.size() == 2) {
+        CHECK(four[0] == routes(af_inet, 10, {
+            {1000000011, rtn_unicast, rtprot_static, link_scope, "10.3.0.0", 31, 11},
+            {1000000011, rtn_unicast, rtprot_static, link_scope, "192.168.1.0", 24, 11},
+            {1000000011, rtn_unicast, rtprot_static, link_scope, "224.0.0.0", 24, 11},
+            {1011, rtn_unicast, rtprot_static, link_scope, "10.3.0.0", 31, 11},
+            {1011, rtn_unicast, rtprot_static, link_scope, "192.168.1.0", 24, 11},
+            {254, rtn_unicast, rtprot_kernel, link_scope, "10.3.0.0", 31, 11, "10.3.0.1"},
+            {254, rtn_unicast, rtprot_kernel, link_scope, "192.168.1.0", 24, 11, "192.168.1.20"},
+            {255, rtn_local, rtprot_kernel, host_scope, "0.1.2.3", 32, 11, "0.1.2.3"},
+            {255, rtn_local, rtprot_kernel, host_scope, "10.3.0.1", 32, 11, "10.3.0.1"},
+            {255, rtn_local, rtprot_kernel, host_scope, "192.168.1.20", 32, 11, "192.168.1.20"},
+            {255, rtn_local, rtprot_kernel, host_scope, "192.168.1.21", 32, 11, "192.168.1.21"},
+            {255, rtn_broadcast, rtprot_kernel, link_scope, "192.168.1.255", 32, 11, "192.168.1.20"},
+        }));
+    }
+    const auto six = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 11, af_inet6), 0, 1234, {wlan});
+    CHECK(six.size() == 2);
+    if (six.size() == 2) {
+        CHECK(six[0] == routes(af_inet6, 11, {
+            {1000000011, rtn_unicast, rtprot_static, universe, "fe80::", 64, 11, nullptr, nullptr, 1024},
+            {1011, rtn_unicast, rtprot_kernel, universe, "fe80::", 64, 11, nullptr, nullptr, 256},
+            {1011, rtn_unicast, rtprot_static, universe, "fe80::", 64, 11, nullptr, nullptr, 1024},
+            {255, rtn_local, rtprot_kernel, universe, "fe80::2", 128, 11, nullptr, nullptr, 0},
+            {255, rtn_multicast, rtprot_kernel, universe, "ff00::", 8, 11, nullptr, nullptr, 256},
+        }));
+    }
+}
+
+TEST(a_long_route_dump_comes_in_datagrams_of_one_page) {
+    auto guest = apkrt::netlink::guest_interfaces(iphone());
+    Interface many = guest.at(3);
+    for (int i = 0; i < 60; i++) {
+        many.addresses.push_back(address(("10.1." + std::to_string(i) + ".1").c_str(), 24, nullptr));
+    }
+    const auto replies = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 6, af_inet), 0, 1234,
+                                  {guest.at(0), many});
+    CHECK(replies.size() > 2);
+    for (std::size_t i = 0; i + 1 < replies.size(); i++) CHECK(replies[i].size() <= 3776);
+}
+
+// --- The host's routes -------------------------------------------------------------------------------------------
+
+/// A sockaddr as Darwin's routing messages carry it, padded to 4 bytes (or 4 bytes for an empty one).
+std::string sockaddr_bytes(int family, const std::string &address, std::size_t length = 0) {
+    std::string out;
+    if (family == 0) {  // a netmask: its length, no family, then the port's and the address's bytes it keeps
+        out = std::string(1, static_cast<char>(length)) + std::string(1, '\0') + address;
+        out.resize(length);
+    } else if (family == AF_INET) {
+        out = std::string{16, AF_INET} + std::string(2, '\0') + address + std::string(8, '\0');
+    } else if (family == AF_INET6) {
+        out = std::string{28, AF_INET6} + std::string(6, '\0') + address + std::string(4, '\0');
+    } else {  // AF_LINK, its index
+        out = std::string{20, 18} + address + std::string(16, '\0');
+    }
+    out.resize(out.empty() ? 4 : (out.size() + 3) & ~std::size_t{3}, '\0');
+    return out;
+}
+
+/// rt_msghdr (net/route.h, 92 bytes) for a route of `index` with `flags`, and its sockaddrs, the first three of
+/// RTAX_DST, RTAX_GATEWAY and RTAX_NETMASK in order.
+std::string darwin_route(unsigned index, int flags, const std::vector<std::string> &addresses, int version = 5) {
+    std::string body;
+    int mask = 0;
+    for (std::size_t i = 0; i < addresses.size(); i++) {
+        body += addresses[i];
+        mask |= 1 << i;
+    }
+    std::string header(92, '\0');
+    const auto length = static_cast<std::uint16_t>(92 + body.size());
+    std::memcpy(header.data(), &length, 2);
+    header[2] = static_cast<char>(version);
+    header[3] = 4;  // RTM_GET
+    const auto short_index = static_cast<std::uint16_t>(index);
+    std::memcpy(header.data() + 4, &short_index, 2);
+    std::memcpy(header.data() + 8, &flags, 4);
+    std::memcpy(header.data() + 12, &mask, 4);
+    return header + body;
+}
+
+constexpr int rtf_up = 0x1, rtf_gateway = 0x2, rtf_host = 0x4, rtf_reject = 0x8, rtf_static = 0x800,
+              rtf_llinfo = 0x400, rtf_blackhole = 0x1000, rtf_wascloned = 0x20000, rtf_ifscope = 0x1000000;
+
+TEST(the_hosts_default_routes_come_from_its_routing_messages) {
+    const std::string any4(4, '\0'), any6(16, '\0');
+    std::string dump;
+    // en0's default route, scoped and not, through 192.168.1.1: one route.
+    dump += darwin_route(11, rtf_up | rtf_gateway | rtf_static, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("192.168.1.1")), sockaddr_bytes(0, "", 0)});
+    dump += darwin_route(11, rtf_up | rtf_gateway | rtf_static | rtf_ifscope, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("192.168.1.1")), sockaddr_bytes(0, "", 0)});
+    // A subnet, a host route, an ARP entry, a cloned route and one that is down: none is a default route.
+    dump += darwin_route(11, rtf_up, {sockaddr_bytes(AF_INET, ip("192.168.1.0")),
+                         sockaddr_bytes(18, std::string("\x0b\0", 2)),
+                         sockaddr_bytes(0, std::string("\0\0\xff\xff\xff", 5), 7)});
+    dump += darwin_route(11, rtf_up | rtf_gateway | rtf_host, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("192.168.1.9"))});
+    dump += darwin_route(11, rtf_up | rtf_llinfo,
+                         {sockaddr_bytes(AF_INET, any4), sockaddr_bytes(18, std::string(2, '\0'))});
+    dump += darwin_route(12, rtf_up | rtf_gateway | rtf_wascloned, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("10.0.0.1"))});
+    dump += darwin_route(13, rtf_gateway, {sockaddr_bytes(AF_INET, any4), sockaddr_bytes(AF_INET, ip("10.0.0.2"))});
+    // A route to one address through a gateway without a netmask, and a VPN's reject and blackhole defaults.
+    dump += darwin_route(12, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET, ip("10.0.0.0")),
+                         sockaddr_bytes(AF_INET, ip("10.0.0.1"))});
+    dump += darwin_route(12, rtf_up | rtf_gateway | rtf_reject, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("10.0.0.1"))});
+    dump += darwin_route(12, rtf_up | rtf_gateway | rtf_blackhole, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("10.0.0.1"))});
+    // A VPN's half of the address space, 0.0.0.0/1, and a gateway that is no address of the family.
+    dump += darwin_route(12, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("10.0.0.1")), sockaddr_bytes(0, std::string("\0\0\x80", 3), 5)});
+    dump += darwin_route(12, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(18, std::string("\x0c\0", 2))});
+    // A wrong version, then pdp_ip0's default route over its link, without a gateway.
+    dump += darwin_route(4, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET, any4),
+                         sockaddr_bytes(AF_INET, ip("10.9.9.9"))}, 4);
+    dump += darwin_route(4, rtf_up | rtf_static,
+                         {sockaddr_bytes(AF_INET, any4), sockaddr_bytes(18, std::string("\x04\0", 2))});
+    // en0's IPv6 router, whose link-local address carries KAME's scope in bytes 2 and 3.
+    dump += darwin_route(11, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET6, any6),
+                         sockaddr_bytes(AF_INET6, ip("fe80:b::1")), sockaddr_bytes(0, "", 0)});
+    const auto found = apkrt::netlink::default_routes(dump);
+    CHECK(found.size() == 3);
+    if (found.size() != 3) return;
+    CHECK(found[0].family == af_inet && found[0].index == 11 && found[0].gateway == ip("192.168.1.1"));
+    CHECK(found[1].family == af_inet && found[1].index == 4 && found[1].gateway.empty());
+    CHECK(found[2].family == af_inet6 && found[2].index == 11 && found[2].gateway == ip("fe80::1"));
+}
+
+TEST(a_routing_message_that_does_not_fit_ends_the_host_routes) {
+    const std::string any4(4, '\0');
+    const std::string good = darwin_route(11, rtf_up | rtf_gateway, {sockaddr_bytes(AF_INET, any4),
+                                          sockaddr_bytes(AF_INET, ip("192.168.1.1"))});
+    // A sockaddr longer than its message is skipped with the message; a message longer than the dump, or shorter
+    // than its header, ends it.
+    std::string overlong = good;
+    overlong[92 + 16] = 120;  // the gateway's sa_len
+    std::string other = good;
+    other[4] = 12;  // its interface
+    const auto kept = apkrt::netlink::default_routes(overlong + other);
+    CHECK(kept.size() == 1 && kept[0].index == 12);
+    std::string truncated = good;
+    truncated.resize(good.size() - 4);
+    CHECK(apkrt::netlink::default_routes(truncated).empty());
+    std::string short_header = good;
+    short_header[0] = 40, short_header[1] = 0;
+    CHECK(apkrt::netlink::default_routes(short_header + good).empty());
+    CHECK(apkrt::netlink::default_routes(std::string(3, '\x7f')).empty());
+    // A gateway too short for its family is no route.
+    std::string short_gateway = good;
+    short_gateway[92 + 16] = 6;
+    CHECK(apkrt::netlink::default_routes(short_gateway).empty());
+}
+
+TEST(the_hosts_routing_message_header_is_darwins) {
+    CHECK(sizeof(rt_msghdr) == 92 && offsetof(rt_msghdr, rtm_index) == 4 && offsetof(rt_msghdr, rtm_flags) == 8 &&
+          offsetof(rt_msghdr, rtm_addrs) == 12);
+    CHECK(RTF_GATEWAY == rtf_gateway && RTF_HOST == rtf_host && RTF_LLINFO == rtf_llinfo &&
+          RTF_WASCLONED == rtf_wascloned && RTF_IFSCOPE == rtf_ifscope && RTF_REJECT == rtf_reject &&
+          RTF_BLACKHOLE == rtf_blackhole && RTM_VERSION == 5);
 }
 
 TEST(the_kernels_name_is_port_0_without_groups) {

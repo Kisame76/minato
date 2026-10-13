@@ -176,6 +176,8 @@ add_executable(sharedmem-test suite/sharedmem-test.c)
 target_link_libraries(sharedmem-test PRIVATE android)
 # ifaddrs-test: the network interfaces an app sees, loopback's lines only (ADR-0054 c).
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
+# route-test: the routes an app reads, RTM_GETROUTE's dump, lo's lines and Android's layout (ADR-0054 c3).
+add_executable(route-test suite/route-test.c)
 # cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 add_executable(cacerts-test suite/cacerts-test.c)
 # sendfile-test: sendfile(2) to a file, a socket and a pipe, its offsets and its errors in the kernel's order.

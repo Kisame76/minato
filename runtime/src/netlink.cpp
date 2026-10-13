@@ -14,13 +14,19 @@
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
 #include <bit>
+#include <cstdio>
 #include <cstring>
 #include <map>
+#include <mutex>
+#include <set>
+#include <tuple>
 
 namespace apkrt::netlink {
 namespace {
@@ -233,6 +239,205 @@ void address_dump(const std::vector<Interface> &interfaces, int family, std::uin
     replies.push_back(done(sequence, port));
 }
 
+// --- The routes (ADR-0054 step c3) ------------------------------------------------------------------------------
+// Android 15's tables as an app dumps them [verified: the emulator, route-test and `ip route show table all`]: the
+// kernel's local table (255) with each address's local route and each subnet's broadcast, its main table (254) with
+// each subnet, and netd's (RouteController.cpp) table of each network, 1000 + its interface's index, with its subnets,
+// its link-local and prefix routes (the kernel's beside netd's own) and its default routes, and of its local routes,
+// 1000000000 + the index, with its subnets and IPv4's link-local multicast. Only the default routes come from the
+// host; the rest follows from the guest's addresses as Linux's fib_add_ifaddr and addrconf make it.
+
+constexpr std::uint16_t rtm_newroute = 24;
+constexpr std::uint16_t rta_dst = 1, rta_oif = 4, rta_gateway = 5, rta_priority = 6, rta_prefsrc = 7,
+                        rta_metrics = 8, rta_cacheinfo = 12, rta_table = 15, rta_pref = 20, rtax_hoplimit = 10;
+constexpr std::uint8_t rtn_unicast = 1, rtn_local = 2, rtn_broadcast = 3, rtn_multicast = 5;
+constexpr std::uint8_t rtprot_kernel = 2, rtprot_static = 4, rtprot_ra = 9;
+constexpr std::uint32_t table_main = 254, table_local = 255, table_compat = 252, network_table = 1000,
+                        local_network_table = 1'000'000'000;
+// IPv6's metrics: an address's local route, the kernel's prefix routes (IP6_RT_PRIO_ADDRCONF), netd's routes and an
+// advertised router's (IP6_RT_PRIO_USER), and the hop limit an advertisement gives (the emulator's router: 64).
+constexpr std::uint32_t local_metric = 0, kernel_metric = 256, netd_metric = 1024, router_hop_limit = 64;
+
+struct Route {
+    int family = linux_inet;
+    std::uint32_t table = table_main;
+    std::uint8_t type = rtn_unicast, protocol = rtprot_kernel, scope = rt_scope_universe;
+    std::string destination;  // the prefix's bytes, empty for a default route
+    int prefix = 0;
+    unsigned oif = 0;
+    std::string source, gateway;
+    std::uint32_t metric = 0;  // IPv6's
+    bool hop_limit = false;    // IPv6: RTAX_HOPLIMIT, as an advertised router's route has it
+};
+
+/// `bytes` with every bit beyond the first `prefix` cleared, or, with `ones`, set.
+std::string masked(std::string bytes, int prefix, bool ones = false) {
+    for (std::size_t i = 0; i < bytes.size(); i++) {
+        const int bits = prefix - 8 * static_cast<int>(i);
+        if (bits >= 8) continue;
+        const unsigned kept = bits <= 0 ? 0 : 0xffu << (8 - bits) & 0xffu;
+        const auto byte = static_cast<unsigned char>(bytes[i]);
+        bytes[i] = static_cast<char>(ones ? (byte & kept) | (~kept & 0xffu) : byte & kept);
+    }
+    return bytes;
+}
+
+/// The routes Android 15 has for `interfaces` of `family`, with `defaults`' default routes for them.
+std::vector<Route> routes_of(const std::vector<Interface> &interfaces, const std::vector<HostRoute> &defaults,
+                             int family) {
+    std::vector<Route> out;
+    std::set<std::tuple<std::uint32_t, std::string, int, std::uint8_t, unsigned, std::uint32_t, std::uint8_t>> seen;
+    const auto add = [&](Route route) {
+        route.family = family;
+        if (seen.emplace(route.table, route.destination, route.prefix, route.type, route.oif, route.metric,
+                         route.protocol).second) {
+            out.push_back(std::move(route));
+        }
+    };
+    for (const auto &interface : interfaces) {
+        const bool loopback = (interface.flags & IFF_LOOPBACK) != 0;
+        const unsigned index = interface.index;
+        const std::uint32_t network = network_table + index, local_network = local_network_table + index;
+        bool any = false;
+        for (const auto &address : interface.addresses) {
+            if (address.family != family) continue;
+            any = true;
+            const std::string &bytes = address.bytes;
+            if (family == linux_inet) {
+                const int prefix = std::clamp(address.prefix, 0, 32);
+                const std::string subnet = masked(address.peer.empty() ? bytes : address.peer, prefix);
+                add({.table = table_local, .type = rtn_local, .scope = rt_scope_host, .destination = bytes,
+                     .prefix = 32, .oif = index, .source = bytes});
+                // fib_add_ifaddr: a prefix route where the prefix is not the address, a point-to-point peer's too.
+                if ((prefix < 32 || subnet != bytes) && !all_zero(subnet)) {
+                    if (loopback) {
+                        add({.table = table_local, .type = rtn_local, .scope = rt_scope_host, .destination = subnet,
+                             .prefix = prefix, .oif = index, .source = bytes});
+                    } else {
+                        add({.table = table_main, .scope = rt_scope_link, .destination = subnet, .prefix = prefix,
+                             .oif = index, .source = bytes});
+                        for (const std::uint32_t table : {network, local_network}) {
+                            add({.table = table, .protocol = rtprot_static, .scope = rt_scope_link,
+                                 .destination = subnet, .prefix = prefix, .oif = index});
+                        }
+                    }
+                    if (prefix < 31) {
+                        add({.table = table_local, .type = rtn_broadcast, .scope = rt_scope_link,
+                             .destination = masked(subnet, prefix, true), .prefix = 32, .oif = index,
+                             .source = bytes});
+                    }
+                }
+            } else {
+                add({.table = table_local, .type = rtn_local, .destination = bytes, .prefix = 128, .oif = index,
+                     .metric = local_metric});
+                if (loopback || address.prefix >= 128 || (address.prefix <= 0 && !link_local(address))) continue;
+                const int prefix = link_local(address) ? 64 : address.prefix;
+                const std::string subnet = masked(bytes, prefix);
+                add({.table = network, .destination = subnet, .prefix = prefix, .oif = index,
+                     .metric = kernel_metric});
+                for (const std::uint32_t table : {network, local_network}) {
+                    add({.table = table, .protocol = rtprot_static, .destination = subnet, .prefix = prefix,
+                         .oif = index, .metric = netd_metric});
+                }
+            }
+        }
+        if (!any || loopback) continue;
+        if (family == linux_inet) {
+            add({.table = local_network, .protocol = rtprot_static, .scope = rt_scope_link,
+                 .destination = std::string("\xe0\0\0\0", 4), .prefix = 24, .oif = index});
+        } else {
+            add({.table = table_local, .type = rtn_multicast,
+                 .destination = std::string("\xff") + std::string(15, '\0'), .prefix = 8, .oif = index,
+                 .metric = kernel_metric});
+        }
+        for (const auto &route : defaults) {
+            if (route.family != family || route.index != index) continue;
+            const bool router = !route.gateway.empty();
+            if (family == linux_inet) {
+                add({.table = network, .protocol = rtprot_static, .scope = router ? rt_scope_universe : rt_scope_link,
+                     .oif = index, .gateway = route.gateway});
+            } else {
+                add({.table = network, .protocol = router ? rtprot_ra : rtprot_static, .oif = index,
+                     .gateway = route.gateway, .metric = netd_metric, .hop_limit = router});
+            }
+        }
+    }
+    // The order of a dump: the tables by the kernel's hash of their IDs (fib_table_hash, 256 buckets), each by its
+    // prefixes' addresses (fib_trie's walk); IPv6's tree gives a table's default route last, and its routes to one
+    // prefix by their metrics.
+    const auto key = [family](const Route &route) {
+        const bool last = family == linux_inet6 && route.prefix == 0;
+        const std::string address = route.destination.empty() ? std::string(family == linux_inet ? 4 : 16, '\0')
+                                                              : route.destination;
+        return std::tuple(route.table & 255, route.table, last, address, route.prefix, route.metric, route.oif);
+    };
+    std::stable_sort(out.begin(), out.end(), [&](const Route &a, const Route &b) { return key(a) < key(b); });
+    return out;
+}
+
+/// RTM_NEWROUTE for `route`, in the order of fib_dump_info's attributes for IPv4 (RTA_TABLE, RTA_DST, RTA_PREFSRC,
+/// then the next hop's RTA_GATEWAY and RTA_OIF) and of rt6_fill_node's for IPv6 (RTA_TABLE, RTA_DST, RTA_METRICS,
+/// RTA_PRIORITY, RTA_GATEWAY, RTA_OIF, RTA_CACHEINFO and RTA_PREF); a table beyond 255 is RT_TABLE_COMPAT in the
+/// header. No route expires, and no cache entry is shown.
+std::string new_route(const Route &route, std::uint32_t sequence, std::uint32_t port) {
+    std::string payload;
+    payload += static_cast<char>(route.family);
+    payload += static_cast<char>(route.prefix);
+    payload += '\0';  // rtm_src_len
+    payload += '\0';  // rtm_tos
+    payload += static_cast<char>(route.table < 256 ? route.table : table_compat);
+    payload += static_cast<char>(route.protocol);
+    payload += static_cast<char>(route.scope);
+    payload += static_cast<char>(route.type);
+    put32(payload, 0);  // rtm_flags
+    std::string number;
+    put32(number, route.table);
+    attribute(payload, rta_table, number);
+    if (route.prefix > 0) attribute(payload, rta_dst, route.destination);
+    if (route.family == linux_inet) {
+        if (!route.source.empty()) attribute(payload, rta_prefsrc, route.source);
+    } else {
+        if (route.hop_limit) {
+            std::string metrics, limit;
+            put32(limit, router_hop_limit);
+            attribute(metrics, rtax_hoplimit, limit);
+            attribute(payload, rta_metrics, metrics);
+        }
+        std::string metric;
+        put32(metric, route.metric);
+        attribute(payload, rta_priority, metric);
+    }
+    if (!route.gateway.empty()) attribute(payload, rta_gateway, route.gateway);
+    std::string oif;
+    put32(oif, route.oif);
+    attribute(payload, rta_oif, oif);
+    if (route.family == linux_inet6) {
+        attribute(payload, rta_cacheinfo, std::string(32, '\0'));
+        attribute(payload, rta_pref, std::string(1, '\0'));  // ICMPV6_ROUTER_PREF_MEDIUM
+    }
+    return message(rtm_newroute, nlm_f_multi, sequence, port, payload);
+}
+
+/// RTM_GETROUTE's dump for `family` (another than AF_INET and AF_INET6 is both, rtnl_dump_all): IPv4's routes in
+/// datagrams of their own, then IPv6's, then NLMSG_DONE alone, as the address dump.
+void route_dump(const std::vector<Interface> &interfaces, const std::vector<HostRoute> &defaults, int family,
+                std::uint32_t sequence, std::uint32_t port, std::vector<std::string> &replies) {
+    for (const int each : {linux_inet, linux_inet6}) {
+        if ((family == linux_inet || family == linux_inet6) && family != each) continue;
+        std::string datagram;
+        for (const auto &route : routes_of(interfaces, defaults, each)) {
+            std::string one = new_route(route, sequence, port);
+            if (!datagram.empty() && datagram.size() + one.size() > dump_room) {
+                replies.push_back(std::move(datagram));
+                datagram.clear();
+            }
+            datagram += one;
+        }
+        if (!datagram.empty()) replies.push_back(std::move(datagram));
+    }
+    replies.push_back(done(sequence, port));
+}
+
 /// netlink_ack: NLMSG_ERROR with `error` for `original`, which it repeats whole for an error and only its header for
 /// an acknowledgement (NLM_F_CAPPED), as without NETLINK_CAP_ACK and NETLINK_EXT_ACK.
 std::string acknowledgement(long error, std::string_view original, std::uint32_t port) {
@@ -262,7 +467,7 @@ constexpr long dumped = 1;
 
 /// rtnetlink_rcv_msg's answer for a request to read: a dump, or an error for a request for one object.
 long respond(std::string_view request, std::uint32_t port, const std::function<std::vector<Interface>()> &interfaces,
-             std::vector<std::string> &replies) {
+             const std::function<std::vector<HostRoute>()> &routes, std::vector<std::string> &replies) {
     if (request.size() < header_size + 1) return 0;  // shorter than rtgenmsg
     const auto type = read16(request, 4), flags = read16(request, 6);
     const auto sequence = read32(request, 8);
@@ -273,8 +478,12 @@ long respond(std::string_view request, std::uint32_t port, const std::function<s
         address_dump(interfaces(), family, sequence, port, replies);
         return dumped;
     }
+    if (type == rtm_getroute && dump) {
+        route_dump(interfaces(), routes(), family, sequence, port, replies);
+        return dumped;
+    }
     if (dump) {
-        replies.push_back(done(sequence, port));  // tables the guest has none of, routes included
+        replies.push_back(done(sequence, port));  // tables the guest has none of
         return dumped;
     }
     return type == rtm_getroute ? -linux_errno::enetunreach : -linux_errno::eopnotsupp;
@@ -495,6 +704,101 @@ std::vector<Interface> interfaces() {
     return guest_interfaces(host_interfaces());
 }
 
+// Darwin's routing messages (net/route.h, which the iOS SDK does not ship): rt_msghdr is 92 bytes, its length at 0,
+// version at 2, interface index at 4, flags at 8 and the bits of the sockaddrs that follow at 12, each padded to 4
+// bytes (ROUNDUP32, 4 for an empty one).
+namespace {
+constexpr std::size_t routing_header = 92;
+constexpr int rtm_version = 5, rtf_up = 0x1, rtf_gateway = 0x2, rtf_host = 0x4, rtf_reject = 0x8,
+              rtf_llinfo = 0x400, rtf_blackhole = 0x1000, rtf_wascloned = 0x20000, rtax_dst = 0, rtax_gateway = 1,
+              rtax_netmask = 2, rtax_max = 8, net_rt_dump = 1;
+constexpr std::size_t dump_cap = std::size_t{16} << 20;
+}  // namespace
+
+std::vector<HostRoute> default_routes(std::string_view dump) {
+    std::vector<HostRoute> found;
+    std::set<std::pair<int, unsigned>> seen;
+    for (std::size_t at = 0; dump.size() - at >= routing_header;) {
+        const std::size_t length = read16(dump, at);
+        if (length < routing_header || length > dump.size() - at) break;
+        const std::string_view one = dump.substr(at, length);
+        at += length;
+        if (static_cast<unsigned char>(one[2]) != rtm_version) continue;
+        const auto flags = static_cast<int>(read32(one, 8)), present = static_cast<int>(read32(one, 12));
+        // Not up, a host route, a VPN's reject or blackhole, an ARP or neighbour entry, a clone.
+        constexpr int no_default = rtf_host | rtf_reject | rtf_llinfo | rtf_blackhole | rtf_wascloned;
+        if ((flags & rtf_up) == 0 || (flags & no_default) != 0) continue;
+        std::string_view addresses[rtax_max];
+        bool fits = true;
+        for (std::size_t i = 0, offset = routing_header; i < rtax_max && fits; i++) {
+            if ((present & (1 << i)) == 0) continue;
+            fits = offset < length;
+            if (!fits) break;
+            const std::size_t size = static_cast<unsigned char>(one[offset]);
+            fits = size <= length - offset;
+            addresses[i] = one.substr(offset, std::min(size, length - offset));
+            offset += size == 0 ? 4 : (size + 3) & ~std::size_t{3};
+        }
+        if (!fits) continue;
+        const std::string_view destination = addresses[rtax_dst];
+        if (destination.size() < 2) continue;
+        const int family = static_cast<unsigned char>(destination[1]);
+        if (family != AF_INET && family != AF_INET6) continue;
+        const std::size_t start = family == AF_INET ? 4 : 8, width = family == AF_INET ? 4 : 16;
+        const auto zero = [](std::string_view bytes) {
+            return std::all_of(bytes.begin(), bytes.end(), [](char each) { return each == '\0'; });
+        };
+        if (destination.size() < start + width || !zero(destination.substr(start, width))) continue;
+        const std::string_view netmask = addresses[rtax_netmask];
+        if (netmask.size() > start && !zero(netmask.substr(start))) continue;
+        HostRoute route{family == AF_INET ? linux_inet : linux_inet6, read16(one, 4), {}};
+        const std::string_view gateway = addresses[rtax_gateway];
+        if ((flags & rtf_gateway) != 0) {
+            if (gateway.size() < start + width || static_cast<unsigned char>(gateway[1]) != family) continue;
+            route.gateway = std::string(gateway.substr(start, width));
+            if (family == AF_INET6 && static_cast<unsigned char>(route.gateway[0]) == 0xfe &&
+                (static_cast<unsigned char>(route.gateway[1]) & 0xc0) == 0x80) {
+                route.gateway[2] = route.gateway[3] = '\0';  // KAME's scope
+            }
+        }  // without RTF_GATEWAY the route goes over the interface's link, whatever its gateway names
+        if (seen.emplace(route.family, route.index).second) found.push_back(std::move(route));
+    }
+    return found;
+}
+
+std::vector<HostRoute> host_default_routes() {
+    std::vector<HostRoute> all;
+    for (const int family : {AF_INET, AF_INET6}) {
+        int names[6] = {CTL_NET, PF_ROUTE, 0, family, net_rt_dump, 0};
+        std::string dump;
+        bool read = false;
+        for (int attempt = 0; attempt < 3 && !read; attempt++) {  // the table can grow between the two calls
+            std::size_t size = 0;
+            if (::sysctl(names, 6, nullptr, &size, nullptr, 0) != 0) break;
+            if (size > dump_cap) {
+                errno = EFBIG;
+                break;
+            }
+            dump.resize(size + size / 4 + 1024);
+            size = dump.size();
+            read = ::sysctl(names, 6, dump.data(), &size, nullptr, 0) == 0;
+            dump.resize(read ? size : 0);
+            if (!read && errno != ENOMEM) break;
+        }
+        if (!read) {  // the sandbox, or a table that keeps growing: no default routes for the family
+            static std::once_flag reported[2];
+            std::call_once(reported[family == AF_INET ? 0 : 1], [family, error = errno] {
+                char message[128];
+                std::snprintf(message, sizeof message, "apkrt: the host's IPv%d routes cannot be read (%s)\n",
+                              family == AF_INET ? 4 : 6, std::strerror(error));
+                sys::report(message);
+            });
+        }
+        for (auto &each : default_routes(dump)) all.push_back(std::move(each));
+    }
+    return all;
+}
+
 std::string kernel_name() {
     std::string name;
     put16(name, 16);  // AF_NETLINK
@@ -505,7 +809,7 @@ std::string kernel_name() {
 }
 
 long answer(std::string_view request, std::uint32_t port, const std::function<std::vector<Interface>()> &interfaces,
-            std::vector<std::string> &replies) {
+            std::vector<std::string> &replies, const std::function<std::vector<HostRoute>()> &routes) {
     // SELinux looks at every message first, as far as their lengths are sound (selinux_nlmsg_perm).
     for (std::size_t at = 0; request.size() - at >= header_size;) {
         const std::uint32_t length = read32(request, at);
@@ -523,13 +827,20 @@ long answer(std::string_view request, std::uint32_t port, const std::function<st
         }
         return known;
     };
+    std::vector<HostRoute> known_routes;
+    bool asked_routes = false;
+    const std::function<std::vector<HostRoute>()> routes_once = [&] {
+        if (!asked_routes && routes) known_routes = routes();
+        asked_routes = true;
+        return known_routes;
+    };
     for (std::size_t at = 0; request.size() - at >= header_size;) {
         const std::uint32_t length = read32(request, at);
         if (length < header_size || length > request.size() - at) break;
         const std::string_view one = request.substr(at, length);
         const auto flags = read16(one, 6);
         long result = 0;
-        if ((flags & nlm_f_request) != 0) result = respond(one, port, once, replies);
+        if ((flags & nlm_f_request) != 0) result = respond(one, port, once, routes_once, replies);
         if (result != dumped && ((flags & nlm_f_ack) != 0 || result != 0)) {
             replies.push_back(acknowledgement(result, one, port));
         }

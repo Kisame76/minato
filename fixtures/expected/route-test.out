@@ -1,0 +1,21 @@
+lo's IPv4 routes:
+  local 127.0.0.0/8 table local proto kernel scope 254 tos 0 flags 0x0: RTA_TABLE RTA_DST RTA_PREFSRC RTA_OIF, src 127.0.0.1
+  local 127.0.0.1/32 table local proto kernel scope 254 tos 0 flags 0x0: RTA_TABLE RTA_DST RTA_PREFSRC RTA_OIF, src 127.0.0.1
+  broadcast 127.255.255.255/32 table local proto kernel scope 253 tos 0 flags 0x0: RTA_TABLE RTA_DST RTA_PREFSRC RTA_OIF, src 127.0.0.1
+lo's IPv6 routes:
+  local ::1/128 table local proto kernel scope 0 tos 0 flags 0x0: RTA_TABLE RTA_DST RTA_PRIORITY RTA_OIF RTA_CACHEINFO RTA_PREF, metric 0
+IPv4 addresses: yes
+  each address's local route in table local, proto kernel, scope host, with it as src: yes
+  each broadcast address's route in table local, proto kernel, scope link: yes
+  each subnet's route in table main, proto kernel, scope link, with its address as src: yes
+  each subnet's route in its network's table, 1000 + index, proto static, scope link: yes
+  each subnet's route in its local routes' table, 1000000000 + index: yes
+  224.0.0.0/24 in each local routes' table: yes
+IPv6 addresses beyond link-local: yes
+  each address's local route in table local, proto kernel, metric 0: yes
+  ff00::/8 multicast in table local for each interface, metric 256: yes
+  fe80::/64 in each network's table, proto kernel, metric 256: yes
+  each prefix's route in its network's table, proto kernel, metric 256: yes
+an IPv4 default route: yes
+  each in its network's table, through a gateway, proto static, scope universe: yes
+IPv6 default routes, each in its network's table, through a link-local router, proto ra, metric 1024: yes

@@ -73,6 +73,8 @@ memfd-test system
 sharedmem-test system
 # The network interfaces an app sees: getifaddrs, the names and indexes, and the ifreq ioctls.
 ifaddrs-test system
+# The routes an app reads: RTM_GETROUTE's dump, lo's routes and Android's layout of the tables.
+route-test system
 # The CA certificates of the trust store, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 cacerts-test system
 # sendfile from a file to a file, a socket and a pipe, its offsets and its errors.

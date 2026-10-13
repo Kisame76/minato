@@ -1240,7 +1240,8 @@ long netlink_send(Socket &socket, const LinuxMsghdr &message, int flags) {
         at += part;
     }
     std::vector<std::string> replies;
-    if (const long refused = netlink::answer(request, socket.netlink->port, netlink::interfaces, replies)) {
+    if (const long refused = netlink::answer(request, socket.netlink->port, netlink::interfaces, replies,
+                                                netlink::host_default_routes)) {
         return refused;
     }
     queue_answers(socket, replies);

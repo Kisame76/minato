@@ -40,6 +40,14 @@ struct Interface {
     std::vector<Address> addresses;
 };
 
+/// A default route of the host's: Linux's family (2 or 10), the interface's index, and the gateway's 4 or 16 bytes (a
+/// link-local IPv6 one without its scope), empty for a route over the link alone.
+struct HostRoute {
+    int family = 0;
+    unsigned index = 0;
+    std::string gateway;
+};
+
 /// The guest's interfaces of the host's, in the order of their indexes, the host's: lo0 as Linux's lo, index 1,
 /// with 127.0.0.1/8 and ::1/128 alone, UP, LOOPBACK and RUNNING, and an MTU of 65536; en0 as wlan0; every pdp_ipN
 /// with an address as rmnet_dataN; each utun with an address that is not link-local as tunN, and each other en
@@ -52,6 +60,16 @@ std::vector<HostInterface> host_interfaces();
 /// The guest's interfaces now: guest_interfaces of host_interfaces.
 std::vector<Interface> interfaces();
 
+/// The default routes in `dump`, the routing messages of Darwin's sysctl NET_RT_DUMP (net/route.h's rt_msghdr and its
+/// sockaddrs), one per family and interface, in their order: an up route to the whole address space (no netmask, or
+/// one of zeros) through a gateway of its family, or over the link without RTF_GATEWAY, and no host route, reject or
+/// blackhole route, ARP or neighbour entry or cloned route. A message that does not fit ends them, and one whose addresses do not fit it is skipped.
+std::vector<HostRoute> default_routes(std::string_view dump);
+
+/// The host's default routes now: default_routes of NET_RT_DUMP for IPv4 and IPv6, none for a family whose sysctl
+/// fails (the sandbox).
+std::vector<HostRoute> host_default_routes();
+
 /// Linux's NETLINK_ROUTE (0), the only netlink protocol an app may open on Android 15.
 constexpr int netlink_route = 0;
 
@@ -61,9 +79,11 @@ std::string kernel_name();
 /// The kernel's answer to the datagram `request` that an app sent on a NETLINK_ROUTE socket whose port is `port`:
 /// the datagrams it receives, appended to `replies`, and 0, or a negative Linux errno for the send, with no
 /// datagram: EACCES for a message SELinux refuses an app (any but a request to read, RTM_GETLINK, RTM_GETNEIGH and
-/// RTM_GETNEIGHTBL). An RTM_GETADDR dump answers `interfaces`' addresses, asked for only then.
+/// RTM_GETNEIGHTBL). An RTM_GETADDR dump answers `interfaces`' addresses, and an RTM_GETROUTE dump the routes Android
+/// 15 has for them (the kernel's local and main tables, netd's table of each network and of its local routes) with
+/// the default routes of `routes`, each asked for only then.
 long answer(std::string_view request, std::uint32_t port, const std::function<std::vector<Interface>()> &interfaces,
-            std::vector<std::string> &replies);
+            std::vector<std::string> &replies, const std::function<std::vector<HostRoute>()> &routes = {});
 
 /// Linux's ifreq ioctls on an AF_INET or AF_INET6 socket of the guest (`inet` for AF_INET) at `argument`: SIOCGIFNAME,
 /// SIOCGIFINDEX, SIOCGIFFLAGS, SIOCGIFMTU and SIOCGIFCONF on both, and SIOCGIFADDR, SIOCGIFNETMASK, SIOCGIFBRDADDR
