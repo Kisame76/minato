@@ -1,0 +1,283 @@
+Minato's patch to frameworks/base's core/java/android/view/TextureView.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0058 d): a TextureView in a window drawn in software shows its SurfaceTexture's frames, as Android shows them in
+a hardware accelerated window.
+
+Why: Minato's windows draw in software (ADR-0043 decision 2), and AOSP's TextureView draws only on a hardware canvas,
+through a TextureLayer of hwui's render thread: in software it never makes its SurfaceTexture, its listener never
+hears onSurfaceTextureAvailable, and it draws nothing. An app's window on Android is hardware accelerated, so apps
+that show video, a camera preview or GL through a TextureView would show nothing on Minato.
+
+What: on the canvas of the window it is attached to (ViewRootImpl.drawsInSoftware), the view makes its SurfaceTexture
+and calls its listener as getTextureLayer does, and draws its current frame: TextureView's natives
+(android_view_TextureView.cpp, ours) copy the newest queued frame into a Bitmap on the CPU (nMinatoLatch), where hwui
+binds it to a texture, a named mechanism difference (a copy per frame), drawn with the SurfaceTexture's transform, the
+view's (setTransform) and the layer's paint, filtered. There the view is its own layer (getLayerType answers NONE
+while the window draws it), since View's draw would put a hardware layer through its drawing cache, a Bitmap canvas.
+getBitmap draws the frame with the SurfaceTexture's transform alone, as hwui's readback does (texture-view-test).
+Any other software canvas, a drawing cache or an app's own, shows the view nothing, as on Android.
+
+--- a/core/java/android/view/TextureView.java
++++ b/core/java/android/view/TextureView.java
+@@ -26,6 +26,8 @@
+ import android.graphics.Canvas;
+ import android.graphics.Matrix;
+ import android.graphics.Paint;
++import android.graphics.PorterDuff;
++import android.graphics.PorterDuffXfermode;
+ import android.graphics.RecordingCanvas;
+ import android.graphics.Rect;
+ import android.graphics.SurfaceTexture;
+@@ -211,6 +213,18 @@
+     // (b/329156944)
+     private long mLastFrameTimeMillis = 0;
+ 
++    // Minato (ADR-0058 d)): the layer of a TextureView in a window drawn in software, in place of mLayer: whether its
++    // SurfaceTexture is made, the current frame copied on the CPU, and what draws it.
++    private boolean mSoftwareLayer;
++    private Bitmap mSoftwareFrame;
++    private boolean mSoftwareDraw;
++    private final float[] mSoftwareTransform = new float[16];
++    private final float[] mSoftwareValues = new float[9];
++    private final Matrix mSoftwareTexture = new Matrix();
++    private final Matrix mSoftwareToView = new Matrix();
++    private final Paint mSoftwarePaint = new Paint();
++    private final PorterDuffXfermode mSoftwareCopy = new PorterDuffXfermode(PorterDuff.Mode.SRC);
++
+     /**
+      * Creates a new TextureView.
+      *
+@@ -293,7 +307,7 @@
+     protected void onAttachedToWindow() {
+         super.onAttachedToWindow();
+ 
+-        if (!isHardwareAccelerated()) {
++        if (!isHardwareAccelerated() && !isSoftwareWindow()) {
+             Log.w(LOG_TAG, "A TextureView or a subclass can only be "
+                     + "used with hardware acceleration enabled.");
+         }
+@@ -331,6 +345,10 @@
+             mLayer = null;
+             mMatrixChanged = true;
+         }
++        if (mSoftwareLayer) {
++            mSoftwareLayer = false;
++            mSoftwareFrame = null;
++        }
+     }
+ 
+     private void releaseSurfaceTexture() {
+@@ -384,7 +402,8 @@
+      */
+     @Override
+     public int getLayerType() {
+-        return LAYER_TYPE_HARDWARE;
++        // Minato: none while the window's software canvas draws the view, which is its own layer there.
++        return mSoftwareDraw ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE;
+     }
+ 
+     /**
+@@ -437,11 +456,136 @@
+                 mLayer.setLayerPaint(mLayerPaint); // ensure layer paint is up to date
+                 recordingCanvas.drawTextureLayer(layer);
+                 Trace.traceEnd(Trace.TRACE_TAG_VIEW);
++            }
++        } else if (drawsOnSoftwareWindow(canvas) && getSoftwareLayer()) {
++            // Minato (ADR-0058 d)): the window's software canvas draws the layer's current frame.
++            applyUpdate();
++            drawSoftwareFrame(canvas, getWidth(), getHeight(), mMatrix, mLayerPaint, false);
++        }
++    }
++
++    /**
++     * Minato (ADR-0058 d)): drawn on the canvas of a window drawn in software, the view is its own layer, as it is in
++     * a render node: View's draw would draw a hardware layer through its drawing cache there, a Bitmap whose canvas
++     * shows the view nothing, as a software canvas does on Android.
++     */
++    @Override
++    boolean draw(@NonNull Canvas canvas, ViewGroup parent, long drawingTime) {
++        if (!drawsOnSoftwareWindow(canvas)) {
++            return super.draw(canvas, parent, drawingTime);
++        }
++        mSoftwareDraw = true;
++        try {
++            return super.draw(canvas, parent, drawingTime);
++        } finally {
++            mSoftwareDraw = false;
++        }
++    }
++
++    /** Minato: attached to a window that draws in software, as Minato's do, without hwui's render thread. */
++    private boolean isSoftwareWindow() {
++        return mAttachInfo != null && mAttachInfo.mThreadedRenderer == null && mAttachInfo.mViewRootImpl != null;
++    }
++
++    /** Minato: whether `canvas` is the software canvas of the window the view is attached to. */
++    private boolean drawsOnSoftwareWindow(Canvas canvas) {
++        return isSoftwareWindow() && mAttachInfo.mViewRootImpl.drawsInSoftware(canvas);
++    }
++
++    /**
++     * Minato: getTextureLayer's SurfaceTexture without a TextureLayer, for a window drawn in software, with the same
++     * calls to the listener; false when the view is not attached.
++     */
++    private boolean getSoftwareLayer() {
++        if (!mSoftwareLayer) {
++            if (mAttachInfo == null) {
++                return false;
+             }
++            mSoftwareLayer = true;
++            boolean createNewSurface = (mSurface == null);
++            if (createNewSurface) {
++                mSurface = new SurfaceTexture(false);
++                nCreateNativeWindow(mSurface);
++            }
++            mSurface.setDefaultBufferSize(getWidth(), getHeight());
++            mSurface.setOnFrameAvailableListener(mUpdateListener, mAttachInfo.mHandler);
++            if (Flags.toolkitSetFrameRateReadOnly()) {
++                mSurface.setOnSetFrameRateListener(
++                        (surfaceTexture, frameRate, compatibility, strategy) -> {
++                            setRequestedFrameRate(frameRate);
++                            mFrameRateCompatibility = compatibility;
++                        }, mAttachInfo.mHandler);
++            }
++            if (mListener != null && createNewSurface) {
++                mListener.onSurfaceTextureAvailable(mSurface, getWidth(), getHeight());
++            }
++        }
++        if (mUpdateSurface) {
++            mUpdateSurface = false;
++            updateLayer();
++            mSoftwareFrame = null;
++            mSurface.setDefaultBufferSize(getWidth(), getHeight());
+         }
++        return true;
+     }
+ 
+     /**
++     * Minato: the current frame drawn into `width` x `height` with the SurfaceTexture's transform, as hwui samples
++     * the layer's texture, then `transform`, the view's, with `paint`, the layer's, filtered as the texture is;
++     * `copy` replaces what is under it, as getBitmap's readback does. Opaque, the frame's alpha is not drawn.
++     */
++    private void drawSoftwareFrame(Canvas canvas, int width, int height, Matrix transform, Paint paint,
++            boolean copy) {
++        Bitmap frame = mSoftwareFrame;
++        if (frame == null || mSurface == null || width <= 0 || height <= 0) {
++            return;
++        }
++        // The texture's coordinates (s, t) of the view's (u, v), v upwards: s = m0 u + m4 v + m12,
++        // t = m1 u + m5 v + m13; the frame's pixel (x, y) is at (x / its width, y / its height).
++        float[] m = mSoftwareTransform;
++        mSurface.getTransformMatrix(m);
++        float[] values = mSoftwareValues;
++        values[0] = m[0];
++        values[1] = m[4];
++        values[2] = m[12];
++        values[3] = m[1];
++        values[4] = m[5];
++        values[5] = m[13];
++        values[6] = 0;
++        values[7] = 0;
++        values[8] = 1;
++        mSoftwareTexture.setValues(values);
++        Matrix toView = mSoftwareToView;
++        if (!mSoftwareTexture.invert(toView)) {
++            return;
++        }
++        toView.preScale(1f / frame.getWidth(), 1f / frame.getHeight());
++        toView.postScale(width, -height);
++        toView.postTranslate(0, height);
++        if (frame.getConfig() == Bitmap.Config.ARGB_8888) {
++            frame.setHasAlpha(!mOpaque);
++        }
++        frame.setDensity(Bitmap.DENSITY_NONE);
++        mSoftwarePaint.reset();
++        if (paint != null) {
++            mSoftwarePaint.set(paint);
++        }
++        mSoftwarePaint.setFilterBitmap(true);
++        if (copy) {
++            mSoftwarePaint.setXfermode(mSoftwareCopy);
++        }
++        int saveCount = canvas.save();
++        if (transform != null) {
++            canvas.concat(transform);
++        }
++        // As hwui draws the layer into the view's rectangle: what lies outside the frame's crop is not drawn.
++        canvas.clipRect(0, 0, width, height);
++        canvas.concat(toView);
++        canvas.drawBitmap(frame, 0, 0, mSoftwarePaint);
++        canvas.restoreToCount(saveCount);
++    }
++
++    /**
+      * Subclasses of TextureView cannot do their own rendering
+      * with the {@link Canvas} object.
+      *
+@@ -523,7 +667,7 @@
+             // To cancel updates, the easiest thing to do is simply to remove the
+             // updates listener
+             if (visibility == VISIBLE) {
+-                if (mLayer != null) {
++                if (mLayer != null || mSoftwareLayer) {
+                     mSurface.setOnFrameAvailableListener(mUpdateListener, mAttachInfo.mHandler);
+                 }
+                 updateLayerAndInvalidate();
+@@ -547,7 +691,7 @@
+     }
+ 
+     private void applyUpdate() {
+-        if (mLayer == null) {
++        if (mLayer == null && !mSoftwareLayer) {
+             return;
+         }
+ 
+@@ -559,8 +703,12 @@
+             }
+         }
+ 
+-        mLayer.prepare(getWidth(), getHeight(), mOpaque);
+-        mLayer.updateSurfaceTexture();
++        if (mLayer != null) {
++            mLayer.prepare(getWidth(), getHeight(), mOpaque);
++            mLayer.updateSurfaceTexture();
++        } else {
++            mSoftwareFrame = nMinatoLatch(mSurface, mSoftwareFrame);
++        }
+ 
+         if (mListener != null) {
+             mListener.onSurfaceTextureUpdated(mSurface);
+@@ -707,10 +855,17 @@
+             // this method
+             if (mLayer == null && mUpdateSurface) {
+                 getTextureLayer();
++                if (mLayer == null && isSoftwareWindow()) {
++                    getSoftwareLayer();
++                    applyUpdate();
++                }
+             }
+ 
+             if (mLayer != null) {
+                 mLayer.copyInto(bitmap);
++            } else if (mSoftwareLayer) {
++                // Minato: as hwui's readback, the frame with the SurfaceTexture's transform, not the view's.
++                drawSoftwareFrame(new Canvas(bitmap), bitmap.getWidth(), bitmap.getHeight(), null, null, true);
+             }
+         }
+         return bitmap;
+@@ -864,7 +1019,7 @@
+          * Otherwise this will be called when the view becomes visible or the
+          * layer is created
+          */
+-        if (((mViewFlags & VISIBILITY_MASK) == VISIBLE) && mLayer != null) {
++        if (((mViewFlags & VISIBILITY_MASK) == VISIBLE) && (mLayer != null || mSoftwareLayer)) {
+             mSurface.setOnFrameAvailableListener(mUpdateListener, mAttachInfo.mHandler);
+         }
+         mUpdateSurface = true;
+@@ -976,4 +1131,7 @@
+ 
+     private static native boolean nLockCanvas(long nativeWindow, Canvas canvas, Rect dirty);
+     private static native void nUnlockCanvasAndPost(long nativeWindow, Canvas canvas);
++
++    // Minato: the SurfaceTexture's current frame in `frame` or a new Bitmap, after its newest queued one.
++    private static native Bitmap nMinatoLatch(SurfaceTexture surface, Bitmap frame);
+ }

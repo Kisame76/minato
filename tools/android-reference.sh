@@ -196,10 +196,11 @@ fi
 # key-test (ADR-0045 step 7c), which injects its keys once its window has focus, gesture-flow-test
 # (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a)
 # and launch-mode-test (step b3.5b2-2b), whose steps wait for their windows' focus as activity-flow-test's.
+# texture-view-test (ADR-0058 d)) runs there too: its two TextureViews' bounds in the window are Minato's there.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
-  "$app" == result-flow-test || "$app" == launch-mode-test ]]; then
+  "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -610,6 +611,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
       ;;
+    # texture-view-test (ADR-0058 d)): its activity, hardware accelerated as an app's is, logs "done" after the draw
+    # that shows its plain TextureView's second frame; its screen where the views are follows its log.
+    texture-view-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.textureview.TextureViewActivity
+      ;;
     # text-test (ADR-0043 step d)): its own launcher activity, which ends with "done" at its window's first focus.
     text-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TextActivity
@@ -830,6 +837,12 @@ run_app() {
     python3 framework/tests/views_compare.py --crop "$RESULTS/$app.screencap" "$RESULTS/$app-device.logcat" \
       "$RESULTS/$app.rgba.gz" "$RESULTS/$app.rows"
   fi
+  if [[ "$app" == texture-view-test ]]; then
+    # The screen a second after "done", while the app shows it, where the views are.
+    device exec-out screencap >"$RESULTS/$app.screencap"
+    python3 graphics/tests/texture_view_compare.py --crop "$RESULTS/$app.screencap" "$RESULTS/$app.logcat" \
+      "$RESULTS/$app.rgba.gz"
+  fi
   if [[ -n "$mask" ]]; then
     # make-apk signs with a per-machine debug key (ADR-0031): each certificate SHA-256 the APK's check proved becomes
     # the mark of its role that framework/tests/java_app_run.py puts in our log, so the expected file holds no
@@ -863,7 +876,7 @@ run_app() {
     return 1
   fi
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == canvas-test || "$app" == views-test ]] &&
+  if [[ "$app" == canvas-test || "$app" == views-test || "$app" == texture-view-test ]] &&
     ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
     echo "DIFFERS  $app's pixels: $RESULTS/$app.rgba.gz"
     return 1

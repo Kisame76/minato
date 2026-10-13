@@ -1,0 +1,19 @@
+I/texture-view-test: before the window: available false, surface texture null, lockCanvas null, layer type 2, opaque true
+I/texture-view-test: setForeground: java.lang.UnsupportedOperationException: TextureView doesn't support displaying a foreground drawable
+I/texture-view-test: setBackground: java.lang.UnsupportedOperationException: TextureView doesn't support displaying a background drawable
+I/texture-view-test: mirrored transform: [-1.0, 0.0, 600.0][0.0, 1.0, 0.0][0.0, 0.0, 1.0]
+I/texture-view-test: plain bounds 345 974 945 1374
+I/texture-view-test: mirrored bounds 345 1422 945 1822
+I/texture-view-test: plain: available: 600 x 400, isAvailable true, getSurfaceTexture the same true, on the main thread true
+I/texture-view-test: plain: frame 1: canvas 600 x 400
+I/texture-view-test: plain: updated 1, timestamp set true
+I/texture-view-test: plain: frame 1 shown: getBitmap 600 x 400 ARGB_8888 ffd02020 ff20a040 ff2040d0 fff0c020 ff101820, half 300 x 200 ARGB_8888 ffd02020 ff20a040 ff2040d0 fff0c020 ff101820
+I/texture-view-test: plain: frame 2: canvas 600 x 400
+I/texture-view-test: plain: updated 2, timestamp set true
+I/texture-view-test: plain: frame 2 shown: getBitmap 600 x 400 ARGB_8888 ff40c0c0 ffc040c0 ff808020 ff603010 fff0f0f0, half 300 x 200 ARGB_8888 ff40c0c0 ffc040c0 ff808020 ff603010 fff0f0f0
+I/texture-view-test: mirrored: available: 600 x 400, isAvailable true, getSurfaceTexture the same true, on the main thread true
+I/texture-view-test: mirrored: frame 1: canvas 600 x 400
+I/texture-view-test: mirrored: updated 1, timestamp set true
+I/texture-view-test: mirrored: frame 1 shown: getBitmap 600 x 400 ARGB_8888 ffd02020 ff20a040 ff2040d0 fff0c020 ff101820, half 300 x 200 ARGB_8888 ffd02020 ff20a040 ff2040d0 fff0c020 ff101820
+I/texture-view-test: mirrored frames 1
+I/texture-view-test: done

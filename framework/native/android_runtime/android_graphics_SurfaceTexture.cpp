@@ -546,4 +546,23 @@ ANativeWindow *minato_surface_texture_window(JNIEnv *env, jobject surfaceTexture
     return window;
 }
 
+// The software layer's frame: the queue's newest after the consumer's last one, kept as the current frame, whose slot
+// the next acquire lets go, so the caller copies it before the next latch. No GL reads it here, so no glFinish.
+AHardwareBuffer *minato_surface_texture_latch(JNIEnv *env, jobject surfaceTexture, bool *fresh) {
+    *fresh = false;
+    Consumer *consumer = surfaceTexture != nullptr ? consumer_of(env, surfaceTexture) : nullptr;
+    if (consumer == nullptr) return nullptr;
+    pthread_mutex_lock(&consumer->lock);
+    minato_BufferQueue_frame next{};
+    if (queue_functions().acquire(consumer->queue, &next) == 0) {
+        consumer->frame = next;
+        consumer->current = true;
+        *fresh = true;
+    }
+    AHardwareBuffer *buffer = consumer->current ? consumer->frame.buffer : nullptr;
+    if (buffer != nullptr) AHardwareBuffer_acquire(buffer);
+    pthread_mutex_unlock(&consumer->lock);
+    return buffer;
+}
+
 }  // namespace android

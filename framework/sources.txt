@@ -2054,6 +2054,9 @@ frameworks_base/core/java/android/app/ForegroundServiceTypeException.java
 frameworks_base/core/java/android/app/MissingForegroundServiceTypeException.java
 frameworks_base/core/java/android/app/InvalidForegroundServiceTypeException.java
 
+# ADR-0058 d) (Grafik), texture-view-test: TextureView, which a window drawn in software draws too
+# (framework/patches/textureview-software-layer.patch, its natives android_view_TextureView.cpp).
+frameworks_base/core/java/android/view/TextureView.java
 # Framework breadth F1 (Formate), ui-types-test: android.gesture, android.sax, six text spans, the text classifier's
 # data types with SystemTextClassifierMetadata and EntityConfidence, DateSorter and the WebView statics' classes, the
 # speech result types, and three android.print ids.

@@ -141,7 +141,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 
 # ADR-0042 b's start stops (Planung): android.transition names widgets, overlays and surfaces, which a transition meets
 # when it captures or runs, and the window's insets controller names its animation listener.
-android.view.TextureView <- android.transition.Crossfade  # gap: Crossfade (hidden), which asks each view whether it is a TextureView
 
 # ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.

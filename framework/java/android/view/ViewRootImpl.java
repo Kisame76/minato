@@ -122,6 +122,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     final AttachInfo mAttachInfo;
     final ViewRootHandler mHandler = new ViewRootHandler();
+    /** The surface's canvas while the tree draws on it (drawsInSoftware). */
+    private Canvas mSoftwareCanvas;
     private final Context mContext;
     private final Display mDisplay;
     private final W mWindow = new W();
@@ -557,6 +559,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
+     * Whether `canvas` is the surface's canvas while the tree draws on it: a TextureView draws its frames there alone
+     * (framework/patches/textureview-software-layer.patch, ADR-0058 d)), as on a hardware canvas on Android.
+     */
+    boolean drawsInSoftware(Canvas canvas) {
+        return canvas != null && canvas == mSoftwareCanvas;
+    }
+
+    /**
      * As AOSP's: the canvas locked on the dirty rectangle at the display's density, cleared when its buffers have
      * alpha, the tree drawn and posted. A surface that fails asks for a layout, as AOSP's asks the window manager for a
      * new one; ours logs it, as no window manager has memory to free.
@@ -587,8 +597,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mView.mPrivateFlags |= View.PFLAG_DRAWN;
             canvas.translate(-xoff, -yoff);
             canvas.setScreenDensity(scalingRequired ? mNoncompatDensity : 0);
+            mSoftwareCanvas = canvas;
             mView.draw(canvas);
         } finally {
+            mSoftwareCanvas = null;
             try {
                 surface.unlockCanvasAndPost(canvas);
             } catch (IllegalArgumentException e) {
