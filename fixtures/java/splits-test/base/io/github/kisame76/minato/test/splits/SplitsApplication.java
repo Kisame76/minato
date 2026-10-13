@@ -2,6 +2,7 @@ package io.github.kisame76.minato.test.splits;
 
 import android.app.Application;
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
@@ -9,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.ResolveInfo;
 import android.util.Log;
 import java.io.File;
 import java.io.InputStream;
@@ -119,6 +121,15 @@ public class SplitsApplication extends Application {
                 }
             }
             return listed.toString();
+        });
+        log("duplicate by action", () -> {
+            List<String> found = new ArrayList<>();
+            Intent query = new Intent(pkg + ".DUP_ACTION").setPackage(pkg);
+            for (ResolveInfo info : pm.queryIntentServices(query, 0)) {
+                found.add(info.serviceInfo.name.substring(pkg.length() + 1) + " in split "
+                        + info.serviceInfo.splitName);
+            }
+            return found.size() + " " + found;
         });
         log("package info", () -> {
             PackageInfo pi = pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES | PackageManager.GET_SERVICES

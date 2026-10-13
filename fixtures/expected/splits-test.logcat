@@ -22,6 +22,7 @@ I/splits-test: provider: FeatureProvider, split feature, in this application tru
 I/splits-test: provider by authority: FeatureProvider, split feature, in this application true
 I/splits-test: duplicate by name: DupService, split feature, in this application true
 I/splits-test: duplicate listed: [split null, enabled true, split feature, enabled false]
+I/splits-test: duplicate by action: 1 [DupService in split null]
 I/splits-test: package info: activities [Activity, FeatureActivity], services [DupService, FeatureService], receivers [FeatureReceiver], providers [FeatureProvider]
 I/splits-test: meta-data: feature-value
 I/splits-test: done
