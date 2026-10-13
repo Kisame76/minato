@@ -1,0 +1,8 @@
+I/network-security-config-test: base false
+I/network-security-config-test: hosts cleartext.example.com=true sub.cleartext.example.com=true a.b.cleartext.example.com=true exact.example.org=true sub.exact.example.org=false example.com=false pinned.example.com=false localhost=false CLEARTEXT.EXAMPLE.COM=true
+I/network-security-config-test: root CN=ISRG Root X1,O=Internet Security Research Group,C=US
+I/network-security-config-test: chain example.com trusted 1
+I/network-security-config-test: chain pinned.example.com CertificateException: Pin verification failed
+I/network-security-config-test: chain cleartext.example.com trusted 1
+I/network-security-config-test: isUserAdded false
+I/network-security-config-test: done

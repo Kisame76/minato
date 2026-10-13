@@ -1,0 +1,9 @@
+I/network-security-test: cleartext false example.com=false localhost=false
+I/network-security-test: same instance true
+I/network-security-test: providers AndroidNSSP AndroidOpenSSL CertPathProvider BC HarmonyJSSE
+I/network-security-test: factory PKIX AndroidNSSP
+I/network-security-test: managers 1 android.security.net.config.RootTrustManager
+I/network-security-test: issuers true
+I/network-security-test: context Default AndroidOpenSSL
+I/network-security-test: http java.io.IOException: Cleartext HTTP traffic to localhost not permitted
+I/network-security-test: done

@@ -910,6 +910,8 @@ final class ManifestPackage {
             ai.banner = sa.getResourceId(R.styleable.AndroidManifestApplication_banner, 0);
             ai.descriptionRes = sa.getResourceId(R.styleable.AndroidManifestApplication_description, 0);
             ai.theme = sa.getResourceId(R.styleable.AndroidManifestApplication_theme, 0);
+            ai.networkSecurityConfigRes = sa.getResourceId(
+                    R.styleable.AndroidManifestApplication_networkSecurityConfig, 0);
             ai.manageSpaceActivityName = className(sa.getNonConfigurationString(
                     R.styleable.AndroidManifestApplication_manageSpaceActivity, Configuration.NATIVE_CONFIG_VERSION));
             ai.permission = sa.getNonConfigurationString(R.styleable.AndroidManifestApplication_permission, 0);

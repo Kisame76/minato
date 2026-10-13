@@ -76,6 +76,7 @@ import android.permission.IPermissionManager;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.SettingsProvider;
+import android.security.net.config.NetworkSecurityConfigProvider;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.text.TextFlags;
@@ -506,6 +507,10 @@ public final class ActivityThread {
             LoadedApk packageInfo = new LoadedApk(thread, pkg.applicationInfo(0), loader);
             packageInfo.setFeatureSplits(pkg.featureSplits());
             thread.mLoadedApk = packageInfo;
+            // As handleBindApplication, before the app's code is loaded: the Network Security Config Provider, which
+            // gives the app's TLS objects the trust manager of its network_security_config.xml (or Android's defaults
+            // for its target SDK) and libcore its clear text policy (step d).
+            NetworkSecurityConfigProvider.install(ContextImpl.createAppContext(thread, packageInfo));
             Application app = packageInfo.makeApplication(application);
             thread.mInitialApplication = app;
             // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
