@@ -335,6 +335,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_hardware_HardwareBuffer.cpp
             native/android_runtime/android_hardware_SyncFence.cpp
+            "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
             native/android_runtime/android_hardware_Camera.cpp
             native/android_runtime/android_media_AudioTrack.cpp
             native/android_runtime/android_graphics_HardwareRenderer.cpp
@@ -348,6 +349,10 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
 target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}/include" "${NATIVEHELPER}/include_jni"
                            PRIVATE "${jni}" "${jni}/android/opengl" native/include "${NATIVEHELPER}/include"
                            "${NATIVEHELPER}/include_platform" "${NATIVEHELPER}/header_only_include" ../runtime/include)
+# ETC1's natives in core/jni's android/opengl/util.cpp and libETC1's etc1.cpp (the graphics breadth's G1) include
+# <ETC1/etc1.h>, from frameworks/native's opengl/include, whose EGL and GLES headers stay the NDK's: only ETC1's folder.
+file(COPY "${SOURCES}/frameworks_native_headers/opengl/include/ETC1" DESTINATION "${CMAKE_BINARY_DIR}/etc1-include")
+target_include_directories(android_runtime PRIVATE "${CMAKE_BINARY_DIR}/etc1-include")
 set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
 soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -Wno-parentheses
   -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES -DU_USING_ICU_NAMESPACE=0 -Wall -Werror -Wextra

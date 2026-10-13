@@ -1110,6 +1110,16 @@
       "digest": "9dc210967fdb5a3606df2578ad0b78d651ae369713f3e2dc28b44afc640ceaa9"
     },
     {
+      "name": "frameworks_native_etc1",
+      "project": "platform/frameworks/native",
+      "commit": "f7274fca5e36082674740bc6c976f73c4578d009",
+      "license": "Apache-2.0",
+      "files": [
+        "opengl/libs/ETC1/etc1.cpp"
+      ],
+      "digest": "e281b9c298784dd816eea40d3e4810a9263b65f1ef6a6ed4371425e3665deef2"
+    },
+    {
       "name": "libhardware",
       "project": "platform/hardware/libhardware",
       "commit": "58faa60aadb6e17fc0af9b0e5246a09ec046ec96",

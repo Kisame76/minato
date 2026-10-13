@@ -739,11 +739,13 @@ frameworks_base/core/java/android/speech/tts/UtteranceProgressListener.java
 # ADR-0041 a), Grafik: GLES from Java (decision 4; test 2's gap 8), opengl/java's three packages: android.opengl, the
 # Khronos interfaces javax.microedition.khronos.egl and .opengles, and their implementations in
 # com.google.android.gles_jni, whose natives are AOSP's core/jni files in libandroid_runtime over Minato's front libs
-# (EGL10 makes a GLImpl, whose natives are ES 1.x's, from libGLESv1_CM). ETC1 and ETC1Util stay out: libETC1 is not
-# fetched (a gap). GLSurfaceView extends SurfaceView, a stub until App's SurfaceView.
+# (EGL10 makes a GLImpl, whose natives are ES 1.x's, from libGLESv1_CM). ETC1 and ETC1Util came with the graphics
+# breadth's G1, on libETC1's etc1.cpp. GLSurfaceView extends SurfaceView, a stub until App's SurfaceView.
 frameworks_base/opengl/java/android/opengl/EGL14.java
 frameworks_base/opengl/java/android/opengl/EGL15.java
 frameworks_base/opengl/java/android/opengl/EGLConfig.java
+frameworks_base/opengl/java/android/opengl/ETC1.java
+frameworks_base/opengl/java/android/opengl/ETC1Util.java
 frameworks_base/opengl/java/android/opengl/EGLContext.java
 frameworks_base/opengl/java/android/opengl/EGLDisplay.java
 frameworks_base/opengl/java/android/opengl/EGLExt.java

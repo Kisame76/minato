@@ -9,6 +9,8 @@ import android.opengl.EGLDisplay;
 import android.opengl.EGL15;
 import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
+import android.opengl.ETC1;
+import android.opengl.ETC1Util;
 import android.opengl.GLES20;
 import android.opengl.GLES30;
 import android.opengl.GLUtils;
@@ -16,7 +18,10 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -47,7 +52,9 @@ import javax.microedition.khronos.opengles.GL11;
  *   native code in an ES 2.0 context that EGL14 made current, read back there and from Java;
  * - SyncFence (the graphics breadth's G2) through its public API: an empty one from a Parcel and its round trip, one
  *   of a pipe's read end, which waits until the pipe has a byte and has no signal time, as a file that is no sync
- *   file, and EGLExt.eglDupNativeFenceFDANDROID of EGL_NO_SYNC, which is null.
+ *   file, and EGLExt.eglDupNativeFenceFDANDROID of EGL_NO_SYNC, which is null;
+ * - ETC1 and ETC1Util (the graphics breadth's G1): the constants, a block and a 16 x 8 RGB image encoded and decoded
+ *   (their bytes' SHA-256, the same algorithm on both), the PKM header, and ETC1Util's compress, write and create.
  * Each draw clears to (0.2, 0.4, 0.6, 1) and covers the lower left half with one color of channels 0 and 1, exact at
  * any precision; the pixels read back at pixel centers away from the edge are exact in 8 bits (ES 3.0.6's rules, as
  * ADR-0029's tests have them). It logs with the tag gles-java-test and ends
@@ -77,6 +84,7 @@ public class GlesJavaApplication extends Application {
             glutils();
             jni();
             syncFence();
+            etc1();
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             // Its stack, which differs by device, is only shown.
@@ -140,6 +148,81 @@ public class GlesJavaApplication extends Application {
         }
         Log.i(TAG, "eglDupNativeFenceFDANDROID of EGL_NO_SYNC: " + none);
         EGL14.eglTerminate(display);
+    }
+
+    /** ETC1's natives and ETC1Util, which need no GL context. */
+    private void etc1() throws Exception {
+        Log.i(TAG, "ETC1: block " + ETC1.ENCODED_BLOCK_SIZE + " / " + ETC1.DECODED_BLOCK_SIZE + ", header "
+                + ETC1.ETC_PKM_HEADER_SIZE + ", ETC1_RGB8_OES 0x" + Integer.toHexString(ETC1.ETC1_RGB8_OES)
+                + ", encoded size of 16 x 8 " + ETC1.getEncodedDataSize(16, 8) + ", of 5 x 3 "
+                + ETC1.getEncodedDataSize(5, 3));
+        ByteBuffer block = direct(ETC1.DECODED_BLOCK_SIZE);
+        for (int i = 0; i < ETC1.DECODED_BLOCK_SIZE; i++) {
+            block.put(i, (byte) (i * 5));
+        }
+        ByteBuffer encodedBlock = direct(ETC1.ENCODED_BLOCK_SIZE);
+        String refused;
+        try {
+            ETC1.encodeBlock(block, 0xffff, encodedBlock);
+            refused = "taken";
+        } catch (IllegalArgumentException e) {
+            refused = e.toString();
+        }
+        // AOSP's JNI takes masks up to 15 only, the first four pixels.
+        ETC1.encodeBlock(block, 15, encodedBlock);
+        ByteBuffer decodedBlock = direct(ETC1.DECODED_BLOCK_SIZE);
+        ETC1.decodeBlock(encodedBlock, decodedBlock);
+        Log.i(TAG, "ETC1 block: the mask 0xffff " + refused + "; encoded " + sha(encodedBlock) + ", decoded "
+                + sha(decodedBlock));
+
+        int width = 16;
+        int height = 8;
+        ByteBuffer image = direct(width * height * 3);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int at = (y * width + x) * 3;
+                image.put(at, (byte) (x * 16));
+                image.put(at + 1, (byte) (y * 32));
+                image.put(at + 2, (byte) ((x + y) * 8));
+            }
+        }
+        ByteBuffer encoded = direct(ETC1.getEncodedDataSize(width, height));
+        ETC1.encodeImage(image, width, height, 3, width * 3, encoded);
+        ByteBuffer decoded = direct(width * height * 3);
+        ETC1.decodeImage(encoded, decoded, width, height, 3, width * 3);
+        Log.i(TAG, "ETC1 image 16 x 8: encoded " + sha(encoded) + ", decoded " + sha(decoded));
+
+        ByteBuffer header = direct(ETC1.ETC_PKM_HEADER_SIZE);
+        ETC1.formatHeader(header, width, height);
+        ByteBuffer garbage = direct(ETC1.ETC_PKM_HEADER_SIZE);
+        Log.i(TAG, "ETC1 header: " + sha(header) + ", valid " + ETC1.isValid(header) + ", " + ETC1.getWidth(header)
+                + " x " + ETC1.getHeight(header) + ", a zero header valid " + ETC1.isValid(garbage));
+
+        ETC1Util.ETC1Texture texture = ETC1Util.compressTexture(image, width, height, 3, width * 3);
+        ByteArrayOutputStream written = new ByteArrayOutputStream();
+        ETC1Util.writeTexture(texture, written);
+        ETC1Util.ETC1Texture read = ETC1Util.createTexture(new ByteArrayInputStream(written.toByteArray()));
+        Log.i(TAG, "ETC1Util: compressed " + texture.getWidth() + " x " + texture.getHeight() + ", "
+                + texture.getData().capacity() + " bytes, written " + written.size() + " bytes "
+                + sha(ByteBuffer.wrap(written.toByteArray())) + ", created " + read.getWidth() + " x "
+                + read.getHeight() + " " + sha(read.getData()));
+    }
+
+    private static ByteBuffer direct(int size) {
+        return ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder());
+    }
+
+    /** The first 16 hex digits of the SHA-256 of the buffer's bytes from 0 to its capacity. */
+    private static String sha(ByteBuffer buffer) throws Exception {
+        byte[] bytes = new byte[buffer.capacity()];
+        ByteBuffer copy = buffer.duplicate();
+        copy.clear();
+        copy.get(bytes);
+        StringBuilder hex = new StringBuilder();
+        for (byte b : MessageDigest.getInstance("SHA-256").digest(bytes)) {
+            hex.append(String.format("%02x", b));
+        }
+        return hex.substring(0, 16);
     }
 
     /** EGL10 as Godot's GLSurfaceView uses it, then GLES30 on its context. */

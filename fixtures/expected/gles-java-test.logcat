@@ -23,4 +23,9 @@ I/gles-java-test: SyncFence.writeToParcel of it: 4 bytes, valid false
 I/gles-java-test: SyncFence of a pipe's Parcel: valid true, await before a byte false, after true, awaitForever true, signal time -1
 I/gles-java-test: SyncFence closed: valid false, await false, signal time -1
 I/gles-java-test: eglDupNativeFenceFDANDROID of EGL_NO_SYNC: java.lang.IllegalArgumentException: Object is set to null.
+I/gles-java-test: ETC1: block 8 / 48, header 16, ETC1_RGB8_OES 0x8d64, encoded size of 16 x 8 64, of 5 x 3 16
+I/gles-java-test: ETC1 block: the mask 0xffff java.lang.IllegalArgumentException: validPixelMask; encoded 986efb7a3aa8e483, decoded 2b28876dfd134723
+I/gles-java-test: ETC1 image 16 x 8: encoded d4508c9cbd246278, decoded a63d4b0fcb8010af
+I/gles-java-test: ETC1 header: 431544dc143af47c, valid true, 16 x 8, a zero header valid false
+I/gles-java-test: ETC1Util: compressed 16 x 8, 64 bytes, written 80 bytes 441706053a5bf3a7, created 16 x 8 d4508c9cbd246278
 I/gles-java-test: done

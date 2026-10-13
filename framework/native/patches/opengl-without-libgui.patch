@@ -1,4 +1,4 @@
-Minato's patch to five of frameworks/base's core/jni files at android-15.0.0_r1 (Apache-2.0), ADR-0041 a), the GLES
+Minato's patch to four of frameworks/base's core/jni files at android-15.0.0_r1 (Apache-2.0), ADR-0041 a), the GLES
 bindings (decision 4): they build without libgui, libui and libEGL's private API, which Minato does not have.
 
 - android_opengl_EGL14.cpp and com_google_android_gles_jni_EGLImpl.cpp: a window surface's window comes from
@@ -11,9 +11,9 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
 - android_opengl_EGLExt.cpp: eglDupNativeFenceFDANDROID, which the NDK's libEGL does not export, comes through
   eglGetProcAddress; without EGL_ANDROID_native_fence_sync there is no fence (EGL_NO_NATIVE_FENCE_FD_ANDROID).
 - android_opengl_EGL15.cpp and android_opengl_EGLExt.cpp: only includes of gui's and ui's headers go.
-- android/opengl/util.cpp: ETC1's natives stay out, as frameworks/native's libETC1 is not fetched. Visibility's and
-  GLUtils' stay; GLUtils' take a Java Bitmap through hwui's ABitmap C API, which graphics/hwui's plan builds into the
-  host flavor (ADR-0041 a3).
+- android/opengl/util.cpp is not patched: GLUtils' natives take a Java Bitmap through hwui's ABitmap C API, which
+  graphics/hwui's plan builds into the host flavor (ADR-0041 a3), and ETC1's build on libETC1's etc1.cpp, fetched as
+  frameworks_native_etc1 (the graphics breadth's G1).
 
 --- a/android_opengl_EGL14.cpp
 +++ b/android_opengl_EGL14.cpp
@@ -253,54 +253,3 @@ bindings (decision 4): they build without libgui, libui and libEGL's private API
      return reinterpret_cast<jlong>(sur);
  }
  
---- a/android/opengl/util.cpp
-+++ b/android/opengl/util.cpp
-@@ -28,7 +28,6 @@
- #include <GLES2/gl2.h>
- #include <GLES2/gl2ext.h>
- #include <GLES3/gl3.h>
--#include <ETC1/etc1.h>
- 
- #include "core_jni_helpers.h"
- 
-@@ -737,6 +736,7 @@
-     jint mRemaining;
- };
- 
-+#if 0  // Minato (ADR-0041 a)): ETC1's natives need frameworks/native's libETC1, which is not fetched.
- /**
-  * Encode a block of pixels.
-  *
-@@ -929,6 +929,8 @@
-     return result;
- }
- 
-+#endif
-+
- /*
-  * JNI registration
-  */
-@@ -946,6 +948,7 @@
-     { "native_texSubImage2D", "(IIIILandroid/graphics/Bitmap;II)I", (void*)util_texSubImage2D },
- };
- 
-+#if 0  // Minato (ADR-0041 a)): no libETC1.
- static const JNINativeMethod gEtc1Methods[] = {
-     { "encodeBlock", "(Ljava/nio/Buffer;ILjava/nio/Buffer;)V", (void*) etc1_encodeBlock },
-     { "decodeBlock", "(Ljava/nio/Buffer;Ljava/nio/Buffer;)V", (void*) etc1_decodeBlock },
-@@ -957,6 +960,7 @@
-     { "getWidth", "(Ljava/nio/Buffer;)I", (void*) etc1_getWidth },
-     { "getHeight", "(Ljava/nio/Buffer;)I", (void*) etc1_getHeight },
- };
-+#endif
- 
- typedef struct _ClassRegistrationInfo {
-     const char* classPath;
-@@ -967,7 +971,6 @@
- static const ClassRegistrationInfo gClasses[] = {
-     {"android/opengl/Visibility", gVisibilityMethods, NELEM(gVisibilityMethods)},
-     {"android/opengl/GLUtils", gUtilsMethods, NELEM(gUtilsMethods)},
--    {"android/opengl/ETC1", gEtc1Methods, NELEM(gEtc1Methods)},
- };
- 
- int register_android_opengl_classes(JNIEnv* env)
