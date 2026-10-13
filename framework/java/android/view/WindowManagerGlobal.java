@@ -199,6 +199,20 @@ public final class WindowManagerGlobal {
         return views;
     }
 
+    /** As AOSP's: the shown window whose view has this window token, which PopupWindow asks for its anchor's. */
+    public View getWindowView(IBinder windowToken) {
+        synchronized (mLock) {
+            final int numViews = mViews.size();
+            for (int i = 0; i < numViews; ++i) {
+                final View view = mViews.get(i);
+                if (view.getWindowToken() == windowToken) {
+                    return view;
+                }
+            }
+        }
+        return null;
+    }
+
     /** As AOSP's for the main thread's windows: an activity's stop and restart reach its windows. */
     public void setStoppedState(IBinder token, boolean stopped) {
         ArrayList<ViewRootImpl> roots = new ArrayList<>();

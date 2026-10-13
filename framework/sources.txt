@@ -2213,3 +2213,16 @@ frameworks_base_types/media/java/android/media/AudioProfile.java
 frameworks_base_types/media/java/android/media/ExifInterface.java
 frameworks_base_types/media/java/android/media/ExifInterfaceUtils.java
 frameworks_base_types/media/java/android/media/MediaTimestamp.java
+
+# Step (f) popup chain (the text completion and popup window chain; Planung): see docs/plans/2026-10-07-framework-breadth.md
+frameworks_base/core/java/android/widget/PopupWindow.java
+frameworks_base/core/java/android/widget/DropDownListView.java
+frameworks_base/core/java/android/widget/ForwardingListener.java
+frameworks_base/core/java/android/widget/ListPopupWindow.java
+frameworks_base/core/java/android/widget/AutoCompleteTextView.java
+frameworks_base/core/java/android/widget/MultiAutoCompleteTextView.java
+frameworks_base/core/java/com/android/internal/view/menu/ShowableListMenu.java
+frameworks_base/core/java/com/android/internal/widget/AutoScrollHelper.java
+frameworks_base/core/java/android/text/util/Rfc822Tokenizer.java
+frameworks_base/core/java/com/android/internal/transition/EpicenterTranslateClipReveal.java
+frameworks_base/core/java/com/android/internal/transition/TransitionConstants.java

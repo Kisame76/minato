@@ -1,0 +1,25 @@
+I/autocomplete-test: rfc822 3
+I/autocomplete-test: token name=Ann Lee address=ann@example.com comment= string=Ann Lee <ann@example.com>
+I/autocomplete-test: token name=null address=bob@example.org comment= string=<bob@example.org>
+I/autocomplete-test: token name=Cy, D address=cy@x.y comment=work string="Cy, D" (work) <cy@x.y>
+I/autocomplete-test: quote A \"B\" C c\(d\)e "Doe, John" John
+I/autocomplete-test: made N (x) <a@b.c> N a@b.c
+I/autocomplete-test: empty 0 0
+I/autocomplete-test: comma 5 8 9 8
+I/autocomplete-test: comma terminate [two, ] [two , ] [two,]
+I/autocomplete-test: rfc 17 15 38
+I/autocomplete-test: rfc terminate [a@b.c, ]
+I/autocomplete-test: popup 100x50 showing=false focusable=false touchable=true outside=false clipping=true content=true
+I/autocomplete-test: popup 200x80 focusable=true outside=true anim=0 elevation=4.0 ime=2 soft=16
+I/autocomplete-test: popup dismissed showing=false
+I/autocomplete-test: listpopup 300 -2 5 7 modal=true prompt=1 ime=1 showing=false selected=-1 list=true
+I/autocomplete-test: listpopup dismissed false
+I/autocomplete-test: auto threshold=2 adapter=null showing=false dropdown=-2/-2
+I/autocomplete-test: auto threshold=2 adapter=true dropdown=400 3 4 hint=hint selection=-1 enough=false
+I/autocomplete-test: auto text=al enough=true showing=false
+I/autocomplete-test: multi text=alpha, be enough=true
+I/autocomplete-test: filter al count=3 first=alpha
+I/autocomplete-test: filter be count=1 first=beta
+I/autocomplete-test: filter empty count=5
+I/autocomplete-test: auto convert=x
+I/autocomplete-test: done

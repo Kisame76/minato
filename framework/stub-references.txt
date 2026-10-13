@@ -172,8 +172,6 @@ android.view.translation.TranslationRequestValue <- android.widget.TextView  # s
 android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.widget.Magnifier <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
-android.widget.PopupWindow <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
-android.widget.PopupWindow$OnDismissListener <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 android.widget.Toast <- android.widget.TextView  # gap: the toast after a process-text activity's result, a second window (ADR-0041 decision 2)
 com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
@@ -204,7 +202,6 @@ android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a mana
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 
 # The compatibility plan's gap 5, widgets, batch 1: what its types still name as stubs.
-android.widget.PopupWindow <- android.widget.AbsListView  # gap: a list's text filter popup (setTextFilterEnabled), a second window (gap 4)
 android.provider.ContactsContract$CommonDataKinds$Email <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider

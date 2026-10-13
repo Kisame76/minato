@@ -75,7 +75,6 @@ android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not
 android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.widget.Magnifier <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-android.widget.PopupWindow <- android.widget.AbsListView, android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.window.OnBackInvokedCallbackInfo <- android.view.IWindowSession  # gap: (App) a placeholder's back callback info (IWindowSession, Grafik's), not taken yet
 android.window.SplashScreenView <- android.window.SplashScreen  # gap: (App) SplashScreenView, the system splash screen's view, not taken yet; Minato shows none
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)

@@ -502,7 +502,7 @@ run_app() {
       | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test | media-format-test \
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
-      | noted-app-op-test | app-services-test | image-reader-test)
+      | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
