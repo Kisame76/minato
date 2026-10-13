@@ -46,6 +46,7 @@ extern int register_android_os_Parcel(JNIEnv *env);
 extern int register_android_view_DisplayEventReceiver(JNIEnv *env);
 extern int register_android_view_Surface(JNIEnv *env);
 extern int register_android_view_TextureView(JNIEnv *env);
+extern int register_android_hardware_SyncFence(JNIEnv *env);
 extern int register_android_hardware_display_DisplayService(JNIEnv *env);
 extern int register_android_os_MessageQueue(JNIEnv *env);
 extern int register_android_os_Trace(JNIEnv *env);
@@ -139,7 +140,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_hardware_Camera,
           register_android_media_AudioTrack,
           register_android_graphics_HardwareRenderer, register_android_graphics_SurfaceTexture,
-          register_android_view_TextureView,
+          register_android_view_TextureView, register_android_hardware_SyncFence,
           register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,
           register_android_util_EventLog, register_android_app_Activity, register_android_view_KeyEvent,

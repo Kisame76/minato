@@ -28,7 +28,6 @@ android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  
 android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.credentials.Credential <- android.credentials.GetCredentialResponse  # gap: (App) the credential manager's types, not taken yet; Minato has no credential manager
 android.credentials.CredentialOption <- android.credentials.GetCredentialRequest  # gap: (App) the credential manager's types, not taken yet; Minato has no credential manager
-android.hardware.SyncFence <- android.opengl.EGLExt, android.view.SurfaceControl  # gap: (Planung) not taken: its static initializer calls the native nGetDestructor (NativeAllocationRegistry); it waits for the natives of Grafik's ADR-0058 b)
 android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
@@ -90,7 +89,6 @@ com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors, which the local installer never runs; no app reflects over a binder interface
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
-android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is Grafik's graphics fence (EGLExt makes it with hidden create methods, so managergen cannot write it); Image stays unreadable by reflection until that class is taken
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras getCameraCharacteristics refuses every ID before one is made
 android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras no extension is described

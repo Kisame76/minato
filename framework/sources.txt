@@ -2146,3 +2146,6 @@ frameworks_base/core/java/android/security/net/config/XmlConfigSource.java
 frameworks_base/core/java/android/security/NetworkSecurityPolicy.java
 frameworks_base/core/java/android/security/FrameworkNetworkSecurityPolicy.java
 frameworks_base/core/java/android/net/http/X509TrustManagerExtensions.java
+
+# The graphics breadth's G2 (Grafik): SyncFence, on natives of ours (android_hardware_SyncFence.cpp) without sync files.
+frameworks_base/core/java/android/hardware/SyncFence.java

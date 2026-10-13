@@ -123,7 +123,6 @@ android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorM
 # GLES from Java (ADR-0041 a), Grafik): opengl/java's three packages. A window surface takes a SurfaceView's or a
 # Surface's window (ADR-0043 c4); a SurfaceTexture needs libgui, and a native fence EGL_ANDROID_native_fence_sync,
 # which ANGLE's Metal display lacks.
-android.hardware.SyncFence <- android.opengl.EGLExt  # gap: eglDupNativeFenceFDANDROID's fence, without EGL_ANDROID_native_fence_sync
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
 
 # ADR-0045, the input service (Planung, gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
@@ -269,7 +268,6 @@ com.android.internal.util.function.pooled.PooledLambda <- android.content.pm.Pac
 com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3
 
 # android.media's take-in classes (the Unity test APK gap sort, Formate's category 1).
-android.hardware.SyncFence <- android.media.Image  # gap: Image.getFence, whose SyncFence is a graphics fence; no ImageReader gives an app an Image yet (category 2)
 android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.print.PrintManager <- android.print.PrintJob  # stays: a print job's manager, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts

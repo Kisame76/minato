@@ -334,6 +334,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_hardware_HardwareBuffer.cpp
+            native/android_runtime/android_hardware_SyncFence.cpp
             native/android_runtime/android_hardware_Camera.cpp
             native/android_runtime/android_media_AudioTrack.cpp
             native/android_runtime/android_graphics_HardwareRenderer.cpp

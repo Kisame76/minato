@@ -2,18 +2,25 @@ package io.github.kisame76.minato.test.glesjava;
 
 import android.app.Application;
 import android.graphics.Bitmap;
+import android.hardware.SyncFence;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLDisplay;
+import android.opengl.EGL15;
+import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
 import android.opengl.GLES20;
 import android.opengl.GLES30;
 import android.opengl.GLUtils;
+import android.os.Parcel;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.time.Duration;
 
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLContext;
@@ -37,7 +44,10 @@ import javax.microedition.khronos.opengles.GL11;
  * - its JNI library (jni/, ADR-0040 decision 3: the graphics front libs are public libraries): loaded through the
  *   class loader's namespace, which must reach libEGL, libGLESv2 and libGLESv3, which it links as Godot's
  *   libgodot_android.so does; each front lib opened by its name, as Godot's volk opens libvulkan.so; and a clear from
- *   native code in an ES 2.0 context that EGL14 made current, read back there and from Java.
+ *   native code in an ES 2.0 context that EGL14 made current, read back there and from Java;
+ * - SyncFence (the graphics breadth's G2) through its public API: an empty one from a Parcel and its round trip, one
+ *   of a pipe's read end, which waits until the pipe has a byte and has no signal time, as a file that is no sync
+ *   file, and EGLExt.eglDupNativeFenceFDANDROID of EGL_NO_SYNC, which is null.
  * Each draw clears to (0.2, 0.4, 0.6, 1) and covers the lower left half with one color of channels 0 and 1, exact at
  * any precision; the pixels read back at pixel centers away from the edge are exact in 8 bits (ES 3.0.6's rules, as
  * ADR-0029's tests have them). It logs with the tag gles-java-test and ends
@@ -66,12 +76,70 @@ public class GlesJavaApplication extends Application {
             gl10();
             glutils();
             jni();
+            syncFence();
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             // Its stack, which differs by device, is only shown.
             Log.i(TAG + "-device", Log.getStackTraceString(t));
         }
         Log.i(TAG, "done");
+    }
+
+    /**
+     * SyncFence through its public API, as an app gets one: from a Parcel, empty and with a pipe's read end, which is
+     * no sync file, and from EGLExt.
+     */
+    private void syncFence() throws Exception {
+        Log.i(TAG, "SyncFence: SIGNAL_TIME_INVALID " + SyncFence.SIGNAL_TIME_INVALID + ", SIGNAL_TIME_PENDING "
+                + SyncFence.SIGNAL_TIME_PENDING);
+        Parcel parcel = Parcel.obtain();
+        parcel.writeBoolean(false);
+        parcel.setDataPosition(0);
+        SyncFence empty = SyncFence.CREATOR.createFromParcel(parcel);
+        parcel.recycle();
+        Log.i(TAG, "SyncFence of an empty Parcel: valid " + empty.isValid() + ", await " + empty.await(Duration.ZERO)
+                + ", awaitForever " + empty.awaitForever() + ", signal time " + empty.getSignalTime()
+                + ", describeContents " + empty.describeContents() + ", array " + SyncFence.CREATOR.newArray(2).length);
+        parcel = Parcel.obtain();
+        empty.writeToParcel(parcel, 0);
+        parcel.setDataPosition(0);
+        Log.i(TAG, "SyncFence.writeToParcel of it: " + parcel.dataSize() + " bytes, valid "
+                + SyncFence.CREATOR.createFromParcel(parcel).isValid());
+        parcel.recycle();
+
+        ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+        parcel = Parcel.obtain();
+        parcel.writeBoolean(true);
+        parcel.writeFileDescriptor(pipe[0].getFileDescriptor());
+        parcel.setDataPosition(0);
+        SyncFence fence = SyncFence.CREATOR.createFromParcel(parcel);
+        parcel.recycle();
+        pipe[0].close();
+        // Duration.ZERO: the JNI hands the nanoseconds to a wait in milliseconds, so a short wait could be long.
+        boolean before = fence.await(Duration.ZERO);
+        long signal = fence.getSignalTime();
+        try (OutputStream out = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
+            out.write(1);
+        }
+        boolean after = fence.await(Duration.ZERO);
+        Log.i(TAG, "SyncFence of a pipe's Parcel: valid " + fence.isValid() + ", await before a byte " + before
+                + ", after " + after + ", awaitForever " + fence.awaitForever() + ", signal time " + signal);
+        fence.close();
+        fence.close();
+        Log.i(TAG, "SyncFence closed: valid " + fence.isValid() + ", await " + fence.awaitForever()
+                + ", signal time " + fence.getSignalTime());
+
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        EGL14.eglInitialize(display, version, 0, version, 1);
+        String none;
+        try {
+            none = "valid " + EGLExt.eglDupNativeFenceFDANDROID(display, EGL15.EGL_NO_SYNC).isValid();
+        } catch (IllegalArgumentException e) {
+            none = e.toString();
+        }
+        Log.i(TAG, "eglDupNativeFenceFDANDROID of EGL_NO_SYNC: " + none);
+        EGL14.eglTerminate(display);
     }
 
     /** EGL10 as Godot's GLSurfaceView uses it, then GLES30 on its context. */
