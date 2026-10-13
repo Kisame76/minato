@@ -1215,6 +1215,28 @@ TEST(stubs_out_of_branch_range_are_rejected) {
                  "8-byte");
 }
 
+// with_any_branch_displacement throws instead of truncating a window branch whose retargeted target
+// the island's field cannot reach, or whose displacement is not a multiple of 4 (step C C1b). A
+// hand-built region whose window holds a branch leaving it, emitted far from the guest window, makes
+// the island-relative displacement overflow the field.
+TEST(a_window_branch_out_of_field_range_is_rejected_not_truncated) {
+    const auto emit_at = [](std::uint32_t branch, std::uint64_t stub_address) {
+        apk::rewrite::ExclusiveRegion region;
+        region.address = 0x100000;
+        region.words = {0xc85f'7c20, branch, 0xc801'7c20};  // ldxr x0, [x1]; <branch leaving>; stxr w1, x0, [x1]
+        region.scratch = 3;
+        std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
+        apk::rewrite::emit_exclusive_region(region, region.address, stub_address, stub);
+    };
+    // The branch at .+16 lands past the three-word window, so emit keeps its absolute target. The
+    // B.cond's stub sits 2 MiB away, beyond its +-1 MiB imm19; the CMPBR's only 4 KiB away, within
+    // imm19 but beyond its own +-1 KiB imm9, so a wrong (wider) field would not catch it.
+    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (2u << 20)), "range");  // b.eq .+16
+    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0xf4c6'0085, 0x100000 + 0x1000), "range");  // cmpbr .+16
+    // A stub two bytes off makes the island-relative displacement odd: not a multiple of 4.
+    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (2u << 20) + 2), "multiple of 4");
+}
+
 }  // namespace
 
 int main() {

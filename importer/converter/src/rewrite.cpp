@@ -1169,13 +1169,27 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 namespace {
 
 /// A branch of any kind (B, BL, B.cond, CBZ, CBNZ, TBZ, TBNZ, CMPBR) with its displacement set to
-/// `delta`.
+/// `delta`. Throws when `delta` is not a multiple of 4 or does not fit the branch's field, so a
+/// target the island cannot reach is caught here, as b() and adrp() catch theirs, not truncated to
+/// a word inside the island (step C C1b).
 std::uint32_t with_any_branch_displacement(std::uint32_t word, std::int64_t delta) {
-    const auto encoded = static_cast<std::uint32_t>(delta / 4);
-    if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | (encoded & 0x03ff'ffff);  // B, BL
-    if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | ((encoded & 0x7ffff) << 5);  // B.cond
-    if (is_cmpbr(word)) return (word & ~(0x1ffu << 5)) | ((encoded & 0x1ff) << 5);                   // CMPBR imm9
-    return with_branch_displacement(word, delta);  // CBZ, CBNZ, TBZ, TBNZ
+    if (delta % 4 != 0) {
+        throw RewriteError(std::format("a branch displacement of {:#x} is not a multiple of 4", delta));
+    }
+    const auto encoded = delta / 4;
+    const auto field = [&](unsigned bits) -> std::uint32_t {
+        const std::int64_t limit = std::int64_t{1} << (bits - 1);
+        if (encoded < -limit || encoded >= limit) {
+            throw RewriteError(std::format("a branch displacement of {:#x} is out of range for a {}-bit field",
+                                           delta, bits));
+        }
+        return static_cast<std::uint32_t>(encoded) & ((1u << bits) - 1);
+    };
+    if ((word & 0x7c00'0000) == 0x1400'0000) return (word & 0xfc00'0000) | field(26);        // B, BL (imm26)
+    if (((word >> 24) & 0xff) == 0x54) return (word & ~(0x7ffffu << 5)) | (field(19) << 5);  // B.cond (imm19)
+    if (is_cmpbr(word)) return (word & ~(0x1ffu << 5)) | (field(9) << 5);                     // CMPBR (imm9)
+    if (is_test_bit_branch(word)) return (word & ~(0x3fffu << 5)) | (field(14) << 5);         // TBZ, TBNZ (imm14)
+    return (word & ~(0x7ffffu << 5)) | (field(19) << 5);                                      // CBZ, CBNZ (imm19)
 }
 
 }  // namespace
