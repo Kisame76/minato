@@ -47,16 +47,23 @@ public final class ZipArchive {
     /// APK, framework-res's about 8,000 entries included. libziparchive has no cap but ZIP64's: a departure.
     /// Containers take a lower one (ADR-0049 decision 7).
     public static let defaultMaxEntries: UInt64 = 1 << 20
+    /// [guess] The bytes the central directory may have, checked in the end record like the entries, since the entry
+    /// cap alone leaves up to 512 MiB of names, extra fields and comments to read whole: the entry cap at 128 bytes
+    /// for each, about the size of a real record. A departure from libziparchive, which has none.
+    public static let defaultMaxDirectoryBytes: UInt64 = 128 << 20
 
-    public convenience init(data: Data, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
-        try self.init(source: DataSource(data), maxEntries: maxEntries)
+    public convenience init(data: Data, maxEntries: UInt64 = ZipArchive.defaultMaxEntries,
+                            maxDirectoryBytes: UInt64 = ZipArchive.defaultMaxDirectoryBytes) throws {
+        try self.init(source: DataSource(data), maxEntries: maxEntries, maxDirectoryBytes: maxDirectoryBytes)
     }
 
-    public convenience init(url: URL, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
-        try self.init(source: FileSource(url: url), maxEntries: maxEntries)
+    public convenience init(url: URL, maxEntries: UInt64 = ZipArchive.defaultMaxEntries,
+                            maxDirectoryBytes: UInt64 = ZipArchive.defaultMaxDirectoryBytes) throws {
+        try self.init(source: FileSource(url: url), maxEntries: maxEntries, maxDirectoryBytes: maxDirectoryBytes)
     }
 
-    public init(source: ByteSource, maxEntries: UInt64 = ZipArchive.defaultMaxEntries) throws {
+    public init(source: ByteSource, maxEntries: UInt64 = ZipArchive.defaultMaxEntries,
+                maxDirectoryBytes: UInt64 = ZipArchive.defaultMaxDirectoryBytes) throws {
         self.source = source
         let end = try Self.readEndOfCentralDirectory(source)
         centralDirectoryOffset = end.centralDirectoryOffset
@@ -66,6 +73,11 @@ public final class ZipArchive {
         guard end.entryCount > 0 else { throw APKError.invalidArchive("it holds no entries") }
         guard end.entryCount <= maxEntries else {
             throw APKError.invalidArchive("it holds \(end.entryCount) entries, more than the \(maxEntries) Minato reads")
+        }
+        guard end.centralDirectorySize <= maxDirectoryBytes else {
+            throw APKError.invalidArchive(
+                "its central directory is \(end.centralDirectorySize) bytes, "
+                    + "more than the \(maxDirectoryBytes) Minato reads")
         }
         entries = try Self.readCentralDirectory(source, end: end)
         // :649-663: the file starts with a local header, so nothing is prepended to it.
@@ -410,6 +422,7 @@ public final class ZipArchive {
     }
 
     static func readCentralDirectory(_ source: ByteSource, end: EndRecord) throws -> [ZipEntry] {
+        // A backstop for a caller that passes a larger cap than the default's.
         guard end.centralDirectorySize <= 512 << 20 else {
             throw APKError.truncated("central directory of \(end.centralDirectorySize) bytes")
         }

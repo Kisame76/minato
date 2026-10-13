@@ -694,6 +694,18 @@ struct ZipArchiveTests {
         }
     }
 
+    @Test func refusesACentralDirectoryOverItsByteCapBeforeReadingIt() throws {
+        // The entry cap bounds the records, not their bytes: names, extra fields and comments of 64 KiB each would
+        // still fill 512 MiB. The end record's size is checked against its own cap before the directory is read.
+        let data = Self.rawArchive([(Array("a.txt".utf8), Data("a".utf8)), (Array("b.txt".utf8), Data("b".utf8))])
+        let size = (try ZipArchive(data: data)).centralDirectorySize
+        #expect(try ZipArchive(data: data, maxDirectoryBytes: size).entries.count == 2)
+        #expect(throws: APKError.invalidArchive("its central directory is \(size) bytes, more than the \(size - 1) Minato reads")) {
+            try ZipArchive(data: data, maxDirectoryBytes: size - 1)
+        }
+        #expect(ZipArchive.defaultMaxDirectoryBytes == 128 << 20)
+    }
+
     @Test func theDefaultCapRefusesAZip64CountOfMillions() throws {
         // libziparchive has no cap but ZIP64's (zip_archive.cc:554-573); ours bounds the entries' memory.
         let name = Array("a.txt".utf8)
@@ -712,6 +724,27 @@ struct ZipArchiveTests {
         #expect(ZipArchive.defaultMaxEntries == 1 << 20)
         #expect(throws: APKError.invalidArchive("it holds \(count) entries, more than the \(count - 1) Minato reads")) {
             try ZipArchive(data: out)
+        }
+    }
+
+    @Test func aZip64DirectorySizeOverTheByteCapIsRefusedToo() throws {
+        // The ZIP64 end record's size is the one checked when the classic record is saturated.
+        let name = Array("a.txt".utf8)
+        var out = Self.localHeader(name, Self.good)
+        let record = Self.directoryRecord(name, crc: CRC32.checksum(Self.good), compressed: 8, uncompressed: 8, offset: 0)
+        let directoryOffset = out.count
+        out += record
+        var zip64 = ByteWriter()
+        let recordOffset = out.count
+        zip64.u32(0x0606_4b50); zip64.u64(44); zip64.u16(45); zip64.u16(45); zip64.u32(0); zip64.u32(0)
+        zip64.u64(1); zip64.u64(1); zip64.u64(UInt64(record.count)); zip64.u64(UInt64(directoryOffset))
+        zip64.u32(0x0706_4b50); zip64.u32(0); zip64.u64(UInt64(recordOffset)); zip64.u32(1)
+        out += zip64.data + Self.endRecord(count: .max, size: record.count, offset: directoryOffset)
+
+        #expect(try ZipArchive(data: out, maxDirectoryBytes: UInt64(record.count)).entries.count == 1)
+        #expect(throws: APKError.invalidArchive(
+            "its central directory is \(record.count) bytes, more than the \(record.count - 1) Minato reads")) {
+            try ZipArchive(data: out, maxDirectoryBytes: UInt64(record.count - 1))
         }
     }
 
