@@ -1,0 +1,43 @@
+I/sdk-types-test: mutables: 7 1099511627776 7 -3 x 1.5 2.25 true
+I/sdk-types-test: printers: one|two|three
+I/sdk-types-test: atomicfile: atomic 97 true sdk-types-test.bin
+I/sdk-types-test: atomicfile deleted: true
+I/sdk-types-test: rfc822: Ann Lee (c) <ann@example.com> Ann Lee ann@example.com c
+I/sdk-types-test: rfc822 quote: A \"B\" C x\(y\) true
+I/sdk-types-test: provider: _display_name _size
+I/sdk-types-test: provider alarm: android.intent.action.SET_ALARM android.intent.extra.alarm.HOUR android.intent.extra.alarm.MINUTES android.intent.action.SET_TIMER android.intent.extra.alarm.LENGTH
+I/sdk-types-test: keystore: KeyPermanentlyInvalidatedException extends java.security.InvalidKeyException message m
+I/sdk-types-test: keystore: UserNotAuthenticatedException extends java.security.InvalidKeyException message m
+I/sdk-types-test: keystore: KeyExpiredException extends java.security.InvalidKeyException message m
+I/sdk-types-test: keystore: KeyNotYetValidException extends java.security.InvalidKeyException message m
+I/sdk-types-test: keystore: UserPresenceUnavailableException extends java.security.InvalidKeyException message m
+I/sdk-types-test: keystore: android.security.keystore.BackendBusyException failed: java.lang.NoSuchMethodException: android.security.keystore.BackendBusyException.<init> [class java.lang.String]
+I/sdk-types-test: keystore: KeyChainException extends java.lang.Exception message m
+I/sdk-types-test: keystore classes: android.security.keystore.KeyInfo android.security.keystore.WrappedKeyEntry android.security.KeyPairGeneratorSpec android.security.KeyStoreParameter android.security.KeyChainAliasCallback
+I/sdk-types-test: geomagnetic: 4.124 64.334 48693.9 21090.2
+I/sdk-types-test: text: A.bc
+I/sdk-types-test: text altered: abcdef 6 X
+I/sdk-types-test: graphics: ff336699 0
+I/sdk-types-test: graphics colorspace: sRGB IEC61966-2.1
+I/sdk-types-test: month: 29 5 2 11 2024 1
+I/sdk-types-test: class android.app.IntentService: android.app.Service
+I/sdk-types-test: class android.app.ListActivity: android.app.Activity
+I/sdk-types-test: class android.app.ExpandableListActivity: android.app.Activity
+I/sdk-types-test: class android.app.ListFragment: android.app.Fragment
+I/sdk-types-test: class android.app.AuthenticationRequiredException: java.lang.SecurityException
+I/sdk-types-test: class android.app.usage.ConfigurationStats: java.lang.Object
+I/sdk-types-test: class android.app.usage.EventStats: java.lang.Object
+I/sdk-types-test: class android.app.usage.StorageStats: java.lang.Object
+I/sdk-types-test: class android.app.usage.ExternalStorageStats: java.lang.Object
+I/sdk-types-test: class android.content.res.ObbInfo: java.lang.Object
+I/sdk-types-test: class android.hardware.DataSpace: java.lang.Object
+I/sdk-types-test: class android.speech.RecognizerIntent: java.lang.Object
+I/sdk-types-test: class android.speech.RecognizerResultsIntent: java.lang.Object
+I/sdk-types-test: class android.provider.FontsContract: java.lang.Object
+I/sdk-types-test: class android.provider.UserDictionary: java.lang.Object
+I/sdk-types-test: class android.provider.SearchRecentSuggestions: java.lang.Object
+I/sdk-types-test: class android.util.TimingLogger: java.lang.Object
+I/sdk-types-test: class android.util.Config: java.lang.Object
+I/sdk-types-test: class android.util.LayoutDirection: java.lang.Object
+I/sdk-types-test: class android.util.FloatMath: java.lang.Object
+I/sdk-types-test: done
