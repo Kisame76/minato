@@ -85,7 +85,6 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.telephony.VisualVoicemailSmsFilterSettings \
   --class android.view.inputmethod.InputMethodInfo \
   --class android.view.inputmethod.InputMethodSubtype \
-  --class android.view.textclassifier.TextClassificationContext \
   --class android.view.translation.TranslationCapability \
   --class android.media.RemoteControlClient \
   --class android.media.RemoteController \

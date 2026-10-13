@@ -6,4 +6,18 @@ class TextClassifier {
     /** @hide */
     @interface EntityType {
     }
+
+    /** @hide The widget types SelectionEvent names; the constants are the API's. */
+    @interface WidgetType {
+    }
+
+    /** @hide What TextSelection's builder calls, as AOSP's TextClassifier.Utils has it. */
+    final class Utils {
+        static void checkArgument(CharSequence text, int startIndex, int endIndex) {
+            com.android.internal.util.Preconditions.checkArgument(text != null);
+            com.android.internal.util.Preconditions.checkArgument(startIndex >= 0);
+            com.android.internal.util.Preconditions.checkArgument(endIndex <= text.length());
+            com.android.internal.util.Preconditions.checkArgument(endIndex > startIndex);
+        }
+    }
 }

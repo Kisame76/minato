@@ -1,0 +1,47 @@
+I/ui-types-test: gesture: strokes 1 length 80.000 box 0.000 0.000 80.000 10.000 id true
+I/ui-types-test: gesture oriented: 0.000 7.125 40.000 5.000 80.623 0.000
+I/ui-types-test: gesture store: [across, down] 1 bytes true sequence 2 2
+I/ui-types-test: gesture predicts: across NaN
+I/ui-types-test: gesture predicts: down NaN
+I/ui-types-test: gesture removed: 1 true
+I/ui-types-test: sax: [entry 1][title One][/entry][entry 2][title Two][/entry]
+I/ui-types-test: spans locale: fr-CA fr-CA 23
+I/ui-types-test: spans scale: 1.500 1.500 4
+I/ui-types-test: spans tts: android.type.cardinal {android.arg.gender=android.female, android.arg.number=42}
+I/ui-types-test: spans tts types: android.type.telephone android.type.time android.arg.number
+I/ui-types-test: spans margin: 5 5
+I/ui-types-test: spans mask: true
+I/ui-types-test: classifier action: call_phone 0.750 ok
+I/ui-types-test: classifier selection: 2 9 1 phone 0.900 0.000 sel
+I/ui-types-test: classifier language: 1 de 0.600
+I/ui-types-test: classifier event: 1 1 0 0
+I/ui-types-test: classifier empty selection: IllegalArgumentException
+I/ui-types-test: datesorter: 5 0 2 4
+I/ui-types-test: datesorter label: Today | Older
+I/ui-types-test: speech support: [en-US] [de-DE] [fr-FR] [es-ES]
+I/ui-types-test: speech span: 0 5 [alpha, beta]
+I/ui-types-test: class android.gesture.GestureLibraries: loads false
+I/ui-types-test: class android.gesture.GestureLibrary: loads false
+I/ui-types-test: class android.gesture.GestureOverlayView: loads false
+I/ui-types-test: class android.gesture.GestureUtils: loads false
+I/ui-types-test: class android.sax.ElementListener: loads true
+I/ui-types-test: class android.sax.TextElementListener: loads true
+I/ui-types-test: class android.print.PrintJobId: loads false
+I/ui-types-test: class android.print.PrinterCapabilitiesInfo: loads false
+I/ui-types-test: class android.print.PrinterId: loads false
+I/ui-types-test: class android.speech.AlternativeSpans: loads false
+I/ui-types-test: class android.speech.ModelDownloadListener: loads true
+I/ui-types-test: class android.speech.RecognitionListener: loads true
+I/ui-types-test: class android.speech.RecognitionPart: loads false
+I/ui-types-test: class android.speech.RecognitionSupportCallback: loads true
+I/ui-types-test: class android.text.style.IconMarginSpan: loads false
+I/ui-types-test: class android.view.textclassifier.ConversationActions: loads false
+I/ui-types-test: class android.view.textclassifier.TextClassificationSessionId: loads false
+I/ui-types-test: class android.view.textclassifier.TextClassifierEvent: loads false
+I/ui-types-test: class android.webkit.PluginStub: loads true
+I/ui-types-test: class android.webkit.ServiceWorkerController: loads false
+I/ui-types-test: class android.webkit.TracingController: loads false
+I/ui-types-test: class android.webkit.WebIconDatabase: loads false
+I/ui-types-test: class android.webkit.WebViewDatabase: loads false
+I/ui-types-test: class android.webkit.WebViewFragment: loads false
+I/ui-types-test: done

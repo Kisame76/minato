@@ -12,9 +12,6 @@ android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, 
 android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 android.text.style.AccessibilityURLSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.LocaleSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.ScaleXSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.TtsSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
 # System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
 android.os.PermissionEnforcer <- com.android.internal.compat.IPlatformCompat  # stays: IPlatformCompat's Stub and Proxy, which the local platform compat service never runs
@@ -169,10 +166,6 @@ android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeec
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
 android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
-android.view.textclassifier.SelectionEvent <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
-android.view.textclassifier.TextClassifierEvent$LanguageDetectionEvent$Builder <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
-android.view.textclassifier.TextSelection <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
-android.view.textclassifier.TextSelection$Request$Builder <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
 android.view.textservice.SpellCheckerSubtype <- android.widget.TextView  # stays: a spell checker's subtype, and text services are absent (ADR-0043 step d), decision 3)
 android.view.translation.TranslationRequestValue <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)

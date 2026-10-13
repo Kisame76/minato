@@ -52,7 +52,6 @@ android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: (Planung) not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.print.PrintJobId <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: (Planung) not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
@@ -71,24 +70,12 @@ android.view.accessibility.AccessibilityWindowInfo <- android.view.accessibility
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResultCallback  # gap: (App) display hashes not taken yet
-android.view.textclassifier.ConversationActions <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.ConversationActions$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.SelectionEvent <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.TextClassifierEvent <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: (Planung) not taken: it calls TextClassifierEvent's builders of App's text classifier files (NO_SIGNATURE, setInvocationMethod) that they lack
-android.view.textclassifier.TextLanguage <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.TextLanguage$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
-android.view.textclassifier.TextSelection <- android.widget.SelectionActionModeHelper, android.view.textclassifier.TextClassifier  # gap: (Planung) not taken: it names EntityConfidence, SystemTextClassifierMetadata and the textclassifier Utils, which App's text classifier files do not hold
-android.view.textclassifier.TextSelection$Request <- android.view.textclassifier.TextClassifier  # gap: (App) the text classifier's request and result types, not taken yet
 android.view.textservice.SpellCheckerInfo <- android.view.textservice.SpellCheckerSession, android.view.textservice.TextServicesManager  # gap: (Planung) not taken: its constructor of SpellCheckerSubtype does not match ours; with SpellCheckerSubtype
 android.view.textservice.SpellCheckerSubtype <- android.view.textservice.TextServicesManager  # gap: (Planung) not taken: it needs SubtypeLocaleUtils of the input method service; Minato has no spell checker service
 android.view.translation.TranslationRequestValue <- android.view.translation.ViewTranslationRequest  # gap: (App) translation requests' values not taken yet
 android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.webkit.ServiceWorkerController <- android.webkit.WebViewFactoryProvider  # gap: category 3's webkit services (Grafik)
 android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.webkit.TracingController <- android.webkit.WebViewFactoryProvider  # gap: category 3's webkit services (Grafik)
-android.webkit.WebIconDatabase <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.webkit.WebViewDatabase <- android.webkit.WebSyncManager, android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.widget.Magnifier <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.widget.Magnifier$Builder <- android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.widget.PopupWindow <- android.widget.AbsListView, android.widget.Editor  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
