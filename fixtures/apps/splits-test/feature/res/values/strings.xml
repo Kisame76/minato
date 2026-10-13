@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A string that only the feature split holds, the label of its activity. -->
+    <string name="feature_label">Feature activity</string>
+</resources>

@@ -14,5 +14,9 @@
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
     </activity>
+    <!-- Declared by the feature split too, with another attribute: which one the PackageManager keeps. -->
+    <service android:name="io.github.kisame76.minato.test.splits.DupService" android:exported="false">
+      <intent-filter><action android:name="io.github.kisame76.minato.test.splits.DUP_ACTION"/></intent-filter>
+    </service>
   </application>
 </manifest>

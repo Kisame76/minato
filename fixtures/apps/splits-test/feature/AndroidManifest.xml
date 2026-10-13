@@ -5,5 +5,21 @@
     <dist:fusing dist:include="true"/>
     <dist:delivery><dist:install-time><dist:removable dist:value="true"/></dist:install-time></dist:delivery>
   </dist:module>
-  <application android:hasCode="true"/>
+  <application android:hasCode="true">
+    <meta-data android:name="feature.key" android:value="feature-value"/>
+    <activity android:name="io.github.kisame76.minato.test.splits.feature.FeatureActivity" android:exported="false"
+        android:label="@string/feature_label"/>
+    <service android:name="io.github.kisame76.minato.test.splits.feature.FeatureService" android:exported="false"/>
+    <receiver android:name="io.github.kisame76.minato.test.splits.feature.FeatureReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.splits.FEATURE_ACTION"/>
+      </intent-filter>
+    </receiver>
+    <service android:name="io.github.kisame76.minato.test.splits.DupService" android:exported="false"
+        android:enabled="false">
+      <intent-filter><action android:name="io.github.kisame76.minato.test.splits.DUP_ACTION"/></intent-filter>
+    </service>
+    <provider android:name="io.github.kisame76.minato.test.splits.feature.FeatureProvider"
+        android:authorities="io.github.kisame76.minato.test.splits.feature" android:exported="false"/>
+  </application>
 </manifest>

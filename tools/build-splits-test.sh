@@ -61,7 +61,7 @@ mkdir -p "$work/gen" "$work/classes/base" "$work/classes/feature" "$work/dex/bas
 
 # The base module: resources and manifest linked in protobuf's format, with the R class for its code.
 "$AAPT2" compile --dir "fixtures/apps/$APP/res" -o "$work/compiled.zip"
-"$AAPT2" link --proto-format -o "$work/base-linked.apk" -I "$FRAMEWORK_RES" \
+"$AAPT2" link --proto-format -o "$work/base-linked.apk" -I "$FRAMEWORK_RES" --emit-ids "$work/ids.txt" \
   --manifest "fixtures/apps/$APP/AndroidManifest.xml" --java "$work/gen" "$work/compiled.zip"
 # -Xlint:-options: the notes about source 8 on a newer JDK.
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
@@ -77,8 +77,11 @@ mkdir -p "$work/gen" "$work/classes/base" "$work/classes/feature" "$work/dex/bas
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$work/dex/feature" \
   $(find "$work/classes/feature" -name '*.class' | sort)
-"$AAPT2" link --proto-format -o "$work/feature-linked.apk" -I "$FRAMEWORK_RES" \
-  --manifest "fixtures/apps/$APP/feature/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35
+# The feature's own string takes its id beside the base's (--stable-ids), as the splits of one package share it.
+"$AAPT2" compile --dir "fixtures/apps/$APP/feature/res" -o "$work/feature-compiled.zip"
+"$AAPT2" link --proto-format -o "$work/feature-linked.apk" -I "$FRAMEWORK_RES" --stable-ids "$work/ids.txt" \
+  --manifest "fixtures/apps/$APP/feature/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35 \
+  "$work/feature-compiled.zip"
 # The JNI library, which the arm64 split holds.
 "$CLANG" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall -Werror -Wl,-z,max-page-size=16384 \
   -Wl,--no-undefined -landroid -o "$work/lib/libsplits_test.so" "fixtures/java/$APP/jni/splits_test.c"
@@ -95,8 +98,6 @@ for name in ("base", "feature"):
     with zipfile.ZipFile(os.path.join(work, f"{name}-linked.apk")) as apk, \
             zipfile.ZipFile(os.path.join(work, "modules", f"{name}.zip"), "w", zipfile.ZIP_DEFLATED) as module:
         for entry in apk.infolist():
-            if name != "base" and entry.filename == "resources.pb":
-                continue
             target = "manifest/AndroidManifest.xml" if entry.filename == "AndroidManifest.xml" else entry.filename
             module.writestr(target, apk.read(entry))
         module.write(os.path.join(work, "dex", name, "classes.dex"), "dex/classes.dex")

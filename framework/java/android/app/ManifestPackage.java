@@ -125,7 +125,8 @@ final class ManifestPackage {
 
     final String packageName;
     /** The app's Resources over base.apk and framework-res, with the system's configuration. */
-    final Resources resources;
+    /** Over base.apk, and over the splits too once splits() has read a set (as DefaultSplitAssetLoader's). */
+    Resources resources;
 
     private final PackageInfo mPackage = new PackageInfo();
     private final ApplicationInfo mApplication = new ApplicationInfo();
@@ -257,6 +258,79 @@ final class ManifestPackage {
             mApplication.splitSourceDirs[i] = paths[order[i]];
         }
         mApplication.splitPublicSourceDirs = mApplication.splitSourceDirs.clone();
+        // The splits' components follow the base's, in the splits' order, each with its split's name. Their attributes
+        // resolve against the base and all the splits, as the package parser takes a split's from the set's
+        // DefaultSplitAssetLoader; these Resources stay the package's.
+        ApkAssets[] set = new ApkAssets[1 + paths.length];
+        set[0] = ApkAssets.loadFromPath(mApplication.sourceDir);
+        for (int i = 0; i < paths.length; i++) {
+            set[1 + i] = ApkAssets.loadFromPath(mApplication.splitSourceDirs[i]);
+        }
+        AssetManager assets = new AssetManager();
+        assets.setApkAssets(set, false);
+        Resources system = Resources.getSystem();
+        resources = new Resources(assets, system.getDisplayMetrics(), system.getConfiguration());
+        for (int i = 0; i < paths.length; i++) {
+            splitComponents(assets, mApplication.splitSourceDirs[i], mApplication.splitNames[i]);
+        }
+    }
+
+    /**
+     * What a split's manifest adds to the package (ParsingPackageUtils.parseSplitApplication): its application's
+     * activities, receivers, aliases, services and providers, each with the split's name, and its meta-data, merged
+     * into the application's. A component the base declares too is kept as well, so the lookup by name finds the later
+     * one [verified on Android 15, splits-test].
+     */
+    private void splitComponents(AssetManager assets, String path, String split)
+            throws IOException, XmlPullParserException {
+        int activities = mActivities.size(), receivers = mReceivers.size(), services = mServices.size();
+        int providers = mProviders.size();
+        try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(path),
+                "AndroidManifest.xml")) {
+            manifestElement(parser, path);
+            int depth = parser.getDepth();
+            int type;
+            while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                    && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+                if (type == XmlPullParser.START_TAG && parser.getDepth() == depth + 1 && !skipped(parser)
+                        && "application".equals(parser.getName())) {
+                    splitApplication(parser);
+                }
+            }
+        }
+        for (ActivityInfo info : mActivities.subList(activities, mActivities.size())) {
+            info.splitName = split;
+        }
+        for (ActivityInfo info : mReceivers.subList(receivers, mReceivers.size())) {
+            info.splitName = split;
+        }
+        for (ServiceInfo info : mServices.subList(services, mServices.size())) {
+            info.splitName = split;
+        }
+        for (ProviderInfo info : mProviders.subList(providers, mProviders.size())) {
+            info.splitName = split;
+        }
+    }
+
+    /** The children of a split's <application> that a split adds. */
+    private void splitApplication(XmlResourceParser parser) throws IOException, XmlPullParserException {
+        int depth = parser.getDepth();
+        int type;
+        while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
+                && (type != XmlPullParser.END_TAG || parser.getDepth() > depth)) {
+            if (type != XmlPullParser.START_TAG || parser.getDepth() != depth + 1 || skipped(parser)) {
+                continue;
+            }
+            switch (parser.getName()) {
+                case "meta-data": mApplication.metaData = metaData(parser, mApplication.metaData); break;
+                case "activity": mActivities.add(parseActivity(parser, false)); break;
+                case "receiver": mReceivers.add(parseActivity(parser, true)); break;
+                case "activity-alias": mActivities.add(parseAlias(parser)); break;
+                case "service": mServices.add(parseService(parser)); break;
+                case "provider": mProviders.add(parseProvider(parser)); break;
+                default: break;
+            }
+        }
     }
 
     /** The class path of the app's loader: base.apk, then the splits, as Android's PathClassLoader over the set. */
@@ -1472,18 +1546,19 @@ final class ManifestPackage {
 
     /** The activity, alias or receiver of that name, or null. */
     ActivityInfo activityInfo(ComponentName component, long flags, boolean receiver) {
-        for (ActivityInfo activity : receiver ? mReceivers : mActivities) {
-            if (named(activity, component) && matches(activity, flags)) {
-                return activityInfo(activity, flags, applicationInfo(flags));
+        List<ActivityInfo> list = receiver ? mReceivers : mActivities;
+        for (int i = list.size() - 1; i >= 0; i--) {
+            if (named(list.get(i), component) && matches(list.get(i), flags)) {
+                return activityInfo(list.get(i), flags, applicationInfo(flags));
             }
         }
         return null;
     }
 
     ServiceInfo serviceInfo(ComponentName component, long flags) {
-        for (ServiceInfo service : mServices) {
-            if (named(service, component) && matches(service, flags)) {
-                return serviceInfo(service, flags, applicationInfo(flags));
+        for (int i = mServices.size() - 1; i >= 0; i--) {
+            if (named(mServices.get(i), component) && matches(mServices.get(i), flags)) {
+                return serviceInfo(mServices.get(i), flags, applicationInfo(flags));
             }
         }
         return null;
@@ -1524,9 +1599,9 @@ final class ManifestPackage {
     }
 
     ProviderInfo providerInfo(ComponentName component, long flags) {
-        for (ProviderInfo provider : mProviders) {
-            if (named(provider, component) && matches(provider, flags)) {
-                return providerInfo(provider, flags, applicationInfo(flags));
+        for (int i = mProviders.size() - 1; i >= 0; i--) {
+            if (named(mProviders.get(i), component) && matches(mProviders.get(i), flags)) {
+                return providerInfo(mProviders.get(i), flags, applicationInfo(flags));
             }
         }
         return null;

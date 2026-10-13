@@ -1,3 +1,5 @@
+I/splits-test: feature provider created
+I/splits-test: application created
 I/splits-test: source: base.apk, code path: true
 I/splits-test: split names: [config.arm64_v8a, config.en, feature]
 I/splits-test: split source dirs: [split_config.arm64_v8a.apk, split_config.en.apk, split_feature.apk]
@@ -12,4 +14,14 @@ I/splits-test: assets: [base.txt, feature.txt, geoid_map, images, webkit]
 I/splits-test: greeting: hello from the English split
 I/splits-test: library: the arm64 split's library answers
 I/splits-test: native assets: feature.txt: Minato splits-test, the feature split asset. | base.txt: Minato splits-test, the base asset. | folder: base.txt feature.txt
+I/splits-test: activity: FeatureActivity, split feature, in this application true
+I/splits-test: activity label: Feature activity, label resource true
+I/splits-test: service: FeatureService, split feature, in this application true
+I/splits-test: receiver: FeatureReceiver, split feature, in this application true
+I/splits-test: provider: FeatureProvider, split feature, in this application true
+I/splits-test: provider by authority: FeatureProvider, split feature, in this application true
+I/splits-test: duplicate by name: DupService, split feature, in this application true
+I/splits-test: duplicate listed: [split null, enabled true, split feature, enabled false]
+I/splits-test: package info: activities [Activity, FeatureActivity], services [DupService, FeatureService], receivers [FeatureReceiver], providers [FeatureProvider]
+I/splits-test: meta-data: feature-value
 I/splits-test: done
