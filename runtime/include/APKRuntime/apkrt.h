@@ -482,6 +482,13 @@ int apkrt_set_host_provider(const char *name, apkrt_host_provider provider, void
 /// calls it, before the program starts, as the providers are set. Returns 0, or -1 for another version.
 int apkrt_set_opengles_version(uint32_t version);
 
+/// Whether the app holds android.permission.INTERNET (ADR-0054 step c2a), from its manifest. Without it, AF_INET and
+/// AF_INET6 sockets answer EPERM, as netd's BPF program makes Android's kernel answer, and the guest's DNS proxy answers
+/// only from the hosts file, failing every other name and address as Android's proxy fails a uid whose networking is
+/// blocked, without the host's resolver. Granted until set. Only before the program starts: 0, or -1
+/// once a start was tried, from which on the process keeps what it has.
+int apkrt_set_internet(int granted);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,7 @@
 // Checks the guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies to libnetd_client's commands in
 // DnsProxyListener's bytes, the guest's /system/etc/hosts before the host's resolver, the errors, and connections
 // that end before their reply. fixtures/suite/socket-test checks what bionic makes of the replies against Android 15.
+#include "APKRuntime/apkrt.h"
 #include "dns_proxy.h"
 #include "vfs.h"
 
@@ -19,7 +20,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
+#include <future>
 #include <optional>
 #include <string>
 #include <thread>
@@ -225,6 +228,85 @@ TEST(the_hosts_file_reads_as_androids_resolver_reads_it) {
           (*entries)[1].address == "10.0.0.2");
     const auto host = host_of(answer("gethostbyname 0 multi 2"));
     CHECK(host && (host->addresses == std::vector<std::string>{"10.0.0.1", "10.0.0.2"}));
+}
+
+// The hosts file is opened beneath /system's mount, as a regular file, and read up to 64 KiB (ADR-0054 step c2a, the
+// review of step b): a link out of the mount, a FIFO that would block the proxy's thread, and the end of a huge file
+// count as no hosts file, as bionic finds none in its place.
+TEST(the_hosts_file_is_read_only_as_a_regular_file_beneath_its_mount) {
+    char pattern[] = "/tmp/apkrt-dns-outside-XXXXXX";
+    const std::string outside = ::mkdtemp(pattern);
+    std::ofstream(outside + "/hosts") << "10.9.8.7 outside.invalid\n";
+    {
+        const GuestSystem system("");
+        CHECK(::unlink((system.host + "/etc/hosts").c_str()) == 0);
+        CHECK(::symlink((outside + "/hosts").c_str(), (system.host + "/etc/hosts").c_str()) == 0);
+        CHECK(answer("getaddrinfo outside.invalid ^ 0 0 1 0 0") == failure(int_bytes(eai_nodata)));
+    }
+    static_cast<void>(std::system(("rm -rf '" + outside + "'").c_str()));
+    {
+        const GuestSystem system("");
+        const auto fifo = system.host + "/etc/hosts";
+        CHECK(::unlink(fifo.c_str()) == 0 && ::mkfifo(fifo.c_str(), 0644) == 0);
+        auto reply = std::async(std::launch::async, [] { return answer("getaddrinfo nothing.invalid ^ 0 0 1 0 0"); });
+        if (reply.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+            apk::testing::fail(std::source_location::current(), "the proxy waits on a FIFO: ", fifo.c_str());
+            ::close(::open(fifo.c_str(), O_WRONLY | O_NONBLOCK));  // lets the reader go
+        }
+        CHECK(reply.get() == failure(int_bytes(eai_nodata)));
+        // Nor a FIFO with a writer and lines in it: it is no regular file.
+        const int writer = ::open(fifo.c_str(), O_RDWR | O_NONBLOCK);
+        CHECK(writer >= 0);
+        const std::string_view line = "10.9.8.7 fifo.invalid\n";
+        CHECK(::write(writer, line.data(), line.size()) == static_cast<ssize_t>(line.size()));
+        CHECK(answer("getaddrinfo fifo.invalid ^ 0 0 1 0 0") == failure(int_bytes(eai_nodata)));
+        ::close(writer);
+    }
+    std::string huge = "127.0.0.9 early.invalid\n";
+    while (huge.size() < 70 * 1024) huge += "# padding to beyond the 64 KiB the proxy reads of the file\n";
+    huge += "127.0.0.10 late.invalid\n";
+    const GuestSystem system(huge);
+    const auto early = entries_of(answer("getaddrinfo early.invalid ^ 0 0 1 0 0"));
+    CHECK(early && early->size() == 1 && (*early)[0].address == "127.0.0.9");
+    CHECK(answer("getaddrinfo late.invalid ^ 0 0 1 0 0") == failure(int_bytes(eai_nodata)));
+}
+
+// The netid is netd's ParseUint into an unsigned (android-base/parseint.h): up to 2^32 - 1, hexadecimal after 0x, no
+// sign (ADR-0054 step c2a, the review of step b).
+TEST(the_netid_is_parsed_as_netds_parseuint) {
+    const GuestSystem system(android_hosts);
+    for (const char *netid : {"2147483648", "4294967295", "0x10", "0X1F", "+5"}) {
+        const auto entries = entries_of(answer(std::string("getaddrinfo localhost ^ 0 0 1 0 ") + netid));
+        CHECK(entries && entries->size() == 1);
+        CHECK(host_of(answer(std::string("gethostbyname ") + netid + " localhost 2")).has_value());
+        CHECK(host_of(answer(std::string("gethostbyaddr 127.0.0.1 4 2 ") + netid)).has_value());
+    }
+    for (const char *netid : {"4294967296", "-1", "-0", "1x", "0x", "\t"}) {
+        CHECK(answer(std::string("getaddrinfo localhost ^ 0 0 1 0 ") + netid).starts_with("501 "));
+        CHECK(answer(std::string("gethostbyname ") + netid + " localhost 2").starts_with("501 "));
+        CHECK(answer(std::string("gethostbyaddr 127.0.0.1 4 2 ") + netid).starts_with("501 "));
+    }
+}
+
+// Without INTERNET (ADR-0054 step c2a, a named departure): the proxy answers from the hosts file, and every other name
+// and address as Android's DnsProxyListener answers a uid whose networking is blocked, EAI_FAIL and an empty failure,
+// without asking the host's resolver. Android's own proxy checks no INTERNET permission; bionic turns numbers into
+// addresses itself before it asks the proxy.
+TEST(without_internet_the_proxy_answers_only_the_hosts_file) {
+    // localhost is not in this file; the host's resolver answers it while INTERNET is granted.
+    const GuestSystem system("10.9.8.7 filed.invalid\n");
+    apkrt_set_internet(0);
+    const auto entries = entries_of(answer("getaddrinfo filed.invalid ^ 0 0 1 0 0"));
+    CHECK(entries && entries->size() == 1 && (*entries)[0].address == "10.9.8.7");
+    constexpr int eai_fail = 4;  // bionic's
+    CHECK(answer("getaddrinfo localhost ^ 0 0 1 0 0") == failure(int_bytes(eai_fail)));
+    CHECK(answer("gethostbyname 0 localhost 2") == failure({}));
+    CHECK(answer("gethostbyaddr 127.0.0.1 4 2 0") == failure({}));
+    const auto file = host_of(answer("gethostbyaddr 10.9.8.7 4 2 0"));
+    CHECK(file && file->name == "filed.invalid");
+    apkrt_set_internet(1);
+    CHECK(entries_of(answer("getaddrinfo localhost ^ 0 0 1 0 0")).has_value());
+    CHECK(host_of(answer("gethostbyaddr 127.0.0.1 4 2 0")).has_value());
 }
 
 TEST(a_name_nobody_resolves_is_getaddrinfos_failure) {

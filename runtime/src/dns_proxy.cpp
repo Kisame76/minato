@@ -2,16 +2,19 @@
 // 15's DnsResolver module (DnsProxyListener.cpp, getaddrinfo.cpp and gethnamaddr.cpp of packages/modules/DnsResolver,
 // read, not copied): the guest's /system/etc/hosts first, then the host's resolver.
 #include "dns_proxy.h"
+#include "sockets.h"
 
 #include "vfs.h"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -23,8 +26,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -146,15 +147,40 @@ struct HostsLine {
     }
 };
 
+/// How much of the hosts file the proxy reads: Android's has two lines, and a lookup must not read without end.
+constexpr std::size_t hosts_file_cap = 64 * 1024;
+
+/// The first hosts_file_cap bytes of the guest's /system/etc/hosts, opened beneath its mount (ADR-0052) and only as
+/// a regular file, without waiting for a FIFO's writer; empty when there is none.
+std::string hosts_text() {
+    const auto location = vfs::locate("/system/etc/hosts");
+    if (!location || location->below_a_file) return {};
+    const int beneath = location->folder == AT_FDCWD ? 0 : O_RESOLVE_BENEATH;
+    const int file = ::openat(location->folder, location->path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC | beneath);
+    if (file < 0) return {};
+    std::string text;
+    struct stat status {};
+    if (::fstat(file, &status) == 0 && S_ISREG(status.st_mode)) {
+        text.resize(hosts_file_cap);
+        std::size_t filled = 0;
+        while (filled < text.size()) {
+            const auto got = ::read(file, text.data() + filled, text.size() - filled);
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) break;
+            filled += static_cast<std::size_t>(got);
+        }
+        text.resize(filled);
+    }
+    ::close(file);
+    return text;
+}
+
 /// The guest's /system/etc/hosts, as the module's _gethtent and netbsd_gethostent_r read it: a line up to "#" or its
 /// newline (a last line with neither is skipped), the address up to the first space or tab, then the names; a line
 /// whose address does not parse is skipped.
 std::vector<HostsLine> hosts_lines() {
     std::vector<HostsLine> lines;
-    const auto path = vfs::host_path("/system/etc/hosts");
-    if (!path) return lines;
-    std::ifstream file(*path);
-    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const std::string text = hosts_text();
     for (std::size_t position = 0; position < text.size();) {
         const auto newline = text.find('\n', position);
         std::string line = text.substr(position, newline == std::string::npos ? std::string::npos : newline - position);
@@ -190,6 +216,8 @@ struct HostAnswer {
 };
 
 HostAnswer host_addresses(const std::string &name, int family, int flags) {
+    // Without INTERNET, Android's answer to a blocked uid (DnsProxyListener: EAI_FAIL), and no lookup by the host.
+    if (!sockets::internet()) return {.error = eai_fail};
     addrinfo hints{};
     hints.ai_family = family == linux_inet ? AF_INET : family == linux_inet6 ? AF_INET6 : AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  // one entry for each address
@@ -225,6 +253,7 @@ HostAnswer host_addresses(const std::string &name, int family, int flags) {
 
 /// The name the host's resolver gives `address` (getnameinfo with NI_NAMEREQD), or nothing.
 std::optional<std::string> host_name_of(const Address &address) {
+    if (!sockets::internet()) return std::nullopt;  // as host_addresses
     sockaddr_storage storage{};
     socklen_t length;
     if (address.family == linux_inet) {
@@ -376,6 +405,20 @@ std::optional<long> parse_int(const std::string &text) {
     return value;
 }
 
+/// A netid as netd's ParseUint reads it into an unsigned (android-base/parseint.h): whitespace skipped, no sign,
+/// hexadecimal after 0x, else decimal, the whole text a number of at most 2^32 - 1.
+std::optional<std::uint32_t> parse_netid(const std::string &text) {
+    const char *start = text.c_str();
+    while (std::isspace(static_cast<unsigned char>(*start))) ++start;
+    if (*start == '-') return std::nullopt;
+    const int base = start[0] == '0' && (start[1] == 'x' || start[1] == 'X') ? 16 : 10;
+    char *end = nullptr;
+    errno = 0;
+    const unsigned long long value = std::strtoull(start, &end, base);
+    if (errno != 0 || end == start || *end != '\0' || value > UINT32_MAX) return std::nullopt;
+    return static_cast<std::uint32_t>(value);
+}
+
 std::string getaddrinfo_reply(const std::vector<std::string> &argv) {
     if (argv.size() != 8) {
         return message(parameter_error,
@@ -387,7 +430,7 @@ std::string getaddrinfo_reply(const std::vector<std::string> &argv) {
         if (!value) return message(parameter_error, "GetAddrInfoCmd::runCommand: ");
         fields[index] = *value;
     }
-    if (!parse_int(argv[7]) || argv[7].starts_with('-')) {
+    if (!parse_netid(argv[7])) {
         return message(parameter_error, "GetAddrInfoCmd::runCommand: ");
     }
     Hints hints;  // none when all four are -1: AF_UNSPEC and wildcards
@@ -516,9 +559,9 @@ std::string gethostbyname_reply(const std::vector<std::string> &argv) {
     if (argv.size() != 4) {
         return message(parameter_error, error + "invalid number of arguments: " + std::to_string(argv.size()));
     }
-    const auto netid = parse_int(argv[1]);
+    const auto netid = parse_netid(argv[1]);
     const auto family = parse_int(argv[3]);
-    if (!netid || argv[1].starts_with('-') || !family) return message(parameter_error, error);
+    if (!netid || !family) return message(parameter_error, error);
     const auto host = host_by_name(argv[2], static_cast<int>(*family));
     return host ? hostent_reply(*host) : failure({});
 }
@@ -530,8 +573,8 @@ std::string gethostbyaddr_reply(const std::vector<std::string> &argv) {
     }
     const auto length = parse_int(argv[2]);
     const auto family = parse_int(argv[3]);
-    const auto netid = parse_int(argv[4]);
-    if (!length || !family || !netid || argv[4].starts_with('-')) return message(parameter_error, error);
+    const auto netid = parse_netid(argv[4]);
+    if (!length || !family || !netid) return message(parameter_error, error);
     const auto address = *family == linux_inet || *family == linux_inet6
                              ? numeric(static_cast<int>(*family), argv[1])
                              : std::nullopt;

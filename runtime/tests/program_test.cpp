@@ -9,6 +9,7 @@
 // checks against Android.
 #include "environment.h"
 #include "loader_syscalls.h"
+#include "sockets.h"
 #include "syscall_frame.h"
 #include "threads.h"
 
@@ -591,6 +592,25 @@ void exit_group_once_inside(void *) {
     ::_exit(2);  // exit_group should have ended the process
 }
 
+/// INTERNET (ADR-0054 step c2a): the host sets it before the start, and the process keeps it from the start on, also a
+/// start that failed; AF_INET and AF_INET6 sockets then answer EPERM, as netd's BPF program makes Android's kernel.
+[[noreturn]] void run_internet() {
+    CHECK(apkrt_set_internet(0) == 0);
+    const char *const argv[] = {"./missing", nullptr};
+    const char *const envp[] = {nullptr};
+    char error[512] = "";
+    CHECK(apkrt_start_program("/nonexistent/missing.dylib", argv, envp, error, sizeof error) == -1);
+    CHECK(apkrt_set_internet(1) == -1);
+    CHECK(apkrt::sys::sys_socket(2, 1, 0) == -EPERM);   // AF_INET, SOCK_STREAM
+    CHECK(apkrt::sys::sys_socket(10, 2, 0) == -EPERM);  // AF_INET6, SOCK_DGRAM
+    // inet_create's checks of the type and the protocol come before netd's program: Linux's EPROTONOSUPPORT, 93.
+    CHECK(apkrt::sys::sys_socket(2, 1, 17) == -93);
+    CHECK(apkrt::sys::sys_socketpair(2, 1, 0, 0) == -EPERM);   // AF_INET: netd's program before the protocol's refusal
+    CHECK(apkrt::sys::sys_socketpair(2, 1, 17, 0) == -93);     // and after inet_create's checks
+    CHECK(apkrt::sys::sys_socket(1, 1, 0) >= 0);        // AF_UNIX
+    finish_case();
+}
+
 /// The measures count from apkrt_start_program: the program in `container` waits for a byte on its standard
 /// input, which comes 50 ms after the start, and ends with it without a session; the status and the measures
 /// go to descriptor 3.
@@ -629,6 +649,7 @@ void exit_group_once_inside(void *) {
     if (mode == "--linked-library-folder") run_linked_library_folder(argument);
     if (mode == "--no-session") run_no_session();
     if (mode == "--measures") run_measures(argument);
+    if (mode == "--internet") run_internet();
     std::fprintf(stderr, "unknown case %.*s\n", static_cast<int>(mode.size()), mode.data());
     ::_exit(2);
 }
@@ -804,6 +825,10 @@ TEST(a_program_that_cannot_start_gives_the_reason) {
     char error[512] = "";
     CHECK(apkrt_start_program("/nonexistent/missing.dylib", argv, envp, error, sizeof error) == -1);
     CHECK(std::string_view(error).find("/nonexistent/missing.dylib") != std::string_view::npos);
+}
+
+TEST(internet_is_the_hosts_before_the_start_and_the_process_s_after) {
+    CHECK(succeeded(run_child("--internet")));
 }
 
 // Decision 5: the start returns once the program runs, on a thread of its own.

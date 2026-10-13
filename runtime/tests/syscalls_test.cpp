@@ -4243,6 +4243,17 @@ TEST(an_app_may_open_netlink_route_alone) {
           }).empty());
 }
 
+// socketpair of AF_INET or AF_INET6: Linux's sock_create runs inet_create's checks of the type and the protocol first,
+// then the protocol's socketpair refuses (ADR-0054 step c2a, found in its review).
+TEST(an_inet_socketpair_is_checked_as_a_socket_before_it_is_refused) {
+    constexpr std::int64_t eprotonosupport = 93, esocktnosupport_ = 94, eopnotsupp_ = 95;
+    CHECK(call(nr_socketpair, {af_inet, 1, 0, address(nullptr)}) == -eopnotsupp_);   // SOCK_STREAM
+    CHECK(call(nr_socketpair, {af_inet6, 2, 0, address(nullptr)}) == -eopnotsupp_);  // SOCK_DGRAM
+    CHECK(call(nr_socketpair, {af_inet, 1, 17, address(nullptr)}) == -eprotonosupport);  // SOCK_STREAM, IPPROTO_UDP
+    CHECK(call(nr_socketpair, {af_inet6, sock_raw, 0, address(nullptr)}) == -eperm);     // CAP_NET_RAW
+    CHECK(call(nr_socketpair, {af_inet, 5, 0, address(nullptr)}) == -esocktnosupport_);  // SOCK_SEQPACKET
+}
+
 TEST(netlink_bind_is_refused_and_the_port_comes_with_the_first_send) {
     CHECK(in_child([] {
         const auto fd = netlink_socket();

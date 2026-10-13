@@ -2163,6 +2163,18 @@ std::string own_file_name(std::string_view prefix) {
     return unguessable_name(prefix);
 }
 
+namespace {
+std::atomic<bool> internet_granted{true};
+}  // namespace
+
+bool internet() {
+    return internet_granted.load(std::memory_order_relaxed);
+}
+
+void set_internet(bool granted) {
+    internet_granted.store(granted, std::memory_order_relaxed);
+}
+
 }  // namespace apkrt::sockets
 
 // --- The syscalls ------------------------------------------------------------------------------------------------
@@ -2171,6 +2183,33 @@ namespace apkrt::sys {
 
 using sockets::Socket;
 using namespace sockets::linux_net;
+
+namespace {
+
+/// inet_create's checks of the type and the protocol, then netd's BPF program (cgroupsock/inet/create), which refuses
+/// an app without INTERNET: 0 with the protocol in `chosen`, or Linux's errno. Linux's sock_create runs both for
+/// socket and for socketpair, whose protocol only then refuses.
+long inet_create(int domain, int base, int protocol, int &chosen) {
+    if (base == sock_stream) {
+        if (protocol != 0 && protocol != ipproto_tcp) return -linux_errno::eprotonosupport;
+        chosen = ipproto_tcp;
+    } else if (base == sock_dgram) {
+        if (protocol == 0 || protocol == ipproto_udp) {
+            chosen = ipproto_udp;
+        } else if ((domain == af_inet && protocol == ipproto_icmp) || (domain == af_inet6 && protocol == ipproto_icmpv6)) {
+            chosen = protocol;  // a ping socket
+        } else {
+            return -linux_errno::eprotonosupport;
+        }
+    } else if (base == sock_raw) {
+        return -linux_errno::eperm;  // CAP_NET_RAW
+    } else {
+        return -linux_errno::esocktnosupport;
+    }
+    return sockets::internet() ? 0 : -linux_errno::eperm;
+}
+
+}  // namespace
 
 long sys_socket(int domain, int type, int protocol) {
     if (((type & ~type_mask) & ~(sock_nonblock | sock_cloexec)) != 0) return -linux_errno::einval;
@@ -2188,23 +2227,8 @@ long sys_socket(int domain, int type, int protocol) {
         case af_inet:
         case af_inet6:
             host_family = domain == af_inet ? AF_INET : AF_INET6;
-            if (base == sock_stream) {
-                if (protocol != 0 && protocol != ipproto_tcp) return -linux_errno::eprotonosupport;
-                reported = host_protocol = ipproto_tcp;
-            } else if (base == sock_dgram) {
-                if (protocol == 0 || protocol == ipproto_udp) {
-                    reported = host_protocol = ipproto_udp;
-                } else if ((domain == af_inet && protocol == ipproto_icmp) ||
-                           (domain == af_inet6 && protocol == ipproto_icmpv6)) {
-                    reported = host_protocol = protocol;  // a ping socket
-                } else {
-                    return -linux_errno::eprotonosupport;
-                }
-            } else if (base == sock_raw) {
-                return -linux_errno::eperm;  // CAP_NET_RAW
-            } else {
-                return -linux_errno::esocktnosupport;
-            }
+            if (const long refused = inet_create(domain, base, protocol, host_protocol)) return refused;
+            reported = host_protocol;
             break;
         case af_netlink:
             // SELinux lets an app create a NETLINK_ROUTE socket alone (app_neverallows.te), before netlink_create
@@ -2230,7 +2254,12 @@ long sys_socketpair(int domain, int type, int protocol, std::uint64_t vector) {
         if (protocol != netlink::netlink_route) return -linux_errno::eacces;
         return base == sock_raw || base == sock_dgram ? -linux_errno::eopnotsupp : -linux_errno::esocktnosupport;
     }
-    if (domain != af_unix) return domain == af_inet || domain == af_inet6 ? -linux_errno::eopnotsupp : -linux_errno::eafnosupport;
+    if (domain == af_inet || domain == af_inet6) {
+        int chosen = 0;
+        if (const long refused = inet_create(domain, base, protocol, chosen)) return refused;
+        return -linux_errno::eopnotsupp;  // inet's sock_no_socketpair
+    }
+    if (domain != af_unix) return -linux_errno::eafnosupport;
     if (protocol != 0 && protocol != af_unix) return -linux_errno::eprotonosupport;
     if (base == sock_raw) base = sock_dgram;
     if (base != sock_stream && base != sock_dgram && base != sock_seqpacket) return -linux_errno::esocktnosupport;

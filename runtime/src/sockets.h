@@ -155,6 +155,10 @@ int own_folder();
 /// An unguessable name with `prefix` for one of the runtime's files in its own folder.
 std::string own_file_name(std::string_view prefix);
 
+/// Whether the app holds INTERNET (apkrt_set_internet, ADR-0054 step c2a): granted until the host says otherwise.
+bool internet();
+void set_internet(bool granted);
+
 }  // namespace apkrt::sockets
 
 namespace apkrt::sys {

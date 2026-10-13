@@ -17,6 +17,7 @@
 #include "loader.h"
 #include "proc.h"
 #include "process_exit.h"
+#include "sockets.h"
 #include "syscall_frame.h"
 #include "threads.h"
 
@@ -24,12 +25,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <utility>
 
 namespace {
 
@@ -155,12 +157,29 @@ void launch(const char *container_path, const char *const argv[], const char *co
 
 }  // namespace
 
+namespace {
+// Whether a start was tried: a second start would run over the first one's loader state and first thread, also after
+// a start that failed halfway; and what the host set for the process stays from then on (apkrt_set_internet). The
+// mutex orders a setting against a start on another thread.
+std::mutex start_mutex;
+bool start_tried = false;
+}  // namespace
+
+extern "C" int apkrt_set_internet(int granted) {
+    const std::lock_guard hold(start_mutex);
+    if (start_tried) return -1;
+    apkrt::sockets::set_internet(granted != 0);
+    return 0;
+}
+
 extern "C" int apkrt_start_program(const char *container_path, const char *const argv[], const char *const envp[],
                                    char *error, size_t error_size) {
-    // A second start would run over the first one's loader state and first thread, also after a start
-    // that failed halfway.
-    static std::atomic<bool> tried{false};
-    if (tried.exchange(true)) {
+    bool tried;
+    {
+        const std::lock_guard hold(start_mutex);
+        tried = std::exchange(start_tried, true);
+    }
+    if (tried) {
         if (error != nullptr && error_size > 0) {
             std::snprintf(error, error_size, "a program was started in this process already: one program per process");
         }
