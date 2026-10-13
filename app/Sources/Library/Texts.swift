@@ -283,6 +283,8 @@ enum Texts {
             "Its \(attribute) is a resource reference, which Minato does not resolve"
         case .splitChoice(let reason):
             "Its split APKs do not fit this iPhone: \(reason)"
+        case .libraryDegraded(let library, let reason):
+            "\(library) will not load, so the app runs without it:\n\(reason)"
         case .needsART:
             "Contains Java/Kotlin code, which runs interpreted for now and may be slower"
         case .requiresGLES(let version):

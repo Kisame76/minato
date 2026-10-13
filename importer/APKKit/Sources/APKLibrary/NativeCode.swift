@@ -35,14 +35,31 @@ public struct ConversionRefused: Error, Equatable, Sendable, LocalizedError {
     public var errorDescription: String? { reason }
 }
 
+/// The converter's check mode for a library of the app (ADR-0055, step a1): every reason it would refuse it for, in
+/// the converter's words; empty when it takes it. It needs no certificate, so the import asks it whether it can sign
+/// or not.
+public protocol ELFRefusing: Sendable {
+    func refusals(of elf: URL) throws -> [String]
+}
+
 /// A library of the app that cannot run: refused by the converter, or damaged in the APK.
 struct RefusedLibrary: Error {
     var library: String
     var reason: String
+    /// The other libraries of the start path that are refused too, so that one refusal names them all.
+    var also: [RefusedLibrary] = []
+    /// The libraries outside the start path that are refused: they degrade, and the report names them too.
+    var degraded: [(library: String, reason: String)] = []
 
     init(library: String, reason: String) {
         self.library = library
         self.reason = reason
+    }
+
+    /// Every finding of the refusal: its own library and the other blockers as refusals, then what degraded.
+    var issues: [Compatibility.Issue] {
+        ([self] + also).map { .conversionFailed(library: $0.library, reason: $0.reason) }
+            + degraded.map { .libraryDegraded(library: $0.library, reason: $0.reason) }
     }
 
     /// For an error reading the library out of the APK: damage, which no second try repairs, or our own
@@ -59,6 +76,13 @@ struct RefusedLibrary: Error {
     }
 }
 
+/// What installing a version's native code gave: the certificate that signed it, and the libraries left out as
+/// degraded.
+struct InstalledNativeCode {
+    var signedWith: String?
+    var degraded: [(library: String, reason: String)]
+}
+
 extension Library {
     /// Extracts the app's arm64-v8a libraries, the ELF originals, into the version's lib/ and converts
     /// each into its container <name>.so.dylib (ADR-0008): those of the base and of every chosen split, each
@@ -66,9 +90,9 @@ extension Library {
     /// certificate that signed them all; nil without one or when one could not be signed, and then only the
     /// originals stay, for the first tap to sign. Throws `RefusedLibrary` for a library that cannot run.
     func installNativeCode(of report: APKReport, from archives: [String?: ZipArchive], into versionDirectory: URL,
-                           signing: ImportSigning?) throws -> String? {
+                           signing: ImportSigning?) throws -> InstalledNativeCode {
         // Android's installer extracts only these and skips the others (NativeLibraryHelper).
-        let libraries = report.nativeLibraries.filter { Self.isExtracted($0.name) }
+        var libraries = report.nativeLibraries.filter { Self.isExtracted($0.name) }
         // Each name once: of one name in several APKs, the analysis keeps the copy Android installs (decision 8).
         // Names that differ only in case Android keeps apart, and so does the iPhone's case-sensitive volume, but one
         // lib/ on the Mac's or the Simulator's, which ignore case by default, cannot. They are refused everywhere, so
@@ -89,6 +113,7 @@ extension Library {
         let partial = versionDirectory.appendingPathComponent("lib.partial", isDirectory: true)
         try? FileManager.default.removeItem(at: partial)
         try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
+        var degradedNow: [(library: String, reason: String)] = []
         do {
             for library in libraries {
                 let contents: Data
@@ -103,6 +128,42 @@ extension Library {
                 }
                 try contents.write(to: partial.appendingPathComponent(library.name), options: .atomic)
             }
+            // What cannot load is found on the extracted files, with or without a certificate: the converter's check
+            // and the NEEDED names (ADR-0055 a1 and a3), and whatever needs a library that cannot load. A library of
+            // the start path, or one it needs, blocks the app with every reason of every such library; any other is left
+            // out of lib/ and degrades.
+            var degraded: [(library: String, reason: String)] = []
+            defer { degradedNow = degraded }
+            if checker != nil || publicLibraries != nil {
+                var facts: [NativeFindings.Library] = []
+                for library in libraries {
+                    let file = partial.appendingPathComponent(library.name)
+                    // A file that cannot be read is no verdict, as for the converter: the first tap tries again.
+                    let refusals = (try? checker?.refusals(of: file)) ?? []
+                    let needed = publicLibraries == nil ? [] : ((try? ELFDynamic.needed(
+                        in: Data(contentsOf: file, options: .mappedIfSafe))) ?? [])
+                    facts.append(NativeFindings.Library(name: library.name, refusals: refusals, needed: needed))
+                }
+                let failing = NativeFindings.failing(facts, publicLibraries: publicLibraries)
+                let blocking = NativeFindings.closure(of: StartPath.libraries(of: report), over: facts)
+                var blockers: [RefusedLibrary] = []
+                for library in libraries {
+                    guard let reasons = failing[library.name] else { continue }
+                    let text = reasons.joined(separator: "\n")
+                    if blocking.contains(library.name) {
+                        blockers.append(RefusedLibrary(library: library.name, reason: text))
+                    } else {
+                        degraded.append((library.name, text))
+                        try? FileManager.default.removeItem(at: partial.appendingPathComponent(library.name))
+                    }
+                }
+                if var first = blockers.first {
+                    first.also = Array(blockers.dropFirst())
+                    first.degraded = degraded
+                    throw first
+                }
+                libraries.removeAll { library in degraded.contains { $0.library == library.name } }
+            }
             try? FileManager.default.removeItem(at: lib)
             try FileManager.default.moveItem(at: partial, to: lib)
         } catch {
@@ -110,7 +171,7 @@ extension Library {
             throw error
         }
         let originals = libraries.map { lib.appendingPathComponent($0.name) }
-        guard let signing else { return nil }
+        guard let signing else { return InstalledNativeCode(signedWith: nil, degraded: degradedNow) }
 
         // Every library is converted, also after one that could not be signed, so that none that cannot
         // run slips through.
@@ -119,7 +180,9 @@ extension Library {
             do {
                 try signing.converter.convert(original, to: original.appendingPathExtension("dylib"))
             } catch let refusal as ConversionRefused {
-                throw RefusedLibrary(library: original.lastPathComponent, reason: refusal.reason)
+                var refused = RefusedLibrary(library: original.lastPathComponent, reason: refusal.reason)
+                refused.degraded = degradedNow
+                throw refused
             } catch {
                 signed = false
             }
@@ -128,9 +191,9 @@ extension Library {
             for original in originals {
                 try? FileManager.default.removeItem(at: original.appendingPathExtension("dylib"))
             }
-            return nil
+            return InstalledNativeCode(signedWith: nil, degraded: degradedNow)
         }
-        return fingerprint
+        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow)
     }
 
     /// The longest library name Minato takes: lib/ holds <name>.dylib next to the library, which the converter writes
@@ -159,9 +222,16 @@ extension Library {
             for file in [entry.base].compactMap({ $0 }) + entry.splits {
                 archives[file.splitName] = try ZipArchive(url: version.appendingPathComponent(file.fileName))
             }
-            _ = try installNativeCode(of: report, from: archives, into: version, signing: nil)
+            let installed = try installNativeCode(of: report, from: archives, into: version, signing: nil)
+            // The findings are the current ones: those of an earlier check are replaced, never added to.
+            try record(id: id) { entry in
+                entry.report?.compatibility.issues.removeAll { if case .libraryDegraded = $0 { true } else { false } }
+                entry.report?.compatibility.issues += installed.degraded.map {
+                    .libraryDegraded(library: $0.library, reason: $0.reason)
+                }
+            }
         } catch let refusal as RefusedLibrary {
-            try refuse(id: id, library: refusal.library, reason: refusal.reason)
+            try refuse(id: id, refusal)
             throw ConversionRefused(reason: refusal.reason)
         }
         return libraryFiles(of: id).count
@@ -169,13 +239,13 @@ extension Library {
 
     /// Marks the entry as incompatible because the converter refuses one of its libraries, as the import
     /// does: its version keeps neither its APKs nor the code (ADR-0032).
-    func refuse(id: String, library: String, reason: String) throws {
+    func refuse(id: String, _ refusal: RefusedLibrary) throws {
         guard let entry = entries.first(where: { $0.id == id }) else { return }
         let splits = entry.splits // their files go below, once the record no longer names them
         try record(id: id) { entry in
             entry.state = .incompatible
             entry.report?.compatibility.status = .incompatible
-            entry.report?.compatibility.issues.append(.conversionFailed(library: library, reason: reason))
+            entry.report?.compatibility.issues += refusal.issues
             entry.base = nil
             entry.splits = []
             entry.signedWith = nil

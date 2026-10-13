@@ -40,6 +40,11 @@ public actor Library {
     /// During one `importUnit`, each APK taken out of a container with the name it shows, "<container>/<file>", the
     /// container as the file the user picked (ADR-0049 a3), and the container itself, whose OBBs go with its sets (c2).
     private var fromContainers: [URL: (name: String, source: SourceFile, container: URL)] = [:]
+    /// The converter's check mode, which the import asks about every native library, certificate or not (ADR-0055 a2).
+    var checker: (any ELFRefusing)?
+    /// The guest's public libraries (its public.libraries.txt), which the NEEDED names of a library are looked up in
+    /// besides the app's own (ADR-0055 a3); without it NEEDED names are not checked.
+    var publicLibraries: Set<String>?
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
@@ -193,6 +198,18 @@ public actor Library {
                                                     options: [.skipsHiddenFiles])
             .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
             .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
+    }
+
+    /// Sets the converter's check mode that the import asks about every native library (ADR-0055 a2); without one,
+    /// only the converter's own refusal at signing counts, as before.
+    public func use(checker: (any ELFRefusing)?) {
+        self.checker = checker
+    }
+
+    /// Sets the guest's public libraries, the content of its public.libraries.txt, so that the import checks the
+    /// NEEDED names of every native library (ADR-0055 a3).
+    public func use(publicLibraries text: String?) {
+        publicLibraries = text.map(NativeFindings.publicLibraries(from:))
     }
 
     /// Analyses one APK and installs it, updates the installed app of its package, or leaves that app as
@@ -390,13 +407,18 @@ public actor Library {
         var signedWith: String?
         if state == .ready {
             do {
-                signedWith = try installNativeCode(of: report, from: new.archives, into: versionDirectory, signing: signing)
+                let installed = try installNativeCode(of: report, from: new.archives, into: versionDirectory,
+                                                      signing: signing)
+                signedWith = installed.signedWith
+                report.compatibility.issues += installed.degraded.map {
+                    .libraryDegraded(library: $0.library, reason: $0.reason)
+                }
             } catch let refusal as RefusedLibrary {
                 // This version cannot run, so it keeps no code and counts as incompatible: a ready
                 // installed version then stays (ADR-0034, decision 1).
                 state = .incompatible
                 report.compatibility.status = .incompatible
-                report.compatibility.issues.append(.conversionFailed(library: refusal.library, reason: refusal.reason))
+                report.compatibility.issues += refusal.issues
                 try? fileManager.removeItem(at: versionDirectory.appendingPathComponent("lib"))
                 decision = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
                 if case .reject = decision, let installed {
@@ -767,7 +789,6 @@ public actor Library {
         let laterSlices = later.filter { baseOf($0.member) != nil }
         members += later.filter { baseOf($0.member) == nil }.map(\.member)
         let groups = SetGrouping.byPackageAndVersion(members)
-        let containerOf = { (url: URL) in self.fromContainers[url]?.container }
         // Each OBB goes with the set of its package from its own container; one without is named there.
         var extras = [Extras](repeating: Extras(), count: groups.count)
         var containers: [URL?] = []

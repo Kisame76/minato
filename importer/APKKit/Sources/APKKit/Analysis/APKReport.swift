@@ -103,6 +103,10 @@ public struct Compatibility: Sendable, Equatable, Codable {
         /// The set's splits offer nothing that fits this iPhone where it needs one, with the choice's reason (ADR-0048,
         /// decision 4).
         case splitChoice(String)
+        // Degrading (ADR-0055 a2): the app runs, a part may fail when it is used.
+        /// A library outside the start path that the converter's check refuses, with all its reasons one to a line: it
+        /// is left out of lib/, so that System.loadLibrary throws UnsatisfiedLinkError as for a missing file.
+        case libraryDegraded(library: String, reason: String)
         // Informational.
         /// Has Java/Kotlin code, so it needs ART (M4).
         case needsART

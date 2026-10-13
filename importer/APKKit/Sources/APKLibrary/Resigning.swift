@@ -43,7 +43,7 @@ extension Library {
             do {
                 try converter.convert(elf, to: elf.appendingPathExtension("dylib"))
             } catch let refusal as ConversionRefused {
-                try refuse(id: id, library: elf.lastPathComponent, reason: refusal.reason)
+                try refuse(id: id, RefusedLibrary(library: elf.lastPathComponent, reason: refusal.reason))
                 throw refusal
             }
         }
