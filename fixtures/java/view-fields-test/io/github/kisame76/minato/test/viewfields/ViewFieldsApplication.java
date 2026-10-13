@@ -206,24 +206,18 @@ public class ViewFieldsApplication extends Application {
             }
         }
         // The classes SDKs extend or call for the network, the phone, notifications and the input devices' vibrators
-        // (the gap list of 2026-10-11). Only shown: InputDevice, which waits for batch B3b-2's BatteryState too, and the
-        // classes this step makes loadable whose own members still name missing types.
+        // (the gap list of 2026-10-11), with the input devices' vibrators and lights and the media sessions, whose
+        // members name the vibration, light and playback types (the small batch after it).
         for (String name : new String[] {"android.net.NetworkCapabilities", "android.webkit.WebViewClient",
                 "android.net.wifi.WifiManager", "android.net.LinkProperties",
                 "android.telephony.PhoneStateListener", "android.telephony.TelephonyCallback",
-                "android.app.Notification", "android.os.VibrationEffect"}) {
+                "android.app.Notification", "android.os.VibrationEffect", "android.view.InputDevice",
+                "android.os.VibratorManager", "android.hardware.lights.LightsManager",
+                "android.media.session.MediaSession", "android.media.session.MediaController"}) {
             try {
                 log(name + " " + verdict(Class.forName(name)));
             } catch (Throwable t) {
                 log(name + ": " + t.getClass().getName());
-            }
-        }
-        for (String name : new String[] {"android.view.InputDevice", "android.os.VibratorManager",
-                "android.hardware.lights.LightsManager", "android.media.session.MediaSession"}) {
-            try {
-                logDevice(name + " " + verdict(Class.forName(name)));
-            } catch (Throwable t) {
-                logDevice(name + ": " + t.getClass().getName());
             }
         }
         try {

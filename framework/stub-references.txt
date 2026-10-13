@@ -140,10 +140,6 @@ android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.Inpu
 android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
 android.hardware.input.KeyboardLayoutPreviewDrawable <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
-android.hardware.lights.LightState <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
-android.hardware.lights.LightState <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
-android.hardware.lights.LightsRequest <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
-android.os.CombinedVibration <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vibrator (InputDevice.getVibrator), which a device without one, as Minato's are, gets as NullVibrator; it comes with haptic feedback's Vibrator
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs

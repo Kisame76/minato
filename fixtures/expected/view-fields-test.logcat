@@ -114,6 +114,11 @@ I/view-fields-test: android.telephony.PhoneStateListener fields readable, declar
 I/view-fields-test: android.telephony.TelephonyCallback fields readable, no declared methods, public methods readable
 I/view-fields-test: android.app.Notification fields readable, declared methods readable, public methods readable
 I/view-fields-test: android.os.VibrationEffect fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.view.InputDevice fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.os.VibratorManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.hardware.lights.LightsManager fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.media.session.MediaSession fields readable, declared methods readable, public methods readable
+I/view-fields-test: android.media.session.MediaController fields readable, declared methods readable, public methods readable
 I/view-fields-test: locale manager true
 I/view-fields-test: application locales ""
 I/view-fields-test: system locales same as the configuration's true

@@ -13,6 +13,8 @@
 #   - each of the three managers has the hidden ctor (android.content.Context) that SystemServiceRegistry calls.
 # AudioDeviceInfo is among the generated classes, as AudioManager's hand file makes its devices; AudioTrack (gap 13) is
 # not, as its hand file calls AudioFormat's hidden members, which framework.jar's build has (tools/framework-check.sh).
+# Nor is MediaSessionManager, whose signatures name the media module's Session2Token, in no API file here (the
+# module's are not fetched): framework.jar's build compiles it against our placeholder of that class.
 # The stubs never go into framework.jar; ADR-0039 b3/c's build of frameworks/base takes their place. Prints the
 # counts of classes, methods and stubs.
 # Needs the API files of tools/fetch-sources.py --set framework, libcore's of --set art, and build/framework/system,

@@ -1985,3 +1985,11 @@ frameworks_base_types/keystore/java/android/security/keystore/UserNotAuthenticat
 frameworks_base_types/keystore/java/android/security/keystore/UserPresenceUnavailableException.java
 frameworks_base_types/keystore/java/android/security/keystore/WrappedKeyEntry.java
 frameworks_base/core/java/com/android/internal/logging/EventLogTags.logtags
+
+# The member types of the input devices' vibrator and light managers and of the media sessions (App, 2026-10-12):
+# CombinedVibration, what VibratorManager.vibrate takes; LightState and LightsRequest, a light's state and a session's
+# request; PlaybackState with its CustomAction, a media session's playback state, which MediaController reports.
+frameworks_base/core/java/android/os/CombinedVibration.java
+frameworks_base/core/java/android/hardware/lights/LightState.java
+frameworks_base/core/java/android/hardware/lights/LightsRequest.java
+frameworks_base_types/media/java/android/media/session/PlaybackState.java

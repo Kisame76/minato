@@ -176,6 +176,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.telephony.CellIdentity --class android.telephony.ims.ImsReasonInfo \
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \
   --class android.media.session.MediaSession --class android.hardware.lights.LightsManager \
+  --class android.media.session.MediaSessionManager \
   --class android.os.VibratorManager --class android.net.wifi.WifiInfo --class android.net.wifi.WifiConfiguration \
   --class android.net.wifi.hotspot2.PasspointConfiguration --class android.net.wifi.SoftApConfiguration \
   --class android.net.wifi.WifiNetworkSpecifier --class android.net.wifi.WifiNetworkSuggestion \
