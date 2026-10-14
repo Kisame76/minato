@@ -216,9 +216,6 @@ android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.Notificati
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
 android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
-com.android.internal.widget.remotecompose.player.RemoteComposeDocument <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
-com.android.internal.widget.remotecompose.player.RemoteComposePlayer$ClickCallbacks <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
-com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: an app's own apply of RemoteViews (apply, reapply), whose performApply asks for RemoteCompose's player
 
 # Gap 9 (App): the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
 android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobScheduler's Stub and Proxy, which the local job scheduler never runs

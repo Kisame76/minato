@@ -2,6 +2,9 @@ package io.github.kisame76.minato.test.widgets2;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.os.Parcel;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.net.http.HttpResponseCache;
@@ -21,6 +24,8 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.MediaController;
 import android.widget.PopupMenu;
+import android.widget.ProgressBar;
+import android.widget.RemoteViews;
 import android.widget.TextView;
 import android.widget.ZoomButtonsController;
 import java.io.File;
@@ -81,6 +86,7 @@ public class WidgetsActivity extends Activity {
             () -> part("mediaController", this::mediaController),
             () -> part("zoomButtons", this::zoomButtons),
             () -> part("windowMetrics", this::windowMetrics),
+            () -> part("remoteViews", this::remoteViews),
             () -> part("hideReturns", this::hideReturns),
             () -> part("httpResponseCache", this::httpResponseCache),
             () -> part("windowInspector", this::windowInspector),
@@ -261,6 +267,42 @@ public class WidgetsActivity extends Activity {
                 && max.getBounds().height() >= current.getBounds().height()) + " insets="
                 + (current.getWindowInsets() != null) + " density="
                 + (current.getDensity() == getResources().getDisplayMetrics().density));
+    }
+
+    /** apply and reapply of RemoteViews, as a notification, a widget or an app's own custom view uses them. */
+    private void remoteViews() {
+        int layout = getResources().getIdentifier("remote", "layout", getPackageName());
+        int text = getResources().getIdentifier("text", "id", getPackageName());
+        int progress = getResources().getIdentifier("progress", "id", getPackageName());
+        int image = getResources().getIdentifier("image", "id", getPackageName());
+        int button = getResources().getIdentifier("button", "id", getPackageName());
+        RemoteViews views = new RemoteViews(getPackageName(), layout);
+        views.setTextViewText(text, "hello");
+        views.setProgressBar(progress, 100, 40, false);
+        views.setContentDescription(image, "picture");
+        views.setViewVisibility(button, View.GONE);
+        views.setOnClickPendingIntent(button, PendingIntent.getActivity(this, 0,
+                new Intent(this, WidgetsActivity.class), PendingIntent.FLAG_IMMUTABLE));
+        View applied = views.apply(this, new FrameLayout(this));
+        log("remoteViews apply: text=" + ((TextView) applied.findViewById(text)).getText() + " progress="
+                + ((ProgressBar) applied.findViewById(progress)).getProgress() + " description="
+                + applied.findViewById(image).getContentDescription() + " button="
+                + (applied.findViewById(button).getVisibility() == View.GONE ? "gone" : "visible")
+                + " layout=" + (layout == views.getLayoutId() ? "same" : "other"));
+        views.setTextViewText(text, "second");
+        views.reapply(this, applied);
+        log("remoteViews reapply: text=" + ((TextView) applied.findViewById(text)).getText());
+        Parcel parcel = Parcel.obtain();
+        views.writeToParcel(parcel, 0);
+        parcel.setDataPosition(0);
+        RemoteViews copy = RemoteViews.CREATOR.createFromParcel(parcel);
+        parcel.recycle();
+        View again = copy.apply(this, new FrameLayout(this));
+        log("remoteViews parcel: text=" + ((TextView) again.findViewById(text)).getText() + " package="
+                + (copy.getPackage().equals(getPackageName())));
+        RemoteViews clone = new RemoteViews(views);
+        log("remoteViews clone: text=" + ((TextView) clone.apply(this, new FrameLayout(this))
+                .findViewById(text)).getText());
     }
 
     private void hideReturns() {

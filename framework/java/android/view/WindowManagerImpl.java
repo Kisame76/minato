@@ -100,7 +100,8 @@ public final class WindowManagerImpl implements WindowManager {
 
     @Override
     public Set<WindowMetrics> getPossibleMaximumWindowMetrics(int displayId) {
-        return Set.of(displayMetrics());
+        // AOSP asks the display manager for the display's possible modes: an unknown display gives none.
+        return displayId == Display.DEFAULT_DISPLAY ? Set.of(displayMetrics()) : Set.of();
     }
 
     @SuppressWarnings("deprecation") // Display.getRealSize, which AOSP's own metrics replace

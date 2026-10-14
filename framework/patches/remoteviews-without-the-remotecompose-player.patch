@@ -1,0 +1,86 @@
+Minato's patch to frameworks/base's core/java/android/widget/RemoteViews.java at android-15.0.0_r1 (Apache-2.0),
+framework breadth F4c: without RemoteCompose's player.
+
+Why: RemoteViews names RemoteComposePlayer, RemoteComposeDocument and Theme in four places, for draw instructions that
+a host sends when the feature flag drawDataParcel is on (Android 15 ships it off): `root instanceof
+RemoteComposePlayer` in SetOnClickResponse's and the draw-instructions action's apply, `new RemoteComposePlayer` when
+inflating, and `v instanceof RemoteComposePlayer` in performApply. The player is a compile-only stub in Minato, so the
+instanceof of apply and reapply of any RemoteViews ended in a NoClassDefFoundError. The four places go: draw
+instructions are not drawn, and every layout is inflated; nothing else changes.
+
+--- a/core/java/android/widget/RemoteViews.java
++++ b/core/java/android/widget/RemoteViews.java
+@@ -112,9 +112,6 @@
+ import com.android.internal.R;
+ import com.android.internal.util.Preconditions;
+ import com.android.internal.widget.IRemoteViewsFactory;
+-import com.android.internal.widget.remotecompose.core.operations.Theme;
+-import com.android.internal.widget.remotecompose.player.RemoteComposeDocument;
+-import com.android.internal.widget.remotecompose.player.RemoteComposePlayer;
+ 
+ import java.io.ByteArrayInputStream;
+ import java.io.ByteArrayOutputStream;
+@@ -1551,7 +1548,7 @@
+ 
+         @Override
+         public void apply(View root, ViewGroup rootParent, ActionApplyParams params) {
+-            if (hasDrawInstructions() && root instanceof RemoteComposePlayer) {
++            if (hasDrawInstructions()) {
+                 return;
+             }
+             final View target = root.findViewById(mViewId);
+@@ -3950,27 +3947,7 @@
+         @Override
+         public void apply(View root, ViewGroup rootParent, ActionApplyParams params)
+                 throws ActionException {
+-            if (drawDataParcel() && mInstructions != null
+-                    && root instanceof RemoteComposePlayer player) {
+-                final List<byte[]> bytes = mInstructions.mInstructions;
+-                if (bytes.isEmpty()) {
+-                    return;
+-                }
+-                try (ByteArrayInputStream is = new ByteArrayInputStream(bytes.get(0))) {
+-                    player.setDocument(new RemoteComposeDocument(is));
+-                    player.addClickListener((viewId, metadata) -> {
+-                        mActions.forEach(action -> {
+-                            if (viewId == action.mViewId
+-                                    && action instanceof SetOnClickResponse setOnClickResponse) {
+-                                setOnClickResponse.mResponse.handleViewInteraction(
+-                                        player, params.handler);
+-                            }
+-                        });
+-                    });
+-                } catch (IOException e) {
+-                    Log.e(LOG_TAG, "Failed to render draw instructions", e);
+-                }
+-            }
++            // Minato: no RemoteCompose player; draw instructions (a feature flag Android 15 ships off) are not drawn.
+         }
+ 
+         @Override
+@@ -6134,12 +6111,8 @@
+             inflationContext = new ContextThemeWrapper(inflationContext, applyThemeResId);
+         }
+         View v;
+-        // If the RemoteViews contains draw instructions, just use it instead.
+-        if (rv.hasDrawInstructions()) {
+-            final RemoteComposePlayer player = new RemoteComposePlayer(inflationContext);
+-            player.setDebug(Build.IS_USERDEBUG || Build.IS_ENG ? 1 : 0);
+-            v = player;
+-        } else {
++        // Minato: no RemoteCompose player, so draw instructions are not drawn and the layout is inflated.
++        {
+             LayoutInflater inflater = LayoutInflater.from(context);
+ 
+             // Clone inflater so we load resources from correct context and
+@@ -6496,10 +6469,6 @@
+         if (params.handler == null) {
+             params.handler = DEFAULT_INTERACTION_HANDLER;
+         }
+-        if (v instanceof RemoteComposePlayer player) {
+-            player.setTheme(v.getResources().getConfiguration().isNightModeActive()
+-                    ? Theme.DARK : Theme.LIGHT);
+-        }
+         if (mActions != null) {
+             final int count = mActions.size();
+             for (int i = 0; i < count; i++) {
