@@ -102,12 +102,12 @@ private extension Data {
         // 400k undefined symbols at one 4000 byte name: a string for each of them took 2 GB and 28 s (the lead's review).
         let name = Data(repeating: 0x61, count: 4000) + Data([0])
         let file = SymbolELF.make(rawStrings: name, undefinedAt: Array(repeating: 1, count: 400_000))
-        let start = ContinuousClock.now
+        var namesMade = 0
 
-        let symbols = try ELFSymbols.read(file)
+        let symbols = try ELFSymbols.read(file, onNameMade: { namesMade += 1 })
 
         #expect(symbols.undefined.count == 400_000)
-        #expect(ContinuousClock.now - start < .seconds(10))
+        #expect(namesMade == 1)
     }
 
     @Test func namesInTotalLongerThanTheStringTableAllowsAreRefused() {

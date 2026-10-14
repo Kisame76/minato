@@ -32,6 +32,11 @@ public struct ELFSymbols: Sendable, Equatable {
     public static let maxNameLength = 4096
 
     public static func read(_ data: Data) throws -> ELFSymbols {
+        try read(data, onNameMade: nil)
+    }
+
+    /// `onNameMade` is called once for each name made from the string table, for tests that count the work.
+    static func read(_ data: Data, onNameMade: (() -> Void)?) throws -> ELFSymbols {
         let reader = ByteReader(data, context: "ELF file")
         let bytes = reader.data
         guard reader.count >= 64, bytes.prefix(4) == Data([0x7F, 0x45, 0x4C, 0x46]) else {
@@ -99,6 +104,7 @@ public struct ELFSymbols: Sendable, Equatable {
             budget -= name.utf8.count
             guard budget >= 0 else { throw APKError.invalidELF("the names add up to far more than the string table") }
             names[offset] = name
+            onNameMade?()
             return name
         }
 
