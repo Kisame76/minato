@@ -816,10 +816,11 @@ TEST(refuses_what_cannot_run) {
     CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
 
     auto register_branch = static_program();
-    register_branch.put<std::uint32_t>(0x218, 0xb400'0052);  // cbz x18, #+8: an island now
-    register_branch.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18: still refused
+    register_branch.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18: an indirect island now (X2e)
+    register_branch.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: still refused, no island follows it
     CHECK_THROWS(Incompatible, convert(register_branch), "x18 at 0x21c cannot run on iOS: it is a register branch");
-    // A jump table whose table lies in code: the rewriter could have changed it as an instruction.
+    // A jump table whose table lies in executable code stays refused: the x18 pass scans the table as
+    // code and could rewrite an entry, so the br must not degrade to an indirect island (step C C2b).
     CHECK_THROWS(Incompatible, convert(jump_table_program(shf_alloc | shf_execinstr)),
                  "x18 at 0x21c cannot run on iOS: it is a register branch whose table is not in read-only data");
     // More than one use: every reason with its count and its first addresses, the most common first, so that one
@@ -962,9 +963,10 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(refusals(static_program().bytes).empty());
 
     // A Darwin syscall and a register branch on x18: two reasons, in convert()'s order, each as convert() words it.
+    // (br x18 would now be an indirect island, so the still-refused register branch here is ret x18.)
     auto both = static_program();
     both.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
-    both.put<std::uint32_t>(0x21c, 0xd61f'0240);  // br x18
+    both.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18
     const auto reasons = refusals(both.bytes);
     CHECK(reasons.size() == 2);
     CHECK(contains(reasons.at(0), "svc #0x80 at 0x218"));

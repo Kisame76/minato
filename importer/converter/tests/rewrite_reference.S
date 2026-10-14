@@ -204,8 +204,6 @@ _ref_x18_below_sp:
 // gets landing pads when it ends a jump table (further below); here it ends none.
     .globl _ref_x18_branches
 _ref_x18_branches:
-    br      x18
-    blr     x18
     ret     x18
     braa    x18, x0
     braa    x0, x18                 // x18 as the modifier
@@ -390,6 +388,33 @@ _ref_x18_island_tbz:
     b       _ref_x18_tbz_taken
 _ref_x18_tbz_taken:
     nop
+
+// Indirect island for a non-jump-table BR or BLR x18 (ADR-0020 X2e): the guest x18 from slot 11
+// goes into x16, an ABI scratch register at a branch, and the island branches to it. BR needs no
+// more; BLR also saves x30 and sets it to the guest return address (the instruction after the call)
+// so the callee returns into the guest, not into the island.
+    .globl _ref_x18_island_indirect_br
+_ref_x18_island_indirect_br:
+    stur    x16, [sp, #-128]
+    mrs     x16, TPIDRRO_EL0
+    bic     x16, x16, #7
+    ldr     x16, [x16, #88]
+    br      x16
+    .globl _ref_x18_island_indirect_br_end
+_ref_x18_island_indirect_br_end:
+
+    .globl _ref_x18_island_indirect_blr
+_ref_x18_island_indirect_blr:
+    stur    x16, [sp, #-128]
+    stur    x30, [sp, #-120]
+    mrs     x16, TPIDRRO_EL0
+    bic     x16, x16, #7
+    ldr     x16, [x16, #88]
+    adrp    x30, _ref_after_site@PAGE
+    add     x30, x30, _ref_after_site@PAGEOFF
+    br      x16
+    .globl _ref_x18_island_indirect_blr_end
+_ref_x18_island_indirect_blr_end:
 
 // PC-relative forms on x18 (ADR-0020 X2): the island computes the same address for its own place,
 // always with ADRP (then ADD, then the load), since ADR and the literal loads reach only 1 MiB and

@@ -151,12 +151,30 @@ constexpr std::uint32_t code[] = {
     0xc809'7e48,  // 0x334 stxr w9, x8, [x18]
     0x35ff'ffa9,  // 0x338 cbnz w9, 0x32c
     0xd65f'03c0,  // 0x33c ret
+    // indirect(inputs): inputs[0] = the BLR target, inputs[1] = the BR target (both runtime addresses).
+    // Saves its own LR, since BLR clobbers it (as it must), and restores it before the tail BR, so the
+    // tail's RET returns to indirect()'s caller. The BLR must return to the word after it (0x358).
+    0xa9bf'7bfd,  // 0x340 stp x29, x30, [sp, #-16]!     save FP and LR
+    0xf940'0009,  // 0x344 ldr x9, [x0]                  the blr target (helper)
+    0xf940'040a,  // 0x348 ldr x10, [x0, #8]             the br target (tail)
+    0xd280'0002,  // 0x34c mov x2, #0
+    0xaa09'03f2,  // 0x350 mov x18, x9                   single, writes
+    0xd63f'0240,  // 0x354 blr x18                       indirect call island (X2e)
+    0x9100'0c42,  // 0x358 add x2, x2, #3                reached only if the blr returned here
+    0xa8c1'7bfd,  // 0x35c ldp x29, x30, [sp], #16       restore FP and LR
+    0xaa0a'03f2,  // 0x360 mov x18, x10                  single, writes
+    0xd61f'0240,  // 0x364 br x18                        indirect branch island (X2e)
+    0xd280'0142,  // 0x368 helper: mov x2, #10
+    0xd65f'03c0,  // 0x36c ret                           returns to the call site 0x358
+    0xaa02'03e0,  // 0x370 tail: mov x0, x2
+    0xd65f'03c0,  // 0x374 ret                           returns x2 to indirect()'s caller
 };
 constexpr std::int32_t jump_table[] = {0x258 - 0x400, 0x260 - 0x400, 0x268 - 0x400, 0x270 - 0x400};
 constexpr std::uint64_t literal = 0x1122'3344'5566'7788;  // what the LDR (literal) of forms() loads
 constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop_at = 0x280, fault_at = 0x2a4,
                         forms_at = 0x2ac, forms_end = 0x320, cmpxchg_at = 0x2ec, fault_read_at = 0x320,
-                        fault_window_at = 0x32c, table_at = 0x400, literal_at = 0x410, program_end = 0x418;
+                        fault_window_at = 0x32c, indirect_at = 0x340, helper_at = 0x368, tail_at = 0x370,
+                        table_at = 0x400, literal_at = 0x410, program_end = 0x418;
 
 // The jump table island (rewrite.cpp, emit_jump_table): 13 words up to its BR, a trap of 3, then a
 // landing pad of 4 words for each word from the lowest target on, whose fourth word never runs.
@@ -432,6 +450,40 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             if (runs(island, word) && !covered.contains({&island, word})) {
                 const auto detail = std::format("site {:#x}, word {}", island.site, word);
                 apk::testing::fail(std::source_location::current(), "never stepped: ", detail.c_str());
+            }
+        }
+    }
+}
+
+// The indirect islands (ADR-0020 X2e): BLR x18 to a helper that returns to the call site, then a
+// tail BR x18. The call completes only if the island branched to the guest x18 and the BLR island
+// set the return address to the word after the site; and wherever a signal stops a thread inside
+// either island, the runtime reconstructs the guest state at the site, with x16 (and, for the BLR,
+// x30) restored from the red zone.
+TEST(the_indirect_islands_branch_to_x18_and_leave_to_a_real_guest_state) {
+    const auto &loaded = program();
+    Covered covered;
+    int compared = 0;
+    std::uint64_t inputs[2] = {};
+    const auto result = step_and_compare(
+        indirect_at,
+        [&] {
+            inputs[0] = loaded.image + helper_at;  // the blr target
+            inputs[1] = loaded.image + tail_at;    // the br target
+            return reinterpret_cast<std::uint64_t>(inputs);
+        },
+        {}, covered, compared);
+    CHECK(result == 13);  // helper set x2 = 10, returned to 0x354, +3 = 13, the tail returned it
+    CHECK(compared > 0);
+    // Both indirect islands were reached, and every one of their words was stepped and reconstructed.
+    for (const auto &island : loaded.islands) {
+        const auto site = loaded.header + island.site - loaded.image;
+        if (site != 0x354 && site != 0x364) continue;  // the blr and br sites
+        CHECK(island.kind == APK_ISLAND_INDIRECT);
+        for (unsigned word = 0; word < island.words; ++word) {
+            if (!covered.contains({&island, word})) {
+                apk::testing::fail(std::source_location::current(), "never stepped: ",
+                                   std::format("site {:#x}, word {}", island.site, word).c_str());
             }
         }
     }

@@ -29,6 +29,8 @@ constexpr std::size_t read_island_words = 4;   // mrs, bic, ldr, b
 constexpr std::size_t write_island_words = 6;  // str, mrs, bic, str, ldr, b
 constexpr std::size_t syscall_veneer_words = 6;  // stp, adrp, ldr, blr, ldp, b
 constexpr std::size_t branch_island_words = 9;   // save, mrs, bic, ldr, branch, restore+b (twice)
+constexpr std::size_t indirect_branch_island_words = 5;  // save x16, mrs, bic, ldr, br x16 (BR x18)
+constexpr std::size_t indirect_call_island_words = 8;    // + save x30, adrp+add x30 for the return (BLR x18)
 
 /// CBZ, CBNZ (bits 30:25 = 011010) and TBZ, TBNZ (011011): a conditional branch that tests one
 /// register (Rt, bits 4:0) and has a taken and a not-taken exit. The rest of the branch group
@@ -49,6 +51,13 @@ constexpr bool is_cmpbr(std::uint32_t instruction) {
 /// CBZ/CBNZ/TBZ/TBNZ and the two-register compare-and-branch CMPBR.
 constexpr bool is_two_way_branch(std::uint32_t instruction) {
     return is_conditional_branch(instruction) || is_cmpbr(instruction);
+}
+
+/// BR x18 or BLR x18 exactly: an unconditional indirect branch or call through x18, without pointer
+/// authentication. These run in an indirect island (ADR-0020 X2e); RET, the authenticated branches
+/// (BRAA, BLRAA, ...) and x18 used only as the modifier of one do not, and stay refused.
+constexpr bool is_indirect_branch_on_x18(std::uint32_t instruction) {
+    return instruction == 0xd61f'0240u || instruction == 0xd63f'0240u;  // br x18, blr x18
 }
 
 constexpr bool is_test_bit_branch(std::uint32_t instruction) {
@@ -115,8 +124,14 @@ std::uint64_t pc_relative_target(std::uint32_t instruction, std::uint64_t at) {
 // the instruction reads it, run it, write x18 back when it writes it, restore the scratch, branch.
 // A PC-relative instruction becomes one to three words; a conditional branch gets a two-way island
 // instead (see emit).
+/// Words of an indirect island: BLR x18 also saves x30 and recomputes the guest return address.
+std::size_t indirect_island_words(std::uint32_t instruction) {
+    return instruction == 0xd63f'0240u ? indirect_call_island_words : indirect_branch_island_words;  // blr vs br x18
+}
+
 std::size_t x18_island_words(std::uint32_t instruction) {
     if (is_two_way_branch(instruction)) return branch_island_words;
+    if (is_indirect_branch_on_x18(instruction)) return indirect_island_words(instruction);
     const auto use = a64::register_use(instruction);
     const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
     const auto body = std::max<std::size_t>(pc_relative_words(instruction), 1);
@@ -422,8 +437,9 @@ const char *unsupported_reason(std::uint32_t instruction) {
     if (system_register == mrs_tpidr_el0 || system_register == msr_tpidr_el0) {
         return "it moves the thread pointer through x18";
     }
-    if (is_branch(instruction) && !is_two_way_branch(instruction)) {
-        return "it is a register branch, which needs a landing pad the island has not yet";
+    if (is_branch(instruction) && !is_two_way_branch(instruction) && !is_indirect_branch_on_x18(instruction)) {
+        return "it is a register branch the indirect island cannot follow: a return, a pointer-authenticated "
+               "branch, or x18 only as the modifier of one";
     }
     if (is_exclusive(instruction)) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
@@ -884,6 +900,10 @@ std::optional<std::uint64_t> table_base(std::span<const std::byte> code, std::ui
 }
 
 constexpr const char *not_a_jump_table = "it is a register branch that ends no jump table the rewriter knows";
+// The table bytes are not served as read-only data, so they may lie in executable memory, where the
+// x18 pass scans them as code and could rewrite an entry. Such a br stays refused rather than
+// degrading to an indirect island, which would branch to a possibly corrupted runtime target (X2e).
+constexpr const char *table_not_read_only = "it is a register branch whose table is not in read-only data";
 
 /// The jump table that the `br x18` at `offset` ends, filled into `table`, or why there is none the
 /// island can take (ADR-0020 X2d).
@@ -923,7 +943,7 @@ const char *find_jump_table(std::span<const std::byte> code, std::uint64_t addre
 
     const std::size_t size = 4 * std::size_t{check->entries};
     const auto entries = read_only_data ? read_only_data(*start, size) : std::span<const std::byte>{};
-    if (entries.size() != size) return "it is a register branch whose table is not in read-only data";
+    if (entries.size() != size) return table_not_read_only;
     std::vector<std::uint64_t> targets;
     for (std::size_t at = 0; at < size; at += 4) {
         std::int32_t entry;
@@ -1046,13 +1066,23 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                                  : (exclusive_sequence && !is_exclusive(instruction)) ? inside_exclusive_sequence
                                                                                       : unsupported_reason(instruction);
             if (instruction == br_x18 && window_reason == nullptr && reason != inside_exclusive_sequence) {
-                // A register branch runs only as the end of a jump table, through landing pads (X2d).
+                // A br x18 runs as the end of a jump table through landing pads (X2d), or, when it ends
+                // no jump table the rewriter knows, as a general indirect island that branches to the
+                // guest x18 (X2e). A recognized table whose target enters a relocated exclusive window
+                // stays refused: the indirect island cannot check the runtime target against it.
                 JumpTable table;
-                reason = find_jump_table(code, address, offset, read_only_data, table);
-                if (!reason && std::ranges::any_of(table.targets, enters_window)) {
+                const char *table_reason = find_jump_table(code, address, offset, read_only_data, table);
+                if (!table_reason && std::ranges::any_of(table.targets, enters_window)) {
                     reason = "it is a register branch whose jump table leads into a relocated exclusive window";
+                } else if (!table_reason) {
+                    findings.jump_tables.push_back(std::move(table));
+                    reason = nullptr;
+                } else if (table_reason == table_not_read_only) {
+                    reason = table_reason;  // a table in executable memory: stay refused, do not degrade (X2e)
+                } else {
+                    findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});  // the indirect island
+                    reason = nullptr;
                 }
-                if (!reason) findings.jump_tables.push_back(std::move(table));
             } else if (!reason) {
                 findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});
             }
@@ -1132,6 +1162,29 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
                 write(ldur(value, sp, scratch_slot_0));              // taken: restore, then branch on
                 const auto taken = site_address + static_cast<std::uint64_t>(*branch_displacement(site.instruction));
                 write(b(write.next_address(), taken));
+                write.finish();
+                return b(site_address, stub_address);
+            }
+            if (is_indirect_branch_on_x18(site.instruction)) {
+                // An indirect island: load the guest x18 into x16 and branch to it. x16 (IP0) is dead
+                // at both forms under the AArch64 PCS: BLR x18 is a call, so x16 is caller-saved and
+                // not an argument; BR x18 is a tail branch to a function entry, where x16 is undefined
+                // (and x18, reserved on Android, is never an intra-procedure branch register). So
+                // clobbering x16 past the branch is sound for conforming code. A signal stopped inside
+                // the island restores x16 (and, for BLR, x30) from the red zone and returns to the
+                // site, so the pass re-runs cleanly (ADR-0020 X2e).
+                const bool is_call = site.instruction == 0xd63f'0240u;  // blr x18
+                write(stur(x16, sp, scratch_slot_0));
+                if (is_call) write(stur(x30, sp, scratch_slot_1));
+                write(mrs_tpidrro_el0(x16));
+                write(bic_7(x16, x16));
+                write(ldr_unsigned(x16, x16, guest_x18_offset));
+                if (is_call) {
+                    // The guest's return address, the instruction after the call, for the island's place.
+                    write(adrp(x30, write.next_address(), back));
+                    write(add_immediate(x30, x30, back & 0xfff));
+                }
+                write(br(x16));
                 write.finish();
                 return b(site_address, stub_address);
             }
@@ -1303,6 +1356,16 @@ IslandLayout island_layout(const Site &site) {
     if (is_two_way_branch(site.instruction)) {
         layout.kind = APK_ISLAND_BRANCH;  // changes nothing but pc: always back to the site
         return layout;
+    }
+    if (is_indirect_branch_on_x18(site.instruction)) {
+        // As emit() writes it: x16 holds the guest x18, and BLR also saves and recomputes x30. The
+        // island branches to the guest x18 and never stores it, so (like APK_ISLAND_BRANCH) a signal
+        // always returns to the site; the red zone gives x16 back from word 1 and x30 from word 2.
+        layout.kind = APK_ISLAND_INDIRECT;
+        layout.words = static_cast<std::uint32_t>(indirect_island_words(site.instruction));
+        layout.value = x16;
+        if (site.instruction == 0xd63f'0240u) layout.base = x30;  // blr x18 saves x30 for the return
+        return layout;  // commit = NO_COMMIT, store = 0, resume = 0 by default
     }
     // As emit() writes it: save the value (and the base), load x18, the instruction in one to three
     // words, then store x18 with mrs, bic and str.

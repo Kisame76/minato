@@ -57,6 +57,10 @@ extern const std::uint32_t ref_x18_window_unread[];
 extern const std::uint32_t ref_x18_window_unread_end[];
 extern const std::uint32_t ref_x18_island_cbz[];
 extern const std::uint32_t ref_x18_island_tbz[];
+extern const std::uint32_t ref_x18_island_indirect_br[];
+extern const std::uint32_t ref_x18_island_indirect_br_end[];
+extern const std::uint32_t ref_x18_island_indirect_blr[];
+extern const std::uint32_t ref_x18_island_indirect_blr_end[];
 extern const std::uint32_t ref_x18_site_adrp[];
 extern const std::uint32_t ref_x18_island_adrp[];
 extern const std::uint32_t ref_x18_site_adr[];
@@ -239,7 +243,7 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
         0x8b01'0252,  // add x18, x18, x1: island
         0xb400'0052,  // cbz x18, #+8: a two-way island (X2)
         0x9000'0012,  // adrp x18, #0: recomputed in the island (X2)
-        0xd61f'0240,  // br x18: not yet
+        0xd61f'0240,  // br x18: an indirect island (ends no jump table) (X2e)
         0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
         0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
         0xc85f'7c12,  // ldxr x18, [x0]: exclusive access, not yet
@@ -250,11 +254,12 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     apk::rewrite::scan(bytes, 0x1000, findings);
     const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252},
                                      {0x1004, SiteKind::x18, 18, 0xb400'0052},
-                                     {0x1008, SiteKind::x18, 18, 0x9000'0012}};
+                                     {0x1008, SiteKind::x18, 18, 0x9000'0012},
+                                     {0x100c, SiteKind::x18, 18, 0xd61f'0240}};  // br x18: indirect island
     CHECK(findings.sites == expected);
-    CHECK(findings.x18_unsupported.size() == 4);
-    const std::uint64_t first_unsupported[] = {0x100c, 0x1010, 0x1014, 0x1018};
-    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 4; ++index) {
+    CHECK(findings.x18_unsupported.size() == 3);
+    const std::uint64_t first_unsupported[] = {0x1010, 0x1014, 0x1018};
+    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 3; ++index) {
         CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
     }
 }
@@ -416,23 +421,76 @@ TEST(the_pc_relative_islands_match_the_assembler) {
     }
 }
 
-TEST(a_two_way_branch_on_x18_is_an_island_but_a_register_branch_is_refused) {
+TEST(two_way_and_indirect_branches_are_islands_but_other_register_branches_are_refused) {
     const std::uint32_t code[] = {
-        0xb400'0212,  // cbz x18, .+8: island
-        0xb500'0212,  // cbnz x18: island
-        0x3618'0212,  // tbz w18, #3: island
-        0xb708'0212,  // tbnz x18, #33: island
-        0xf4c6'0212,  // cmpbr cbeq x18, x6, .+0x40: island (step C C2a)
-        0xd61f'0240,  // br x18: refused, needs a landing pad
-        0xd63f'0240,  // blr x18: refused
+        0xb400'0212,  // cbz x18, .+8: two-way island
+        0xb500'0212,  // cbnz x18: two-way island
+        0x3618'0212,  // tbz w18, #3: two-way island
+        0xb708'0212,  // tbnz x18, #33: two-way island
+        0xf4c6'0212,  // cmpbr cbeq x18, x6, .+0x40: two-way island (step C C2a)
+        0xd61f'0240,  // br x18: indirect island (step C C2b)
+        0xd63f'0240,  // blr x18: indirect island (step C C2b)
+        0xd65f'0240,  // ret x18: refused, the island cannot follow it
+        0xd71f'0a40,  // braa x18, x0: refused (pointer authentication)
+        0xd71f'0812,  // braa x0, x18: refused (x18 as the modifier)
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
     std::vector<std::uint64_t> islands;
     for (const auto &s : findings.sites) islands.push_back(s.address);
-    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1004, 0x1008, 0x100c, 0x1010}));
-    CHECK(findings.x18_unsupported.size() == 2);
+    CHECK(islands == (std::vector<std::uint64_t>{0x1000, 0x1004, 0x1008, 0x100c, 0x1010, 0x1014, 0x1018}));
+    CHECK(findings.x18_unsupported.size() == 3);
     for (const auto &entry : findings.x18_unsupported) {
         CHECK(std::string_view(entry.reason).find("register branch") != std::string_view::npos);
+    }
+}
+
+// A br x18 that ends no jump table, and a blr x18, run in an indirect island (ADR-0020 X2e): the
+// island loads the guest x18 into x16 (an ABI scratch register at a branch) and branches to it.
+// ret x18 and the pointer-authenticated forms the island still cannot follow stay refused.
+TEST(a_br_or_blr_x18_that_is_no_jump_table_is_an_indirect_island) {
+    const std::uint32_t code[] = {
+        0xd61f'0240,  // br x18:  indirect island (no jump table precedes it)
+        0xd63f'0240,  // blr x18: indirect island
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.jump_tables.empty());
+    CHECK(findings.sites.size() == 2);
+    for (const auto &site : findings.sites) {
+        CHECK(site.kind == SiteKind::x18);
+        CHECK(apk::rewrite::island_layout(site).kind == APK_ISLAND_INDIRECT);
+    }
+}
+
+// The emitted indirect islands match the assembler and the linker: BR x18 is five words ending in a
+// br x16, and BLR x18 is eight words that also save x30 and recompute the guest return address so
+// the callee returns into the guest, not the island (ADR-0020 X2e).
+TEST(the_indirect_islands_match_the_assembler) {
+    const struct {
+        std::uint32_t instruction;
+        const std::uint32_t *reference;
+        const std::uint32_t *reference_end;
+    } cases[] = {
+        {0xd61f'0240, ref_x18_island_indirect_br, ref_x18_island_indirect_br_end},    // br x18
+        {0xd63f'0240, ref_x18_island_indirect_blr, ref_x18_island_indirect_blr_end},  // blr x18
+    };
+    for (const auto &test : cases) {
+        const auto findings = scan_words(&test.instruction, &test.instruction + 1, 0x1000);
+        CHECK(findings.sites.size() == 1);
+        const Site site{0, SiteKind::x18, 18, test.instruction};
+        const auto words = static_cast<std::size_t>(test.reference_end - test.reference);
+        const auto [patch, stub] = emit_at(site, address_of(ref_site), address_of(test.reference));
+        CHECK(stub.size() == 4 * words);
+        if (stub.size() != 4 * words) continue;
+        for (std::size_t index = 0; index < words; ++index) {
+            if (word(stub, index) != test.reference[index]) {
+                apk::testing::fail(std::source_location::current(), "word differs: ",
+                                   std::format("{:#010x} at {}: {:#010x} expected", word(stub, index), index,
+                                               test.reference[index]).c_str());
+            }
+        }
+        const auto delta = (address_of(test.reference) - address_of(ref_site)) / 4;
+        CHECK(patch == (0x1400'0000u | (static_cast<std::uint32_t>(delta) & 0x03ff'ffff)));  // b site -> stub
     }
 }
 
@@ -953,7 +1011,24 @@ void check_refused(const apk::rewrite::Findings &findings, std::string_view why,
     }
 }
 
-TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
+/// The br x18 at `at` ends no jump table the rewriter recognizes, so it becomes a general indirect
+/// island (ADR-0020 X2e), not a refusal: the app must run even without the jump table CFI.
+void check_indirect_island(const apk::rewrite::Findings &findings, std::uint64_t at = 0x10018u,
+                           std::source_location location = std::source_location::current()) {
+    if (!findings.jump_tables.empty()) apk::testing::fail(location, "a jump table was found");
+    const auto refused = std::ranges::find(findings.x18_unsupported, at, &apk::rewrite::Unsupported::address);
+    if (refused != findings.x18_unsupported.end()) {
+        apk::testing::fail(location, "the br x18 was refused: ", refused->reason);
+    }
+    const auto site = std::ranges::find_if(findings.sites, [at](const auto &s) { return s.address == at; });
+    if (site == findings.sites.end()) {
+        apk::testing::fail(location, "the br x18 is not an island site");
+    } else if (apk::rewrite::island_layout(*site).kind != APK_ISLAND_INDIRECT) {
+        apk::testing::fail(location, "the br x18 site is not an indirect island");
+    }
+}
+
+TEST(a_br_x18_that_is_no_recognized_jump_table_is_an_indirect_island) {
     const SyntheticJumpTable found;
     const auto findings = found.scan();
     CHECK(findings.x18_unsupported.empty());
@@ -971,26 +1046,28 @@ TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
     CHECK(also_found.jump_tables.size() == 1);
     if (also_found.jump_tables.size() == 1) CHECK(also_found.jump_tables[0].entries == 4);
 
+    // Each shape below is not a jump table the rewriter recognizes, so the br falls back to the
+    // general indirect island instead of being refused (step C C2b).
     auto no_bounds_check = found;
     no_bounds_check.code[0] = 0xd503'201f;  // nop in place of the cmp
-    check_refused(no_bounds_check.scan(), "bounds check");
+    check_indirect_island(no_bounds_check.scan());
 
     auto other_base = found;
     other_base.code[2] = 0xaa00'03e9;  // mov x9, x0 in place of the adrp
-    check_refused(other_base.scan(), "table base");
+    check_indirect_island(other_base.scan());
 
     auto entered = found;
     entered.code[7] = 0x17ff'fffe;  // b 0x10014: into the jump sequence, past the bounds check
-    check_refused(entered.scan(), "another branch");
+    check_indirect_island(entered.scan());
 
     auto outside = found;
     outside.table[2] = 0x30000 - 0x20040;  // beyond the code
-    check_refused(outside.scan(), "outside");
+    check_indirect_island(outside.scan());
 
     auto wide = found;  // a target 32 KiB past the first
     wide.code.resize(0x8000 / 4 + 16, 0xd503'201f);
     wide.table[1] = 0x1001c + 0x8000 - 0x20040;
-    check_refused(wide.scan(), "32 KiB");
+    check_indirect_island(wide.scan());
     // One word less is the widest span the landing pads cover; the island table can still give
     // the length of such an island in 16 bits (ADR-0020 X4).
     auto widest = wide;
@@ -1001,6 +1078,8 @@ TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
         CHECK(apk::rewrite::jump_table_layout(widest_found.jump_tables[0]).words <= 0xffff);
     }
 
+    // A recognized jump table whose target enters a relocated exclusive window stays refused: the
+    // indirect island branches to the runtime x18 without checking it against the window (step C C2b).
     auto into_window = found;  // an LL/SC loop on x18 after the cases, and a target inside it
     into_window.code.insert(into_window.code.end(), {0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2, 0x35ff'ffb0});
     into_window.table[1] = 0x10028 - 0x20040;  // the add x18 behind the ldxr at 0x10024
@@ -1008,8 +1087,10 @@ TEST(a_br_x18_stays_refused_where_no_jump_table_it_can_read_ends_in_it) {
 
     auto equal = found;
     equal.code[1] = 0x5400'00e0;  // b.eq: no bound at all
-    check_refused(equal.scan(), "bounds check");
+    check_indirect_island(equal.scan());
 
+    // A jump-table-shaped br whose table is not served as read-only data stays refused, not degraded:
+    // the table may lie in executable memory, where the x18 pass could rewrite an entry (step C C2b).
     apk::rewrite::Findings without_data;  // no read-only data at all
     apk::rewrite::scan(std::as_bytes(std::span(found.code)), 0x10000, without_data);
     check_refused(without_data, "read-only data");
@@ -1046,8 +1127,7 @@ TEST(each_jump_table_recognition_rule_is_covered) {
     };
     const std::int32_t four[] = {0x10020 - 0x20040, 0x10024 - 0x20040, 0x10020 - 0x20040, 0x10024 - 0x20040};
     auto findings = scan_with_table(flags_between, four);
-    CHECK(findings.jump_tables.empty());
-    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x1001c; }));
+    check_indirect_island(findings, 0x1001c);  // not a recognized jump table: the general indirect island
 
     // An index write between the branch and the load makes the checked value stale.
     const std::uint32_t index_written[] = {
@@ -1062,8 +1142,7 @@ TEST(each_jump_table_recognition_rule_is_covered) {
         0xd503'201f, 0xd65f'03c0,
     };
     findings = scan_with_table(index_written, four);
-    CHECK(findings.jump_tables.empty());
-    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x1001c; }));
+    check_indirect_island(findings, 0x1001c);
 
     // CMP #0 with B.HS reaches zero entries: no table, and no read of an empty target list.
     const std::uint32_t zero_entries[] = {
@@ -1077,8 +1156,7 @@ TEST(each_jump_table_recognition_rule_is_covered) {
         0xd503'201f, 0xd65f'03c0, 0xd503'201f,
     };
     findings = scan_with_table(zero_entries, four);
-    CHECK(findings.jump_tables.empty());
-    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x10018; }));
+    check_indirect_island(findings, 0x10018);
 
     // A target on the first word of a relocated LL/SC window is fine: the window is entered at its
     // load-exclusive, which is where a jump into it must land anyway.
@@ -1122,8 +1200,7 @@ TEST(each_jump_table_recognition_rule_is_covered) {
     // Targets in range, so the only thing that refuses this shape is the branch back into it.
     const std::int32_t inside_targets[] = {0x1001c - 0x20040, 0x10020 - 0x20040, 0x1001c - 0x20040, 0x10020 - 0x20040};
     findings = scan_with_table(branch_inside, inside_targets);
-    CHECK(findings.jump_tables.empty());
-    CHECK(std::ranges::any_of(findings.x18_unsupported, [](const auto &u) { return u.address == 0x10018; }));
+    check_indirect_island(findings, 0x10018);
 }
 
 // --- The island table (ADR-0020 X4) --------------------------------------------------------------
@@ -1176,12 +1253,22 @@ TEST(island_layouts_match_the_emitted_islands) {
     }
     instructions.push_back(0xb400'0212);  // cbz x18, .+0x40
     instructions.push_back(0xb708'0212);  // tbnz x18, #33, .+0x40
+    instructions.push_back(0xd61f'0240);  // br x18:  indirect island
+    instructions.push_back(0xd63f'0240);  // blr x18: indirect island
     for (const auto instruction : instructions) {
         const Site site{site_address, SiteKind::x18, 18, instruction};
         const auto [patch, stub] = emit_at(site, site_address, stub_address);
         const auto layout = apk::rewrite::island_layout(site);
         check_common_layout(layout, stub, instruction);
         if (4 * std::size_t{layout.words} != stub.size()) continue;
+        if (instruction == 0xd61f'0240u || instruction == 0xd63f'0240u) {  // br x18, blr x18: indirect
+            CHECK(layout.kind == APK_ISLAND_INDIRECT);
+            CHECK(layout.commit == APK_ISLAND_NO_COMMIT && layout.store == 0 && layout.resume == 0);
+            CHECK(layout.value == 16);                                 // x16 holds the guest x18
+            CHECK((layout.base == 30) == (instruction == 0xd63f'0240u));  // only blr saves x30
+            CHECK(word(stub, layout.words - 1) == 0xd61f'0200u);       // last word is br x16
+            continue;
+        }
         if (((instruction >> 25) & 0x3e) == 0x1a) {  // CBZ, CBNZ, TBZ, TBNZ
             CHECK(layout.kind == APK_ISLAND_BRANCH);
             CHECK(layout.commit == APK_ISLAND_NO_COMMIT && layout.base == APK_ISLAND_NO_REGISTER && layout.store == 0);

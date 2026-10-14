@@ -87,6 +87,7 @@ enum {
     APK_ISLAND_BRANCH = 2,      // CBZ, CBNZ, TBZ, TBNZ or a CMPBR compare-and-branch on x18, with its two exits
     APK_ISLAND_EXCLUSIVE = 3,   // a whole LL/SC window with x18 (ADR-0020 X2c)
     APK_ISLAND_JUMP_TABLE = 4,  // BR x18 at the end of a jump table, with its landing pads (X2d)
+    APK_ISLAND_INDIRECT = 5,    // BR or BLR x18 that ends no jump table, branching to the guest x18 (X2e)
 };
 #define APK_ISLAND_NO_REGISTER 0xff  /* apk_island.base of an island with one scratch register */
 #define APK_ISLAND_NO_COMMIT 0xff    /* apk_island.commit of an island that changes nothing but pc */
