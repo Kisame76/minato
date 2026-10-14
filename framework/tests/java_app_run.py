@@ -13,7 +13,10 @@ must be a line of the process's log (apk-run's stderr), anywhere. A .logcat file
 holds the app's log lines with its own tag, which the process's log must hold in that order; those with the tag
 <app>-device differ by device and are only shown. A configuration begins a session (apk-run --configuration), whose
 host plays the app's lifecycle: apk-run's --lifecycle steps, "start" unless --lifecycle gives others, and the quit
-after the app's finish (ADR-0043 step c1). Prints "skipped: ..." while a part is not built.
+after the app's finish (ADR-0043 step c1). Prints "skipped: ..." while a part is not built. Without a
+configuration there is no session and no frame clock: the app's first traversal then leaves ViewRootImpl's sync barrier
+at the head of the main queue, and the main Looper dispatches no post from another thread and no delayed post, so a
+check that needs it passes a configuration (main-looper-check, autocomplete-check).
 
 Since step c2b the app process runs its main Looper and never ends by itself. Every Java test ends with the line
 "<app>: done", in System.out or in its log, and the run ends 2 s after it, as tools/android-reference.sh stops the app

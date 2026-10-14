@@ -18,6 +18,9 @@
 // The session's frame clock then posts a vsync tick every period of that rate (ADR-0041 a)), as the app's does
 // (ADR-0036). The program's end ends the process with its status, as without a session; requests go nowhere, but for
 // FINISH with --lifecycle.
+// Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
+// traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
+// from another thread and no delayed post. A check that needs the main Looper passes a configuration.
 // --lifecycle, with --configuration, plays the host's lifecycle as the App does in game mode (ADR-0028 decision 6,
 // ADR-0032; activity-host's header lists the events), for a guest that reads the session (ADR-0043 step c1). Its
 // steps follow one another, each once the one before is answered and a second has passed, as Android's reference
