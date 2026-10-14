@@ -2305,6 +2305,32 @@ frameworks_base/core/java/com/android/internal/appwidget/IAppWidgetHost.aidl
 frameworks_base/core/java/com/android/internal/os/BackgroundThread.java
 frameworks_base/core/java/android/appwidget/AppWidgetHostView.java
 frameworks_base/core/java/android/appwidget/AppWidgetHost.java
+# F4c: data types that SDKs test with instanceof or read from the managers' lists (telecom, camera2 params, media)
+frameworks_base/core/java/android/hardware/camera2/params/BlackLevelPattern.java
+frameworks_base/core/java/android/hardware/camera2/params/Capability.java
+frameworks_base/core/java/android/hardware/camera2/params/ColorSpaceTransform.java
+frameworks_base/core/java/android/hardware/camera2/params/DeviceStateSensorOrientationMap.java
+frameworks_base/core/java/android/hardware/camera2/params/Face.java
+frameworks_base/core/java/android/hardware/camera2/params/InputConfiguration.java
+frameworks_base/core/java/android/hardware/camera2/params/LensShadingMap.java
+frameworks_base/core/java/android/hardware/camera2/params/OisSample.java
+frameworks_base/core/java/android/hardware/camera2/params/RecommendedStreamConfigurationMap.java
+frameworks_base/core/java/android/hardware/camera2/params/RggbChannelVector.java
+frameworks_base/core/java/android/hardware/camera2/params/TonemapCurve.java
+frameworks_base_types/media/java/android/media/MicrophoneDirection.java
+frameworks_base_types/media/java/android/media/SubtitleData.java
+frameworks_base_types/media/java/android/media/SyncParams.java
+frameworks_base_types/media/java/android/media/TimedMetaData.java
+frameworks_base_types/media/java/android/media/TimedText.java
+frameworks_base_types/telecomm/java/android/telecom/CallEndpoint.java
+frameworks_base_types/telecomm/java/android/telecom/CallEndpointException.java
+frameworks_base_types/telecomm/java/android/telecom/CallException.java
+frameworks_base_types/telecomm/java/android/telecom/Conferenceable.java
+frameworks_base_types/telecomm/java/android/telecom/GatewayInfo.java
+frameworks_base_types/telecomm/java/android/telecom/PhoneAccountSuggestion.java
+frameworks_base_types/telecomm/java/android/telecom/QueryLocationException.java
+frameworks_base_types/telecomm/java/android/telecom/StatusHints.java
+frameworks_base_types/telecomm/java/android/telecom/VideoProfile.java
 # ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.
 frameworks_base/core/java/android/view/WindowLayout.java

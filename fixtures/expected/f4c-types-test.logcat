@@ -1,0 +1,27 @@
+I/f4c-types-test: rggb: 1.0 0.5 0.25 2.0 true
+I/f4c-types-test: tonemap: points=3 copy=[0.0, 0.0, 0.5, 0.25, 1.0, 1.0] point=PointF(0.5, 0.25)
+I/f4c-types-test: colorSpaceTransform: element=5/4 equal=true
+I/f4c-types-test: inputConfiguration: 640x480 format=35 multiResolution=false
+I/f4c-types-test: videoProfile: state=Audio Tx Rx quality=1 audioOnly=false transmitting=true
+I/f4c-types-test: videoProfile parcel: state=3 quality=1
+I/f4c-types-test: statusHints: label=label extras=value
+I/f4c-types-test: callEndpoint: name=speaker type=4 id=00000000-0000-0001-0000-000000000002
+I/f4c-types-test: callException: no call (code: 5) code=5
+I/f4c-types-test: syncParams: source=2 audioAdjust=2 tolerance=0.25 frameRate=30.0 allowDefaults=2
+I/f4c-types-test: microphoneDirection: 0 1 2 3
+I/f4c-types-test: declared BlackLevelPattern: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared Capability: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared Face: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared LensShadingMap: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared OisSample: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared DeviceStateSensorOrientationMap: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared RecommendedStreamConfigurationMap: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared SubtitleData: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared TimedMetaData: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared TimedText: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared GatewayInfo: final=false interface=false super=class java.lang.Object
+I/f4c-types-test: declared PhoneAccountSuggestion: final=true interface=false super=class java.lang.Object
+I/f4c-types-test: declared Conferenceable: final=false interface=false super=class java.lang.Object
+I/f4c-types-test: declared QueryLocationException: final=true interface=false super=class java.lang.RuntimeException
+I/f4c-types-test: declared CallEndpointException: final=true interface=false super=class java.lang.RuntimeException
+I/f4c-types-test: done
