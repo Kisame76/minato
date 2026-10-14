@@ -103,6 +103,7 @@ _a64_cases:
     case X18, NONE, tbnz w18, #3, 1f
     case X18|X1, NONE, cbgt x18, x1, .
     case X1, NONE, cbgt x1, #3, .
+    case X18, NONE, cbgt x18, #3, .         // CMPBR immediate form reading x18 (bit 14 is a fixed 0)
     case X18|X1, NONE, cbbgt w18, w1, .
     case X1|X18, NONE, cbhgt w1, w18, .
     case X18, NONE, br x18
