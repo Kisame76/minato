@@ -7,4 +7,24 @@ I/package-answers-test: twice: same false, same assets true
 I/package-answers-test: unknown package: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
 I/package-answers-test: unknown activity: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.packageanswers/io.github.kisame76.minato.test.packageanswers.Missing}
 I/package-answers-test: other package's activity: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.absent/Main}
+I/package-answers-test: launch: Intent { act=android.intent.action.MAIN cat=[android.intent.category.INFO] flg=0x10000000 pkg=io.github.kisame76.minato.test.packageanswers cmp=io.github.kisame76.minato.test.packageanswers/android.app.ListActivity }
+I/package-answers-test: launch, unknown: null
+I/package-answers-test: leanback: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LEANBACK_LAUNCHER] flg=0x10000000 pkg=io.github.kisame76.minato.test.packageanswers cmp=io.github.kisame76.minato.test.packageanswers/android.app.ExpandableListActivity }
+I/package-answers-test: uid's packages: [io.github.kisame76.minato.test.packageanswers], none's null
+I/package-answers-test: uid's name: io.github.kisame76.minato.test.packageanswers, none's null
+I/package-answers-test: package uid: mine true, application info's true
+I/package-answers-test: package uid, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: gids: [3003]
+I/package-answers-test: gids, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: versioned: io.github.kisame76.minato.test.packageanswers 1
+I/package-answers-test: versioned, highest: io.github.kisame76.minato.test.packageanswers 1
+I/package-answers-test: versioned, other version: io.github.kisame76.minato.test.packageanswers
+I/package-answers-test: versioned, unknown: android.content.pm.PackageManager$NameNotFoundException: VersionedPackage[io.github.kisame76.minato.test.absent/1]
+I/package-answers-test: enabled setting: 0
+I/package-answers-test: enabled setting, unknown: java.lang.IllegalArgumentException: Unknown package: io.github.kisame76.minato.test.absent
+I/package-answers-test: android: android, uid 1000, system true, source /system/framework/framework-res.apk
+I/package-answers-test: android's package: android, shared user android.uid.system
+I/package-answers-test: android's resources: ok OK, system's false, system's assets false
+I/package-answers-test: installed packages: mine true, android true
+I/package-answers-test: installed applications: mine true, android true
 I/package-answers-test: done

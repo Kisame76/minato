@@ -16,9 +16,12 @@ import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
+import android.content.pm.VersionedPackage;
+import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Process;
 import android.os.SystemProperties;
@@ -27,6 +30,7 @@ import android.util.ArrayMap;
 import android.util.Log;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,6 +72,9 @@ class ApplicationPackageManager {
     }
 
     public PackageInfo getPackageInfo(String packageName, PackageInfoFlags flags) throws NameNotFoundException {
+        if (ANDROID.equals(packageName)) {
+            return androidPackageInfo(flags.getValue());
+        }
         return own(packageName).packageInfo(flags.getValue());
     }
 
@@ -77,7 +84,201 @@ class ApplicationPackageManager {
 
     public ApplicationInfo getApplicationInfo(String packageName, ApplicationInfoFlags flags)
             throws NameNotFoundException {
+        if (ANDROID.equals(packageName)) {
+            return androidApplicationInfo();
+        }
         return own(packageName).applicationInfo(flags.getValue());
+    }
+
+    // The app's identity (the package manager stub plan, P2) [verified: package-answers-test on apk-runner-35]: its
+    // uid's packages and name, its uid and gids, its PackageInfo by version (PackageManagerService checks the version
+    // only for a static shared library, so any one finds the package), its enabled setting, and "android", the
+    // platform's package, which every app sees: framework-res as the system's uid 1000. The installed packages an app
+    // sees are its own and "android"; a device's other force-queryable system packages are not there.
+
+    private static final String ANDROID = "android";
+
+    private static ApplicationInfo androidApplicationInfo() {
+        ApplicationInfo info = new ApplicationInfo();
+        info.packageName = ANDROID;
+        info.processName = "system";
+        info.uid = Process.SYSTEM_UID;
+        info.flags = ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_PERSISTENT | ApplicationInfo.FLAG_INSTALLED;
+        info.enabled = true;
+        info.sourceDir = "/system/framework/framework-res.apk";
+        info.publicSourceDir = info.sourceDir;
+        info.targetSdkVersion = Build.VERSION.SDK_INT;
+        info.minSdkVersion = Build.VERSION.SDK_INT;
+        info.nonLocalizedLabel = "Android System";
+        return info;
+    }
+
+    private static PackageInfo androidPackageInfo(long flags) {
+        PackageInfo info = new PackageInfo();
+        info.packageName = ANDROID;
+        info.sharedUserId = "android.uid.system";
+        info.setLongVersionCode(Build.VERSION.SDK_INT);
+        info.versionName = Build.VERSION.RELEASE;
+        info.applicationInfo = androidApplicationInfo();
+        return info;
+    }
+
+    public PackageInfo getPackageInfo(VersionedPackage versionedPackage, int flags) throws NameNotFoundException {
+        return getPackageInfo(versionedPackage, PackageInfoFlags.of(flags));
+    }
+
+    public PackageInfo getPackageInfo(VersionedPackage versionedPackage, PackageInfoFlags flags)
+            throws NameNotFoundException {
+        try {
+            return getPackageInfo(versionedPackage.getPackageName(), flags);
+        } catch (NameNotFoundException e) {
+            throw new NameNotFoundException(versionedPackage.toString());
+        }
+    }
+
+    public PackageInfo getPackageInfoAsUser(String packageName, int flags, int userId) throws NameNotFoundException {
+        return getPackageInfo(packageName, PackageInfoFlags.of(flags));
+    }
+
+    public PackageInfo getPackageInfoAsUser(String packageName, PackageInfoFlags flags, int userId)
+            throws NameNotFoundException {
+        return getPackageInfo(packageName, flags);
+    }
+
+    public ApplicationInfo getApplicationInfoAsUser(String packageName, int flags, int userId)
+            throws NameNotFoundException {
+        return getApplicationInfo(packageName, ApplicationInfoFlags.of(flags));
+    }
+
+    public ApplicationInfo getApplicationInfoAsUser(String packageName, ApplicationInfoFlags flags, int userId)
+            throws NameNotFoundException {
+        return getApplicationInfo(packageName, flags);
+    }
+
+    public List<PackageInfo> getInstalledPackages(int flags) {
+        return getInstalledPackages(PackageInfoFlags.of(flags));
+    }
+
+    public List<PackageInfo> getInstalledPackages(PackageInfoFlags flags) {
+        List<PackageInfo> packages = new ArrayList<>();
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg != null) {
+            packages.add(pkg.packageInfo(flags.getValue()));
+        }
+        packages.add(androidPackageInfo(flags.getValue()));
+        return packages;
+    }
+
+    public List<PackageInfo> getInstalledPackagesAsUser(int flags, int userId) {
+        return getInstalledPackages(PackageInfoFlags.of(flags));
+    }
+
+    public List<PackageInfo> getInstalledPackagesAsUser(PackageInfoFlags flags, int userId) {
+        return getInstalledPackages(flags);
+    }
+
+    public List<ApplicationInfo> getInstalledApplications(int flags) {
+        return getInstalledApplications(ApplicationInfoFlags.of(flags));
+    }
+
+    public List<ApplicationInfo> getInstalledApplications(ApplicationInfoFlags flags) {
+        List<ApplicationInfo> applications = new ArrayList<>();
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg != null) {
+            applications.add(pkg.applicationInfo(flags.getValue()));
+        }
+        applications.add(androidApplicationInfo());
+        return applications;
+    }
+
+    public List<ApplicationInfo> getInstalledApplicationsAsUser(int flags, int userId) {
+        return getInstalledApplications(ApplicationInfoFlags.of(flags));
+    }
+
+    public List<ApplicationInfo> getInstalledApplicationsAsUser(ApplicationInfoFlags flags, int userId) {
+        return getInstalledApplications(flags);
+    }
+
+    /** The app's uid has its package; any other uid has none the app sees. */
+    public String[] getPackagesForUid(int uid) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null && uid == Process.myUid() ? new String[] {pkg.packageName} : null;
+    }
+
+    /** As PackageManagerService names a uid: its shared user's name and the uid, else its package. */
+    public String getNameForUid(int uid) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg == null || uid != Process.myUid()) {
+            return null;
+        }
+        String sharedUserId = pkg.packageInfo(0).sharedUserId;
+        return sharedUserId != null ? sharedUserId + ":" + uid : pkg.packageName;
+    }
+
+    public String[] getNamesForUids(int[] uids) {
+        String[] names = new String[uids.length];
+        for (int i = 0; i < uids.length; i++) {
+            names[i] = getNameForUid(uids[i]);
+        }
+        return names;
+    }
+
+    public int getPackageUid(String packageName, int flags) throws NameNotFoundException {
+        return getPackageUid(packageName, PackageInfoFlags.of(flags));
+    }
+
+    public int getPackageUid(String packageName, PackageInfoFlags flags) throws NameNotFoundException {
+        return getApplicationInfo(packageName, ApplicationInfoFlags.of(flags.getValue())).uid;
+    }
+
+    public int getPackageUidAsUser(String packageName, int userId) throws NameNotFoundException {
+        return getPackageUid(packageName, 0);
+    }
+
+    public int getPackageUidAsUser(String packageName, int flags, int userId) throws NameNotFoundException {
+        return getPackageUid(packageName, flags);
+    }
+
+    public int getPackageUidAsUser(String packageName, PackageInfoFlags flags, int userId)
+            throws NameNotFoundException {
+        return getPackageUid(packageName, flags);
+    }
+
+    /** The platform's gids of the normal permissions (platform.xml at the tag); the others no app here holds. */
+    private static final String[] GID_PERMISSIONS = {
+        "android.permission.BLUETOOTH_ADMIN", "android.permission.BLUETOOTH", "android.permission.INTERNET",
+    };
+    /** AID_NET_BT_ADMIN, AID_NET_BT and AID_INET. */
+    private static final int[] GIDS = {3001, 3002, 3003};
+
+    public int[] getPackageGids(String packageName) throws NameNotFoundException {
+        return getPackageGids(packageName, 0);
+    }
+
+    public int[] getPackageGids(String packageName, int flags) throws NameNotFoundException {
+        return getPackageGids(packageName, PackageInfoFlags.of(flags));
+    }
+
+    /** The gids of the package's granted permissions that have one, as PermissionManagerService gives them. */
+    public int[] getPackageGids(String packageName, PackageInfoFlags flags) throws NameNotFoundException {
+        ManifestPackage pkg = own(packageName);
+        int count = 0;
+        int[] gids = new int[GIDS.length];
+        for (int i = 0; i < GID_PERMISSIONS.length; i++) {
+            if (pkg.granted(GID_PERMISSIONS[i])) {
+                gids[count++] = GIDS[i];
+            }
+        }
+        return java.util.Arrays.copyOf(gids, count);
+    }
+
+    /** The app's package is in its default state, as nothing here changes it; any other package is unknown. */
+    public int getApplicationEnabledSetting(String packageName) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg == null || !pkg.packageName.equals(packageName)) {
+            throw new IllegalArgumentException("Unknown package: " + packageName);
+        }
+        return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
     }
 
     /**
@@ -186,6 +387,64 @@ class ApplicationPackageManager {
 
     public List<ResolveInfo> queryIntentContentProviders(Intent intent, ResolveInfoFlags flags) {
         return query(ManifestPackage.QUERY_PROVIDERS, intent, flags.getValue());
+    }
+
+    // The hidden forms for a user (P2), which AOSP's own framework code calls: the one user's answers.
+
+    public ResolveInfo resolveActivityAsUser(Intent intent, int flags, int userId) {
+        return resolveActivity(intent, flags);
+    }
+
+    public ResolveInfo resolveActivityAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return resolveActivity(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentActivitiesAsUser(Intent intent, int flags, int userId) {
+        return queryIntentActivities(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentActivitiesAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return queryIntentActivities(intent, flags);
+    }
+
+    public ResolveInfo resolveServiceAsUser(Intent intent, int flags, int userId) {
+        return resolveService(intent, flags);
+    }
+
+    public ResolveInfo resolveServiceAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return resolveService(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentServicesAsUser(Intent intent, int flags, int userId) {
+        return queryIntentServices(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentServicesAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return queryIntentServices(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentContentProvidersAsUser(Intent intent, int flags, int userId) {
+        return queryIntentContentProviders(intent, flags);
+    }
+
+    public List<ResolveInfo> queryIntentContentProvidersAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return queryIntentContentProviders(intent, flags);
+    }
+
+    public List<ResolveInfo> queryBroadcastReceiversAsUser(Intent intent, int flags, int userId) {
+        return queryBroadcastReceivers(intent, flags);
+    }
+
+    public List<ResolveInfo> queryBroadcastReceiversAsUser(Intent intent, ResolveInfoFlags flags, int userId) {
+        return queryBroadcastReceivers(intent, flags);
+    }
+
+    public ProviderInfo resolveContentProviderAsUser(String providerName, int flags, int userId) {
+        return resolveContentProvider(providerName, flags);
+    }
+
+    public ProviderInfo resolveContentProviderAsUser(String providerName, ComponentInfoFlags flags, int userId) {
+        return resolveContentProvider(providerName, flags);
     }
 
     /** The first service found, as the package manager's resolveService gives it; null for none. */
@@ -300,6 +559,52 @@ class ApplicationPackageManager {
         return null;
     }
 
+    // Launch intents (the package manager stub plan, P2), as AOSP's over queryIntentActivities: an INFO activity of the
+    // package first, else its launcher (or the leanback or car launcher); null when it has none, as for any other
+    // package.
+
+    public Intent getLaunchIntentForPackage(String packageName) {
+        Intent intentToResolve = new Intent(Intent.ACTION_MAIN);
+        intentToResolve.addCategory(Intent.CATEGORY_INFO);
+        intentToResolve.setPackage(packageName);
+        List<ResolveInfo> ris = queryIntentActivities(intentToResolve, 0);
+        if (ris == null || ris.size() <= 0) {
+            intentToResolve.removeCategory(Intent.CATEGORY_INFO);
+            intentToResolve.addCategory(Intent.CATEGORY_LAUNCHER);
+            intentToResolve.setPackage(packageName);
+            ris = queryIntentActivities(intentToResolve, 0);
+        }
+        if (ris == null || ris.size() <= 0) {
+            return null;
+        }
+        Intent intent = new Intent(intentToResolve);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.setClassName(ris.get(0).activityInfo.packageName, ris.get(0).activityInfo.name);
+        return intent;
+    }
+
+    public Intent getLeanbackLaunchIntentForPackage(String packageName) {
+        return getLaunchIntentForPackageAndCategory(packageName, Intent.CATEGORY_LEANBACK_LAUNCHER);
+    }
+
+    public Intent getCarLaunchIntentForPackage(String packageName) {
+        return getLaunchIntentForPackageAndCategory(packageName, Intent.CATEGORY_CAR_LAUNCHER);
+    }
+
+    private Intent getLaunchIntentForPackageAndCategory(String packageName, String category) {
+        Intent intentToResolve = new Intent(Intent.ACTION_MAIN);
+        intentToResolve.addCategory(category);
+        intentToResolve.setPackage(packageName);
+        List<ResolveInfo> ris = queryIntentActivities(intentToResolve, 0);
+        if (ris == null || ris.size() <= 0) {
+            return null;
+        }
+        Intent intent = new Intent(intentToResolve);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.setClassName(ris.get(0).activityInfo.packageName, ris.get(0).activityInfo.name);
+        return intent;
+    }
+
     // Resources (the package manager stub plan, P1): the app's own package's, as AOSP's asks ResourcesManager for them
     // with the package's paths; for any other package getApplicationInfo or getActivityInfo throws, and an
     // ApplicationInfo of another package has no Resources here, as AOSP's throws when ResourcesManager has none. The
@@ -316,12 +621,30 @@ class ApplicationPackageManager {
 
     public Resources getResourcesForApplication(ApplicationInfo app, Configuration configuration)
             throws NameNotFoundException {
+        if (ANDROID.equals(app.packageName)) {
+            return androidResources(configuration);
+        }
         LoadedApk loaded = mThread.getLoadedApk();
         ManifestPackage pkg = mThread.getManifestPackage();
         if (loaded == null || pkg == null || !pkg.packageName.equals(app.packageName)) {
             throw new NameNotFoundException("Unable to open " + app.publicSourceDir);
         }
         return loaded.createApplicationResources(configuration);
+    }
+
+    /**
+     * framework-res's Resources for "android" (P2), new at each call with an AssetManager of their own, which
+     * AssetManager.Builder starts with the system's framework-res, and the system's configuration updated from the
+     * one given [verified: package-answers-test on apk-runner-35].
+     */
+    @SuppressWarnings("deprecation") // Resources' public constructor, as LoadedApk's.
+    private static Resources androidResources(Configuration configuration) {
+        Resources system = Resources.getSystem();
+        Configuration config = new Configuration(system.getConfiguration());
+        if (configuration != null) {
+            config.updateFrom(configuration);
+        }
+        return new Resources(new AssetManager.Builder().build(), system.getDisplayMetrics(), config);
     }
 
     public Resources getResourcesForApplication(String appPackageName) throws NameNotFoundException {
