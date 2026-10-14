@@ -15,6 +15,7 @@ import android.accounts.AccountManager;
 import android.accounts.IAccountManager;
 import android.app.job.IJobScheduler;
 import android.app.job.JobScheduler;
+import android.appwidget.AppWidgetManager;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Resources;
@@ -78,6 +79,8 @@ final class SystemServiceRegistry {
         cached(Context.WINDOW_SERVICE, WindowManager.class, ctx -> new WindowManagerImpl((Context) (Object) ctx));
         cached(Context.SENSOR_SERVICE, SensorManager.class,
                 ctx -> new SystemSensorManager(ctx.getOuterContext(), Looper.getMainLooper()));
+        cached(Context.APPWIDGET_SERVICE, AppWidgetManager.class,
+                ctx -> new AppWidgetManager(ctx.getOuterContext(), null));
         cached(Context.ACCESSIBILITY_SERVICE, AccessibilityManager.class,
                 ctx -> AccessibilityManager.getInstance(ctx.getOuterContext()));
         cached(Context.WIFI_SERVICE, WifiManager.class, ctx -> new WifiManager(ctx.getOuterContext()));

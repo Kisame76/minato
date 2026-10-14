@@ -2,14 +2,19 @@
  * Our WindowManagerImpl, under AOSP's name (ADR-0041 decision 2, ADR-0039 step c2c3): what a Context's "window"
  * service gives, and what Window.setWindowManager wraps per window with createLocalWindowManager. As AOSP's, it hands
  * windows to WindowManagerGlobal with the context's display and the parent window, which gives a sub-window its
- * token. The window metrics (API 30), which AOSP's WindowMetricsController computes from the window manager's
- * frames, and the window manager's other calls are WindowManager's defaults until ADR-0041 a)'s insets.
+ * token. The window metrics (API 30) are the display's size without insets (ADR-0041 a)'s insets step brings them);
+ * the window manager's other calls are WindowManager's defaults.
  */
 package android.view;
 
 import android.content.Context;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.Region;
 import android.os.IBinder;
+import android.util.DisplayMetrics;
+
+import java.util.Set;
 
 public final class WindowManagerImpl implements WindowManager {
     private final WindowManagerGlobal mGlobal = WindowManagerGlobal.getInstance();
@@ -75,6 +80,35 @@ public final class WindowManagerImpl implements WindowManager {
     @Deprecated
     public Display getDefaultDisplay() {
         return mContext.getDisplayNoVerify();
+    }
+
+    /**
+     * The window metrics (API 30): the display's size, as AOSP's WindowMetricsController gives for a window that fills
+     * the display, with the insets that ViewRootImpl dispatches to a window (ViewRootImpl.systemInsets: none yet, as
+     * Minato shows no system bars; ADR-0041 a)'s insets step changes both together). The maximum is the same, as the
+     * display does not resize.
+     */
+    @Override
+    public WindowMetrics getCurrentWindowMetrics() {
+        return displayMetrics();
+    }
+
+    @Override
+    public WindowMetrics getMaximumWindowMetrics() {
+        return displayMetrics();
+    }
+
+    @Override
+    public Set<WindowMetrics> getPossibleMaximumWindowMetrics(int displayId) {
+        return Set.of(displayMetrics());
+    }
+
+    @SuppressWarnings("deprecation") // Display.getRealSize, which AOSP's own metrics replace
+    private WindowMetrics displayMetrics() {
+        final Point size = new Point();
+        getDefaultDisplay().getRealSize(size);
+        final DisplayMetrics metrics = mContext.getResources().getDisplayMetrics();
+        return new WindowMetrics(new Rect(0, 0, size.x, size.y), ViewRootImpl.systemInsets(), metrics.density);
     }
 
     /** No keyboard shortcuts yet (ADR-0041 a)'s input): the receiver hears of none. */

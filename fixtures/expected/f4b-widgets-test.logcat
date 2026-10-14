@@ -1,0 +1,15 @@
+I/f4b-widgets-test: popupMenu: size=3 first=One checked=true hasSub=true gravity=8388613
+I/f4b-widgets-test: popupMenu heard: [1:One, dismissed]
+I/f4b-widgets-test: actionMenuView: size=2 overflowReserved=true children=2 popupTheme=0
+I/f4b-widgets-test: actionMenuView measured=true laidOut=true drawn=true popupTheme=true children=2
+I/f4b-widgets-test: mediaController: showing=false enabled=true
+I/f4b-widgets-test: mediaController hidden: showing=false
+I/f4b-widgets-test: zoomButtons: visible=false autoDismissed=false zoomControls=true container=true
+I/f4b-widgets-test: windowMetrics: currentSize=true maxCovers=true insets=true density=true
+I/f4b-widgets-test: hideReturns: 61 a 62 feff 63 same=true
+I/f4b-widgets-test: httpResponseCache: installed=true same=true hits=0 requests=0 network=0 max=1048576
+I/f4b-widgets-test: httpResponseCache: java.io.IOException: not a readable directory: /data/user/0/io.github.kisame76.minato.test.widgets2/cache/http
+I/f4b-widgets-test: windowInspector: windows=true
+I/f4b-widgets-test: emoji: true
+I/f4b-widgets-test: eventLogTags: byName=true byTag=true
+I/f4b-widgets-test: done

@@ -631,9 +631,17 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     WindowInsets getWindowInsets(boolean forceConstruct) {
         if (mLastWindowInsets == null || forceConstruct) {
-            mLastWindowInsets = new WindowInsets.Builder().build();
+            mLastWindowInsets = systemInsets();
         }
         return mLastWindowInsets;
+    }
+
+    /**
+     * The insets of every window and of the window metrics (WindowManagerImpl), from one place: none yet, as Minato
+     * shows no system bars; ADR-0041 a)'s insets step (the Dynamic Island and the home indicator) changes them here.
+     */
+    static WindowInsets systemInsets() {
+        return new WindowInsets.Builder().build();
     }
 
     /** What system_server reports as the window gains or loses focus, posted as AOSP's is. */

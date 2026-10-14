@@ -1,0 +1,19 @@
+Minato's patch to frameworks/base's core/java/android/provider/DocumentsContract.java at android-15.0.0_r1
+(Apache-2.0), framework breadth F4a: DOWNLOADS_PROVIDER_AUTHORITY is the literal.
+
+Why: the constant is Downloads.Impl.AUTHORITY, which is the string "downloads". Downloads (the download provider's
+contract) imports NetworkPolicyManager and DownloadManager's hidden actions, which Minato has no use for: it has no
+download provider. A constant of a String is inlined by javac, so the literal is the same value at run time as
+Android's class gives.
+
+--- a/core/java/android/provider/DocumentsContract.java
++++ b/core/java/android/provider/DocumentsContract.java
+@@ -249,7 +249,7 @@
+      * {@hide}
+      */
+     @SystemApi
+-    public static final String DOWNLOADS_PROVIDER_AUTHORITY = Downloads.Impl.AUTHORITY;
++    public static final String DOWNLOADS_PROVIDER_AUTHORITY = "downloads";
+ 
+     /** {@hide} */
+     public static final String EXTERNAL_STORAGE_PRIMARY_EMULATED_ROOT_ID = "primary";

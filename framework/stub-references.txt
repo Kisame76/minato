@@ -40,7 +40,6 @@ com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo 
 # StrictMode (c1 took it): the penalties and checks that need system_server.
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
 android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictMode's detectCredentialProtectedWhileLocked
-com.android.internal.os.BackgroundThread <- android.os.StrictMode  # gap: StrictMode's penaltyDropBox
 
 # The app model, activities and views.
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
@@ -78,7 +77,6 @@ android.view.contentcapture.IContentCaptureManager$Stub <- android.view.contentc
 android.view.contentcapture.IDataShareWriteAdapter$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.MainContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.MainContentCaptureSessionV2 <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-com.android.internal.os.BackgroundThread <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 
 # The view tree (step c2c2): LayoutInflater, View, ViewGroup, FrameLayout and the rest of the tree, which an app's
 # code inflates, measures and lays out detached. What only an attached view reaches stayed a stub until step c2c3's
@@ -142,7 +140,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 
 # ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.
-android.provider.DocumentsContract <- android.os.storage.StorageVolume  # stays: StorageVolume's intents for the documents UI (createOpenDocumentTreeIntent), which Minato has none of
 
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
@@ -203,8 +200,6 @@ android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  
 android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.provider.ContactsContract$QuickContact <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
-android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
-android.appwidget.AppWidgetManager <- android.widget.RemoteViewsAdapter  # stays: app widgets' collection views (setRemoteViewsAdapter), which only an app widget host fills, and Minato hosts none
 
 # ADR-0045 gap 1, batch 2 (App): NotificationManager over the local notification service, with Notification, its
 # channels, RemoteViews, VibrationEffect and AudioAttributes. What they reach only on the system's side, in a host of
@@ -221,8 +216,6 @@ android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.Notificati
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
 android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
-android.appwidget.AppWidgetHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
-android.appwidget.AppWidgetHostView$AdapterChildHostView <- android.widget.RemoteCollectionItemsAdapter, android.widget.RemoteViews  # stays: RemoteViews applied in an app widget host (collection items, a click's launch), which Minato has none of
 com.android.internal.widget.remotecompose.player.RemoteComposeDocument <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
 com.android.internal.widget.remotecompose.player.RemoteComposePlayer$ClickCallbacks <- android.widget.RemoteViews  # stays: RemoteViews' draw instructions (RemoteCompose), which only a host plays
 com.android.internal.widget.remotecompose.player.RemoteComposePlayer <- android.widget.RemoteViews  # gap: an app's own apply of RemoteViews (apply, reapply), whose performApply asks for RemoteCompose's player
@@ -271,3 +264,4 @@ android.view.translation.TranslationResponseValue <- android.view.translation.Vi
 # Activity's signature types (App, the Unity test APK retest 10): the types they take in reach these.
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
+android.content.pm.LauncherApps <- android.appwidget.AppWidgetHostView  # stays: a widget host view's click launches the widget's activity through the launcher apps service, and Minato hosts no widget

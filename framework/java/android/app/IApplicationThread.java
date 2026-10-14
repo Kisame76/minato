@@ -11,5 +11,10 @@ public interface IApplicationThread extends android.os.IInterface {
         public android.os.IBinder asBinder() {
             return this;
         }
+
+        /** As AOSP's for a binder of this process: the interface itself, null for none (nothing is remote). */
+        public static IApplicationThread asInterface(android.os.IBinder obj) {
+            return obj instanceof IApplicationThread ? (IApplicationThread) obj : null;
+        }
     }
 }

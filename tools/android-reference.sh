@@ -539,6 +539,16 @@ run_app() {
     f2-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.F2Activity limit=90
       ;;
+    # f4b-widgets-test (framework breadth F4b): its activity's parts end with "done".
+    f4b-widgets-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WidgetsActivity
+      limit=90
+      ;;
+    # f4a-components-test (framework breadth F4a): its activity's parts end with "done".
+    f4a-components-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ComponentsActivity
+      limit=90
+      ;;
     # date-time-widgets-test (framework breadth F3): its activity's parts end with "done".
     date-time-widgets-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DateTimeActivity

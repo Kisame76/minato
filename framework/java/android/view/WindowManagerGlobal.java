@@ -16,6 +16,7 @@ import android.os.IBinder;
 import android.util.Log;
 import com.android.minato.services.ServiceStub;
 import java.util.ArrayList;
+import java.util.List;
 
 public final class WindowManagerGlobal {
     private static final String TAG = "WindowManagerGlobal";
@@ -197,6 +198,13 @@ public final class WindowManagerGlobal {
             }
         }
         return views;
+    }
+
+    /** As AOSP's: the views of the shown windows, which WindowInspector.getGlobalWindowViews gives. */
+    public List<View> getWindowViews() {
+        synchronized (mLock) {
+            return new ArrayList<>(mViews);
+        }
     }
 
     /** As AOSP's: the shown window whose view has this window token, which PopupWindow asks for its anchor's. */

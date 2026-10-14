@@ -1,0 +1,27 @@
+I/f4a-components-test: docsProvider onCreate
+I/f4a-components-test: documents roots: count=1 id=root title=Test root
+I/f4a-components-test: documents folder: Folder type=vnd.android.document/directory
+I/f4a-components-test: documents children: count=1 first=note.txt columns=[_display_name, _size, document_id, flags, mime_type]
+I/f4a-components-test: documents note: type=text/plain isDocumentUri=true id=dir/note.txt
+I/f4a-components-test: documents read: hello
+I/f4a-components-test: documents missing: null
+I/f4a-components-test: documents create: java.lang.UnsupportedOperationException: Create not supported
+I/f4a-components-test: documents delete: java.lang.UnsupportedOperationException: Delete not supported
+I/f4a-components-test: documents path: java.lang.SecurityException
+I/f4a-components-test: documents ischild: true
+I/f4a-components-test: recent suggestions: count=1 first=1 columns=[_id, suggest_format, suggest_icon_1, suggest_intent_query, suggest_text_1]
+I/f4a-components-test: recent suggestions cleared: count=0
+I/f4a-components-test: appWidget manager: true ids=0 same=true
+I/f4a-components-test: appWidget update heard: [update [7, 9] manager=true, enabled]
+I/f4a-components-test: remoteCollection: bound=false
+I/f4a-components-test: declared android.app.admin.DelegatedAdminReceiver: super=class android.content.BroadcastReceiver interface=false
+I/f4a-components-test: declared android.service.restrictions.RestrictionsReceiver: super=class android.content.BroadcastReceiver interface=false
+I/f4a-components-test: declared android.service.media.CameraPrewarmService: super=class android.app.Service interface=false
+I/f4a-components-test: declared android.app.ZygotePreload: super=null interface=true
+I/f4a-components-test: declared android.appwidget.AppWidgetProviderInfo: super=class java.lang.Object interface=false
+I/f4a-components-test: declared android.app.SearchableInfo: super=class java.lang.Object interface=false
+I/f4a-components-test: declared admin: true restrict=true prewarm=true
+I/f4a-components-test: progressDialog: showing=true progress=10 max=100 indeterminate=false
+I/f4a-components-test: progressDialog dismissed: showing=false
+I/f4a-components-test: searchableInfo: manager=true info=false
+I/f4a-components-test: done
