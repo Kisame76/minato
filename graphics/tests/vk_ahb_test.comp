@@ -1,0 +1,13 @@
+// vk-ahb-test's sampling (graphics/tests/vk_ahb_test.c): each texel of the 8 x 8 image, read through a NEAREST
+// sampler at its centre, packed into a word whose low byte is red.
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D image;
+layout(binding = 1) buffer Texels {
+    uint texels[];
+};
+
+void main() {
+    const ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+    texels[at.y * 8 + at.x] = packUnorm4x8(textureLod(image, (vec2(at) + 0.5) / 8.0, 0.0));
+}

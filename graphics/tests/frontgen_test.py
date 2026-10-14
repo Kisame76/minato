@@ -44,6 +44,8 @@ import ndk_headers
 # must count the extensions glGetStringi lists. V5's guard writes vkCreateImageView by hand (ADR-0030).
 # ADR-0041 a1 adds libGLESv1_CM: 173 names beyond libGLESv2's and libGLESv3's, 169 the same in both ABIs and 4
 # with small arguments (glColor4ub, glDrawTexsOES, glSampleCoveragex, glSampleCoveragexOES), and the 7 outside.
+# ADR-0058 decision 7 writes vkCreateImage, vkDestroyImage, vkAllocateMemory, vkFreeMemory and
+# vkGetPhysicalDeviceImageFormatProperties2 by hand, and the five calls with barriers.
 ABI_COUNTS = {
     "gles": {"same": 589, "extend": 37, "repack": 8},
     "egl": {"same": 73},
@@ -52,7 +54,7 @@ ABI_COUNTS = {
 KIND_COUNTS = {
     "gles": {"plain": 578, "extend": 37, "repack": 8, "by hand": 11},
     "egl": {"plain": 55, "by hand": 18},
-    "vulkan": {"plain": 149, "without allocator": 45, "by hand": 39},
+    "vulkan": {"plain": 143, "without allocator": 41, "by hand": 49},
 }
 # ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the
 # private exports beside the NDK's names (B1: libEGL finds libGLES's functions with minato_gles_proc).
@@ -79,14 +81,16 @@ LIBS = ["vulkan", "gles", "egl"]
 # EGL_NOT_INITIALIZED. Everything else answers 0 both times.
 ANSWERS = {"VkResult": (-8, -9), "eglGetError": (0x3000, 0x3001)}
 # Decision 11: the extensions libvulkan implements itself, with VK_GOOGLE_display_timing on its swapchains for
-# Swappy (ADR-0041 decision 11). And the structures whose pNext chains libvulkan copies, for which it needs the
-# size of every structure that may extend them.
+# Swappy (ADR-0041 decision 11) and AHardwareBuffer's two (ADR-0058 decision 7). And the structures whose pNext
+# chains libvulkan copies, for which it needs the size of every structure that may extend them.
 OWN_EXTENSIONS = {
     "VK_KHR_surface", "VK_KHR_surface_protected_capabilities", "VK_KHR_android_surface",
     "VK_EXT_swapchain_colorspace", "VK_KHR_get_surface_capabilities2", "VK_GOOGLE_surfaceless_query",
     "VK_KHR_swapchain", "VK_KHR_incremental_present", "VK_GOOGLE_display_timing",
+    "VK_ANDROID_external_memory_android_hardware_buffer", "VK_EXT_queue_family_foreign",
 }
-CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo", "VkSubmitInfo", "VkBindSparseInfo"}
+CHAINS = {"VkInstanceCreateInfo", "VkDeviceCreateInfo", "VkSubmitInfo", "VkBindSparseInfo", "VkImageCreateInfo",
+          "VkMemoryAllocateInfo", "VkPhysicalDeviceImageFormatInfo2"}
 # Decision 11's extensions left out by name: Apple's and Metal's, what libvulkan pins or enables itself,
 # and those that take or extend the swapchain and the surface, which libvulkan puts its own in front of.
 LEFT_OUT = {
@@ -430,9 +434,9 @@ def check_vulkan_lists(report, root):
     check(not wrong, f"vulkan: each name of vulkan_procs.inc has its function (the one written by hand, else its "
                      f"stub), its level from its first parameter and the own extensions that bring it "
                      f"({len(wrong)} differ{': ' + '; '.join(wrong[:6]) if wrong else ''})")
-    check(sum(1 for *_, text in listed if text != "0") == 19,
-          "vulkan: the 19 functions of the surface, the swapchain, VK_KHR_get_surface_capabilities2 and "
-          "VK_GOOGLE_display_timing have owners")
+    check(sum(1 for *_, text in listed if text != "0") == 21,
+          "vulkan: the 21 functions of the surface, the swapchain, VK_KHR_get_surface_capabilities2, "
+          "VK_GOOGLE_display_timing and AHardwareBuffers have owners")
 
     # The offered extensions, sorted, each with its kind, the own ones marked.
     listed = read("vulkan_extensions.inc", r"^MINATO_EXTENSION\((\w+), (\w+), (MINATO_OWNER\(\w+\)|0)\)$")

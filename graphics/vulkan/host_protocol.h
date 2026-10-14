@@ -1,5 +1,5 @@
-/* What libvulkan and graphics/host agree on beyond MoltenVK's API (ADR-0030, decisions 12 and 13): libvulkan
-   includes it as guest code, graphics/host as host code. */
+/* What libvulkan and graphics/host agree on beyond MoltenVK's API (ADR-0030, decisions 12 and 13; ADR-0058 decision
+   7): libvulkan includes it as guest code, graphics/host as host code. */
 #ifndef MINATO_VULKAN_HOST_PROTOCOL_H
 #define MINATO_VULKAN_HOST_PROTOCOL_H
 
@@ -26,6 +26,16 @@ struct minato_windows {
     uint32_t count;
     const uint64_t *windows;
     uint32_t flags;  /* MINATO_WINDOWS_*, for a present */
+};
+
+/* The hardware buffer that a dedicated allocation of an image imports, first in the pNext chain of what libvulkan
+   hands graphics/host's vkAllocateMemory: the buffer's ID (AHardwareBuffer_getId). graphics/host gives the chain's
+   dedicated image the buffer's IOSurface and takes the structure out before MoltenVK sees the chain. */
+#define MINATO_STRUCTURE_TYPE_HARDWARE_BUFFER ((VkStructureType)0x6d696e63)
+struct minato_hardware_buffer {
+    VkStructureType sType;
+    const void *pNext;
+    uint64_t buffer;
 };
 
 #endif

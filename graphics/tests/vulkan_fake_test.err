@@ -133,6 +133,16 @@ fake: vkDestroySemaphore s6, allocator NULL
 fake: vkDestroySemaphore s7, allocator NULL
 fake: vkDestroySemaphore s8, allocator NULL
 fake: vkDestroySemaphore s9, allocator NULL
+fake: vkCreateCommandPool, allocator NULL: family 0, flags 0x0: pool 1
+fake: vkAllocateCommandBuffers pool 1, level 0: command buffers 1 to 1
+fake: vkCmdPipelineBarrier on command buffer 1, stages 0x1 to 0x800, dependencies 0x0, 0 memory, 1 buffers, 2 images:
+fake:   image 66, layout 1 to 5, access 0x0 to 0x0, families -1 to -1, aspect 0x1, levels 0+1, layers 0+1
+fake:   image 66, layout 0 to 1, access 0x0 to 0x0, families 0 to 0, aspect 0x1, levels 0+1, layers 0+1
+fake:   a buffer, families -1 to -1
+fake: vkCmdPipelineBarrier2 on command buffer 1, 1 buffers, 1 images:
+fake:   image 66, layout 5 to 1, families -1 to -1
+fake:   a buffer, families -1 to -1
+fake: vkDestroyCommandPool pool 1, allocator NULL
 fake: vkDestroySemaphore s1, allocator NULL
 fake: vkDestroySemaphore s2, allocator NULL
 fake: vkDestroySemaphore s3, allocator NULL

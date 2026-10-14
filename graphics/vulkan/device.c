@@ -1,5 +1,5 @@
-/* libvulkan's device: its layers and extensions, vkCreateDevice with the queues' timeline semaphores, and
-   AHardwareBuffer's two functions (ADR-0030, decisions 5, 10, 11 and 13). */
+/* libvulkan's device: its layers and extensions, and vkCreateDevice with the queues' timeline semaphores (ADR-0030,
+   decisions 5, 10, 11 and 13). */
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +15,16 @@ MINATO_HOST(vkDestroyDevice);
 static const VkStructureType taken_out[] = {VK_STRUCTURE_TYPE_DEVICE_DEVICE_MEMORY_REPORT_CREATE_INFO_EXT};
 static const VkStructureType features[] = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
                                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+
+/* The own extensions MoltenVK does not have, which libvulkan adds to the list and takes out of vkCreateDevice's. */
+#define LIBVULKAN_ONLY                                                                              \
+    (MINATO_OWNER(VK_KHR_incremental_present) |                                                      \
+     MINATO_OWNER(VK_ANDROID_external_memory_android_hardware_buffer) | MINATO_OWNER(VK_EXT_queue_family_foreign))
+
+/* What VK_ANDROID_external_memory_android_hardware_buffer requires of MoltenVK (ADR-0058 decision 7), its own
+   VK_EXT_queue_family_foreign aside, and the Metal objects graphics/host imports its IOSurfaces with. */
+static const char *const hardware_buffer_needs[] = {"VK_KHR_sampler_ycbcr_conversion", "VK_KHR_external_memory",
+                                                    "VK_KHR_dedicated_allocation", "VK_EXT_metal_objects"};
 
 VkResult vkEnumerateDeviceLayerProperties(VkPhysicalDevice physical, uint32_t *count, VkLayerProperties *properties) {
     (void)physical, (void)properties;
@@ -33,7 +43,7 @@ VkResult vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physical, const c
         return result;
     }
     VkExtensionProperties *moltenvk = malloc((theirs + 1) * sizeof *moltenvk);
-    VkExtensionProperties *list = malloc((theirs + 1) * sizeof *list);
+    VkExtensionProperties *list = malloc((theirs + 3) * sizeof *list);
     if (moltenvk == NULL || list == NULL ||
         (result = minato_host_vkEnumerateDeviceExtensionProperties(physical, NULL, &theirs, moltenvk)) < 0) {
         free(moltenvk);
@@ -41,14 +51,24 @@ VkResult vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physical, const c
         return result < 0 ? result : VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     /* VK_KHR_incremental_present, whose regions libvulkan ignores, then MoltenVK's offered device
-       extensions in its order (decision 11). */
+       extensions in its order (decision 11), then AHardwareBuffer's two where MoltenVK has what they need
+       (ADR-0058 decision 7). */
     list[0] = (VkExtensionProperties){VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME, VK_KHR_INCREMENTAL_PRESENT_SPEC_VERSION};
-    uint32_t length = 1;
+    uint32_t length = 1, needs = 0;
     for (uint32_t index = 0; index < theirs; index++) {
         const struct minato_extension *extension = minato_extension(moltenvk[index].extensionName);
-        if (extension != NULL && extension->device && extension->owner != MINATO_OWNER(VK_KHR_incremental_present)) {
+        for (size_t need = 0; need < sizeof hardware_buffer_needs / sizeof *hardware_buffer_needs; need++) {
+            needs += strcmp(moltenvk[index].extensionName, hardware_buffer_needs[need]) == 0;
+        }
+        if (extension != NULL && extension->device && (extension->owner & LIBVULKAN_ONLY) == 0) {
             list[length++] = moltenvk[index];
         }
+    }
+    if (needs == sizeof hardware_buffer_needs / sizeof *hardware_buffer_needs) {
+        list[length++] = (VkExtensionProperties){VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+                                                 VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_SPEC_VERSION};
+        list[length++] = (VkExtensionProperties){VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+                                                 VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION};
     }
     result = minato_hand_out(list, length, count, properties);
     free(moltenvk);
@@ -59,7 +79,7 @@ VkResult vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physical, const c
 VkResult vkCreateDevice(VkPhysicalDevice physical, const VkDeviceCreateInfo *info,
                         const VkAllocationCallbacks *allocator, VkDevice *device) {
     (void)allocator;  /* never passed on (decision 5) */
-    /* The app's extensions that libvulkan offers, without the one it implements alone; then what it
+    /* The app's extensions that libvulkan offers, without the ones it implements alone; then what it
        enables itself (decision 11). Device layers are ignored, as the specification says. */
     const char **names = malloc((info->enabledExtensionCount + 2) * sizeof *names);
     if (names == NULL) {
@@ -73,7 +93,7 @@ VkResult vkCreateDevice(VkPhysicalDevice physical, const VkDeviceCreateInfo *inf
             return VK_ERROR_EXTENSION_NOT_PRESENT;
         }
         owned |= extension->owner;
-        if (extension->owner != MINATO_OWNER(VK_KHR_incremental_present)) {
+        if ((extension->owner & LIBVULKAN_ONLY) == 0) {
             names[count++] = info->ppEnabledExtensionNames[index];
         }
     }
@@ -140,18 +160,4 @@ void vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator) {
         }
         minato_host_vkDestroyDevice(device, NULL);
     }
-}
-
-/* AHardwareBuffer's functions, while VK_ANDROID_external_memory_android_hardware_buffer is not offered
-   (decision 10). */
-VkResult vkGetAndroidHardwareBufferPropertiesANDROID(VkDevice device, const struct AHardwareBuffer *buffer,
-                                                     VkAndroidHardwareBufferPropertiesANDROID *properties) {
-    (void)device, (void)buffer, (void)properties;
-    return VK_ERROR_INVALID_EXTERNAL_HANDLE;
-}
-
-VkResult vkGetMemoryAndroidHardwareBufferANDROID(VkDevice device, const VkMemoryGetAndroidHardwareBufferInfoANDROID *info,
-                                                 struct AHardwareBuffer **buffer) {
-    (void)device, (void)info, (void)buffer;
-    return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 }

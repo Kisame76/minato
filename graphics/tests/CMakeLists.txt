@@ -333,8 +333,12 @@ if(TARGET minato_graphics_host)
     add_guest_test(vulkan_destroy vulkan-destroy-test vulkan_destroy_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:late-scheduled:100"
       "MINATO_WINDOW=set:64x48")
+    # ADR-0058 e1), decision 7: VK_ANDROID_external_memory_android_hardware_buffer on graphics/host's hardware
+    # buffers, with Android 15's answers.
+    add_guest_test(vk_ahb vk-ahb-test vk_ahb_test "${vulkan_system_libraries}" "MINATO_MOLTENVK=set:${moltenvk}"
+      "MINATO_ANGLE=unset:")
   else()
-    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy)
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy vk_ahb)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -612,10 +616,33 @@ if(EXISTS "${ndk_android_headers}/hardware_buffer.h")
   target_compile_definitions(buffer-queue-host-test PRIVATE syscall=minato_host_syscall MINATO_QUEUE_LIBRARY=nullptr)
   target_link_libraries(buffer-queue-host-test PRIVATE apk_defaults)
   add_test(NAME graphics.buffer_queue_host COMMAND buffer-queue-host-test)
+  # ADR-0058 decision 7: external-memory-host-test, libvulkan's AHardwareBuffer functions (graphics/vulkan/
+  # external_memory.c with common.c) on the Mac against MoltenVK and AHardwareBuffer stand-ins of its own, for the
+  # sanitizers, which vk-ahb-test runs as guest code; tools/frontgen's tables come from tools/build-front-libs.sh.
+  if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_structs.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")
+    add_executable(external-memory-host-test external_memory_host_test.c
+      "${PROJECT_SOURCE_DIR}/graphics/vulkan/external_memory.c" "${PROJECT_SOURCE_DIR}/graphics/vulkan/common.c")
+    target_include_directories(external-memory-host-test SYSTEM PRIVATE "${buffer_queue_host_include}"
+      "${APK_MOLTENVK_DIR}/include")
+    target_include_directories(external-memory-host-test PRIVATE "${PROJECT_SOURCE_DIR}/graphics/vulkan"
+      "${PROJECT_SOURCE_DIR}/graphics/guest" "${APK_GRAPHICS_GEN_DIR}" "${PROJECT_SOURCE_DIR}/runtime/include")
+    target_compile_options(external-memory-host-test PRIVATE
+      -include "${CMAKE_CURRENT_SOURCE_DIR}/buffer_queue_host_shim.h" -Wno-deprecated-declarations)
+    target_compile_definitions(external-memory-host-test PRIVATE syscall=minato_host_syscall)
+    target_link_libraries(external-memory-host-test PRIVATE apk_defaults)
+    add_test(NAME graphics.external_memory_host COMMAND external-memory-host-test)
+  else()
+    add_test(NAME graphics.external_memory_host COMMAND ${CMAKE_COMMAND} -E echo
+      "skipped: no tables of tools/frontgen in ${APK_GRAPHICS_GEN_DIR} or no MoltenVK headers")
+    set_tests_properties(graphics.external_memory_host PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  endif()
 else()
   add_test(NAME graphics.buffer_queue_host COMMAND ${CMAKE_COMMAND} -E echo
     "skipped: no NDK headers at ${ndk_android_headers} (APK_ANDROID_NDK)")
   set_tests_properties(graphics.buffer_queue_host PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+  add_test(NAME graphics.external_memory_host COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: no NDK headers at ${ndk_android_headers} (APK_ANDROID_NDK)")
+  set_tests_properties(graphics.external_memory_host PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
 
 # ADR-0041 decision 11: graphics/host's time for Core Animation, the refresh asked for on the refresh grid less half a

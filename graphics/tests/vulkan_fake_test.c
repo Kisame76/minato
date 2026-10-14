@@ -11,7 +11,9 @@
      vkQueueWaitIdle, vkDeviceWaitIdle and the app's waits become (decisions 4 and 13);
    - that graphics/host's "scheduled" waits until a submit has left MoltenVK (decision 13);
    - the messages the fake sends from a thread of its own, which graphics/host logs instead of calling the
-     app (decision 5). */
+     app (decision 5);
+   - barriers with the foreign and the external queue family, whose families reach MoltenVK as
+     VK_QUEUE_FAMILY_IGNORED, and one without, as it is (ADR-0058 decision 7). */
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
@@ -255,6 +257,60 @@ static void queues(VkDevice device) {
     vkDestroySemaphore(device, timeline, NULL);
 }
 
+/* Barriers on a command buffer of the fake's: an image from the foreign queue family and one of family 0 alone, a
+   buffer to the external family; then synchronization2's, an image to the foreign family and a buffer without
+   families. */
+static void barriers(VkDevice device) {
+    const VkCommandPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    VkCommandPool pool;
+    vkCreateCommandPool(device, &pool_info, NULL, &pool);
+    const VkCommandBufferAllocateInfo buffer_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                                     .commandPool = pool,
+                                                     .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                                     .commandBufferCount = 1};
+    VkCommandBuffer commands;
+    vkAllocateCommandBuffers(device, &buffer_info, &commands);
+    const VkImage image = (VkImage)(uintptr_t)0x60000042u;
+    const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    const VkImageMemoryBarrier images[] = {
+        {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+         .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .srcQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT,
+         .dstQueueFamilyIndex = 0, .image = image, .subresourceRange = range},
+        {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+         .newLayout = VK_IMAGE_LAYOUT_GENERAL, .srcQueueFamilyIndex = 0, .dstQueueFamilyIndex = 0, .image = image,
+         .subresourceRange = range},
+    };
+    const VkBufferMemoryBarrier buffers[] = {{.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                              .srcQueueFamilyIndex = 0,
+                                              .dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL,
+                                              .size = VK_WHOLE_SIZE}};
+    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
+                         1, buffers, 2, images);
+    printf("the app's barriers as they were: %s\n",
+           images[0].srcQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT &&
+                   buffers[0].dstQueueFamilyIndex == VK_QUEUE_FAMILY_EXTERNAL
+               ? "yes"
+               : "no");
+    const VkImageMemoryBarrier2 images2[] = {{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                              .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                              .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                              .srcQueueFamilyIndex = 0,
+                                              .dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT,
+                                              .image = image,
+                                              .subresourceRange = range}};
+    const VkBufferMemoryBarrier2 buffers2[] = {{.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                                                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                                .size = VK_WHOLE_SIZE}};
+    const VkDependencyInfo dependency = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                         .bufferMemoryBarrierCount = 1,
+                                         .pBufferMemoryBarriers = buffers2,
+                                         .imageMemoryBarrierCount = 1,
+                                         .pImageMemoryBarriers = images2};
+    vkCmdPipelineBarrier2(commands, &dependency);
+    vkDestroyCommandPool(device, pool, NULL);
+}
+
 int main(void) {
     uint32_t version = 0, count = 0;
     VkResult result = vkEnumerateInstanceVersion(&version);
@@ -466,7 +522,8 @@ int main(void) {
 
     queues(device);
 
-    /* AHardwareBuffer's two functions while its extension is not offered (decision 10). */
+    /* AHardwareBuffer's two functions on a device without its extension, which the fake lacks what it needs for
+       (ADR-0058 decision 7): NULL and no memory of a buffer. */
     VkAndroidHardwareBufferPropertiesANDROID buffer_properties = {
         .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID};
     const VkMemoryGetAndroidHardwareBufferInfoANDROID memory = {
@@ -475,6 +532,7 @@ int main(void) {
     printf("vkGetAndroidHardwareBufferPropertiesANDROID: %d, vkGetMemoryAndroidHardwareBufferANDROID: %d\n",
            vkGetAndroidHardwareBufferPropertiesANDROID(device, NULL, &buffer_properties),
            vkGetMemoryAndroidHardwareBufferANDROID(device, &memory, &buffer));
+    barriers(device);
 
     vkDestroyDevice(device, &allocator);
     vkDestroyDevice(plain, NULL);

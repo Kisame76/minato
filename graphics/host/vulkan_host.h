@@ -8,8 +8,9 @@
 #include <vulkan/vulkan.h>
 
 /* Puts graphics/host's functions into the slots of libvulkan's table whose MoltenVK functions they stand
-   in front of, and keeps those to call. The table holds MoltenVK's functions. */
-void minato_graphics_vulkan_wrap(void **table);
+   in front of, and keeps those to call. The table holds MoltenVK's functions; `library` is MoltenVK, opened with
+   dlopen, for the functions the table does not hold. */
+void minato_graphics_vulkan_wrap(void **table, void *library);
 
 /* "Scheduled" for the runtime (apkrt_add_scheduled_provider): minato_graphics_vulkan_scheduled. */
 int minato_graphics_vulkan_provider(void *context, uint64_t deadline);

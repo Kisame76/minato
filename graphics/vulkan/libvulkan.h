@@ -23,7 +23,8 @@
 #define MINATO_OWN_EXTENSIONS(X)                                                                    \
     X(VK_KHR_surface) X(VK_KHR_surface_protected_capabilities) X(VK_KHR_android_surface)           \
     X(VK_EXT_swapchain_colorspace) X(VK_KHR_get_surface_capabilities2) X(VK_GOOGLE_surfaceless_query) \
-    X(VK_KHR_swapchain) X(VK_KHR_incremental_present) X(VK_GOOGLE_display_timing)
+    X(VK_KHR_swapchain) X(VK_KHR_incremental_present) X(VK_GOOGLE_display_timing)                     \
+    X(VK_ANDROID_external_memory_android_hardware_buffer) X(VK_EXT_queue_family_foreign)
 #define MINATO_OWN_BIT(name) MINATO_OWN_BIT_##name,
 enum { MINATO_OWN_EXTENSIONS(MINATO_OWN_BIT) };
 #undef MINATO_OWN_BIT

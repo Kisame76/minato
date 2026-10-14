@@ -1024,7 +1024,7 @@ EXPORTED void vkCmdPipelineBarrier(VkCommandBuffer buffer, VkPipelineStageFlags 
                                    const VkMemoryBarrier *memory, uint32_t buffer_count,
                                    const VkBufferMemoryBarrier *buffers, uint32_t image_count,
                                    const VkImageMemoryBarrier *barriers) {
-    (void)memory, (void)buffers;
+    (void)memory;
     fprintf(stderr, "fake: vkCmdPipelineBarrier on command buffer %u, stages 0x%x to 0x%x, dependencies 0x%x, "
             "%u memory, %u buffers, %u images:\n", buffer_number(buffer), from, to, dependencies, memory_count,
             buffer_count, image_count);
@@ -1036,6 +1036,27 @@ EXPORTED void vkCmdPipelineBarrier(VkCommandBuffer buffer, VkPipelineStageFlags 
                 (int)barrier->dstQueueFamilyIndex, barrier->subresourceRange.aspectMask,
                 barrier->subresourceRange.baseMipLevel, barrier->subresourceRange.levelCount,
                 barrier->subresourceRange.baseArrayLayer, barrier->subresourceRange.layerCount);
+    }
+    for (uint32_t index = 0; index < buffer_count; index++) {
+        fprintf(stderr, "fake:   a buffer, families %d to %d\n", (int)buffers[index].srcQueueFamilyIndex,
+                (int)buffers[index].dstQueueFamilyIndex);
+    }
+}
+
+/* Synchronization2's barrier, for the queue families libvulkan passes on (ADR-0058 decision 7). */
+EXPORTED void vkCmdPipelineBarrier2(VkCommandBuffer buffer, const VkDependencyInfo *info) {
+    fprintf(stderr, "fake: vkCmdPipelineBarrier2 on command buffer %u, %u buffers, %u images:\n", buffer_number(buffer),
+            info->bufferMemoryBarrierCount, info->imageMemoryBarrierCount);
+    for (uint32_t index = 0; index < info->imageMemoryBarrierCount; index++) {
+        const VkImageMemoryBarrier2 *barrier = &info->pImageMemoryBarriers[index];
+        fprintf(stderr, "fake:   %s, layout %d to %d, families %d to %d\n", image_name(barrier->image),
+                barrier->oldLayout, barrier->newLayout, (int)barrier->srcQueueFamilyIndex,
+                (int)barrier->dstQueueFamilyIndex);
+    }
+    for (uint32_t index = 0; index < info->bufferMemoryBarrierCount; index++) {
+        const VkBufferMemoryBarrier2 *barrier = &info->pBufferMemoryBarriers[index];
+        fprintf(stderr, "fake:   a buffer, families %d to %d\n", (int)barrier->srcQueueFamilyIndex,
+                (int)barrier->dstQueueFamilyIndex);
     }
 }
 

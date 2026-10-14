@@ -27,7 +27,8 @@ static const struct proc procs[] = {
 /* The own extensions of a device; their functions are there for an instance before any device. */
 #define OWN_DEVICE_EXTENSIONS                                                  \
     (MINATO_OWNER(VK_KHR_swapchain) | MINATO_OWNER(VK_KHR_incremental_present) | \
-     MINATO_OWNER(VK_GOOGLE_display_timing))
+     MINATO_OWNER(VK_GOOGLE_display_timing) |                                    \
+     MINATO_OWNER(VK_ANDROID_external_memory_android_hardware_buffer) | MINATO_OWNER(VK_EXT_queue_family_foreign))
 
 static int by_name(const void *key, const void *element) {
     return strcmp(key, ((const struct proc *)element)->name);

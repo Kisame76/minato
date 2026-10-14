@@ -18,9 +18,17 @@
    - vkCreateDevice keeps each queue's MTLCommandQueue for "scheduled", and vkDestroyDevice lets them go;
    - the app's debug callbacks, from vkCreateInstance's chain or their create functions, reach MoltenVK as
      graphics/host's functions, which call the app's through apkrt_call_guest on guest threads only and log
-     the message on any other thread (decision 5).
+     the message on any other thread (decision 5);
+   - a dedicated allocation of a hardware buffer, which libvulkan names first in vkAllocateMemory's chain
+     (host_protocol.h, ADR-0058 decision 7), gives the dedicated image the buffer's IOSurface (vkUseIOSurfaceMVK, which
+     replaces the IOSurface of an image that has no memory yet) before MoltenVK allocates the memory; an ID without a
+     buffer of graphics/host's, a buffer of more than one layer, an IOSurface whose size or bytes per texel differ from
+     the image's, or a MoltenVK without the function answer VK_ERROR_INVALID_EXTERNAL_HANDLE; when MoltenVK's
+     allocation fails after it, the image keeps the IOSurface, which a later import replaces. vkUseIOSurfaceMVK is
+     MoltenVK's deprecated API, ADR-0058 decision 7's departure: check it at every update of MoltenVK.
    Manual reference counting: the queues live in plain C structures. */
 #import <Foundation/Foundation.h>
+#import <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 #define VK_USE_PLATFORM_ANDROID_KHR
@@ -28,6 +36,7 @@
 #include <vulkan/vulkan.h>
 
 #include <dispatch/dispatch.h>
+#include <dlfcn.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -61,7 +70,10 @@ static PFN_vkCreateDebugUtilsMessengerEXT create_messenger;
 static PFN_vkDestroyDebugUtilsMessengerEXT destroy_messenger;
 static PFN_vkCreateDebugReportCallbackEXT create_report;
 static PFN_vkDestroyDebugReportCallbackEXT destroy_report;
+static PFN_vkAllocateMemory allocate_memory;
 static PFN_vkGetDeviceQueue2 get_queue;
+/* MoltenVK's vkUseIOSurfaceMVK (mvk_deprecated_api.h), NULL for a library without it. */
+static VkResult (*use_iosurface)(VkImage image, IOSurfaceRef surface);
 static PFN_vkGetDeviceProcAddr device_function;
 static PFN_vkGetInstanceProcAddr instance_function;
 
@@ -789,7 +801,49 @@ static void report_destroyed(VkInstance instance, VkDebugReportCallbackEXT repor
     callbacks_forget((uint64_t)(uintptr_t)reported);
 }
 
-void minato_graphics_vulkan_wrap(void **table) {
+/* The IOSurface of the hardware buffer `buffer`, retained; NULL for an ID without a buffer of graphics/host's or a
+   buffer of more than one layer. The host's reference is only taken for the lookup: the memory's reference to the
+   buffer is libvulkan's, and the image retains the IOSurface. */
+static IOSurfaceRef buffer_surface(uint64_t buffer) {
+    uint64_t handle = 0;
+    void *context = NULL;
+    struct apkrt_hardware_buffer_description description;
+    uint32_t stride = 0;
+    if (buffer == 0 || apkrt_hardware_buffer_acquire_handle(buffer, &handle, &context, &description, &stride) != 0) {
+        return NULL;
+    }
+    IOSurfaceRef surface = context == minato_graphics_hardware_buffers()->context && description.layers == 1
+                               ? (IOSurfaceRef)minato_graphics_hardware_buffer_surface(handle)
+                               : NULL;
+    apkrt_hardware_buffer_release_handle(buffer);
+    return surface;
+}
+
+static VkResult memory_allocated(VkDevice device, const VkMemoryAllocateInfo *info,
+                                 const VkAllocationCallbacks *allocator, VkDeviceMemory *memory) {
+    const struct minato_hardware_buffer *named = info->pNext;
+    if (named == NULL || named->sType != MINATO_STRUCTURE_TYPE_HARDWARE_BUFFER) {
+        return allocate_memory(device, info, allocator, memory);
+    }
+    VkMemoryAllocateInfo theirs = *info;
+    theirs.pNext = named->pNext;
+    const VkMemoryDedicatedAllocateInfo *dedicated = NULL;
+    for (const VkBaseInStructure *next = theirs.pNext; next != NULL && dedicated == NULL; next = next->pNext) {
+        if (next->sType == VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO) {
+            dedicated = (const VkMemoryDedicatedAllocateInfo *)next;
+        }
+    }
+    IOSurfaceRef surface = NULL;
+    if (dedicated == NULL || dedicated->image == VK_NULL_HANDLE || use_iosurface == NULL ||
+        (surface = buffer_surface(named->buffer)) == NULL) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+    const VkResult used = use_iosurface(dedicated->image, surface);
+    CFRelease(surface);
+    return used == VK_SUCCESS ? allocate_memory(device, &theirs, allocator, memory) : VK_ERROR_INVALID_EXTERNAL_HANDLE;
+}
+
+void minato_graphics_vulkan_wrap(void **table, void *library) {
 #define WRAP(name, moltenvk, ours)                            \
     moltenvk = (PFN_##name)table[MINATO_VULKAN_SLOT_##name]; \
     table[MINATO_VULKAN_SLOT_##name] = (void *)ours;
@@ -809,7 +863,9 @@ void minato_graphics_vulkan_wrap(void **table) {
     WRAP(vkDestroyDebugUtilsMessengerEXT, destroy_messenger, messenger_destroyed)
     WRAP(vkCreateDebugReportCallbackEXT, create_report, report_created)
     WRAP(vkDestroyDebugReportCallbackEXT, destroy_report, report_destroyed)
+    WRAP(vkAllocateMemory, allocate_memory, memory_allocated)
 #undef WRAP
+    use_iosurface = (VkResult(*)(VkImage, IOSurfaceRef))dlsym(library, "vkUseIOSurfaceMVK");
     table[MINATO_VULKAN_SLOT_vkCreateAndroidSurfaceKHR] = (void *)surface_created;
     get_queue = (PFN_vkGetDeviceQueue2)table[MINATO_VULKAN_SLOT_vkGetDeviceQueue2];
     device_function = (PFN_vkGetDeviceProcAddr)table[MINATO_VULKAN_SLOT_vkGetDeviceProcAddr];

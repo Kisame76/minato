@@ -97,8 +97,7 @@ struct lib {
 };
 
 static void vulkan_wrap(void **table, void *library) {
-    (void)library;
-    minato_graphics_vulkan_wrap(table);
+    minato_graphics_vulkan_wrap(table, library);
 }
 
 static struct lib libs[] = {

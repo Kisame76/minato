@@ -12,8 +12,9 @@ answer VkResult VK_ERROR_FEATURE_NOT_PRESENT VK_ERROR_INCOMPATIBLE_DRIVER
 # Decision 11: the version libvulkan offers; vkGet*ProcAddr give NULL for the functions of later ones.
 version 1.3
 # The create infos and batches whose pNext chains libvulkan copies to take structures out or change them
-# (decisions 5, 8, 11 and 13).
+# (decisions 5, 8, 11 and 13), and those of AHardwareBuffer's import and export (ADR-0058 decision 7).
 chain VkInstanceCreateInfo VkDeviceCreateInfo VkSubmitInfo VkBindSparseInfo
+chain VkImageCreateInfo VkMemoryAllocateInfo VkPhysicalDeviceImageFormatInfo2
 
 # Decision 10: the exports written by hand.
 hand vkCreateInstance vkDestroyInstance vkEnumerateInstanceVersion vkEnumerateInstanceExtensionProperties
@@ -28,6 +29,10 @@ hand vkAcquireNextImage2KHR vkQueuePresentKHR
 hand vkQueueSubmit vkQueueSubmit2 vkQueueBindSparse vkQueueWaitIdle vkDeviceWaitIdle vkWaitForFences
 hand vkWaitSemaphores vkGetQueryPoolResults
 hand vkGetAndroidHardwareBufferPropertiesANDROID vkGetMemoryAndroidHardwareBufferANDROID
+# ADR-0058 decision 7: what an AHardwareBuffer's import and export change on the way to MoltenVK.
+hand vkCreateImage vkDestroyImage vkAllocateMemory vkFreeMemory vkGetPhysicalDeviceImageFormatProperties2
+# And the barriers, whose foreign and external queue families MoltenVK never sees.
+hand vkCmdPipelineBarrier vkCmdWaitEvents vkCmdPipelineBarrier2 vkCmdWaitEvents2 vkCmdSetEvent2
 # Decision 10: beyond the exports, those of VK_KHR_get_surface_capabilities2 and the debug extensions'
 # callbacks (decision 5).
 hand vkGetPhysicalDeviceSurfaceCapabilities2KHR vkGetPhysicalDeviceSurfaceFormats2KHR
@@ -40,6 +45,9 @@ own VK_KHR_get_surface_capabilities2 VK_GOOGLE_surfaceless_query VK_KHR_swapchai
 # ADR-0041 decision 11, for Swappy: MoltenVK's VK_GOOGLE_display_timing on libvulkan's swapchains.
 own VK_GOOGLE_display_timing
 hand vkGetRefreshCycleDurationGOOGLE vkGetPastPresentationTimingGOOGLE
+# ADR-0058 decision 7: AHardwareBuffers on graphics/host's hardware buffers, with the foreign queue family that
+# their images pass to and from.
+own VK_ANDROID_external_memory_android_hardware_buffer VK_EXT_queue_family_foreign
 
 # Decision 11, never offered: what is Apple's or Metal's,
 exclude VK_EXT_metal_surface VK_EXT_headless_surface VK_EXT_metal_objects VK_EXT_external_memory_metal
@@ -58,8 +66,7 @@ exclude-if-extends VkColorSpaceKHR
 # VK_EXT_surface_maintenance1 by name: promoted to VK_KHR_surface_maintenance1, it requires only aliases of
 # the KHR structures, which the rule above does not follow.
 exclude VK_EXT_surface_maintenance1
-# and what this ADR leaves for later: AHardwareBuffer and file descriptors,
-exclude VK_ANDROID_external_memory_android_hardware_buffer
+# and what this ADR leaves for later: file descriptors,
 exclude VK_KHR_external_memory_fd VK_KHR_external_semaphore_fd VK_KHR_external_fence_fd
 # with the extensions whose structures leave pNext (decision 5).
 exclude VK_EXT_device_memory_report VK_LUNARG_direct_driver_loading

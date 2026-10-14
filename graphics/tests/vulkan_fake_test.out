@@ -81,6 +81,7 @@ vkWaitSemaphores for 0 ns: 2
 vkGetQueryPoolResults, waiting: 0
 vkGetQueryPoolResults: 1
 vkGetAndroidHardwareBufferPropertiesANDROID: -1000072003, vkGetMemoryAndroidHardwareBufferANDROID: -1000072003
+the app's barriers as they were: yes
 the app's messenger: "a message from vkDestroyInstance", severity 0x1000, types 0x2, id fake 7, its context: yes
 the app's report callback: "a report from vkDestroyInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes
 the app's report callback: "a report from vkDestroyInstance", flags 0x8, object type 1, object 42, location 3, code 7, prefix fake, its context: yes

@@ -1,0 +1,32 @@
+VK_ANDROID_external_memory_android_hardware_buffer: 1
+VK_EXT_queue_family_foreign: 1
+image format properties: 0, dedicated only 1, exportable 1, importable 1, usage sampled 1
+properties R8G8B8A8_UNORM: 0, format VK_FORMAT_R8G8B8A8_UNORM, size fits 1, some memory types 1, externalFormat set 1, sampled 1
+properties R8G8B8X8_UNORM: 0, format VK_FORMAT_R8G8B8A8_UNORM, size fits 1, some memory types 1, externalFormat set 1, sampled 1
+properties R5G6B5_UNORM: 0, format VK_FORMAT_R5G6B5_UNORM_PACK16, size fits 1, some memory types 1, externalFormat set 1, sampled 1
+import: create image 0, allocate 0, bind 0
+sampled:
+  row 0: 0000c8ff 2000c9ef 4000cadf 6000cbcf 8000ccbf a000cdaf c000ce9f e000cf8f
+  row 1: 0020c9ff 2020caef 4020cbdf 6020cccf 8020cdbf a020ceaf c020cf9f e020d08f
+  row 2: 0040caff 2040cbef 4040ccdf 6040cdcf 8040cebf a040cfaf c040d09f e040d18f
+  row 3: 0060cbff 2060ccef 4060cddf 6060cecf 8060cfbf a060d0af c060d19f e060d28f
+  row 4: 0080ccff 2080cdef 4080cedf 6080cfcf 8080d0bf a080d1af c080d29f e080d38f
+  row 5: 00a0cdff 20a0ceef 40a0cfdf 60a0d0cf 80a0d1bf a0a0d2af c0a0d39f e0a0d48f
+  row 6: 00c0ceff 20c0cfef 40c0d0df 60c0d1cf 80c0d2bf a0c0d3af c0c0d49f e0c0d58f
+  row 7: 00e0cfff 20e0d0ef 40e0d1df 60e0d2cf 80e0d3bf a0e0d4af c0e0d59f e0e0d68f
+after the CPU's write:
+  row 0: 11223344 2000c9ef 4000cadf 6000cbcf 8000ccbf a000cdaf c000ce9f e000cf8f
+export: create image 0, allocate 0, bind 0, get 0, a buffer 1, the same again 1
+exported: 8 x 8, 1 layer, format 1, sampled 1
+the exported buffer imported: create image 0, allocate 0, bind 0
+the clear, sampled:
+  row 0: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 1: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 2: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 3: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 4: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 5: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 6: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+  row 7: 10203040 10203040 10203040 10203040 10203040 10203040 10203040 10203040
+after the app's releases: 8 x 8
+done

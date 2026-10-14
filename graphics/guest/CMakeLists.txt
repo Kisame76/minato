@@ -83,7 +83,11 @@ target_compile_options(bind-test PRIVATE -Wall -Wextra)
 # NDK's names and binds its own references to itself.
 set(vulkan "${graphics}/vulkan")
 add_library(vulkan SHARED "${vulkan}/common.c" "${vulkan}/instance.c" "${vulkan}/device.c" "${vulkan}/procs.c"
-  "${vulkan}/queue.c" "${vulkan}/surface.c" "${vulkan}/swapchain.c" "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
+  "${vulkan}/queue.c" "${vulkan}/surface.c" "${vulkan}/swapchain.c" "${vulkan}/external_memory.c"
+  "${gen}/vulkan_stubs.S" "${gen}/vulkan_bind.c")
+# AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
+set_source_files_properties("${vulkan}/external_memory.c" PROPERTIES
+  COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__ COMPILE_OPTIONS -Wno-unguarded-availability)
 target_include_directories(vulkan PRIVATE "${APK_MOLTENVK_DIR}/include" "${gen}" "${repo}/runtime/include")
 # The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
 target_link_libraries(vulkan PRIVATE minato_bind nativewindow dl log)
@@ -132,6 +136,20 @@ add_executable(image-ndk-test "${tests}/image_ndk_test.c")
 target_compile_options(image-ndk-test PRIVATE --target=aarch64-none-linux-android35 -Wall -Wextra)
 target_link_options(image-ndk-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(image-ndk-test PRIVATE mediandk nativewindow)
+# ADR-0058 e1), decision 7, the graphics breadth's G3d: vk-ahb-test, libvulkan's import and export of
+# AHardwareBuffers on MoltenVK, and as a shell program on the emulator for Android 15's answers. The NDK's glslc
+# compiles its compute shader into a C initializer that it includes.
+set(vk_ahb_shader "${CMAKE_CURRENT_BINARY_DIR}/shaders/vk_ahb_test.comp.inc")
+add_custom_command(OUTPUT "${vk_ahb_shader}"
+  COMMAND "${ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}/glslc" -mfmt=c -o "${vk_ahb_shader}"
+    "${tests}/vk_ahb_test.comp"
+  DEPENDS "${tests}/vk_ahb_test.comp"
+  COMMENT "glslc: vk-ahb-test's compute shader")
+add_executable(vk-ahb-test "${tests}/vk_ahb_test.c" "${vk_ahb_shader}")
+target_include_directories(vk-ahb-test PRIVATE "${APK_MOLTENVK_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+target_compile_options(vk-ahb-test PRIVATE --target=aarch64-none-linux-android35 -Wall -Wextra)
+target_link_options(vk-ahb-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(vk-ahb-test PRIVATE vulkan nativewindow)
 
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM
