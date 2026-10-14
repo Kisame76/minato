@@ -583,6 +583,33 @@ else()
   set_tests_properties(graphics.drawable_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
 
+# The graphics breadth's G3b: buffer-queue-host-test, the buffer queue itself (runtime/android/native_window.cpp)
+# built for the Mac on a counted fake AHardwareBuffer, so that this preset's AddressSanitizer and
+# UndefinedBehaviorSanitizer see the queue's memory, which buffer-queue-test runs as guest code. Only the NDK's
+# android/ headers join, through a folder of their own, so that the Mac's system headers stay; the host windows'
+# syscalls are the test's.
+set(ndk_android_headers "${APK_ANDROID_NDK}/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/android")
+if(EXISTS "${ndk_android_headers}/hardware_buffer.h")
+  set(buffer_queue_host_include "${CMAKE_CURRENT_BINARY_DIR}/buffer-queue-host-include")
+  if(NOT EXISTS "${buffer_queue_host_include}/android")
+    file(MAKE_DIRECTORY "${buffer_queue_host_include}")
+    file(CREATE_LINK "${ndk_android_headers}" "${buffer_queue_host_include}/android" SYMBOLIC)
+  endif()
+  add_executable(buffer-queue-host-test buffer_queue_host_test.cpp
+    "${PROJECT_SOURCE_DIR}/runtime/android/native_window.cpp")
+  target_include_directories(buffer-queue-host-test SYSTEM PRIVATE "${buffer_queue_host_include}")
+  target_include_directories(buffer-queue-host-test PRIVATE "${PROJECT_SOURCE_DIR}/runtime/include")
+  target_compile_options(buffer-queue-host-test PRIVATE
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/buffer_queue_host_shim.h" -Wno-deprecated-declarations)
+  target_compile_definitions(buffer-queue-host-test PRIVATE syscall=minato_host_syscall)
+  target_link_libraries(buffer-queue-host-test PRIVATE apk_defaults)
+  add_test(NAME graphics.buffer_queue_host COMMAND buffer-queue-host-test)
+else()
+  add_test(NAME graphics.buffer_queue_host COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: no NDK headers at ${ndk_android_headers} (APK_ANDROID_NDK)")
+  set_tests_properties(graphics.buffer_queue_host PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+endif()
+
 # ADR-0041 decision 11: graphics/host's time for Core Animation, the refresh asked for on the refresh grid less half a
 # period, at the limits of a refresh.
 if(TARGET minato_graphics_host)

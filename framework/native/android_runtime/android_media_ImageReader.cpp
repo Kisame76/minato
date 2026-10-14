@@ -10,13 +10,15 @@
 //   UnsupportedOperationException, as the tag's. The image keeps its frame in mNativeBuffer until its release.
 // - An image's planes are its buffer locked for the CPU, one plane for the RGB formats and none for PRIVATE, as
 //   ImageUtils counts them; getHardwareBuffer gives the frame's AHardwareBuffer; there is no fence (-1).
-// - nativeDetachImage and the static plane natives for detached images log Unwritten's line and throw
-//   UnsupportedOperationException: detachImage is hidden, and nothing attaches an image to a writer yet (G3b).
+// - A frame whose crop does not start at the origin is refused with UnsupportedOperationException, as the tag's, and
+//   stays acquired, its pool item lost, until the reader's close; an image's width and height are its crop's, as the
+//   tag's getBufferWidth, and its data space the producer's, else the reader's.
+// - nativeDetachImage takes the image's buffer out of the queue (minato_BufferQueue_detach, G3b), for an
+//   ImageWriter's queueInputImage, which attaches it; the image keeps its buffer until its close. The static plane
+//   natives for detached images log Unwritten's line and throw UnsupportedOperationException.
 // YUV formats: our AHardwareBuffer has none yet, so a producer of a YUV reader cannot dequeue (a named limit, the
-// open item of ADR-0058 e2). Further limits while no producer of ours makes them matter: an image's data space is
-// the reader's, as the queue keeps none per frame; a BLOB reader takes no RGBA_8888 buffer (the tag's JPEG
-// workaround) and its plane is the buffer's width in bytes, not the JPEG blob's size; a PRIVATE reader's Surface
-// answers RGBA_8888 to ANativeWindow_getFormat, not IMPLEMENTATION_DEFINED.
+// open item of ADR-0058 e2). Further limits while no producer of ours makes them matter: a BLOB reader takes no
+// RGBA_8888 buffer (the tag's JPEG workaround) and its plane is the buffer's width in bytes, not the JPEG blob's size.
 #define LOG_TAG "ImageReader_JNI"
 
 #include <android/hardware_buffer.h>
@@ -68,6 +70,7 @@ struct Queue {
     decltype(&minato_BufferQueue_acquire) acquire = nullptr;
     decltype(&minato_BufferQueue_releaseSlot) releaseSlot = nullptr;
     decltype(&minato_BufferQueue_discardFreeBuffers) discardFreeBuffers = nullptr;
+    decltype(&minato_BufferQueue_detach) detach = nullptr;
     decltype(&minato_BufferQueue_release) release = nullptr;
 };
 
@@ -83,6 +86,7 @@ const Queue &queue_functions() {
             FIND(acquire, minato_BufferQueue_acquire);
             FIND(releaseSlot, minato_BufferQueue_releaseSlot);
             FIND(discardFreeBuffers, minato_BufferQueue_discardFreeBuffers);
+            FIND(detach, minato_BufferQueue_detach);
             FIND(release, minato_BufferQueue_release);
 #undef FIND
         }
@@ -95,7 +99,7 @@ bool queue_found() {
     const Queue &queue = queue_functions();
     return queue.create != nullptr && queue.setDefaultSize != nullptr && queue.setDefaultFormat != nullptr &&
            queue.setConsumer != nullptr && queue.acquire != nullptr && queue.releaseSlot != nullptr &&
-           queue.discardFreeBuffers != nullptr && queue.release != nullptr;
+           queue.discardFreeBuffers != nullptr && queue.detach != nullptr && queue.release != nullptr;
 }
 
 // The frame-available listener's references, the queue's context until its destroy.
@@ -114,11 +118,13 @@ struct Reader {
     int32_t acquired = 0;
 };
 
-// An image's frame: its slot, its buffer with a reference of the image's own, and its CPU lock.
+// An image's frame: its slot (-1 once detached), its buffer with a reference of the image's own, its crop and its CPU
+// lock.
 struct Frame {
     minato_BufferQueue *queue = nullptr;
     int32_t slot = -1;
     AHardwareBuffer *buffer = nullptr;
+    int32_t cropWidth = 0, cropHeight = 0;  // 0 without a crop
     void *locked = nullptr;
 };
 
@@ -164,11 +170,6 @@ Reader *reader_of(JNIEnv *env, jobject thiz) {
 
 Frame *frame_of(JNIEnv *env, jobject image) {
     return reinterpret_cast<Frame *>(env->GetLongField(image, gFields.nativeBuffer));
-}
-
-// The buffer format a reader's queue makes: RGBA_8888 for PRIVATE, else the reader's.
-int32_t buffer_format(int32_t halFormat) {
-    return halFormat == kHalPrivate ? AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM : halFormat;
 }
 
 AHardwareBuffer_Desc describe(const Frame *frame) {
@@ -224,7 +225,8 @@ void ImageReader_init(JNIEnv *env, jobject thiz, jobject weakThiz, jint width, j
         return;
     }
     queue.setDefaultSize(reader->queue, width, height);
-    queue.setDefaultFormat(reader->queue, buffer_format(hardwareBufferFormat));
+    // IMPLEMENTATION_DEFINED for PRIVATE, which the queue makes as RGBA_8888.
+    queue.setDefaultFormat(reader->queue, hardwareBufferFormat);
     env->SetLongField(thiz, gFields.nativeContext, reinterpret_cast<jlong>(reader));
 }
 
@@ -244,7 +246,7 @@ void release_frame(JNIEnv *env, jobject image) {
     if (frame == nullptr) return;
     env->SetLongField(image, gFields.nativeBuffer, 0);
     if (frame->locked != nullptr) AHardwareBuffer_unlock(frame->buffer, nullptr);
-    queue_functions().releaseSlot(frame->queue, frame->slot);
+    if (frame->slot >= 0) queue_functions().releaseSlot(frame->queue, frame->slot);
     AHardwareBuffer_release(frame->buffer);
     delete frame;
 }
@@ -253,6 +255,7 @@ void ImageReader_imageRelease(JNIEnv *env, jobject thiz, jobject image) {
     Reader *reader = reader_of(env, thiz);
     // Under the image's monitor, which its plane and buffer natives hold, so none reads a frame being deleted.
     if (env->MonitorEnter(image) != JNI_OK) return;
+    // A detached frame's pool item, too, comes back only now, as the tag's.
     const bool held = frame_of(env, image) != nullptr;
     if (held) release_frame(env, image);
     env->MonitorExit(image);
@@ -277,10 +280,22 @@ jint ImageReader_imageSetup(JNIEnv *env, jobject thiz, jobject image) {
                              result);
         return -1;
     }
+    // As the tag's: the item stays acquired and out of the pool, so the reader holds one image fewer from now on.
+    if (reader->format != kHalPrivate && (acquired.crop_left != 0 || acquired.crop_top != 0)) {
+        reader->acquired++;
+        jniThrowExceptionFmt(env, "java/lang/UnsupportedOperationException",
+                             "crop left top corner [%d, %d] need to be at origin", acquired.crop_left,
+                             acquired.crop_top);
+        return -1;
+    }
     auto *frame = new Frame;
     frame->queue = reader->queue;
     frame->slot = acquired.slot;
     frame->buffer = acquired.buffer;
+    if (acquired.crop_right > acquired.crop_left && acquired.crop_bottom > acquired.crop_top) {
+        frame->cropWidth = acquired.crop_right - acquired.crop_left;
+        frame->cropHeight = acquired.crop_bottom - acquired.crop_top;
+    }
     AHardwareBuffer_acquire(frame->buffer);
     const AHardwareBuffer_Desc description = describe(frame);
     if (reader->format != kHalPrivate && static_cast<int32_t>(description.format) != reader->format) {
@@ -297,7 +312,7 @@ jint ImageReader_imageSetup(JNIEnv *env, jobject thiz, jobject image) {
     env->SetLongField(image, gFields.timestamp, acquired.timestamp);
     env->SetIntField(image, gFields.transform, acquired.transform);
     env->SetIntField(image, gFields.scalingMode, 0);  // NATIVE_WINDOW_SCALING_MODE_FREEZE, the queue's only one
-    env->SetIntField(image, gFields.dataSpace, reader->dataSpace);
+    env->SetIntField(image, gFields.dataSpace, acquired.data_space != 0 ? acquired.data_space : reader->dataSpace);
     reader->acquired++;
     return kAcquireSuccess;
 }
@@ -311,10 +326,33 @@ jobject ImageReader_getSurface(JNIEnv *env, jobject thiz) {
     return minato_ANativeWindow_toSurface(env, reader->producer);
 }
 
-jint ImageReader_detachImage(JNIEnv *env, jobject, jobject, jboolean) {
-    minato_unwritten(env, "android.media.ImageReader.detachImage(Image)");
-    jniThrowException(env, "java/lang/UnsupportedOperationException", "detachImage is not supported");
-    return -1;
+jint ImageReader_detachImage(JNIEnv *env, jobject thiz, jobject image, jboolean throwISEOnly) {
+    Reader *reader = reader_of(env, thiz);
+    if (reader == nullptr) {
+        jniThrowException(env, "java/lang/IllegalStateException", "Image was released");
+        return -1;
+    }
+    if (env->MonitorEnter(image) != JNI_OK) return -1;
+    Frame *frame = frame_of(env, image);
+    const int result = frame != nullptr && frame->slot >= 0 ? queue_functions().detach(frame->queue, frame->slot)
+                                                           : -EINVAL;
+    if (result == 0) {
+        if (frame->locked != nullptr) AHardwareBuffer_unlock(frame->buffer, nullptr);
+        frame->locked = nullptr;
+        frame->slot = -1;
+        frame->queue = nullptr;
+    }
+    env->MonitorExit(image);
+    if (frame == nullptr) {
+        jniThrowException(env, "java/lang/IllegalStateException", "Image is not initialized");
+        return -1;
+    }
+    if (result != 0) {
+        jniThrowException(env, throwISEOnly ? "java/lang/IllegalStateException" : "java/lang/RuntimeException",
+                          "nativeDetachImage: unable to detach buffer");
+        return -1;
+    }
+    return 0;
 }
 
 void ImageReader_discardFreeBuffers(JNIEnv *env, jobject thiz) {
@@ -393,12 +431,14 @@ jobjectArray Image_createSurfacePlanes(JNIEnv *env, jobject thiz, jint numPlanes
 
 jint Image_getWidth(JNIEnv *env, jobject thiz) {
     Frame *frame = frame_of(env, thiz);
-    return frame != nullptr ? static_cast<jint>(describe(frame).width) : -1;
+    if (frame == nullptr) return -1;
+    return frame->cropWidth > 0 ? frame->cropWidth : static_cast<jint>(describe(frame).width);
 }
 
 jint Image_getHeight(JNIEnv *env, jobject thiz) {
     Frame *frame = frame_of(env, thiz);
-    return frame != nullptr ? static_cast<jint>(describe(frame).height) : -1;
+    if (frame == nullptr) return -1;
+    return frame->cropHeight > 0 ? frame->cropHeight : static_cast<jint>(describe(frame).height);
 }
 
 jint Image_getFormat(JNIEnv *env, jobject thiz, jint readerFormat) {
@@ -445,6 +485,13 @@ const JNINativeMethod gImageMethods[] = {
 };
 
 }  // namespace
+
+// The buffer of a reader's image that its reader detached, for ImageWriter's attach, else null; the image keeps its
+// reference.
+AHardwareBuffer *minato_ImageReader_detachedBuffer(JNIEnv *, jlong imageNativeBuffer) {
+    const Frame *frame = reinterpret_cast<const Frame *>(imageNativeBuffer);
+    return frame != nullptr && frame->slot < 0 ? frame->buffer : nullptr;
+}
 
 int register_android_media_ImageReader(JNIEnv *env) {
     RegisterMethodsOrDie(env, "android/media/ImageReader", gImageReaderMethods, NELEM(gImageReaderMethods));

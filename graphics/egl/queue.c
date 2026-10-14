@@ -29,7 +29,6 @@
 #include "APKRuntime/guest_interface.h"
 #include "libegl.h"
 
-#define QUEUE_SLOTS 3
 
 typedef unsigned int GLenum_;
 typedef int GLint_;
@@ -133,9 +132,9 @@ struct queue_surface {
     EGLint width, height;
     int64_t time;  // eglPresentationTimeANDROID's for the next swap, 0 for none; under the lock
     struct {
-        struct AHardwareBuffer *buffer;
+        struct AHardwareBuffer *buffer;  // with a reference of the image's, so a new buffer at its address is new
         EGLImageKHR image;
-    } images[QUEUE_SLOTS];
+    } images[MINATO_BUFFER_QUEUE_MAX_SLOTS];
 };
 static struct queue_surface *surfaces;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -176,9 +175,12 @@ EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANa
 }
 
 static void free_surface(struct queue_surface *record) {
-    for (int index = 0; index < QUEUE_SLOTS; index++) {
+    for (int index = 0; index < MINATO_BUFFER_QUEUE_MAX_SLOTS; index++) {
         if (record->images[index].image != EGL_NO_IMAGE_KHR) {
             eglDestroyImageKHR(record->display, record->images[index].image);
+        }
+        if (record->images[index].buffer != NULL) {
+            AHardwareBuffer_release(record->images[index].buffer);
         }
     }
     ANativeWindow_release(record->window);
@@ -239,18 +241,27 @@ int minato_queue_presentation_time(EGLDisplay display, EGLSurface surface, int64
 /* The image of a slot's buffer, kept per slot while the buffer stays the slot's. Only the swapping thread, the
    surface's current one, touches the images. */
 static EGLImageKHR image_of(struct queue_surface *record, int32_t slot, struct AHardwareBuffer *buffer) {
-    if (slot < 0 || slot >= QUEUE_SLOTS) {
+    if (slot < 0 || slot >= MINATO_BUFFER_QUEUE_MAX_SLOTS) {
         return EGL_NO_IMAGE_KHR;
     }
-    if (record->images[slot].buffer != buffer && record->images[slot].image != EGL_NO_IMAGE_KHR) {
-        eglDestroyImageKHR(record->display, record->images[slot].image);
-        record->images[slot].image = EGL_NO_IMAGE_KHR;
+    if (record->images[slot].buffer != buffer) {
+        if (record->images[slot].image != EGL_NO_IMAGE_KHR) {
+            eglDestroyImageKHR(record->display, record->images[slot].image);
+            record->images[slot].image = EGL_NO_IMAGE_KHR;
+        }
+        if (record->images[slot].buffer != NULL) {
+            AHardwareBuffer_release(record->images[slot].buffer);
+            record->images[slot].buffer = NULL;
+        }
     }
     if (record->images[slot].image == EGL_NO_IMAGE_KHR) {
         static const EGLint preserved[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
         record->images[slot].image = eglCreateImageKHR(record->display, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID,
                                                        eglGetNativeClientBufferANDROID(buffer), preserved);
-        record->images[slot].buffer = buffer;
+        if (record->images[slot].image != EGL_NO_IMAGE_KHR) {
+            record->images[slot].buffer = buffer;
+            AHardwareBuffer_acquire(buffer);
+        }
     }
     return record->images[slot].image;
 }

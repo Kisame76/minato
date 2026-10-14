@@ -337,6 +337,8 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_hardware_SyncFence.cpp
             native/android_runtime/android_media_ImageReader.cpp
             native/android_runtime/android_media_PublicFormatUtils.cpp
+            native/android_runtime/android_media_ImageWriter.cpp
+            native/android_runtime/android_hardware_camera2_utils_SurfaceUtils.cpp
             "${SOURCES}/frameworks_native_graphics/libs/ui/PublicFormat.cpp"
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
             native/android_runtime/android_hardware_Camera.cpp

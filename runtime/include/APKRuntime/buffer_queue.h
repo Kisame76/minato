@@ -25,14 +25,29 @@ struct AHardwareBuffer;
 struct ANativeWindow;
 struct minato_BufferQueue;
 
+/* Every slot's index is below this, BufferQueue's NUM_BUFFER_SLOTS: a consumer or a producer that keeps something per
+   slot keeps this many, as an ImageWriter's maxImages and an ImageReader's grow a queue past its three slots. */
+#define MINATO_BUFFER_QUEUE_MAX_SLOTS 64
+
 /* A frame as the consumer acquires it: its slot, its buffer (the slot's, which the consumer does not release), the
-   producer's timestamp (CLOCK_MONOTONIC in nanoseconds, the queue's time unless the producer gave one) and its
-   transform (ANATIVEWINDOW_TRANSFORM_*). */
+   producer's timestamp (CLOCK_MONOTONIC in nanoseconds, the queue's time unless the producer gave one), its transform
+   (ANATIVEWINDOW_TRANSFORM_*), data space (the window's, or an ImageWriter's per frame; 0 for none) and crop (all 0
+   for none). */
 struct minato_BufferQueue_frame {
     int32_t slot;
     struct AHardwareBuffer *buffer;
     int64_t timestamp;
     int32_t transform;
+    int32_t data_space;
+    int32_t crop_left, crop_top, crop_right, crop_bottom;
+};
+
+/* What a producer queues a frame with, as minato_BufferQueue_frame has it; timestamp 0 for the queue's time. */
+struct minato_BufferQueue_settings {
+    int64_t timestamp;
+    int32_t transform;
+    int32_t data_space;
+    int32_t crop_left, crop_top, crop_right, crop_bottom;
 };
 
 /* Called after each queued frame on the producer's thread, outside the queue's lock; and once the queue goes, after
@@ -60,13 +75,19 @@ void minato_BufferQueue_release(struct minato_BufferQueue *queue);
    `maxAcquired` frames stay acquired at once, each until minato_BufferQueue_releaseSlot, where a SurfaceTexture's
    acquire lets its last frame go; one more acquire answers -EBUSY. The queue has maxAcquired + 2 slots, and its
    buffers the consumer's `usage` with the producers' (GPU_FRAMEBUFFER, CPU_WRITE_OFTEN) in place of every usage.
-   Before the first dequeue; 0, or -EINVAL for a maxAcquired below 1 or above 62. Frames still drop as above. */
+   Before the first dequeue; 0, or -EINVAL for a maxAcquired below 1 or above 62. Frames still drop as above, unless
+   an ImageWriter is connected. */
 int minato_BufferQueue_setConsumer(struct minato_BufferQueue *queue, int32_t maxAcquired, uint64_t usage);
 /* The format of the buffers while the producer sets none (BufferQueue's setDefaultBufferFormat), an
-   AHARDWAREBUFFER_FORMAT_*; RGBA_8888 until set. And the release of the buffers of every free slot, which the next
+   AHARDWAREBUFFER_FORMAT_* or IMPLEMENTATION_DEFINED (0x22, a PRIVATE reader's: RGBA_8888 in memory, 0x22 to
+   ANativeWindow_getFormat); RGBA_8888 until set. And the release of the buffers of every free slot, which the next
    dequeue of each makes again (discardFreeBuffers). */
 void minato_BufferQueue_setDefaultFormat(struct minato_BufferQueue *queue, int32_t format);
 void minato_BufferQueue_discardFreeBuffers(struct minato_BufferQueue *queue);
+/* An ImageReader's acquired frame leaves the queue (detachBuffer, the graphics breadth's G3b): its slot is free and
+   without a buffer, whose slot reference the queue releases; the consumer keeps its own. 0, or -EINVAL for a slot
+   that is not acquired or a queue that is no ImageReader's. */
+int minato_BufferQueue_detach(struct minato_BufferQueue *queue, int32_t slot);
 
 /* The producer, for libEGL's window surfaces on a queue window (c2): whether `window` is one; a free slot's buffer of
    the window's size and format, waiting for one (0, -ENODEV abandoned, -EINVAL for any other window); and its queue
@@ -76,6 +97,23 @@ int minato_ANativeWindow_isQueue(struct ANativeWindow *window);
 int minato_ANativeWindow_dequeue(struct ANativeWindow *window, struct AHardwareBuffer **buffer, int32_t *slot);
 int minato_ANativeWindow_queue(struct ANativeWindow *window, int32_t slot, int64_t timestamp);
 int minato_ANativeWindow_cancel(struct ANativeWindow *window, int32_t slot);
+
+/* An ImageWriter as the producer (the graphics breadth's G3b, libgui's connect as NATIVE_WINDOW_API_CAMERA): once
+   connected, no frame drops; the queue has `maxDequeued` slots next to the consumer's maxAcquired (one for a
+   SurfaceTexture), so that a dequeue waits once all are out; and `released` runs with `context` after each release
+   of a frame by the consumer, outside the queue's lock, never after the disconnect has returned, which gives the
+   queue its slot count back. 0, -EBUSY with a producer connected already, -ENODEV abandoned, -EINVAL (also for more
+   than MINATO_BUFFER_QUEUE_MAX_SLOTS slots). A connected producer queues with its settings, and queues
+   a buffer it attaches, which takes a free slot, waiting for one, and leaves it again at the consumer's release
+   (0, -ENODEV, -EINVAL). */
+typedef void (*minato_BufferQueue_released)(void *context);
+int minato_ANativeWindow_connect(struct ANativeWindow *window, int32_t maxDequeued,
+                                 minato_BufferQueue_released released, void *context);
+void minato_ANativeWindow_disconnect(struct ANativeWindow *window);
+int minato_ANativeWindow_queueWith(struct ANativeWindow *window, int32_t slot,
+                                   const struct minato_BufferQueue_settings *settings);
+int minato_ANativeWindow_attachAndQueue(struct ANativeWindow *window, struct AHardwareBuffer *buffer,
+                                        const struct minato_BufferQueue_settings *settings);
 
 #ifdef __cplusplus
 }

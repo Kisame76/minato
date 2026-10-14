@@ -1,0 +1,22 @@
+I/image-writer-test: writer on an RGBA reader: maxImages 2, 64 x 48, format 1, hardware buffer format 34, data space 0, usage 48
+I/image-writer-test: a second writer on the same surface: RuntimeException Failed to connect to native window
+I/image-writer-test: built: maxImages 3, 32 x 16, format 1, hardware buffer format 1, data space 0, usage 48
+I/image-writer-test: dequeued: format 1, 64 x 48, 1 plane, pixel stride 4, row stride fits true, timestamp -9223372036854775808, crop Rect(0, 0 - 64, 48), data space 0
+I/image-writer-test: queued image: Image is already closed
+I/image-writer-test: crop off the origin: onImageAvailable 1, acquire: crop left top corner [1, 2] need to be at origin
+I/image-writer-test: reader: onImageAvailable 1, pixel (5, 5) 00ff00ff, timestamp 12345, crop Rect(0, 0 - 30, 40), released before the reader's close false
+I/image-writer-test: a second image next to it, with the refused frame's item lost: maxImages (2) has already been acquired, call #close before acquiring more.
+I/image-writer-test: onImageReleased after the reader's close: 1, then pixel 0000ffff, onImageReleased 1
+I/image-writer-test: a third dequeue while two are out: Already dequeued max number of Images 2
+I/image-writer-test: after a dequeued image's close: dequeued true, reader null, onImageReleased false
+I/image-writer-test: three queued unread: onImageAvailable 3, then pixel ff0000ff, pixel 00ff00ff, pixel 0000ffff, null; onImageReleased 3
+I/image-writer-test: closed writer: ImageWriterContext is not initialized
+I/image-writer-test: while the reader holds one: 1 more frames went, then the dequeue waits
+I/image-writer-test: after the reader's close: an image
+I/image-writer-test: a reader's image queued into a writer: the source image Image is already closed, target frames 1, pixel 00ffffff, timestamp 777
+I/image-writer-test: onImageReleased after the target's close: 1, source then null
+I/image-writer-test: writer on a SurfaceTexture: 8 x 4, format 1
+I/image-writer-test: onFrameAvailable: 1
+I/image-writer-test: PRIVATE writer: maxImages 1, 16 x 16, format 34, hardware buffer format 34, data space 0, usage 48
+I/image-writer-test: PRIVATE dequeue: RuntimeException dequeue buffer failed
+I/image-writer-test: done

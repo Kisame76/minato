@@ -29,4 +29,17 @@ a third while two are held: 1
 after a release: 0, ffff0000
 usage: CPU read 1, GPU sampled 0
 after discarding: 0, ff123456
+connect: 0, again: -16
+two queued: first 0, ff0000ff, timestamp 5, data space 7, crop 0 0 1 2
+released before a release: 0
+after a release: 1, then the second 0, ff00ff00
+a dequeue with every slot out waits: 1
+after the reader's release: 0
+released after a cancel: 0
+detach: 0, again: -22, a slot never acquired: -22
+the source after the detach: 0, ff00ffff
+attachAndQueue: 0
+attached: 0, the same buffer 1, ffffff00, timestamp 9
+released after its release: 1
+released after the disconnect: 0, connect again: 0
 done

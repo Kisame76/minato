@@ -1,0 +1,18 @@
+Minato's patch to frameworks/base's media/java/android/media/ImageWriter.java at android-15.0.0_r1 (Apache-2.0), the
+graphics breadth's G3b (ADR-0058 e1)): the static initializer loads no libmedia_jni.
+
+Why: as ImageReader's (imagereader-without-media-jni.patch): Android's ImageWriter natives live in libmedia_jni,
+which Minato does not build; they are libandroid_runtime's (framework/native/android_runtime/
+android_media_ImageWriter.cpp), registered when the process starts. nativeClassInit stays.
+
+--- a/media/java/android/media/ImageWriter.java
++++ b/media/java/android/media/ImageWriter.java
+@@ -1318,7 +1318,7 @@
+     private static native void nativeClassInit();
+ 
+     static {
+-        System.loadLibrary("media_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_ImageWriter.cpp), registered at the start.
+         nativeClassInit();
+     }
+ }

@@ -13,6 +13,8 @@
 // A queue window (ADR-0058 c), APKRuntime/buffer_queue.h) is the producer of a buffer queue, a SurfaceTexture's, and
 // has no host window: its size is the queue's default size, a lock dequeues a slot's AHardwareBuffer and locks it for
 // the CPU, and unlockAndPost unlocks and queues it. Abandoned, its lock answers -ENODEV, libgui's NO_INIT.
+// An ImageWriter connects to it as its producer (the graphics breadth's G3b): then the queue drops no frame, has the
+// writer's slots next to the consumer's, and calls the writer back at each release of one of its frames.
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
 #include <errno.h>
@@ -54,7 +56,8 @@ struct ANativeWindow {
 namespace {
 
 constexpr int kSlots = 3;      // a SurfaceTexture's queue
-constexpr int kMaxSlots = 64;  // BufferQueue's NUM_BUFFER_SLOTS, for an ImageReader's maxImages + 2
+constexpr int kMaxSlots = MINATO_BUFFER_QUEUE_MAX_SLOTS;  // for an ImageReader's and an ImageWriter's slots
+constexpr int32_t kImplementationDefined = 0x22;  // HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED
 constexpr uint64_t kSlotUsage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER |
                                 AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
 
@@ -66,7 +69,10 @@ struct Slot {
     SlotState state;
     int64_t timestamp;
     int32_t transform;
-    uint64_t order;  // of its queue, for first in, first out
+    int32_t data_space;
+    int32_t crop[4];  // left, top, right, bottom; all 0 for none
+    uint64_t order;   // of its queue, for first in, first out
+    bool attached;    // a buffer the producer attached, which leaves the slot at its release
 };
 
 }  // namespace
@@ -85,6 +91,11 @@ struct minato_BufferQueue {
     int32_t acquired_count;
     uint64_t usage;          // of the buffers
     int32_t default_format;  // setDefaultFormat's, else 0
+    bool connected;          // an ImageWriter's producer (minato_ANativeWindow_connect)
+    int32_t unconnected_slot_count;  // the slot count before the connect, again after the disconnect
+    pthread_mutex_t callback_lock;  // held around each call of `released`, so that a disconnect waits for it
+    minato_BufferQueue_released released;
+    void* released_context;
     minato_BufferQueue_available available;
     minato_BufferQueue_destroy destroy;
     void* context;
@@ -143,6 +154,7 @@ void unref(minato_BufferQueue* queue) {
         if (slot.buffer != nullptr) AHardwareBuffer_release(slot.buffer);
     }
     if (queue->destroy != nullptr) queue->destroy(queue->context);
+    pthread_mutex_destroy(&queue->callback_lock);
     pthread_cond_destroy(&queue->freed);
     pthread_mutex_destroy(&queue->lock);
     free(queue);
@@ -181,6 +193,7 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
     if (slot.buffer != nullptr && (slot.width != width || slot.height != height || slot.format != format)) {
         stale = slot.buffer;
         slot.buffer = nullptr;
+        slot.attached = false;
     }
     const bool make = slot.buffer == nullptr;
     pthread_mutex_unlock(&queue->lock);
@@ -190,7 +203,9 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
         description.width = static_cast<uint32_t>(width);
         description.height = static_cast<uint32_t>(height);
         description.layers = 1;
-        description.format = static_cast<uint32_t>(format);
+        // IMPLEMENTATION_DEFINED, a PRIVATE ImageReader's format, is RGBA_8888 in memory.
+        const int32_t memory = format == kImplementationDefined ? AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM : format;
+        description.format = static_cast<uint32_t>(memory);
         description.usage = queue->usage;
         AHardwareBuffer* made = nullptr;
         const int result = AHardwareBuffer_allocate(&description, &made);
@@ -213,7 +228,7 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
 
 /// Queues a dequeued slot and tells the consumer; a slot of an abandoned queue only becomes free. 0, -ENODEV, or
 /// -EINVAL for a slot that is not dequeued (libgui's BAD_VALUE for a slot the producer does not own).
-int queue_slot(minato_BufferQueue* queue, int32_t index, int64_t timestamp, int32_t transform) {
+int queue_slot(minato_BufferQueue* queue, int32_t index, const minato_BufferQueue_settings& settings) {
     pthread_mutex_lock(&queue->lock);
     Slot& slot = queue->slots[index];
     if (slot.state != SlotState::kDequeued) {
@@ -222,29 +237,69 @@ int queue_slot(minato_BufferQueue* queue, int32_t index, int64_t timestamp, int3
     }
     if (queue->abandoned) {
         slot.state = SlotState::kFree;
+        slot.attached = false;
         pthread_mutex_unlock(&queue->lock);
         return -ENODEV;
     }
     // A frame still queued is replaced and dropped, as an app's SurfaceTexture fed by an app's producer has it on
-    // Android 15 (mQueueBufferCanDrop, surface-texture-test): only the first frame of a run calls `available`.
+    // Android 15 (mQueueBufferCanDrop, surface-texture-test): only the first frame of a run calls `available`. An
+    // ImageWriter's frames are all kept, as Android 15's (image-writer-test).
     bool replaced = false;
-    for (int other = 0; other < queue->slot_count; other++) {
+    for (int other = 0; other < queue->slot_count && !queue->connected; other++) {
         Slot& queued = queue->slots[other];
         if (queued.state == SlotState::kQueued) {
             queued.state = SlotState::kFree;
+            queued.attached = false;  // a writer's, queued before its disconnect: the buffer stays the slot's
             replaced = true;
             pthread_cond_signal(&queue->freed);
         }
     }
     slot.state = SlotState::kQueued;
-    slot.timestamp = timestamp != 0 ? timestamp : monotonic_now();
-    slot.transform = transform;
+    slot.timestamp = settings.timestamp != 0 ? settings.timestamp : monotonic_now();
+    slot.transform = settings.transform;
+    slot.data_space = settings.data_space;
+    slot.crop[0] = settings.crop_left;
+    slot.crop[1] = settings.crop_top;
+    slot.crop[2] = settings.crop_right;
+    slot.crop[3] = settings.crop_bottom;
     slot.order = queue->next_order++;
     const minato_BufferQueue_available available = replaced ? nullptr : queue->available;
     void* const context = queue->context;
     pthread_mutex_unlock(&queue->lock);
     if (available != nullptr) available(context);
     return 0;
+}
+
+/// `count` slots, or more while a slot beyond them is still in use, so that it stays visible; under the lock.
+int32_t slots_in_use_from(const minato_BufferQueue* queue, int32_t count) {
+    for (int index = count; index < kMaxSlots; index++) {
+        if (queue->slots[index].state != SlotState::kFree) count = index + 1;
+    }
+    return count;
+}
+
+/// Calls the connected producer's `released`, outside the queue's lock and under its callback lock.
+void notify_released(minato_BufferQueue* queue) {
+    pthread_mutex_lock(&queue->callback_lock);
+    pthread_mutex_lock(&queue->lock);
+    const minato_BufferQueue_released released = queue->released;
+    void* const context = queue->released_context;
+    pthread_mutex_unlock(&queue->lock);
+    if (released != nullptr) released(context);
+    pthread_mutex_unlock(&queue->callback_lock);
+}
+
+/// A slot back to free from the consumer, under the lock: an attached buffer leaves it, returned to be released
+/// outside the lock. Whether a producer is to hear of it.
+bool free_released(minato_BufferQueue* queue, Slot& slot, AHardwareBuffer** detached) {
+    slot.state = SlotState::kFree;
+    if (slot.attached) {
+        *detached = slot.buffer;
+        slot.buffer = nullptr;
+        slot.attached = false;
+    }
+    pthread_cond_signal(&queue->freed);
+    return queue->connected;
 }
 
 /// The window's format without setBuffersGeometry's: its queue's default format, else its own.
@@ -282,6 +337,7 @@ int minato_BufferQueue_create(minato_BufferQueue_available available, minato_Buf
     }
     pthread_mutex_init(&queue->lock, nullptr);
     pthread_cond_init(&queue->freed, nullptr);
+    pthread_mutex_init(&queue->callback_lock, nullptr);
     queue->references = 2;
     queue->default_width = 1;  // BufferQueue's default buffer size
     queue->default_height = 1;
@@ -332,35 +388,59 @@ int minato_BufferQueue_acquire(minato_BufferQueue* queue, minato_BufferQueue_fra
         pthread_mutex_unlock(&queue->lock);
         return -EAGAIN;
     }
+    bool notify = false;
+    AHardwareBuffer* detached = nullptr;
     if (queue->max_acquired > 0) {
         queue->acquired_count++;
     } else {
-        if (queue->acquired >= 0) {
-            queue->slots[queue->acquired].state = SlotState::kFree;
-            pthread_cond_signal(&queue->freed);
-        }
+        if (queue->acquired >= 0) notify = free_released(queue, queue->slots[queue->acquired], &detached);
         queue->acquired = oldest;
     }
     Slot& slot = queue->slots[oldest];
     slot.state = SlotState::kAcquired;
-    *frame = {oldest, slot.buffer, slot.timestamp, slot.transform};
+    *frame = {oldest, slot.buffer, slot.timestamp, slot.transform, slot.data_space,
+              slot.crop[0], slot.crop[1], slot.crop[2], slot.crop[3]};
     pthread_mutex_unlock(&queue->lock);
+    if (detached != nullptr) AHardwareBuffer_release(detached);
+    if (notify) notify_released(queue);
     return 0;
 }
 
 void minato_BufferQueue_releaseSlot(minato_BufferQueue* queue, int32_t slot) {
     if (queue == nullptr || slot < 0 || slot >= kMaxSlots) return;
+    bool notify = false;
+    AHardwareBuffer* detached = nullptr;
     pthread_mutex_lock(&queue->lock);
-    if (slot < queue->slot_count && queue->slots[slot].state == SlotState::kAcquired) {
-        queue->slots[slot].state = SlotState::kFree;
+    if (queue->slots[slot].state == SlotState::kAcquired) {
+        notify = free_released(queue, queue->slots[slot], &detached);
         if (queue->max_acquired > 0) {
             queue->acquired_count--;
         } else {
             queue->acquired = -1;
         }
-        pthread_cond_signal(&queue->freed);
     }
     pthread_mutex_unlock(&queue->lock);
+    if (detached != nullptr) AHardwareBuffer_release(detached);
+    if (notify) notify_released(queue);
+}
+
+int minato_BufferQueue_detach(minato_BufferQueue* queue, int32_t slot) {
+    if (queue == nullptr || slot < 0 || slot >= kMaxSlots) return -EINVAL;
+    pthread_mutex_lock(&queue->lock);
+    Slot& detached = queue->slots[slot];
+    if (detached.state != SlotState::kAcquired || queue->max_acquired == 0) {
+        pthread_mutex_unlock(&queue->lock);
+        return -EINVAL;
+    }
+    AHardwareBuffer* buffer = detached.buffer;
+    detached.buffer = nullptr;
+    detached.attached = false;
+    detached.state = SlotState::kFree;
+    queue->acquired_count--;
+    pthread_cond_signal(&queue->freed);
+    pthread_mutex_unlock(&queue->lock);
+    if (buffer != nullptr) AHardwareBuffer_release(buffer);
+    return 0;
 }
 
 int minato_BufferQueue_setConsumer(minato_BufferQueue* queue, int32_t maxAcquired, uint64_t usage) {
@@ -385,11 +465,13 @@ void minato_BufferQueue_discardFreeBuffers(minato_BufferQueue* queue) {
     AHardwareBuffer* discarded[kMaxSlots];
     int count = 0;
     pthread_mutex_lock(&queue->lock);
-    for (int index = 0; index < queue->slot_count; index++) {
+    // Every slot: a disconnect leaves free buffers beyond the slot count of the time.
+    for (int index = 0; index < kMaxSlots; index++) {
         Slot& slot = queue->slots[index];
         if (slot.state == SlotState::kFree && slot.buffer != nullptr) {
             discarded[count++] = slot.buffer;
             slot.buffer = nullptr;
+            slot.attached = false;
         }
     }
     pthread_mutex_unlock(&queue->lock);
@@ -450,10 +532,101 @@ int minato_ANativeWindow_cancel(ANativeWindow* window, int32_t slot) {
 
 int minato_ANativeWindow_queue(ANativeWindow* window, int32_t slot, int64_t timestamp) {
     if (!is_window(window) || window->queue == nullptr || slot < 0 || slot >= kMaxSlots) return -EINVAL;
+    minato_BufferQueue_settings settings{};
+    settings.timestamp = timestamp;
     pthread_mutex_lock(&window->lock);
-    const int32_t transform = window->transform;
+    settings.transform = window->transform;
+    settings.data_space = window->data_space;
     pthread_mutex_unlock(&window->lock);
-    return queue_slot(window->queue, slot, timestamp, transform);
+    return queue_slot(window->queue, slot, settings);
+}
+
+int minato_ANativeWindow_queueWith(ANativeWindow* window, int32_t slot, const minato_BufferQueue_settings* settings) {
+    if (!is_window(window) || window->queue == nullptr || settings == nullptr || slot < 0 || slot >= kMaxSlots) {
+        return -EINVAL;
+    }
+    return queue_slot(window->queue, slot, *settings);
+}
+
+int minato_ANativeWindow_attachAndQueue(ANativeWindow* window, AHardwareBuffer* buffer,
+                                        const minato_BufferQueue_settings* settings) {
+    if (!is_window(window) || window->queue == nullptr || buffer == nullptr || settings == nullptr) return -EINVAL;
+    minato_BufferQueue* queue = window->queue;
+    AHardwareBuffer_Desc description{};
+    AHardwareBuffer_describe(buffer, &description);
+    AHardwareBuffer_acquire(buffer);
+    // As libgui's attachBuffer: a free slot, waiting for one; a slot without a buffer first.
+    pthread_mutex_lock(&queue->lock);
+    int found = -1;
+    while (!queue->abandoned) {
+        for (int index = 0; index < queue->slot_count; index++) {
+            const Slot& slot = queue->slots[index];
+            if (slot.state != SlotState::kFree) continue;
+            if (found < 0 || slot.buffer == nullptr) found = index;
+            if (slot.buffer == nullptr) break;
+        }
+        if (found >= 0) break;
+        pthread_cond_wait(&queue->freed, &queue->lock);
+    }
+    if (queue->abandoned) {
+        pthread_mutex_unlock(&queue->lock);
+        AHardwareBuffer_release(buffer);
+        return -ENODEV;
+    }
+    Slot& slot = queue->slots[found];
+    AHardwareBuffer* stale = slot.buffer;
+    slot.buffer = buffer;
+    slot.width = static_cast<int32_t>(description.width);
+    slot.height = static_cast<int32_t>(description.height);
+    slot.format = static_cast<int32_t>(description.format);
+    slot.attached = true;
+    slot.state = SlotState::kDequeued;
+    pthread_mutex_unlock(&queue->lock);
+    if (stale != nullptr) AHardwareBuffer_release(stale);
+    return queue_slot(queue, found, *settings);
+}
+
+int minato_ANativeWindow_connect(ANativeWindow* window, int32_t maxDequeued, minato_BufferQueue_released released,
+                                 void* context) {
+    if (!is_window(window) || window->queue == nullptr || maxDequeued < 1) return -EINVAL;
+    minato_BufferQueue* queue = window->queue;
+    pthread_mutex_lock(&queue->lock);
+    // As the tag's ImageWriter: maxImages + the consumer's undequeued buffers, its maxAcquired (one for a
+    // SurfaceTexture), so that a dequeue waits once they are all out; more than BufferQueue's slots fail, as the tag's
+    // set_buffer_count.
+    const int32_t wanted = maxDequeued + (queue->max_acquired > 0 ? queue->max_acquired : 1);
+    int result = 0;
+    if (queue->abandoned) {
+        result = -ENODEV;
+    } else if (queue->connected) {
+        result = -EBUSY;
+    } else if (wanted > kMaxSlots) {
+        result = -EINVAL;
+    } else {
+        queue->connected = true;
+        queue->released = released;
+        queue->released_context = context;
+        queue->unconnected_slot_count = queue->slot_count;
+        queue->slot_count = slots_in_use_from(queue, wanted);
+    }
+    pthread_mutex_unlock(&queue->lock);
+    return result;
+}
+
+void minato_ANativeWindow_disconnect(ANativeWindow* window) {
+    if (!is_window(window) || window->queue == nullptr) return;
+    minato_BufferQueue* queue = window->queue;
+    // Under the callback lock: a call of `released` that has begun ends before its context may go.
+    pthread_mutex_lock(&queue->callback_lock);
+    pthread_mutex_lock(&queue->lock);
+    if (queue->connected) {
+        queue->connected = false;
+        queue->released = nullptr;
+        queue->released_context = nullptr;
+        queue->slot_count = slots_in_use_from(queue, queue->unconnected_slot_count);
+    }
+    pthread_mutex_unlock(&queue->lock);
+    pthread_mutex_unlock(&queue->callback_lock);
 }
 
 ANativeWindow* minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height) {

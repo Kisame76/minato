@@ -54,7 +54,6 @@ const char *const kOutOfResourcesException = "android/view/Surface$OutOfResource
 constexpr jint kOk = 0;
 constexpr jint kInvalidOperation = -ENOSYS;
 constexpr jint kNoInit = -ENODEV;
-constexpr int kSlots = 3;
 
 struct {
     jfieldID surfaceTexture;
@@ -101,7 +100,8 @@ bool queue_found() {
            queue.release != nullptr;
 }
 
-// An EGL image of a slot's buffer on a display.
+// An EGL image of a slot's buffer on a display, with a reference of the buffer, so that a new buffer at a freed one's
+// address is never taken for it (an ImageWriter's attached buffers change in a slot at each frame).
 struct Image {
     AHardwareBuffer *buffer = nullptr;
     EGLDisplay display = EGL_NO_DISPLAY;
@@ -129,7 +129,7 @@ struct Consumer {
     EGLContext context = EGL_NO_CONTEXT;
     bool current = false;  // a frame acquired
     minato_BufferQueue_frame frame{};
-    Image images[kSlots];
+    Image images[MINATO_BUFFER_QUEUE_MAX_SLOTS];  // a slot's index is below it, also for an ImageWriter's slots
 };
 
 Consumer *consumer_of(JNIEnv *env, jobject thiz) {
@@ -175,11 +175,17 @@ void listener_destroyed(void *context) {
 }
 
 // The image of the current frame's slot on the current display: the slot's, made again for a new buffer or display.
+void forget_image(Image &image) {
+    if (image.image != EGL_NO_IMAGE_KHR) eglDestroyImageKHR(image.display, image.image);
+    if (image.buffer != nullptr) AHardwareBuffer_release(image.buffer);
+    image = Image{};
+}
+
 EGLImageKHR image_of(Consumer *consumer, EGLDisplay display) {
+    if (consumer->frame.slot < 0 || consumer->frame.slot >= MINATO_BUFFER_QUEUE_MAX_SLOTS) return EGL_NO_IMAGE_KHR;
     Image &image = consumer->images[consumer->frame.slot];
     if (image.image != EGL_NO_IMAGE_KHR && (image.buffer != consumer->frame.buffer || image.display != display)) {
-        eglDestroyImageKHR(image.display, image.image);
-        image = Image{};
+        forget_image(image);
     }
     if (image.image == EGL_NO_IMAGE_KHR) {
         static const EGLint kAttributes[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
@@ -190,6 +196,7 @@ EGLImageKHR image_of(Consumer *consumer, EGLDisplay display) {
             return EGL_NO_IMAGE_KHR;
         }
         image.buffer = consumer->frame.buffer;
+        AHardwareBuffer_acquire(image.buffer);
         image.display = display;
     }
     return image.image;
@@ -225,9 +232,7 @@ jint check_context(Consumer *consumer) {
 
 void unref(Consumer *consumer) {
     if (consumer->references.fetch_sub(1, std::memory_order_acq_rel) != 1) return;
-    for (Image &image : consumer->images) {
-        if (image.image != EGL_NO_IMAGE_KHR) eglDestroyImageKHR(image.display, image.image);
-    }
+    for (Image &image : consumer->images) forget_image(image);
     // Abandoned and let go: the listener goes with the queue's last reference, a Surface's window's if it lives.
     queue_functions().release(consumer->queue);
     ANativeWindow_release(consumer->producer);
