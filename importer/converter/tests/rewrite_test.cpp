@@ -246,7 +246,7 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
         0xd61f'0240,  // br x18: an indirect island (ends no jump table) (X2e)
         0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
         0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
-        0xc85f'7c12,  // ldxr x18, [x0]: exclusive access, not yet
+        0xc85f'7c12,  // ldxr x18, [x0]: a lone load-exclusive (no stxr follows), so an island (X2e/C3)
         0x9100'0421,  // add x1, x1, #1: no x18
     };
     const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
@@ -255,11 +255,12 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::vector<Site> expected{{0x1000, SiteKind::x18, 18, 0x8b01'0252},
                                      {0x1004, SiteKind::x18, 18, 0xb400'0052},
                                      {0x1008, SiteKind::x18, 18, 0x9000'0012},
-                                     {0x100c, SiteKind::x18, 18, 0xd61f'0240}};  // br x18: indirect island
+                                     {0x100c, SiteKind::x18, 18, 0xd61f'0240},   // br x18: indirect island
+                                     {0x1018, SiteKind::x18, 18, 0xc85f'7c12}};  // lone ldxr x18: single island
     CHECK(findings.sites == expected);
-    CHECK(findings.x18_unsupported.size() == 3);
-    const std::uint64_t first_unsupported[] = {0x1010, 0x1014, 0x1018};
-    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 3; ++index) {
+    CHECK(findings.x18_unsupported.size() == 2);
+    const std::uint64_t first_unsupported[] = {0x1010, 0x1014};
+    for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 2; ++index) {
         CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
     }
 }
@@ -494,6 +495,48 @@ TEST(the_indirect_islands_match_the_assembler) {
     }
 }
 
+// Class 1 (step C C3): a load-exclusive with no store-exclusive on any path is not an LL/SC window.
+// No store-exclusive's forward progress can be broken, so its x18 uses — the load-exclusive itself
+// included — run in ordinary single-instruction islands, not refused.
+TEST(a_lone_load_exclusive_is_not_a_window_and_its_x18_uses_are_islands) {
+    const std::uint32_t code[] = {
+        0xc85f'7c12,  // ldxr x18, [x0]: writes x18, and no store-exclusive follows it
+        0x9100'0642,  // add x2, x18, #1: reads x18
+        0xd503'201f,  // nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.empty());
+    CHECK(findings.in_place_windows.empty());
+    std::vector<std::uint64_t> sites;
+    for (const auto &site : findings.sites) sites.push_back(site.address);
+    CHECK(sites == (std::vector<std::uint64_t>{0x1000, 0x1004}));  // the ldxr (writes x18) and the add (reads x18)
+}
+
+// A store-exclusive physically before its paired load-exclusive, reached by a backward branch, is a
+// real LL/SC pair that a forward-only scan would miss (step C C3 review). The load-exclusive must not
+// count as lone: an x18 use between them would be islanded inside a live pair and could livelock. It
+// stays refused (this far pair is C3b), as it was before C3.
+TEST(a_store_exclusive_before_its_load_exclusive_by_a_back_edge_is_not_lone) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]: the store-exclusive, before its ldxr
+        0x3400'0082,  // 0x1008 cbz w2, 0x1018
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]: the load-exclusive
+        0x8b12'0023,  // 0x1010 add x3, x1, x18: the x18 use, dynamically between the ldxr and the stxr
+        0x17ff'fffc,  // 0x1014 b 0x1004: backward, to the store-exclusive
+        0xd503'201f,  // 0x1018 nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.sites.empty());
+    CHECK(findings.exclusive_regions.empty());
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (findings.x18_unsupported.size() == 1) {
+        CHECK(findings.x18_unsupported[0].address == 0x1010);  // the add x3, x1, x18 stays refused
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("does not close") != std::string_view::npos);
+    }
+}
+
 // The load-/store-exclusive loop of ref_x18_ll_sc becomes one region; the x18 instructions before
 // and after it stay single-instruction islands, and the x18-free exclusive after is left alone.
 TEST(an_ll_sc_loop_becomes_a_region_with_islands_around_it) {
@@ -651,13 +694,9 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     std::vector<std::uint32_t> far{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
     far.insert(far.end(), 63, 0xd503'201f);                    // nop
-    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 65 words after the ldxr
-    const std::uint32_t open[] = {
-        0xc85f'7c01,  // ldxr x1, [x0]
-        0x9100'0432,  // add x18, x1, #1
-        0xd503'201f,  // nop
-        0x9100'0652,  // add x18, x18, #1: the code ends, no close
-    };
+    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 65 words after the ldxr (C3b)
+    // A window with no store-exclusive at all is no longer refused: it is a lone load-exclusive whose
+    // x18 uses island (step C C3, covered by a_lone_load_exclusive_is_not_a_window...).
     auto late = far;
     late.back() = 0xc85f'7c62;  // ldxr x2, [x3] where the stxr was: past the 64 words, so the cause is the distance
     const std::uint32_t nested[] = {
@@ -707,7 +746,6 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
          "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address "
          "would point into the island"},
         {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 64 words"},
-        {open, open + std::size(open), 2, "it lies in an exclusive window that does not close within 64 words"},
         {late.data(), late.data() + late.size(), 1,
          "it lies in an exclusive window that does not close within 64 words"},
         {nested, nested + std::size(nested), 1,

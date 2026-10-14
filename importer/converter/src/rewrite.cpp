@@ -432,7 +432,7 @@ constexpr const char *window_entered = "it lies in an exclusive window into whic
 /// for the island's place. That leaves out: the thread pointer moved through x18, register branches,
 /// exclusives (scan() adds what lies between them), sp moved or addressed below, and x18 without a
 /// register field of its own.
-const char *unsupported_reason(std::uint32_t instruction) {
+const char *unsupported_reason(std::uint32_t instruction, bool exclusive_ok = false) {
     const auto system_register = instruction & register_mask;
     if (system_register == mrs_tpidr_el0 || system_register == msr_tpidr_el0) {
         return "it moves the thread pointer through x18";
@@ -441,7 +441,9 @@ const char *unsupported_reason(std::uint32_t instruction) {
         return "it is a register branch the indirect island cannot follow: a return, a pointer-authenticated "
                "branch, or x18 only as the modifier of one";
     }
-    if (is_exclusive(instruction)) {
+    // A load-exclusive that pairs with no store-exclusive (lone_load_exclusive) runs in an island like
+    // any other use: there is no LL/SC sequence an island's memory access could break (step C C3).
+    if (is_exclusive(instruction) && !exclusive_ok) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
     }
     if (writes_stack_pointer(instruction)) {
@@ -520,6 +522,36 @@ std::pair<std::size_t, const char *> unclosed_window(std::span<const std::byte> 
         if (is_exclusive(word) || is_clrex(word)) return {j, window_unclosed};
     }
     return {code.size() - 4, window_unclosed};
+}
+
+/// Whether the load-exclusive at `open` pairs with no store-exclusive (step C C3, class 1), so it is
+/// not an LL/SC window and its x18 uses run in ordinary islands. Sound only when no store-exclusive is
+/// reachable while its monitor is live. The monitor is live from `open` until the first CLREX, nested
+/// load-exclusive or the end of the code (the run `[open, end)`); it holds iff (1) that run has no
+/// store-exclusive, and (2) no branch can carry control out of the run — every direct branch in it
+/// stays inside it, and it has no register or indirect branch, whose target the rewriter cannot see.
+/// Then control keeps the monitor live only over a store-exclusive-free run, so nothing pairs. A
+/// store-exclusive reached by a back-edge, a branch out, or straight-line ahead (ADR-0020 C3b), and a
+/// nested load-exclusive (class 5), make it not lone and stay refused.
+bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
+    std::size_t end = code.size();  // the run is [open, end): to the first CLREX or the end of the code
+    for (std::size_t j = open + 4; j + 4 <= code.size(); j += 4) {
+        const auto word = word_at(code, j);
+        if (is_store_exclusive(word)) return false;  // a pair ahead in straight line: C3b
+        if (is_load_exclusive(word)) return false;   // nested: class 5 / C4, kept refused for now
+        if (is_clrex(word)) { end = j; break; }      // the monitor is dropped: the run ends here
+    }
+    for (std::size_t j = open + 4; j < end; j += 4) {
+        const auto word = word_at(code, j);
+        if (!is_branch(word)) continue;
+        const auto displacement = branch_displacement(word);
+        if (!displacement) return false;  // a register or indirect branch: its target may leave the run
+        const auto target = static_cast<std::int64_t>(j) + *displacement;
+        if (target < static_cast<std::int64_t>(open) || target >= static_cast<std::int64_t>(end)) {
+            return false;  // a branch out of the run could reach a store-exclusive with the monitor live
+        }
+    }
+    return true;
 }
 
 /// The words of the window [open, end] that a forward branch inside it can skip: what they write
@@ -1000,10 +1032,15 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // build, one a branch could enter in the middle, one that cannot run again from its start (X4).
     std::vector<std::pair<std::size_t, std::size_t>> covered;
     std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
+    std::vector<std::size_t> lone_loads;  // load-exclusives that pair with no store-exclusive (step C C3)
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         if (!is_load_exclusive(word_at(code, offset))) continue;
         const auto end = exclusive_window_end(code, offset);
         if (!end) {
+            if (lone_load_exclusive(code, offset)) {
+                lone_loads.push_back(offset);  // not a window: its x18 uses run in ordinary islands (C3)
+                continue;
+            }
             const auto [last, problem] = unclosed_window(code, offset);
             refused_windows.emplace_back(offset, last, problem);
             continue;
@@ -1036,6 +1073,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     const auto is_covered = [&](std::size_t offset) {
         return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
     };
+    const auto is_lone_load = [&](std::size_t offset) { return std::ranges::find(lone_loads, offset) != lone_loads.end(); };
     // Whether a jump table target lies inside a relocated window, past its first word (ADR-0020 X2d).
     const auto enters_window = [&](std::uint64_t target) {
         const auto offset = target - address;
@@ -1062,9 +1100,12 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                 findings.x18_writes.push_back(at);
             }
             const char *window_reason = refused_window(offset);
-            const char *reason = window_reason != nullptr                              ? window_reason
-                                 : (exclusive_sequence && !is_exclusive(instruction)) ? inside_exclusive_sequence
-                                                                                      : unsupported_reason(instruction);
+            const char *reason = window_reason;
+            if (!reason) {
+                reason = exclusive_sequence && !is_exclusive(instruction)
+                             ? inside_exclusive_sequence
+                             : unsupported_reason(instruction, is_lone_load(offset));
+            }
             if (instruction == br_x18 && window_reason == nullptr && reason != inside_exclusive_sequence) {
                 // A br x18 runs as the end of a jump table through landing pads (X2d), or, when it ends
                 // no jump table the rewriter knows, as a general indirect island that branches to the
@@ -1100,7 +1141,8 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         }
 
         if (is_exclusive(instruction)) {
-            exclusive_sequence = is_load_exclusive(instruction);
+            // A lone load-exclusive (step C C3) opens no sequence: its following x18 uses are islands.
+            exclusive_sequence = is_load_exclusive(instruction) && !is_lone_load(offset);
         } else if (is_clrex(instruction)) {
             exclusive_sequence = false;
         }
