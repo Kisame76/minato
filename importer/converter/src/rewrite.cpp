@@ -534,12 +534,14 @@ std::pair<std::size_t, const char *> unclosed_window(std::span<const std::byte> 
 /// store-exclusive reached by a back-edge, a branch out, or straight-line ahead (ADR-0020 C3b), and a
 /// nested load-exclusive (class 5), make it not lone and stay refused.
 bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
-    std::size_t end = code.size();  // the run is [open, end): to the first CLREX or the end of the code
+    std::size_t end = code.size();  // the run is [open, end): to the first CLREX, nested ldxr or code end
     for (std::size_t j = open + 4; j + 4 <= code.size(); j += 4) {
         const auto word = word_at(code, j);
-        if (is_store_exclusive(word)) return false;  // a pair ahead in straight line: C3b
-        if (is_load_exclusive(word)) return false;   // nested: class 5 / C4, kept refused for now
-        if (is_clrex(word)) { end = j; break; }      // the monitor is dropped: the run ends here
+        if (is_store_exclusive(word)) return false;  // a pair ahead in straight line: C3b (far store)
+        // A nested load-exclusive (step C C4, class 5) re-arms the monitor before any store-exclusive,
+        // so nothing pairs with this one; like a CLREX it ends the run. The nested one is scanned as
+        // its own window. A CLREX likewise drops the monitor and ends the run.
+        if (is_load_exclusive(word) || is_clrex(word)) { end = j; break; }
     }
     for (std::size_t j = open + 4; j < end; j += 4) {
         const auto word = word_at(code, j);

@@ -537,6 +537,49 @@ TEST(a_store_exclusive_before_its_load_exclusive_by_a_back_edge_is_not_lone) {
     }
 }
 
+// Class 5 (step C C4): a nested second load-exclusive before the first closes re-arms the monitor,
+// so the first load-exclusive pairs with no store-exclusive — it is lone and its x18 uses island —
+// while the second load-exclusive starts its own window, relocated on its own merits.
+TEST(a_nested_load_exclusive_makes_the_first_lone_and_the_second_its_own_window) {
+    const std::uint32_t code[] = {
+        0xc85f'7c01,  // 0x1000 ldxr x1, [x0]: the first load-exclusive (lone: the second re-arms before any stxr)
+        0x9100'0432,  // 0x1004 add x18, x1, #1: x18 use of the first run, islanded
+        0xc85f'7c62,  // 0x1008 ldxr x2, [x3]: the nested second load-exclusive
+        0x9100'0452,  // 0x100c add x18, x2, #1: x18 use inside the second window
+        0xc804'7c72,  // 0x1010 stxr w4, x18, [x3]: the second window's store-exclusive
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    std::vector<std::uint64_t> sites;
+    for (const auto &site : findings.sites) sites.push_back(site.address);
+    CHECK(sites == (std::vector<std::uint64_t>{0x1004}));  // only the first run's add x18 islands
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() == 1) {
+        CHECK(findings.exclusive_regions[0].address == 0x1008);  // the second ldxr..stxr window
+    }
+}
+
+// A nested first load-exclusive whose run branches out is not lone: the branch could carry the first
+// monitor to the store-exclusive, so it stays refused (window_nested), keeping that cause covered.
+TEST(a_nested_load_exclusive_with_a_branch_out_of_the_first_run_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f'7c01,  // 0x1000 ldxr x1, [x0]: the first load-exclusive
+        0x9100'0432,  // 0x1004 add x18, x1, #1: x18 use
+        0x1400'0003,  // 0x1008 b 0x1014: a branch out of the first run
+        0xc85f'7c62,  // 0x100c ldxr x2, [x3]: the nested second load-exclusive
+        0xc804'7c62,  // 0x1010 stxr w4, x2, [x3]
+        0xd503'201f,  // 0x1014 nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.sites.empty());
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (findings.x18_unsupported.size() == 1) {
+        CHECK(findings.x18_unsupported[0].address == 0x1004);
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("another load-exclusive") !=
+              std::string_view::npos);
+    }
+}
+
 // The load-/store-exclusive loop of ref_x18_ll_sc becomes one region; the x18 instructions before
 // and after it stay single-instruction islands, and the x18-free exclusive after is left alone.
 TEST(an_ll_sc_loop_becomes_a_region_with_islands_around_it) {
@@ -695,16 +738,9 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     std::vector<std::uint32_t> far{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
     far.insert(far.end(), 63, 0xd503'201f);                    // nop
     far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 65 words after the ldxr (C3b)
-    // A window with no store-exclusive at all is no longer refused: it is a lone load-exclusive whose
-    // x18 uses island (step C C3, covered by a_lone_load_exclusive_is_not_a_window...).
-    auto late = far;
-    late.back() = 0xc85f'7c62;  // ldxr x2, [x3] where the stxr was: past the 64 words, so the cause is the distance
-    const std::uint32_t nested[] = {
-        0xc85f'7c01,  // ldxr x1, [x0]
-        0x9100'0432,  // add x18, x1, #1
-        0xc85f'7c62,  // ldxr x2, [x3]
-        0xc804'7c62,  // stxr w4, x2, [x3]
-    };
+    // No longer refused here: a window with no store-exclusive at all (step C C3) and a nested
+    // load-exclusive with a clean first run (step C C4) make the first load-exclusive lone, so its
+    // x18 uses island — covered by a_lone_load_exclusive_... and a_nested_load_exclusive_... above.
     const std::uint32_t stack[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
         0x9100'43ff,  // add sp, sp, #16
@@ -746,10 +782,6 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
          "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address "
          "would point into the island"},
         {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 64 words"},
-        {late.data(), late.data() + late.size(), 1,
-         "it lies in an exclusive window that does not close within 64 words"},
-        {nested, nested + std::size(nested), 1,
-         "it lies in an exclusive window that opens another load-exclusive before it closes"},
         {stack, stack + std::size(stack), 2, "it lies in an exclusive window that moves the stack pointer"},
         {crowded, crowded + std::size(crowded), 2, "it lies in an exclusive window that leaves no register free"},
         {written, written + std::size(written), 2,
