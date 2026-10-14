@@ -1,0 +1,10 @@
+I/package-answers-test: by name: greeting hello, locale en_US, same locale true, same density true, same orientation true, context's false, context's assets true, system ok OK
+I/package-answers-test: by info: greeting hello, locale en_US, same locale true, same density true, same orientation true, context's false, context's assets true, system ok OK
+I/package-answers-test: by info, no configuration: greeting hello, locale en_US, same locale true, same density true, same orientation true, context's false, context's assets true, system ok OK
+I/package-answers-test: by info, German: greeting hallo, locale de, same locale false, same density true, same orientation true, context's false, context's assets false, system ok OK
+I/package-answers-test: by activity: greeting hello, locale en_US, same locale true, same density true, same orientation true, context's false, context's assets true, system ok OK
+I/package-answers-test: twice: same false, same assets true
+I/package-answers-test: unknown package: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: unknown activity: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.packageanswers/io.github.kisame76.minato.test.packageanswers.Missing}
+I/package-answers-test: other package's activity: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.absent/Main}
+I/package-answers-test: done

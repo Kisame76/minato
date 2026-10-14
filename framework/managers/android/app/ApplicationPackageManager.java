@@ -16,6 +16,8 @@ import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.SigningDetails;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
 import android.os.Bundle;
 import android.os.Process;
@@ -296,6 +298,47 @@ class ApplicationPackageManager {
                     + packageName, e);
         }
         return null;
+    }
+
+    // Resources (the package manager stub plan, P1): the app's own package's, as AOSP's asks ResourcesManager for them
+    // with the package's paths; for any other package getApplicationInfo or getActivityInfo throws, and an
+    // ApplicationInfo of another package has no Resources here, as AOSP's throws when ResourcesManager has none. The
+    // "system" package (SystemUI's context) and "android" are unknown, as decision 7 has every package but the app's.
+
+    public Resources getResourcesForActivity(ComponentName activityName) throws NameNotFoundException {
+        return getResourcesForApplication(
+                getActivityInfo(activityName, PackageManager.GET_SHARED_LIBRARY_FILES).applicationInfo);
+    }
+
+    public Resources getResourcesForApplication(ApplicationInfo app) throws NameNotFoundException {
+        return getResourcesForApplication(app, null);
+    }
+
+    public Resources getResourcesForApplication(ApplicationInfo app, Configuration configuration)
+            throws NameNotFoundException {
+        LoadedApk loaded = mThread.getLoadedApk();
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (loaded == null || pkg == null || !pkg.packageName.equals(app.packageName)) {
+            throw new NameNotFoundException("Unable to open " + app.publicSourceDir);
+        }
+        return loaded.createApplicationResources(configuration);
+    }
+
+    public Resources getResourcesForApplication(String appPackageName) throws NameNotFoundException {
+        return getResourcesForApplication(getApplicationInfo(appPackageName, PackageManager.GET_SHARED_LIBRARY_FILES));
+    }
+
+    /** As AOSP's, for the one user (PackageManager's hidden abstract method). */
+    public Resources getResourcesForApplicationAsUser(String appPackageName, int userId) throws NameNotFoundException {
+        if (userId < 0) {
+            throw new IllegalArgumentException("Call does not support special user #" + userId);
+        }
+        try {
+            return getResourcesForApplication(getApplicationInfo(appPackageName,
+                    PackageManager.GET_SHARED_LIBRARY_FILES));
+        } catch (NameNotFoundException e) {
+            throw new NameNotFoundException("Package " + appPackageName + " doesn't exist");
+        }
     }
 
     // Permissions (b3.5b1): the app's own and the platform's, answered by PermissionPolicy (ADR-0045 decision 6).

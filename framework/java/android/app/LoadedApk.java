@@ -292,6 +292,22 @@ public final class LoadedApk {
         return new Resources(assets, system.getDisplayMetrics(), config);
     }
 
+    /**
+     * The Resources ApplicationPackageManager.getResourcesForApplication gives for the app's own package, as
+     * ResourcesManager's getResources without an activity token makes them (the package manager stub plan, P1): a new
+     * Resources at each call; without a configuration it shares getResources()' AssetManager, with one it has an
+     * AssetManager of its own and the session's configuration updated from it, as an activity's
+     * [verified: package-answers-test on apk-runner-35].
+     */
+    @SuppressWarnings("deprecation") // Resources' public constructor, as getResources.
+    Resources createApplicationResources(Configuration overrideConfiguration) {
+        if (overrideConfiguration != null) {
+            return createActivityResources(overrideConfiguration);
+        }
+        Resources base = getResources();
+        return new Resources(base.getAssets(), base.getDisplayMetrics(), base.getConfiguration());
+    }
+
     /** The Application once makeApplication made it, else null: also while its attachBaseContext runs. */
     public Application getApplication() {
         return mApplication;
