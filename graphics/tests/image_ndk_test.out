@@ -1,0 +1,26 @@
+new: 0
+reader: 64 x 48, format 1, maxImages 2; window 0, 64 x 48, format 1
+nothing queued: next -30001, latest -30001
+setImageListener: 0
+post: 0
+onImageAvailable: 1, on the posting thread 0
+acquireNextImage: 0
+first: 64 x 48, format 1, timestamp set 1, crop 0 0 64 48, 1 planes, pixel stride 4 (0), row stride fits 1 (0), data 0, pixel (1, 1) ff0000ff, length covers 1
+first's hardware buffer: 64 x 48, format 1, CPU read 1, GPU sampled 0
+second while the first is held: 0
+a third while two are held: -30002
+after a delete: 0
+three frames: onImageAvailable 1, latest 0, its pixel 00, then next -30001
+acquireNextImageAsync: 0, fence -1
+newWithUsage: 0
+with usage: 16 x 16, format 1, timestamp set 1, crop 0 0 16 16, 1 planes, pixel stride 4 (0), row stride fits 1 (0), data 0, pixel (1, 1) 00ff00ff, length covers 1
+with usage's hardware buffer: 16 x 16, format 1, CPU read 1, GPU sampled 1
+newWithDataSpace: 0
+its window's data space: 0
+image data space: 0, 0
+PRIVATE: 0
+its window's format: 34
+a CPU lock of its window: -22
+YUV_420_888: 0
+deleted with an image held; its window after: lock -19
+done

@@ -1,6 +1,7 @@
 // camera-media-test (ADR-0042 b, gap 15): libcamera2ndk.so and libmediandk.so as Godot's libgodot_android.so
 // links them. Both load, every function libgodot_android.so imports from them is there, the camera manager has
-// no camera, and an image reader is refused. Opened with dlopen, so that their absence shows at run time.
+// no camera, and an image reader of YUV_420_888 is made (ADR-0058 e1), G3c), though no producer can dequeue for it
+// (G3a's YUV limit). Opened with dlopen, so that their absence shows at run time.
 #include <camera/NdkCameraManager.h>
 #include <dlfcn.h>
 #include <media/NdkImageReader.h>
@@ -71,5 +72,8 @@ int main(void) {
     AImageReader* reader = NULL;
     media_status_t made = new_reader(640, 480, AIMAGE_FORMAT_YUV_420_888, 2, &reader);
     printf("AImageReader_new: status %d, %s\n", made, reader == NULL ? "no reader" : "a reader");
+    if (reader != NULL) {
+        ((__typeof__(AImageReader_delete)*)dlsym(media, "AImageReader_delete"))(reader);
+    }
     return 0;
 }

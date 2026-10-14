@@ -750,6 +750,9 @@ void ANativeWindow_tryAllocateBuffers(ANativeWindow*) {}
 /// A queue window's lock: a dequeued slot's buffer, locked for the CPU. The whole buffer is dirty, as nothing of the
 /// last frame is copied into it.
 static int32_t queue_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffer, ARect* inOutDirtyBounds) {
+    // IMPLEMENTATION_DEFINED, a PRIVATE reader's, is no format the CPU writes: -EINVAL, as Android 15's
+    // (image-ndk-test).
+    if (dequeue_geometry(window).format == kImplementationDefined) return -EINVAL;
     pthread_mutex_lock(&window->lock);
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);

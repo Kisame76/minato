@@ -10,7 +10,12 @@
 //   returned (its context is freed right after);
 // - the queue abandoned while a dequeue and while an attach wait for a free slot: both wake with -ENODEV, the
 //   attach's buffer reference given back;
-// - detach and attach racing the consumers' releases of two queues on three threads.
+// - detach and attach racing the consumers' releases of two queues on three threads;
+// - libmediandk's AImageReader (runtime/android/image_reader.cpp, G3c) on the same queue: a delete with images still
+//   held, which then answer AMEDIA_ERROR_INVALID_OBJECT until their own delete; a delete racing a listener call that
+//   runs, whose context is freed right after; a delete from inside the listener; a producer racing the delete;
+//   listeners set from two threads at once; frames before a listener not called back; a failed acquire's NULL; a
+//   PRIVATE image without planes; an image of the producer's crop.
 // Each failure prints its check and exits 1; the last line is "done".
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
@@ -23,6 +28,9 @@
 #include <unistd.h>
 
 #include <atomic>
+
+#include <media/NdkImage.h>
+#include <media/NdkImageReader.h>
 
 #include "APKRuntime/buffer_queue.h"
 
@@ -385,6 +393,245 @@ void detach_attach_racing_releases() {
     printf("detach and attach racing releases: fine\n");
 }
 
+// A CPU frame of one color through a reader's window: ANativeWindow_lock's answer.
+int post(ANativeWindow *window, uint32_t color) {
+    ANativeWindow_Buffer buffer;
+    const int locked = ANativeWindow_lock(window, &buffer, nullptr);
+    if (locked != 0) return locked;
+    static_cast<uint32_t *>(buffer.bits)[0] = color;
+    return ANativeWindow_unlockAndPost(window);
+}
+
+AImage *acquire_waiting(AImageReader *reader) {
+    AImage *image = nullptr;
+    for (int tries = 0; tries < 200 && AImageReader_acquireNextImage(reader, &image) != AMEDIA_OK; tries++) {
+        usleep(1000);
+    }
+    return image;
+}
+
+void reader_delete_with_images_held() {
+    AImageReader *reader = nullptr;
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 2, &reader) == AMEDIA_OK);
+    ANativeWindow *window = nullptr;
+    CHECK(AImageReader_getWindow(reader, &window) == AMEDIA_OK);
+    CHECK(post(window, 1) == 0);
+    AImage *first = acquire_waiting(reader);
+    CHECK(post(window, 2) == 0);
+    AImage *second = acquire_waiting(reader);
+    CHECK(first != nullptr && second != nullptr);
+    uint8_t *data = nullptr;
+    int length = 0;
+    CHECK(AImage_getPlaneData(first, 0, &data, &length) == AMEDIA_OK);  // locked, and to be unlocked by the delete
+    AImageReader_delete(reader);
+    int32_t width = 0;
+    AHardwareBuffer *buffer = nullptr;
+    CHECK(AImage_getWidth(first, &width) == AMEDIA_ERROR_INVALID_OBJECT && width == -1);
+    CHECK(AImage_getHardwareBuffer(second, &buffer) == AMEDIA_ERROR_INVALID_OBJECT);
+    AImage_delete(first);
+    AImage_delete(second);
+    CHECK(live_buffers == 0);
+    printf("reader delete with images held: fine\n");
+}
+
+struct Called {
+    uint32_t magic = kMagic;
+    std::atomic<bool> running{false};
+    std::atomic<int32_t> calls{0};
+    AImageReader *delete_inside = nullptr;  // a delete from inside the call, once
+};
+
+void image_available(void *context, AImageReader *reader) {
+    auto *called = static_cast<Called *>(context);
+    CHECK(called->magic == kMagic);
+    called->running = true;
+    if (called->delete_inside == reader) {
+        called->delete_inside = nullptr;
+        AImageReader_delete(reader);
+    } else {
+        usleep(300);
+    }
+    CHECK(called->magic == kMagic);
+    called->calls++;
+}
+
+void reader_delete_racing_listener() {
+    for (int round = 0; round < 100; round++) {
+        auto *called = new Called;
+        AImageReader *reader = nullptr;
+        CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 1, &reader) == AMEDIA_OK);
+        AImageReader_ImageListener listener{called, image_available};
+        CHECK(AImageReader_setImageListener(reader, &listener) == AMEDIA_OK);
+        ANativeWindow *window = nullptr;
+        AImageReader_getWindow(reader, &window);
+        CHECK(post(window, 3) == 0);
+        for (int tries = 0; tries < 2000 && !called->running; tries++) usleep(10);
+        AImageReader_delete(reader);  // waits for the call that runs
+        called->magic = 0;
+        delete called;  // a call after the delete is a heap-use-after-free
+    }
+    CHECK(live_buffers == 0);
+    printf("reader delete racing a listener call: fine\n");
+}
+
+void reader_delete_inside_listener() {
+    Called called;
+    AImageReader *reader = nullptr;
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 1, &reader) == AMEDIA_OK);
+    called.delete_inside = reader;
+    AImageReader_ImageListener listener{&called, image_available};
+    AImageReader_setImageListener(reader, &listener);
+    ANativeWindow *window = nullptr;
+    AImageReader_getWindow(reader, &window);
+    // Nothing else holds the window: the delete inside the call lets the queue go, and the dispatcher thread, which
+    // ends by itself after the call, outlives the queue's context.
+    CHECK(post(window, 4) == 0);
+    for (int tries = 0; tries < 2000 && called.calls == 0; tries++) usleep(100);
+    CHECK(called.calls == 1);
+    usleep(10000);
+    CHECK(live_buffers == 0);
+    printf("reader delete inside the listener: fine\n");
+}
+
+struct Race {
+    AImageReader *reader;
+    ANativeWindow *window;
+    std::atomic<bool> stop{false};
+};
+
+void *post_frames(void *context) {
+    auto *race = static_cast<Race *>(context);
+    for (uint32_t color = 0; !race->stop; color++) {
+        if (post(race->window, color) == -ENODEV) break;
+    }
+    return nullptr;
+}
+
+void *take_latest(void *context) {
+    auto *race = static_cast<Race *>(context);
+    while (!race->stop) {
+        AImage *image = nullptr;
+        if (AImageReader_acquireLatestImage(race->reader, &image) == AMEDIA_OK) {
+            uint8_t *data = nullptr;
+            int length = 0;
+            AImage_getPlaneData(image, 0, &data, &length);
+            AImage_delete(image);
+        }
+    }
+    return nullptr;
+}
+
+struct Counter {
+    std::atomic<int32_t> calls{0};
+};
+
+void count_call(void *context, AImageReader *) {
+    static_cast<Counter *>(context)->calls++;
+}
+
+void *set_listener_repeatedly(void *context) {
+    auto *reader = static_cast<AImageReader *>(context);
+    static Counter counter;
+    AImageReader_ImageListener listener{&counter, count_call};
+    for (int round = 0; round < 200; round++) {
+        AImageReader_setImageListener(reader, round % 3 == 2 ? nullptr : &listener);
+    }
+    AImageReader_setImageListener(reader, &listener);
+    return nullptr;
+}
+
+void reader_listeners_and_answers() {
+    // Listeners set from two threads at once: one dispatcher thread, which the delete waits for.
+    AImageReader *reader = nullptr;
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 1, &reader) == AMEDIA_OK);
+    ANativeWindow *window = nullptr;
+    AImageReader_getWindow(reader, &window);
+    pthread_t setters[2];
+    pthread_create(&setters[0], nullptr, set_listener_repeatedly, reader);
+    pthread_create(&setters[1], nullptr, set_listener_repeatedly, reader);
+    for (int frame = 0; frame < 20; frame++) {
+        post(window, static_cast<uint32_t>(frame));
+        AImage *image = nullptr;
+        if (AImageReader_acquireNextImage(reader, &image) == AMEDIA_OK) AImage_delete(image);
+    }
+    pthread_join(setters[0], nullptr);
+    pthread_join(setters[1], nullptr);
+    AImageReader_delete(reader);
+
+    // Frames that came without a listener are not called back once one is set; a failed acquire leaves NULL.
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 1, &reader) == AMEDIA_OK);
+    AImageReader_getWindow(reader, &window);
+    for (int frame = 0; frame < 3; frame++) {
+        CHECK(post(window, static_cast<uint32_t>(frame)) == 0);
+        AImage *image = acquire_waiting(reader);
+        CHECK(image != nullptr);
+        AImage_delete(image);
+    }
+    auto *stale = reinterpret_cast<AImage *>(uintptr_t{1});
+    CHECK(AImageReader_acquireLatestImage(reader, &stale) == AMEDIA_IMGREADER_NO_BUFFER_AVAILABLE && stale == nullptr);
+    Counter counter;
+    AImageReader_ImageListener listener{&counter, count_call};
+    AImageReader_setImageListener(reader, &listener);
+    usleep(20000);
+    CHECK(counter.calls == 0);
+    AImageReader_delete(reader);
+
+    // A PRIVATE image has no planes; an image is its producer's crop.
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_PRIVATE, 1, &reader) == AMEDIA_OK);
+    AImageReader_getWindow(reader, &window);
+    CHECK(produce(window, 1) == 0);
+    AImage *opaque = acquire_waiting(reader);
+    int32_t planes = -1;
+    uint8_t *data = nullptr;
+    int length = 0;
+    AHardwareBuffer *buffer = nullptr;
+    CHECK(AImage_getNumberOfPlanes(opaque, &planes) == AMEDIA_OK && planes == 0);
+    CHECK(AImage_getPlaneData(opaque, 0, &data, &length) == AMEDIA_ERROR_INVALID_PARAMETER);
+    CHECK(AImage_getHardwareBuffer(opaque, &buffer) == AMEDIA_OK && buffer != nullptr);
+    AImage_delete(opaque);
+    AImageReader_delete(reader);
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 1, &reader) == AMEDIA_OK);
+    AImageReader_getWindow(reader, &window);
+    AHardwareBuffer *dequeued = nullptr;
+    int32_t slot = -1;
+    CHECK(minato_ANativeWindow_dequeue(window, &dequeued, &slot) == 0);
+    minato_BufferQueue_settings settings{};
+    settings.crop_right = 2;
+    settings.crop_bottom = 3;
+    CHECK(minato_ANativeWindow_queueWith(window, slot, &settings) == 0);
+    AImage *cropped = acquire_waiting(reader);
+    int32_t width = 0, height = 0;
+    AImageCropRect crop{};
+    AImage_getWidth(cropped, &width);
+    AImage_getHeight(cropped, &height);
+    AImage_getCropRect(cropped, &crop);
+    CHECK(width == 2 && height == 3 && crop.left == 0 && crop.top == 0 && crop.right == 2 && crop.bottom == 3);
+    AImage_delete(cropped);
+    AImageReader_delete(reader);
+    CHECK(live_buffers == 0);
+    printf("reader listeners and answers: fine\n");
+}
+
+void reader_delete_racing_producer() {
+    Race race{};
+    CHECK(AImageReader_new(4, 4, AIMAGE_FORMAT_RGBA_8888, 2, &race.reader) == AMEDIA_OK);
+    AImageReader_getWindow(race.reader, &race.window);
+    ANativeWindow_acquire(race.window);
+    pthread_t threads[2];
+    pthread_create(&threads[0], nullptr, post_frames, &race);
+    pthread_create(&threads[1], nullptr, take_latest, &race);
+    usleep(50000);
+    race.stop = true;
+    // The acquiring thread ends first (an acquire after the delete would use a freed reader, as on Android); the
+    // producer races the delete and wakes with -ENODEV.
+    pthread_join(threads[1], nullptr);
+    AImageReader_delete(race.reader);
+    pthread_join(threads[0], nullptr);
+    ANativeWindow_release(race.window);
+    CHECK(live_buffers == 0);
+    printf("reader delete racing a producer: fine\n");
+}
+
 }  // namespace
 
 int main() {
@@ -395,6 +642,11 @@ int main() {
     abandon_while_waiting(false);
     abandon_while_waiting(true);
     detach_attach_racing_releases();
+    reader_delete_with_images_held();
+    reader_delete_racing_listener();
+    reader_delete_inside_listener();
+    reader_listeners_and_answers();
+    reader_delete_racing_producer();
     printf("done\n");
     return 0;
 }

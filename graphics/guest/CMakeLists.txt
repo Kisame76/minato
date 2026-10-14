@@ -126,6 +126,12 @@ add_executable(ahb-test "${tests}/ahb_test.c")
 target_link_libraries(ahb-test PRIVATE nativewindow)
 target_compile_definitions(ahb-test PRIVATE __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
 target_compile_options(ahb-test PRIVATE -Wall -Wextra -Wno-nonnull -Wno-unguarded-availability)
+# ADR-0058 e1), the graphics breadth's G3c: image-ndk-test, libmediandk's AImageReader and AImage on graphics/host's
+# hardware buffers, and as a shell program on the emulator for Android 15's answers; API 34's newWithDataSpace.
+add_executable(image-ndk-test "${tests}/image_ndk_test.c")
+target_compile_options(image-ndk-test PRIVATE --target=aarch64-none-linux-android35 -Wall -Wextra)
+target_link_options(image-ndk-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(image-ndk-test PRIVATE mediandk nativewindow)
 
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM

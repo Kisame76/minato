@@ -294,6 +294,10 @@ if(TARGET minato_graphics_host)
   # ADR-0058 c): libnativewindow's buffer queue, a SurfaceTexture's, on graphics/host's hardware buffers.
   add_guest_test(buffer_queue buffer-queue-test buffer_queue_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
+  # ADR-0058 e1), G3c: libmediandk's AImageReader and AImage on the same queue, with Android 15's answers.
+  add_guest_test(image_ndk image-ndk-test image_ndk_test
+    "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so;${APK_BIONIC_DIR}/libmediandk.so"
+    "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
   # And the same buffers through the window host's background script, with the Metal hook counting guest commits.
   add_guest_test(window_background window-background-test window_background_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
@@ -583,11 +587,11 @@ else()
   set_tests_properties(graphics.drawable_probe PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
 
-# The graphics breadth's G3b: buffer-queue-host-test, the buffer queue itself (runtime/android/native_window.cpp)
-# built for the Mac on a counted fake AHardwareBuffer, so that this preset's AddressSanitizer and
-# UndefinedBehaviorSanitizer see the queue's memory, which buffer-queue-test runs as guest code. Only the NDK's
-# android/ headers join, through a folder of their own, so that the Mac's system headers stay; the host windows'
-# syscalls are the test's.
+# The graphics breadth's G3b: buffer-queue-host-test, the buffer queue itself (runtime/android/native_window.cpp),
+# and G3c's AImageReader on it (image_reader.cpp), built for the Mac on a counted fake AHardwareBuffer, so that this
+# preset's AddressSanitizer and UndefinedBehaviorSanitizer see their memory, which buffer-queue-test and
+# image-ndk-test run as guest code. Only the NDK's android/ and media/ headers join, through a folder of their own,
+# so that the Mac's system headers stay; the host windows' syscalls are the test's.
 set(ndk_android_headers "${APK_ANDROID_NDK}/toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/android")
 if(EXISTS "${ndk_android_headers}/hardware_buffer.h")
   set(buffer_queue_host_include "${CMAKE_CURRENT_BINARY_DIR}/buffer-queue-host-include")
@@ -595,13 +599,17 @@ if(EXISTS "${ndk_android_headers}/hardware_buffer.h")
     file(MAKE_DIRECTORY "${buffer_queue_host_include}")
     file(CREATE_LINK "${ndk_android_headers}" "${buffer_queue_host_include}/android" SYMBOLIC)
   endif()
+  if(NOT EXISTS "${buffer_queue_host_include}/media")
+    file(CREATE_LINK "${ndk_android_headers}/../media" "${buffer_queue_host_include}/media" SYMBOLIC)
+  endif()
   add_executable(buffer-queue-host-test buffer_queue_host_test.cpp
-    "${PROJECT_SOURCE_DIR}/runtime/android/native_window.cpp")
+    "${PROJECT_SOURCE_DIR}/runtime/android/native_window.cpp" "${PROJECT_SOURCE_DIR}/runtime/android/image_reader.cpp")
   target_include_directories(buffer-queue-host-test SYSTEM PRIVATE "${buffer_queue_host_include}")
   target_include_directories(buffer-queue-host-test PRIVATE "${PROJECT_SOURCE_DIR}/runtime/include")
   target_compile_options(buffer-queue-host-test PRIVATE
     -include "${CMAKE_CURRENT_SOURCE_DIR}/buffer_queue_host_shim.h" -Wno-deprecated-declarations)
-  target_compile_definitions(buffer-queue-host-test PRIVATE syscall=minato_host_syscall)
+  # The image reader finds the queue's functions in the test's own program.
+  target_compile_definitions(buffer-queue-host-test PRIVATE syscall=minato_host_syscall MINATO_QUEUE_LIBRARY=nullptr)
   target_link_libraries(buffer-queue-host-test PRIVATE apk_defaults)
   add_test(NAME graphics.buffer_queue_host COMMAND buffer-queue-host-test)
 else()

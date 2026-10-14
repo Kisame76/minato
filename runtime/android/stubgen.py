@@ -124,11 +124,23 @@ LIBRARIES = {
         "stubbed": [],
         "private": [],
     },
-    # No codec, extractor, muxer, DRM or image reader (gap 15): every function answers an error. Its key strings
+    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp); no codec, extractor, muxer or DRM
+    # (gap 15): every other function answers an error. Its key strings
     # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*) are data, whose values only AOSP's NdkMediaFormat.cpp and
     # NdkMediaCodec.cpp have, which are not fetched: they stay absent until AMediaFormat is written, and an app
     # that imports one fails at the link, as it did without the library.
-    "libmediandk": {"version": None, "implemented": [], "stubbed": [], "private": [],
+    "libmediandk": {"version": None,
+                    "implemented": ["AImageReader_new", "AImageReader_newWithUsage", "AImageReader_newWithDataSpace",
+                                    "AImageReader_delete", "AImageReader_getWindow", "AImageReader_getWidth",
+                                    "AImageReader_getHeight", "AImageReader_getFormat", "AImageReader_getMaxImages",
+                                    "AImageReader_acquireNextImage", "AImageReader_acquireLatestImage",
+                                    "AImageReader_acquireNextImageAsync", "AImageReader_acquireLatestImageAsync",
+                                    "AImageReader_setImageListener", "AImageReader_setBufferRemovedListener",
+                                    "AImage_delete", "AImage_deleteAsync", "AImage_getWidth", "AImage_getHeight",
+                                    "AImage_getFormat", "AImage_getCropRect", "AImage_getTimestamp",
+                                    "AImage_getDataSpace", "AImage_getNumberOfPlanes", "AImage_getPlanePixelStride",
+                                    "AImage_getPlaneRowStride", "AImage_getPlaneData", "AImage_getHardwareBuffer"],
+                    "stubbed": [], "private": [],
                     "absent": ["AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*"]},
 }
 

@@ -5,4 +5,4 @@ camera manager: made
 camera IDs: status 0, 0 cameras
 camera IDs without a list to fill: status -10001
 openCamera of "0": status -10001, no device
-AImageReader_new: status -10002, no reader
+AImageReader_new: status 0, a reader
