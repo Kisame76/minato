@@ -1,0 +1,44 @@
+I/date-time-widgets-test: datePicker calendar: 2024-1-29 spinnersShown=false calendarViewShown=false enabled=true
+I/date-time-widgets-test: datePicker updated: 2025-11-31 heard=[2025-11-31]
+I/date-time-widgets-test: datePicker bounds: min=1735732800000 max=1767182400000
+I/date-time-widgets-test: datePicker clamped: 2030-0-15
+I/date-time-widgets-test: datePicker first day: 2
+I/date-time-widgets-test: datePicker measured=true laidOut=true drawn=true
+I/date-time-widgets-test: datePicker spinner: 2024-1-29 spinnersShown=false calendarViewShown=true
+I/date-time-widgets-test: datePicker spinner updated: 2023-2-1 heard=[2023-2-1]
+I/date-time-widgets-test: datePicker spinner hidden: false
+I/date-time-widgets-test: datePicker spinner measured=true laidOut=true drawn=true
+I/date-time-widgets-test: timePicker clock: 13:45 is24=true last=13:45
+I/date-time-widgets-test: timePicker clock 12h: 7:45 is24=false
+I/date-time-widgets-test: timePicker clock measured=true laidOut=true drawn=true
+I/date-time-widgets-test: timePicker spinner: 23:59 is24=true last=23:59
+I/date-time-widgets-test: timePicker spinner measured=true laidOut=true drawn=true
+I/date-time-widgets-test: calendarView: date=1709208000000 same=true first=1 heard=[]
+I/date-time-widgets-test: calendarView bounds: true true
+I/date-time-widgets-test: calendarView first day: 2
+I/date-time-widgets-test: calendarView measured=true laidOut=true drawn=true
+I/date-time-widgets-test: spinner: selected=2 item=three count=3
+I/date-time-widgets-test: spinner measured=true laidOut=true drawn=true
+I/date-time-widgets-test: spinner heard: []
+I/date-time-widgets-test: keyboardView: keys=8 a=97 b=98 c=99 del=-5r d=100 e=101 f=102 go=10 shifted=false preview=true
+I/date-time-widgets-test: keyboardView measured=true laidOut=true drawn=true
+I/date-time-widgets-test: keyboardView touched: [press 98, key 98, release 98]
+I/date-time-widgets-test: accessibility: service=true same=true enabled=false touchExploration=false
+I/date-time-widgets-test: accessibility state listener: add=true addAgain=true remove=true removeAgain=false
+I/date-time-widgets-test: accessibility touch listener: add=true addAgain=true remove=true removeAgain=false
+I/date-time-widgets-test: accessibility services listener: remove=true removeAgain=false
+I/date-time-widgets-test: accessibility audio description: requested=false remove=true removeAgain=false
+I/date-time-widgets-test: accessibility lists: enabled=0 enabledSpoken=0 installedIsList=true serviceInfosIsList=true
+I/date-time-widgets-test: accessibility timeout: 1000 0 2500
+I/date-time-widgets-test: accessibility misc: button=false fromTool=false strokeWidthSet=true colorSet=true
+I/date-time-widgets-test: accessibility event: java.lang.IllegalStateException: Accessibility off. Did you forget to check that?
+I/date-time-widgets-test: accessibility worker thread: no exception
+I/date-time-widgets-test: accessibility interrupt: java.lang.IllegalStateException: Accessibility off. Did you forget to check that?
+I/date-time-widgets-test: accessibility view: important=false focused=false live=0
+I/date-time-widgets-test: datePickerDialog: showing=true 2024-1-29 positive=true negative=true
+I/date-time-widgets-test: datePickerDialog state: 2025-6-4
+I/date-time-widgets-test: datePickerDialog picked: [2025-6-4] showing=false
+I/date-time-widgets-test: timePickerDialog: showing=true positive=true negative=true
+I/date-time-widgets-test: timePickerDialog state: 6:5 is24=true
+I/date-time-widgets-test: timePickerDialog picked: [6:5] showing=false
+I/date-time-widgets-test: done

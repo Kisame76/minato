@@ -4,8 +4,8 @@
 # (incremental), framework.jar (about 10 s) and f2-types-test (seconds) every time, so it never tests an old binary;
 # then starts f2-types-test through app_process and compares its log with Android 15's on apk-runner-35
 # (fixtures/expected/f2-types-test.logcat, from tools/android-reference.sh --app f2-types-test): ExifInterface on a
-# JPEG, WallpaperColors, a DialogFragment, a DatePickerDialog and a KeyboardView shown, a Presentation, and the data
-# types of android.app, android.media, android.accessibilityservice and android.os.health.
+# JPEG, WallpaperColors, a DialogFragment, and the data types of android.app, android.media,
+# android.accessibilityservice and android.os.health (the date dialogs and KeyboardView are date-time-widgets-test's).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/f2-types-check.sh
 set -euo pipefail

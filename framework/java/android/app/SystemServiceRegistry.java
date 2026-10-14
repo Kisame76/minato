@@ -42,6 +42,7 @@ import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
+import android.view.accessibility.AccessibilityManager;
 import android.view.inputmethod.InputMethodManager;
 
 import com.android.internal.policy.PhoneLayoutInflater;
@@ -77,6 +78,8 @@ final class SystemServiceRegistry {
         cached(Context.WINDOW_SERVICE, WindowManager.class, ctx -> new WindowManagerImpl((Context) (Object) ctx));
         cached(Context.SENSOR_SERVICE, SensorManager.class,
                 ctx -> new SystemSensorManager(ctx.getOuterContext(), Looper.getMainLooper()));
+        cached(Context.ACCESSIBILITY_SERVICE, AccessibilityManager.class,
+                ctx -> AccessibilityManager.getInstance(ctx.getOuterContext()));
         cached(Context.WIFI_SERVICE, WifiManager.class, ctx -> new WifiManager(ctx.getOuterContext()));
         cached(Context.INPUT_SERVICE, InputManager.class, ctx -> new InputManager(ctx.getOuterContext()));
         cached(Context.STORAGE_SERVICE, StorageManager.class,

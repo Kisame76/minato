@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of framework breadth batch F3 (date-time-widgets-test): DatePicker in calendar and in spinner mode,
+     TimePicker in clock and in spinner mode, CalendarView, DatePickerDialog, TimePickerDialog and Spinner, shown in a
+     window and used as an app does. The test runs in its launcher activity when the window first has the focus. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.datetime" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.datetime.DateTimeActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
