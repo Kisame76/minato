@@ -331,22 +331,33 @@ int main(void) {
     printf("  each prefix's route in its network's table, proto kernel, metric 256: %s\n", yes(prefix6));
 
     // Default routes: each in the table of its interface's network, through a gateway on IPv4 (from the network's
-    // DHCP or configuration, proto static) and a link-local router on IPv6 (from its advertisement, proto ra).
+    // DHCP or configuration, proto static) and a link-local router on IPv6 (from its advertisement, proto ra). A VPN's
+    // tunnel (tun*) has none of that: VpnService.Builder.addRoute gives a route without a gateway, which netd adds as
+    // proto static, IPv4 with scope link, IPv6 with metric 1024 and no advertisement. The emulator has no VPN; a Mac or
+    // an iPhone with one has, and a host router behind it (a ULA, say) must not show.
     int defaults4 = 0, gateway4 = 1, defaults6 = 0, router6 = 1;
     for (int i = 0; i < route_count; i++) {
         const struct route *route = &routes[i];
         if (route->header.rtm_dst_len != 0 || route->header.rtm_type != RTN_UNICAST) continue;
         char name[IF_NAMESIZE] = "";
         if (!if_indextoname(route->oif, name) || !interface_counts(all, name)) continue;
+        const int tunnel = strncmp(name, "tun", 3) == 0;
         if (route->header.rtm_family == AF_INET) {
             defaults4++;
-            gateway4 &= route->table == 1000 + route->oif && route->has_gateway &&
-                        route->header.rtm_protocol == RTPROT_STATIC && route->header.rtm_scope == RT_SCOPE_UNIVERSE;
+            gateway4 &= tunnel ? route->table == 1000 + route->oif && !route->has_gateway &&
+                                     route->header.rtm_protocol == RTPROT_STATIC &&
+                                     route->header.rtm_scope == RT_SCOPE_LINK
+                               : route->table == 1000 + route->oif && route->has_gateway &&
+                                     route->header.rtm_protocol == RTPROT_STATIC &&
+                                     route->header.rtm_scope == RT_SCOPE_UNIVERSE;
         } else {
             defaults6++;
-            router6 &= route->table == 1000 + route->oif && route->has_gateway && route->gateway[0] == 0xfe &&
-                       (route->gateway[1] & 0xc0) == 0x80 && route->header.rtm_protocol == RTPROT_RA &&
-                       route->has_priority && route->priority == 1024;
+            router6 &= tunnel ? route->table == 1000 + route->oif && !route->has_gateway &&
+                                    route->header.rtm_protocol == RTPROT_STATIC && route->has_priority &&
+                                    route->priority == 1024
+                              : route->table == 1000 + route->oif && route->has_gateway && route->gateway[0] == 0xfe &&
+                                    (route->gateway[1] & 0xc0) == 0x80 && route->header.rtm_protocol == RTPROT_RA &&
+                                    route->has_priority && route->priority == 1024;
         }
     }
     printf("an IPv4 default route: %s\n", yes(defaults4 > 0));

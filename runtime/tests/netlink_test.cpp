@@ -454,6 +454,37 @@ TEST(an_ipv6_route_dump_lays_the_tables_out_as_android_15) {
     CHECK(replies[1] == done(4, 1234));
 }
 
+TEST(a_vpns_default_route_has_no_gateway_as_androids_vpn_routes_have_none) {
+    // utun1 and utun2 are tun0 and tun1. Android's VPN routes come from VpnService.Builder.addRoute(prefix), a
+    // RouteInfo without a gateway [verified: VpnService.Builder and Vpn.java in Android 15], so a tunnel's default route
+    // goes over the interface whatever gateway the host's route names (a ULA router here, 10.8.0.1 there): IPv4 with
+    // scope link, IPv6 proto static with no RA hop limit. wlan0 keeps its router and its advertisement's proto.
+    const std::vector<HostRoute> host{{af_inet, 13, ip("10.8.0.1")}, {af_inet6, 14, ip("fd56:21f8:58df::")},
+                                      {af_inet6, 13, ip("fe80::cc:dd")}, {af_inet, 11, ip("192.168.1.1")},
+                                      {af_inet6, 11, ip("fe80::1")}};
+    const auto guest = apkrt::netlink::guest_interfaces(iphone());
+    const auto four = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 6, af_inet), 0, 1234, guest, host);
+    CHECK(four.size() == 2);
+    if (four.size() != 2) return;
+    CHECK(four[0].find(route(af_inet, 6, {1013, rtn_unicast, rtprot_static, link_scope, nullptr, 0, 13})) !=
+          std::string::npos);
+    CHECK(four[0].find(route(af_inet, 6, {1013, rtn_unicast, rtprot_static, universe, nullptr, 0, 13, nullptr,
+                                          "10.8.0.1"})) == std::string::npos);
+    CHECK(four[0].find(route(af_inet, 6, {1011, rtn_unicast, rtprot_static, universe, nullptr, 0, 11, nullptr,
+                                          "192.168.1.1"})) != std::string::npos);
+    const auto six = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 7, af_inet6), 0, 1234, guest, host);
+    CHECK(six.size() == 2);
+    if (six.size() != 2) return;
+    CHECK(six[0].find(route(af_inet6, 7, {1014, rtn_unicast, rtprot_static, universe, nullptr, 0, 14, nullptr, nullptr,
+                                          1024})) != std::string::npos);
+    CHECK(six[0].find(route(af_inet6, 7, {1013, rtn_unicast, rtprot_static, universe, nullptr, 0, 13, nullptr, nullptr,
+                                          1024})) != std::string::npos);
+    CHECK(six[0].find(route(af_inet6, 7, {1014, rtn_unicast, rtprot_ra, universe, nullptr, 0, 14, nullptr,
+                                          "fd56:21f8:58df::", 1024, true})) == std::string::npos);
+    CHECK(six[0].find(route(af_inet6, 7, {1011, rtn_unicast, rtprot_ra, universe, nullptr, 0, 11, nullptr, "fe80::1",
+                                          1024, true})) != std::string::npos);
+}
+
 TEST(a_route_dump_of_both_families_answers_ipv4_then_ipv6_and_without_the_hosts_routes_no_default) {
     const auto replies = answered(request(rtm_getroute, nlm_f_request | nlm_f_dump, 5));
     CHECK(replies.size() == 3);

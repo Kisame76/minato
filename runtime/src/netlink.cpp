@@ -350,15 +350,20 @@ std::vector<Route> routes_of(const std::vector<Interface> &interfaces, const std
                  .destination = std::string("\xff") + std::string(15, '\0'), .prefix = 8, .oif = index,
                  .metric = kernel_metric});
         }
+        // A VPN's routes go over its tunnel without a gateway whatever router the host's route names: they come from
+        // VpnService.Builder.addRoute(prefix), a RouteInfo with no gateway, and netd adds them as such (proto static,
+        // IPv4 scope link, IPv6 with no advertisement's hop limit) [verified: VpnService and Vpn.java, Android 15].
+        const bool tunnel = interface.name.compare(0, 3, "tun") == 0;
         for (const auto &route : defaults) {
             if (route.family != family || route.index != index) continue;
-            const bool router = !route.gateway.empty();
+            const std::string &via = tunnel ? std::string() : route.gateway;
+            const bool router = !via.empty();
             if (family == linux_inet) {
                 add({.table = network, .protocol = rtprot_static, .scope = router ? rt_scope_universe : rt_scope_link,
-                     .oif = index, .gateway = route.gateway});
+                     .oif = index, .gateway = via});
             } else {
-                add({.table = network, .protocol = router ? rtprot_ra : rtprot_static, .oif = index,
-                     .gateway = route.gateway, .metric = netd_metric, .hop_limit = router});
+                add({.table = network, .protocol = router ? rtprot_ra : rtprot_static, .oif = index, .gateway = via,
+                     .metric = netd_metric, .hop_limit = router});
             }
         }
     }
