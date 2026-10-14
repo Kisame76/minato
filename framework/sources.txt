@@ -2305,3 +2305,7 @@ frameworks_base/core/java/com/android/internal/appwidget/IAppWidgetHost.aidl
 frameworks_base/core/java/com/android/internal/os/BackgroundThread.java
 frameworks_base/core/java/android/appwidget/AppWidgetHostView.java
 frameworks_base/core/java/android/appwidget/AppWidgetHost.java
+# ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
+# client as AOSP's WindowLayout does, with the holder of its frames.
+frameworks_base/core/java/android/view/WindowLayout.java
+frameworks_base/core/java/android/window/ClientWindowFrames.java

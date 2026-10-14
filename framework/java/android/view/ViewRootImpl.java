@@ -32,6 +32,7 @@ import android.animation.LayoutTransition;
 import android.content.Context;
 import android.app.ActivityThread;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.PixelFormat;
@@ -42,16 +43,19 @@ import android.graphics.Region;
 import android.graphics.RenderNode;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 import android.util.SparseArray;
 import android.util.TimeUtils;
+import android.util.TypedValue;
 import android.view.View.AttachInfo;
 import android.view.Window.OnContentApplyWindowInsetsListener;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.window.ActivityWindowInfo;
+import android.window.ClientWindowFrames;
 import android.window.WindowOnBackInvokedDispatcher;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.policy.DecorView;
@@ -183,6 +187,25 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** The window's insets controller, a recorder until decision 8's insets (ours, under AOSP's name). */
     private final InsetsController mInsetsController = new InsetsController();
 
+    // A requested window (ADR-0041 gap 4 (b)): a dialog, a popup or another window that is not an activity's, which
+    // asks the session's host for a window of its own (APKRT_REQUEST_WINDOW) at the frame AOSP's WindowLayout gives
+    // it, as WMS's relayout computes it. An activity's window keeps the session's window, as before.
+    /** The request tokens, one per requested window of the process, never 0. */
+    private static long sRequestTokens;
+    /** The window's request token, 0 for an activity's window. */
+    private long mRequestToken;
+    /** A sub-window's parent window, null for an application window. */
+    private ViewRootImpl mParentRoot;
+    /** An application window's activity group (decision 2's sort key), 0 for the session's activity. */
+    private int mRequestGroup;
+    /** Whether the host was asked for the window (MAKE), until its REMOVE. */
+    private boolean mRequestMade;
+    /** The window's frame in the session's pixels: the whole display for an activity's window. */
+    final Rect mWinFrame = new Rect();
+    private final WindowLayout mWindowLayout = new WindowLayout();
+    private final ClientWindowFrames mTmpFrames = new ClientWindowFrames();
+    private final TypedValue mTmpValue = new TypedValue();
+
     public ViewRootImpl(Context context, Display display) {
         mContext = context;
         mDisplay = display;
@@ -197,6 +220,31 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     /** The window's binder, as AttachInfo's token. */
     static final class W extends IWindow.Stub {
+    }
+
+    /**
+     * @hide WindowManagerGlobal's, before setView: the window is a requested one, a sub-window of `parent` (an
+     * activity's or a requested window's root) or, with parent null, an application window of activity group `group`.
+     */
+    void setRequested(ViewRootImpl parent, int group) {
+        mRequestToken = ++sRequestTokens;
+        mParentRoot = parent;
+        mRequestGroup = group;
+    }
+
+    /** @hide The window's request token, 0 for an activity's window, which has the session's. */
+    long requestToken() {
+        return mRequestToken;
+    }
+
+    /** @hide A sub-window's parent root, null for any other window. */
+    ViewRootImpl parentRoot() {
+        return mParentRoot;
+    }
+
+    /** @hide The window's binder, which LayoutParams.token names for its sub-windows. */
+    IBinder windowToken() {
+        return mAttachInfo.mWindowToken;
     }
 
     final class ViewRootHandler extends Handler {
@@ -352,17 +400,35 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (mLayoutRequested) {
             mLayoutRequested = false;
             final WindowManager.LayoutParams lp = mWindowAttributes;
-            host.measure(getRootMeasureSpec(size.x, lp.width), getRootMeasureSpec(size.y, lp.height));
-            if (host.getMeasuredWidth() != mWidth || host.getMeasuredHeight() != mHeight) {
+            int width;
+            int height;
+            if (mRequestToken != 0) {
+                Point display = new Point();
+                mDisplay.getRealSize(display);
+                Rect frame = measureRequestedWindow(host, lp, display);
+                width = frame.width();
+                height = frame.height();
+            } else {
+                host.measure(getRootMeasureSpec(size.x, lp.width), getRootMeasureSpec(size.y, lp.height));
+                width = host.getMeasuredWidth();
+                height = host.getMeasuredHeight();
+                mWinFrame.set(0, 0, width, height);
+            }
+            if (width != mWidth || height != mHeight) {
                 // As AOSP's for a new frame size: the whole window again.
                 mFullRedrawNeeded = true;
             }
-            mWidth = host.getMeasuredWidth();
-            mHeight = host.getMeasuredHeight();
+            mWidth = width;
+            mHeight = height;
+            mAttachInfo.mWindowLeft = mWinFrame.left;
+            mAttachInfo.mWindowTop = mWinFrame.top;
             mInLayout = true;
             host.layout(0, 0, mWidth, mHeight);
             mInLayout = false;
             triggerGlobalLayoutListener = true;
+            if (mRequestToken != 0) {
+                requestHostWindow();
+            }
         }
         if (triggerGlobalLayoutListener || mAttachInfo.mRecomputeGlobalAttributes) {
             mAttachInfo.mRecomputeGlobalAttributes = false;
@@ -394,6 +460,91 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
         if (first && !sHostWindows) {
             windowFocusChanged(true);
+        }
+    }
+
+    /**
+     * A requested window's measure and frame, as AOSP's performTraversals and WMS's relayout give them: the frame
+     * WindowLayout computes for the attributes without a requested size, in the display's bounds without insets (none
+     * yet, ADR-0041 decision 8) or in its parent's frame for an attached sub-window; the tree measured there as
+     * measureHierarchy measures it, a WRAP_CONTENT width first at config_prefDialogWidth; then the frame for the
+     * measured size, at which the tree is measured again when it differs. Returns the frame, also in mWinFrame.
+     */
+    private Rect measureRequestedWindow(View host, WindowManager.LayoutParams lp, Point display) {
+        final Rect bounds = new Rect(0, 0, display.x, display.y);
+        final Rect attached = mParentRoot != null ? mParentRoot.mWinFrame : null;
+        final Rect desired = computeFrame(lp, bounds, attached, WindowLayout.UNSPECIFIED_LENGTH,
+                WindowLayout.UNSPECIFIED_LENGTH);
+        measureHierarchy(host, lp, mView.getContext().getResources(), desired.width(), desired.height());
+        final Rect frame = computeFrame(lp, bounds, attached, host.getMeasuredWidth(), host.getMeasuredHeight());
+        if (frame.width() != host.getMeasuredWidth() || frame.height() != host.getMeasuredHeight()) {
+            host.measure(View.MeasureSpec.makeMeasureSpec(frame.width(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(frame.height(), View.MeasureSpec.EXACTLY));
+        }
+        mWinFrame.set(frame);
+        return frame;
+    }
+
+    private Rect computeFrame(WindowManager.LayoutParams lp, Rect bounds, Rect attached, int requestedWidth,
+            int requestedHeight) {
+        final InsetsState state = new InsetsState();
+        state.setDisplayFrame(bounds);
+        mTmpFrames.attachedFrame = attached;
+        mWindowLayout.computeFrames(lp, state, bounds, bounds,
+                android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN, requestedWidth, requestedHeight,
+                WindowInsets.Type.defaultVisible(), 1f, mTmpFrames);
+        return new Rect(mTmpFrames.frame);
+    }
+
+    /** As AOSP's measureHierarchy: a dialog's WRAP_CONTENT width first at config_prefDialogWidth, then wider. */
+    private void measureHierarchy(View host, WindowManager.LayoutParams lp, Resources res, int desiredWindowWidth,
+            int desiredWindowHeight) {
+        boolean goodMeasure = false;
+        if (lp.width == ViewGroup.LayoutParams.WRAP_CONTENT) {
+            res.getValue(com.android.internal.R.dimen.config_prefDialogWidth, mTmpValue, true);
+            int baseSize = 0;
+            if (mTmpValue.type == TypedValue.TYPE_DIMENSION) {
+                baseSize = (int) mTmpValue.getDimension(res.getDisplayMetrics());
+            }
+            if (baseSize != 0 && desiredWindowWidth > baseSize) {
+                final int heightSpec = getRootMeasureSpec(desiredWindowHeight, lp.height);
+                host.measure(getRootMeasureSpec(baseSize, lp.width), heightSpec);
+                if ((host.getMeasuredWidthAndState() & View.MEASURED_STATE_TOO_SMALL) == 0) {
+                    goodMeasure = true;
+                } else {
+                    baseSize = (baseSize + desiredWindowWidth) / 2;
+                    host.measure(getRootMeasureSpec(baseSize, lp.width), heightSpec);
+                    if ((host.getMeasuredWidthAndState() & View.MEASURED_STATE_TOO_SMALL) == 0) {
+                        goodMeasure = true;
+                    }
+                }
+            }
+        }
+        if (!goodMeasure) {
+            host.measure(getRootMeasureSpec(desiredWindowWidth, lp.width),
+                    getRootMeasureSpec(desiredWindowHeight, lp.height));
+        }
+    }
+
+    /**
+     * A requested window's frame, format, alpha and dim to the session's host: MAKE the first time, PLACE after; the
+     * host answers a new size with WINDOW_CREATED or RESIZED, which give the window its surface (setHostWindow).
+     * Without a session the window lays out and draws nothing, as an activity's window without one.
+     */
+    private void requestHostWindow() {
+        final WindowManager.LayoutParams lp = mWindowAttributes;
+        final long parent = mParentRoot != null ? mParentRoot.mRequestToken : 0;
+        final float dim = (lp.flags & WindowManager.LayoutParams.FLAG_DIM_BEHIND) != 0 ? lp.dimAmount : 0f;
+        final Rect f = mWinFrame;
+        final int error = mRequestMade
+                ? ActivityThread.placeWindow(mRequestToken, lp.type, parent, f.left, f.top, f.right, f.bottom, 0, 0,
+                        mWindowFormat, mRequestGroup, lp.alpha, dim)
+                : ActivityThread.makeWindow(mRequestToken, lp.type, parent, f.left, f.top, f.right, f.bottom, 0, 0,
+                        mWindowFormat, mRequestGroup, lp.alpha, dim);
+        if (error == 0) {
+            mRequestMade = true;
+        } else if (error != -95) {
+            Log.e(TAG, "The session's host refused window " + mRequestToken + " (" + lp.getTitle() + "): " + error);
         }
     }
 
@@ -430,6 +581,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** @hide Whether the window has the host's window, and so its own surface. */
     boolean hasHostWindow() {
         return mHostWindow != 0;
+    }
+
+    /** @hide The host's window's ID, 0 without one. */
+    long hostWindow() {
+        return mHostWindow;
     }
 
     /** @hide Whether the window is stopped (setWindowStopped). */
@@ -496,7 +652,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private void setWindowFormat(int format) {
         mWindowFormat = format;
         setBuffersFormat();
-        if (sHostWindows && format != mReportedFormat) {
+        if (sHostWindows && mRequestToken == 0 && format != mReportedFormat) {
             mReportedFormat = format;
             ActivityThread.requestWindowFormat(format);
         }
@@ -756,6 +912,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAdded = false;
             unscheduleTraversals();
             disposeInput();
+            if (mRequestMade) {
+                mRequestMade = false;
+                mHostWindow = 0;
+                ActivityThread.removeWindow(mRequestToken);
+            }
         }
         WindowManagerGlobal.getInstance().doRemoveView(this);
     }
@@ -1819,12 +1980,19 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /** The window's frame in the display, which the window covers whole. */
+    /**
+     * As AOSP's: the display frame WindowLayout gives the window, in the session's pixels; without insets (ADR-0041
+     * decision 8) the display's bounds, which a requested window (a dialog, ADR-0041 gap 4 (b)) does not cover.
+     */
     void getDisplayFrame(Rect outFrame) {
-        outFrame.set(0, 0, mWidth, mHeight);
+        Point size = new Point();
+        mDisplay.getRealSize(size);
+        outFrame.set(0, 0, size.x, size.y);
     }
 
+    /** As AOSP's: the display frame less the visible insets, none yet. */
     void getWindowVisibleDisplayFrame(Rect outFrame) {
-        outFrame.set(0, 0, mWidth, mHeight);
+        getDisplayFrame(outFrame);
     }
 
     void applyViewBoundsSandboxingIfNeeded(final Rect inOutRect) {

@@ -196,11 +196,13 @@ fi
 # key-test (ADR-0045 step 7c), which injects its keys once its window has focus, gesture-flow-test
 # (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a)
 # and launch-mode-test (step b3.5b2-2b), whose steps wait for their windows' focus as activity-flow-test's.
-# texture-view-test (ADR-0058 d)) runs there too: its two TextureViews' bounds in the window are Minato's there.
+# texture-view-test (ADR-0058 d)) runs there too: its two TextureViews' bounds in the window are Minato's there, and so
+# does second-windows-test (ADR-0041 gap 4 (b)), whose dialogs' and popups' sizes in px are Minato's at that density.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
-  "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ]]; then
+  "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
+  "$app" == second-windows-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -533,6 +535,11 @@ run_app() {
     # dialog-test (the Unity test APK probe's blocker 12): its activity runs when the window has the focus and ends with "done".
     dialog-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DialogActivity
+      limit=90
+      ;;
+    # second-windows-test (ADR-0041 gap 4 (b)): its activity runs when the window has the focus and ends with "done".
+    second-windows-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SecondWindowsActivity
       limit=90
       ;;
     # f2-types-test (framework breadth F2): its activity runs when the window has the focus and ends with "done".

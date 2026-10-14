@@ -190,6 +190,40 @@ jint SessionRequestSurface(JNIEnv *, jclass, jint op, jint z, jlong token, jint 
                    : 0;
 }
 
+// The window request's layout as the runtime reads it (guest_interface.h, ADR-0041 gap 4).
+static_assert(sizeof(apkrt_window_request) == 72 && offsetof(apkrt_window_request, token) == 8 &&
+                      offsetof(apkrt_window_request, parent) == 16 && offsetof(apkrt_window_request, left) == 24 &&
+                      offsetof(apkrt_window_request, width) == 40 && offsetof(apkrt_window_request, format) == 48 &&
+                      offsetof(apkrt_window_request, opaque) == 52 && offsetof(apkrt_window_request, group) == 56 &&
+                      offsetof(apkrt_window_request, alpha) == 60 && offsetof(apkrt_window_request, dim) == 64 &&
+                      offsetof(apkrt_window_request, reserved) == 68,
+              "struct apkrt_window_request");
+
+// APKRT_REQUEST_WINDOW (ADR-0041 gap 4 (b)): a requested window's make, place or remove, its struct by address,
+// which the runtime checks and hands the host; 0, or the negative errno. `alpha` and `dim` are floats' bits.
+jint SessionRequestWindow(JNIEnv *, jclass, jint op, jint type, jlong token, jlong parent, jint left, jint top,
+                          jint right, jint bottom, jint width, jint height, jint format, jint group, jint alpha,
+                          jint dim) {
+    apkrt_window_request request = {};
+    request.op = static_cast<uint32_t>(op);
+    request.type = type;
+    request.token = static_cast<uint64_t>(token);
+    request.parent = static_cast<uint64_t>(parent);
+    request.left = left;
+    request.top = top;
+    request.right = right;
+    request.bottom = bottom;
+    request.width = width;
+    request.height = height;
+    request.format = format;
+    request.group = static_cast<uint32_t>(group);
+    request.alpha = static_cast<uint32_t>(alpha);
+    request.dim = static_cast<uint32_t>(dim);
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WINDOW, reinterpret_cast<uintptr_t>(&request), 0) < 0
+                   ? -errno
+                   : 0;
+}
+
 // input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null
 // when the runtime refuses the ID, or with the exception pending when the name cannot be read, which is read
 // first, as AOSP's natives read theirs before they open a channel.
@@ -214,6 +248,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionAnswer", "(I)V", reinterpret_cast<void *>(SessionAnswer)},
         {"nativeSessionRequest", "(IJJ)I", reinterpret_cast<void *>(SessionRequest)},
         {"nativeSessionRequestSurface", "(IIJIIIIIII)I", reinterpret_cast<void *>(SessionRequestSurface)},
+        {"nativeSessionRequestWindow", "(IIJJIIIIIIIIII)I", reinterpret_cast<void *>(SessionRequestWindow)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},

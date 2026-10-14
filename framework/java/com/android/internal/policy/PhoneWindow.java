@@ -31,6 +31,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
+import android.util.TypedValue;
 import android.view.AttachedSurfaceControl;
 import android.view.InputEvent;
 import android.view.InputQueue;
@@ -77,6 +78,13 @@ public class PhoneWindow extends Window {
     private CharSequence mTitle;
     private int mTitleColor;
     private boolean mIsFloating;
+    /** As AOSP's: the theme's minimum and fixed sizes of a floating window, which DecorView.onMeasure applies. */
+    final TypedValue mMinWidthMajor = new TypedValue();
+    final TypedValue mMinWidthMinor = new TypedValue();
+    TypedValue mFixedWidthMajor;
+    TypedValue mFixedWidthMinor;
+    TypedValue mFixedHeightMajor;
+    TypedValue mFixedHeightMinor;
     private boolean mDecorFitsSystemWindows = true;
     private boolean mEdgeToEdgeEnforced;
     private Drawable mBackgroundDrawable;
@@ -147,6 +155,42 @@ public class PhoneWindow extends Window {
                 getContext().getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.HONEYCOMB)) {
             setFlags(WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
                     WindowManager.LayoutParams.FLAG_SPLIT_TOUCH & ~getForcedWindowFlags());
+        }
+        // As AOSP's: a floating window's sizes, and every dialog's dim (ADR-0041 gap 4 (b)).
+        a.getValue(R.styleable.Window_windowMinWidthMajor, mMinWidthMajor);
+        a.getValue(R.styleable.Window_windowMinWidthMinor, mMinWidthMinor);
+        if (a.hasValue(R.styleable.Window_windowFixedWidthMajor)) {
+            if (mFixedWidthMajor == null) {
+                mFixedWidthMajor = new TypedValue();
+            }
+            a.getValue(R.styleable.Window_windowFixedWidthMajor, mFixedWidthMajor);
+        }
+        if (a.hasValue(R.styleable.Window_windowFixedWidthMinor)) {
+            if (mFixedWidthMinor == null) {
+                mFixedWidthMinor = new TypedValue();
+            }
+            a.getValue(R.styleable.Window_windowFixedWidthMinor, mFixedWidthMinor);
+        }
+        if (a.hasValue(R.styleable.Window_windowFixedHeightMajor)) {
+            if (mFixedHeightMajor == null) {
+                mFixedHeightMajor = new TypedValue();
+            }
+            a.getValue(R.styleable.Window_windowFixedHeightMajor, mFixedHeightMajor);
+        }
+        if (a.hasValue(R.styleable.Window_windowFixedHeightMinor)) {
+            if (mFixedHeightMinor == null) {
+                mFixedHeightMinor = new TypedValue();
+            }
+            a.getValue(R.styleable.Window_windowFixedHeightMinor, mFixedHeightMinor);
+        }
+        if (a.getBoolean(R.styleable.Window_backgroundDimEnabled, mIsFloating)) {
+            WindowManager.LayoutParams dimmed = getAttributes();
+            if ((getForcedWindowFlags() & WindowManager.LayoutParams.FLAG_DIM_BEHIND) == 0) {
+                dimmed.flags |= WindowManager.LayoutParams.FLAG_DIM_BEHIND;
+            }
+            if (!haveDimAmount()) {
+                dimmed.dimAmount = a.getFloat(android.R.styleable.Window_backgroundDimAmount, 0.5f);
+            }
         }
         mEdgeToEdgeEnforced = !a.getBoolean(R.styleable.Window_windowOptOutEdgeToEdgeEnforcement, false)
                 && getContext().getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.VANILLA_ICE_CREAM;

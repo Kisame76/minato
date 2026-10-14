@@ -10,8 +10,11 @@
 package com.android.internal.policy;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
+import android.util.DisplayMetrics;
+import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -31,6 +34,68 @@ public class DecorView extends FrameLayout {
     ViewGroup mContentRoot;
     /** As AOSP's: what the app asks of the insets controller before the attach, which ViewRootImpl.setView replays. */
     private final PendingInsetsController mPendingInsetsController = new PendingInsetsController();
+
+    /**
+     * As AOSP's for a floating window's WRAP_CONTENT (ADR-0041 gap 4 (b)): the theme's fixed width and height, in
+     * portrait the minor width and major height, and then its minimum width, a fraction of the screen's width in dp,
+     * as a dialog gets them. Without insets (ADR-0041 decision 8) a floating window has no floating insets.
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        final DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
+        final boolean isPortrait =
+                getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+        final int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+        final int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+        boolean fixedWidth = false;
+        if (widthMode == MeasureSpec.AT_MOST) {
+            final TypedValue tvw = isPortrait ? mWindow.mFixedWidthMinor : mWindow.mFixedWidthMajor;
+            final int w = size(tvw, metrics, metrics.widthPixels);
+            if (w > 0) {
+                widthMeasureSpec = MeasureSpec.makeMeasureSpec(Math.min(w, MeasureSpec.getSize(widthMeasureSpec)),
+                        MeasureSpec.EXACTLY);
+                fixedWidth = true;
+            }
+        }
+        if (heightMode == MeasureSpec.AT_MOST) {
+            final TypedValue tvh = isPortrait ? mWindow.mFixedHeightMajor : mWindow.mFixedHeightMinor;
+            final int h = size(tvh, metrics, metrics.heightPixels);
+            if (h > 0) {
+                heightMeasureSpec = MeasureSpec.makeMeasureSpec(Math.min(h, MeasureSpec.getSize(heightMeasureSpec)),
+                        MeasureSpec.EXACTLY);
+            }
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        final int width = getMeasuredWidth();
+        if (!fixedWidth && widthMode == MeasureSpec.AT_MOST) {
+            final TypedValue tv = isPortrait ? mWindow.mMinWidthMinor : mWindow.mMinWidthMajor;
+            final float availableWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
+                    getResources().getConfiguration().screenWidthDp, metrics);
+            int min = 0;
+            if (tv.type == TypedValue.TYPE_DIMENSION) {
+                min = (int) tv.getDimension(metrics);
+            } else if (tv.type == TypedValue.TYPE_FRACTION) {
+                min = (int) tv.getFraction(availableWidth, availableWidth);
+            }
+            if (width < min) {
+                super.onMeasure(MeasureSpec.makeMeasureSpec(min, MeasureSpec.EXACTLY), heightMeasureSpec);
+            }
+        }
+    }
+
+    /** A fixed size of the theme: a dimension, or a fraction of `whole`; 0 for none. */
+    private static int size(TypedValue value, DisplayMetrics metrics, int whole) {
+        if (value == null || value.type == TypedValue.TYPE_NULL) {
+            return 0;
+        }
+        if (value.type == TypedValue.TYPE_DIMENSION) {
+            return (int) value.getDimension(metrics);
+        }
+        if (value.type == TypedValue.TYPE_FRACTION) {
+            return (int) value.getFraction(whole, whole);
+        }
+        return 0;
+    }
 
     DecorView(Context context, int featureId, PhoneWindow window, WindowManager.LayoutParams params) {
         super(context);

@@ -101,6 +101,7 @@ import android.view.ViewParent;
 import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.WindowManagerGlobal;
 import android.widget.WidgetFlags;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
@@ -1115,11 +1116,17 @@ public final class ActivityThread {
     private static final int EVENT_SURFACE_CREATED = 18;
     private static final int EVENT_SURFACE_RESIZED = 19;
     private static final int EVENT_SURFACE_DESTROYED = 20;
+    private static final int EVENT_WINDOW_CREATED = 21;
+    private static final int EVENT_WINDOW_RESIZED = 22;
+    private static final int EVENT_WINDOW_DESTROYED = 23;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
     private static final int SURFACE_PLACE = 2;
     private static final int SURFACE_REMOVE = 3;
+    private static final int WINDOW_MAKE = 1;
+    private static final int WINDOW_PLACE = 2;
+    private static final int WINDOW_REMOVE = 3;
     /** Linux's EOPNOTSUPP: without a session, a host gives no surfaces. */
     private static final int EOPNOTSUPP = 95;
 
@@ -1289,6 +1296,17 @@ public final class ActivityThread {
                 break;
             case EVENT_SURFACE_DESTROYED:
                 SurfaceView.dispatchSurfaceDestroyed(event[2]);
+                break;
+            case EVENT_WINDOW_CREATED:
+                WindowManagerGlobal.getInstance().dispatchWindowCreated(event[2], event[3], (int) event[4],
+                        (int) (event[4] >>> 32));
+                break;
+            case EVENT_WINDOW_RESIZED:
+                WindowManagerGlobal.getInstance().dispatchWindowResized(event[2], (int) event[4],
+                        (int) (event[4] >>> 32));
+                break;
+            case EVENT_WINDOW_DESTROYED:
+                WindowManagerGlobal.getInstance().dispatchWindowDestroyed(event[2]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2072,6 +2090,50 @@ public final class ActivityThread {
         return nativeSessionRequestSurface(op, z, token, left, top, right, bottom, width, height, format);
     }
 
+    /**
+     * @hide ViewRootImpl's (ADR-0041 gap 4 (b)): a requested window of `type` at a frame in the session's pixels, a
+     * sub-window of `parent` (a requested window's token, or 0 for the session's window) or an application window in
+     * the activity group `group`, with its buffer's size (0 x 0 for the frame's), format, alpha and dim. The session
+     * answers with WINDOW_CREATED; a negative answer is an errno, -EOPNOTSUPP without a session.
+     */
+    public static int makeWindow(long token, int type, long parent, int left, int top, int right, int bottom,
+            int width, int height, int format, int group, float alpha, float dim) {
+        return requestWindow(WINDOW_MAKE, type, token, parent, left, top, right, bottom, width, height, format, group,
+                alpha, dim);
+    }
+
+    /** @hide ViewRootImpl's: a new frame, size, alpha or dim; a new size is answered with WINDOW_RESIZED. */
+    public static int placeWindow(long token, int type, long parent, int left, int top, int right, int bottom,
+            int width, int height, int format, int group, float alpha, float dim) {
+        return requestWindow(WINDOW_PLACE, type, token, parent, left, top, right, bottom, width, height, format,
+                group, alpha, dim);
+    }
+
+    /** @hide ViewRootImpl's: the window goes, its sub-windows first; no answer. */
+    public static int removeWindow(long token) {
+        return requestWindow(WINDOW_REMOVE, 0, token, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0f, 0f);
+    }
+
+    private static int requestWindow(int op, int type, long token, long parent, int left, int top, int right,
+            int bottom, int width, int height, int format, int group, float alpha, float dim) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestWindow(op, type, token, parent, left, top, right, bottom, width, height, format,
+                group, Float.floatToRawIntBits(alpha), Float.floatToRawIntBits(dim));
+    }
+
+    /**
+     * @hide WindowManagerGlobal's, at an application window's add (ADR-0041 gap 4 (b)): whether `token` is an
+     * activity's that is not destroyed, as WMS finds its ActivityRecord; an unknown or destroyed one gives Android's
+     * ADD_BAD_APP_TOKEN.
+     */
+    public boolean isActivityTokenValid(IBinder token) {
+        final ActivityClientRecord r = token != null ? mActivities.get(token) : null;
+        return r != null && r.activity != null && !r.activity.isDestroyed();
+    }
+
     public static void requestWindowFormat(int format) {
         final ActivityThread thread = sCurrentActivityThread;
         if (thread == null || thread.mSessionEvents == null) {
@@ -2238,6 +2300,10 @@ public final class ActivityThread {
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,
             int bottom, int width, int height, int format);
+
+    /** APKRT_REQUEST_WINDOW with its struct apkrt_window_request (ADR-0041 gap 4 (b)); alpha and dim as bits. */
+    private static native int nativeSessionRequestWindow(int op, int type, long token, long parent, int left, int top,
+            int right, int bottom, int width, int height, int format, int group, int alpha, int dim);
 
     /**
      * input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null

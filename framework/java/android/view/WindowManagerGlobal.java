@@ -3,8 +3,14 @@
  * stub (ADR-0045 decision 3), which ViewConfiguration's constructor asks whether the display has a navigation bar; it
  * is made here until our ServiceManager's table holds "window" (ADR-0045 decision 2). Step c2c3 adds the windows:
  *   - an activity's window (TYPE_BASE_APPLICATION) gets its ViewRootImpl, as AOSP's addView makes one, and goes with
- *     removeView; every other window (a dialog, a popup, a toast) is a gap that is logged and never shown, so that
- *     its updateViewLayout and removeView still answer (ADR-0041 decision 2, step 8);
+ *     removeView;
+ *   - an application window (a dialog) and a sub-window (a popup, a panel) get theirs as requested windows of the
+ *     session's host (ADR-0041 gap 4 (b)), after the checks WMS's addWindow makes of their token, which throw
+ *     Android's BadTokenException from setView: an application window needs an activity that is not destroyed, a
+ *     sub-window a shown window that is no sub-window itself; TYPE_APPLICATION_OVERLAY is refused as without
+ *     SYSTEM_ALERT_WINDOW. A window's sub-windows go before it, as WMS's removeImmediately takes the children;
+ *   - every other window (a toast, a system window) is a gap that is logged and never shown, so that its
+ *     updateViewLayout and removeView still answer (ADR-0041 decision 2, step 8);
  *   - no window session: getWindowSession is null, as Minato has no system_server, and ViewRootImpl lays out
  *     locally. AOSP's getWindowManagerService and getWindowSession set ValueAnimator's duration scale from the
  *     window manager; ours never do, so the animators keep a scale of 1, where the stub's default of 0 would turn
@@ -12,6 +18,7 @@
  */
 package android.view;
 
+import android.app.ActivityThread;
 import android.os.IBinder;
 import android.util.Log;
 import com.android.minato.services.ServiceStub;
@@ -83,9 +90,14 @@ public final class WindowManagerGlobal {
             if (mViews.contains(view) || mGapViews.contains(view)) {
                 throw new IllegalStateException("View " + view + " has already been added to the window manager.");
             }
-            if (wparams.type != WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
-                Log.w(TAG, "Not shown: a window of type " + wparams.type + " (" + wparams.getTitle()
-                        + "), as Minato shows only an activity's own window yet (ADR-0041 decision 2)");
+            final int type = wparams.type;
+            final boolean application = type >= WindowManager.LayoutParams.FIRST_APPLICATION_WINDOW
+                    && type <= WindowManager.LayoutParams.LAST_APPLICATION_WINDOW;
+            final boolean subWindow = type >= WindowManager.LayoutParams.FIRST_SUB_WINDOW
+                    && type <= WindowManager.LayoutParams.LAST_SUB_WINDOW;
+            if (!application && !subWindow && type != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
+                Log.w(TAG, "Not shown: a window of type " + type + " (" + wparams.getTitle()
+                        + "), as Minato shows only activities, dialogs and popups yet (ADR-0041 gap 4 (b))");
                 view.setLayoutParams(wparams);
                 mGapViews.add(view);
                 return;
@@ -96,12 +108,85 @@ public final class WindowManagerGlobal {
             mRoots.add(root);
             mParams.add(wparams);
             try {
+                if (type != WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+                    checkToken(root, wparams, application);
+                }
                 root.setView(view, wparams, null, userId);
             } catch (RuntimeException e) {
                 removeViewLocked(mViews.size() - 1, true);
                 throw e;
             }
         }
+    }
+
+    /**
+     * As WMS's addWindow checks a window's token, with the answer ViewRootImpl.setView turns into Android's
+     * BadTokenException [verified: second-windows-test on apk-runner-35]: TYPE_APPLICATION_OVERLAY is refused as
+     * without SYSTEM_ALERT_WINDOW (ADD_PERMISSION_DENIED); an application window's token must be an activity's that
+     * is not destroyed (ADD_BAD_APP_TOKEN); a sub-window's must be a shown window's that is no sub-window itself
+     * (ADD_BAD_SUBWINDOW_TOKEN). The window then is a requested one.
+     */
+    private void checkToken(ViewRootImpl root, WindowManager.LayoutParams wparams, boolean application) {
+        if (wparams.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
+            throw new WindowManager.BadTokenException("Unable to add window " + root.windowToken()
+                    + " -- permission denied for window type " + wparams.type);
+        }
+        if (application) {
+            ActivityThread thread = ActivityThread.currentActivityThread();
+            if (thread == null || !thread.isActivityTokenValid(wparams.token)) {
+                throw new WindowManager.BadTokenException("Unable to add window -- token " + wparams.token
+                        + " is not valid; is your activity running?");
+            }
+            root.setRequested(null, 0);
+            return;
+        }
+        ViewRootImpl parent = null;
+        for (ViewRootImpl candidate : mRoots) {
+            if (candidate != root && wparams.token != null && candidate.windowToken() == wparams.token) {
+                parent = candidate;
+                break;
+            }
+        }
+        if (parent == null || parent.parentRoot() != null) {
+            throw new WindowManager.BadTokenException("Unable to add window -- token " + wparams.token
+                    + " is not valid; is your activity running?");
+        }
+        root.setRequested(parent, 0);
+    }
+
+    /** @hide ActivityThread's, at the session's WINDOW_CREATED: the requested window of `token` gets its surface. */
+    public void dispatchWindowCreated(long token, long window, int width, int height) {
+        ViewRootImpl root = rootOfRequest(token);
+        if (root != null) {
+            root.setHostWindow(window, width, height);
+        }
+    }
+
+    /** @hide ActivityThread's, at WINDOW_RESIZED: the requested window's new size. */
+    public void dispatchWindowResized(long token, int width, int height) {
+        ViewRootImpl root = rootOfRequest(token);
+        if (root != null && root.hasHostWindow()) {
+            root.setHostWindow(root.hostWindow(), width, height);
+        }
+    }
+
+    /** @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away; its surface goes. */
+    public void dispatchWindowDestroyed(long token) {
+        ViewRootImpl root = rootOfRequest(token);
+        if (root != null) {
+            root.setHostWindow(0, 0, 0);
+        }
+    }
+
+    private ViewRootImpl rootOfRequest(long token) {
+        synchronized (mLock) {
+            for (ViewRootImpl root : mRoots) {
+                if (root.requestToken() == token) {
+                    return root;
+                }
+            }
+        }
+        return null;
     }
 
     public void updateViewLayout(View view, ViewGroup.LayoutParams params) {
@@ -160,6 +245,17 @@ public final class WindowManagerGlobal {
 
     private void removeViewLocked(int index, boolean immediate) {
         ViewRootImpl root = mRoots.get(index);
+        // As WMS's removeImmediately: the window's sub-windows go before it.
+        for (int i = mRoots.size() - 1; i >= 0; i--) {
+            if (mRoots.get(i).parentRoot() == root) {
+                ViewRootImpl child = mRoots.get(i);
+                View childView = child.getView();
+                child.die(true);
+                if (childView != null) {
+                    childView.assignParent(null);
+                }
+            }
+        }
         View view = root.getView();
         root.die(immediate);
         if (view != null) {

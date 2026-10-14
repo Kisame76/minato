@@ -1,0 +1,19 @@
+I/second-windows-test: activity decor 1290x2796, anchor at 0,0 size 264x144
+I/second-windows-test: dialog showing true, type 2, activity's token false, dim behind true 0.6
+I/second-windows-test: dialog shown
+I/second-windows-test: dialog decor attached true, size 1225x585, left 32, centered true, window token true
+I/second-windows-test: dialog ok at 949,363 in the dialog, size 192x162
+I/second-windows-test: popup inner showing true, attached true, at 0,0 from the button's bottom left, size 116x81, above false, own window true
+I/second-windows-test: popup inner dismissed
+I/second-windows-test: dialog dismissed
+I/second-windows-test: dialog decor attached false, showing false
+I/second-windows-test: popup outer showing true, attached true, at 0,0 from the anchor's bottom left, size 121x81, above false
+I/second-windows-test: popup outer dismissed
+I/second-windows-test: popup long size 960x179, lines 3
+I/second-windows-test: popup long dismissed
+I/second-windows-test: application context: android.view.WindowManager$BadTokenException: Unable to add window -- token null is not valid; is your activity running?
+I/second-windows-test: popup detached dismissed
+I/second-windows-test: detached anchor: showing true
+I/second-windows-test: dismissed dialog's token: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
+I/second-windows-test: finished activity: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
+I/second-windows-test: done
