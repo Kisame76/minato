@@ -279,6 +279,8 @@ target_link_options(island-bench PRIVATE -Wl,--no-relax)
 add_subdirectory(apps/gles-test)
 add_subdirectory(apps/gles31-test)
 add_subdirectory(apps/vulkan-test)
+# The Grafik chat's vk-ahb-test, graphics/tests/vk_ahb_test.c as an app for the iPhone (ADR-0058 e1)).
+add_subdirectory(apps/vk-ahb-test)
 # The Grafik chat's present-test for Swappy's frame pacing (ADR-0041 test 3).
 add_subdirectory(apps/present-test)
 # The App chat's audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.

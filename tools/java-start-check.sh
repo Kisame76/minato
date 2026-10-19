@@ -48,6 +48,9 @@
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
+# vk-ahb-test (ADR-0058 e1), decision 7) runs on the iPhone only, a NativeActivity app of tools/build-fixtures.sh whose
+# Vulkan needs MoltenVK, which the Simulator lacks: VK_ANDROID_external_memory_android_hardware_buffer's import and
+# export on the iPhone's IOSurfaces.
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -126,6 +129,7 @@ GODOT_TEST=${GODOT_TEST-yes}
 # The Vulkan APK on the iPhone only: the Simulator has no MoltenVK (ADR-0030, decision 8).
 [[ -z "$GODOT_TEST" || "$ON_DEVICE" == no ]] || APPS+=("godot-bench-vulkan io.github.kisame76.minato.godotbench.vulkan")
 [[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
+[[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -147,6 +151,7 @@ last_line() {
     app-start-test) echo "guest-out ^app-start-test: MessageDigest " ;; # app_process_run.LAST
     # Godot's run line, with its padded tag (framework/tests/godot_java_run.py's LAST).
     godot-bench-*) echo "guest-log ^I/godot *: run [^:]+: [0-9]+ frames, [0-9]+ failures$" ;;
+    vk-ahb-test) echo "guest-log ^I/vk-ahb-test: android_main returns$" ;;   # a NativeActivity's end
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
@@ -158,6 +163,7 @@ apk() {
     packs-test) echo "build/packs-test/packs-test.apks" ;;
     pad-test) echo "build/pad-test/pad-test.apks" ;;
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
+    vk-ahb-test) echo "build/fixtures/apks/$1.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
@@ -174,6 +180,7 @@ for app in "${APPS[@]}"; do
     packs-test) tools/build-packs-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
+    vk-ahb-test) tools/build-fixtures.sh >/dev/null ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -680,6 +687,8 @@ run_one timezone-test io.github.kisame76.minato.test.timezone
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.
 run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
+# On the iPhone only, as its APPS entry (the Simulator has no MoltenVK).
+[[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.

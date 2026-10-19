@@ -11,7 +11,8 @@
      vkGetMemoryAndroidHardwareBufferANDROID, its description, a clear of the GPU sampled through the buffer imported
      into a second image, and the buffer still there after the app released what it got, while the memory is.
    No value of a driver alone is printed: a size as "fits", memory types as "some", the usages as the bits the
-   specification's equivalence table asks for. */
+   specification's equivalence table asks for. fixtures/apps/vk-ahb-test runs the same test as an app, the way it runs
+   on the iPhone, with SAY and VK_AHB_MAIN of its own. */
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
@@ -20,6 +21,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Where the lines go: stdout, or the app's log. */
+#ifndef SAY
+#define SAY printf
+#endif
+#ifndef VK_AHB_MAIN
+#define VK_AHB_MAIN main
+#endif
 
 enum { SIDE = 8 };
 
@@ -33,7 +42,7 @@ static PFN_vkGetMemoryAndroidHardwareBufferANDROID buffer_of;
 
 static void check(const char *what, VkResult result) {
     if (result != VK_SUCCESS) {
-        printf("%s: %d\n", what, result);
+        SAY("%s: %d\n", what, result);
         exit(1);
     }
 }
@@ -112,7 +121,7 @@ static void print_properties(const char *name, uint32_t format) {
     AHardwareBuffer *buffer =
         allocated(format, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN);
     if (buffer == NULL) {
-        printf("properties %s: no buffer\n", name);
+        SAY("properties %s: no buffer\n", name);
         return;
     }
     VkAndroidHardwareBufferFormatPropertiesANDROID formats = {
@@ -121,7 +130,7 @@ static void print_properties(const char *name, uint32_t format) {
         .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID, .pNext = &formats};
     const VkResult result = properties_of(device, buffer, &properties);
     const uint32_t bytes = format == AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM ? 2 : 4;
-    printf("properties %s: %d, format %s, size fits %d, some memory types %d, externalFormat set %d, sampled %d\n",
+    SAY("properties %s: %d, format %s, size fits %d, some memory types %d, externalFormat set %d, sampled %d\n",
            name, result, format_name(formats.format), properties.allocationSize >= (VkDeviceSize)SIDE * SIDE * bytes,
            properties.memoryTypeBits != 0, formats.externalFormat != 0,
            (formats.formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0);
@@ -320,14 +329,14 @@ static void sample(const char *name, struct sampling *made, VkImage image, uint3
     vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &written, 0,
                          NULL, 0, NULL);
     submit(commands);
-    printf("%s:\n", name);
+    SAY("%s:\n", name);
     for (uint32_t y = 0; y < rows; y++) {
-        printf("  row %u:", y);
+        SAY("  row %u:", y);
         for (uint32_t x = 0; x < SIDE; x++) {
             const uint32_t word = made->texels[y * SIDE + x];
-            printf(" %02x%02x%02x%02x", word & 0xff, (word >> 8) & 0xff, (word >> 16) & 0xff, word >> 24);
+            SAY(" %02x%02x%02x%02x", word & 0xff, (word >> 8) & 0xff, (word >> 16) & 0xff, word >> 24);
         }
-        printf("\n");
+        SAY("\n");
     }
 }
 
@@ -355,7 +364,7 @@ static void imported_image(const char *name, AHardwareBuffer *buffer, VkImage *o
         created == VK_SUCCESS ? vkAllocateMemory(device, &allocation, NULL, &memory) : VK_ERROR_UNKNOWN;
     const VkResult bound =
         allocated_memory == VK_SUCCESS ? vkBindImageMemory(device, image, memory, 0) : VK_ERROR_UNKNOWN;
-    printf("%s: create image %d, allocate %d, bind %d\n", name, created, allocated_memory, bound);
+    SAY("%s: create image %d, allocate %d, bind %d\n", name, created, allocated_memory, bound);
     if (bound != VK_SUCCESS) {
         exit(1);
     }
@@ -367,7 +376,7 @@ static void import(void) {
     const uint64_t buffer_usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN;
     AHardwareBuffer *buffer = allocated(AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, buffer_usage);
     if (buffer == NULL || fill(buffer) != 0) {
-        printf("import: no buffer\n");
+        SAY("import: no buffer\n");
         exit(1);
     }
     VkImage image;
@@ -385,7 +394,7 @@ static void import(void) {
         memcpy(address, "\x11\x22\x33\x44", 4);
         AHardwareBuffer_unlock(buffer, NULL);
     } else {
-        printf("no lock\n");
+        SAY("no lock\n");
     }
     sample("after the CPU's write", &made, image, 1);
     sampling_free(&made);
@@ -422,14 +431,14 @@ static void export(void) {
     AHardwareBuffer *buffer = NULL, *again = NULL;
     const VkResult got = bound == VK_SUCCESS ? buffer_of(device, &info, &buffer) : VK_ERROR_UNKNOWN;
     const VkResult got_again = got == VK_SUCCESS ? buffer_of(device, &info, &again) : VK_ERROR_UNKNOWN;
-    printf("export: create image %d, allocate %d, bind %d, get %d, a buffer %d, the same again %d\n", created,
+    SAY("export: create image %d, allocate %d, bind %d, get %d, a buffer %d, the same again %d\n", created,
            allocated_memory, bound, got, buffer != NULL, got_again == VK_SUCCESS && again == buffer);
     if (got != VK_SUCCESS || buffer == NULL) {
         exit(1);
     }
     AHardwareBuffer_Desc description;
     AHardwareBuffer_describe(buffer, &description);
-    printf("exported: %u x %u, %u layer, format %u, sampled %d\n", description.width, description.height,
+    SAY("exported: %u x %u, %u layer, format %u, sampled %d\n", description.width, description.height,
            description.layers, description.format,
            (description.usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE) != 0);
 
@@ -464,12 +473,12 @@ static void export(void) {
     AHardwareBuffer_Desc kept;
     memset(&kept, 0, sizeof kept);
     AHardwareBuffer_describe(buffer, &kept);
-    printf("after the app's releases: %u x %u\n", kept.width, kept.height);
+    SAY("after the app's releases: %u x %u\n", kept.width, kept.height);
     vkFreeMemory(device, memory, NULL);
     vkDestroyImage(device, image, NULL);
 }
 
-int main(void) {
+int VK_AHB_MAIN(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     const VkApplicationInfo application = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                                            .pApplicationName = "vk-ahb-test",
@@ -481,7 +490,7 @@ int main(void) {
     uint32_t count = 1;
     VkResult result = vkEnumeratePhysicalDevices(instance, &count, &physical);
     if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || count == 0) {
-        printf("no physical device: %d\n", result);
+        SAY("no physical device: %d\n", result);
         return 1;
     }
     count = 0;
@@ -493,8 +502,8 @@ int main(void) {
         offered(extensions, count, VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME);
     const int foreign = offered(extensions, count, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME);
     free(extensions);
-    printf("%s: %d\n", VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME, hardware_buffer);
-    printf("%s: %d\n", VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, foreign);
+    SAY("%s: %d\n", VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME, hardware_buffer);
+    SAY("%s: %d\n", VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, foreign);
     if (!hardware_buffer || !foreign) {
         return 1;
     }
@@ -517,7 +526,7 @@ int main(void) {
         .usage = VK_IMAGE_USAGE_SAMPLED_BIT};
     result = vkGetPhysicalDeviceImageFormatProperties2(physical, &format_info, &format_properties);
     const VkExternalMemoryFeatureFlags features = external.externalMemoryProperties.externalMemoryFeatures;
-    printf("image format properties: %d, dedicated only %d, exportable %d, importable %d, usage sampled %d\n", result,
+    SAY("image format properties: %d, dedicated only %d, exportable %d, importable %d, usage sampled %d\n", result,
            (features & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT) != 0,
            (features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) != 0,
            (features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) != 0,
@@ -565,6 +574,6 @@ int main(void) {
     vkDestroyCommandPool(device, pool, NULL);
     vkDestroyDevice(device, NULL);
     vkDestroyInstance(instance, NULL);
-    printf("done\n");
+    SAY("done\n");
     return 0;
 }

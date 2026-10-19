@@ -474,6 +474,13 @@ if(TARGET minato_graphics_host)
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" present)
     set_tests_properties(graphics.present_${api} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 150)
   endforeach()
+  # ADR-0058 e1), decision 7: vk-ahb-test as an app, the way it runs on the iPhone (tools/java-start-check.sh): its
+  # lines must be Android 15's (fixtures/expected/vk-ahb-test.logcat); it draws nothing, so its window counts no
+  # presents.
+  add_test(NAME graphics.vk_ahb_app COMMAND graphics-app-test "${CMAKE_CURRENT_BINARY_DIR}/app_runs" vk-ahb-test
+    "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}"
+    "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" 0)
+  set_tests_properties(graphics.vk_ahb_app PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 180)
   # ADR-0037 a): the parity benchmark's scene built for the Mac (graphics/bench, graphics-bench-host) and as the
   # APKs of tools/build-bench.sh (graphics-app-test's bench mode), each API and load with ticks scripted in
   # lockstep (bench_test.py): both must draw the same frame 1000, and the APK must end by itself.
