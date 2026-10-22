@@ -1027,6 +1027,455 @@ TEST(a_window_stays_in_place_only_when_a_lost_x18_cannot_escape) {
     }
 }
 
+// ADR-0020 step C C6 (class 6): a non-lone load-exclusive's monitor can still be live past a window a
+// branch jumps over, so an x18 use there must stay refused — islanding it would put the island's
+// memory between the load and its store and could break the LL/SC (the C3b livelock). The reviewers'
+// counterexample: L0 arms [x0], a cbnz skips the inner window and reaches the use and L0's own store,
+// so on the 0x04->0x18 path L0's monitor is live at 0x18.
+TEST(an_x18_use_a_branch_reaches_past_a_relocated_window_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0, non-lone: its store is at 0x1c
+        0xb50000a8,  // 0x04 cbnz x8, 0x18        skip the inner window, jump to the use
+        0xc85f7c29,  // 0x08 ldxr x9, [x1]        the inner window, relocated
+        0x91000652,  // 0x0c add x18, x18, #1
+        0xc80a7c29,  // 0x10 stxr w10, x9, [x1]
+        0xd65f03c0,  // 0x14 ret
+        0x91000a52,  // 0x18 add x18, x18, #2     the use: a live monitor on the 0x04->0x18 path
+        0xc80b7c0a,  // 0x1c stxr w11, x10, [x0]  L0's store
+        0x35ffff0b,  // 0x20 cbnz w11, 0x00
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    CHECK(findings.exclusive_regions.size() == 1);  // the inner window still relocates
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (!findings.x18_unsupported.empty()) {
+        CHECK(findings.x18_unsupported[0].address == 0x1018);
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("between a load- and a store-exclusive")
+              != std::string_view::npos);
+    }
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1018);
+}
+
+// The same hazard through a register branch the rewriter cannot follow: the exclusive_sequence flag,
+// which a covered window does not clear, keeps the use refused.
+TEST(an_x18_use_a_register_branch_may_reach_past_a_relocated_window_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0, non-lone through the register branch
+        0xd61f0120,  // 0x04 br x9                a branch whose target the rewriter cannot see
+        0xc85f7c29,  // 0x08 ldxr x9, [x1]        the inner window, relocated
+        0x91000652,  // 0x0c add x18, x18, #1
+        0xc80a7c29,  // 0x10 stxr w10, x9, [x1]
+        0x91000a52,  // 0x14 add x18, x18, #2     the use: a br x9 here would find L0's monitor live
+        0x91000421,  // 0x18 add x1, x1, #1
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    CHECK(findings.exclusive_regions.size() == 1);
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (!findings.x18_unsupported.empty()) CHECK(findings.x18_unsupported[0].address == 0x1014);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// The branch-reached refusal also closes the old gap where the inner window has no x18, so its own
+// store-exclusive clears the flag: the direct branch's target is refused from the branch (rule 1).
+TEST(an_x18_use_a_branch_reaches_past_an_x18_free_window_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0
+        0xb50000a8,  // 0x04 cbnz x8, 0x18        skip the inner window
+        0xc85f7c29,  // 0x08 ldxr x9, [x1]        the inner window, WITHOUT x18 (not relocated)
+        0x91000529,  // 0x0c add x9, x9, #1
+        0xc80a7c29,  // 0x10 stxr w10, x9, [x1]
+        0xd65f03c0,  // 0x14 ret
+        0x91000a52,  // 0x18 add x18, x18, #2     the use
+        0xc80b7c08,  // 0x1c stxr w11, x8, [x0]   L0's store
+        0x35ffff0b,  // 0x20 cbnz w11, 0x00
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    CHECK(findings.exclusive_regions.empty());  // the x18-free window is not relocated
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (!findings.x18_unsupported.empty()) CHECK(findings.x18_unsupported[0].address == 0x1018);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1018);
+}
+
+// A direct branch whose target is exactly the nested load-exclusive (the run's end) re-tags the
+// monitor there, so the outer load is lone (rule 2) and its later x18 use is an ordinary island.
+TEST(a_branch_to_the_nested_load_makes_the_outer_load_lone) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0
+        0xb5000028,  // 0x04 cbnz x8, 0x08        target == the nested load: re-tags the monitor
+        0xc85f7c29,  // 0x08 ldxr x9, [x1]        nested load, its window relocated
+        0x91000652,  // 0x0c add x18, x18, #1
+        0xc80a7c29,  // 0x10 stxr w10, x9, [x1]
+        0x91000a52,  // 0x14 add x18, x18, #2     the use: L0 is lone, no live monitor here
+        0x91000421,  // 0x18 add x1, x1, #1
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    CHECK(findings.exclusive_regions.size() == 1);  // the nested window relocates
+    CHECK(findings.x18_unsupported.empty());        // no false in-sequence refusal
+    const std::vector<Site> expected{{0x1014, SiteKind::x18, 18, 0x91000a52}};
+    CHECK(findings.sites == expected);              // the later use is an island
+}
+
+// An in-place window (step B) sits in `covered` like a relocated one, so the non-lone outer load's
+// monitor is not cleared across it and a branch-reached use stays refused either way.
+TEST(an_x18_use_a_branch_reaches_past_an_in_place_window_stays_refused) {
+    std::vector<std::uint32_t> code{0xc85f7c08, 0};  // ldxr x8, [x0]; cbnz x8, U (filled in below)
+    const auto window = temporary_x18_window();      // a window kept in place (step B)
+    code.insert(code.end(), window.begin(), window.end());
+    const auto u_word = code.size();
+    code.push_back(0x91000a52);  // U: add x18, x18, #2
+    code.push_back(0xc80b7c08);  // stxr w11, x8, [x0]: the outer load's store
+    code[1] = 0xb5000008 | (static_cast<std::uint32_t>(u_word - 1) << 5);  // cbnz x8, U
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    const std::uint64_t u_addr = 0x1000 + 4 * u_word;
+    CHECK(findings.in_place_windows.size() == 1);  // the inner window is kept in place
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) {
+        if (use.address == u_addr) refused = true;
+    }
+    CHECK(refused);                                                 // the use is not islanded
+    for (const auto &site : findings.sites) CHECK(site.address != u_addr);
+}
+
+// A chain of direct branches: branch1 leaves L's run, then branch2 (at/after branch1's target) skips
+// the store where a single forward scan would stop, reaching a use with L's monitor still live. The
+// reachability must be transitive, or this use is wrongly islanded (a C3b livelock). On the x9!=0,
+// x11!=0 path, L's monitor is live at 0x1c and its store is 0x20.
+TEST(an_x18_use_a_chain_of_branches_reaches_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L arms [x0]
+        0xb5000089,  // 0x04 cbnz x9, 0x14        branch1: leaves L's run
+        0x91000652,  // 0x08 add x18, x18, #1     a use on the fall-through path (also monitor-live)
+        0xc80a7c08,  // 0x0c stxr w10, x8, [x0]   a store pairing L (the x9 == 0 path)
+        0xd65f03c0,  // 0x10 ret
+        0xb500004b,  // 0x14 cbnz x11, 0x1c       branch2: skips the store at 0x18
+        0xc80c7c08,  // 0x18 stxr w12, x8, [x0]   a store pairing L (the x11 == 0 path)
+        0x91000a52,  // 0x1c add x18, x18, #2      the use: a live monitor on 0x00->0x14->0x1c->0x20
+        0xc80d7c08,  // 0x20 stxr w13, x8, [x0]   the store on that path
+        0x35fffeed,  // 0x24 cbnz w13, 0x00
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    bool use_refused = false;
+    for (const auto &use : findings.x18_unsupported) {
+        if (use.address == 0x101c) use_refused = true;
+    }
+    CHECK(use_refused);  // the transitively-reached use is refused, not islanded
+    for (const auto &site : findings.sites) CHECK(site.address != 0x101c);
+}
+
+// Rule 2 only relaxes a branch to the run's end exactly; a branch PAST the nested load leaves the
+// outer load non-lone, because on that path the nested load is skipped and the outer monitor is still
+// live at the target. Guards against relaxing target >= end instead of target == end. L0's store is
+// reachable from the use, so its monitor escapes: were L0 wrongly lone, the use would be islanded.
+TEST(a_branch_past_the_nested_load_keeps_the_outer_load_non_lone) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0, non-lone: its store is at 0x14
+        0xb5000068,  // 0x04 cbnz x8, 0x10        target 0x10 is PAST the nested load (end = 0x08)
+        0xc85f7c29,  // 0x08 ldxr x9, [x1]        nested load: the run's end
+        0xd5033f5f,  // 0x0c clrex
+        0x91000a52,  // 0x10 add x18, x18, #2     the use: reached, L0's monitor still live and escapes
+        0xc80a7c08,  // 0x14 stxr w10, x8, [x0]   L0's store, which the monitor at 0x10 reaches
+        0x35ffff4a,  // 0x18 cbnz w10, 0x00
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    bool use_refused = false;
+    for (const auto &use : findings.x18_unsupported) {
+        if (use.address == 0x1010) use_refused = true;
+    }
+    CHECK(use_refused);  // L0 is non-lone, so the branch-reached use is refused, not islanded
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1010);
+}
+
+// The GCC __atomic_compare_exchange shape: on the b.ne path the store is skipped, so the monitor is
+// still live at the fail label, but no store-exclusive pairs on that path (it ends in a return). The
+// use there is safe to island — reaching it is not enough, nothing escapes (ADR-0020 C6 decision 2).
+TEST(a_cmpxchg_fail_path_use_with_no_store_reachable_is_islanded) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x0c
+        0xf100011f,  // 0x04 cmp x8, #0
+        0x54000061,  // 0x08 b.ne 0x14           the compare failed: skip the store, go to the fail label
+        0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
+        0x35ffff8a,  // 0x10 cbnz w10, 0x00
+        0x91000640,  // 0x14 add x0, x18, #1      the fail-label use: monitor live, but only a ret follows
+        0xd65f03c0,  // 0x18 ret
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());  // nothing escapes from the use, so it is not refused
+    const std::vector<Site> expected{{0x1014, SiteKind::x18, 18, 0x91000640}};
+    CHECK(findings.sites == expected);        // the use runs in an ordinary island
+}
+
+// The same shape, but a store-exclusive follows the fail-label use before any boundary: now L0's
+// monitor does pair on that path, so islanding the use would break the LL/SC and it stays refused.
+TEST(a_store_exclusive_reachable_from_the_fail_path_use_keeps_it_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+        0xf100011f,  // 0x04 cmp x8, #0
+        0x54000061,  // 0x08 b.ne 0x14           skip the first store, reach the use
+        0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
+        0x35ffff8a,  // 0x10 cbnz w10, 0x00
+        0x91000652,  // 0x14 add x18, x18, #1     the use: a live monitor on the 0x08->0x14 path
+        0xc80b7c08,  // 0x18 stxr w11, x8, [x0]   a store that monitor reaches: the use escapes
+        0x35ffff2b,  // 0x1c cbnz w11, 0x00
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (!findings.x18_unsupported.empty()) {
+        CHECK(findings.x18_unsupported[0].address == 0x1014);
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("between a load- and a store-exclusive")
+              != std::string_view::npos);
+    }
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// A register branch reachable from the use is a danger too: its target the rewriter cannot follow, so
+// the monitor may reach a store there. A reached register branch keeps the use refused (C6 decision 3).
+TEST(a_register_branch_reachable_from_the_use_keeps_it_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+        0xf100011f,  // 0x04 cmp x8, #0
+        0x54000061,  // 0x08 b.ne 0x14           skip the store, reach the use
+        0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
+        0x35ffff8a,  // 0x10 cbnz w10, 0x00
+        0x91000652,  // 0x14 add x18, x18, #1     the use: monitor live on the 0x08->0x14 path
+        0xd61f00a0,  // 0x18 br x5                a register branch the monitor reaches: the use escapes
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (!findings.x18_unsupported.empty()) CHECK(findings.x18_unsupported[0].address == 0x1014);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// An unconditional B carries the monitor to the use (the only path to it), which then escapes to a
+// store: reachability must follow unconditional branches, not only conditional ones.
+TEST(an_unconditional_branch_carries_the_monitor_to_a_refused_use) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
+        0x14000003,  // 0x04 b 0x10              unconditional: skip the straight-line store, reach the use
+        0xc80a7c08,  // 0x08 stxr w10, x8, [x0]   the x8 == 0 path's store (skipped by the B)
+        0xd65f03c0,  // 0x0c ret
+        0x91000652,  // 0x10 add x18, x18, #1     the use: reached only through the unconditional B
+        0xc80b7c08,  // 0x14 stxr w11, x8, [x0]   a store the monitor reaches: the use escapes
+        0x35ffff4b,  // 0x18 cbnz w11, 0x00
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1010) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1010);
+}
+
+// A backward branch carries the monitor to a use before it. The clrex at 0x08 clears the linear-scan
+// flag so only the branch reachability can refuse the use; the cbnz at 0x14 is the only path to it.
+TEST(a_backward_branch_reaches_a_use_that_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+        0xb5000088,  // 0x04 cbnz x8, 0x14       skip the clrex, keep the monitor live
+        0xd5033f5f,  // 0x08 clrex                clears the straight-line flag at and after here
+        0x91000652,  // 0x0c add x18, x18, #1     the use: reached only by the back-edge at 0x14
+        0xc80a7c08,  // 0x10 stxr w10, x8, [x0]   a store the monitor reaches from the use: it escapes
+        0xb5ffffc9,  // 0x14 cbnz x9, 0x0c        back-edge to the use, with L0's monitor still live
+        0xd65f03c0,  // 0x18 ret
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x100c) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x100c);
+}
+
+// A use two words past a branch target is reached by falling through from the target, so marking only
+// the target word is not enough. The clrex at 0x08 clears the linear flag, isolating the reachability.
+TEST(a_use_past_a_branch_target_is_reached_and_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+        0xb5000068,  // 0x04 cbnz x8, 0x10       to the branch target at 0x10, monitor live
+        0xd5033f5f,  // 0x08 clrex                clears the straight-line flag
+        0xd65f03c0,  // 0x0c ret
+        0x91000421,  // 0x10 add x1, x1, #1       the branch target (not an x18 use)
+        0x91000652,  // 0x14 add x18, x18, #1     the use: a word past the target, reached by fall-through
+        0xc80a7c08,  // 0x18 stxr w10, x8, [x0]   a store the use reaches: it escapes
+        0x35ffff2a,  // 0x1c cbnz w10, 0x00
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// A monitor-live run that reaches the end of the code with no store or register branch pairs nothing,
+// so the use is islanded, not refused: reaching the buffer's end is not an escape (C6 decision 2).
+TEST(a_monitor_run_to_the_code_end_without_a_store_islands_the_use) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
+        0xb5000088,  // 0x04 cbnz x8, 0x14       skip the store, reach the use with the monitor live
+        0xc80a7c08,  // 0x08 stxr w10, x8, [x0]
+        0x35ffffaa,  // 0x0c cbnz w10, 0x00
+        0xd65f03c0,  // 0x10 ret
+        0x91000652,  // 0x14 add x18, x18, #1     the use: monitor live, but only x18-free code to the end
+        0x91000421,  // 0x18 add x1, x1, #1       the run falls off the end of the buffer with no store
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    bool islanded = false;
+    for (const auto &site : findings.sites) if (site.address == 0x1014) islanded = true;
+    CHECK(islanded);
+}
+
+// Rule 2 relaxes a branch to the run's end only when the end re-tags or clears the monitor; a branch
+// to the code's end (which does neither) leaves the load non-lone, so its use stays refused.
+TEST(a_branch_to_the_code_end_keeps_the_outer_load_non_lone) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0: its run reaches the code's end (no store or clrex)
+        0xb5000049,  // 0x04 cbnz x9, 0x0c       branch to 0x0c == the code's end: it does not close
+        0x91000652,  // 0x08 add x18, x18, #1     the use: L0 is non-lone, so it stays refused
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+// Lone-load detection has no 64-word cap (unlike exclusive_window_end): it finds the clrex that ends
+// the run even when it is more than 64 words away. A branch PAST that far clrex leaves the load
+// non-lone (rule 2 relaxes only target == the clrex), so the use stays refused. Were the clrex missed
+// — capped out or its detection dropped — the run would reach the code's end and the load look lone.
+TEST(a_branch_past_a_clrex_more_than_64_words_away_keeps_the_load_non_lone) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0: its run ends at the clrex 65 words on, at 0x104
+        0xb5000829,  // 0x04 cbnz x9, 0x108      branch PAST the clrex (0x108 > end 0x104): leaves the run
+        0x91000652,  // 0x08 add x18, x18, #1     the use: L0 is non-lone, so it stays refused
+    };
+    code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: 62 nops, pushing the clrex past 64 words
+    code.push_back(0xd5033f5f);               // 0x104 clrex: the run's end, 65 words from L0
+    code.push_back(0x91000421);               // 0x108 add x1, x1, #1 (the branch target, past the clrex)
+    code.push_back(0xd503201f);               // 0x10c nop
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+// A store reachable only through a BACKWARD branch from the use still makes the monitor escape: the
+// cbz at 0x18 jumps back to the store at 0x08, which L0's monitor (live on the 0x04->0x14 path) pairs.
+TEST(a_backward_branch_to_the_store_keeps_the_use_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+        0xb5000089,  // 0x04 cbnz x9, 0x14       reach the use, monitor live
+        0xc80a7c08,  // 0x08 stxr w10, x8, [x0]  the store the backward branch returns to
+        0xd65f03c0,  // 0x0c ret
+        0xd503201f,  // 0x10 nop
+        0x91000652,  // 0x14 add x18, x18, #1    the use
+        0xb4ffff8b,  // 0x18 cbz x11, 0x08       backward to the store: the monitor at 0x14 escapes to it
+        0xd65f03c0,  // 0x1c ret
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// A pointer-authenticated register branch (BRAA, and its Z form BRAAZ) is an indirect jump like BR, so
+// a monitor reaching it escapes and the use stays refused. Guards is_register_branch's mask against a
+// narrowing to bare BR only.
+TEST(a_pac_register_branch_reachable_from_the_use_keeps_it_refused) {
+    for (const std::uint32_t tail : {0xd71f08a6u, 0xd61f08bfu}) {  // braa x5, x6 ; braaz x5
+        const std::uint32_t code[] = {
+            0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
+            0xf100011f,  // 0x04 cmp x8, #0
+            0x54000061,  // 0x08 b.ne 0x14           skip the store, reach the use
+            0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
+            0x35ffff8a,  // 0x10 cbnz w10, 0x00
+            0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live on 0x08->0x14
+            tail,        // 0x18 braa x5, x6 / braaz x5: an authenticated register branch (the escape)
+        };
+        const auto findings = scan_words(code, code + std::size(code), 0x1000);
+        bool refused = false;
+        for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
+        CHECK(refused);
+        for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+    }
+}
+
+// A call ends the LL/SC pairing: a store on the far side of the call is not paired with L0, so the use
+// before the call islands. Pins BL and the register calls (BLR, BLRAA) as monitor-path boundaries.
+TEST(an_x18_use_before_a_call_islands_because_no_pairing_crosses_it) {
+    for (const std::uint32_t call : {0x94000001u, 0xd63f00a0u, 0xd73f08a6u}) {  // bl .+4 ; blr x5 ; blraa x5, x6
+        const std::uint32_t code[] = {
+            0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
+            0xb5000088,  // 0x04 cbnz x8, 0x14       reach the use, monitor live
+            0xc80a7c08,  // 0x08 stxr w10, x8, [x0]
+            0x35ffffaa,  // 0x0c cbnz w10, 0x00
+            0xd65f03c0,  // 0x10 ret
+            0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live, but a call follows
+            call,        // 0x18 bl / blr x5 / blraa x5, x6: a call ends the pairing
+            0xc80b7c08,  // 0x1c stxr w11, x8, [x0]  a store across the call: not paired with L0
+            0x35ffff0b,  // 0x20 cbnz w11, 0x00
+        };
+        const auto findings = scan_words(code, code + std::size(code), 0x1000);
+        CHECK(findings.x18_unsupported.empty());
+        bool islanded = false;
+        for (const auto &site : findings.sites) if (site.address == 0x1014) islanded = true;
+        CHECK(islanded);
+    }
+}
+
+// A return ends the monitor path: a store after it is not reached, so the use before it islands. Pins
+// both authenticated returns RETAA and RETAB (and, with the ret-x5 test, RET x30) as path ends.
+TEST(a_return_ends_the_monitor_path_so_the_use_before_it_islands) {
+    for (const std::uint32_t ret : {0xd65f0bffu, 0xd65f0fffu}) {  // retaa ; retab
+        const std::uint32_t code[] = {
+            0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
+            0xb5000088,  // 0x04 cbnz x8, 0x14       reach the use, monitor live
+            0xc80a7c08,  // 0x08 stxr w10, x8, [x0]
+            0x35ffffaa,  // 0x0c cbnz w10, 0x00
+            0xd65f03c0,  // 0x10 ret
+            0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live, but a return follows
+            ret,         // 0x18 retaa / retab       the return ends the path
+            0xc80b7c08,  // 0x1c stxr w11, x8, [x0]  a store after the return: not reached
+            0x35ffff0b,  // 0x20 cbnz w11, 0x00
+        };
+        const auto findings = scan_words(code, code + std::size(code), 0x1000);
+        CHECK(findings.x18_unsupported.empty());
+        bool islanded = false;
+        for (const auto &site : findings.sites) if (site.address == 0x1014) islanded = true;
+        CHECK(islanded);
+    }
+}
+
+// `ret xN` with N != 30 is an indirect branch, not a return (hand-written code uses it as a computed
+// jump). So a monitor reaching it escapes and the use stays refused, as for BR.
+TEST(a_ret_to_a_register_other_than_x30_is_an_escape_not_a_return) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
+        0xb5000088,  // 0x04 cbnz x8, 0x14       reach the use, monitor live
+        0xc80a7c08,  // 0x08 stxr w10, x8, [x0]
+        0x35ffffaa,  // 0x0c cbnz w10, 0x00
+        0xd65f03c0,  // 0x10 ret                 the normal return (x30), a safe path end
+        0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live
+        0xd65f00a0,  // 0x18 ret x5              an indirect branch via x5: the escape
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
 // The relocated island: x18 becomes the scratch everywhere, the guest value is loaded before and
 // stored after the window, and the store-exclusive keeps working on the same address.
 TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {

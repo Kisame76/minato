@@ -6,6 +6,8 @@
 #include <cstring>
 #include <format>
 #include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace apk::rewrite {
 namespace {
@@ -481,6 +483,21 @@ constexpr bool is_store_exclusive(std::uint32_t word) {
     return is_exclusive(word) && !is_load_exclusive(word);
 }
 
+/// The unconditional branch-register group (Arm ARM C4.1.7), told apart by bits 31:25 and 23:16 (bit
+/// 24 and the register fields 20:16/9:5 ignored). A safe return ends a path where compiler code pairs
+/// no LL/SC: RET x30 (the frame return) and RETAA, RETAB (which authenticate x30). A register branch is
+/// an indirect jump whose target the rewriter cannot follow: BR and its forms BRAA, BRAB, BRAAZ, BRABZ,
+/// and also RET xN with N != 30, which hand-written code uses as an indirect branch, not a return. A
+/// register call (BLR and its forms) returns to the next instruction (ADR-0020 C6).
+constexpr bool is_register_return(std::uint32_t word) {
+    return word == 0xd65f'03c0 || word == 0xd65f'0bff || word == 0xd65f'0fff;  // RET x30, RETAA, RETAB
+}
+constexpr bool is_register_call(std::uint32_t word) { return (word & 0xfeff'0000) == 0xd63f'0000; }
+constexpr bool is_register_branch(std::uint32_t word) {
+    if ((word & 0xfeff'0000) == 0xd61f'0000) return true;                     // BR and its authenticated forms
+    return (word & 0xfeff'0000) == 0xd65f'0000 && !is_register_return(word);  // RET xN with N != 30: an indirect jump
+}
+
 /// The signed byte displacement of any PC-relative branch, or nullopt when `word` is none: B, BL
 /// (imm26), B.cond, BC.cond (imm19), the conditional branches CBZ, CBNZ, TBZ, TBNZ, and the
 /// compare-and-branch CB<cc>, CBB<cc>, CBH<cc> (CMPBR, imm9 at bits 13:5).
@@ -545,17 +562,120 @@ bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
         // its own window. A CLREX likewise drops the monitor and ends the run.
         if (is_load_exclusive(word) || is_clrex(word)) { end = j; break; }
     }
+    // A branch to `end` itself is sound when `end` is a nested load-exclusive or CLREX (not the code's
+    // end): control there re-tags or clears the monitor, so nothing pairs with this load (step C C6).
+    const bool end_closes = end != code.size();
     for (std::size_t j = open + 4; j < end; j += 4) {
         const auto word = word_at(code, j);
         if (!is_branch(word)) continue;
         const auto displacement = branch_displacement(word);
         if (!displacement) return false;  // a register or indirect branch: its target may leave the run
         const auto target = static_cast<std::int64_t>(j) + *displacement;
-        if (target < static_cast<std::int64_t>(open) || target >= static_cast<std::int64_t>(end)) {
+        if (target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end) ||
+            (target == static_cast<std::int64_t>(end) && !end_closes)) {
             return false;  // a branch out of the run could reach a store-exclusive with the monitor live
         }
     }
     return true;
+}
+
+/// Word offsets a non-lone load-exclusive's monitor can still reach (ADR-0020 step C C6). A branch can
+/// carry the monitor past the store-exclusive that would close the load, so this follows control
+/// forward from every non-lone load — fall-through and every direct branch, transitively — marking
+/// each offset reached while the monitor stays live, i.e. until a store-exclusive, CLREX or a nested
+/// load-exclusive consumes, clears or re-arms the one local monitor. One shared traversal gives the
+/// union over all loads, because any such instruction is a boundary for whichever load's monitor is
+/// live. Reaching an offset is necessary but not sufficient to refuse its x18 use: monitor_escapes()
+/// then keeps only those from which a store-exclusive or register branch is still reachable. A call
+/// (BL, BLR) and a direct branch leaving the scanned code are not followed to a target; a register
+/// branch's target the rewriter cannot follow, the one residual (a named limit, closed for the uses
+/// before the branch, which count as reached through it).
+std::unordered_set<std::size_t> branch_reached_sequence(std::span<const std::byte> code) {
+    // Byte offsets, held sparsely: a section with no non-lone load allocates nothing (ADR-0020 C6).
+    std::unordered_set<std::size_t> reached, visited;
+    std::vector<std::size_t> work;
+    for (std::size_t open = 0; open + 4 <= code.size(); open += 4) {
+        if (is_load_exclusive(word_at(code, open)) && !lone_load_exclusive(code, open)) {
+            work.push_back(open + 4);  // the first instruction a non-lone load's monitor covers
+        }
+    }
+    while (!work.empty()) {
+        const auto p = work.back();
+        work.pop_back();
+        if (p + 4 > code.size() || !visited.insert(p).second) continue;
+        const auto word = word_at(code, p);
+        if (is_exclusive(word) || is_clrex(word)) continue;  // consumes, clears or re-arms the monitor
+        reached.insert(p);
+        const auto displacement = branch_displacement(word);
+        const bool is_call = (word & 0xfc00'0000) == 0x9400'0000;  // BL: a call returns, not a path to its target
+        if (displacement && !is_call) {
+            const auto target = static_cast<std::int64_t>(p) + *displacement;
+            if (target >= 0 && target + 4 <= static_cast<std::int64_t>(code.size())) {
+                work.push_back(static_cast<std::size_t>(target));
+            }
+        }
+        // Fall through unless the word cannot reach the next one: an unconditional B, a register branch
+        // (BR..., and RET xN used as one) or a safe return (RET x30, RETAA, RETAB). A call (BL, BLR)
+        // returns, so it falls through, but is not followed to its target.
+        const bool b_uncond = (word & 0xfc00'0000) == 0x1400'0000;
+        if (!b_uncond && !is_register_branch(word) && !is_register_return(word)) work.push_back(p + 4);
+    }
+    return reached;
+}
+
+/// Among the offsets a monitor reaches (`reached`, from branch_reached_sequence), those from which a
+/// store-exclusive or a register branch (BR...) is still reachable before the pairing ends, so the
+/// island's memory could fall inside a live LL/SC (ADR-0020 step C C6). A reached offset whose monitor
+/// is never consumed — every forward path ends in a return, a call or a CLREX, or re-arms at a nested
+/// load — is safe to island, so scan() refuses only `reached && escapes`. The pairing ends at a
+/// load-exclusive or CLREX (re-armed or cleared), a return (RET...) or a call (BL, BLR...): compiler
+/// code pairs no LL/SC across a return or a call (a named limit, ADR-0020 C6). A register branch is a
+/// danger too: its target the rewriter cannot follow, so a monitor reaching one may reach a store
+/// (that closes the register residual for the uses before it). Backward propagation from the danger
+/// seeds over reverse control edges built only among the reached offsets, held sparsely so a section
+/// with nothing reached allocates nothing and the edge store is O(reached), not O(code).
+std::unordered_set<std::size_t> monitor_escapes(std::span<const std::byte> code,
+                                                const std::unordered_set<std::size_t> &reached) {
+    std::unordered_set<std::size_t> escapes;
+    if (reached.empty()) return escapes;  // no non-lone load reached anything: nothing can escape
+    const auto ends_pairing = [](std::uint32_t w) {
+        return is_load_exclusive(w) || is_clrex(w) || is_register_return(w) || is_register_call(w)
+               || (w & 0xfc00'0000) == 0x9400'0000;  // BL
+    };
+    std::unordered_map<std::size_t, std::vector<std::size_t>> predecessors;  // reverse edges, reached words only
+    std::vector<std::size_t> work;
+    const auto seed = [&](std::size_t offset) {
+        if (escapes.insert(offset).second) work.push_back(offset);
+    };
+    for (const auto p : reached) {
+        const auto word = word_at(code, p);
+        if (is_store_exclusive(word) || is_register_branch(word)) {
+            seed(p);  // a reached register branch is itself the danger (a store-exclusive is never reached)
+            continue;
+        }
+        if (ends_pairing(word)) continue;  // the monitor does not carry a danger across it
+        const auto link = [&](std::int64_t s) {
+            if (s < 0 || s + 4 > static_cast<std::int64_t>(code.size())) return;
+            const auto index = static_cast<std::size_t>(s);
+            const auto word_s = word_at(code, index);
+            if (ends_pairing(word_s)) return;  // the successor ends the pairing: no danger crosses it
+            if (is_store_exclusive(word_s) || is_register_branch(word_s)) seed(index);
+            predecessors[index].push_back(p);
+        };
+        const bool b_uncond = (word & 0xfc00'0000) == 0x1400'0000;  // B: no fall-through
+        if (!b_uncond) link(static_cast<std::int64_t>(p) + 4);
+        const auto displacement = branch_displacement(word);
+        const bool is_call = (word & 0xfc00'0000) == 0x9400'0000;
+        if (displacement && !is_call) link(static_cast<std::int64_t>(p) + *displacement);
+    }
+    while (!work.empty()) {
+        const auto p = work.back();
+        work.pop_back();
+        const auto it = predecessors.find(p);
+        if (it == predecessors.end()) continue;
+        for (const auto pred : it->second) seed(pred);
+    }
+    return escapes;
 }
 
 /// The words of the window [open, end] that a forward branch inside it can skip: what they write
@@ -1155,6 +1275,11 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         return std::ranges::any_of(covered, [&](const auto &span) { return offset > span.first && offset <= span.second; });
     };
 
+    // x18 uses a non-lone load-exclusive's monitor still reaches past a direct branch out of its run,
+    // and of those the ones from which a store-exclusive or register branch is still reachable: only
+    // those could put an island's memory inside a live LL/SC.
+    const auto branch_live = branch_reached_sequence(code);
+    const auto monitor_escape = monitor_escapes(code, branch_live);
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
     bool exclusive_sequence = false;
     for (std::size_t offset = 0; offset < code.size(); offset += 4) {
@@ -1177,7 +1302,8 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             const char *window_reason = refused_window(offset);
             const char *reason = window_reason;
             if (!reason) {
-                reason = exclusive_sequence && !is_exclusive(instruction)
+                reason = (exclusive_sequence && !is_exclusive(instruction))
+                                 || (branch_live.contains(offset) && monitor_escape.contains(offset))
                              ? inside_exclusive_sequence
                              : unsupported_reason(instruction, is_lone_load(offset));
             }
