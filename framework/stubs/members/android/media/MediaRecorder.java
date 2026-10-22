@@ -1,5 +1,6 @@
 // Hidden members of the public API's compile-only stub (ADR-0045 gap 1, batch 2), which tools/managergen joins with
-// it: AudioAttributes names the capture presets of the system's sources and their names for its log.
+// it: AudioAttributes names the capture presets of the system's sources and their names for its log, and
+// EncoderProfiles (F4f) names the annotations of the output format and the encoders.
 class MediaRecorder {
     public final class AudioSource {
         /** @hide */
@@ -21,5 +22,17 @@ class MediaRecorder {
     /** @hide */
     public static final String toLogFriendlyAudioSource(int source) {
         throw new RuntimeException("stub");
+    }
+
+    /** @hide */
+    public @interface OutputFormatValues {
+    }
+
+    /** @hide */
+    public @interface VideoEncoderValues {
+    }
+
+    /** @hide */
+    public @interface AudioEncoderValues {
     }
 }

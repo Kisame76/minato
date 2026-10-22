@@ -1,0 +1,24 @@
+I/f4f-media-route-test: route: id=route1 name=Living room description=A speaker features=[android.media.route.feature.REMOTE_PLAYBACK, android.media.route.feature.LIVE_AUDIO] type=1002 connection=2 volume=5/10 handling=1 icon=content://icons/speaker extras=value dedup=[a, b] client=com.example.player system=false
+I/f4f-media-route-test: route parcel: equal=true name=Living room features=[android.media.route.feature.REMOTE_PLAYBACK, android.media.route.feature.LIVE_AUDIO] describe=0
+I/f4f-media-route-test: route copy: java.lang.IllegalArgumentException
+I/f4f-media-route-test: route empty id: IllegalArgumentException
+I/f4f-media-route-test: route empty name: IllegalArgumentException
+I/f4f-media-route-test: route constants: 0 2 8 1001 2000 0 android.media.route.feature.REMOTE_VIDEO_PLAYBACK
+I/f4f-media-route-test: session: id=session1 client=com.example.player name=Living room session selected=[route1] selectable=[route2] deselectable=[route1] transferable=[route3] volume=4/8 handling=1 hints=3
+I/f4f-media-route-test: session parcel: equal=true selected=[route1]
+I/f4f-media-route-test: session copy: java.lang.IllegalArgumentException
+I/f4f-media-route-test: session empty id: IllegalArgumentException
+I/f4f-media-route-test: discovery: features=[android.media.route.feature.REMOTE_PLAYBACK, android.media.route.feature.LIVE_VIDEO] activeScan=true
+I/f4f-media-route-test: discovery parcel: equal=true changed=false equalChanged=false
+I/f4f-media-route-test: listing item: route=route1 flags=4 subText=2 custom=null behavior=2
+I/f4f-media-route-test: listing item: route=route2 flags=0 subText=10000 custom=Custom message behavior=1
+I/f4f-media-route-test: listing: items=2 systemOrdering=false linked=ComponentInfo{com.example.player/com.example.player.Linked}
+I/f4f-media-route-test: listing parcel: equal=true items=2
+I/f4f-media-route-test: listing custom without message: IllegalArgumentException
+I/f4f-media-route-test: listing empty route: IllegalArgumentException
+I/f4f-media-route-test: listing constants: android.media.action.TRANSFER_MEDIA android.media.extra.ROUTE_ID 1 1 7
+I/f4f-media-route-test: encoder: EncoderProfiles final=true public=true
+I/f4f-media-route-test: encoder: VideoProfile final=true public=true
+I/f4f-media-route-test: encoder: AudioProfile final=true public=true
+I/f4f-media-route-test: encoder constants: 0 1 4 0 2
+I/f4f-media-route-test: done

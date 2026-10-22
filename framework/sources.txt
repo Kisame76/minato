@@ -2381,6 +2381,14 @@ frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamC
 frameworks_base/core/java/android/hardware/camera2/params/MandatoryStreamCombination.java
 frameworks_base/core/java/android/hardware/camera2/params/OutputConfiguration.java
 frameworks_base/core/java/android/hardware/camera2/params/ColorSpaceProfiles.java
+# F4f: android.media's routing data (routes, routing sessions, the discovery and listing preferences) and the
+# recorder's encoder profiles
+frameworks_base_types/media/java/android/media/MediaRoute2Info.java
+frameworks_base_types/media/java/android/media/RoutingSessionInfo.java
+frameworks_base_types/media/java/android/media/RouteDiscoveryPreference.java
+frameworks_base_types/media/java/android/media/RouteListingPreference.java
+frameworks_base_types/media/java/android/media/MediaRouter2Utils.java
+frameworks_base_types/media/java/android/media/EncoderProfiles.java
 frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
 # ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.
