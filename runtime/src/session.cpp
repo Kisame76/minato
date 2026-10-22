@@ -310,14 +310,17 @@ bool valid_pick(std::string_view text) {
 }
 
 // The pick requests that wait for their answer (APKRT_EVENT_PICK_RESULT or APKRT_REQUEST_PICK_CANCEL). The check, the
-// change of the table and the host's call happen under one lock, so the host gets the requests one at a time, in the
-// order the runtime took them; the lock is recursive, so that a handler may post the answer at once.
-std::recursive_mutex pick_lock;
+// change of the table and the host's call happen under pick_handler_lock, so the host gets the requests one at a time,
+// in the order the runtime took them. The table has its own lock, held only for the change itself, so that a post of
+// the answer never waits for a handler: a handler may wait for another thread that posts the answer. The handler lock
+// is recursive, so that a handler may also post the answer or cancel at once.
+std::recursive_mutex pick_handler_lock;
+std::mutex pick_lock;
 std::vector<std::uint64_t> live_picks;
 
 /// Forgets pick request `id`; whether it was waiting.
 bool pick_done(std::uint64_t id) {
-    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
+    const std::lock_guard<std::mutex> hold(pick_lock);
     const auto at = std::find(live_picks.begin(), live_picks.end(), id);
     if (at == live_picks.end()) return false;
     live_picks.erase(at);
@@ -341,10 +344,13 @@ long pick(std::uint64_t address, std::uint64_t id) {
         if (c == '\0') break;
     }
     if (!valid_pick(std::string_view(text, length))) return -linux_errno::einval;
-    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
-    if (std::find(live_picks.begin(), live_picks.end(), id) != live_picks.end()) return -linux_errno::eexist;
-    if (live_picks.size() >= pick_live_limit) return -linux_errno::ebusy;
-    live_picks.push_back(id);
+    const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
+    {
+        const std::lock_guard<std::mutex> hold(pick_lock);
+        if (std::find(live_picks.begin(), live_picks.end(), id) != live_picks.end()) return -linux_errno::eexist;
+        if (live_picks.size() >= pick_live_limit) return -linux_errno::ebusy;
+        live_picks.push_back(id);
+    }
     report(APKRT_REQUEST_PICK, id, text);
     return 0;
 }
@@ -353,7 +359,7 @@ long pick(std::uint64_t address, std::uint64_t id) {
 /// 0, or -EINVAL for an ID of 0, -ENOENT for one that does not wait.
 long pick_cancel(std::uint64_t id) {
     if (id == 0) return -linux_errno::einval;
-    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
+    const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
     if (!pick_done(id)) return -linux_errno::enoent;
     report(APKRT_REQUEST_PICK_CANCEL, id, nullptr);
     return 0;

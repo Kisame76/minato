@@ -94,6 +94,8 @@ std::atomic<bool> slow_frame_rate{false}, frame_rate_began{false}, frame_rate_re
 // A PICK handler that takes its time, and counts the handlers that run at once.
 std::atomic<bool> slow_pick{false}, pick_overlap{false};
 std::atomic<int> pick_in_handler{0};
+// A PICK handler that waits for another thread to have posted the answer (and says whether that happened).
+std::atomic<bool> pick_waits_for_post{false}, pick_posted{false}, pick_saw_post{false};
 
 void on_request(void *context, int type, std::uint64_t argument, const char *text) {
     CHECK(context == &requests);
@@ -106,6 +108,10 @@ void on_request(void *context, int type, std::uint64_t argument, const char *tex
         if (pick_in_handler.fetch_add(1) != 0) pick_overlap.store(true);
         std::this_thread::sleep_for(30ms);
         pick_in_handler.fetch_sub(1);
+    }
+    if (type == APKRT_REQUEST_PICK && pick_waits_for_post.load()) {
+        for (int i = 0; i < 200 && !pick_posted.load(); ++i) std::this_thread::sleep_for(10ms);
+        pick_saw_post.store(pick_posted.load());
     }
     if (type == APKRT_REQUEST_FRAME_RATE && slow_frame_rate.load()) {
         frame_rate_began.store(true);
@@ -654,6 +660,25 @@ TEST(pick_requests_from_many_threads_reach_the_handler_one_at_a_time) {
     for (std::uint64_t id = 31; id < 35; ++id) {
         CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
     }
+    take_requests();
+}
+
+TEST(a_pick_handler_may_wait_for_another_thread_to_post_the_answer) {
+    take_requests();
+    pick_posted.store(false);
+    pick_saw_post.store(false);
+    pick_waits_for_post.store(true);
+    static const char open[] = "1\t0\t0\t\t";
+    std::thread poster([] {
+        std::this_thread::sleep_for(50ms);
+        apkrt_session_post(APKRT_EVENT_PICK_RESULT, 41, 0, 0);
+        pick_posted.store(true);
+    });
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(open), 41) == 0);
+    poster.join();
+    pick_waits_for_post.store(false);
+    CHECK(pick_saw_post.load());
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 41) == -enoent);  // answered
     take_requests();
 }
 
