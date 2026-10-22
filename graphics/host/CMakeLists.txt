@@ -43,6 +43,9 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   set_source_files_properties(hardware_buffer.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
   # Their EGL images (ADR-0058 b)), with ARC: in front of ANGLE's functions on the guest's thread.
   set_source_files_properties(image.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
-  # The guest's video decoders (ADR-0060 e2b3), VideoToolbox's, with ARC: on the guest's thread inside its syscall.
-  set_source_files_properties(video_decoder.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
+  # The guest's video decoders (ADR-0060 e2b3), VideoToolbox's, with ARC, and their parameter sets' reader: on the
+  # guest's thread inside its syscall. graphics.video_decoder_asan runs both with AddressSanitizer.
+  set_source_files_properties(video_decoder.m PROPERTIES COMPILE_OPTIONS
+    "-fmodules;-fobjc-arc;-fobjc-arc-exceptions;${on_guest_stacks}")
+  set_source_files_properties(video_parameters.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
 endif()

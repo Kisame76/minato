@@ -3,7 +3,9 @@
    at level 1.3 with 20 x 12 macroblocks 2376 / 240 = 9 frames of DPB), one with a VUI's max_num_reorder_frames,
    VideoToolbox's HEVC SPSs without and with reordering, and hostile bytes: every truncation, random bytes, runs of
    zeros and ones, a wrong NAL type, NULL and sizes above the limit, each answering -1 or a depth of 0 to 16 and never
-   reading past them. Exits 1 after the cases when one failed. */
+   reading past them; the parameter sets' IDs to the standard's last and no further, and the sets a slice and a PPS
+   name, of made units, our Main stream's first slice and their hostile variants. Exits 1 after the cases when one
+   failed. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -164,10 +166,122 @@ static void parameterSetIdsAreRead(void) {
           "a PPS's ID above 255", 0);
     check(minato_avc_parameter_set_id(set, made_set(set, avc_pps_header, 1, 256, 0)) == -1, "a PPS's ID of 256", 0);
     check(minato_avc_parameter_set_id(NULL, 4) == -1 && minato_hevc_parameter_set_id(NULL, 4) == -1, "NULL", 0);
+    // The standard's last IDs, and the next ones refused: no set of a larger ID reaches the decoder's lists.
+    check(minato_avc_parameter_set_id(set, made_sps_with_id(set, 77, -1, 31, 0)) == 31, "an H.264 SPS of ID 31", 0);
+    check(minato_avc_parameter_set_id(set, made_sps_with_id(set, 77, -1, 32, 0)) == -1, "an H.264 SPS of ID 32", 0);
+    check(minato_avc_parameter_set_id(set, made_set(set, avc_pps_header, 1, 255, 0)) == 255, "a PPS of ID 255", 0);
+    check(minato_hevc_parameter_set_id(set, made_hevc_sps_with_id(set, 1, 15)) == 15, "an HEVC SPS of ID 15", 0);
+    check(minato_hevc_parameter_set_id(set, made_hevc_sps_with_id(set, 1, 16)) == -1, "an HEVC SPS of ID 16", 0);
+    check(minato_hevc_parameter_set_id(set, made_set(set, hevc_pps_header, 2, 63, 0)) == 63, "an HEVC PPS of 63", 0);
+    check(minato_hevc_parameter_set_id(set, made_set(set, hevc_pps_header, 2, 64, 0)) == -1, "an HEVC PPS of 64", 0);
     for (size_t length = 0; length < sizeof avc_main; length++) {
         const int got = minato_avc_parameter_set_id(avc_main, length);
         check(got == -1 || got == 0, "a cut SPS's ID", got);
     }
+}
+
+/* A slice or PPS made here: its header bytes, then Exp-Golomb codes `first` and `second` (a slice's first_mb_in_slice
+   and slice_type, or a PPS's own ID and its SPS's) and `third` (a slice's PPS, -1 for none), and payload bytes. With
+   `flags` > 0, HEVC's slice: that many flag bits of 1 before the PPS's ID. */
+static size_t made_unit(uint8_t *out, const uint8_t *header, size_t header_size, unsigned flags, uint32_t first,
+                        uint32_t second, int third) {
+    struct writer w;
+    memset(&w, 0, sizeof w);
+    for (size_t index = 0; index < header_size; index++) put(&w, header[index], 8);
+    if (flags > 0) {
+        put(&w, (1u << flags) - 1, flags);
+        put_ue(&w, first);
+    } else {
+        put_ue(&w, first), put_ue(&w, second);
+        if (third >= 0) put_ue(&w, (uint32_t)third);
+    }
+    put(&w, 0xa5c3, 16), put(&w, 1, 1);  // some of the slice's data, the stop bit
+    const size_t size = (w.at + 7) / 8;
+    memcpy(out, w.bytes, size);
+    return size;
+}
+
+/* Every prefix and every byte change of a unit, in its own allocation: -1 or an answer up to `limit`. */
+static void hostile_ids(const uint8_t *unit, size_t size, int (*id)(const uint8_t *, size_t), int limit) {
+    for (size_t length = 0; length <= size; length++) {
+        uint8_t *copy = malloc(length > 0 ? length : 1);
+        memcpy(copy, unit, length);
+        const int got = id(length > 0 ? copy : NULL, length);
+        check(got >= -1 && got <= limit, "a cut unit's ID", got);
+        free(copy);
+    }
+    uint8_t *copy = malloc(size);
+    for (size_t index = 0; index < size; index++) {
+        for (int value = 0; value < 256; value += 15) {
+            memcpy(copy, unit, size);
+            copy[index] = (uint8_t)value;
+            const int got = id(copy, size);
+            check(got >= -1 && got <= limit, "a changed unit's ID", got);
+        }
+    }
+    free(copy);
+}
+
+/* The active SPS: a slice's PPS and a PPS's SPS, H.264's and HEVC's, of units made here and Minato's own Main
+   stream's first slice (PPS 0), within the standard's IDs; -1 for other units, larger IDs and cut bytes. */
+static void slicesAndPpsNameTheirSets(void) {
+    uint8_t unit[64];
+    static const uint8_t avc_idr[] = {0x65}, avc_slice[] = {0x41}, avc_pps[] = {0x68}, avc_sps[] = {0x67};
+    static const uint8_t hevc_idr[] = {0x26, 0x01}, hevc_trail[] = {0x02, 0x01}, hevc_pps[] = {0x44, 0x01};
+    for (uint32_t id = 0; id <= 255; id += 51) {
+        check(minato_avc_slice_pps_id(unit, made_unit(unit, avc_idr, 1, 0, 0, 7, (int)id)) == (int)id,
+              "an H.264 IDR slice's PPS", minato_avc_slice_pps_id(unit, made_unit(unit, avc_idr, 1, 0, 0, 7, (int)id)));
+        check(minato_avc_slice_pps_id(unit, made_unit(unit, avc_slice, 1, 0, 99, 5, (int)id)) == (int)id,
+              "an H.264 slice's PPS", minato_avc_slice_pps_id(unit, made_unit(unit, avc_slice, 1, 0, 99, 5, (int)id)));
+        check(minato_avc_pps_sps_id(unit, made_unit(unit, avc_pps, 1, 0, id, id % 32, -1)) == (int)(id % 32),
+              "an H.264 PPS's SPS", minato_avc_pps_sps_id(unit, made_unit(unit, avc_pps, 1, 0, id, id % 32, -1)));
+    }
+    for (uint32_t id = 0; id <= 63; id += 21) {
+        // An IDR slice has no_output_of_prior_pics_flag after first_slice_segment_in_pic_flag, a trailing one not.
+        check(minato_hevc_slice_pps_id(unit, made_unit(unit, hevc_idr, 2, 2, id, 0, -1)) == (int)id,
+              "an HEVC IDR slice's PPS", minato_hevc_slice_pps_id(unit, made_unit(unit, hevc_idr, 2, 2, id, 0, -1)));
+        check(minato_hevc_slice_pps_id(unit, made_unit(unit, hevc_trail, 2, 1, id, 0, -1)) == (int)id,
+              "an HEVC slice's PPS", minato_hevc_slice_pps_id(unit, made_unit(unit, hevc_trail, 2, 1, id, 0, -1)));
+        check(minato_hevc_pps_sps_id(unit, made_unit(unit, hevc_pps, 2, 0, id, id % 16, -1)) == (int)(id % 16),
+              "an HEVC PPS's SPS", minato_hevc_pps_sps_id(unit, made_unit(unit, hevc_pps, 2, 0, id, id % 16, -1)));
+    }
+    // Beyond the standard's IDs, and a slice type above 9.
+    check(minato_avc_slice_pps_id(unit, made_unit(unit, avc_idr, 1, 0, 0, 7, 256)) == -1, "a slice's PPS 256", 0);
+    check(minato_avc_slice_pps_id(unit, made_unit(unit, avc_idr, 1, 0, 0, 10, 0)) == -1, "a slice type 10", 0);
+    check(minato_avc_pps_sps_id(unit, made_unit(unit, avc_pps, 1, 0, 256, 0, -1)) == -1, "a PPS of ID 256", 0);
+    check(minato_avc_pps_sps_id(unit, made_unit(unit, avc_pps, 1, 0, 0, 32, -1)) == -1, "a PPS's SPS 32", 0);
+    check(minato_hevc_slice_pps_id(unit, made_unit(unit, hevc_trail, 2, 1, 64, 0, -1)) == -1, "a slice's PPS 64", 0);
+    check(minato_hevc_pps_sps_id(unit, made_unit(unit, hevc_pps, 2, 0, 64, 0, -1)) == -1, "an HEVC PPS of 64", 0);
+    check(minato_hevc_pps_sps_id(unit, made_unit(unit, hevc_pps, 2, 0, 0, 16, -1)) == -1, "an HEVC PPS's SPS 16", 0);
+    // Other units: an SPS, a PPS as a slice, a slice as a PPS, HEVC's VPS and its parameter sets' types.
+    check(minato_avc_slice_pps_id(avc_main, sizeof avc_main) == -1, "an SPS as a slice", 0);
+    check(minato_avc_slice_pps_id(unit, made_unit(unit, avc_pps, 1, 0, 0, 0, -1)) == -1, "a PPS as a slice", 0);
+    check(minato_avc_pps_sps_id(unit, made_unit(unit, avc_idr, 1, 0, 0, 7, 0)) == -1, "a slice as a PPS", 0);
+    check(minato_avc_pps_sps_id(unit, made_unit(unit, avc_sps, 1, 0, 0, 0, -1)) == -1, "an SPS as a PPS", 0);
+    check(minato_hevc_slice_pps_id(hevc_reorder, sizeof hevc_reorder) == -1, "an HEVC SPS as a slice", 0);
+    check(minato_hevc_pps_sps_id(unit, made_unit(unit, hevc_trail, 2, 1, 0, 0, -1)) == -1, "a slice as a PPS", 0);
+    for (unsigned kind = 10; kind < 64; kind++) {  // reserved, IRAP 22 and 23, parameter sets, SEI and the others
+        if (kind >= 16 && kind <= 21) continue;
+        const uint8_t header[2] = {(uint8_t)(kind << 1), 0x01};
+        check(minato_hevc_slice_pps_id(unit, made_unit(unit, header, 2, 2, 0, 0, -1)) == -1, "no HEVC slice",
+              (int)kind);
+    }
+    // The first slice of Minato's Main stream, an IDR slice of PPS 0, cut after its first bytes.
+    static const uint8_t main_idr[] = {0x25, 0x88, 0x84, 0x00, 0x33, 0xff};
+    check(minato_avc_slice_pps_id(main_idr, sizeof main_idr) == 0, "Main's IDR slice", 0);
+    check(minato_avc_slice_pps_id(NULL, 4) == -1 && minato_avc_pps_sps_id(NULL, 4) == -1, "NULL", 0);
+    check(minato_hevc_slice_pps_id(NULL, 4) == -1 && minato_hevc_pps_sps_id(NULL, 4) == -1, "NULL", 0);
+    // A slice of the largest unit's size: its header alone is read.
+    static uint8_t large[1 << 20];
+    memset(large, 0x5a, sizeof large);
+    memcpy(large, unit, made_unit(unit, avc_idr, 1, 0, 0, 7, 3));
+    const int large_pps = minato_avc_slice_pps_id(large, sizeof large);
+    check(large_pps == 3, "a slice of 1 MiB", large_pps);
+    hostile_ids(unit, made_unit(unit, avc_idr, 1, 0, 0, 7, 200), minato_avc_slice_pps_id, 255);
+    hostile_ids(unit, made_unit(unit, avc_pps, 1, 0, 200, 20, -1), minato_avc_pps_sps_id, 31);
+    hostile_ids(unit, made_unit(unit, hevc_idr, 2, 2, 50, 0, -1), minato_hevc_slice_pps_id, 63);
+    hostile_ids(unit, made_unit(unit, hevc_pps, 2, 0, 50, 12, -1), minato_hevc_pps_sps_id, 15);
+    hostile_ids(main_idr, sizeof main_idr, minato_avc_slice_pps_id, 255);
 }
 
 /* Every prefix and every single-byte change of the SPS: an answer of -1 to 16, read inside the bytes alone (each
@@ -257,6 +371,7 @@ int main(void) {
         check(got >= -1 && got <= 16, "random bytes", got);
     }
     parameterSetIdsAreRead();
+    slicesAndPpsNameTheirSets();
     printf("graphics.video_parameters: %d failures\n", failures);
     return failures == 0 ? 0 : 1;
 }

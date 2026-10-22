@@ -114,19 +114,21 @@ struct Fake {
         hold_queue = queue_entered = false;
     }
 
-    /// A frame of `width` x `height` with the time, its NV12 bytes a pattern, rows of `stride` bytes.
+    /// A frame of `width` x `height` with the time, its NV12 bytes a pattern, rows of `stride` bytes, `slice` of them
+    /// a plane (0: the height); `extra` bytes of the host's own after the frame's, which the guest must never get.
     void add_frame(std::uint64_t handle, std::uint32_t width, std::uint32_t height, std::uint32_t stride,
-                   std::int64_t time, std::uint32_t flags = 0) {
+                   std::int64_t time, std::uint32_t flags = 0, std::uint32_t slice = 0, std::size_t extra = 0) {
         const std::lock_guard hold(mutex);
         Decoder &decoder = decoders.at(handle);
-        const std::uint32_t slice = height;
-        std::vector<unsigned char> bytes(flags != 0 ? 0 : std::size_t{stride} * (slice + (slice + 1) / 2));
+        if (slice == 0) slice = height;
+        const std::size_t size = flags != 0 ? 0 : std::size_t{stride} * (slice + (slice + 1) / 2);
+        std::vector<unsigned char> bytes(size + extra);
         for (std::size_t at = 0; at < bytes.size(); at++) {
-            bytes[at] = static_cast<unsigned char>(at * 7 + static_cast<std::size_t>(time));
+            bytes[at] = at < size ? static_cast<unsigned char>(at * 7 + static_cast<std::size_t>(time)) : 0x5a;
         }
         decoder.frame_bytes.push_back(std::move(bytes));
         apkrt_video_frame frame{};
-        frame.size = decoder.frame_bytes.back().size();
+        frame.size = size;
         frame.width = width, frame.height = height, frame.stride = stride, frame.slice_height = slice;
         frame.crop_right = static_cast<std::uint16_t>(width - 1);
         frame.crop_bottom = static_cast<std::uint16_t>(height - 1);
@@ -371,10 +373,14 @@ TEST(queue_copies_the_guests_unit_to_the_host) {
     unit[4] = 0;  // the host has its own copy
     decoder.data = 0, decoder.size = 0, decoder.flags = APKRT_VIDEO_DECODER_END_OF_STREAM, decoder.time_us = 0;
     CHECK(call(APKRT_VIDEO_DECODER_QUEUE, decoder) == 0);
-    const std::lock_guard hold(fake.mutex);
-    const Fake::Decoder &made = fake.decoders.at(handle);
-    CHECK(made.units.size() == 2 && made.units[0].size() == 8 && made.units[0][4] == 0x65 && made.units[1].empty());
-    CHECK(made.times[0] == 33333 && made.flags[0] == 0 && made.flags[1] == APKRT_VIDEO_DECODER_END_OF_STREAM);
+    {
+        const std::lock_guard hold(fake.mutex);
+        const Fake::Decoder &made = fake.decoders.at(handle);
+        CHECK(made.units.size() == 2 && made.units[0].size() == 8 && made.units[0][4] == 0x65 &&
+              made.units[1].empty());
+        CHECK(made.times[0] == 33333 && made.flags[0] == 0 && made.flags[1] == APKRT_VIDEO_DECODER_END_OF_STREAM);
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
 }
 
 TEST(hostile_units_never_reach_the_host) {
@@ -401,8 +407,11 @@ TEST(hostile_units_never_reach_the_host) {
     decoder.id = 0;
     CHECK(call(APKRT_VIDEO_DECODER_QUEUE, decoder) == -ebadf);
     CHECK(call(APKRT_VIDEO_DECODER_QUEUE, no_access_page()) == -efault);
-    const std::lock_guard hold(fake.mutex);
-    CHECK(fake.decoders.at(handle).units.empty());
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).units.empty());
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
 }
 
 TEST(dequeue_copies_the_oldest_frame_to_the_guest) {
@@ -459,6 +468,44 @@ TEST(the_end_of_the_stream_comes_with_size_0) {
     decoder.id = id;  // no buffer is needed for it
     CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
     CHECK(decoder.size == 0 && decoder.flags == APKRT_VIDEO_DECODER_END_OF_STREAM);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(a_larger_buffer_gets_the_frames_bytes_alone) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle);
+    fake.add_frame(handle, 64, 48, 64, 3, 0, 0, 4096);  // the host's memory goes on after the frame
+    std::vector<unsigned char> buffer(64 * 72 + 4096, 0xa5);
+    apkrt_video_decoder decoder{};
+    decoder.id = id, decoder.data = reinterpret_cast<std::uint64_t>(buffer.data()), decoder.size = buffer.size();
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
+    CHECK(decoder.size == 64 * 72 && decoder.time_us == 3);
+    bool kept = true;
+    for (std::size_t at = 64 * 72; at < buffer.size(); at++) kept = kept && buffer[at] == 0xa5;
+    CHECK(kept);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(rows_beyond_the_limits_never_reach_the_guest) {
+    // Each limit alone, the frame's size the rows' own, so that no other check refuses it.
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle);
+    const std::uint32_t wide = APKRT_VIDEO_DECODER_MAX_DIMENSION * 4 + 1, tall = APKRT_VIDEO_DECODER_MAX_DIMENSION + 1;
+    std::vector<unsigned char> buffer(std::size_t{wide} * 72 + std::size_t{64} * (tall + (tall + 1) / 2));
+    apkrt_video_decoder decoder{};
+    decoder.id = id, decoder.data = reinterpret_cast<std::uint64_t>(buffer.data()), decoder.size = buffer.size();
+    fake.add_frame(handle, 64, 48, wide, 1);  // rows wider than the limit
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        auto &made = fake.decoders.at(handle);
+        made.frames.clear(), made.frame_bytes.clear();
+    }
+    fake.add_frame(handle, 64, 48, 64, 2, 0, tall);  // a plane of more rows than the limit
+    decoder.size = buffer.size();
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
     CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
 }
 
@@ -595,6 +642,47 @@ TEST(destroy_waits_for_a_queue_still_in_the_host) {
     CHECK(queued == 0 && destroyed == 0);
     const std::lock_guard hold(fake.mutex);
     CHECK(fake.destroys == 1 && fake.overlaps == 0);
+}
+
+TEST(a_destroy_still_waiting_counts_against_the_limit) {
+    // The registry's entry goes before the host's decoder does: until the host destroyed it, the process still has
+    // the host's decoders at their limit.
+    use_fake();
+    std::vector<std::uint64_t> ids;
+    for (std::uint32_t n = 0; n < APKRT_VIDEO_DECODER_MAX_DECODERS; n++) ids.push_back(create());
+    {
+        const std::lock_guard hold(fake.mutex);
+        fake.hold_queue = true;
+    }
+    unsigned char unit[16] = {};
+    std::atomic<std::int64_t> queued{-1}, destroyed{-1};
+    std::thread queuing([&] {
+        apkrt_video_decoder decoder{};
+        decoder.id = ids.back(), decoder.data = reinterpret_cast<std::uint64_t>(unit), decoder.size = sizeof unit;
+        queued = call(APKRT_VIDEO_DECODER_QUEUE, decoder);
+    });
+    {
+        std::unique_lock hold(fake.mutex);
+        fake.queue_changed.wait(hold, [] { return fake.queue_entered; });
+    }
+    std::thread destroying([&] { destroyed = call(APKRT_VIDEO_DECODER_DESTROY, ids.back()); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // the destroy takes the entry, then waits
+    apkrt_video_decoder one_more = asked();
+    CHECK(call(APKRT_VIDEO_DECODER_CREATE, one_more) == -ebusy);
+    if (one_more.id != 0) ids.push_back(one_more.id);
+    {
+        const std::lock_guard hold(fake.mutex);
+        fake.hold_queue = false;
+    }
+    fake.queue_changed.notify_all();
+    queuing.join();
+    destroying.join();
+    CHECK(queued == 0 && destroyed == 0);
+    ids.erase(ids.begin() + APKRT_VIDEO_DECODER_MAX_DECODERS - 1);
+    ids.push_back(create());
+    for (const std::uint64_t id : ids) CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+    const std::lock_guard hold(fake.mutex);
+    CHECK(fake.creates == fake.destroys);
 }
 
 TEST(many_threads_queue_dequeue_and_destroy_at_once) {

@@ -4,7 +4,11 @@
    inside the crop against Android 15's lines (media-codec-test.logcat, AOSP's c2.android.avc.decoder); the order of
    presentation for B-frames, the end of the stream, a flush and the stream again from its second key frame, a second
    PPS of another ID before every unit, a flood of one-byte units, garbage that decodes to nothing without harm, the
-   types refused, and a destroy with frames and input still held.
+   types refused, a destroy with frames and input still held, parameter sets of every ID, the reorder depth of the
+   active SPS, and a new session after the old one's frames. graphics.video_decoder_asan runs the cases with the
+   decoders' own sources under AddressSanitizer and VideoToolbox's decode call replaced (MINATO_VIDEO_DECODER_TESTING),
+   for three more: units whose call back never comes with a session iOS ended, units VideoToolbox holds with the end
+   of the stream after them, and exceptions.
    Usage: graphics-video-decoder-test <assets directory> <media-codec-test.logcat>. Exits 1 after the cases when one
    failed. */
 #import <Foundation/Foundation.h>
@@ -18,8 +22,9 @@
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 #include "minato_graphics.h"
+#include "video_decoder_testing.h"
 
-enum { linux_eagain = 11, linux_einval = 22 };
+enum { linux_eio = 5, linux_eagain = 11, linux_enomem = 12, linux_einval = 22 };
 
 static const struct apkrt_video_decoders *table;
 static int failures;
@@ -199,55 +204,77 @@ static void aFlushDropsWhatCameAndTheStreamGoesOnFromAKeyFrame(NSString *assets,
     table->destroy(table->context, handle);
 }
 
-/* Baseline's stream with a second PPS, ID 1, before every access unit: its bytes are the stream's PPS with its ID's
-   Exp-Golomb code 1 ('1') written as 010 (ID 1), which no slice names. The frames must stay Android's, so the decoder
-   keeps both sets by their IDs. */
-static void aSecondPpsOfAnotherIdChangesNothing(NSString *assets, NSString *log) {
-    const char *test = "a second PPS of another ID changes nothing";
-    const struct stream plain = load(assets, @"baseline");
-    const uint8_t *bytes = plain.bytes.bytes;
-    // The stream's PPS: the NAL unit of type 8 after the first start code that holds one.
-    NSData *pps = nil;
-    for (NSUInteger at = 0; at + 4 < plain.bytes.length && pps == nil; at++) {
-        if (bytes[at] == 0 && bytes[at + 1] == 0 && bytes[at + 2] == 1 && (bytes[at + 3] & 0x1f) == 8) {
+/* The stream's first NAL unit of H.264 type `type`, without its start code, or nil. */
+static NSData *first_nal(struct stream stream, unsigned type) {
+    const uint8_t *bytes = stream.bytes.bytes;
+    for (NSUInteger at = 0; at + 4 < stream.bytes.length; at++) {
+        if (bytes[at] == 0 && bytes[at + 1] == 0 && bytes[at + 2] == 1 && (bytes[at + 3] & 0x1f) == type) {
             NSUInteger end = at + 3;
-            while (end + 3 <= plain.bytes.length && !(bytes[end] == 0 && bytes[end + 1] == 0)) end++;
-            pps = [plain.bytes subdataWithRange:NSMakeRange(at + 3, end - at - 3)];
+            while (end + 3 <= stream.bytes.length && !(bytes[end] == 0 && bytes[end + 1] == 0)) end++;
+            return [stream.bytes subdataWithRange:NSMakeRange(at + 3, end - at - 3)];
         }
     }
-    if (pps == nil || pps.length < 2 || (((const uint8_t *)pps.bytes)[1] & 0x80) == 0) {
-        fail(test, @"no PPS of ID 0 in the stream");
-        return;
-    }
-    // The payload's bits with '01' before them: ue(0) '1' becomes ue(1) '010'.
-    const uint8_t *in = pps.bytes;
-    NSMutableData *other = [NSMutableData dataWithBytes:in length:1];
-    uint32_t bits = 1, count = 2;  // '01'
-    for (NSUInteger index = 1; index < pps.length; index++) {
-        for (int bit = 7; bit >= 0; bit--) {
-            bits = (bits << 1) | ((in[index] >> bit) & 1u), count++;
+    return nil;
+}
+
+/* A parameter set of ID 0 with its ID's Exp-Golomb code at byte `at` ('1', ID 0) written as `id`'s: the set's bits
+   after it move, so that the set is the same but for its ID; nil for a set whose ID is not 0. */
+static NSData *with_id(NSData *set, NSUInteger at, uint32_t id) {
+    const uint8_t *in = set.bytes;
+    if (set.length <= at || (in[at] & 0x80) == 0) return nil;
+    NSMutableData *out = [NSMutableData dataWithBytes:in length:at];
+    __block uint32_t bits = 0, count = 0;
+    void (^put)(uint32_t, uint32_t) = ^(uint32_t value, uint32_t width) {
+        for (uint32_t n = width; n > 0; n--) {
+            bits = (bits << 1) | ((value >> (n - 1)) & 1u), count++;
             if (count == 8) {
                 const uint8_t byte = (uint8_t)bits;
-                [other appendBytes:&byte length:1];
+                [out appendBytes:&byte length:1];
                 bits = 0, count = 0;
             }
         }
+    };
+    uint32_t width = 0;
+    while (((id + 1) >> width) > 1) width++;
+    put(0, width), put(id + 1, width + 1);  // ue(id) for ID 0's '1'
+    for (NSUInteger index = at; index < set.length; index++) {
+        for (int bit = index == at ? 6 : 7; bit >= 0; bit--) put((in[index] >> bit) & 1u, 1);
     }
     if (count > 0) {
         const uint8_t byte = (uint8_t)(bits << (8 - count));
-        [other appendBytes:&byte length:1];
+        [out appendBytes:&byte length:1];
     }
-    struct stream doubled = {nil, [NSMutableArray array]};
+    return out;
+}
+
+/* `plain` with `extra` before (or after) every access unit, as one stream. */
+static struct stream with_units(struct stream plain, NSData *extra, BOOL after) {
+    struct stream joined_stream = {nil, [NSMutableArray array]};
     NSMutableData *joined = [NSMutableData data];
     static const uint8_t start[4] = {0, 0, 0, 1};
+    const uint8_t *bytes = plain.bytes.bytes;
     for (NSArray<NSNumber *> *unit in plain.units) {
         const NSUInteger offset = joined.length;
-        [joined appendBytes:start length:4];
-        [joined appendData:other];
+        if (!after) [joined appendBytes:start length:4], [joined appendData:extra];
         [joined appendBytes:bytes + unit[0].longLongValue length:(NSUInteger)unit[1].longLongValue];
-        [doubled.units addObject:@[ @(offset), @(joined.length - offset), unit[2], unit[3] ]];
+        if (after) [joined appendBytes:start length:4], [joined appendData:extra];
+        [joined_stream.units addObject:@[ @(offset), @(joined.length - offset), unit[2], unit[3] ]];
     }
-    doubled.bytes = joined;
+    joined_stream.bytes = joined;
+    return joined_stream;
+}
+
+/* Baseline's stream with a second PPS, ID 1, before every access unit: its bytes are the stream's PPS with its ID
+   written as 1, which no slice names. The frames must stay Android's, so the decoder keeps both sets by their IDs. */
+static void aSecondPpsOfAnotherIdChangesNothing(NSString *assets, NSString *log) {
+    const char *test = "a second PPS of another ID changes nothing";
+    const struct stream plain = load(assets, @"baseline");
+    NSData *other = with_id(first_nal(plain, 8), 1, 1);
+    if (other == nil) {
+        fail(test, @"no PPS of ID 0 in the stream");
+        return;
+    }
+    const struct stream doubled = with_units(plain, other, NO);
     const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
     BOOL ended = NO;
     NSArray<NSString *> *lines = decode_units(handle, doubled, 0, doubled.units.count, YES, &ended);
@@ -302,6 +329,190 @@ static void garbageDecodesToNothingWithoutHarm(void) {
     table->destroy(table->context, handle);
 }
 
+/* Baseline's stream after a unit of its SPS and PPS under every ID up to 63 and 299: those of the standard's IDs
+   (SPSs to 31, PPSs to 255) are kept, the others refused, so that the format description's list of them never runs
+   over. VideoToolbox takes at most 31 SPSs and 255 PPSs in one [verified: kCMFormatDescriptionError_InvalidParameter
+   for 32 SPSs or 256 PPSs], so the stream decodes to nothing, and its end comes. */
+static void parameterSetsOfEveryIdAreKeptOrRefused(NSString *assets) {
+    const char *test = "parameter sets of every ID are kept or refused";
+    const struct stream plain = load(assets, @"baseline");
+    NSData *sps = first_nal(plain, 7), *pps = first_nal(plain, 8);
+    NSMutableData *sets = [NSMutableData data];
+    static const uint8_t start[4] = {0, 0, 0, 1};
+    for (uint32_t id = 1; id < 64; id++) {
+        NSData *one = with_id(sps, 4, id);
+        if (one == nil) break;
+        [sets appendBytes:start length:4], [sets appendData:one];
+    }
+    for (uint32_t id = 1; id < 300; id++) {
+        NSData *one = with_id(pps, 1, id);
+        if (one == nil) break;
+        [sets appendBytes:start length:4], [sets appendData:one];
+    }
+    if (sets.length == 0) {
+        fail(test, @"no SPS or PPS of ID 0 in the stream");
+        return;
+    }
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    const int queued = table->queue(table->context, handle, sets.bytes, sets.length, 0, 0);
+    if (queued != 0) fail(test, [NSString stringWithFormat:@"the sets' unit: queue %d", queued]);
+    BOOL ended = NO;
+    NSArray<NSString *> *lines = decode_units(handle, plain, 0, plain.units.count, YES, &ended);
+    if (!ended || lines.count != 0) fail(test, [NSString stringWithFormat:@"%@, the end %d", lines, ended]);
+    table->destroy(table->context, handle);
+}
+
+/* Main's stream with Baseline's SPS as ID 1 after every access unit, which no PPS names: the order of presentation is
+   still Main's (its SPS's reorder depth of 9), not that of the SPS read last (Baseline's 0). */
+static void theReorderDepthIsTheActiveSpss(NSString *assets, NSString *log) {
+    const char *test = "the reorder depth is the active SPS's";
+    NSData *baseline_sps = with_id(first_nal(load(assets, @"baseline"), 7), 4, 1);
+    if (baseline_sps == nil) {
+        fail(test, @"no SPS of ID 0 in Baseline's stream");
+        return;
+    }
+    const struct stream main_stream = with_units(load(assets, @"main"), baseline_sps, YES);
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    BOOL ended = NO;
+    NSArray<NSString *> *lines = decode_units(handle, main_stream, 0, main_stream.units.count, YES, &ended);
+    if (!ended) fail(test, @"no end of the stream");
+    compare(test, lines, expected_frames(log, @"main"));
+    table->destroy(table->context, handle);
+}
+
+/* Main's first 15 units, then Baseline's stream in the same decoder, whose SPS of ID 0 has other bytes: a new session,
+   before which every frame of the old one comes, in its order, and then Baseline's from its time 0 on. */
+static void aNewSessionHandsOutTheOldOnesFramesFirst(NSString *assets, NSString *log) {
+    const char *test = "a new session hands out the old one's frames first";
+    const struct stream main_stream = load(assets, @"main"), baseline = load(assets, @"baseline");
+    NSMutableSet<NSNumber *> *times = [NSMutableSet set];
+    for (NSUInteger index = 0; index < 15; index++) [times addObject:main_stream.units[index][2]];
+    NSMutableArray<NSString *> *want = [NSMutableArray array];
+    for (NSString *line in expected_frames(log, @"main")) {
+        if ([times containsObject:@([line componentsSeparatedByString:@" "][1].longLongValue)]) [want addObject:line];
+    }
+    [want addObjectsFromArray:expected_frames(log, @"baseline")];
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    // Main's units queued at once, nothing taken, so that VideoToolbox still has some when the session changes: they
+    // come at Main's depth, not Baseline's.
+    const uint8_t *bytes = main_stream.bytes.bytes;
+    for (NSUInteger index = 0; index < 15; index++) {
+        NSArray<NSNumber *> *unit = main_stream.units[index];
+        const int queued = table->queue(table->context, handle, bytes + unit[0].longLongValue,
+                                        (size_t)unit[1].longLongValue, unit[2].longLongValue, 0);
+        if (queued != 0) fail(test, [NSString stringWithFormat:@"Main's unit %lu: queue %d", (unsigned long)index,
+                                                               queued]);
+    }
+    BOOL ended = NO;
+    NSArray<NSString *> *lines = decode_units(handle, baseline, 0, baseline.units.count, YES, &ended);
+    if (!ended) fail(test, @"no end of the stream");
+    if (want.count != 15 + expected_frames(log, @"baseline").count) fail(test, @"not 15 of Main's frames in the log");
+    compare(test, lines, want);
+    table->destroy(table->context, handle);
+}
+
+#ifdef MINATO_VIDEO_DECODER_TESTING
+/* What the decode functions of the tests below answer, and how often they were called. */
+static atomic_int decodes;
+
+/* Four units whose call back never comes, then a session iOS ended: twice that, and the decoder's queue is not full of
+   units it lost. */
+static OSStatus lose_then_end(VTDecompressionSessionRef session, CMSampleBufferRef sample, VTDecodeFrameFlags flags,
+                              void *frame_context, VTDecodeInfoFlags *info) {
+    (void)session, (void)sample, (void)flags, (void)frame_context, (void)info;
+    return atomic_fetch_add(&decodes, 1) % 5 == 4 ? kVTInvalidSessionErr : noErr;
+}
+
+static OSStatus run_out_of_memory(VTDecompressionSessionRef session, CMSampleBufferRef sample,
+                                  VTDecodeFrameFlags flags, void *frame_context, VTDecodeInfoFlags *info) {
+    (void)session, (void)sample, (void)flags, (void)frame_context, (void)info;
+    @throw [NSException exceptionWithName:atomic_fetch_add(&decodes, 1) == 0 ? NSMallocException
+                                                                               : NSGenericException
+                                   reason:@"graphics.video_decoder's"
+                                 userInfo:nil];
+}
+
+/* VideoToolbox holding every unit, as its temporal processing may for a deep reorder. */
+static OSStatus hold_every_unit(VTDecompressionSessionRef session, CMSampleBufferRef sample,
+                                VTDecodeFrameFlags flags, void *frame_context, VTDecodeInfoFlags *info) {
+    (void)session, (void)sample, (void)flags, (void)frame_context, (void)info;
+    atomic_fetch_add(&decodes, 1);
+    return noErr;
+}
+
+/* Main's stream (a reorder depth of 9) while VideoToolbox holds its units: as many as eight and the depth are taken,
+   and the end of the stream after them, which makes VideoToolbox hand them out. */
+static void unitsVideoToolboxHoldsAndTheEndAreTaken(NSString *assets, NSString *log) {
+    const char *test = "units VideoToolbox holds and the end are taken";
+    const struct stream stream = load(assets, @"main");
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    atomic_store(&decodes, 0);
+    minato_video_decoder_set_decode_for_testing(hold_every_unit);
+    const uint8_t *bytes = stream.bytes.bytes;
+    for (NSUInteger index = 0; index < 17; index++) {
+        NSArray<NSNumber *> *unit = stream.units[index];
+        const int queued = table->queue(table->context, handle, bytes + unit[0].longLongValue,
+                                        (size_t)unit[1].longLongValue, unit[2].longLongValue, 0);
+        if (queued != 0) fail(test, [NSString stringWithFormat:@"unit %lu: queue %d", (unsigned long)index, queued]);
+    }
+    const int ended_queue = table->queue(table->context, handle, NULL, 0, 0, APKRT_VIDEO_DECODER_END_OF_STREAM);
+    minato_video_decoder_set_decode_for_testing(NULL);
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    if (ended_queue != 0 || !drain(handle, lines) || atomic_load(&decodes) != 17) {
+        fail(test, [NSString stringWithFormat:@"the end: queue %d, %d decodes", ended_queue, atomic_load(&decodes)]);
+    }
+    if (table->flush(table->context, handle) != 0) fail(test, @"flush refused");
+    BOOL ended = NO;
+    NSArray<NSString *> *decoded = decode_units(handle, stream, 0, stream.units.count, YES, &ended);
+    if (!ended) fail(test, @"no end of the stream");
+    compare(test, decoded, expected_frames(log, @"main"));
+    table->destroy(table->context, handle);
+}
+
+static void lostUnitsAndAnEndedSessionLeaveTheDecoderWorking(NSString *assets, NSString *log) {
+    const char *test = "lost units and an ended session leave the decoder working";
+    const struct stream stream = load(assets, @"baseline");
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    atomic_store(&decodes, 0);
+    minato_video_decoder_set_decode_for_testing(lose_then_end);
+    BOOL ended = NO;
+    NSArray<NSString *> *lost = decode_units(handle, stream, 0, 10, NO, &ended);
+    minato_video_decoder_set_decode_for_testing(NULL);
+    if (atomic_load(&decodes) != 10 || lost.count != 0) {
+        fail(test, [NSString stringWithFormat:@"%d decodes, %@", atomic_load(&decodes), lost]);
+    }
+    NSArray<NSString *> *lines = decode_units(handle, stream, 15, stream.units.count, YES, &ended);
+    if (!ended) fail(test, @"no end of the stream");
+    compare(test, lines, expected_frames(log, @"baseline flushed after"));
+    table->destroy(table->context, handle);
+}
+
+static void anExceptionInTheHostAnswersAnErrno(NSString *assets, NSString *log) {
+    const char *test = "an exception in the host answers an errno";
+    const struct stream stream = load(assets, @"baseline");
+    const uint64_t handle = make(APKRT_VIDEO_DECODER_AVC);
+    atomic_store(&decodes, 0);
+    minato_video_decoder_set_decode_for_testing(run_out_of_memory);
+    const uint8_t *bytes = stream.bytes.bytes;
+    NSArray<NSNumber *> *unit = stream.units[0];
+    // Eight of them, as many units as VideoToolbox may have: none of them stays in flight.
+    for (int round = 0; round < 8; round++) {
+        const int queued = table->queue(table->context, handle, bytes + unit[0].longLongValue,
+                                        (size_t)unit[1].longLongValue, 0, 0);
+        if (queued != (round == 0 ? -linux_enomem : -linux_eio)) {
+            fail(test, [NSString stringWithFormat:@"round %d: queue %d", round, queued]);
+        }
+    }
+    minato_video_decoder_set_decode_for_testing(NULL);
+    BOOL ended = NO;
+    NSArray<NSString *> *lines = decode_units(handle, stream, 0, stream.units.count, YES, &ended);
+    if (!ended) fail(test, @"no end of the stream");
+    compare(test, lines, expected_frames(log, @"baseline"));
+    table->destroy(table->context, handle);
+}
+
+#endif  // MINATO_VIDEO_DECODER_TESTING
+
 static void typesItDoesNotDecodeAreRefused(void) {
     const char *test = "types it does not decode are refused";
     const struct apkrt_video_decoder_description description = {99, 320, 180, NULL, 0};
@@ -354,7 +565,17 @@ int main(int argc, char **argv) {
         garbageDecodesToNothingWithoutHarm();
         typesItDoesNotDecodeAreRefused();
         aDestroyWithFramesAndInputHeldFreesThem(assets);
-        printf("graphics.video_decoder: 7 cases, %d failures\n", failures);
+        parameterSetsOfEveryIdAreKeptOrRefused(assets);
+        theReorderDepthIsTheActiveSpss(assets, log);
+        aNewSessionHandsOutTheOldOnesFramesFirst(assets, log);
+        int cases = 10;
+#ifdef MINATO_VIDEO_DECODER_TESTING
+        lostUnitsAndAnEndedSessionLeaveTheDecoderWorking(assets, log);
+        unitsVideoToolboxHoldsAndTheEndAreTaken(assets, log);
+        anExceptionInTheHostAnswersAnErrno(assets, log);
+        cases += 3;
+#endif
+        printf("graphics.video_decoder: %d cases, %d failures\n", cases, failures);
         return failures == 0 ? 0 : 1;
     }
 }

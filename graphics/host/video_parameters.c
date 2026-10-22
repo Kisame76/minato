@@ -1,8 +1,8 @@
-/* The reorder depth of an H.264 or HEVC stream from its SPS, and its parameter sets' IDs (ADR-0060 e2b3,
-   video_parameters.h). The bytes are the guest's, so every read is bounded: emulation prevention bytes go into a
-   copy of at most 4096 bytes, each bit is read inside it, an Exp-Golomb code has at most 31 leading zeros, and each
-   count the syntax loops over is checked against the standard's limit before the loop. A parse that fails answers
-   -1. */
+/* The reorder depth of an H.264 or HEVC stream from its SPS, its parameter sets' IDs, and the sets a slice and a PPS
+   name (ADR-0060 e2b3, video_parameters.h). The bytes are the guest's, so every read is bounded: emulation
+   prevention bytes go into a copy of at most 4096 bytes (a slice's first 64 alone), each bit is read inside it, an
+   Exp-Golomb code has at most 31 leading zeros, each count the syntax loops over is checked against the standard's
+   limit before the loop, and each ID against the standard's. A parse that fails answers -1. */
 #include "video_parameters.h"
 
 #include <stdint.h>
@@ -267,5 +267,46 @@ int minato_hevc_parameter_set_id(const uint8_t *nal, size_t size) {
     } else {
         return -1;
     }
+    return bits.failed ? -1 : (int)id;
+}
+
+/* A slice's header lies in its first bytes: past them, the slice's data is not read. */
+enum { slice_header = 64 };
+
+int minato_avc_slice_pps_id(const uint8_t *nal, size_t size) {
+    static __thread struct bits bits;
+    if (nal == NULL || size == 0 || (nal[0] & 0x1f) < 1 || (nal[0] & 0x1f) > 5) return -1;
+    if (!load(&bits, nal, size < slice_header ? size : slice_header, 1)) return -1;
+    ue(&bits);           // first_mb_in_slice
+    ue_max(&bits, 9);    // slice_type
+    const uint32_t id = ue_max(&bits, 255);
+    return bits.failed ? -1 : (int)id;
+}
+
+int minato_avc_pps_sps_id(const uint8_t *nal, size_t size) {
+    static __thread struct bits bits;
+    if (!load(&bits, nal, size, 1) || (nal[0] & 0x1f) != 8) return -1;
+    ue_max(&bits, 255);  // pic_parameter_set_id
+    const uint32_t id = ue_max(&bits, 31);
+    return bits.failed ? -1 : (int)id;
+}
+
+int minato_hevc_slice_pps_id(const uint8_t *nal, size_t size) {
+    static __thread struct bits bits;
+    if (nal == NULL || size == 0) return -1;
+    const unsigned kind = (nal[0] >> 1) & 0x3f;
+    if (kind > 21 || (kind > 9 && kind < 16)) return -1;
+    if (!load(&bits, nal, size < slice_header ? size : slice_header, 2)) return -1;
+    u(&bits, 1);  // first_slice_segment_in_pic_flag
+    if (kind >= 16) u(&bits, 1);  // an IRAP picture's no_output_of_prior_pics_flag
+    const uint32_t id = ue_max(&bits, 63);
+    return bits.failed ? -1 : (int)id;
+}
+
+int minato_hevc_pps_sps_id(const uint8_t *nal, size_t size) {
+    static __thread struct bits bits;
+    if (!load(&bits, nal, size, 2) || ((nal[0] >> 1) & 0x3f) != 34) return -1;
+    ue_max(&bits, 63);  // pps_pic_parameter_set_id
+    const uint32_t id = ue_max(&bits, 15);
     return bits.failed ? -1 : (int)id;
 }

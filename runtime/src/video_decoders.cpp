@@ -2,6 +2,7 @@
 // one mutex, which no call into the host holds; each decoder has a mutex of its own, held around every call of its
 // host's functions, so that they come one at a time and a DESTROY waits for the call still running on another thread.
 // IDs count up from 1 and are never used again: an ID after its DESTROY never reaches a newer decoder (-EBADF). The
+// limit counts the host's decoders: a DESTROY's entry goes at once, and it counts until the host's decoder is gone. The
 // guest's struct is read once; its bytes are copied into host memory before the host sees them, and a decoded frame
 // into the guest's buffer after its description is checked, each size with 64-bit products: EFAULT for memory the
 // guest does not have, the frame staying for a later DEQUEUE. Memory the runtime cannot get (a QUEUE's copy of up to
@@ -48,7 +49,8 @@ struct Decoder {
 struct Registry {
     std::mutex mutex;
     std::map<std::uint64_t, std::shared_ptr<Decoder>> decoders;
-    std::uint32_t creating = 0;  // CREATEs in the host, counted against the limit
+    std::uint32_t creating = 0;    // CREATEs in the host, counted against the limit
+    std::uint32_t destroying = 0;  // DESTROYs whose entry went, until the host's decoder has gone too, counted as well
     std::uint64_t next_id = 1;
     apkrt_video_decoders table{};  // all NULL: none
 };
@@ -87,10 +89,16 @@ long destroy(std::uint64_t id) {
         if (found == all.decoders.end()) return -linux_errno::ebadf;
         decoder = std::move(found->second);
         all.decoders.erase(found);
+        all.destroying++;
     }
-    const std::lock_guard hold(decoder->mutex);  // after the call still running on it
-    decoder->gone = true;
-    decoder->table.destroy(decoder->table.context, decoder->handle);
+    {
+        const std::lock_guard hold(decoder->mutex);  // after the call still running on it
+        decoder->gone = true;
+        decoder->table.destroy(decoder->table.context, decoder->handle);
+    }
+    auto &all = registry();
+    const std::lock_guard hold(all.mutex);
+    all.destroying--;
     return 0;
 }
 
@@ -107,7 +115,9 @@ long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
         auto &all = registry();
         const std::lock_guard hold(all.mutex);
         if (all.table.create == nullptr) return -linux_errno::enosys;
-        if (all.decoders.size() + all.creating >= APKRT_VIDEO_DECODER_MAX_DECODERS) return -linux_errno::ebusy;
+        if (all.decoders.size() + all.creating + all.destroying >= APKRT_VIDEO_DECODER_MAX_DECODERS) {
+            return -linux_errno::ebusy;
+        }
         all.creating++;
         table = all.table;
     }
@@ -120,7 +130,6 @@ long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
     {
         auto &all = registry();
         const std::lock_guard hold(all.mutex);
-        all.creating--;
         if (made == 0) {
             try {
                 auto decoder = std::make_shared<Decoder>();
@@ -129,13 +138,17 @@ long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
                 all.decoders.emplace(all.next_id, std::move(decoder));
                 id = all.next_id++;
             } catch (const std::bad_alloc &) {
-                id = 0;  // the host's decoder goes below
+                id = 0;  // the host's decoder goes below, counted until it has
             }
         }
+        if (made != 0 || id != 0) all.creating--;
     }
     if (made != 0) return made;
     if (id == 0) {
         table.destroy(table.context, handle);
+        auto &all = registry();
+        const std::lock_guard hold(all.mutex);
+        all.creating--;
         return -linux_errno::enomem;
     }
     if (!put(argument, offsetof(apkrt_video_decoder, id), &id, sizeof id)) {
