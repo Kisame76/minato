@@ -49,8 +49,16 @@ public final class SurfaceState {
         void unsupported(int error);
     }
 
-    /** Tokens of the process's surfaces, never 0 and never reused. */
+    /**
+     * Tokens of the process's surfaces and requested windows, never 0 and never reused: one count for both, as a
+     * SurfaceView in a requested window asks for a window (ADR-0041 gap 4 (b3), decision 7), whose events then name it.
+     */
     private static final AtomicLong sTokens = new AtomicLong();
+
+    /** A new token for a surface or a requested window. */
+    public static long nextToken() {
+        return sTokens.incrementAndGet();
+    }
 
     private final Session mSession;
     private final Callbacks mCallbacks;
@@ -143,7 +151,7 @@ public final class SurfaceState {
             drop();
         }
         if (mToken == 0) {
-            mToken = sTokens.incrementAndGet();
+            mToken = nextToken();
             sent();
             int answer = mSession.make(mToken, mZ, mLeft, mTop, mRight, mBottom, mFixedWidth, mFixedHeight, mFormat);
             if (answer < 0) {

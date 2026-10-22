@@ -61,21 +61,45 @@ public class SurfaceView extends View implements ViewRootImpl.WindowSurfaceCallb
     private ViewRootImpl mViewRoot;
     private final int[] mLocation = new int[2];
 
+    /**
+     * The surface's session: c4's surface on the session's window, or, in a requested window, a sub-window of it
+     * (ADR-0041 gap 4 (b3), decision 7), as WMS gives a SurfaceView's surface the sublayer's window: MEDIA below,
+     * MEDIA_OVERLAY above it, PANEL on top, its frame in the session's pixels. The kind is the make's until the remove;
+     * a sub-window keeps its make's type, so a new z order takes effect with the next surface.
+     */
     private final SurfaceState mState = new SurfaceState(new SurfaceState.Session() {
+        /** The requested window the surface is a sub-window of, 0 for one on the session's window. */
+        private long mParent;
+        private int mType;
+        private int mFormat;
+
         @Override
         public int make(long token, int z, int left, int top, int right, int bottom, int width, int height,
                 int format) {
-            return ActivityThread.makeSurface(token, z, left, top, right, bottom, width, height, format);
+            mParent = mViewRoot != null ? mViewRoot.requestToken() : 0;
+            if (mParent == 0) {
+                return ActivityThread.makeSurface(token, z, left, top, right, bottom, width, height, format);
+            }
+            mType = z == MEDIA_SUBLAYER ? WindowManager.LayoutParams.TYPE_APPLICATION_MEDIA
+                    : z == MEDIA_OVERLAY_SUBLAYER ? WindowManager.LayoutParams.TYPE_APPLICATION_MEDIA_OVERLAY
+                    : WindowManager.LayoutParams.TYPE_APPLICATION_PANEL;
+            mFormat = format;
+            return ActivityThread.makeWindow(token, mType, mParent, left, top, right, bottom, width, height, format, 0,
+                    1f, 0f);
         }
 
         @Override
         public int place(long token, int z, int left, int top, int right, int bottom, int width, int height) {
-            return ActivityThread.placeSurface(token, z, left, top, right, bottom, width, height);
+            if (mParent == 0) {
+                return ActivityThread.placeSurface(token, z, left, top, right, bottom, width, height);
+            }
+            return ActivityThread.placeWindow(token, mType, mParent, left, top, right, bottom, width, height, mFormat,
+                    0, 1f, 0f);
         }
 
         @Override
         public int remove(long token) {
-            return ActivityThread.removeSurface(token);
+            return mParent == 0 ? ActivityThread.removeSurface(token) : ActivityThread.removeWindow(token);
         }
     }, new SurfaceState.Callbacks() {
         @Override
@@ -376,6 +400,11 @@ public class SurfaceView extends View implements ViewRootImpl.WindowSurfaceCallb
         int height = getHeight();
         if (mViewRoot != null && width > 0 && height > 0) {
             getLocationInWindow(mLocation);
+            // In a requested window the surface is a sub-window at its place in the session's pixels (decision 7).
+            if (mViewRoot.requestToken() != 0) {
+                mLocation[0] += mViewRoot.mWinFrame.left;
+                mLocation[1] += mViewRoot.mWinFrame.top;
+            }
             mState.setFrame(mLocation[0], mLocation[1], mLocation[0] + width, mLocation[1] + height);
         } else {
             mState.setFrame(0, 0, 0, 0);

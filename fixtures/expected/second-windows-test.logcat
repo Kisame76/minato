@@ -50,4 +50,29 @@ I/second-windows-test: popup detached dismissed
 I/second-windows-test: detached anchor: showing true
 I/second-windows-test: dismissed dialog's token: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
 I/second-windows-test: finished activity: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
+I/second-windows-test: activity onPause
+I/second-windows-test: focus: activity false, translucent true
+I/second-windows-test: translucent decor 1290x2796, type 1, own window true
+I/second-windows-test: focus: translucent false, translucent dialog true
+I/second-windows-test: translucent dialog type 2, its activity's token true
+I/second-windows-test: focus: translucent true
+I/second-windows-test: activity dialog showing true
+I/second-windows-test: setTranslucent(false): true
+I/second-windows-test: activity onStop
+I/second-windows-test: convertToTranslucent: true
+I/second-windows-test: activity onRestart
+I/second-windows-test: activity onStart
+I/second-windows-test: translucent conversion complete true
+I/second-windows-test: setTranslucent(true) when translucent: false
+I/second-windows-test: activity dialog showing true
+I/second-windows-test: activity onResume
+I/second-windows-test: translucent destroyed
+I/second-windows-test: focus: activity true
+I/second-windows-test: translucent surface: created, canvas true, changed 300x300, destroyed
+I/second-windows-test: activity onPause
+I/second-windows-test: focus: activity false, floating true
+I/second-windows-test: floating decor 295x201, left 497, centered true, type 1, dim behind true 0.6
+I/second-windows-test: activity onResume
+I/second-windows-test: floating destroyed
+I/second-windows-test: focus: activity true
 I/second-windows-test: done

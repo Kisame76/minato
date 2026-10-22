@@ -25,7 +25,7 @@ public class FinishedActivity extends Activity {
                 dialog.dismiss();
                 return "showing " + showing;
             }));
-            SecondWindowsActivity.log("done");
+            SecondWindowsActivity.sInstance.translucentPart();
         }, 600);
     }
 }

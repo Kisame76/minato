@@ -134,7 +134,8 @@ public final class WindowManagerGlobal {
      * BadTokenException [verified: second-windows-test on apk-runner-35]: TYPE_APPLICATION_OVERLAY is refused as
      * without SYSTEM_ALERT_WINDOW (ADD_PERMISSION_DENIED); an application window's token must be an activity's that
      * is not destroyed (ADD_BAD_APP_TOKEN); a sub-window's must be a shown window's that is no sub-window itself
-     * (ADD_BAD_SUBWINDOW_TOKEN). The window then is a requested one.
+     * (ADD_BAD_SUBWINDOW_TOKEN). The window then is a requested one, an application window in its activity's group,
+     * taken away while its activity is not visible (gap 4 (b3)).
      */
     private void checkToken(ViewRootImpl root, WindowManager.LayoutParams wparams, boolean application) {
         if (wparams.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
@@ -147,7 +148,11 @@ public final class WindowManagerGlobal {
                 throw new WindowManager.BadTokenException("Unable to add window -- token " + wparams.token
                         + " is not valid; is your activity running?");
             }
-            root.setRequested(null, 0);
+            final int group = thread.windowGroupOf(wparams.token);
+            root.setRequested(null, Math.max(group, 0));
+            if (group < 0) {
+                root.withdrawRequest();
+            }
             return;
         }
         ViewRootImpl parent = null;
@@ -164,30 +169,133 @@ public final class WindowManagerGlobal {
         root.setRequested(parent, 0);
     }
 
-    /** @hide ActivityThread's, at the session's WINDOW_CREATED: the requested window of `token` gets its surface. */
-    public void dispatchWindowCreated(long token, long window, int width, int height) {
+    /**
+     * @hide ActivityThread's, at the session's WINDOW_CREATED: the requested window of `token` gets its surface; false
+     * when no window has the token, which may then be a SurfaceView's (decision 7).
+     */
+    public boolean dispatchWindowCreated(long token, long window, int width, int height) {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null) {
             root.setHostWindow(window, width, height);
             updateFocus();
         }
+        return root != null;
     }
 
-    /** @hide ActivityThread's, at WINDOW_RESIZED: the requested window's new size. */
-    public void dispatchWindowResized(long token, int width, int height) {
+    /** @hide ActivityThread's, at WINDOW_RESIZED: the requested window's new size; false as at the creation. */
+    public boolean dispatchWindowResized(long token, int width, int height) {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null && root.hasHostWindow()) {
             root.setHostWindow(root.hostWindow(), width, height);
         }
+        return root != null;
     }
 
-    /** @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away; its surface goes. */
-    public void dispatchWindowDestroyed(long token) {
+    /**
+     * @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away; its surface goes. False as at the
+     * creation.
+     */
+    public boolean dispatchWindowDestroyed(long token) {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null) {
             root.setHostWindow(0, 0, 0);
             updateFocus();
         }
+        return root != null;
+    }
+
+    /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */
+    void childrenMayAsk(ViewRootImpl parent) {
+        final ArrayList<ViewRootImpl> children = new ArrayList<>();
+        synchronized (mLock) {
+            for (ViewRootImpl root : mRoots) {
+                if (root.parentRoot() == parent) {
+                    children.add(root);
+                }
+            }
+        }
+        for (ViewRootImpl child : children) {
+            child.parentReady();
+        }
+    }
+
+    /**
+     * @hide ActivityThread's (gap 4 (b3), decision 3): an activity whose window changed, as ActivityWindows.update
+     * gave it. First every window of each activity whose window changed goes, top down, as WMS hides an activity that
+     * is not visible: its windows' sub-windows, then its dialogs and other application windows, then its own window's
+     * request; then ActivityThread moves the session's window; then each one that is visible gets its windows again,
+     * bottom up: its own window on the session's window or as a requested one in its group, its application windows in
+     * that group, and their sub-windows once their parents have their windows.
+     */
+    public void withdrawActivityWindows(IBinder activity) {
+        for (ViewRootImpl root : activityWindows(activity)) {
+            for (ViewRootImpl child : childrenOf(root)) {
+                child.withdrawRequest();
+            }
+        }
+        for (ViewRootImpl root : activityWindows(activity)) {
+            if (root.mWindowAttributes.type != WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+                root.withdrawRequest();
+            }
+        }
+        for (ViewRootImpl root : activityWindows(activity)) {
+            if (root.mWindowAttributes.type == WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+                root.withdrawRequest();
+            }
+        }
+    }
+
+    /**
+     * @hide ActivityThread's, after withdrawActivityWindows and the session's window's move: the visible activity's
+     * windows again, its own on the session's window or, `requested`, as a requested one, all in group `group`.
+     */
+    public void restoreActivityWindows(IBinder activity, boolean requested, int group) {
+        for (ViewRootImpl root : activityWindows(activity)) {
+            if (root.mWindowAttributes.type == WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+                if (requested) {
+                    root.requestActivityWindow(group);
+                } else {
+                    root.useSessionWindow();
+                }
+            }
+        }
+        for (ViewRootImpl root : activityWindows(activity)) {
+            if (root.mWindowAttributes.type != WindowManager.LayoutParams.TYPE_BASE_APPLICATION) {
+                root.restoreRequest(group);
+            }
+            for (ViewRootImpl child : childrenOf(root)) {
+                child.restoreRequest(0);
+            }
+        }
+    }
+
+    /** The activity's application windows, its own first, in the order of their adds. */
+    private ArrayList<ViewRootImpl> activityWindows(IBinder activity) {
+        final ArrayList<ViewRootImpl> windows = new ArrayList<>();
+        synchronized (mLock) {
+            for (int i = 0; i < mRoots.size(); i++) {
+                final WindowManager.LayoutParams params = mParams.get(i);
+                if (activity != null && params.token == activity && mRoots.get(i).parentRoot() == null
+                        && params.type >= WindowManager.LayoutParams.FIRST_APPLICATION_WINDOW
+                        && params.type <= WindowManager.LayoutParams.LAST_APPLICATION_WINDOW) {
+                    windows.add(mRoots.get(i));
+                }
+            }
+        }
+        return windows;
+    }
+
+    /** A window's sub-windows, in the order of their adds. */
+    private ArrayList<ViewRootImpl> childrenOf(ViewRootImpl parent) {
+        final ArrayList<ViewRootImpl> children = new ArrayList<>();
+        synchronized (mLock) {
+            for (ViewRootImpl root : mRoots) {
+                if (root.parentRoot() == parent) {
+                    children.add(root);
+                }
+            }
+        }
+        return children;
     }
 
     private ViewRootImpl rootOfRequest(long token) {
@@ -388,6 +496,9 @@ public final class WindowManagerGlobal {
         }
         if (target != null && target != session) {
             target.deliverRouted(copyFor(target, event));
+        } else if (target != null && session.requestToken() != 0) {
+            // The input's window is a requested one at its frame, a floating activity's at the bottom (gap 4 (b3)).
+            event.offsetLocation(-session.mWinFrame.left, -session.mWinFrame.top);
         }
         return target;
     }
@@ -430,7 +541,11 @@ public final class WindowManagerGlobal {
                 }
             }
         }
-        place(mSessionRoot, shown, order);
+        // Below a floating activity at the bottom the session's window is empty, and the session's input reaches that
+        // activity's requested window (gap 4 (b3)).
+        if (mSessionRoot.requestToken() == 0) {
+            place(mSessionRoot, shown, order);
+        }
         final ArrayList<ViewRootImpl> applications = new ArrayList<>();
         for (ViewRootImpl root : shown) {
             if (root.parentRoot() == null) {

@@ -45,6 +45,10 @@ import java.util.List;
  *       activity, an outside tap with a popup that watches outside touches, which dismisses it and clicks the activity's
  *       button, a tap in a focusable popup and one outside it, which dismisses it alone, keys into the activity under a
  *       dialog and BACK into the dialog, and each window's focus around them.</li>
+ *   <li>b3, after the dialog of a finished activity: a translucent activity above this one, with a SurfaceView and a
+ *       dialog of its own, made opaque and translucent again (setTranslucent, convertToTranslucent), then a floating
+ *       one; this activity's lifecycle while they show, and the focus. Without taps, as the Mac's come at fixed
+ *       times.</li>
  * </ul>
  */
 public class SecondWindowsActivity extends Activity {
@@ -72,6 +76,10 @@ public class SecondWindowsActivity extends Activity {
     private View mDialogDecor;
     private PopupWindow mPopup;
     private IBinder mDialogToken;
+    /** The activity, for the activities of the b3 part. */
+    static SecondWindowsActivity sInstance;
+    /** Whether its lifecycle is logged: in the b3 part only, so that the parts before keep their lines. */
+    private boolean mLifecycle;
 
     /** Compared with Android's log. */
     static void log(String line) {
@@ -117,6 +125,7 @@ public class SecondWindowsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sInstance = this;
         FrameLayout root = new FrameLayout(this);
         mAnchor = new Button(this);
         mAnchor.setText("Anchor");
@@ -133,6 +142,42 @@ public class SecondWindowsActivity extends Activity {
             return false;
         });
         setContentView(root);
+    }
+
+    @Override
+    protected void onRestart() {
+        super.onRestart();
+        lifecycle("onRestart");
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        lifecycle("onStart");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        lifecycle("onResume");
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        lifecycle("onPause");
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        lifecycle("onStop");
+    }
+
+    private void lifecycle(String callback) {
+        if (mLifecycle) {
+            log("activity " + callback);
+        }
     }
 
     @Override
@@ -161,13 +206,19 @@ public class SecondWindowsActivity extends Activity {
     }
 
     /** A window's focus changes, kept for the next step's line. */
-    private void watchFocus(String name, View view) {
+    void watchFocus(String name, View view) {
         view.getViewTreeObserver().addOnWindowFocusChangeListener(
                 (ViewTreeObserver.OnWindowFocusChangeListener) hasFocus -> mFocus.add(name + " " + hasFocus));
     }
 
     /** The focus changes since the last line, in order. */
-    private void logFocus() {
+    /** The focus changes since the last line, without those of `gone`'s window, which Android may give or not. */
+    void logFocusWithout(String gone) {
+        mFocus.removeIf(change -> change.startsWith(gone + " "));
+        logFocus();
+    }
+
+    void logFocus() {
         log("focus: " + (mFocus.isEmpty() ? "no change" : String.join(", ", mFocus)));
         mFocus.clear();
     }
@@ -300,6 +351,32 @@ public class SecondWindowsActivity extends Activity {
             default:
                 break;
         }
+    }
+
+    /** The b3 part, after the dialog of a finished activity: the translucent activity first. */
+    void translucentPart() {
+        // The focus changes around the finished activity's dialog, which Android gives in no fixed number.
+        mFocus.clear();
+        mLifecycle = true;
+        startActivity(new Intent(this, TranslucentActivity.class));
+    }
+
+    /** TranslucentActivity's, at its destroy: the floating one next. */
+    void afterTranslucent(List<String> surface) {
+        mHandler.postDelayed(() -> {
+            logFocusWithout("translucent");
+            log("translucent surface: " + String.join(", ", surface));
+            startActivity(new Intent(this, FloatingActivity.class));
+        }, SETTLE_MS);
+    }
+
+    /** FloatingActivity's, at its destroy: the end. */
+    void afterFloating() {
+        mHandler.postDelayed(() -> {
+            logFocusWithout("floating");
+            mLifecycle = false;
+            log("done");
+        }, SETTLE_MS);
     }
 
     private void next() {

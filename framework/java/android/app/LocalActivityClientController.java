@@ -21,7 +21,9 @@
  *     and getCallingPackage name; finishActivity(requestCode) and finishAffinity finish the activities they name,
  *     and finishAndRemoveTask from the task's root ends the task;
  *   - up navigation (step b3.5b2-2b): navigateUpTo finishes up to the destination in the task and starts it there,
- *     and shouldUpRecreateTask compares the destination's affinity with the task's.
+ *     and shouldUpRecreateTask compares the destination's affinity with the task's;
+ *   - translucency (ADR-0041 gap 4 (b3)): convertFromTranslucent and convertToTranslucent change whether the activity
+ *     occludes the ones below it, as ActivityRecord.setOccludesParent, answering whether that changed.
  */
 package android.app;
 
@@ -29,6 +31,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
 
@@ -75,6 +78,16 @@ final class LocalActivityClientController extends IActivityClientController.Defa
     @Override
     public boolean shouldUpRecreateTask(IBinder token, String destAffinity) {
         return mThread.shouldUpRecreateTask(token, destAffinity);
+    }
+
+    @Override
+    public boolean convertFromTranslucent(IBinder token) {
+        return mThread.setOccludesParent(token, true);
+    }
+
+    @Override
+    public boolean convertToTranslucent(IBinder token, Bundle options) {
+        return mThread.setOccludesParent(token, false);
     }
 
     @Override

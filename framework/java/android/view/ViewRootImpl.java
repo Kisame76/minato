@@ -189,10 +189,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     // A requested window (ADR-0041 gap 4 (b)): a dialog, a popup or another window that is not an activity's, which
     // asks the session's host for a window of its own (APKRT_REQUEST_WINDOW) at the frame AOSP's WindowLayout gives
-    // it, as WMS's relayout computes it. An activity's window keeps the session's window, as before.
-    /** The request tokens, one per requested window of the process, never 0. */
-    private static long sRequestTokens;
-    /** The window's request token, 0 for an activity's window. */
+    // it, as WMS's relayout computes it. The lowest visible activity's window has the session's window; a translucent
+    // or floating activity's above it is a requested one too (gap 4 (b3), decision 3).
+    /** The window's request token (SurfaceState.nextToken), 0 for a window on the session's window. */
     private long mRequestToken;
     /** A sub-window's parent window, null for an application window. */
     private ViewRootImpl mParentRoot;
@@ -200,6 +199,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private int mRequestGroup;
     /** Whether the host was asked for the window (MAKE), until its REMOVE. */
     private boolean mRequestMade;
+    /**
+     * Whether the window was taken away with its activity, which is not visible (gap 4 (b3)): no MAKE until its
+     * activity shows again. A sub-window waits for its parent's window instead.
+     */
+    private boolean mWithdrawn;
     /** The window's frame in the session's pixels: the whole display for an activity's window. */
     final Rect mWinFrame = new Rect();
     private final WindowLayout mWindowLayout = new WindowLayout();
@@ -227,7 +231,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * activity's or a requested window's root) or, with parent null, an application window of activity group `group`.
      */
     void setRequested(ViewRootImpl parent, int group) {
-        mRequestToken = ++sRequestTokens;
+        mRequestToken = com.android.minato.view.SurfaceState.nextToken();
         mParentRoot = parent;
         mRequestGroup = group;
     }
@@ -245,6 +249,78 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** @hide An application window's activity group, 0 for any other window. */
     int requestGroup() {
         return mRequestGroup;
+    }
+
+    /**
+     * @hide WindowManagerGlobal's (gap 4 (b3)): an activity's own window becomes a requested one of type 1 with the
+     * activity's key as its group, as a translucent or floating activity above the lowest visible one has, or a
+     * floating one at the bottom. Its window on the session's window, if any, went before (ActivityThread's
+     * moveHostTo).
+     */
+    void requestActivityWindow(int group) {
+        withdrawRequest();
+        if (mRequestToken == 0) {
+            mRequestToken = com.android.minato.view.SurfaceState.nextToken();
+        }
+        mRequestGroup = group;
+        mWithdrawn = false;
+        requestLayout();
+    }
+
+    /** @hide WindowManagerGlobal's (gap 4 (b3)): an activity's own window goes back to the session's window. */
+    void useSessionWindow() {
+        withdrawRequest();
+        mRequestToken = 0;
+        mRequestGroup = 0;
+        mWithdrawn = false;
+        requestLayout();
+    }
+
+    /**
+     * @hide WindowManagerGlobal's (gap 4 (b3)): the window goes with its activity, which is not visible, as WMS hides
+     * the windows of an activity that is not: its request is removed, it loses its surface, and it asks for no other
+     * until restoreRequest. A window on the session's window keeps it here; the session's window goes elsewhere.
+     */
+    void withdrawRequest() {
+        mWithdrawn = true;
+        if (mRequestToken != 0) {
+            // Its SurfaceViews' sub-windows go first (decision 7), as the runtime keeps a window with live ones.
+            setHostWindow(0, 0, 0);
+        }
+        if (mRequestMade) {
+            mRequestMade = false;
+            final int error = ActivityThread.removeWindow(mRequestToken);
+            if (error != 0 && error != -95) {
+                Log.e(TAG, "The session's host refused to remove window " + mRequestToken + ": " + error);
+            }
+            // A new token for the next MAKE, so that an event for the removed window finds none.
+            mRequestToken = com.android.minato.view.SurfaceState.nextToken();
+        }
+    }
+
+
+    /**
+     * @hide WindowManagerGlobal's (gap 4 (b3)): the window's activity shows again, an application window in its
+     * activity's group; the next traversal asks for its window.
+     */
+    void restoreRequest(int group) {
+        if (mParentRoot == null && mRequestToken != 0) {
+            mRequestGroup = group;
+        }
+        mWithdrawn = false;
+        requestLayout();
+    }
+
+    /** @hide Whether a sub-window of this one may ask for its window: this one has its own. */
+    boolean hasWindowForChildren() {
+        return mRequestToken != 0 ? mRequestMade : mHostWindow != 0;
+    }
+
+    /** @hide WindowManagerGlobal's: the parent got its window, so a sub-window that waited asks for its own. */
+    void parentReady() {
+        if (mRequestToken != 0 && !mRequestMade && !mWithdrawn && mAdded && !mRemoved) {
+            requestLayout();
+        }
     }
 
     /** @hide The window's binder, which LayoutParams.token names for its sub-windows. */
@@ -537,6 +613,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * Without a session the window lays out and draws nothing, as an activity's window without one.
      */
     private void requestHostWindow() {
+        // A withdrawn window waits for its activity, a sub-window for its parent's window (gap 4 (b3)).
+        if (mWithdrawn || (mParentRoot != null && !mParentRoot.hasWindowForChildren())) {
+            return;
+        }
         final WindowManager.LayoutParams lp = mWindowAttributes;
         final long parent = mParentRoot != null ? mParentRoot.mRequestToken : 0;
         final float dim = (lp.flags & WindowManager.LayoutParams.FLAG_DIM_BEHIND) != 0 ? lp.dimAmount : 0f;
@@ -547,7 +627,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 : ActivityThread.makeWindow(mRequestToken, lp.type, parent, f.left, f.top, f.right, f.bottom, 0, 0,
                         mWindowFormat, mRequestGroup, lp.alpha, dim);
         if (error == 0) {
+            final boolean first = !mRequestMade;
             mRequestMade = true;
+            if (first) {
+                WindowManagerGlobal.getInstance().childrenMayAsk(this);
+            }
         } else if (error != -95) {
             Log.e(TAG, "The session's host refused window " + mRequestToken + " (" + lp.getTitle() + "): " + error);
         }
@@ -624,6 +708,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 scheduleTraversals();
                 for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks.toArray(new WindowSurfaceCallback[0])) {
                     callback.windowSurfaceCreated();
+                }
+                if (mRequestToken == 0) {
+                    // The session's window: its sub-windows that waited for it ask for theirs (gap 4 (b3)).
+                    WindowManagerGlobal.getInstance().childrenMayAsk(this);
                 }
             } else {
                 // As AOSP's notifySurfaceDestroyed: the SurfaceViews' surfaces go before the window's own.

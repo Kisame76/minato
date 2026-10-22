@@ -59,6 +59,8 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.type.DefaultMimeMapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -95,6 +97,7 @@ import android.util.TimeUtils;
 import android.util.UtilConfig;
 import android.view.Display;
 import android.view.InputChannel;
+import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewManager;
@@ -103,9 +106,11 @@ import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
+import android.view.WindowSurface;
 import android.widget.WidgetFlags;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
+import com.android.minato.app.ActivityWindows;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
 import com.android.internal.os.SafeZipPathValidatorCallback;
@@ -209,6 +214,12 @@ public final class ActivityThread {
          * the Displayed line that its window's first draw logs (reportWindowsDrawn); 0 once logged.
          */
         long launchStartTime;
+        /** Which window it has (ADR-0041 gap 4 (b3)), as ActivityWindows' pass gave it. */
+        final ActivityWindows.Slot windows = new ActivityWindows.Slot();
+        /** Whether its windows were given with its own window added, which its resume adds after its create. */
+        boolean windowsApplied;
+        /** convertToTranslucent's: onTranslucentConversionComplete after the next pass. */
+        boolean conversionPending;
     }
 
     /** A result for an activity, as AOSP's ResultInfo: the embedded ID it was asked for, its request and its answer. */
@@ -1148,8 +1159,18 @@ public final class ActivityThread {
     private int mHostHeight;
     private InputChannel mHostInput;
     private boolean mHostFocus;
-    /** The window that holds them: the root of the activity that came to the top last, null before the first. */
+    /**
+     * The window that holds the input channel and the focus: the lowest visible activity's (ADR-0041 gap 4 (b3)), null
+     * before the first.
+     */
     private ViewRootImpl mHostRoot;
+    /**
+     * The window that holds the session's window: the lowest visible activity's, null below a floating one at the
+     * bottom, whose requested window lies over the empty session's window (gap 4 (b3)).
+     */
+    private ViewRootImpl mWindowRoot;
+    /** Which window each activity has (gap 4 (b3), decision 3). */
+    private final ActivityWindows mWindows = new ActivityWindows();
     /** The event types answered without more, each logged once: the content's rectangle and turns. */
     private final boolean[] mSkippedEvents = new boolean[32];
 
@@ -1200,6 +1221,7 @@ public final class ActivityThread {
         // or paused, also one whose finish has not run yet. The window's events reach the window on top.
         final ActivityClientRecord r = topLiveRecord();
         final ViewRootImpl root = mHostRoot;
+        final ViewRootImpl windowRoot = mWindowRoot;
         switch (type) {
             case EVENT_CREATE:
                 if (mTask.isEmpty()) {
@@ -1219,7 +1241,7 @@ public final class ActivityThread {
                     deliverPending(r);
                     handleResumeActivity(r);
                     handleTopResumedActivityChanged(r, true);
-                    moveHostTo(r);
+                    updateWindows();
                 }
                 runTransactions();
                 break;
@@ -1258,19 +1280,23 @@ public final class ActivityThread {
                 mHostWindow = event[2];
                 mHostWidth = (int) event[3];
                 mHostHeight = (int) event[4];
-                if (root != null) {
-                    root.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
+                if (windowRoot != null) {
+                    windowRoot.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
+                } else if (root != null) {
+                    clearSessionWindow();
                 }
                 break;
             case EVENT_NATIVE_WINDOW_REDRAW_NEEDED:
-                if (root != null) {
-                    root.redrawNeeded();
+                if (windowRoot != null) {
+                    windowRoot.redrawNeeded();
+                } else if (root != null) {
+                    clearSessionWindow();
                 }
                 break;
             case EVENT_NATIVE_WINDOW_DESTROYED:
                 mHostWindow = 0;
-                if (root != null) {
-                    root.setHostWindow(0, 0, 0);
+                if (windowRoot != null) {
+                    windowRoot.setHostWindow(0, 0, 0);
                 }
                 break;
             case EVENT_INPUT_QUEUE_CREATED:
@@ -1301,16 +1327,23 @@ public final class ActivityThread {
             case EVENT_SURFACE_DESTROYED:
                 SurfaceView.dispatchSurfaceDestroyed(event[2]);
                 break;
+            // A requested window's, or a SurfaceView's in a requested window (gap 4 (b3), decision 7).
             case EVENT_WINDOW_CREATED:
-                WindowManagerGlobal.getInstance().dispatchWindowCreated(event[2], event[3], (int) event[4],
-                        (int) (event[4] >>> 32));
+                if (!WindowManagerGlobal.getInstance().dispatchWindowCreated(event[2], event[3], (int) event[4],
+                        (int) (event[4] >>> 32))) {
+                    SurfaceView.dispatchSurfaceCreated(event[2], event[3], (int) event[4], (int) (event[4] >>> 32));
+                }
                 break;
             case EVENT_WINDOW_RESIZED:
-                WindowManagerGlobal.getInstance().dispatchWindowResized(event[2], (int) event[4],
-                        (int) (event[4] >>> 32));
+                if (!WindowManagerGlobal.getInstance().dispatchWindowResized(event[2], (int) event[4],
+                        (int) (event[4] >>> 32))) {
+                    SurfaceView.dispatchSurfaceResized(event[2], (int) event[4], (int) (event[4] >>> 32));
+                }
                 break;
             case EVENT_WINDOW_DESTROYED:
-                WindowManagerGlobal.getInstance().dispatchWindowDestroyed(event[2]);
+                if (!WindowManagerGlobal.getInstance().dispatchWindowDestroyed(event[2])) {
+                    SurfaceView.dispatchSurfaceDestroyed(event[2]);
+                }
                 break;
             case EVENT_PICK_RESULT:
                 SystemPickerActivity.onResult(event[2], (int) event[3], (int) event[4]);
@@ -1681,7 +1714,7 @@ public final class ActivityThread {
             handleStartActivity(r);
             handleResumeActivity(r);
             handleTopResumedActivityChanged(r, true);
-            moveHostTo(r);
+            updateWindows();
         }
         sendResultsToResumed();
         scheduleIdle();
@@ -1888,7 +1921,7 @@ public final class ActivityThread {
             deliverPending(r);
             handleResumeActivity(r);
             handleTopResumedActivityChanged(r, true);
-            moveHostTo(r);
+            updateWindows();
         }
     }
 
@@ -1919,23 +1952,16 @@ public final class ActivityThread {
             mIdleScheduled = false;
             if (mTransactions.isEmpty()) {
                 ActivityClientRecord top = topLiveRecord();
-                // As ActivityRecord.occludesParent: an activity stops when an opaque one covers it, so the ones below
-                // a translucent top, a dialog theme or the photo picker, stay paused (ADR-0057 step a).
-                final ArrayList<ActivityClientRecord> visible = new ArrayList<>();
-                for (ActivityClientRecord r : reversedTask()) {
-                    if (finishing(r)) {
-                        continue;
-                    }
-                    visible.add(r);
-                    if (!isTranslucent(r)) {
-                        break;
-                    }
-                }
+                // As ensureActivitiesVisible: an activity stops when one that occludes it covers it, so the ones below
+                // a translucent top, a dialog theme or the photo picker, stay paused (ADR-0057 step a), and one that
+                // setTranslucent shows again starts again (ADR-0041 gap 4 (b3)); ActivityWindows' pass says which.
+                updateWindows();
                 for (ActivityClientRecord r : reversedTask()) {
                     if (r == top || !mTask.contains(r)) {
                         continue;
                     }
-                    if (!finishing(r) && r.state == ON_PAUSE && noHistory(r)) {
+                    final boolean hidden = r.windows.mode() == ActivityWindows.HIDDEN;
+                    if (!finishing(r) && hidden && r.state == ON_PAUSE && noHistory(r)) {
                         finishEach(Collections.singletonList(r), Activity.RESULT_CANCELED, null, false);
                     }
                     if (finishing(r)) {
@@ -1943,8 +1969,19 @@ public final class ActivityThread {
                             handleStopActivity(r);
                         }
                         handleDestroyActivity(r);
-                    } else if (r.state == ON_PAUSE && !visible.contains(r)) {
+                    } else if (hidden && (r.state == ON_PAUSE || r.state == ON_START)) {
                         handleStopActivity(r);
+                    } else if (!hidden && r.state == ON_STOP && mSessionResumed) {
+                        // As makeVisibleIfNeeded's StartActivityItem: onRestart and onStart, and the window shown;
+                        // in the foreground only, as the background stopped the whole task.
+                        performRestartActivity(r);
+                        updateVisibility(r, true);
+                    }
+                }
+                for (ActivityClientRecord r : new ArrayList<>(mTask)) {
+                    if (r.conversionPending) {
+                        r.conversionPending = false;
+                        r.activity.onTranslucentConversionComplete(true);
                     }
                 }
                 sendResultsToResumed();
@@ -1953,20 +1990,102 @@ public final class ActivityThread {
         });
     }
 
-    /**
-     * As ActivityRecord's translucent flag: the activity's theme has windowIsTranslucent or windowIsFloating, so that
-     * the activity below it is still visible.
-     */
-    private static boolean isTranslucent(ActivityClientRecord r) {
+    /** Whether the activity's theme has the window attribute, as ActivityInfo.isTranslucentOrFloating reads it. */
+    private static boolean windowStyle(ActivityClientRecord r, int attribute) {
         if (r.activity == null || r.activity.getWindow() == null) {
             return false;
         }
         final TypedArray style = r.activity.getWindow().getWindowStyle();
-        if (style == null) {
+        return style != null && style.getBoolean(attribute, false);
+    }
+
+    /** The activity's slot for ActivityWindows' pass, from its record. */
+    private static void describe(ActivityClientRecord r) {
+        r.windows.finishing = finishing(r);
+        r.windows.translucentTheme = windowStyle(r, com.android.internal.R.styleable.Window_windowIsTranslucent);
+        r.windows.floatingTheme = windowStyle(r, com.android.internal.R.styleable.Window_windowIsFloating);
+    }
+
+    /**
+     * ADR-0041 gap 4 (b3), the plan's decision 3, as Android 15's ensureActivitiesVisible gives each activity its
+     * window: ActivityWindows' pass over the task, then, for each activity whose window changed, its windows taken
+     * away, top down; the session's window and input to the lowest visible activity; and each visible one's windows
+     * again, bottom up, its own as a requested one above the lowest or for a floating one. An activity whose own window
+     * came with its resume after its create gets its windows then. The lifecycle follows in the idle pass.
+     */
+    private void updateWindows() {
+        final ArrayList<ActivityWindows.Slot> slots = new ArrayList<>();
+        for (ActivityClientRecord r : mTask) {
+            describe(r);
+            slots.add(r.windows);
+        }
+        final List<ActivityWindows.Slot> changed = mWindows.update(slots);
+        final ArrayList<ActivityClientRecord> again = new ArrayList<>();
+        for (ActivityClientRecord r : mTask) {
+            if (changed.contains(r.windows)
+                    || (!r.windowsApplied && r.windows.mode() != ActivityWindows.HIDDEN && rootOf(r) != null)) {
+                again.add(r);
+            }
+        }
+        final WindowManagerGlobal windows = WindowManagerGlobal.getInstance();
+        for (int i = again.size() - 1; i >= 0; i--) {
+            windows.withdrawActivityWindows(again.get(i).token);
+            again.get(i).windowsApplied = false;
+        }
+        // The one that gets the session's window is on it before the move, so that its SurfaceViews ask c4's way.
+        final ActivityClientRecord session = recordOf(mWindows.session());
+        if (session != null && again.contains(session)) {
+            windows.restoreActivityWindows(session.token, false, session.windows.key());
+            session.windowsApplied = rootOf(session) != null;
+        }
+        moveHostTo(session, recordOf(mWindows.input()));
+        for (ActivityClientRecord r : again) {
+            if (r != session && r.windows.mode() != ActivityWindows.HIDDEN) {
+                windows.restoreActivityWindows(r.token, r.windows.mode() == ActivityWindows.REQUESTED,
+                        r.windows.key());
+                r.windowsApplied = rootOf(r) != null;
+            }
+        }
+    }
+
+    private ActivityClientRecord recordOf(ActivityWindows.Slot slot) {
+        for (ActivityClientRecord r : mTask) {
+            if (r.windows == slot) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @hide WindowManagerGlobal's, at an application window's add (gap 4 (b3)): the group of the activity's windows,
+     * its key, or -1 while it is not visible, when the window waits for it.
+     */
+    public int windowGroupOf(IBinder token) {
+        final ActivityClientRecord r = token != null ? mActivities.get(token) : null;
+        return r == null || r.windows.mode() == ActivityWindows.HIDDEN ? -1 : r.windows.key();
+    }
+
+    /**
+     * LocalActivityClientController's convertFromTranslucent (`occludes`) and convertToTranslucent, as
+     * ActivityRecord.setOccludesParent: whether the activity occludes the ones below it changed, for which the pass
+     * runs once the main thread is idle: the ones below stop or start again. A conversion to translucent then hears
+     * onTranslucentConversionComplete, as once the activities below drew.
+     */
+    boolean setOccludesParent(IBinder token, boolean occludes) {
+        final ActivityClientRecord r = token != null ? mActivities.get(token) : null;
+        if (r == null || r.activity == null) {
             return false;
         }
-        return style.getBoolean(com.android.internal.R.styleable.Window_windowIsTranslucent, false)
-                || style.getBoolean(com.android.internal.R.styleable.Window_windowIsFloating, false);
+        describe(r);
+        final boolean before = r.windows.occludes();
+        r.windows.converted = !occludes;
+        if (before == occludes) {
+            return false;
+        }
+        r.conversionPending = !occludes;
+        scheduleIdle();
+        return true;
     }
 
     /** As ActivityRecord.isNoHistory: FLAG_ACTIVITY_NO_HISTORY in its intent or noHistory in its manifest. */
@@ -1976,36 +2095,51 @@ public final class ActivityThread {
     }
 
     /**
-     * The session's window, input channel and focus go to the activity that came to the top (step b3.5b2-1), as
-     * Android's window manager gives them to the top window. The window before loses its focus, its open touch gesture
-     * with a CANCEL (step b3.5b2-1b) and its surface, so its SurfaceViews' surfaces go; it keeps no share of the input
-     * channel. The new one gets the window, which its next traversal draws whole, a share of the channel, whose queue
-     * the host connects once, with touches from their next DOWN, and the focus, which it takes once it drew. The screen
-     * keeps the old window's last frame until the new one's first.
+     * The session's window goes to `windowRecord`'s window, and its input channel and focus to `inputRecord`'s: the
+     * lowest visible activity's (step b3.5b2-1, ADR-0041 gap 4 (b3)), as Android's window manager gives them. The
+     * window before loses its surface, so its SurfaceViews' surfaces go; the new one gets the window, which its next
+     * traversal draws whole. Below a floating activity at the bottom (no `windowRecord`) the session's window is empty.
+     * The screen keeps the old window's last frame until the new one's first. An activity whose own window is not
+     * added yet keeps nothing from the window before.
      */
-    private void moveHostTo(ActivityClientRecord r) {
-        final ViewRootImpl to = rootOf(r);
+    private void moveHostTo(ActivityClientRecord windowRecord, ActivityClientRecord inputRecord) {
+        final ViewRootImpl window = windowRecord != null ? rootOf(windowRecord) : null;
+        final ViewRootImpl from = mWindowRoot;
+        if (window != from && (window != null || windowRecord == null)) {
+            mWindowRoot = window;
+            if (from != null) {
+                from.setHostWindow(0, 0, 0);
+            }
+            if (window != null && mHostWindow != 0) {
+                window.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
+            } else if (window == null && mHostWindow != 0 && inputRecord != null) {
+                clearSessionWindow();
+            }
+        }
+        moveInputTo(inputRecord != null ? rootOf(inputRecord) : null);
+    }
+
+    /**
+     * The session's input channel and focus go to `to`. The window before loses its focus, its open touch gesture with
+     * a CANCEL (step b3.5b2-1b) and its share of the channel; the new one gets a share, whose queue the host connects
+     * once, with touches from their next DOWN, and the focus, which it takes once it drew.
+     */
+    private void moveInputTo(ViewRootImpl to) {
         final ViewRootImpl from = mHostRoot;
         if (to == null || to == from) {
             return;
         }
         mHostRoot = to;
         InputChannel input = mHostInput;
-        if (from != null) {
-            if (input != null) {
-                WindowManagerGlobal.getInstance().cancelRoutedTouch();
-                // A finger that is down stays the old window's: its gesture ends there with a CANCEL, and the new
-                // window gets touches from their next DOWN (step b3.5b2-1b).
-                from.cancelTouch();
-                input = input.dup();
-                from.setInputChannel(null);
-            }
-            from.setHostWindow(0, 0, 0);
+        if (from != null && input != null) {
+            WindowManagerGlobal.getInstance().cancelRoutedTouch();
+            // A finger that is down stays the old window's: its gesture ends there with a CANCEL, and the new
+            // window gets touches from their next DOWN (step b3.5b2-1b).
+            from.cancelTouch();
+            input = input.dup();
+            from.setInputChannel(null);
         }
         mHostInput = input;
-        if (mHostWindow != 0) {
-            to.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
-        }
         if (input != null && from != null) {
             to.takeInputChannelAtSwitch(input);
         } else if (input != null) {
@@ -2013,6 +2147,25 @@ public final class ActivityThread {
         }
         // The focus leaves the window before and goes to the new one's top focusable window (ADR-0041 gap 4 (b2)).
         WindowManagerGlobal.getInstance().setSessionWindow(to, mHostFocus);
+    }
+
+    /**
+     * The empty session's window below a floating activity at the bottom (gap 4 (b3)): black, where Android shows the
+     * home screen.
+     */
+    @SuppressWarnings("deprecation") // Surface.transferFrom, as our ViewRootImpl takes its window's surface.
+    private void clearSessionWindow() {
+        final Surface surface = new Surface();
+        try {
+            surface.transferFrom(WindowSurface.create(mHostWindow, mHostWidth, mHostHeight));
+            final Canvas canvas = surface.lockCanvas(null);
+            canvas.drawColor(Color.BLACK);
+            surface.unlockCanvasAndPost(canvas);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "The empty session's window was not cleared", e);
+        } finally {
+            surface.release();
+        }
     }
 
     /**
@@ -2266,12 +2419,20 @@ public final class ActivityThread {
         mInstrumentation.callActivityOnSaveInstanceState(r.activity, r.savedState);
     }
 
-    /** As AOSP's updateVisibility for a hidden window: the decor goes invisible until the next resume shows it. */
+    /**
+     * As AOSP's updateVisibility: for a hidden window the decor goes invisible until the next resume shows it; for a
+     * window shown again without a resume, as below a translucent activity (gap 4 (b3)), it is visible at once.
+     */
     private void updateVisibility(ActivityClientRecord r, boolean show) {
         View decor = r.activity.mDecor;
         if (decor != null && !show && r.activity.mVisibleFromServer) {
             r.activity.mVisibleFromServer = false;
             decor.setVisibility(View.INVISIBLE);
+        } else if (decor != null && show && !r.activity.mVisibleFromServer) {
+            r.activity.mVisibleFromServer = true;
+            if (r.activity.mVisibleFromClient) {
+                decor.setVisibility(View.VISIBLE);
+            }
         }
     }
 
@@ -2305,6 +2466,9 @@ public final class ActivityThread {
                 ViewRootImpl root = decor.getViewRootImpl();
                 if (root != null) {
                     root.setActivityConfigCallback(null);
+                }
+                if (mWindowRoot != null && decor.getParent() == mWindowRoot) {
+                    mWindowRoot = null;
                 }
                 if (mHostRoot != null && decor.getParent() == mHostRoot) {
                     // The window that holds the session's: the next top gets them without it, and a share of the
