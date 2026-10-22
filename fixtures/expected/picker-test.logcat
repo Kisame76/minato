@@ -1,0 +1,44 @@
+I/picker-test: onCreate
+I/picker-test: onStart
+I/picker-test: onResume
+I/picker-test: resolve OPEN_DOCUMENT: com.android.documentsui/com.android.documentsui.picker.PickActivity all=1
+I/picker-test: resolve GET_CONTENT: com.android.documentsui/com.android.documentsui.picker.PickActivity all=1
+I/picker-test: resolve CREATE_DOCUMENT: com.android.documentsui/com.android.documentsui.picker.PickActivity all=1
+I/picker-test: resolve OPEN_DOCUMENT_TREE: com.android.documentsui/com.android.documentsui.picker.PickActivity all=1
+I/picker-test: resolve PICK_IMAGES: com.android.providers.media.module/com.android.providers.media.photopicker.PhotoPickerActivity all=1
+I/picker-test: clip: items=2 first=content://com.example.documents/document/1 second=content://com.example.documents/document/2 label=picks flags=65 data=content://com.example.documents/document/1
+I/picker-test: start OPEN_DOCUMENT
+I/picker-test: onPause
+I/picker-test: onStop
+I/picker-test: onRestart
+I/picker-test: onStart
+I/picker-test: onActivityResult OPEN_DOCUMENT result=0 data=null
+I/picker-test: onResume
+I/picker-test: start GET_CONTENT
+I/picker-test: onPause
+I/picker-test: onStop
+I/picker-test: onRestart
+I/picker-test: onStart
+I/picker-test: onActivityResult GET_CONTENT result=0 data=null
+I/picker-test: onResume
+I/picker-test: start CREATE_DOCUMENT
+I/picker-test: onPause
+I/picker-test: onStop
+I/picker-test: onRestart
+I/picker-test: onStart
+I/picker-test: onActivityResult CREATE_DOCUMENT result=0 data=null
+I/picker-test: onResume
+I/picker-test: start OPEN_DOCUMENT_TREE
+I/picker-test: onPause
+I/picker-test: onStop
+I/picker-test: onRestart
+I/picker-test: onStart
+I/picker-test: onActivityResult OPEN_DOCUMENT_TREE result=0 data=null
+I/picker-test: onResume
+I/picker-test: start PICK_IMAGES
+I/picker-test: onPause
+I/picker-test: onActivityResult PICK_IMAGES result=0 data=null
+I/picker-test: onResume
+I/picker-test: done
+I/picker-test: onPause
+I/picker-test: onStop

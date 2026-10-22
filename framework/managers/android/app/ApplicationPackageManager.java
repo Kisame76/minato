@@ -32,6 +32,7 @@ import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
+import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
 import java.util.ArrayList;
@@ -529,7 +530,16 @@ class ApplicationPackageManager {
         }
         Application app = ActivityThread.currentApplication();
         String type = app != null ? intent.resolveTypeIfNeeded(app.getContentResolver()) : intent.getType();
-        return pkg.query(kind, intent, type, flags, this::getComponentEnabledSetting);
+        List<ResolveInfo> found = pkg.query(kind, intent, type, flags, this::getComponentEnabledSetting);
+        // The five picker intents of ADR-0057 resolve to the system picker, which Android names as its own, when the
+        // app has no component for them.
+        final int picker = kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty()
+                ? PickerIntents.kindOf(intent) : PickerIntents.NONE;
+        if (picker != PickerIntents.NONE) {
+            found = new ArrayList<>(found);
+            found.add(PickerIntents.resolveInfo(picker));
+        }
+        return found;
     }
 
     // Providers by authority and the XML their meta-data names (step c2c1.1), as androidx's FileProvider finds its

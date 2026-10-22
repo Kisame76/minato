@@ -153,6 +153,10 @@ enum apkrt_event_type {
     APKRT_EVENT_WINDOW_DESTROYED,         // a0: the token; a1: the window's ID. The host took the window away on its
                                           // own, at the background or the end, a sub-window's before its parent's;
                                           // the guest still removes the token
+    APKRT_EVENT_PICK_RESULT,              // the answer to APKRT_REQUEST_PICK (ADR-0057 step a): a0 the request's ID;
+                                          // a1 the result code (Activity.RESULT_CANCELED 0, RESULT_OK -1, as a 32-bit
+                                          // int in the low bits); a2 the number of picks, whose details the host wrote
+                                          // to the manifest before it posted this
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -191,6 +195,20 @@ enum apkrt_request_type {
     APKRT_REQUEST_WINDOW_OPAQUE,   // host only: the argument is 1 or 0, reported when the window's opacity changes
     APKRT_REQUEST_SURFACE,         // guest only: a0 the address of a struct apkrt_surface_request (ADR-0043 c4)
     APKRT_REQUEST_WINDOW,          // guest only: a0 the address of a struct apkrt_window_request (ADR-0041, gap 4)
+    APKRT_REQUEST_PICK,            // guest only (ADR-0057 step a): a0 the address of NUL-terminated text, a1 the
+                                   // request's ID (not 0, not one that waits); the host gets the ID as `argument` and
+                                   // the text as `text`: "<kind>\t<flags>\t<max>\t<MIME types>\t<title>". The runtime
+                                   // refuses (-EINVAL) any text but this: a kind 1 to 5; flags 0 or 1, 1 only for
+                                   // kinds 1, 2 and 5; a maximum of 0 to 1000 in decimal without leading zeros, other
+                                   // than 0 only for kind 5; up to 8 MIME types of at most 100 bytes each, separated
+                                   // by newlines, none is allowed, and none for kind 4; a title of at most 200 bytes
+                                   // of UTF-8 without control, separator or formatting characters, only for kind 3;
+                                   // at most 1535 bytes in all. At most 4 requests wait at once (-EBUSY), and an ID
+                                   // that waits is refused (-EEXIST). The requests reach the host's handler one at a
+                                   // time. The host answers once with APKRT_EVENT_PICK_RESULT, which ends the request
+    APKRT_REQUEST_PICK_CANCEL,     // guest only: a0 the ID of a request that waits and the guest no longer wants (its
+                                   // activity is gone); the host gets the ID as `argument` and no text, and gives no
+                                   // answer. -ENOENT for an ID that does not wait
 };
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.

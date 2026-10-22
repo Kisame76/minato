@@ -3,7 +3,9 @@
 // class carries the system's window transitions (remote animations and transitions, window container tokens), which
 // Minato's single activity window does not run, so the class is the API with the hidden members the taken files call:
 // Activity's and ActivityTransitionState's scene transition info, PendingIntent's caller display and RemoteViews'
-// pending intent launch, each keeping nothing, and IntentSender's background start mode.
+// pending intent launch, each keeping nothing, and IntentSender's background start mode, which its class
+// initialisation sets on options of makeBasic and takes as a Bundle (ComponentOptions' key and rule), so that a class
+// that holds an IntentSender, such as ClipData's items, loads (ADR-0057 step a).
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.ResultReceiver;
@@ -12,6 +14,38 @@ import java.util.ArrayList;
 class ActivityOptions {
     /** @hide */
     public static final int MODE_BACKGROUND_ACTIVITY_START_COMPAT = -1;
+
+    /** ComponentOptions' KEY_PENDING_INTENT_BACKGROUND_ACTIVITY_ALLOWED. */
+    private static final String KEY_PENDING_INTENT_BACKGROUND_ACTIVITY_ALLOWED =
+            "android.pendingIntent.backgroundActivityAllowed";
+
+    private int mPendingIntentBackgroundActivityStartMode;
+    private boolean mPendingIntentBackgroundActivityLaunchAllowedByPermission;
+
+    public static ActivityOptions makeBasic() {
+        return new ActivityOptions((Bundle) null);
+    }
+
+    public ActivityOptions setPendingIntentBackgroundActivityStartMode(int state) {
+        mPendingIntentBackgroundActivityStartMode = state;
+        return this;
+    }
+
+    public int getPendingIntentBackgroundActivityStartMode() {
+        return mPendingIntentBackgroundActivityStartMode;
+    }
+
+    /** As ComponentOptions.toBundle: what differs from the defaults. */
+    public Bundle toBundle() {
+        Bundle b = new Bundle();
+        if (mPendingIntentBackgroundActivityStartMode != 0) {
+            b.putInt(KEY_PENDING_INTENT_BACKGROUND_ACTIVITY_ALLOWED, mPendingIntentBackgroundActivityStartMode);
+        }
+        if (mPendingIntentBackgroundActivityLaunchAllowedByPermission) {
+            b.putBoolean("android.pendingIntent.backgroundActivityAllowedByPermission", true);
+        }
+        return b;
+    }
 
     /** @hide */
     public ActivityOptions(Bundle opts) {
@@ -76,5 +110,6 @@ class ActivityOptions {
 
     /** @hide */
     public void setPendingIntentBackgroundActivityLaunchAllowedByPermission(boolean allowed) {
+        mPendingIntentBackgroundActivityLaunchAllowedByPermission = allowed;
     }
 }

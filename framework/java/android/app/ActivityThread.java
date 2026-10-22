@@ -57,6 +57,7 @@ import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
 import android.content.type.DefaultMimeMapFactory;
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -105,6 +106,8 @@ import android.view.WindowManagerGlobal;
 import android.widget.WidgetFlags;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
+import com.android.internal.minato.picker.PickerIntents;
+import com.android.internal.minato.picker.SystemPickerActivity;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
 import dalvik.system.RuntimeHooks;
@@ -113,6 +116,7 @@ import dalvik.system.VMRuntime;
 import dalvik.system.ZipPathValidator;
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1119,6 +1123,7 @@ public final class ActivityThread {
     private static final int EVENT_WINDOW_CREATED = 21;
     private static final int EVENT_WINDOW_RESIZED = 22;
     private static final int EVENT_WINDOW_DESTROYED = 23;
+    private static final int EVENT_PICK_RESULT = 24;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1307,6 +1312,9 @@ public final class ActivityThread {
             case EVENT_WINDOW_DESTROYED:
                 WindowManagerGlobal.getInstance().dispatchWindowDestroyed(event[2]);
                 break;
+            case EVENT_PICK_RESULT:
+                SystemPickerActivity.onResult(event[2], (int) event[3], (int) event[4]);
+                break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
                 break;
@@ -1360,9 +1368,14 @@ public final class ActivityThread {
             return ActivityManager.START_FORWARD_AND_REQUEST_CONFLICT;
         }
         ComponentName component = intent.getComponent();
-        ActivityInfo info = component != null
+        // The five picker intents of ADR-0057 go to the system picker, which the app's manifest does not handle.
+        final int pickerKind = component == null ? PickerIntents.kindOf(intent) : PickerIntents.NONE;
+        ActivityInfo info = pickerKind != PickerIntents.NONE
+                ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
+                : component != null
                 ? mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
-        final int result = component == null ? ActivityManager.START_INTENT_NOT_RESOLVED
+        final int result = component == null && pickerKind == PickerIntents.NONE
+                ? ActivityManager.START_INTENT_NOT_RESOLVED
                 : info == null ? ActivityManager.START_CLASS_NOT_FOUND : ActivityManager.START_SUCCESS;
         if (info != null) {
             mPendingStarts.incrementAndGet();
@@ -1370,6 +1383,9 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
+        if (pickerKind != PickerIntents.NONE) {
+            started.setComponent(new ComponentName(info.packageName, info.name));
+        }
         sMainThreadHandler.post(() -> addTransaction(
                 () -> handleStartTransaction(started, info, source, resultWho, requestCode, null)));
         return result;
@@ -1903,6 +1919,18 @@ public final class ActivityThread {
             mIdleScheduled = false;
             if (mTransactions.isEmpty()) {
                 ActivityClientRecord top = topLiveRecord();
+                // As ActivityRecord.occludesParent: an activity stops when an opaque one covers it, so the ones below
+                // a translucent top, a dialog theme or the photo picker, stay paused (ADR-0057 step a).
+                final ArrayList<ActivityClientRecord> visible = new ArrayList<>();
+                for (ActivityClientRecord r : reversedTask()) {
+                    if (finishing(r)) {
+                        continue;
+                    }
+                    visible.add(r);
+                    if (!isTranslucent(r)) {
+                        break;
+                    }
+                }
                 for (ActivityClientRecord r : reversedTask()) {
                     if (r == top || !mTask.contains(r)) {
                         continue;
@@ -1915,7 +1943,7 @@ public final class ActivityThread {
                             handleStopActivity(r);
                         }
                         handleDestroyActivity(r);
-                    } else if (r.state == ON_PAUSE) {
+                    } else if (r.state == ON_PAUSE && !visible.contains(r)) {
                         handleStopActivity(r);
                     }
                 }
@@ -1923,6 +1951,22 @@ public final class ActivityThread {
             }
             return false;
         });
+    }
+
+    /**
+     * As ActivityRecord's translucent flag: the activity's theme has windowIsTranslucent or windowIsFloating, so that
+     * the activity below it is still visible.
+     */
+    private static boolean isTranslucent(ActivityClientRecord r) {
+        if (r.activity == null || r.activity.getWindow() == null) {
+            return false;
+        }
+        final TypedArray style = r.activity.getWindow().getWindowStyle();
+        if (style == null) {
+            return false;
+        }
+        return style.getBoolean(com.android.internal.R.styleable.Window_windowIsTranslucent, false)
+                || style.getBoolean(com.android.internal.R.styleable.Window_windowIsFloating, false);
     }
 
     /** As ActivityRecord.isNoHistory: FLAG_ACTIVITY_NO_HISTORY in its intent or noHistory in its manifest. */
@@ -2130,6 +2174,30 @@ public final class ActivityThread {
         return r != null && r.activity != null && !r.activity.isDestroyed();
     }
 
+    /**
+     * @hide SystemPickerActivity's (ADR-0057 step a): the pick request `id` with its text for the host, which answers
+     * with PICK_RESULT; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestPick(long id, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestPick(id, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * @hide SystemPickerActivity's (ADR-0057 step a): the request `id` is not wanted any more, its activity being gone;
+     * the host drops the picker. 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int cancelPick(long id) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestPickCancel(id);
+    }
+
     public static void requestWindowFormat(int format) {
         final ActivityThread thread = sCurrentActivityThread;
         if (thread == null || thread.mSessionEvents == null) {
@@ -2293,6 +2361,12 @@ public final class ActivityThread {
 
     /** session_request: 0, or the negative errno. */
     private static native int nativeSessionRequest(int type, long a0, long a1);
+
+    /** APKRT_REQUEST_PICK with its text, as UTF-8, and ID (ADR-0057 step a). */
+    private static native int nativeSessionRequestPick(long id, byte[] text);
+
+    /** APKRT_REQUEST_PICK_CANCEL (ADR-0057 step a). */
+    private static native int nativeSessionRequestPickCancel(long id);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,

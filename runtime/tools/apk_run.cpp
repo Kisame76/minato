@@ -17,7 +17,7 @@
 // at least as high as wide and landscape else, without night mode, at 120 Hz, in en-US unless a locale is given.
 // The session's frame clock then posts a vsync tick every period of that rate (ADR-0041 a)), as the app's does
 // (ADR-0036). The program's end ends the process with its status, as without a session; requests go nowhere, but for
-// FINISH with --lifecycle.
+// FINISH with --lifecycle and the guest's pick requests (ADR-0057 step a), which get a cancel.
 // Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
 // traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
 // from another thread and no delayed post. A check that needs the main Looper passes a configuration.
@@ -91,6 +91,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -214,7 +215,47 @@ struct {
     bool finish = false;
 } finishing;
 
-void on_request(void *, int type, std::uint64_t argument, const char *) {
+/// A pick request (ADR-0057 step a) is answered like a user who dismisses the picker: RESULT_CANCELED with no pick, a
+/// moment after the request, on a thread of its own, as a host's picker answers when its view goes away. Step b has
+/// the host answer with the user's picks. The runtime lets four requests wait at most, so the threads are few; one
+/// that cannot start leaves the request unanswered, which the guest's activity survives.
+void answer_pick(std::uint64_t id) {
+    try {
+        std::thread([id] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            apkrt_session_post(APKRT_EVENT_PICK_RESULT, id, 0, 0);
+        }).detach();
+    } catch (const std::system_error &) {
+        std::fprintf(stderr, "apk-run: no thread for the answer to pick %llu\n", static_cast<unsigned long long>(id));
+    }
+}
+
+/// A pick request's text on one line: the tabs and the newlines in it written out.
+std::string one_line(const char *text) {
+    std::string line;
+    for (; *text != '\0'; ++text) {
+        if (*text == '\t') {
+            line += "\\t";
+        } else if (*text == '\n') {
+            line += "\\n";
+        } else {
+            line += *text;
+        }
+    }
+    return line;
+}
+
+void on_request(void *, int type, std::uint64_t argument, const char *text) {
+    if (type == APKRT_REQUEST_PICK) {
+        std::fprintf(stderr, "apk-run: pick %llu: %s\n", static_cast<unsigned long long>(argument),
+                     one_line(text != nullptr ? text : "").c_str());
+        answer_pick(argument);
+        return;
+    }
+    if (type == APKRT_REQUEST_PICK_CANCEL) {
+        std::fprintf(stderr, "apk-run: pick %llu cancelled\n", static_cast<unsigned long long>(argument));
+        return;
+    }
     if (type == APKRT_REQUEST_WINDOW_OPAQUE) {
         if (const auto *layers = apk_run_layers()) layers->window_opaque(argument != 0);
         return;

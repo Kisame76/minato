@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstring>
 #include <mutex>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -192,6 +193,170 @@ bool unit_interval(std::uint32_t bits) {
     float value;
     std::memcpy(&value, &bits, sizeof value);
     return std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+}
+
+// APKRT_REQUEST_PICK (ADR-0057 step a): the host parses the text of a request that the guest wrote, so the runtime
+// checks every field before the host sees it.
+constexpr std::size_t pick_text_limit = 1536;   // the NUL included
+constexpr std::size_t pick_types_limit = 8;     // MIME types in a request
+constexpr std::size_t pick_type_length = 100;   // of one MIME type
+constexpr std::size_t pick_title_length = 200;  // bytes of the title
+constexpr unsigned pick_max_limit = 1000;       // of the photo picker's maximum
+constexpr std::size_t pick_live_limit = 4;      // requests that wait for their answer at once
+
+/// Whether a code point may appear in a title: no control characters (C0, DEL, C1), no line or paragraph separators,
+/// no zero-width or bidirectional formatting characters, no byte order mark, no interlinear annotation marks.
+bool plain_code_point(std::uint32_t point) {
+    if (point < 0x20 || (point >= 0x7f && point <= 0x9f)) return false;
+    if ((point >= 0x200b && point <= 0x200f) || (point >= 0x2028 && point <= 0x202e)) return false;
+    if (point >= 0x2060 && point <= 0x206f) return false;
+    return point != 0xfeff && !(point >= 0xfff9 && point <= 0xfffb);
+}
+
+/// Whether `text` is well-formed UTF-8 (no overlong forms, no surrogates, nothing above U+10FFFF) of plain code points.
+bool plain_utf8(std::string_view text) {
+    for (std::size_t at = 0; at < text.size();) {
+        const auto byte = static_cast<unsigned char>(text[at]);
+        std::size_t more = 0;
+        std::uint32_t point = byte;
+        if (byte < 0x80) {
+            more = 0;
+        } else if (byte >= 0xc2 && byte <= 0xdf) {
+            more = 1;
+            point = byte & 0x1f;
+        } else if (byte >= 0xe0 && byte <= 0xef) {
+            more = 2;
+            point = byte & 0x0f;
+        } else if (byte >= 0xf0 && byte <= 0xf4) {
+            more = 3;
+            point = byte & 0x07;
+        } else {
+            return false;
+        }
+        for (std::size_t i = 1; i <= more; ++i) {
+            if (at + i >= text.size() || (static_cast<unsigned char>(text[at + i]) & 0xc0) != 0x80) return false;
+            point = (point << 6) | (static_cast<unsigned char>(text[at + i]) & 0x3f);
+        }
+        if (more > 0) {
+            const auto second = static_cast<unsigned char>(text[at + 1]);
+            if ((byte == 0xe0 && second < 0xa0) || (byte == 0xed && second > 0x9f) ||
+                (byte == 0xf0 && second < 0x90) || (byte == 0xf4 && second > 0x8f)) {
+                return false;
+            }
+        }
+        if (!plain_code_point(point)) return false;
+        at += more + 1;
+    }
+    return true;
+}
+
+/// Whether `type` is a MIME type or a pattern such as image/*: two tokens of RFC 6838's characters and '*' around one
+/// '/', at most pick_type_length bytes.
+bool mime_type(std::string_view type) {
+    if (type.size() < 3 || type.size() > pick_type_length) return false;
+    const auto slash = type.find('/');
+    if (slash == std::string_view::npos || slash == 0 || slash + 1 == type.size()) return false;
+    for (std::size_t at = 0; at < type.size(); ++at) {
+        const char c = type[at];
+        if (at == slash) continue;
+        const bool token = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                           (c != '\0' && std::strchr("!#$&^_.+-*", c) != nullptr);
+        if (!token) return false;
+    }
+    return true;
+}
+
+/// Whether `text` is "<kind>\t<flags>\t<max>\t<MIME types>\t<title>": a kind 1 to 5; flags 0 or 1, 1 only for the opens
+/// and the photo picker (kinds 1, 2 and 5); a maximum without leading zeros, at most pick_max_limit, other than 0 only
+/// for the photo picker; up to pick_types_limit MIME types separated by newlines, none is allowed, but for a folder
+/// (kind 4); a title of at most pick_title_length bytes of plain UTF-8, only for a save (kind 3).
+bool valid_pick(std::string_view text) {
+    std::string_view field[5];
+    std::size_t count = 0;
+    for (std::size_t from = 0;;) {
+        const auto tab = text.find('\t', from);
+        if (count == 5) return false;
+        field[count++] = text.substr(from, tab == std::string_view::npos ? std::string_view::npos : tab - from);
+        if (tab == std::string_view::npos) break;
+        from = tab + 1;
+    }
+    if (count != 5) return false;
+    if (field[0].size() != 1 || field[0][0] < '1' || field[0][0] > '5') return false;
+    const int kind = field[0][0] - '0';
+    if (field[1].size() != 1 || (field[1][0] != '0' && field[1][0] != '1')) return false;
+    if (field[1][0] == '1' && kind != 1 && kind != 2 && kind != 5) return false;
+    if (field[2].empty() || field[2].size() > 4 || (field[2].size() > 1 && field[2][0] == '0')) return false;
+    unsigned maximum = 0;
+    for (const char c : field[2]) {
+        if (c < '0' || c > '9') return false;
+        maximum = maximum * 10 + static_cast<unsigned>(c - '0');
+    }
+    if (maximum > pick_max_limit || (maximum != 0 && kind != 5)) return false;
+    if (!field[3].empty()) {
+        if (kind == 4) return false;
+        std::size_t types = 0;
+        for (std::size_t from = 0;;) {
+            const auto newline = field[3].find('\n', from);
+            if (++types > pick_types_limit) return false;
+            const auto type = field[3].substr(from, newline == std::string_view::npos ? std::string_view::npos
+                                                                                        : newline - from);
+            if (!mime_type(type)) return false;
+            if (newline == std::string_view::npos) break;
+            from = newline + 1;
+        }
+    }
+    if (!field[4].empty() && kind != 3) return false;
+    return field[4].size() <= pick_title_length && plain_utf8(field[4]);
+}
+
+// The pick requests that wait for their answer (APKRT_EVENT_PICK_RESULT or APKRT_REQUEST_PICK_CANCEL). The check, the
+// change of the table and the host's call happen under one lock, so the host gets the requests one at a time, in the
+// order the runtime took them; the lock is recursive, so that a handler may post the answer at once.
+std::recursive_mutex pick_lock;
+std::vector<std::uint64_t> live_picks;
+
+/// Forgets pick request `id`; whether it was waiting.
+bool pick_done(std::uint64_t id) {
+    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
+    const auto at = std::find(live_picks.begin(), live_picks.end(), id);
+    if (at == live_picks.end()) return false;
+    live_picks.erase(at);
+    return true;
+}
+
+/// APKRT_REQUEST_PICK: the text at `address` copied once, each byte read once, and checked; handed to the host's
+/// request handler with the ID. 0, or the negative errno: -EFAULT without text, -EINVAL for an ID of 0, a text of
+/// pick_text_limit bytes or more, or one that valid_pick refuses, -EEXIST for an ID that waits for its answer, -EBUSY
+/// when pick_live_limit requests wait.
+long pick(std::uint64_t address, std::uint64_t id) {
+    if (address == 0) return -linux_errno::efault;
+    if (id == 0) return -linux_errno::einval;
+    char text[pick_text_limit];
+    const char *guest = reinterpret_cast<const char *>(address);
+    std::size_t length = 0;
+    for (;; ++length) {
+        if (length == pick_text_limit) return -linux_errno::einval;
+        const char c = guest[length];
+        text[length] = c;
+        if (c == '\0') break;
+    }
+    if (!valid_pick(std::string_view(text, length))) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
+    if (std::find(live_picks.begin(), live_picks.end(), id) != live_picks.end()) return -linux_errno::eexist;
+    if (live_picks.size() >= pick_live_limit) return -linux_errno::ebusy;
+    live_picks.push_back(id);
+    report(APKRT_REQUEST_PICK, id, text);
+    return 0;
+}
+
+/// APKRT_REQUEST_PICK_CANCEL: the guest no longer waits for request `id`; the host gets it only when it still waits.
+/// 0, or -EINVAL for an ID of 0, -ENOENT for one that does not wait.
+long pick_cancel(std::uint64_t id) {
+    if (id == 0) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> hold(pick_lock);
+    if (!pick_done(id)) return -linux_errno::enoent;
+    report(APKRT_REQUEST_PICK_CANCEL, id, nullptr);
+    return 0;
 }
 
 /// APKRT_REQUEST_WINDOW: the request at `address` checked, its buffer's size and opacity set, a place's type, parent,
@@ -381,6 +546,10 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return surface(a0);
         case APKRT_REQUEST_WINDOW:
             return window(a0);
+        case APKRT_REQUEST_PICK:
+            return pick(a0, a1);
+        case APKRT_REQUEST_PICK_CANCEL:
+            return pick_cancel(a0);
         default:
             return -linux_errno::einval;
     }
@@ -412,6 +581,8 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
 extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2) {
     using namespace apkrt::session;
     if (!begun.load(std::memory_order_acquire)) return 0;
+    // The answer to a pick request frees its ID, also when the post fails: the request is over.
+    if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};

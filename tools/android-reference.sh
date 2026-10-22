@@ -579,6 +579,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DateTimeActivity
       limit=90
       ;;
+    # picker-test (ADR-0057 step a): its activity starts each file picker intent for a result and ends with "done"; the
+    # script presses BACK a few seconds after each "start" line, so that every picker is cancelled.
+    picker-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PickerActivity
+      limit=120
+      ;;
     # alert-test (the Unity test APK probe's blocker 14): its activity runs when the window has the focus and ends with "done".
     alert-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90
@@ -751,6 +757,13 @@ run_app() {
     { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
+  fi
+  if [[ "$app" == picker-test ]]; then
+    # ADR-0057 step a: each picker is cancelled with BACK a few seconds after its start line, once it shows.
+    local picked
+    for picked in OPEN_DOCUMENT GET_CONTENT CREATE_DOCUMENT OPEN_DOCUMENT_TREE PICK_IMAGES; do
+      wait_for "$app" "start $picked" && sleep 4 && run input keyevent KEYCODE_BACK || return 1
+    done
   fi
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its

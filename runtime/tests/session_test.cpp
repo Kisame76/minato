@@ -91,6 +91,9 @@ std::vector<Request> requests;
 
 // A FRAME_RATE handler that takes its time: it says when it began and when it returns.
 std::atomic<bool> slow_frame_rate{false}, frame_rate_began{false}, frame_rate_returned{false};
+// A PICK handler that takes its time, and counts the handlers that run at once.
+std::atomic<bool> slow_pick{false}, pick_overlap{false};
+std::atomic<int> pick_in_handler{0};
 
 void on_request(void *context, int type, std::uint64_t argument, const char *text) {
     CHECK(context == &requests);
@@ -98,6 +101,11 @@ void on_request(void *context, int type, std::uint64_t argument, const char *tex
         const std::lock_guard<std::mutex> hold(requests_lock);
         requests.push_back(
             {type, argument, text != nullptr ? text : "", text != nullptr, ::pthread_self(), runtime_signal_blocked()});
+    }
+    if (type == APKRT_REQUEST_PICK && slow_pick.load()) {
+        if (pick_in_handler.fetch_add(1) != 0) pick_overlap.store(true);
+        std::this_thread::sleep_for(30ms);
+        pick_in_handler.fetch_sub(1);
     }
     if (type == APKRT_REQUEST_FRAME_RATE && slow_frame_rate.load()) {
         frame_rate_began.store(true);
@@ -469,6 +477,184 @@ TEST(requests_reach_the_handler_on_the_calling_thread) {
     CHECK(seen[1].type == APKRT_REQUEST_START_FAILED && seen[1].had_text && seen[1].text == reason);
     for (const auto &request : seen) CHECK(request.thread == ::pthread_self() && request.runtime_signal_blocked);
     CHECK(!runtime_signal_blocked());  // as before the request
+}
+
+TEST(a_pick_request_reaches_the_handler_with_its_id_and_text) {
+    take_requests();
+    static const char pick[] = "5\t1\t20\timage/*\nvideo/*\t";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(pick), 77) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1);
+    if (seen.size() != 1) return;
+    CHECK(seen[0].type == APKRT_REQUEST_PICK && seen[0].argument == 77 && seen[0].had_text && seen[0].text == pick);
+    CHECK(seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked);
+    // The host answers with the event, its three numbers as posted; that frees the ID.
+    const auto serial = apkrt_session_post(APKRT_EVENT_PICK_RESULT, 77, 0, 0);
+    CHECK(serial != 0);
+    CHECK(call(APKRT_NR_SESSION_ANSWER, serial) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(pick), 77) == 0);  // the ID is free again
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 77) == 0);
+    take_requests();
+}
+
+// The host parses what the guest wrote, so the runtime refuses every request outside the limits, and none of them
+// reaches the handler.
+TEST(a_malformed_or_oversized_pick_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto ask = [](const std::string &text, std::uint64_t id = 5) {
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(text.c_str()), id);
+        if (result == 0) CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
+        return result;
+    };
+    const auto refused = [&](const std::string &text, std::uint64_t id = 5) { return ask(text, id) == -einval; };
+    const auto accepted = [&](const std::string &text) { return ask(text, 9) == 0; };
+    const std::string types8 = "a/a\nb/b\nc/c\nd/d\ne/e\nf/f\ng/g\nh/h";
+    // Good ones first: the limits themselves are allowed.
+    CHECK(accepted("1\t0\t0\t\t"));                                   // no types and no title
+    CHECK(accepted("3\t0\t0\ttext/plain\tnote.txt"));
+    CHECK(accepted("5\t1\t1000\t" + types8 + "\t"));                   // all at their limits
+    CHECK(accepted("3\t0\t0\t\t" + std::string(200, 'x')));
+    CHECK(accepted("4\t0\t0\t\t"));
+    CHECK(accepted("2\t1\t0\t" + std::string(49, 'a') + "/" + std::string(50, 'b') + "\t"));  // 100 bytes
+    CHECK(accepted("3\t0\t0\t\ttitle \xc3\xa4\xe2\x82\xac\xf0\x9f\x98\x80"));  // UTF-8 of 1 to 4 bytes
+    CHECK(accepted("1\t0\t0\t*/*\t"));
+    CHECK(accepted("1\t0\t0\tapplication/vnd.android.package-archive\t"));
+    take_requests();
+    // The fields.
+    CHECK(refused(""));
+    CHECK(refused("1"));
+    CHECK(refused("1\t0\t0\t"));                  // four fields
+    CHECK(refused("1\t0\t0\t\t\t"));              // six
+    CHECK(refused("0\t0\t0\t\t"));                // kind 0
+    CHECK(refused("6\t0\t0\t\t"));                // kind 6
+    CHECK(refused("10\t0\t0\t\t"));               // kind 10
+    CHECK(refused("-1\t0\t0\t\t"));
+    CHECK(refused("a\t0\t0\t\t"));
+    CHECK(refused("1\t2\t0\t\t"));                // flags
+    CHECK(refused("1\t\t0\t\t"));
+    CHECK(refused("1\t0\t\t\t"));                 // an empty maximum
+    CHECK(refused("5\t0\t1001\t\t"));
+    CHECK(refused("5\t0\t99999\t\t"));
+    CHECK(refused("5\t0\t18446744073709551616\t\t"));
+    CHECK(refused("5\t0\t-1\t\t"));
+    CHECK(refused("5\t0\t1x\t\t"));
+    CHECK(refused("5\t0\t0001\t\t"));             // leading zeros
+    CHECK(refused("5\t0\t01\t\t"));
+    // A field that does not fit the kind.
+    CHECK(refused("1\t0\t5\t\t"));                // a maximum for an open
+    CHECK(refused("3\t0\t5\t\t"));
+    CHECK(refused("3\t1\t0\t\t"));                // several saves
+    CHECK(refused("4\t1\t0\t\t"));                // several folders
+    CHECK(refused("4\t0\t0\ttext/plain\t"));      // a type for a folder
+    CHECK(refused("1\t0\t0\t\ttitle"));           // a title for an open
+    CHECK(refused("5\t0\t1\t\ttitle"));
+    CHECK(refused("4\t0\t0\t\ttitle"));
+    // The MIME types.
+    CHECK(refused("1\t0\t0\t" + types8 + "\ni/i\t"));                        // nine
+    CHECK(refused("1\t0\t0\ttext/plain\n\t"));                              // an empty last one
+    CHECK(refused("1\t0\t0\t\ntext/plain\t"));
+    CHECK(refused("1\t0\t0\ttext\t"));                                       // no slash
+    CHECK(refused("1\t0\t0\t/plain\t"));
+    CHECK(refused("1\t0\t0\ttext/\t"));
+    CHECK(refused("1\t0\t0\ttext/pl/ain\t"));                                // two slashes
+    CHECK(refused("1\t0\t0\ttext/pla in\t"));
+    CHECK(refused("1\t0\t0\ttext/pla;in\t"));
+    CHECK(refused("1\t0\t0\ttext/pl\x01in\t"));
+    CHECK(refused("1\t0\t0\ttext/pl\xc3\xa4in\t"));                          // not ASCII
+    CHECK(refused("1\t0\t0\t" + std::string(50, 'a') + "/" + std::string(50, 'b') + "\t"));  // 101 bytes
+    CHECK(refused("1\t0\t0\t" + std::string(2000, 'a') + "/b\t"));
+    // The title.
+    CHECK(refused("3\t0\t0\t\t" + std::string(201, 'x')));
+    CHECK(refused("3\t0\t0\t\tnew\nline"));
+    CHECK(refused("3\t0\t0\t\tcarriage\rreturn"));
+    CHECK(refused("3\t0\t0\t\tdel\x7f"));
+    CHECK(refused("3\t0\t0\t\tescape\x1b[2J"));
+    CHECK(refused("3\t0\t0\t\tc1 \xc2\x85 control"));                // U+0085, which some hosts take for a line break
+    CHECK(refused("3\t0\t0\t\tc1 \xc2\x9f control"));
+    CHECK(refused("3\t0\t0\t\tline \xe2\x80\xa8 separator"));        // U+2028
+    CHECK(refused("3\t0\t0\t\tparagraph \xe2\x80\xa9 separator"));   // U+2029
+    CHECK(refused("3\t0\t0\t\tCancel\xe2\x80\xae" "noitcA"));         // U+202E, a bidirectional override
+    CHECK(refused("3\t0\t0\t\tisolate \xe2\x81\xa6 x"));             // U+2066
+    CHECK(refused("3\t0\t0\t\tzero \xe2\x80\x8b width"));            // U+200B
+    CHECK(refused("3\t0\t0\t\tmark \xef\xbb\xbf bom"));              // U+FEFF
+    CHECK(refused("3\t0\t0\t\tannotation \xef\xbf\xb9 x"));          // U+FFF9
+    CHECK(refused("3\t0\t0\t\tlone \x80 continuation"));
+    CHECK(refused("3\t0\t0\t\ttruncated \xe2\x82"));
+    CHECK(refused("3\t0\t0\t\ttruncated \xf0"));
+    CHECK(refused("3\t0\t0\t\toverlong \xc0\xaf"));
+    CHECK(refused("3\t0\t0\t\toverlong \xe0\x80\xaf"));
+    CHECK(refused("3\t0\t0\t\tsurrogate \xed\xa0\x80"));
+    // An emoji as two surrogates, as JNI's modified UTF-8 gives it.
+    CHECK(refused("3\t0\t0\t\tmodified UTF-8 \xed\xa0\xbd\xed\xb8\x80"));
+    CHECK(refused("3\t0\t0\t\ttoo high \xf4\x90\x80\x80"));
+    CHECK(refused("3\t0\t0\t\tinvalid \xff"));
+    CHECK(accepted("3\t0\t0\t\tright to left \xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d, accents \xc3\xa9, \xe2\x81\x84"));
+    take_requests();  // the accepted ones reached the handler, and their cancels
+    // The whole text: a NUL-less run of the limit's length or more is refused, not cut.
+    CHECK(refused(std::string(1535, '1')));
+    CHECK(refused("3\t0\t0\t\t" + std::string(2000, 'x')));
+    {
+        std::vector<char> unterminated(4096, 'x');  // no NUL within the limit
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(unterminated.data()), 5) == -einval);
+    }
+    // The ID and the address.
+    CHECK(refused("1\t0\t0\t\t", 0));
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, 0, 5) == -efault);
+    CHECK(take_requests().empty());
+}
+
+TEST(pick_requests_wait_for_their_answer_four_at_most_each_with_its_own_id) {
+    take_requests();
+    static const char open[] = "1\t0\t0\t\t";
+    const auto pick = [](std::uint64_t id) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(open), id);
+    };
+    CHECK(pick(21) == 0 && pick(22) == 0 && pick(23) == 0 && pick(24) == 0);
+    CHECK(pick(25) == -ebusy);   // four wait
+    CHECK(pick(22) == -eexist);  // an ID that waits
+    CHECK(take_requests().size() == 4);
+    // An answer frees its ID, a cancel the same and tells the host, and neither is possible twice.
+    CHECK(apkrt_session_post(APKRT_EVENT_PICK_RESULT, 21, 0, 0) != 0);
+    CHECK(pick(25) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 22) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 2);
+    if (seen.size() == 2) {
+        CHECK(seen[0].type == APKRT_REQUEST_PICK && seen[0].argument == 25);
+        CHECK(seen[1].type == APKRT_REQUEST_PICK_CANCEL && seen[1].argument == 22 && !seen[1].had_text);
+    }
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 22) == -enoent);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 21) == -enoent);  // answered
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 0) == -einval);
+    CHECK(take_requests().empty());
+    for (const std::uint64_t id : std::initializer_list<std::uint64_t>{23, 24, 25}) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
+    }
+    take_requests();
+}
+
+TEST(pick_requests_from_many_threads_reach_the_handler_one_at_a_time) {
+    take_requests();
+    pick_in_handler.store(0);
+    pick_overlap.store(false);
+    slow_pick.store(true);
+    static const char open[] = "1\t0\t0\t\t";
+    std::atomic<int> taken{0};
+    std::vector<std::thread> guests;
+    for (std::uint64_t id = 31; id < 35; ++id) {
+        guests.emplace_back([&, id] {
+            if (call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(open), id) == 0) taken.fetch_add(1);
+        });
+    }
+    for (auto &guest : guests) guest.join();
+    slow_pick.store(false);
+    CHECK(taken.load() == 4);
+    CHECK(!pick_overlap.load());
+    CHECK(take_requests().size() == 4);
+    for (std::uint64_t id = 31; id < 35; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
+    }
+    take_requests();
 }
 
 TEST(a_request_of_another_type_is_refused) {
