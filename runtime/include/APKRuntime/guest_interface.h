@@ -391,7 +391,8 @@ struct apkrt_hardware_buffer {
 // libmediandk's AMediaCodec and the framework's MediaCodec decode video through the host's decoders
 // (apkrt_set_video_decoders in apkrt.h, VideoToolbox in graphics/host): the runtime keeps the process's decoders by
 // IDs of its own, copies the guest's input to the host and the host's decoded frames to the guest, checking every size
-// and address on the way.
+// and address on the way. A decoder for a surface (ADR-0060 e2c) keeps its frames on the host instead: the guest gets
+// a token for each and has the host draw it into one of its hardware buffers, a slot of the surface's queue.
 
 /// What video_decoder does, its x0; x1 the address of a struct apkrt_video_decoder, or the ID for FLUSH and DESTROY.
 enum apkrt_video_decoder_op {
@@ -400,6 +401,8 @@ enum apkrt_video_decoder_op {
     APKRT_VIDEO_DECODER_DEQUEUE,     // id and a buffer (data, size: its capacity) in; the oldest decoded frame out
     APKRT_VIDEO_DECODER_FLUSH,       // the ID: every frame queued or decoded is dropped
     APKRT_VIDEO_DECODER_DESTROY,     // the ID: the decoder goes, after the calls on it still running
+    APKRT_VIDEO_DECODER_RENDER,      // id, a frame's token (data) and a hardware buffer's ID (size): the frame drawn
+    APKRT_VIDEO_DECODER_DISCARD,     // id and a frame's token (data): the frame goes undrawn
 };
 
 /// A decoder's stream: the codec's elementary stream, in Annex B with start codes as MediaCodec takes it.
@@ -410,6 +413,12 @@ enum apkrt_video_decoder_type {
 
 /// flags: QUEUE's last input (size may be 0), and DEQUEUE's answer after the last frame (size 0).
 #define APKRT_VIDEO_DECODER_END_OF_STREAM 1u
+
+/// CREATE's flag: a decoder for a surface (ADR-0060 e2c), whose frames stay the host's. Its DEQUEUE writes no bytes:
+/// it gives a frame's sizes, crop, time and flags with its token in `data` (never 0), size, stride and slice height 0,
+/// and the frame waits for the RENDER or DISCARD of its token; at most APKRT_VIDEO_DECODER_MAX_WAITING (apkrt.h) wait
+/// at once, and DEQUEUE answers -EAGAIN past them. A flush or a destroy ends every token.
+#define APKRT_VIDEO_DECODER_SURFACE 2u
 
 /// One call's arguments and answers (64 bytes). An operation leaves the fields it does not name alone.
 /// DEQUEUE writes a frame as NV12: `slice_height` rows of `stride` bytes of Y, then (slice_height + 1) / 2 rows of
@@ -432,8 +441,11 @@ struct apkrt_video_decoder {
 /// APKRT_VIDEO_DECODER_MAX_CODEC_DATA or an access unit above APKRT_VIDEO_DECODER_MAX_UNIT (apkrt.h); -EBADF for an ID
 /// that is not there, or no more;
 /// -EBUSY for a CREATE past APKRT_VIDEO_DECODER_MAX_DECODERS; DEQUEUE -EAGAIN while no frame is decoded, and
-/// -ENOSPC with the frame's size and rows out (the frame stays) for a buffer too small; else the host's answer. The
-/// number follows hardware_buffer's.
+/// -ENOSPC with the frame's size and rows out (the frame stays) for a buffer too small. RENDER draws the frame of
+/// token `data` into the guest's hardware buffer of ID `size` (AHardwareBuffer_getId's), scaled to the buffer's size,
+/// and DISCARD drops it; either ends the token, whatever its answer but -EBADF and -EFAULT; -EINVAL for a decoder not
+/// made for a surface, a token that does not wait, or a buffer that is not there, has more than one layer, or has a
+/// format the host does not draw into. Else the host's answer. The number follows hardware_buffer's.
 #define APKRT_NR_VIDEO_DECODER 4128
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)

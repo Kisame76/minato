@@ -19,6 +19,11 @@
      frame reaches the runtime that it would refuse. The crop is the picture's whole size, which VideoToolbox's
      buffers have.
    - The end of the stream: the delayed frames, then a frame of size 0 with APKRT_VIDEO_DECODER_END_OF_STREAM.
+   - A decoder for a surface (APKRT_VIDEO_DECODER_SURFACE, ADR-0060 e2c) keeps VideoToolbox's image instead of a copy:
+     peek gives the frame a token of the decoder's, pop puts it among the waiting ones (at most
+     APKRT_VIDEO_DECODER_MAX_WAITING, peek -EAGAIN past them), and render draws it into the guest's hardware buffer, a
+     slot of the surface's queue, by one copy on the GPU (decision 3): VTPixelTransferSession into a YUV 420 buffer
+     ('420v', an ImageReader's), scaled to its size. RGBA buffers come with e2c2.
    - Each unit in VideoToolbox has a token of its own, which its call back or its refusal ends once. A flush or a
      destroy ends every token, so that no frame of its earlier input comes after it, waits for VideoToolbox's frames in
      flight and ends the session; a flush's next input makes a new one, as the next unit does after VideoToolbox ended
@@ -54,17 +59,23 @@ enum { max_sps_ids = 32, max_pps_ids = 256 };
 
 @interface MinatoDecodedFrame : NSObject {
 @public
-    NSMutableData *bytes;
+    NSMutableData *bytes;     // a ByteBuffer decoder's frame
+    CVPixelBufferRef image;   // a surface decoder's, retained
     struct apkrt_video_frame frame;
 }
 @end
 
 @implementation MinatoDecodedFrame
+- (void)dealloc {
+    if (image != NULL) CVPixelBufferRelease(image);
+}
 @end
 
 @interface MinatoVideoDecoder : NSObject {
 @public
     uint32_t type;
+    BOOL surface;                       // frames by tokens, for render
+    VTPixelTransferSessionRef transfer; // render's into YUV buffers, made at the first; the runtime's thread alone
     NSMutableDictionary<NSNumber *, NSData *> *sets[3];  // the stream's VPSs, SPSs and PPSs, by their IDs
     int sps_depth[max_sps_ids];                          // each SPS's reorder depth, -1 for none
     int pps_sps[max_pps_ids];                            // the SPS each PPS names, -1 for none
@@ -79,6 +90,8 @@ enum { max_sps_ids = 32, max_pps_ids = 256 };
     NSMutableIndexSet *in_flight;                  // the tokens of units in VideoToolbox, not yet called back
     NSUInteger next_token;
     MinatoDecodedFrame *peeked;
+    NSMutableDictionary<NSNumber *, MinatoDecodedFrame *> *waiting;  // a surface decoder's popped frames, by token
+    uint64_t next_frame_token;
 }
 @end
 
@@ -93,6 +106,8 @@ enum { max_sps_ids = 32, max_pps_ids = 256 };
         pending_depth = -1;
         in_flight = [NSMutableIndexSet indexSet];
         next_token = 1;
+        waiting = [NSMutableDictionary dictionary];
+        next_frame_token = 1;
         for (int kind = 0; kind < 3; kind++) sets[kind] = [NSMutableDictionary dictionary];
         for (int id = 0; id < max_sps_ids; id++) sps_depth[id] = -1;
         for (int id = 0; id < max_pps_ids; id++) pps_sps[id] = -1;
@@ -107,6 +122,10 @@ enum { max_sps_ids = 32, max_pps_ids = 256 };
     }
     if (format != NULL) {
         CFRelease(format);
+    }
+    if (transfer != NULL) {
+        VTPixelTransferSessionInvalidate(transfer);
+        CFRelease(transfer);
     }
     pthread_mutex_destroy(&mutex);
 }
@@ -302,6 +321,30 @@ static MinatoDecodedFrame *copy_image(CVImageBufferRef image, int64_t time_us) {
     return made;
 }
 
+/* A surface decoder's frame of a decoded image, which it keeps, or nil: the same images copy_image takes. */
+static MinatoDecodedFrame *keep_image(CVImageBufferRef image, int64_t time_us) {
+    const OSType pixels = CVPixelBufferGetPixelFormatType(image);
+    const size_t width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image);
+    const size_t limit = APKRT_VIDEO_DECODER_MAX_DIMENSION;
+    if (CVPixelBufferGetPlaneCount(image) != 2 ||
+        (pixels != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange &&
+         pixels != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) ||
+        width == 0 || height == 0 || width > limit || height > limit) {
+        return nil;
+    }
+    MinatoDecodedFrame *made = nil;
+    @try {
+        made = [MinatoDecodedFrame new];
+    } @catch (id thrown) {
+        return nil;
+    }
+    made->image = CVPixelBufferRetain(image);
+    made->frame = (struct apkrt_video_frame){.width = (uint32_t)width, .height = (uint32_t)height,
+                                             .crop_right = (uint16_t)(width - 1), .crop_bottom = (uint16_t)(height - 1),
+                                             .time_us = time_us};
+    return made;
+}
+
 /* VideoToolbox's answer for one unit: its frame is held, and the earliest one becomes ready past the reorder depth. */
 static void decoded(void *context, void *frame_context, OSStatus status, VTDecodeInfoFlags flags,
                     CVImageBufferRef image, CMTime time, CMTime duration) {
@@ -311,7 +354,8 @@ static void decoded(void *context, void *frame_context, OSStatus status, VTDecod
         const int64_t time_us =
             CMTimeConvertScale(time, 1000000, kCMTimeRoundingMethod_RoundHalfAwayFromZero).value;
         const BOOL kept = status == noErr && image != NULL && (flags & kVTDecodeInfo_FrameDropped) == 0;
-        MinatoDecodedFrame *made = kept ? copy_image(image, time_us) : nil;
+        MinatoDecodedFrame *made = !kept ? nil : decoder->surface ? keep_image(image, time_us)
+                                                                  : copy_image(image, time_us);
         @try {
             locked(decoder, ^{
                 if ([decoder->in_flight containsIndex:(NSUInteger)(uintptr_t)frame_context]) {
@@ -459,6 +503,7 @@ static int create(void *context, const struct apkrt_video_decoder_description *d
             MinatoVideoDecoder *decoder = [MinatoVideoDecoder new];
             if (decoder == nil) return -linux_enomem;
             decoder->type = description->type;
+            decoder->surface = (description->flags & APKRT_VIDEO_DECODER_SURFACE) != 0;
             if (description->codec_data != NULL && description->codec_data_size > 0) {
                 NSMutableData *ignored = [NSMutableData data];
                 read_units(decoder, description->codec_data, description->codec_data_size, ignored);
@@ -534,8 +579,11 @@ static int peek(void *context, uint64_t handle, struct apkrt_video_frame *frame)
             if (decoder == nil) return -linux_einval;
             __block int result = -linux_eagain;
             locked(decoder, ^{
-                if (decoder->frames.count > 0) {
+                if (decoder->frames.count > 0 && decoder->waiting.count < APKRT_VIDEO_DECODER_MAX_WAITING) {
                     MinatoDecodedFrame *first = decoder->frames[0];
+                    if (first->image != NULL && first->frame.token == 0) {
+                        first->frame.token = decoder->next_frame_token++;
+                    }
                     decoder->peeked = first;
                     *frame = first->frame;
                     frame->data = first->bytes.bytes;
@@ -557,7 +605,9 @@ static void pop(void *context, uint64_t handle) {
             if (decoder == nil) return;
             locked(decoder, ^{
                 if (decoder->peeked != nil) {
-                    [decoder->frames removeObjectIdenticalTo:decoder->peeked];
+                    MinatoDecodedFrame *popped = decoder->peeked;
+                    if (popped->image != NULL) decoder->waiting[@(popped->frame.token)] = popped;
+                    [decoder->frames removeObjectIdenticalTo:popped];
                     decoder->peeked = nil;
                 }
             });
@@ -577,6 +627,7 @@ static void drop_all(MinatoVideoDecoder *decoder) {
         [decoder->frames removeAllObjects];
         [decoder->held removeAllObjects];
         [decoder->in_flight removeAllIndexes];
+        [decoder->waiting removeAllObjects];
         decoder->peeked = nil;
     });
 }
@@ -618,7 +669,63 @@ static void destroy(void *context, uint64_t handle) {
     }
 }
 
-static const struct apkrt_video_decoders functions = {create, queue, peek, pop, flush, destroy, NULL};
+/* The waiting frame of the token, which leaves the waiting ones, or nil. */
+static MinatoDecodedFrame *take_waiting(MinatoVideoDecoder *decoder, uint64_t token) {
+    __block MinatoDecodedFrame *frame = nil;
+    locked(decoder, ^{
+        frame = decoder->waiting[@(token)];
+        [decoder->waiting removeObjectForKey:@(token)];
+    });
+    return frame;
+}
+
+/* AHardwareBuffer's Y8Cb8Cr8_420, an ImageReader's YUV_420_888: hardware_buffer.m's '420v'. */
+enum { yuv_420_format = 0x23 };
+
+static int render(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target) {
+    (void)context;
+    @try {
+        @autoreleasepool {
+            MinatoVideoDecoder *decoder = find_decoder(handle);
+            if (decoder == nil || !decoder->surface) return -linux_einval;
+            MinatoDecodedFrame *frame = take_waiting(decoder, token);
+            if (frame == nil || target == NULL || target->buffers != minato_graphics_hardware_buffers()->context ||
+                target->description.format != yuv_420_format || target->description.layers != 1) {
+                return -linux_einval;
+            }
+            IOSurfaceRef surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(target->handle);
+            if (surface == NULL) return -linux_einval;
+            CVPixelBufferRef into = NULL;
+            int result = -linux_eio;
+            if (decoder->transfer == NULL) VTPixelTransferSessionCreate(NULL, &decoder->transfer);
+            if (decoder->transfer != NULL &&
+                CVPixelBufferCreateWithIOSurface(NULL, surface, NULL, &into) == kCVReturnSuccess) {
+                result = VTPixelTransferSessionTransferImage(decoder->transfer, frame->image, into) == noErr
+                             ? 0
+                             : -linux_eio;
+                CVPixelBufferRelease(into);
+            }
+            CFRelease(surface);
+            return result;
+        }
+    } @catch (id thrown) {
+        return exception_errno(thrown);
+    }
+}
+
+static void discard(void *context, uint64_t handle, uint64_t token) {
+    (void)context;
+    @try {
+        @autoreleasepool {
+            MinatoVideoDecoder *decoder = find_decoder(handle);
+            if (decoder != nil) (void)take_waiting(decoder, token);
+        }
+    } @catch (id thrown) {
+        // Nothing to answer: the token has ended for the runtime either way.
+    }
+}
+
+static const struct apkrt_video_decoders functions = {create, queue, peek, pop, flush, destroy, render, discard, NULL};
 
 const struct apkrt_video_decoders *minato_graphics_video_decoders(void) {
     return &functions;

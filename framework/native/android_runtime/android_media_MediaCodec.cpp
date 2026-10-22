@@ -20,6 +20,7 @@
 // and audio presentations (UnsatisfiedLinkError, as no codec of ours has them).
 #define LOG_TAG "MediaCodec_JNI"
 
+#include <android/native_window.h>
 #include <dlfcn.h>
 #include <jni.h>
 #include <media/NdkMediaCodec.h>
@@ -35,6 +36,10 @@
 #include <log/log.h>
 
 #include "core_jni_helpers.h"
+
+// android_view_Surface.cpp's: a Java Surface's window, acquired for the caller (libandroid's
+// ANativeWindow_fromSurface).
+extern "C" ANativeWindow *minato_ANativeWindow_fromSurface(JNIEnv *env, jobject surface);
 
 namespace android {
 namespace {
@@ -362,14 +367,23 @@ void MediaCodec_configure(JNIEnv *env, jobject thiz, jobjectArray keys, jobjectA
                           jobject crypto, jobject descrambler, jint flags) {
     AMediaCodec *codec = live(env, thiz);
     if (codec == nullptr) return;
-    if (surface != nullptr || crypto != nullptr || descrambler != nullptr) {
-        jniThrowException(env, "java/lang/IllegalArgumentException", "not supported yet: surface or crypto");
-        return;  // surfaces with e2c; no crypto or descrambler
+    if (crypto != nullptr || descrambler != nullptr) {
+        jniThrowException(env, "java/lang/IllegalArgumentException", "not supported yet: crypto");
+        return;  // no crypto or descrambler
+    }
+    ANativeWindow *window = surface != nullptr ? minato_ANativeWindow_fromSurface(env, surface) : nullptr;
+    if (surface != nullptr && window == nullptr) {
+        jniThrowException(env, "java/lang/IllegalArgumentException", "The surface has been released");
+        return;
     }
     AMediaFormat *format = format_of(env, keys, values);
-    if (format == nullptr) return;
-    const media_status_t status = AMediaCodec_configure(codec, format, nullptr, nullptr, static_cast<uint32_t>(flags));
+    if (format == nullptr) {
+        if (window != nullptr) ANativeWindow_release(window);
+        return;
+    }
+    const media_status_t status = AMediaCodec_configure(codec, format, window, nullptr, static_cast<uint32_t>(flags));
     AMediaFormat_delete(format);
+    if (window != nullptr) ANativeWindow_release(window);  // the codec holds its own
     throw_status(env, status, "configure");
 }
 
@@ -438,14 +452,18 @@ jint MediaCodec_dequeueOutputBuffer(JNIEnv *env, jobject thiz, jobject info, jlo
     return dequeued(env, index, "dequeueOutputBuffer");
 }
 
-void MediaCodec_releaseOutputBuffer(JNIEnv *env, jobject thiz, jint index, jboolean render, jboolean, jlong) {
+void MediaCodec_releaseOutputBuffer(JNIEnv *env, jobject thiz, jint index, jboolean render, jboolean update_time,
+                                    jlong timestamp_ns) {
     AMediaCodec *codec = live(env, thiz);
     if (codec == nullptr) return;
     if (index < 0) {
         jniThrowException(env, "java/lang/IllegalArgumentException", nullptr);
         return;
     }
-    throw_status(env, AMediaCodec_releaseOutputBuffer(codec, static_cast<size_t>(index), render),
+    const size_t buffer = static_cast<size_t>(index);
+    throw_status(env,
+                 render && update_time ? AMediaCodec_releaseOutputBufferAtTime(codec, buffer, timestamp_ns)
+                                       : AMediaCodec_releaseOutputBuffer(codec, buffer, render),
                  "releaseOutputBuffer");
 }
 
@@ -575,14 +593,23 @@ jobject MediaCodec_getOwnCodecInfo(JNIEnv *, jobject) {
 }
 
 void MediaCodec_setVideoScalingMode(JNIEnv *env, jobject thiz, jint) {
-    live(env, thiz);  // no surface yet: nothing to scale (e2c)
+    live(env, thiz);  // a frame always fills the surface's buffer (VIDEO_SCALING_MODE_SCALE_TO_FIT)
 }
 
 void MediaCodec_enableOnFrameRenderedListener(JNIEnv *, jobject, jboolean) {
 }
 
-void MediaCodec_setSurface(JNIEnv *env, jobject, jobject) {
-    jniThrowException(env, "java/lang/IllegalArgumentException", "not supported yet: surface");  // e2c
+void MediaCodec_setSurface(JNIEnv *env, jobject thiz, jobject surface) {
+    AMediaCodec *codec = live(env, thiz);
+    if (codec == nullptr) return;
+    ANativeWindow *window = surface != nullptr ? minato_ANativeWindow_fromSurface(env, surface) : nullptr;
+    if (window == nullptr) {
+        jniThrowException(env, "java/lang/IllegalArgumentException", "The surface has been released");
+        return;
+    }
+    const media_status_t status = AMediaCodec_setOutputSurface(codec, window);
+    ANativeWindow_release(window);
+    throw_status(env, status, "setSurface");
 }
 
 jobject MediaCodec_getMetrics(JNIEnv *, jobject) {

@@ -1,8 +1,9 @@
 // Checks the guest's video decoders (ADR-0060 e2b3): video_decoder's operations through the syscall dispatcher, as
 // libmediandk's AMediaCodec makes them, against a fake table of host decoders: the IDs the runtime keeps, the limits
 // and checks that keep the host sound against hostile values, what reaches the host and what comes back, and a
-// DESTROY that waits for a QUEUE still in the host. graphics/host's decoders on VideoToolbox have their own test, the
-// guest's codec the fixture media-codec-test against Android 15.
+// DESTROY that waits for a QUEUE still in the host; a surface decoder's tokens, and its frames drawn into the guest's
+// hardware buffers (ADR-0060 e2c) against a fake table of those too. graphics/host's decoders on VideoToolbox have
+// their own test, the guest's codec the fixture media-codec-test against Android 15.
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 #include "syscall_frame.h"
@@ -91,6 +92,8 @@ struct Fake {
         std::vector<std::int64_t> times;
         std::vector<std::uint32_t> flags;
         std::vector<apkrt_video_frame> frames;  // peek gives the first
+        std::vector<std::uint64_t> rendered, discarded;  // the tokens
+        std::vector<apkrt_video_target> targets;         // each render's
         std::vector<std::vector<unsigned char>> frame_bytes;
         int flushes = 0;
         bool destroyed = false;
@@ -100,7 +103,7 @@ struct Fake {
     std::map<std::uint64_t, Decoder> decoders;
     std::uint64_t next = 500;
     int creates = 0, destroys = 0, overlaps = 0;
-    int refuse_create = 0, queue_answer = 0, peek_answer = 0;  // when not 0
+    int refuse_create = 0, queue_answer = 0, peek_answer = 0, render_answer = 0;  // when not 0
     bool fail_after_create = false;  // the runtime's allocations fail once the host's decoder is made
     // A queue waits here while `hold_queue`, until released, so that a destroy can race it.
     bool hold_queue = false, queue_entered = false;
@@ -109,7 +112,7 @@ struct Fake {
     void reset() {
         const std::lock_guard hold(mutex);
         decoders.clear();
-        creates = destroys = overlaps = refuse_create = queue_answer = peek_answer = 0;
+        creates = destroys = overlaps = refuse_create = queue_answer = peek_answer = render_answer = 0;
         fail_after_create = false;
         hold_queue = queue_entered = false;
     }
@@ -133,6 +136,20 @@ struct Fake {
         frame.crop_right = static_cast<std::uint16_t>(width - 1);
         frame.crop_bottom = static_cast<std::uint16_t>(height - 1);
         frame.time_us = time, frame.flags = flags;
+        decoder.frames.push_back(frame);
+    }
+
+    /// A surface decoder's frame of `width` x `height` with the time and its token, no bytes.
+    void add_surface_frame(std::uint64_t handle, std::uint32_t width, std::uint32_t height, std::int64_t time,
+                           std::uint64_t token) {
+        const std::lock_guard hold(mutex);
+        Decoder &decoder = decoders.at(handle);
+        decoder.frame_bytes.emplace_back();
+        apkrt_video_frame frame{};
+        frame.width = width, frame.height = height;
+        frame.crop_right = static_cast<std::uint16_t>(width - 1);
+        frame.crop_bottom = static_cast<std::uint16_t>(height - 1);
+        frame.time_us = time, frame.token = token;
         decoder.frames.push_back(frame);
     }
 };
@@ -181,7 +198,8 @@ int fake_peek(void *context, std::uint64_t handle, apkrt_video_frame *frame) {
     if (self.peek_answer != 0) return self.peek_answer;
     if (decoder.frames.empty()) return -static_cast<int>(eagain);
     *frame = decoder.frames.front();
-    frame->data = decoder.frame_bytes.front().data();
+    frame->data = frame->token != 0 || decoder.frame_bytes.front().empty() ? nullptr
+                                                                          : decoder.frame_bytes.front().data();
     return 0;
 }
 
@@ -213,7 +231,87 @@ void fake_destroy(void *context, std::uint64_t handle) {
     self.destroys++;
 }
 
-const apkrt_video_decoders table{fake_create, fake_queue, fake_peek, fake_pop, fake_flush, fake_destroy, &fake};
+int fake_render(void *context, std::uint64_t handle, std::uint64_t token, const apkrt_video_target *target) {
+    auto &self = *static_cast<Fake *>(context);
+    const std::lock_guard hold(self.mutex);
+    Fake::Decoder &decoder = self.decoders.at(handle);
+    decoder.rendered.push_back(token);
+    decoder.targets.push_back(*target);
+    return self.render_answer;
+}
+
+void fake_discard(void *context, std::uint64_t handle, std::uint64_t token) {
+    auto &self = *static_cast<Fake *>(context);
+    const std::lock_guard hold(self.mutex);
+    self.decoders.at(handle).discarded.push_back(token);
+}
+
+const apkrt_video_decoders table{fake_create, fake_queue,  fake_peek,    fake_pop, fake_flush,
+                                 fake_destroy, fake_render, fake_discard, &fake};
+
+/// A fake table of hardware buffers for the targets: handles from 900, each buffer's frees counted.
+struct FakeBuffers {
+    std::mutex mutex;
+    std::uint64_t next = 900;
+    std::map<std::uint64_t, int> frees;
+};
+
+FakeBuffers buffers;
+
+int buffers_supported(void *, const apkrt_hardware_buffer_description *) {
+    return 1;
+}
+
+int buffers_allocate(void *context, const apkrt_hardware_buffer_description *description, std::uint64_t *handle,
+                     std::uint32_t *stride) {
+    auto &self = *static_cast<FakeBuffers *>(context);
+    const std::lock_guard hold(self.mutex);
+    *handle = self.next++;
+    *stride = description->width;
+    return 0;
+}
+
+int buffers_lock(void *, std::uint64_t, std::uint64_t, void **, std::uint32_t *, std::uint32_t *) {
+    return -static_cast<int>(einval);
+}
+
+int buffers_unlock(void *, std::uint64_t) {
+    return 0;
+}
+
+void buffers_free(void *context, std::uint64_t handle) {
+    auto &self = *static_cast<FakeBuffers *>(context);
+    const std::lock_guard hold(self.mutex);
+    self.frees[handle]++;
+}
+
+const apkrt_hardware_buffers buffers_table{buffers_supported, buffers_allocate, buffers_lock, buffers_unlock,
+                                           buffers_free, &buffers};
+
+/// A hardware buffer of the guest's, YUV 420 (or `format`), through hardware_buffer's ALLOCATE: its ID.
+std::uint64_t guest_buffer(std::uint32_t layers = 1, std::uint32_t format = 0x23) {
+    CHECK(apkrt_set_hardware_buffers(&buffers_table) == 0);
+    apkrt_hardware_buffer buffer{};
+    buffer.width = 320, buffer.height = 180, buffer.layers = layers, buffer.format = format;
+    buffer.usage = 0x300;  // GPU sampled and framebuffer
+    apkrt_syscall_frame frame{};
+    frame.x[0] = APKRT_HARDWARE_BUFFER_ALLOCATE;
+    frame.x[1] = reinterpret_cast<std::uint64_t>(&buffer);
+    frame.x[8] = APKRT_NR_HARDWARE_BUFFER;
+    apkrt_syscall_dispatch(&frame);
+    CHECK(frame.x[0] == 0 && buffer.id != 0);
+    return buffer.id;
+}
+
+/// hardware_buffer's RELEASE of the guest's reference.
+void release_guest_buffer(std::uint64_t id) {
+    apkrt_syscall_frame frame{};
+    frame.x[0] = APKRT_HARDWARE_BUFFER_RELEASE;
+    frame.x[1] = id;
+    frame.x[8] = APKRT_NR_HARDWARE_BUFFER;
+    apkrt_syscall_dispatch(&frame);
+    CHECK(frame.x[0] == 0);
+}
 
 void use_fake() {
     fake.reset();
@@ -227,8 +325,9 @@ apkrt_video_decoder asked(std::uint32_t type = avc, std::uint32_t width = 320, s
 }
 
 /// A decoder made through CREATE: its ID, and the fake's handle (the newest).
-std::uint64_t create(std::uint64_t *handle = nullptr, std::uint32_t type = avc) {
+std::uint64_t create(std::uint64_t *handle = nullptr, std::uint32_t type = avc, std::uint32_t flags = 0) {
     apkrt_video_decoder decoder = asked(type);
+    decoder.flags = flags;
     CHECK(call(APKRT_VIDEO_DECODER_CREATE, decoder) == 0);
     if (handle != nullptr) {
         const std::lock_guard hold(fake.mutex);
@@ -269,11 +368,13 @@ TEST(without_host_decoders_nothing_is_made) {
 }
 
 TEST(a_table_with_a_function_missing_is_refused) {
-    for (int missing = 0; missing < 6; missing++) {
+    for (int missing = 0; missing < 8; missing++) {
         apkrt_video_decoders partial = table;
         void **functions[] = {reinterpret_cast<void **>(&partial.create), reinterpret_cast<void **>(&partial.queue),
                               reinterpret_cast<void **>(&partial.peek), reinterpret_cast<void **>(&partial.pop),
-                              reinterpret_cast<void **>(&partial.flush), reinterpret_cast<void **>(&partial.destroy)};
+                              reinterpret_cast<void **>(&partial.flush), reinterpret_cast<void **>(&partial.destroy),
+                              reinterpret_cast<void **>(&partial.render),
+                              reinterpret_cast<void **>(&partial.discard)};
         *functions[missing] = nullptr;
         CHECK(apkrt_set_video_decoders(&partial) == -1);
     }
@@ -683,6 +784,227 @@ TEST(a_destroy_still_waiting_counts_against_the_limit) {
     for (const std::uint64_t id : ids) CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
     const std::lock_guard hold(fake.mutex);
     CHECK(fake.creates == fake.destroys);
+}
+
+constexpr std::uint32_t surface = APKRT_VIDEO_DECODER_SURFACE;
+
+TEST(a_surface_decoder_hands_out_tokens_not_bytes) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).description.flags == surface);
+    }
+    fake.add_surface_frame(handle, 320, 180, 33333, 77);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;  // no buffer: the frame stays the host's
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
+    CHECK(decoder.data == 77 && decoder.size == 0 && decoder.stride == 0 && decoder.slice_height == 0);
+    CHECK(decoder.width == 320 && decoder.height == 180 && decoder.crop_right == 319 && decoder.crop_bottom == 179);
+    CHECK(decoder.time_us == 33333 && decoder.flags == 0);
+    fake.add_frame(handle, 64, 48, 64, 0, APKRT_VIDEO_DECODER_END_OF_STREAM);
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
+    CHECK(decoder.flags == APKRT_VIDEO_DECODER_END_OF_STREAM && decoder.size == 0 && decoder.data == 0);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(create_refuses_flags_it_does_not_have) {
+    use_fake();
+    for (const std::uint32_t flags : {1u, 4u, surface | 8u, 0x80000000u}) {
+        apkrt_video_decoder decoder = asked();
+        decoder.flags = flags;
+        CHECK(call(APKRT_VIDEO_DECODER_CREATE, decoder) == -einval && decoder.id == 0);
+    }
+    const std::lock_guard hold(fake.mutex);
+    CHECK(fake.creates == 0);
+}
+
+TEST(render_draws_a_waiting_frame_into_the_guests_hardware_buffer) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    const std::uint64_t target = guest_buffer();
+    fake.add_surface_frame(handle, 320, 180, 0, 77);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == 77);
+    decoder.size = target;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, decoder) == 0);
+    {
+        const std::lock_guard hold(fake.mutex);
+        const Fake::Decoder &made = fake.decoders.at(handle);
+        CHECK(made.rendered == std::vector<std::uint64_t>{77} && made.targets.size() == 1);
+        CHECK(made.targets[0].buffers == &buffers && made.targets[0].handle >= 900);
+        CHECK(made.targets[0].description.width == 320 && made.targets[0].description.height == 180);
+        CHECK(made.targets[0].description.format == 0x23 && made.targets[0].description.layers == 1);
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, decoder) == -einval);  // the token has ended
+    std::uint64_t buffer_handle = 0;
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).rendered.size() == 1);
+        buffer_handle = fake.decoders.at(handle).targets[0].handle;
+    }
+    release_guest_buffer(target);  // the guest's last reference: the runtime's of the render is gone already
+    {
+        const std::lock_guard hold(buffers.mutex);
+        CHECK(buffers.frees[buffer_handle] == 1);
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(hostile_renders_never_reach_the_host) {
+    use_fake();
+    std::uint64_t handle = 0, plain_handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    const std::uint64_t plain = create(&plain_handle);
+    const std::uint64_t target = guest_buffer(), layered = guest_buffer(2);
+    for (std::uint64_t token = 1; token <= 4; token++) fake.add_surface_frame(handle, 320, 180, 0, token);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    for (int n = 0; n < 4; n++) CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
+    apkrt_video_decoder bad{};
+    bad.id = plain, bad.data = 1, bad.size = target;  // not a surface decoder
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval && call(APKRT_VIDEO_DECODER_DISCARD, bad) == -einval);
+    bad.id = id, bad.data = 99;  // a token that does not wait
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval && call(APKRT_VIDEO_DECODER_DISCARD, bad) == -einval);
+    bad.data = 0;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval);
+    bad.id = id + 1000, bad.data = 1;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -ebadf);
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, no_access_page()) == -efault);
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, 0) == -efault);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).rendered.empty() && fake.decoders.at(handle).discarded.empty());
+    }
+    // A buffer that is not there, or of two layers: refused, and the token ends, its frame discarded.
+    bad.id = id, bad.data = 1, bad.size = target + 1000;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval);
+    bad.data = 2, bad.size = layered;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval);
+    bad.data = 3, bad.size = 0;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval);
+    bad.data = 1, bad.size = target;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -einval);  // ended
+    fake.render_answer = 12345;
+    bad.data = 4;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, bad) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).rendered == std::vector<std::uint64_t>{4});
+        CHECK((fake.decoders.at(handle).discarded == std::vector<std::uint64_t>{1, 2, 3}));
+    }
+    // The runtime's references of the refused and failed renders are gone: the guest's releases free both buffers.
+    std::size_t freed = 0;
+    {
+        const std::lock_guard hold(buffers.mutex);
+        for (const auto &[buffer_handle, frees] : buffers.frees) freed += static_cast<std::size_t>(frees);
+    }
+    release_guest_buffer(target);
+    release_guest_buffer(layered);
+    {
+        const std::lock_guard hold(buffers.mutex);
+        std::size_t now = 0;
+        for (const auto &[buffer_handle, frees] : buffers.frees) now += static_cast<std::size_t>(frees);
+        CHECK(now == freed + 2);
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0 && call(APKRT_VIDEO_DECODER_DESTROY, plain) == 0);
+}
+
+TEST(discard_ends_a_token_without_drawing) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    fake.add_surface_frame(handle, 320, 180, 0, 5);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == 5);
+    CHECK(call(APKRT_VIDEO_DECODER_DISCARD, decoder) == 0);
+    CHECK(call(APKRT_VIDEO_DECODER_DISCARD, decoder) == -einval);
+    const std::lock_guard hold(fake.mutex);
+    CHECK(fake.decoders.at(handle).discarded == std::vector<std::uint64_t>{5});
+    CHECK(fake.decoders.at(handle).rendered.empty());
+}
+
+TEST(at_most_eight_frames_wait_for_their_render) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    for (std::uint64_t token = 1; token <= APKRT_VIDEO_DECODER_MAX_WAITING + 1; token++) {
+        fake.add_surface_frame(handle, 320, 180, static_cast<std::int64_t>(token), token);
+    }
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    for (std::uint32_t n = 0; n < APKRT_VIDEO_DECODER_MAX_WAITING; n++) {
+        CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0);
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eagain);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).frames.size() == 1);  // the ninth stays the host's
+    }
+    decoder.data = 3;
+    CHECK(call(APKRT_VIDEO_DECODER_DISCARD, decoder) == 0);
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == APKRT_VIDEO_DECODER_MAX_WAITING + 1);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(a_surface_frame_the_host_describes_wrongly_never_reaches_the_guest) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    fake.add_surface_frame(handle, 320, 180, 0, 0);  // no token
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        auto &frame = fake.decoders.at(handle).frames.front();
+        frame.token = 6, frame.size = 100;  // bytes after all
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        auto &frame = fake.decoders.at(handle).frames.front();
+        frame.size = 0, frame.crop_right = 320;  // a crop outside
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        auto &frame = fake.decoders.at(handle).frames.front();
+        frame.crop_right = 319, frame.width = APKRT_VIDEO_DECODER_MAX_DIMENSION + 1;
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    {
+        const std::lock_guard hold(fake.mutex);
+        fake.decoders.at(handle).frames.front().width = 320;
+    }
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == 6);
+    fake.add_surface_frame(handle, 320, 180, 0, 6);  // a token that waits already
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == -eio);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(a_flush_ends_every_token) {
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    const std::uint64_t target = guest_buffer();
+    fake.add_surface_frame(handle, 320, 180, 0, 8);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == 8);
+    CHECK(call(APKRT_VIDEO_DECODER_FLUSH, id) == 0);
+    decoder.size = target;
+    CHECK(call(APKRT_VIDEO_DECODER_RENDER, decoder) == -einval);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).rendered.empty());
+    }
+    release_guest_buffer(target);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
 }
 
 TEST(many_threads_queue_dequeue_and_destroy_at_once) {

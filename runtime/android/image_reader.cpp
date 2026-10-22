@@ -18,7 +18,8 @@
 // Departures: maxImages below 1 or past the queue's 62 answers AMEDIA_ERROR_INVALID_PARAMETER, where Android's
 // BufferItemConsumer aborts the process (the tag ignores validateParameters' answer); a buffer-removed listener is
 // kept but never called, as the queue frees no buffer a producer would hear of. YUV formats: a YUV reader's
-// producers get YUV buffers (ADR-0060 e2a), but an AImage gives no planes of them yet (ADR-0060 e2c's).
+// producers get YUV buffers (ADR-0060 e2a), whose AImage gives three planes, Y, Cb and Cr, by lockPlanes
+// (ADR-0060 e2c), each from its first sample to its last, as the framework's Java planes.
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
 #include <dlfcn.h>
@@ -201,6 +202,7 @@ struct AImage {
     int32_t data_space;
     int32_t width, height;  // the producer's crop's when it has one, else the buffer's, as the tag's getBufferWidth
     void *locked;
+    AHardwareBuffer_Planes planes;  // a YUV image's, while locked
     AImage *next;  // the reader's images still open
 };
 
@@ -531,9 +533,9 @@ bool describe(const AImage *image, AHardwareBuffer_Desc *description) {
     return open;
 }
 
-// The image's planes: one for the RGB formats, none for PRIVATE, as ImageUtils counts them.
+// The image's planes: one for the RGB formats, three for YUV 420, none for PRIVATE, as ImageUtils counts them.
 int32_t planes_of(const AImage *image) {
-    return image->reader->hal == kHalPrivate ? 0 : 1;
+    return image->reader->hal == kHalPrivate ? 0 : image->reader->hal == kHalYCbCr420 ? 3 : 1;
 }
 
 // The image's buffer locked for the CPU at the first call, under its reader's lock: AMEDIA_OK with its address.
@@ -545,6 +547,18 @@ media_status_t lock_image(AImage *image, void **address, AHardwareBuffer_Desc *d
         status = AMEDIA_ERROR_INVALID_OBJECT;
     } else if ((reader->usage & AHARDWAREBUFFER_USAGE_CPU_READ_MASK) == 0) {
         status = AMEDIA_IMGREADER_CANNOT_LOCK_IMAGE;
+    } else if (image->locked == nullptr && reader->hal == kHalYCbCr420) {
+        AHardwareBuffer_Planes planes{};
+        if (AHardwareBuffer_lockPlanes(image->buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, nullptr, &planes) !=
+            0) {
+            status = AMEDIA_IMGREADER_CANNOT_LOCK_IMAGE;
+        } else if (planes.planeCount != 3) {
+            AHardwareBuffer_unlock(image->buffer, nullptr);
+            status = AMEDIA_IMGREADER_CANNOT_LOCK_IMAGE;
+        } else {
+            image->planes = planes;
+            image->locked = planes.planes[0].data;
+        }
     } else if (image->locked == nullptr &&
                AHardwareBuffer_lock(image->buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, nullptr,
                                     &image->locked) != 0) {
@@ -645,6 +659,10 @@ media_status_t AImage_getPlanePixelStride(const AImage *image, int planeIdx, int
     const media_status_t locked = lock_image(checked(image), &address, &description);
     if (locked != AMEDIA_OK) return locked;
     if (planeIdx < 0 || planeIdx >= planes_of(image)) return AMEDIA_ERROR_INVALID_PARAMETER;
+    if (image->reader->hal == kHalYCbCr420) {
+        *pixelStride = static_cast<int32_t>(image->planes.planes[planeIdx].pixelStride);
+        return AMEDIA_OK;
+    }
     const int32_t bytes = pixel_bytes(description.format);
     if (bytes == 0) return AMEDIA_ERROR_UNSUPPORTED;
     *pixelStride = bytes;
@@ -658,6 +676,10 @@ media_status_t AImage_getPlaneRowStride(const AImage *image, int planeIdx, int32
     const media_status_t locked = lock_image(checked(image), &address, &description);
     if (locked != AMEDIA_OK) return locked;
     if (planeIdx < 0 || planeIdx >= planes_of(image)) return AMEDIA_ERROR_INVALID_PARAMETER;
+    if (image->reader->hal == kHalYCbCr420) {
+        *rowStride = static_cast<int32_t>(image->planes.planes[planeIdx].rowStride);
+        return AMEDIA_OK;
+    }
     const int32_t bytes = pixel_bytes(description.format);
     if (bytes == 0) return AMEDIA_ERROR_UNSUPPORTED;
     *rowStride = static_cast<int32_t>(description.stride) * bytes;
@@ -671,6 +693,15 @@ media_status_t AImage_getPlaneData(const AImage *image, int planeIdx, uint8_t **
     const media_status_t locked = lock_image(checked(image), &address, &description);
     if (locked != AMEDIA_OK) return locked;
     if (planeIdx < 0 || planeIdx >= planes_of(image)) return AMEDIA_ERROR_INVALID_PARAMETER;
+    if (image->reader->hal == kHalYCbCr420) {  // from the plane's first sample to its last
+        const AHardwareBuffer_Plane &plane = image->planes.planes[planeIdx];
+        const int64_t width = planeIdx == 0 ? description.width : (description.width + 1) / 2;
+        const int64_t height = planeIdx == 0 ? description.height : (description.height + 1) / 2;
+        *data = static_cast<uint8_t *>(plane.data);
+        *dataLength =
+            static_cast<int>(int64_t{plane.rowStride} * (height - 1) + int64_t{plane.pixelStride} * (width - 1) + 1);
+        return AMEDIA_OK;
+    }
     const int32_t bytes = pixel_bytes(description.format);
     if (bytes == 0) return AMEDIA_ERROR_UNSUPPORTED;
     const int32_t row = static_cast<int32_t>(description.stride) * bytes;

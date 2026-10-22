@@ -42,12 +42,14 @@ struct minato_BufferQueue_frame {
     int32_t crop_left, crop_top, crop_right, crop_bottom;
 };
 
-/* What a producer queues a frame with, as minato_BufferQueue_frame has it; timestamp 0 for the queue's time. */
+/* What a producer queues a frame with, as minato_BufferQueue_frame has it; timestamp 0 for the queue's time unless
+   exact_time. */
 struct minato_BufferQueue_settings {
     int64_t timestamp;
     int32_t transform;
     int32_t data_space;
     int32_t crop_left, crop_top, crop_right, crop_bottom;
+    int32_t exact_time;  /* 1: `timestamp` as it is, 0 too (a decoder's frame at time 0), not the queue's time */
 };
 
 /* Called after each queued frame on the producer's thread, outside the queue's lock; and once the queue goes, after

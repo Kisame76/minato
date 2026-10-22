@@ -7,7 +7,10 @@
 // into the guest's buffer after its description is checked, each size with 64-bit products: EFAULT for memory the
 // guest does not have, the frame staying for a later DEQUEUE. Memory the runtime cannot get (a QUEUE's copy of up to
 // 16 MiB, a decoder's entry) answers -ENOMEM: no exception leaves call(), whose caller is the syscall entry's
-// assembly, and a host decoder made before the failure is destroyed.
+// assembly, and a host decoder made before the failure is destroyed. A surface decoder's frames (ADR-0060 e2c) stay
+// the host's: the runtime keeps the tokens of those the guest dequeued, at most APKRT_VIDEO_DECODER_MAX_WAITING, so
+// that only a waiting token reaches the host's render or discard, and resolves the guest's hardware buffer of a RENDER
+// to the host's buffer with a reference of the runtime's for the call.
 #include "video_decoders.h"
 
 #include "APKRuntime/apkrt.h"
@@ -19,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <set>
 #include <vector>
 
 namespace apkrt::video_decoders {
@@ -42,8 +46,10 @@ long host_answer(int answer) {
 struct Decoder {
     apkrt_video_decoders table{};
     std::uint64_t handle = 0;
-    std::mutex mutex;  // around each call of the host's functions
+    std::mutex mutex;  // around each call of the host's functions, and for the fields below
     bool gone = false;  // destroyed: no more calls
+    bool surface = false;  // made for a surface: frames by tokens
+    std::set<std::uint64_t> waiting;  // the tokens of frames the guest dequeued and has not rendered or discarded
 };
 
 struct Registry {
@@ -94,6 +100,7 @@ long destroy(std::uint64_t id) {
     {
         const std::lock_guard hold(decoder->mutex);  // after the call still running on it
         decoder->gone = true;
+        decoder->waiting.clear();
         decoder->table.destroy(decoder->table.context, decoder->handle);
     }
     auto &all = registry();
@@ -104,6 +111,7 @@ long destroy(std::uint64_t id) {
 
 long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
     if (asked.type != APKRT_VIDEO_DECODER_AVC && asked.type != APKRT_VIDEO_DECODER_HEVC) return -linux_errno::einval;
+    if ((asked.flags & ~APKRT_VIDEO_DECODER_SURFACE) != 0) return -linux_errno::einval;
     if (asked.width == 0 || asked.height == 0 || asked.width > APKRT_VIDEO_DECODER_MAX_DIMENSION ||
         asked.height > APKRT_VIDEO_DECODER_MAX_DIMENSION || asked.size > APKRT_VIDEO_DECODER_MAX_CODEC_DATA) {
         return -linux_errno::einval;
@@ -123,7 +131,7 @@ long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
     }
     const apkrt_video_decoder_description description{asked.type, asked.width, asked.height,
                                                       codec_data.empty() ? nullptr : codec_data.data(),
-                                                      codec_data.size()};
+                                                      codec_data.size(), asked.flags};
     std::uint64_t handle = 0;
     const long made = host_answer(table.create(table.context, &description, &handle));
     std::uint64_t id = 0;
@@ -135,6 +143,7 @@ long create(std::uint64_t argument, const apkrt_video_decoder &asked) {
                 auto decoder = std::make_shared<Decoder>();
                 decoder->table = table;
                 decoder->handle = handle;
+                decoder->surface = asked.flags == APKRT_VIDEO_DECODER_SURFACE;
                 all.decoders.emplace(all.next_id, std::move(decoder));
                 id = all.next_id++;
             } catch (const std::bad_alloc &) {
@@ -204,17 +213,45 @@ bool put_frame(std::uint64_t argument, const apkrt_video_frame &frame, std::uint
            put(argument, offsetof(apkrt_video_decoder, crop_left), crop, sizeof crop);
 }
 
+/// Whether a surface decoder's frame holds: sizes within the limits, a crop inside, no bytes, a token not 0 and not
+/// one that waits.
+bool surface_frame_holds(const Decoder &decoder, const apkrt_video_frame &frame) {
+    return frame.width != 0 && frame.height != 0 && frame.width <= APKRT_VIDEO_DECODER_MAX_DIMENSION &&
+           frame.height <= APKRT_VIDEO_DECODER_MAX_DIMENSION && frame.crop_left <= frame.crop_right &&
+           frame.crop_right < frame.width && frame.crop_top <= frame.crop_bottom && frame.crop_bottom < frame.height &&
+           frame.data == nullptr && frame.size == 0 && (frame.flags & ~APKRT_VIDEO_DECODER_END_OF_STREAM) == 0 &&
+           frame.token != 0 && decoder.waiting.count(frame.token) == 0;
+}
+
 long dequeue(std::uint64_t argument, const apkrt_video_decoder &asked) {
     const auto decoder = find(asked.id);
     if (decoder == nullptr) return -linux_errno::ebadf;
     const std::lock_guard hold(decoder->mutex);
     if (decoder->gone) return -linux_errno::ebadf;
+    if (decoder->surface && decoder->waiting.size() >= APKRT_VIDEO_DECODER_MAX_WAITING) return -linux_errno::eagain;
     apkrt_video_frame frame{};
     const long peeked = host_answer(decoder->table.peek(decoder->table.context, decoder->handle, &frame));
     if (peeked != 0) return peeked;
     if (frame.flags == APKRT_VIDEO_DECODER_END_OF_STREAM && frame.size == 0) {
-        const apkrt_video_frame end{nullptr, 0, 0, 0, 0, 0, 0, 0, 0, 0, frame.time_us, frame.flags};
-        if (!put_frame(argument, end, 0)) return -linux_errno::efault;
+        const apkrt_video_frame end{nullptr, 0, 0, 0, 0, 0, 0, 0, 0, 0, frame.time_us, frame.flags, 0};
+        const std::uint64_t no_token = 0;
+        if (!put_frame(argument, end, 0) ||
+            (decoder->surface && !put(argument, offsetof(apkrt_video_decoder, data), &no_token, sizeof no_token))) {
+            return -linux_errno::efault;
+        }
+        decoder->table.pop(decoder->table.context, decoder->handle);
+        return 0;
+    }
+    if (decoder->surface) {
+        if (!surface_frame_holds(*decoder, frame)) return -linux_errno::eio;
+        apkrt_video_frame described = frame;
+        described.stride = 0, described.slice_height = 0;
+        decoder->waiting.insert(frame.token);  // before the frame leaves the host's queue: a failure keeps it there
+        if (!put_frame(argument, described, 0) ||
+            !put(argument, offsetof(apkrt_video_decoder, data), &frame.token, sizeof frame.token)) {
+            decoder->waiting.erase(frame.token);
+            return -linux_errno::efault;
+        }
         decoder->table.pop(decoder->table.context, decoder->handle);
         return 0;
     }
@@ -237,7 +274,47 @@ long flush(std::uint64_t id) {
     if (decoder == nullptr) return -linux_errno::ebadf;
     const std::lock_guard hold(decoder->mutex);
     if (decoder->gone) return -linux_errno::ebadf;
+    decoder->waiting.clear();
     return host_answer(decoder->table.flush(decoder->table.context, decoder->handle));
+}
+
+/// The surface decoder of a RENDER or DISCARD, its lock held by `hold`, and the waiting token taken: 0, or the answer.
+long take_token(const std::shared_ptr<Decoder> &decoder, std::uint64_t token) {
+    if (decoder == nullptr || decoder->gone) return -linux_errno::ebadf;
+    if (!decoder->surface || decoder->waiting.erase(token) == 0) return -linux_errno::einval;
+    return 0;
+}
+
+long render(const apkrt_video_decoder &asked) {
+    const auto decoder = find(asked.id);
+    if (decoder == nullptr) return -linux_errno::ebadf;
+    const std::lock_guard hold(decoder->mutex);
+    if (const long taken = take_token(decoder, asked.data); taken != 0) return taken;
+    apkrt_video_target target{};
+    if (asked.size == 0 || apkrt_hardware_buffer_acquire_handle(asked.size, &target.handle, &target.buffers,
+                                                                 &target.description, &target.stride) != 0) {
+        decoder->table.discard(decoder->table.context, decoder->handle, asked.data);
+        return -linux_errno::einval;
+    }
+    // The token has ended already: the host answers 0, -EINVAL or -EIO (any other errno would reach the guest with it
+    // ended too), and the buffer's table is the host's to check (its own, apkrt.h).
+    long answer = -linux_errno::einval;
+    if (target.description.layers == 1) {
+        answer = host_answer(decoder->table.render(decoder->table.context, decoder->handle, asked.data, &target));
+    } else {
+        decoder->table.discard(decoder->table.context, decoder->handle, asked.data);
+    }
+    apkrt_hardware_buffer_release_handle(asked.size);
+    return answer;
+}
+
+long discard(const apkrt_video_decoder &asked) {
+    const auto decoder = find(asked.id);
+    if (decoder == nullptr) return -linux_errno::ebadf;
+    const std::lock_guard hold(decoder->mutex);
+    if (const long taken = take_token(decoder, asked.data); taken != 0) return taken;
+    decoder->table.discard(decoder->table.context, decoder->handle, asked.data);
+    return 0;
 }
 
 }  // namespace
@@ -248,7 +325,9 @@ long call(std::uint64_t op, std::uint64_t argument) try {
         case APKRT_VIDEO_DECODER_DESTROY: return destroy(argument);
         case APKRT_VIDEO_DECODER_CREATE:
         case APKRT_VIDEO_DECODER_QUEUE:
-        case APKRT_VIDEO_DECODER_DEQUEUE: break;
+        case APKRT_VIDEO_DECODER_DEQUEUE:
+        case APKRT_VIDEO_DECODER_RENDER:
+        case APKRT_VIDEO_DECODER_DISCARD: break;
         default: return -linux_errno::einval;
     }
     apkrt_video_decoder asked;  // the guest's struct, read once
@@ -259,6 +338,8 @@ long call(std::uint64_t op, std::uint64_t argument) try {
     switch (op) {
         case APKRT_VIDEO_DECODER_CREATE: return create(argument, asked);
         case APKRT_VIDEO_DECODER_QUEUE: return queue(asked);
+        case APKRT_VIDEO_DECODER_RENDER: return render(asked);
+        case APKRT_VIDEO_DECODER_DISCARD: return discard(asked);
         default: return dequeue(argument, asked);
     }
 } catch (const std::bad_alloc &) {
@@ -270,7 +351,8 @@ long call(std::uint64_t op, std::uint64_t argument) try {
 extern "C" int apkrt_set_video_decoders(const apkrt_video_decoders *set) {
     using namespace apkrt::video_decoders;
     if (set != nullptr && (set->create == nullptr || set->queue == nullptr || set->peek == nullptr ||
-                           set->pop == nullptr || set->flush == nullptr || set->destroy == nullptr)) {
+                           set->pop == nullptr || set->flush == nullptr || set->destroy == nullptr ||
+                           set->render == nullptr || set->discard == nullptr)) {
         return -1;
     }
     auto &all = registry();

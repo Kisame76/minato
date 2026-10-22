@@ -104,6 +104,11 @@ int AHardwareBuffer_lock(AHardwareBuffer *buffer, uint64_t, int32_t, const ARect
     return 0;
 }
 
+// The test's readers are RGB: a YUV image's planes (image_reader.cpp's lockPlanes) are image-ndk-test's.
+int AHardwareBuffer_lockPlanes(AHardwareBuffer *, uint64_t, int32_t, const ARect *, AHardwareBuffer_Planes *) {
+    return -EINVAL;
+}
+
 int AHardwareBuffer_unlock(AHardwareBuffer *buffer, int32_t *fence) {
     CHECK(checked(buffer)->locked.exchange(false));
     if (fence != nullptr) *fence = -1;

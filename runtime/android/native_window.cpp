@@ -256,7 +256,7 @@ int queue_slot(minato_BufferQueue* queue, int32_t index, const minato_BufferQueu
         }
     }
     slot.state = SlotState::kQueued;
-    slot.timestamp = settings.timestamp != 0 ? settings.timestamp : monotonic_now();
+    slot.timestamp = settings.timestamp != 0 || settings.exact_time != 0 ? settings.timestamp : monotonic_now();
     slot.transform = settings.transform;
     slot.data_space = settings.data_space;
     slot.crop[0] = settings.crop_left;

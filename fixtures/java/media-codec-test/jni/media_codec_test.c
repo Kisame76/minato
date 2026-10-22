@@ -4,8 +4,10 @@
 // format's stride, slice height and color format (planar or semi-planar), so that decoders of either layout compare.
 // An output format is logged when its size or crop differs from the last one's: a decoder may announce the same
 // format again (AOSP's c2.android.avc.decoder does after the first frame, as its timing has it). A line that starts
-// with "device " goes to the device tag.
+// with "device " goes to the device tag. ADR-0060 e2c: the same through an AImageReader's window in YUV_420_888, each
+// frame rendered and the reader's image logged, walked by its planes' strides.
 #include <jni.h>
+#include <media/NdkImageReader.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
 #include <stdio.h>
@@ -98,9 +100,36 @@ static void frame(const struct layout *layout, const uint8_t *data, size_t size,
     append(log, log_size, line);
 }
 
-JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring decoder, jbyteArray stream,
-                                             jlongArray index) {
-    (void)type;
+// An image of the reader, logged as a frame is: its time in microseconds, crop and the CRC32 of each plane's samples.
+static void image_line(AImage *image, char *log, size_t log_size) {
+    int64_t time = 0;
+    int32_t format = 0;
+    AImageCropRect crop = {0, 0, 0, 0};
+    AImage_getTimestamp(image, &time);
+    AImage_getFormat(image, &format);
+    AImage_getCropRect(image, &crop);
+    unsigned long crcs[3] = {0, 0, 0};
+    for (int p = 0; p < 3; p++) {
+        uint8_t *data = NULL;
+        int length = 0;
+        int32_t row = 0, step = 0;
+        AImage_getPlaneData(image, p, &data, &length);
+        AImage_getPlaneRowStride(image, p, &row);
+        AImage_getPlanePixelStride(image, p, &step);
+        const int shift = p == 0 ? 0 : 1;
+        crcs[p] = data == NULL ? 0
+                               : plane_crc(data, row, step, crop.left >> shift, crop.top >> shift,
+                                           ((crop.right + shift) >> shift) - 1, ((crop.bottom + shift) >> shift) - 1);
+    }
+    char line[300];
+    snprintf(line, sizeof line, "ndk reader: pts %lld, %d x %d, format %d, Y %lx U %lx V %lx",
+             (long long)(time / 1000), crop.right - crop.left, crop.bottom - crop.top, format, crcs[0], crcs[1],
+             crcs[2]);
+    append(log, log_size, line);
+}
+
+// Decodes the stream with the named decoder: into ByteBuffers, or with `to_reader` into an AImageReader's window.
+static jstring decode_with(JNIEnv *env, jstring decoder, jbyteArray stream, jlongArray index, int to_reader) {
     static char log[16384];
     log[0] = 0;
     jbyte *bytes = (*env)->GetByteArrayElements(env, stream, NULL);
@@ -117,8 +146,16 @@ JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring d
         AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 320);
         AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 180);
         char line[200];
-        snprintf(line, sizeof line, "ndk: configure %d, start %d", AMediaCodec_configure(codec, format, NULL, NULL, 0),
-                 AMediaCodec_start(codec));
+        AImageReader *reader = NULL;
+        ANativeWindow *window = NULL;
+        if (to_reader) {
+            snprintf(line, sizeof line, "ndk reader: new %d, window %d",
+                     AImageReader_new(320, 180, AIMAGE_FORMAT_YUV_420_888, 3, &reader),
+                     reader != NULL ? AImageReader_getWindow(reader, &window) : -1);
+            append(log, sizeof log, line);
+        }
+        snprintf(line, sizeof line, "%s: configure %d, start %d", to_reader ? "ndk reader" : "ndk",
+                 AMediaCodec_configure(codec, format, window, NULL, 0), AMediaCodec_start(codec));
         append(log, sizeof log, line);
         AMediaFormat_delete(format);
         struct layout layout = {0};
@@ -146,7 +183,32 @@ JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring d
             AMediaCodecBufferInfo info;
             const ssize_t out = AMediaCodec_dequeueOutputBuffer(codec, &info, 10000);
             if (out == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-                read_format(codec, &layout, log, sizeof log);
+                if (!to_reader) read_format(codec, &layout, log, sizeof log);
+            } else if (out >= 0 && to_reader) {
+                ended = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
+                const int render = !ended || info.size > 0;  // a frame, whatever size a surface's buffer has
+                if (frames == 0) {
+                    snprintf(line, sizeof line, "device ndk reader: a rendered buffer's size %d", info.size);
+                    append(log, sizeof log, line);
+                }
+                AMediaCodec_releaseOutputBuffer(codec, (size_t)out, render);
+                if (!render) continue;
+                AImage *image = NULL;
+                for (const int64_t wait = now_ms() + 2000; image == NULL && now_ms() < wait;) {
+                    if (AImageReader_acquireNextImage(reader, &image) != AMEDIA_OK) {
+                        image = NULL;
+                        struct timespec pause = {0, 2000000};
+                        nanosleep(&pause, NULL);
+                    }
+                }
+                if (image == NULL) {
+                    snprintf(line, sizeof line, "ndk reader: pts %lld, no image", (long long)info.presentationTimeUs);
+                    append(log, sizeof log, line);
+                } else {
+                    image_line(image, log, sizeof log);
+                    AImage_delete(image);
+                    frames++;
+                }
             } else if (out >= 0) {
                 size_t size = 0;
                 const uint8_t *data = AMediaCodec_getOutputBuffer(codec, (size_t)out, &size);
@@ -158,11 +220,24 @@ JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring d
                 ended = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
             }
         }
-        snprintf(line, sizeof line, "ndk: %d frames%s, stop %d, delete %d", frames, ended ? ", end of stream" : "",
-                 AMediaCodec_stop(codec), AMediaCodec_delete(codec));
+        snprintf(line, sizeof line, "%s: %d frames%s, stop %d, delete %d", to_reader ? "ndk reader" : "ndk", frames,
+                 ended ? ", end of stream" : "", AMediaCodec_stop(codec), AMediaCodec_delete(codec));
         append(log, sizeof log, line);
+        if (reader != NULL) AImageReader_delete(reader);
     }
     (*env)->ReleaseLongArrayElements(env, index, units, JNI_ABORT);
     (*env)->ReleaseByteArrayElements(env, stream, bytes, JNI_ABORT);
     return (*env)->NewStringUTF(env, log);
+}
+
+JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring decoder, jbyteArray stream,
+                                             jlongArray index) {
+    (void)type;
+    return decode_with(env, decoder, stream, index, 0);
+}
+
+JNIEXPORT jstring JNICALL NAME(decodeToReaderNative)(JNIEnv *env, jclass type, jstring decoder, jbyteArray stream,
+                                                     jlongArray index) {
+    (void)type;
+    return decode_with(env, decoder, stream, index, 1);
 }

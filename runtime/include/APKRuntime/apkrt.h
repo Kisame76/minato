@@ -363,18 +363,25 @@ void apkrt_hardware_buffer_release_handle(uint64_t id);
 #define APKRT_VIDEO_DECODER_MAX_UNIT (UINT64_C(1) << 24)
 #define APKRT_VIDEO_DECODER_MAX_DECODERS 32u
 
+/// A surface decoder's frames that wait for their RENDER or DISCARD at once (ADR-0060 e2c): as many as AMediaCodec's
+/// output buffers.
+#define APKRT_VIDEO_DECODER_MAX_WAITING 8u
+
 /// What a decoder is made for: an enum apkrt_video_decoder_type, the stream's size (each 1 to
-/// APKRT_VIDEO_DECODER_MAX_DIMENSION), and its codec data (csd-0 and csd-1 in Annex B), in host memory for the call.
+/// APKRT_VIDEO_DECODER_MAX_DIMENSION), its codec data (csd-0 and csd-1 in Annex B), in host memory for the call, and
+/// its flags (APKRT_VIDEO_DECODER_SURFACE or 0).
 struct apkrt_video_decoder_description {
     uint32_t type, width, height;
     const void *codec_data;
     size_t codec_data_size;
+    uint32_t flags;
 };
 
 /// A decoded frame as the host holds it: NV12 at `data`, `slice_height` rows of `stride` bytes of Y, then
 /// (slice_height + 1) / 2 rows of interleaved Cb and Cr, `size` bytes, valid until the frame's pop or the decoder's
 /// flush or destroy; the coded size, the crop (inclusive), the time and flags (APKRT_VIDEO_DECODER_END_OF_STREAM with
-/// size 0 after the last frame).
+/// size 0 after the last frame). A surface decoder's frame has no bytes (data NULL, size, stride and slice height 0)
+/// but a token of the host's, never 0 and not one that waits; the end of the stream's has token 0.
 struct apkrt_video_frame {
     const void *data;
     uint64_t size;
@@ -382,6 +389,17 @@ struct apkrt_video_frame {
     uint16_t crop_left, crop_top, crop_right, crop_bottom;
     int64_t time_us;
     uint32_t flags;
+    uint64_t token;
+};
+
+/// The guest's hardware buffer a surface decoder's frame is drawn into (apkrt_hardware_buffer_acquire_handle's
+/// answers): the context of the table that made it, whose own the decoders must check it is, its handle there, its
+/// description (one layer) and stride; the runtime holds a reference for the call.
+struct apkrt_video_target {
+    void *buffers;
+    uint64_t handle;
+    struct apkrt_hardware_buffer_description description;
+    uint32_t stride;
 };
 
 /// For graphics/host: the guest's video decoders (ADR-0060 e2b3). The runtime has checked what reaches them (the
@@ -392,9 +410,12 @@ struct apkrt_video_frame {
 /// - queue: an access unit in Annex B (size 0 with APKRT_VIDEO_DECODER_END_OF_STREAM: no more), its time and flags:
 ///   0, or -EAGAIN while the decoder takes no more input until frames are popped;
 /// - peek: 0 with the oldest decoded frame in presentation order, which stays; -EAGAIN while there is none;
-/// - pop: the frame peek gave goes;
-/// - flush: every input and frame goes; the next input begins at a key frame;
-/// - destroy: last, once no call on the decoder runs.
+/// - pop: the frame peek gave goes; a surface decoder's waits under its token instead;
+/// - flush: every input and frame goes, the waiting ones too; the next input begins at a key frame;
+/// - destroy: last, once no call on the decoder runs;
+/// - render (a surface decoder's): the waiting frame of the token drawn into the target, scaled to its size, after
+///   which it goes: 0; -EINVAL for a token that does not wait or a target they do not draw into;
+/// - discard: the waiting frame of the token goes undrawn.
 /// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A decoder stays with the functions that made
 /// it, so the context must live as long as the process.
 struct apkrt_video_decoders {
@@ -404,6 +425,8 @@ struct apkrt_video_decoders {
     void (*pop)(void *context, uint64_t handle);
     int (*flush)(void *context, uint64_t handle);
     void (*destroy)(void *context, uint64_t handle);
+    int (*render)(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target);
+    void (*discard)(void *context, uint64_t handle, uint64_t token);
     void *context;
 };
 

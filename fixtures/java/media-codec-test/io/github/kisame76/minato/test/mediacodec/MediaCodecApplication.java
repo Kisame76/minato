@@ -2,8 +2,10 @@ package io.github.kisame76.minato.test.mediacodec;
 
 import android.app.Application;
 import android.content.Context;
+import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -39,7 +41,9 @@ import java.util.zip.CRC32;
  * - a flush after 5 of the first 15 units' frames (AOSP's decoder holds the others until more input comes), then
  *   the stream again from its second key frame;
  * - the refusals: an unknown type, and dequeueOutputBuffer before start, each by its exception's class;
- * - main through the NDK's AMediaCodec in the app's JNI library, its output buffers walked by the output format.
+ * - main through the NDK's AMediaCodec in the app's JNI library, its output buffers walked by the output format;
+ * - ADR-0060 e2c: baseline rendered into an ImageReader's Surface in YUV_420_888, and main into an AImageReader's
+ *   window through AMediaCodec, each image's time and samples logged as the buffers' are.
  * Each wait is bounded; it logs with the tag media-codec-test and ends with "done".
  */
 public class MediaCodecApplication extends Application {
@@ -52,6 +56,9 @@ public class MediaCodecApplication extends Application {
 
     /** Decodes the stream through AMediaCodec with the named decoder; its log lines, joined by newlines. */
     private static native String decodeNative(String decoder, byte[] stream, long[] index);
+
+    /** The same through an AImageReader's window in YUV_420_888, each frame rendered and its image logged. */
+    private static native String decodeToReaderNative(String decoder, byte[] stream, long[] index);
 
     /** The decoder of video/avc the test uses (list()'s). */
     private static String sDecoder;
@@ -79,18 +86,25 @@ public class MediaCodecApplication extends Application {
             decodeAsync("baseline async", baseline);
             flushed("baseline flushed", baseline);
             refusals();
-            for (String line : decodeNative(sDecoder, main.bytes, flatten(main)).split("\n")) {
-                if (line.startsWith("device ")) {
-                    Log.i(TAG + "-device", line.substring(7));
-                } else {
-                    Log.i(TAG, line);
-                }
-            }
+            logNative(decodeNative(sDecoder, main.bytes, flatten(main)));
+            decodeToReader("baseline reader", baseline);
+            logNative(decodeToReaderNative(sDecoder, main.bytes, flatten(main)));
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             Log.i(TAG + "-device", Log.getStackTraceString(t));
         }
         Log.i(TAG, "done");
+    }
+
+    /** The JNI part's lines, those that start with "device " to the device tag. */
+    private static void logNative(String lines) {
+        for (String line : lines.split("\n")) {
+            if (line.startsWith("device ")) {
+                Log.i(TAG + "-device", line.substring(7));
+            } else {
+                Log.i(TAG, line);
+            }
+        }
     }
 
     private static Stream load(Context context, String name) throws IOException {
@@ -190,9 +204,13 @@ public class MediaCodecApplication extends Application {
     private static String frame(MediaCodec codec, int index, MediaCodec.BufferInfo info) {
         Image image = codec.getOutputImage(index);
         if (image == null) return "pts " + info.presentationTimeUs + ", no image";
+        return samples(new StringBuilder("pts " + info.presentationTimeUs + ", flags " + info.flags + ", "), image);
+    }
+
+    /** The image's crop, format and the CRC32 of each plane's samples inside the crop, after `line`; closes it. */
+    private static String samples(StringBuilder line, Image image) {
         Rect crop = image.getCropRect();
-        StringBuilder line = new StringBuilder("pts " + info.presentationTimeUs + ", flags " + info.flags + ", "
-                + crop.width() + " x " + crop.height() + ", format " + image.getFormat());
+        line.append(crop.width() + " x " + crop.height() + ", format " + image.getFormat());
         Image.Plane[] planes = image.getPlanes();
         for (int p = 0; p < planes.length; p++) {
             int shift = p == 0 ? 0 : 1;
@@ -258,6 +276,61 @@ public class MediaCodecApplication extends Application {
         }
         Log.i(TAG, name + ": " + frames + " frames" + (ended ? ", end of stream" : ""));
         return ended;
+    }
+
+    /**
+     * Decodes the stream into an ImageReader's Surface of its size in YUV_420_888: each frame rendered at its time, and
+     * the reader's next image logged with its time (in microseconds) and samples, as a frame of ByteBuffer mode is.
+     */
+    private static void decodeToReader(String name, Stream stream) throws Exception {
+        ImageReader reader = ImageReader.newInstance(320, 180, ImageFormat.YUV_420_888, 3);
+        MediaCodec codec = MediaCodec.createByCodecName(sDecoder);
+        codec.configure(format(), reader.getSurface(), null, 0);
+        codec.start();
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        int next = 0, frames = 0;
+        boolean ended = false, sentEnd = false;
+        long deadline = System.currentTimeMillis() + 10000;
+        while (!ended && System.currentTimeMillis() < deadline) {
+            if (!sentEnd) {
+                int in = codec.dequeueInputBuffer(10000);
+                if (in >= 0) {
+                    if (next < stream.units.size()) {
+                        queue(codec, in, stream, next++);
+                    } else {
+                        codec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                        sentEnd = true;
+                    }
+                }
+            }
+            int out = codec.dequeueOutputBuffer(info, 10000);
+            if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                logFormat(name, codec.getOutputFormat());
+            } else if (out >= 0) {
+                ended = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                boolean render = !ended || info.size > 0;  // a frame, whatever size a surface's buffer has
+                if (frames == 0) Log.i(TAG + "-device", name + ": a rendered buffer's size " + info.size);
+                codec.releaseOutputBuffer(out, render);
+                if (!render) continue;
+                Image image = null;
+                for (long wait = System.currentTimeMillis() + 2000; image == null
+                        && System.currentTimeMillis() < wait; ) {
+                    image = reader.acquireNextImage();
+                    if (image == null) Thread.sleep(2);
+                }
+                if (image == null) {
+                    Log.i(TAG, name + ": pts " + info.presentationTimeUs + ", no image");
+                } else {
+                    long time = image.getTimestamp() / 1000;
+                    Log.i(TAG, name + ": " + samples(new StringBuilder("pts " + time + ", "), image));
+                    frames++;
+                }
+            }
+        }
+        Log.i(TAG, name + ": " + frames + " frames" + (ended ? ", end of stream" : ""));
+        codec.stop();
+        codec.release();
+        reader.close();
     }
 
     private static void decode(String name, Stream stream) throws IOException {

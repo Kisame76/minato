@@ -12,6 +12,7 @@
    Usage: graphics-video-decoder-test <assets directory> <media-codec-test.logcat>. Exits 1 after the cases when one
    failed. */
 #import <Foundation/Foundation.h>
+#import <IOSurface/IOSurface.h>
 
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -58,19 +59,21 @@ static struct stream load(NSString *assets, NSString *name) {
     return stream;
 }
 
-/* Android's frame lines of one part of the log ("baseline", "main", ...): "pts <t> ... Y <y> U <u> V <v>". */
+/* Android's frame lines of one part of the log ("baseline", "main", "baseline reader", ...):
+   "pts <t> ... Y <y> U <u> V <v>". */
 static NSArray<NSString *> *expected_frames(NSString *log, NSString *part) {
     NSMutableArray<NSString *> *frames = [NSMutableArray array];
     NSString *prefix = [NSString stringWithFormat:@"I/media-codec-test: %@: pts ", part];
     for (NSString *line in [log componentsSeparatedByString:@"\n"]) {
         if (![line hasPrefix:prefix]) continue;
         NSArray<NSString *> *words = [[line substringFromIndex:prefix.length] componentsSeparatedByString:@" "];
-        // <t>, flags <f>, <w> x <h>, format 35, Y <y> U <u> V <v>
-        if (words.count < 14) continue;
+        // <t>, [flags <f>,] <w> x <h>, format 35, Y <y> U <u> V <v>
+        const NSUInteger y = [words indexOfObject:@"Y"];
+        if (y == NSNotFound || y + 5 >= words.count) continue;
         [frames addObject:[NSString stringWithFormat:@"pts %@ Y %@ U %@ V %@",
                                                      [words[0] stringByTrimmingCharactersInSet:
                                                                    [NSCharacterSet punctuationCharacterSet]],
-                                                     words[9], words[11], words[13]]];
+                                                     words[y + 1], words[y + 3], words[y + 5]]];
     }
     return frames;
 }
@@ -147,8 +150,14 @@ static NSMutableArray<NSString *> *decode_units(uint64_t handle, struct stream s
     return lines;
 }
 
+static uint64_t make_with(uint32_t type, uint32_t flags) {
+    const struct apkrt_video_decoder_description description = {type, 320, 180, NULL, 0, flags};
+    uint64_t handle = 0;
+    return table->create(table->context, &description, &handle) == 0 ? handle : 0;
+}
+
 static uint64_t make(uint32_t type) {
-    const struct apkrt_video_decoder_description description = {type, 320, 180, NULL, 0};
+    const struct apkrt_video_decoder_description description = {type, 320, 180, NULL, 0, 0};
     uint64_t handle = 0;
     return table->create(table->context, &description, &handle) == 0 ? handle : 0;
 }
@@ -513,9 +522,162 @@ static void anExceptionInTheHostAnswersAnErrno(NSString *assets, NSString *log) 
 
 #endif  // MINATO_VIDEO_DECODER_TESTING
 
+/* A hardware buffer of graphics/host's own of the format (AHardwareBuffer's), as the guest's queue makes one, as a
+   render's target: 0 with it, its handle and IOSurface. */
+static int target_buffer(uint32_t format, uint32_t width, uint32_t height, struct apkrt_video_target *target,
+                         IOSurfaceRef *surface) {
+    const struct apkrt_hardware_buffers *buffers = minato_graphics_hardware_buffers();
+    *target = (struct apkrt_video_target){.buffers = buffers->context,
+                                          .description = {width, height, 1, format, 0x333}};  // GPU, CPU often
+    if (buffers->allocate(buffers->context, &target->description, &target->handle, &target->stride) != 0) return -1;
+    *surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(target->handle);
+    return *surface != NULL ? 0 : -1;
+}
+
+/* A YUV 420 buffer's line as frame_line has a frame's: its CRC32s inside 320 x 180 at `time_us`. */
+static NSString *surface_line(IOSurfaceRef surface, int64_t time_us) {
+    IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
+    const uint8_t *y = IOSurfaceGetBaseAddressOfPlane(surface, 0), *chroma = IOSurfaceGetBaseAddressOfPlane(surface, 1);
+    const size_t y_row = IOSurfaceGetBytesPerRowOfPlane(surface, 0), c_row = IOSurfaceGetBytesPerRowOfPlane(surface, 1);
+    uLong crcs[3] = {crc32(0L, Z_NULL, 0), crc32(0L, Z_NULL, 0), crc32(0L, Z_NULL, 0)};
+    for (size_t row = 0; row < 180; row++) {
+        for (size_t column = 0; column < 320; column++) crcs[0] = crc32(crcs[0], y + row * y_row + column, 1);
+    }
+    for (size_t row = 0; row < 90; row++) {
+        for (size_t column = 0; column < 160; column++) {
+            crcs[1] = crc32(crcs[1], chroma + row * c_row + column * 2, 1);
+            crcs[2] = crc32(crcs[2], chroma + row * c_row + column * 2 + 1, 1);
+        }
+    }
+    IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL);
+    return [NSString stringWithFormat:@"pts %lld Y %lx U %lx V %lx", (long long)time_us, crcs[0], crcs[1], crcs[2]];
+}
+
+/* ADR-0060 e2c: Baseline's stream through a surface decoder, each frame rendered into a YUV 420 buffer of the
+   guest's kind (an ImageReader's slot): the buffer's samples are Android's frame's; tokens it does not have, a
+   target of another table and an RGBA target are refused, a discarded token ends, at most eight frames wait, and a
+   flush ends a waiting one. */
+static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets, NSString *log) {
+    const char *test = "a surface decoder draws into a YUV buffer as Android decodes";
+    const struct stream stream = load(assets, @"baseline");
+    const uint64_t handle = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    struct apkrt_video_target target, rgba;
+    IOSurfaceRef surface = NULL, rgba_surface = NULL;
+    if (handle == 0 || target_buffer(0x23, 320, 180, &target, &surface) != 0 ||
+        target_buffer(1, 320, 180, &rgba, &rgba_surface) != 0) {
+        fail(test, @"no decoder or buffers");
+        return;
+    }
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    const uint8_t *bytes = stream.bytes.bytes;
+    BOOL ended = NO;
+    BOOL (^take)(void) = ^BOOL {
+        struct apkrt_video_frame frame;
+        while (table->peek(table->context, handle, &frame) == 0) {
+            if ((frame.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0) {
+                table->pop(table->context, handle);
+                return YES;
+            }
+            if (frame.token == 0 || frame.data != NULL || frame.size != 0) {
+                fail(test, @"a frame with bytes or without a token");
+                table->pop(table->context, handle);
+                continue;
+            }
+            const uint64_t token = frame.token;
+            table->pop(table->context, handle);
+            const int rendered = table->render(table->context, handle, token, &target);
+            if (rendered != 0) fail(test, [NSString stringWithFormat:@"render %d", rendered]);
+            [lines addObject:surface_line(surface, frame.time_us)];
+        }
+        return NO;
+    };
+    for (NSUInteger index = 0; index < stream.units.count; index++) {
+        NSArray<NSNumber *> *unit = stream.units[index];
+        int queued;
+        for (int tries = 0; (queued = table->queue(table->context, handle, bytes + unit[0].longLongValue,
+                                                   (size_t)unit[1].longLongValue, unit[2].longLongValue, 0)) ==
+                                -linux_eagain && tries < 1000;
+             tries++) {
+            take();
+            usleep(1000);
+        }
+        if (queued != 0) fail(test, [NSString stringWithFormat:@"queue %d", queued]);
+        take();
+    }
+    table->queue(table->context, handle, NULL, 0, 0, APKRT_VIDEO_DECODER_END_OF_STREAM);
+    for (int tries = 0; !ended && tries < 5000; tries++) {
+        ended = take();
+        if (!ended) usleep(1000);
+    }
+    if (!ended) fail(test, @"no end of the stream");
+    compare(test, lines, expected_frames(log, @"baseline reader"));
+    // The refusals, on a decoder with one frame waiting.
+    const uint64_t other = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    NSArray<NSNumber *> *first = stream.units[0];
+    table->queue(table->context, other, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+    struct apkrt_video_frame frame;
+    for (int tries = 0; table->peek(table->context, other, &frame) != 0 && tries < 2000; tries++) usleep(1000);
+    const uint64_t token = frame.token;
+    table->pop(table->context, other);
+    struct apkrt_video_target foreign = target;
+    foreign.buffers = (void *)&foreign;
+    if (table->render(table->context, other, token + 1000, &target) != -linux_einval) fail(test, @"a token not there");
+    if (table->render(table->context, other, token, &foreign) != -linux_einval) fail(test, @"another table's buffer");
+    table->pop(table->context, other);
+    const uint64_t rgba_handle = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    table->queue(table->context, rgba_handle, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+    for (int tries = 0; table->peek(table->context, rgba_handle, &frame) != 0 && tries < 2000; tries++) usleep(1000);
+    table->pop(table->context, rgba_handle);
+    if (table->render(table->context, rgba_handle, frame.token, &rgba) != -linux_einval) {
+        fail(test, @"an RGBA target (e2c2)");
+    }
+    table->discard(table->context, rgba_handle, frame.token);
+    if (table->render(table->context, rgba_handle, frame.token, &target) != -linux_einval) {
+        fail(test, @"a token rendered after its end");
+    }
+    // At most eight frames wait: a ninth decoded one stays unpeeked until one of them ends.
+    const uint64_t many = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    uint64_t tokens[APKRT_VIDEO_DECODER_MAX_WAITING] = {0};
+    uint32_t popped = 0;
+    for (NSUInteger index = 0; index < 15 && popped < APKRT_VIDEO_DECODER_MAX_WAITING; index++) {
+        NSArray<NSNumber *> *unit = stream.units[index];
+        table->queue(table->context, many, bytes + unit[0].longLongValue, (size_t)unit[1].longLongValue,
+                     unit[2].longLongValue, 0);
+        for (int tries = 0; tries < 2000 && table->peek(table->context, many, &frame) != 0; tries++) usleep(1000);
+        tokens[popped++] = frame.token;
+        table->pop(table->context, many);
+    }
+    NSArray<NSNumber *> *ninth = stream.units[popped];
+    table->queue(table->context, many, bytes + ninth[0].longLongValue, (size_t)ninth[1].longLongValue,
+                 ninth[2].longLongValue, 0);
+    usleep(200000);
+    if (popped != APKRT_VIDEO_DECODER_MAX_WAITING || table->peek(table->context, many, &frame) != -linux_eagain) {
+        fail(test, @"a ninth frame peeked while eight wait");
+    }
+    table->discard(table->context, many, tokens[0]);
+    if (table->peek(table->context, many, &frame) != 0) fail(test, @"no frame after a discard");
+    table->destroy(table->context, many);
+    // A flush drops the waiting frames: their tokens draw nothing after it.
+    table->queue(table->context, other, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+    for (int tries = 0; table->peek(table->context, other, &frame) != 0 && tries < 2000; tries++) usleep(1000);
+    table->pop(table->context, other);
+    table->flush(table->context, other);
+    if (table->render(table->context, other, frame.token, &target) != -linux_einval) {
+        fail(test, @"a token after a flush");
+    }
+    table->destroy(table->context, other);
+    table->destroy(table->context, rgba_handle);
+    table->destroy(table->context, handle);
+    CFRelease(surface);
+    CFRelease(rgba_surface);
+    const struct apkrt_hardware_buffers *buffers = minato_graphics_hardware_buffers();
+    buffers->free(buffers->context, target.handle);
+    buffers->free(buffers->context, rgba.handle);
+}
+
 static void typesItDoesNotDecodeAreRefused(void) {
     const char *test = "types it does not decode are refused";
-    const struct apkrt_video_decoder_description description = {99, 320, 180, NULL, 0};
+    const struct apkrt_video_decoder_description description = {99, 320, 180, NULL, 0, 0};
     uint64_t handle = 0;
     if (table->create(table->context, &description, &handle) != -linux_einval || handle != 0) {
         fail(test, @"type 99 made");
@@ -568,7 +730,8 @@ int main(int argc, char **argv) {
         parameterSetsOfEveryIdAreKeptOrRefused(assets);
         theReorderDepthIsTheActiveSpss(assets, log);
         aNewSessionHandsOutTheOldOnesFramesFirst(assets, log);
-        int cases = 10;
+        aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(assets, log);
+        int cases = 11;
 #ifdef MINATO_VIDEO_DECODER_TESTING
         lostUnitsAndAnEndedSessionLeaveTheDecoderWorking(assets, log);
         unitsVideoToolboxHoldsAndTheEndAreTaken(assets, log);
