@@ -327,23 +327,35 @@ bool pick_done(std::uint64_t id) {
     return true;
 }
 
-/// APKRT_REQUEST_PICK: the text at `address` copied once, each byte read once, and checked; handed to the host's
-/// request handler with the ID. 0, or the negative errno: -EFAULT without text, -EINVAL for an ID of 0, a text of
-/// pick_text_limit bytes or more, or one that valid_pick refuses, -EEXIST for an ID that waits for its answer, -EBUSY
-/// when pick_live_limit requests wait.
+/// Copies the guest string at `address` into `out` through checked reads, byte by byte, so a bad guest
+/// pointer gives -EFAULT instead of faulting the host; stops at the first NUL. Returns the length before
+/// the NUL when one lies within `limit` bytes, `limit` when none does (out then holds `limit` non-NUL
+/// bytes), or -EFAULT. These are control-path requests, so a byte at a time is fine; the caller
+/// NUL-terminates and decides whether no NUL within `limit` truncates (START_FAILED) or is refused (PICK).
+long copy_guest_text(char *out, std::uint64_t address, std::size_t limit) {
+    for (std::size_t i = 0; i < limit; ++i) {
+        char c;
+        if (!sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&c), address + i, 1)) {
+            return -linux_errno::efault;
+        }
+        out[i] = c;
+        if (c == '\0') return static_cast<long>(i);
+    }
+    return static_cast<long>(limit);
+}
+
+/// APKRT_REQUEST_PICK: the text at `address` copied once through a checked read, each byte read once, and handed to
+/// the host's request handler with the ID. 0, or the negative errno: -EFAULT without text or when the text cannot be
+/// read, -EINVAL for an ID of 0, a text of pick_text_limit bytes or more, or one that valid_pick refuses, -EEXIST for
+/// an ID that waits for its answer, -EBUSY when pick_live_limit requests wait.
 long pick(std::uint64_t address, std::uint64_t id) {
     if (address == 0) return -linux_errno::efault;
     if (id == 0) return -linux_errno::einval;
     char text[pick_text_limit];
-    const char *guest = reinterpret_cast<const char *>(address);
-    std::size_t length = 0;
-    for (;; ++length) {
-        if (length == pick_text_limit) return -linux_errno::einval;
-        const char c = guest[length];
-        text[length] = c;
-        if (c == '\0') break;
-    }
-    if (!valid_pick(std::string_view(text, length))) return -linux_errno::einval;
+    const long length = copy_guest_text(text, address, pick_text_limit);
+    if (length < 0) return length;                                                  // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(pick_text_limit)) return -linux_errno::einval;  // no NUL within the limit
+    if (!valid_pick(std::string_view(text, static_cast<std::size_t>(length)))) return -linux_errno::einval;
     const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
     {
         const std::lock_guard<std::mutex> hold(pick_lock);
@@ -537,10 +549,9 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
         case APKRT_REQUEST_START_FAILED: {
             if (a0 == 0) return -linux_errno::efault;
             char text[text_limit];
-            const char *guest = reinterpret_cast<const char *>(a0);
-            const std::size_t length = ::strnlen(guest, text_limit - 1);
-            std::memcpy(text, guest, length);
-            text[length] = '\0';
+            const long length = copy_guest_text(text, a0, text_limit - 1);  // scans text_limit-1, as the old strnlen
+            if (length < 0) return length;  // -EFAULT: a byte could not be read
+            text[length] = '\0';            // a NUL was within reach, or the text is truncated to text_limit-1
             report(APKRT_REQUEST_START_FAILED, 0, text);
             return 0;
         }

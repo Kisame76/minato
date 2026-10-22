@@ -485,6 +485,41 @@ TEST(requests_reach_the_handler_on_the_calling_thread) {
     CHECK(!runtime_signal_blocked());  // as before the request
 }
 
+// START_FAILED and PICK read a guest-written string; a bad or too-short mapping must give -EFAULT, not
+// crash the host (the text is read through a checked copy). A pointer into a gone page faults on the
+// first byte; one that starts readable but has no NUL before the mapping ends faults as the read runs
+// off the end.
+TEST(a_start_failed_or_pick_text_in_bad_guest_memory_is_efault_not_a_crash) {
+    take_requests();
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    std::memset(pages, 'a', page);                                      // no NUL anywhere in the readable page
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);  // the second page is gone
+    for (const std::uint64_t text : {first + page, first + page - 8}) {  // in the gone page; readable but runs off
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_START_FAILED, text) == -efault);
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, text, 1) == -efault);
+    }
+    ::munmap(pages, page);
+    CHECK(take_requests().empty());                                     // nothing reached the host
+}
+
+// START_FAILED truncates an over-long text (no NUL within the limit) to the buffer and still reports
+// it, returning 0 — it does not refuse like PICK. Pins the helper's "no NUL within the limit" branch
+// for this caller (text_limit is 1024, so the kept text is 1023 bytes).
+TEST(a_start_failed_text_longer_than_the_limit_is_truncated_not_refused) {
+    take_requests();
+    const std::string reason(2000, 'a');  // longer than text_limit, no NUL until the string's own
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_START_FAILED, address(reason.c_str())) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1);
+    if (seen.size() == 1) {
+        CHECK(seen[0].type == APKRT_REQUEST_START_FAILED && seen[0].had_text);
+        CHECK(seen[0].text == std::string(1023, 'a'));  // truncated to text_limit - 1
+    }
+}
+
 TEST(a_pick_request_reaches_the_handler_with_its_id_and_text) {
     take_requests();
     static const char pick[] = "5\t1\t20\timage/*\nvideo/*\t";
