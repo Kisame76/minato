@@ -29,6 +29,11 @@ class CameraManager {
         return new HashSet<>();
     }
 
+    /** @hide AOSP's asks the cameras cameraserver lists for a hidden physical camera; there are no cameras. */
+    public static boolean isHiddenPhysicalCamera(String cameraId) {
+        return false;
+    }
+
     private static IllegalArgumentException unknownCharacteristics(String cameraId) {
         return new IllegalArgumentException("getCameraCharacteristics:1329: Unable to retrieve camera characteristics"
                 + " for unknown device " + cameraId + ": No such file or directory (-2)");

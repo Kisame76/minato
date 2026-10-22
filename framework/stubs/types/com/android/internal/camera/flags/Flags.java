@@ -9,4 +9,6 @@ public final class Flags {
     public static final String FLAG_CAMERA_DEVICE_SETUP = "com.android.internal.camera.flags.camera_device_setup";
     public static final String FLAG_MULTIRESOLUTION_IMAGEREADER_USAGE_CONFIG =
             "com.android.internal.camera.flags.multiresolution_imagereader_usage_config";
+    public static final String FLAG_CONCERT_MODE = "com.android.internal.camera.flags.concert_mode";
+    public static final String FLAG_EXTENSION_10_BIT = "com.android.internal.camera.flags.extension_10_bit";
 }

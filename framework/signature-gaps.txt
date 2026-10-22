@@ -27,10 +27,9 @@ android.credentials.Credential <- android.credentials.GetCredentialResponse  # g
 android.credentials.CredentialOption <- android.credentials.GetCredentialRequest  # gap: (App) the credential manager's types, not taken yet; Minato has no credential manager
 android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
+android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
 android.hardware.camera2.CaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: category 3's camera2 (Grafik)
-android.hardware.camera2.params.OutputConfiguration <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
+android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession  # gap: category 3's camera2 (Grafik)
 android.location.ILocationManager <- android.os.SystemClock  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
@@ -88,7 +87,6 @@ android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.Camer
 android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras no extension is described
 android.hardware.camera2.CaptureRequest$Builder <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
-android.hardware.camera2.params.ExtensionSessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.hardware.camera2.params.SessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
 android.media.tv.TvContentRating <- android.media.tv.TvInputManager  # stays: the TV input manager, which a phone has no service for (getSystemService answers null)
 android.media.tv.TvInputInfo <- android.media.tv.TvInputManager  # stays: as TvContentRating

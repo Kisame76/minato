@@ -1,0 +1,18 @@
+I/f4e-camera-session-test: dynamicRange: supported=[1, 2, 4] hlg10 constraints=[1, 2] hdr10 constraints=[] standard constraints=[1, 2, 4] hlg10 latency=false hdr10 latency=true
+I/f4e-camera-session-test: dynamicRange constants: 1 2 4 8 16 2048
+I/f4e-camera-session-test: dynamicRange standard entry: IllegalArgumentException
+I/f4e-camera-session-test: dynamicRange length: IllegalArgumentException
+I/f4e-camera-session-test: output: group=-1 surface=null surfaces=0 maxShared=4 range=1 mirror=0 timestampBase=0 useCase=0 readout=false
+I/f4e-camera-session-test: output set: range=2 mirror=2 timestampBase=1 useCase=1 readout=false
+I/f4e-camera-session-test: output equals: false true
+I/f4e-camera-session-test: output parcel: range=2 mirror=2 equal=true describe=0
+I/f4e-camera-session-test: output constants: -1 0 1 3 0 4
+I/f4e-camera-session-test: extension: extension=4 outputs=1 postview=null callback=true executor=true
+I/f4e-camera-session-test: extension postview: true
+I/f4e-camera-session-test: extension constants: 0 2 3 4
+I/f4e-camera-session-test: loaded: ColorSpaceProfiles final=true public=true
+I/f4e-camera-session-test: loaded: LensIntrinsicsSample final=true public=true
+I/f4e-camera-session-test: loaded: MandatoryStreamCombination final=true public=true
+I/f4e-camera-session-test: loaded: MultiResolutionStreamConfigurationMap final=true public=true
+I/f4e-camera-session-test: loaded: StreamConfigurationMap final=true public=true
+I/f4e-camera-session-test: done

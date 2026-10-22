@@ -2366,6 +2366,21 @@ frameworks_base_types/telephony/java/android/telephony/UiccPortInfo.java
 frameworks_base_types/telephony/java/android/telephony/VisualVoicemailSms.java
 frameworks_base_types/telephony/java/android/telephony/cdma/CdmaCellLocation.java
 frameworks_base_types/telephony/java/android/telephony/gsm/GsmCellLocation.java
+# F4e: camera2's session data (output configurations, dynamic range profiles, an extension session's configuration)
+# with the stream configuration map they name, and the extension session's class that its callbacks belong to
+frameworks_base/core/java/android/hardware/camera2/CameraExtensionSession.java
+frameworks_base/core/java/android/hardware/camera2/params/StreamConfiguration.java
+frameworks_base/core/java/android/hardware/camera2/params/StreamConfigurationMap.java
+frameworks_base/core/java/android/hardware/camera2/params/StreamConfigurationDuration.java
+frameworks_base/core/java/android/hardware/camera2/params/HighSpeedVideoConfiguration.java
+frameworks_base/core/java/android/hardware/camera2/params/ReprocessFormatsMap.java
+frameworks_base/core/java/android/hardware/camera2/params/DynamicRangeProfiles.java
+frameworks_base/core/java/android/hardware/camera2/params/ExtensionSessionConfiguration.java
+frameworks_base/core/java/android/hardware/camera2/params/LensIntrinsicsSample.java
+frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamConfigurationMap.java
+frameworks_base/core/java/android/hardware/camera2/params/MandatoryStreamCombination.java
+frameworks_base/core/java/android/hardware/camera2/params/OutputConfiguration.java
+frameworks_base/core/java/android/hardware/camera2/params/ColorSpaceProfiles.java
 frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
 # ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.

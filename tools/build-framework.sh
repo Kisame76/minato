@@ -224,7 +224,6 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --placeholder android.os.MemoryFile \
   --placeholder android.view.displayhash.DisplayHashResultCallback \
   --class android.hardware.camera2.CameraManager \
-  --placeholder android.hardware.camera2.params.StreamConfigurationMap \
   --class android.view.contentcapture.ContentCaptureSession \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
